@@ -39,7 +39,7 @@ func MailView(email *models.Email) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"mail-view\" class=\"hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -83,7 +83,7 @@ func MailViewContent(email *models.Email) templ.Component {
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"flex flex-col h-full p-4\"><div class=\"surface-paper rounded-md flex flex-col h-full overflow-hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"flex flex-col h-full p-2\"><div class=\"surface-paper rounded-md flex flex-col h-full overflow-hidden\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

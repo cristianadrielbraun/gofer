@@ -11,7 +11,7 @@ import (
 )
 
 templ MailView(email *models.Email) {
-	<div class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">
+	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">
 		if email != nil {
 			@MailViewContent(email)
 		} else {
@@ -21,7 +21,7 @@ templ MailView(email *models.Email) {
 }
 
 templ MailViewContent(email *models.Email) {
-	<div class="flex flex-col h-full p-4">
+	<div class="flex flex-col h-full p-2">
 		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 			@MailViewHeader(email)
 			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>

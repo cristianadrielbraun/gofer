@@ -1,5 +1,6 @@
 tmp/
 .env
+internal_notes/
 *.png
 .air.toml
 

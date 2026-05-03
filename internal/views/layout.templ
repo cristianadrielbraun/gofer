@@ -8,7 +8,7 @@ import (
 	"gofer.email/components/tooltip"
 )
 
-templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email) {
+templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark">
 		<head>
@@ -27,11 +27,14 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<div class="flex h-screen overflow-hidden">
 				@Sidebar(accounts, activeFolder)
 				@ResizeHandle("sidebar")
-				@MailList(emails, activeFolder, selectedEmail)
+				@MailList(emails, activeFolder, selectedEmail, totalCount)
 				@ResizeHandle("maillist")
 				@MailView(selectedEmail)
 			</div>
 			@ComposeDialog()
+			<script src="/assets/js/htmx.min.js"></script>
+			<script src="/assets/js/virtual-scroll.js"></script>
+			<script src="/assets/js/app.js"></script>
 			<script src="/assets/js/resize.js"></script>
 		</body>
 	</html>
@@ -43,4 +46,15 @@ templ ResizeHandle(panel string) {
 		data-panel={ panel }
 		draggable="false"
 	></div>
+}
+
+templ FolderPartial(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int) {
+	@MailList(emails, activeFolder, selectedEmail, totalCount)
+	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" hx-swap-oob="true">
+		if selectedEmail != nil {
+			@MailViewContent(selectedEmail)
+		} else {
+			@MailViewEmpty()
+		}
+	</div>
 }

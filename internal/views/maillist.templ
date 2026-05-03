@@ -12,21 +12,21 @@ import (
 	"gofer.email/components/dropdown"
 )
 
-templ MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email) {
-	<div class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style="width: 384px">
-		@MailListHeader(activeFolder)
+templ MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int) {
+	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style="width: 384px">
+		@MailListHeader(activeFolder, totalCount)
 		@MailListToolbar()
 		<hr class="divider-etched"/>
-		@MailListEmails(emails, selectedEmail)
+		@MailListEmails(emails, activeFolder, selectedEmail, totalCount)
 	</div>
 }
 
-templ MailListHeader(activeFolder string) {
+templ MailListHeader(activeFolder string, totalCount int) {
 	<div class="px-4 py-4 space-y-3">
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2">
 				<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ folderDisplayName(activeFolder) }</h2>
-				<span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">12</span>
+				<span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
 			</div>
 			<div class="flex items-center gap-0.5">
 				@tooltip.Tooltip() {
@@ -167,10 +167,15 @@ templ MailListToolbar() {
 	</div>
 }
 
-templ MailListEmails(emails []models.Email, selectedEmail *models.Email) {
-	<div class="flex-1 overflow-y-auto px-2 py-2 space-y-1.5">
-		for _, email := range emails {
-			@MailListItem(email, selectedEmail)
+templ MailListEmails(emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int) {
+	<div
+		id="mail-list-scroll"
+		class="flex-1 overflow-y-auto px-2 py-2"
+		data-total-count={ fmt.Sprintf("%d", totalCount) }
+		data-folder-id={ folderID }
+	>
+		for i, email := range emails {
+			@MailListItem(email, i, selectedEmail)
 		}
 		if len(emails) == 0 {
 			@MailListEmpty()
@@ -178,80 +183,85 @@ templ MailListEmails(emails []models.Email, selectedEmail *models.Email) {
 	</div>
 }
 
-templ MailListItem(email models.Email, selectedEmail *models.Email) {
-	<a
-		href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
-		class={
-			"flex items-start gap-3 px-3.5 py-3 rounded-lg cursor-pointer transition-all duration-200 group",
-			templ.KV("envelope-active", selectedEmail != nil && selectedEmail.ID == email.ID),
-			templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
-		}
-	>
-		<div class="flex items-center gap-1.5 pt-0.5 shrink-0">
-			@checkbox.Checkbox(checkbox.Props{
-				Class: "h-3.5 w-3.5",
-			})
-			if email.IsStarred {
-				@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
-			} else {
-				<button class="opacity-0 group-hover:opacity-100 transition-opacity">
-					@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
-				</button>
+templ MailListItem(email models.Email, position int, selectedEmail *models.Email) {
+	<div class="mail-list-item" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) }>
+		<a
+			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
+			hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
+			hx-target="#mail-view"
+			hx-swap="innerHTML"
+			class={
+				"flex items-start gap-3 px-3.5 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group",
+				templ.KV("envelope-active", selectedEmail != nil && selectedEmail.ID == email.ID),
+				templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
 			}
-		</div>
-		<div class="flex-1 min-w-0 space-y-1">
-			<div class="flex items-center justify-between gap-2">
-				<div class="flex items-center gap-2 min-w-0">
-					<div class={
-						"size-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.15)]",
-						templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !email.IsRead),
-						templ.KV("bg-muted text-muted-foreground", email.IsRead),
-					}>
-						{ email.From.Initials }
-					</div>
-					<span class={
-						"text-sm truncate",
-						templ.KV("font-semibold text-foreground", !email.IsRead),
-						templ.KV("text-foreground/70", email.IsRead),
-					}>{ email.From.Name }</span>
-				</div>
-				<div class="flex items-center gap-1.5 shrink-0">
-					if email.HasAttachment {
-						@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
-					}
-					<span class={
-						"text-xs tabular-nums",
-						templ.KV("text-primary font-medium", !email.IsRead),
-						templ.KV("text-muted-foreground", email.IsRead),
-					}>{ email.Date }</span>
-				</div>
-			</div>
-			<p class={
-				"text-[13px] truncate",
-				templ.KV("font-medium text-foreground", !email.IsRead),
-				templ.KV("text-foreground/60", email.IsRead),
-			}>{ email.Subject }</p>
-			<div class="flex items-center gap-2">
-				<p class="text-xs text-muted-foreground truncate flex-1 leading-relaxed">{ email.Preview }</p>
-				if len(email.Labels) > 0 {
-					for _, label := range email.Labels {
-						<span class={ "text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.08)]", label.Color }>
-							{ label.Name }
-						</span>
-					}
-				}
-				if email.ThreadCount > 0 {
-					<div class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0">
-						@icon.MessagesSquare(icon.Props{Class: "size-3"})
-						{ fmt.Sprintf("%d", email.ThreadCount) }
-					</div>
+		>
+			<div class="flex items-center gap-1.5 pt-0.5 shrink-0">
+				@checkbox.Checkbox(checkbox.Props{
+					Class: "h-3.5 w-3.5",
+				})
+				if email.IsStarred {
+					@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
+				} else {
+					<button class="opacity-0 group-hover:opacity-100 transition-opacity">
+						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
+					</button>
 				}
 			</div>
-		</div>
-		if !email.IsRead {
-			<div class="w-2 h-2 rounded-full bg-primary shrink-0 mt-2 shadow-[0_0_6px_rgba(199,123,48,0.4)]"></div>
-		}
-	</a>
+			<div class="flex-1 min-w-0 space-y-0.5">
+				<div class="flex items-center justify-between gap-2">
+					<div class="flex items-center gap-2 min-w-0">
+						<div class={
+							"size-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.15)]",
+							templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !email.IsRead),
+							templ.KV("bg-muted text-muted-foreground", email.IsRead),
+						}>
+							{ email.From.Initials }
+						</div>
+						<span class={
+							"text-sm truncate",
+							templ.KV("font-semibold text-foreground", !email.IsRead),
+							templ.KV("text-foreground/70", email.IsRead),
+						}>{ email.From.Name }</span>
+					</div>
+					<div class="flex items-center gap-1.5 shrink-0">
+						if email.HasAttachment {
+							@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
+						}
+						<span class={
+							"text-xs tabular-nums",
+							templ.KV("text-primary font-medium", !email.IsRead),
+							templ.KV("text-muted-foreground", email.IsRead),
+						}>{ email.Date }</span>
+					</div>
+				</div>
+				<p class={
+					"text-[13px] truncate",
+					templ.KV("font-medium text-foreground", !email.IsRead),
+					templ.KV("text-foreground/60", email.IsRead),
+				}>{ email.Subject }</p>
+				<div class="flex items-center gap-2">
+					<p class="text-xs text-muted-foreground truncate flex-1 leading-relaxed">{ email.Preview }</p>
+					if len(email.Labels) > 0 {
+						for _, label := range email.Labels {
+							<span class={ "text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.08)]", label.Color }>
+								{ label.Name }
+							</span>
+						}
+					}
+					if email.ThreadCount > 0 {
+						<div class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0">
+							@icon.MessagesSquare(icon.Props{Class: "size-3"})
+							{ fmt.Sprintf("%d", email.ThreadCount) }
+						</div>
+					}
+				</div>
+			</div>
+			if !email.IsRead {
+				<div class="w-2 h-2 rounded-full bg-primary shrink-0 mt-2 shadow-[0_0_6px_rgba(199,123,48,0.4)]"></div>
+			}
+		</a>
+	</div>
 }
 
 templ MailListEmpty() {
@@ -261,5 +271,97 @@ templ MailListEmpty() {
 		</div>
 		<h3 class="font-semibold text-sm mb-1">No emails</h3>
 		<p class="text-xs text-muted-foreground">Your inbox is empty</p>
+	</div>
+}
+
+templ MailListItemsFragment(emails []models.Email, folderID string, windowStart, windowEnd, totalCount int, nextCursor string, hasMore bool, selectedEmailId string) {
+	<div
+		data-total-count={ fmt.Sprintf("%d", totalCount) }
+		data-window-start={ fmt.Sprintf("%d", windowStart) }
+		data-window-end={ fmt.Sprintf("%d", windowEnd) }
+		data-next-cursor={ nextCursor }
+		data-has-more={ fmt.Sprintf("%t", hasMore) }
+		data-folder-id={ folderID }
+	>
+		for i, email := range emails {
+			<div class="mail-list-item" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", windowStart+i) }>
+				<a
+					href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
+					hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
+					hx-target="#mail-view"
+					hx-swap="innerHTML"
+					class={
+						"flex items-start gap-3 px-3.5 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group",
+						templ.KV("envelope-active", selectedEmailId == email.ID),
+						templ.KV("envelope", selectedEmailId != email.ID),
+					}
+				>
+					<div class="flex items-center gap-1.5 pt-0.5 shrink-0">
+						@checkbox.Checkbox(checkbox.Props{
+							Class: "h-3.5 w-3.5",
+						})
+						if email.IsStarred {
+							@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
+						} else {
+							<button class="opacity-0 group-hover:opacity-100 transition-opacity">
+								@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
+							</button>
+						}
+					</div>
+					<div class="flex-1 min-w-0 space-y-0.5">
+						<div class="flex items-center justify-between gap-2">
+							<div class="flex items-center gap-2 min-w-0">
+								<div class={
+									"size-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.15)]",
+									templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !email.IsRead),
+									templ.KV("bg-muted text-muted-foreground", email.IsRead),
+								}>
+									{ email.From.Initials }
+								</div>
+								<span class={
+									"text-sm truncate",
+									templ.KV("font-semibold text-foreground", !email.IsRead),
+									templ.KV("text-foreground/70", email.IsRead),
+								}>{ email.From.Name }</span>
+							</div>
+							<div class="flex items-center gap-1.5 shrink-0">
+								if email.HasAttachment {
+									@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
+								}
+								<span class={
+									"text-xs tabular-nums",
+									templ.KV("text-primary font-medium", !email.IsRead),
+									templ.KV("text-muted-foreground", email.IsRead),
+								}>{ email.Date }</span>
+							</div>
+						</div>
+						<p class={
+							"text-[13px] truncate",
+							templ.KV("font-medium text-foreground", !email.IsRead),
+							templ.KV("text-foreground/60", email.IsRead),
+						}>{ email.Subject }</p>
+						<div class="flex items-center gap-2">
+							<p class="text-xs text-muted-foreground truncate flex-1 leading-relaxed">{ email.Preview }</p>
+							if len(email.Labels) > 0 {
+								for _, label := range email.Labels {
+									<span class={ "text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.08)]", label.Color }>
+										{ label.Name }
+									</span>
+								}
+							}
+							if email.ThreadCount > 0 {
+								<div class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0">
+									@icon.MessagesSquare(icon.Props{Class: "size-3"})
+									{ fmt.Sprintf("%d", email.ThreadCount) }
+								</div>
+							}
+						</div>
+					</div>
+					if !email.IsRead {
+						<div class="w-2 h-2 rounded-full bg-primary shrink-0 mt-2 shadow-[0_0_6px_rgba(199,123,48,0.4)]"></div>
+					}
+				</a>
+			</div>
+		}
 	</div>
 }

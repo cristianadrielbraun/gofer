@@ -1,54 +1,246 @@
 package models
 
-import "html/template"
+import (
+	"fmt"
+	"html/template"
+	"sync"
+	"time"
+)
 
 type Account struct {
-	ID        string
-	Name      string
-	Email     string
-	Color     string
-	Initials  string
-	IsActive  bool
-	Folders   []Folder
+	ID       string
+	Name     string
+	Email    string
+	Color    string
+	Initials string
+	IsActive bool
+	Folders  []Folder
 }
 
 type Folder struct {
-	ID         string
-	Name       string
-	Icon       string
-	Unread     int
-	IsSystem   bool
-	Children   []Folder
+	ID       string
+	Name     string
+	Icon     string
+	Unread   int
+	IsSystem bool
+	Children []Folder
 }
 
 type Email struct {
-	ID           string
-	AccountID    string
-	FolderID     string
-	From         Contact
-	To           []Contact
-	CC           []Contact
-	Subject      string
-	Preview      string
-	Body         template.HTML
-	Date         string
-	IsRead       bool
-	IsStarred    bool
+	ID            string
+	AccountID     string
+	FolderID      string
+	From          Contact
+	To            []Contact
+	CC            []Contact
+	Subject       string
+	Preview       string
+	Body          template.HTML
+	Date          string
+	IsRead        bool
+	IsStarred     bool
 	HasAttachment bool
-	Labels       []Label
-	IsSelected   bool
-	ThreadCount  int
+	Labels        []Label
+	IsSelected    bool
+	ThreadCount   int
 }
 
 type Contact struct {
-	Name    string
-	Email   string
+	Name     string
+	Email    string
 	Initials string
 }
 
 type Label struct {
 	Name  string
 	Color string
+}
+
+type EmailPage struct {
+	Emails      []Email
+	TotalCount  int
+	WindowStart int
+	WindowEnd   int
+	NextCursor  string
+	HasMore     bool
+}
+
+var (
+	folderEmails map[string][]Email
+	folderOnce   sync.Once
+)
+
+func ensureFolderEmails() {
+	folderOnce.Do(func() {
+		folderEmails = generateAllEmails()
+	})
+}
+
+func generateAllEmails() map[string][]Email {
+	result := make(map[string][]Email)
+	result["inbox"] = generateFolderEmails("inbox", "acc-1", 500)
+	result["sent"] = generateFolderEmails("sent", "acc-1", 200)
+	result["drafts"] = generateFolderEmails("drafts", "acc-1", 15)
+	result["spam"] = generateFolderEmails("spam", "acc-1", 50)
+	result["archive"] = generateFolderEmails("archive", "acc-1", 1000)
+	result["trash"] = generateFolderEmails("trash", "acc-1", 30)
+	result["work-clients"] = generateFolderEmails("work-clients", "acc-1", 75)
+	result["work-projects"] = generateFolderEmails("work-projects", "acc-1", 120)
+	result["personal"] = generateFolderEmails("personal", "acc-1", 60)
+	result["inbox-2"] = generateFolderEmails("inbox-2", "acc-2", 300)
+	result["spam-2"] = generateFolderEmails("spam-2", "acc-2", 40)
+	return result
+}
+
+var senderPool = []Contact{
+	{Name: "Sarah Chen", Email: "sarah@example.com", Initials: "SC"},
+	{Name: "GitHub", Email: "noreply@github.com", Initials: "GH"},
+	{Name: "Alex Rivera", Email: "alex@company.com", Initials: "AR"},
+	{Name: "Linear", Email: "notifications@linear.app", Initials: "LN"},
+	{Name: "Emma Wilson", Email: "emma@design.co", Initials: "EW"},
+	{Name: "Stripe", Email: "receipts@stripe.com", Initials: "ST"},
+	{Name: "Marcus Johnson", Email: "marcus@dev.io", Initials: "MJ"},
+	{Name: "Vercel", Email: "noreply@vercel.com", Initials: "VC"},
+	{Name: "David Park", Email: "david@startup.io", Initials: "DP"},
+	{Name: "Lisa Thompson", Email: "lisa@agency.com", Initials: "LT"},
+	{Name: "Notion", Email: "updates@notion.so", Initials: "NO"},
+	{Name: "Figma", Email: "team@figma.com", Initials: "FG"},
+	{Name: "James Wu", Email: "james@corp.com", Initials: "JW"},
+	{Name: "Rachel Green", Email: "rachel@studio.co", Initials: "RG"},
+	{Name: "Slack", Email: "notifications@slack.com", Initials: "SL"},
+}
+
+var subjectPool = []string{
+	"Q4 Planning Meeting - Action Items",
+	"Pull Request #47: Add multi-account support",
+	"Re: Architecture Decision: Event sourcing vs CRUD",
+	"GOFER-142: Implement real-time notifications via WebSocket",
+	"Design System Updates - New Components Ready",
+	"Payment receipt for Gofer Email Pro - October 2025",
+	"Re: Performance benchmarks for Go HTTP frameworks",
+	"Deployment successful — gofer-email-web",
+	"Team standup notes - Monday",
+	"Re: Database migration strategy",
+	"New feature request: Dark mode support",
+	"Weekly engineering digest",
+	"Security audit results - Q4 2025",
+	"Interview feedback: Senior Backend Engineer",
+	"Office supplies order confirmation",
+	"Re: API rate limiting discussion",
+	"Sprint retrospective action items",
+	"Updated project timeline for Q1",
+	"New team member onboarding checklist",
+	"Client presentation feedback - Round 2",
+	"Infrastructure cost optimization report",
+	"Re: OpenAPI spec review for v2 endpoints",
+	"CI/CD pipeline migration to GitHub Actions",
+	"Quarterly OKR review meeting invite",
+	"Bug report: Email sync failing on large folders",
+}
+
+var previewPool = []string{
+	"Hey Cristian, following up on our planning session. Here are the key action items we discussed...",
+	"Opened a pull request with significant changes across multiple files. Ready for review...",
+	"I've been thinking about this more, and I think the approach we discussed would be the right call...",
+	"You were assigned to a high priority task for the current sprint. Deadline is next Friday...",
+	"The new component library is ready for review. We've added sidebar, dialog, and data table...",
+	"Your payment was successfully processed. Thank you for your continued subscription...",
+	"Ran the benchmarks you asked for. Here are the results with detailed analysis and flame graphs...",
+	"Your deployment to production was successful. Build time: 34s. All checks passed...",
+	"Here are the notes from today's standup meeting with action items and blockers...",
+	"After reviewing the options, I think we should go with the incremental migration approach...",
+	"Several users have requested this feature. Here's my proposed implementation plan...",
+	"Here's a summary of this week's engineering updates, milestones, and upcoming deadlines...",
+	"The security audit is complete. Here are the findings, severity ratings, and recommendations...",
+	"Overall, the candidate showed strong technical skills and good communication. Recommend proceeding...",
+	"Your order has been confirmed and will be delivered by next week. Tracking number attached...",
+	"After our discussion, I looked into several approaches for rate limiting. Here's my analysis...",
+	"Here are the key takeaways from our retrospective session and improvement proposals...",
+	"I've updated the project timeline based on our latest estimates and resource allocation...",
+	"Welcome aboard! Here's everything you need to get started with the team and tools...",
+	"Thanks for the presentation. Here's the feedback from the client along with next steps...",
+	"I've compiled the infrastructure cost report. We can save 30% by migrating to ARM instances...",
+	"Reviewed the OpenAPI spec. A few suggestions for the v2 endpoints regarding pagination...",
+	"The pipeline migration is complete. Build times improved by 40% and flaky tests reduced...",
+	"Please review the updated OKRs for Q1. We need alignment before the all-hands next week...",
+	"Users are reporting sync failures on folders with more than 10k emails. Root cause analysis...",
+}
+
+var labelPool = []Label{
+	{Name: "Important", Color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"},
+	{Name: "Work", Color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"},
+	{Name: "GitHub", Color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"},
+	{Name: "Personal", Color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"},
+	{Name: "Finance", Color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"},
+}
+
+func generateFolderEmails(folderID, accountID string, count int) []Email {
+	now := time.Now()
+	emails := make([]Email, count)
+
+	for i := 0; i < count; i++ {
+		sender := senderPool[i%len(senderPool)]
+		subject := subjectPool[i%len(subjectPool)]
+		preview := previewPool[i%len(previewPool)]
+
+		minutesAgo := i*13 + (i*7)%11
+		emailTime := now.Add(-time.Duration(minutesAgo) * time.Minute)
+
+		isRead := i >= 5
+		isStarred := i%13 == 0
+		hasAttachment := i%8 == 0
+		threadCount := 0
+		if i%10 == 0 {
+			threadCount = 2 + i%6
+		}
+
+		var labels []Label
+		if i%7 == 0 {
+			labels = []Label{labelPool[i%len(labelPool)]}
+		}
+
+		var cc []Contact
+		if i%4 == 0 {
+			cc = []Contact{{Name: "Team", Email: "team@company.com"}}
+		}
+
+		emails[i] = Email{
+			ID:            fmt.Sprintf("e-%s-%d", folderID, i),
+			AccountID:     accountID,
+			FolderID:      folderID,
+			From:          sender,
+			To:            []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
+			CC:            cc,
+			Subject:       subject,
+			Preview:       preview,
+			Body:          template.HTML(fmt.Sprintf("<p>%s</p>", preview)),
+			Date:          formatRelativeDate(emailTime, now),
+			IsRead:        isRead,
+			IsStarred:     isStarred,
+			HasAttachment: hasAttachment,
+			Labels:        labels,
+			ThreadCount:   threadCount,
+		}
+	}
+
+	return emails
+}
+
+func formatRelativeDate(t, now time.Time) string {
+	tDay := t.Format("2006-01-02")
+	nowDay := now.Format("2006-01-02")
+	yesterdayDay := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	if tDay == nowDay {
+		return t.Format("3:04 PM")
+	}
+	if tDay == yesterdayDay {
+		return "Yesterday"
+	}
+	if t.Year() == now.Year() {
+		return t.Format("Jan 2")
+	}
+	return t.Format("Jan 2, 2006")
 }
 
 func GetAccounts() []Account {
@@ -61,7 +253,7 @@ func GetAccounts() []Account {
 			Initials: "CR",
 			IsActive: true,
 			Folders: []Folder{
-				{ID: "inbox", Name: "Inbox", Icon: "inbox", Unread: 12, IsSystem: true},
+				{ID: "inbox", Name: "Inbox", Icon: "inbox", Unread: 5, IsSystem: true},
 				{ID: "starred", Name: "Starred", Icon: "star", Unread: 0, IsSystem: true},
 				{ID: "sent", Name: "Sent", Icon: "send", Unread: 0, IsSystem: true},
 				{ID: "drafts", Name: "Drafts", Icon: "file", Unread: 2, IsSystem: true},
@@ -101,139 +293,120 @@ func GetAccounts() []Account {
 }
 
 func GetEmails(folderID string) []Email {
-	emails := []Email{
-		{
-			ID:        "e1",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "Sarah Chen", Email: "sarah@example.com", Initials: "SC"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			Subject:   "Q4 Planning Meeting - Action Items",
-			Preview:   "Hey Cristian, following up on our Q4 planning session. Here are the key action items we discussed...",
-			Body:      template.HTML(`<p>Hey Cristian,</p><p>Following up on our Q4 planning session. Here are the key action items we discussed:</p><ul><li>Finalize the product roadmap by Oct 15</li><li>Review resource allocation for the new features</li><li>Schedule stakeholder presentations for next week</li><li>Update the sprint backlog with new priorities</li></ul><p>Let me know if you have any questions or if I missed anything.</p><p>Best,<br/>Sarah</p>`),
-			Date:      "10:24 AM",
-			IsRead:    false,
-			IsStarred: true,
-			HasAttachment: true,
-			Labels:    []Label{{Name: "Important", Color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}},
-		},
-		{
-			ID:        "e2",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "GitHub", Email: "noreply@github.com", Initials: "GH"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			Subject:   "[gofer.email] Pull Request #47: Add multi-account support",
-			Preview:   "alexrivera opened a pull request in gofer.email/gofer · +342 −28 across 12 files...",
-			Body:      template.HTML(`<p><strong>alexrivera</strong> opened a pull request in <code>gofer.email/gofer</code></p><p><strong>+342 −28</strong> across 12 files</p><p>Implements multi-account support with account switching, unified inbox view, and per-account folder management.</p><h3>Changes:</h3><ul><li>Added account management service</li><li>Implemented folder tree per account</li><li>Unified inbox with account badges</li><li>Updated settings for account configuration</li></ul>`),
-			Date:      "9:45 AM",
-			IsRead:    false,
-			IsStarred: false,
-			HasAttachment: false,
-			Labels:    []Label{{Name: "GitHub", Color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"}},
-		},
-		{
-			ID:        "e3",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "Alex Rivera", Email: "alex@company.com", Initials: "AR"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			CC:        []Contact{{Name: "Team", Email: "team@company.com"}},
-			Subject:   "Re: Architecture Decision: Event sourcing vs CRUD",
-			Preview:   "I've been thinking about this more, and I think event sourcing would be the right call for the email sync engine...",
-			Body:      template.HTML(`<p>I've been thinking about this more, and I think event sourcing would be the right call for the email sync engine. Here's why:</p><ol><li><strong>Auditability</strong> — Every state change is recorded, which is crucial for email metadata</li><li><strong>Sync conflicts</strong> — We can replay events to resolve conflicts between IMAP and local state</li><li><strong>Performance</strong> — Projections can be optimized for read-heavy workloads</li></ol><p>The main concern is complexity, but I think we can mitigate that with good abstractions.</p><p>Thoughts?</p>`),
-			Date:      "9:12 AM",
-			IsRead:    false,
-			IsStarred: false,
-			HasAttachment: false,
-			ThreadCount: 5,
-		},
-		{
-			ID:        "e4",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "Linear", Email: "notifications@linear.app", Initials: "LN"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			Subject:   "GOFER-142: Implement real-time notifications via WebSocket",
-			Preview:   "You were assigned to GOFER-142 · Priority: High · Sprint: Alpha Release...",
-			Body:      template.HTML(`<p>You were assigned to <strong>GOFER-142</strong></p><p><strong>Implement real-time notifications via WebSocket</strong></p><p>Priority: <span style="color: orange;">High</span> · Sprint: Alpha Release</p><p>Set up WebSocket connections for real-time email notifications. Should support new email alerts, read/unread status changes, and folder updates.</p>`),
-			Date:      "Yesterday",
-			IsRead:    true,
-			IsStarred: false,
-			HasAttachment: false,
-			Labels:    []Label{{Name: "Work", Color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"}},
-		},
-		{
-			ID:        "e5",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "Emma Wilson", Email: "emma@design.co", Initials: "EW"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			Subject:   "Design System Updates - New Components Ready",
-			Preview:   "Hi! The new component library is ready for review. We've added the sidebar, dialog, and data table components...",
-			Body:      template.HTML(`<p>Hi!</p><p>The new component library is ready for review. We've added:</p><ul><li><strong>Sidebar</strong> — Collapsible with nested navigation</li><li><strong>Dialog</strong> — Modal system with animations</li><li><strong>Data Table</strong> — Sortable with pagination</li><li><strong>Command Palette</strong> — Searchable with keyboard shortcuts</li></ul><p>Everything is in the staging Figma file. Let me know your thoughts!</p><p>Cheers,<br/>Emma</p>`),
-			Date:      "Yesterday",
-			IsRead:    true,
-			IsStarred: true,
-			HasAttachment: true,
-		},
-		{
-			ID:        "e6",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "Stripe", Email: "receipts@stripe.com", Initials: "ST"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			Subject:   "Payment receipt for Gofer Email Pro - October 2025",
-			Preview:   "Your payment of $29.00 for Gofer Email Pro was successfully processed...",
-			Body:      template.HTML(`<p>Your payment was successfully processed.</p><table style="width:100%; border-collapse: collapse;"><tr><td style="padding: 8px; border-bottom: 1px solid #eee;">Gofer Email Pro (Monthly)</td><td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">$29.00</td></tr><tr><td style="padding: 8px;"><strong>Total</strong></td><td style="padding: 8px; text-align: right;"><strong>$29.00</strong></td></tr></table>`),
-			Date:      "Oct 1",
-			IsRead:    true,
-			IsStarred: false,
-			HasAttachment: false,
-		},
-		{
-			ID:        "e7",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "Marcus Johnson", Email: "marcus@dev.io", Initials: "MJ"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			Subject:   "Re: Performance benchmarks for Go HTTP frameworks",
-			Preview:   "Ran the benchmarks you asked for. Go 1.23 with net/http handles 120k req/s on the email list endpoint...",
-			Body:      template.HTML(`<p>Ran the benchmarks you asked for. Here are the results:</p><ul><li><strong>net/http (stdlib)</strong>: 120k req/s — email list endpoint</li><li><strong>fasthttp</strong>: 185k req/s — same endpoint</li><li><strong>Valyala</strong>: 145k req/s — with middleware</li></ul><p>The stdlib is plenty fast for our use case. The bottleneck will be IMAP connections, not HTTP handling.</p><p>Attached: Full benchmark report with flame graphs.</p>`),
-			Date:      "Sep 29",
-			IsRead:    true,
-			IsStarred: false,
-			HasAttachment: true,
-			ThreadCount: 3,
-		},
-		{
-			ID:        "e8",
-			AccountID: "acc-1",
-			FolderID:  "inbox",
-			From:      Contact{Name: "Vercel", Email: "noreply@vercel.com", Initials: "VC"},
-			To:        []Contact{{Name: "Cristian", Email: "cristian@gofer.email"}},
-			Subject:   "Deployment successful — gofer-email-web",
-			Preview:   "Your deployment to production was successful. Build time: 34s. Domain: gofer.email...",
-			Body:      template.HTML(`<p><strong>Deployment Successful</strong></p><p><strong>Project:</strong> gofer-email-web<br/><strong>Branch:</strong> main<br/><strong>Build Time:</strong> 34s<br/><strong>Domain:</strong> gofer.email</p><p>All checks passed. The deployment is live.</p>`),
-			Date:      "Sep 28",
-			IsRead:    true,
-			IsStarred: false,
-			HasAttachment: false,
-		},
-	}
+	ensureFolderEmails()
+	return folderEmails[folderID]
+}
 
-	if folderID != "" && folderID != "inbox" {
-		return []Email{}
-	}
-	return emails
+func GetFolderEmailCount(folderID string) int {
+	ensureFolderEmails()
+	return len(folderEmails[folderID])
 }
 
 func GetEmailByID(id string) *Email {
-	emails := GetEmails("inbox")
-	for i := range emails {
-		if emails[i].ID == id {
-			return &emails[i]
+	ensureFolderEmails()
+	for _, emails := range folderEmails {
+		for i := range emails {
+			if emails[i].ID == id {
+				return &emails[i]
+			}
 		}
 	}
 	return nil
+}
+
+func GetEmailsRange(folderID string, start, limit int) EmailPage {
+	ensureFolderEmails()
+	emails := folderEmails[folderID]
+	totalCount := len(emails)
+
+	if start >= totalCount {
+		return EmailPage{TotalCount: totalCount, WindowStart: start, WindowEnd: start, HasMore: false}
+	}
+
+	end := start + limit
+	if end > totalCount {
+		end = totalCount
+	}
+
+	slice := emails[start:end]
+	hasMore := end < totalCount
+	nextCursor := ""
+	if end > 0 && hasMore {
+		nextCursor = emails[end-1].ID
+	}
+
+	return EmailPage{
+		Emails:      slice,
+		TotalCount:  totalCount,
+		WindowStart: start,
+		WindowEnd:   end - 1,
+		NextCursor:  nextCursor,
+		HasMore:     hasMore,
+	}
+}
+
+func GetEmailsAfterCursor(folderID, cursor string, limit int) EmailPage {
+	ensureFolderEmails()
+	emails := folderEmails[folderID]
+	totalCount := len(emails)
+
+	start := 0
+	if cursor != "" {
+		for i, e := range emails {
+			if e.ID == cursor {
+				start = i + 1
+				break
+			}
+		}
+	}
+
+	if start >= totalCount {
+		return EmailPage{TotalCount: totalCount, WindowStart: start, WindowEnd: start, HasMore: false}
+	}
+
+	end := start + limit
+	if end > totalCount {
+		end = totalCount
+	}
+
+	slice := emails[start:end]
+	hasMore := end < totalCount
+	nextCursor := ""
+	if end > 0 && hasMore {
+		nextCursor = emails[end-1].ID
+	}
+
+	return EmailPage{
+		Emails:      slice,
+		TotalCount:  totalCount,
+		WindowStart: start,
+		WindowEnd:   end - 1,
+		NextCursor:  nextCursor,
+		HasMore:     hasMore,
+	}
+}
+
+func GetEmailsAroundEmail(folderID, emailID string, limit int) EmailPage {
+	ensureFolderEmails()
+	emails := folderEmails[folderID]
+
+	anchorPos := -1
+	for i, e := range emails {
+		if e.ID == emailID {
+			anchorPos = i
+			break
+		}
+	}
+
+	if anchorPos == -1 {
+		return GetEmailsRange(folderID, 0, limit)
+	}
+
+	half := limit / 2
+	start := anchorPos - half
+	if start < 0 {
+		start = 0
+	}
+
+	return GetEmailsRange(folderID, start, limit)
 }
