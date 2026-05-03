@@ -86,24 +86,56 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	if currentVersion >= 1 {
+	if currentVersion >= 2 {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
 		return nil
 	}
 
-	if _, err := tx.Exec(string(schema)); err != nil {
-		return fmt.Errorf("apply schema: %w", err)
+	if currentVersion == 0 {
+		if _, err := tx.Exec(string(schema)); err != nil {
+			return fmt.Errorf("apply schema: %w", err)
+		}
+		if _, err := tx.Exec("INSERT OR REPLACE INTO schema_version (version) VALUES (2)"); err != nil {
+			return fmt.Errorf("update schema version: %w", err)
+		}
+		log.Println("schema migrated to version 2")
 	}
 
-	if _, err := tx.Exec("INSERT OR REPLACE INTO schema_version (version) VALUES (1)"); err != nil {
-		return fmt.Errorf("update schema version: %w", err)
+	if currentVersion == 1 {
+		if err := migrateV1ToV2(tx); err != nil {
+			return fmt.Errorf("migrate v1 to v2: %w", err)
+		}
+		log.Println("schema migrated to version 2")
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration: %w", err)
 	}
 
-	log.Println("schema migrated to version 1")
+	if _, err := db.write.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		log.Printf("wal checkpoint: %v", err)
+	}
+	return nil
+}
+
+func migrateV1ToV2(tx *sql.Tx) error {
+	migrations := []string{
+		`DROP TABLE IF EXISTS message_fts`,
+		`CREATE VIRTUAL TABLE message_fts USING fts5(subject, sender, recipients, body)`,
+		`CREATE TRIGGER IF NOT EXISTS trg_messages_after_insert
+		 AFTER INSERT ON messages
+		 BEGIN
+		     INSERT INTO message_fts(rowid, subject, sender, recipients, body)
+		     VALUES (NEW.id, NEW.subject, NEW.from_name || ' <' || NEW.from_email || '>', '', COALESCE(NEW.preview_text, ''));
+		 END`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (2)`,
+	}
+
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

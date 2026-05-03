@@ -6,7 +6,6 @@ import (
 
 	"gofer.email/components/icon"
 	"gofer.email/components/button"
-	"gofer.email/components/input"
 	"gofer.email/components/checkbox"
 	"gofer.email/components/tooltip"
 	"gofer.email/components/dropdown"
@@ -67,10 +66,17 @@ templ MailListHeader(activeFolder string, totalCount int) {
 		</div>
 		<div class="relative groove rounded-lg">
 			@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
-			@input.Input(input.Props{
-				Placeholder: "Search emails...",
-				Class:       "h-9 pl-8 bg-card border-border/50",
-			})
+			<input
+				type="text"
+				name="q"
+				placeholder="Search emails..."
+				class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-card border border-border/50 outline-none focus:ring-2 focus:ring-ring"
+				hx-get="/search"
+				hx-trigger="keyup changed delay:300ms, search"
+				hx-target="#mail-list-scroll"
+				hx-swap="innerHTML"
+				autocomplete="off"
+			/>
 		</div>
 	</div>
 }

@@ -23,6 +23,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
 	mux.HandleFunc("GET /folder/{id}", h.handleFolderPartial)
 	mux.HandleFunc("GET /mail/folder/{id}/items", h.handleMailItems)
+	mux.HandleFunc("GET /search", h.handleSearch)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -52,22 +53,26 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	emailID := r.URL.Query().Get("email")
+	ctx := r.Context()
 
-	accounts := models.GetAccounts()
-	totalCount := models.GetFolderEmailCount(folderID)
+	accounts, _ := h.db.GetAccounts(ctx)
+	totalCount, _ := h.db.GetFolderEmailCount(ctx, folderID)
 
-	page := models.GetEmailsRange(folderID, 0, 50)
-	emails := page.Emails
+	page, _ := h.db.GetEmailsRange(ctx, folderID, 0, 50)
+	var emails []models.Email
+	if page != nil {
+		emails = page.Emails
+	}
 
 	var selectedEmail *models.Email
 	if emailID != "" {
-		selectedEmail = models.GetEmailByID(emailID)
+		selectedEmail, _ = h.db.GetEmailByID(ctx, emailID)
 	}
 	if selectedEmail == nil && len(emails) > 0 {
-		selectedEmail = &emails[0]
+		selectedEmail, _ = h.db.GetEmailByID(ctx, emails[0].ID)
 	}
 
-	views.Layout(accounts, folderID, emails, selectedEmail, totalCount).Render(r.Context(), w)
+	views.Layout(accounts, folderID, emails, selectedEmail, totalCount).Render(ctx, w)
 }
 
 func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +82,8 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email := models.GetEmailByID(emailID)
-	if email == nil {
+	email, err := h.db.GetEmailByID(r.Context(), emailID)
+	if err != nil || email == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -93,17 +98,22 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 		folderID = "inbox"
 	}
 
-	totalCount := models.GetFolderEmailCount(folderID)
-	page := models.GetEmailsRange(folderID, 0, 50)
-	emails := page.Emails
+	ctx := r.Context()
+	totalCount, _ := h.db.GetFolderEmailCount(ctx, folderID)
+
+	page, _ := h.db.GetEmailsRange(ctx, folderID, 0, 50)
+	var emails []models.Email
+	if page != nil {
+		emails = page.Emails
+	}
 
 	var selectedEmail *models.Email
 	if len(emails) > 0 {
-		selectedEmail = &emails[0]
+		selectedEmail, _ = h.db.GetEmailByID(ctx, emails[0].ID)
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	views.FolderPartial(emails, folderID, selectedEmail, totalCount).Render(r.Context(), w)
+	views.FolderPartial(emails, folderID, selectedEmail, totalCount).Render(ctx, w)
 }
 
 func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
@@ -118,21 +128,26 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	selectedEmailId := r.URL.Query().Get("selected")
+	ctx := r.Context()
 
-	var page models.EmailPage
+	var page *models.EmailPage
 
 	if around := r.URL.Query().Get("around"); around != "" {
-		page = models.GetEmailsAroundEmail(folderID, around, limit)
+		page, _ = h.db.GetEmailsAroundEmail(ctx, folderID, around, limit)
 	} else if startStr := r.URL.Query().Get("start"); startStr != "" {
 		start, err := strconv.Atoi(startStr)
 		if err != nil || start < 0 {
 			start = 0
 		}
-		page = models.GetEmailsRange(folderID, start, limit)
+		page, _ = h.db.GetEmailsRange(ctx, folderID, start, limit)
 	} else if cursor := r.URL.Query().Get("after"); cursor != "" {
-		page = models.GetEmailsAfterCursor(folderID, cursor, limit)
+		page, _ = h.db.GetEmailsAfterCursor(ctx, folderID, cursor, limit)
 	} else {
-		page = models.GetEmailsRange(folderID, 0, limit)
+		page, _ = h.db.GetEmailsRange(ctx, folderID, 0, limit)
+	}
+
+	if page == nil {
+		page = &models.EmailPage{}
 	}
 
 	w.Header().Set("Content-Type", "text/html")
@@ -141,5 +156,23 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		page.WindowStart, page.WindowEnd, page.TotalCount,
 		page.NextCursor, page.HasMore,
 		selectedEmailId,
-	).Render(r.Context(), w)
+	).Render(ctx, w)
+}
+
+func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		w.Header().Set("Content-Type", "text/html")
+		views.MailListEmails(nil, "", nil, 0).Render(r.Context(), w)
+		return
+	}
+
+	emails, err := h.db.SearchMessages(r.Context(), q, 50)
+	if err != nil {
+		http.Error(w, "search failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	views.MailListEmails(emails, "", nil, len(emails)).Render(r.Context(), w)
 }

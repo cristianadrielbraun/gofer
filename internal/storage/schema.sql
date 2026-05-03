@@ -135,15 +135,27 @@ CREATE TABLE IF NOT EXISTS message_search_docs (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- FTS5 full-text search index
+-- FTS5 full-text search index (standalone, auto-populated via trigger)
 CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
     subject,
     sender,
     recipients,
-    body,
-    content='message_search_docs',
-    content_rowid='message_id'
+    body
 );
+
+-- Trigger: auto-populate FTS when a message is inserted
+CREATE TRIGGER IF NOT EXISTS trg_messages_after_insert
+AFTER INSERT ON messages
+BEGIN
+    INSERT INTO message_fts(rowid, subject, sender, recipients, body)
+    VALUES (
+        NEW.id,
+        NEW.subject,
+        NEW.from_name || ' <' || NEW.from_email || '>',
+        '',
+        COALESCE(NEW.preview_text, '')
+    );
+END;
 
 -- Indexes
 
