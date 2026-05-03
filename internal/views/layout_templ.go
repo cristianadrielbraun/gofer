@@ -11,8 +11,8 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"gofer.email/internal/models"
 
-	"github.com/templui/templui/components/dialog"
-	"github.com/templui/templui/components/tooltip"
+	"gofer.email/components/dialog"
+	"gofer.email/components/tooltip"
 )
 
 func Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email) templ.Component {

@@ -12,10 +12,10 @@ import (
 	"fmt"
 	"gofer.email/internal/models"
 
-	"github.com/templui/templui/components/button"
-	"github.com/templui/templui/components/dropdown"
-	"github.com/templui/templui/components/icon"
-	"github.com/templui/templui/components/tooltip"
+	"gofer.email/components/button"
+	"gofer.email/components/dropdown"
+	"gofer.email/components/icon"
+	"gofer.email/components/tooltip"
 )
 
 func MailView(email *models.Email) templ.Component {

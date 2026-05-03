@@ -1,0 +1,52 @@
+// templui component copybutton - version: v1.10.0 installed by templui v1.10.0
+// 📚 Documentation: https://templui.io/docs/components/copy-button
+package copybutton
+
+import (
+	"gofer.email/components/button"
+	"gofer.email/components/icon"
+	"gofer.email/utils"
+)
+
+type Props struct {
+	ID       string           // Optional button ID
+	Class    string           // Custom CSS classes
+	Attrs    templ.Attributes // Additional HTML attributes
+	TargetID string           // Required - ID of element to copy from
+}
+
+templ CopyButton(props Props) {
+	{{ var p = props }}
+	if p.ID == "" {
+		{{ p.ID = "copybutton-" + utils.RandomID() }}
+	}
+	<div
+		data-copy-button
+		data-target-id={ p.TargetID }
+		class="inline-block"
+	>
+		@button.Button(button.Props{
+			ID:         p.ID,
+			Class:      utils.TwMerge("h-7 w-7 text-muted-foreground hover:text-accent-foreground", p.Class),
+			Attributes: p.Attrs,
+			Size:       button.SizeIcon,
+			Variant:    button.VariantGhost,
+			Type:       button.TypeButton,
+		}) {
+			<span data-copy-icon-clipboard>
+				@icon.Clipboard(icon.Props{Class: "size-4"})
+			</span>
+			<span data-copy-icon-check class="hidden">
+				@icon.Check(icon.Props{Class: "size-4"})
+			</span>
+		}
+	</div>
+}
+
+var scriptOnce = templ.NewOnceHandle()
+
+templ Script() {
+	@scriptOnce.Once() {
+		@utils.ComponentScript("copybutton")
+	}
+}

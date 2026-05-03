@@ -9,11 +9,11 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/templui/templui/components/dialog"
-	"github.com/templui/templui/components/dropdown"
-	"github.com/templui/templui/components/icon"
-	"github.com/templui/templui/components/input"
-	"github.com/templui/templui/components/textarea"
+	"gofer.email/components/dialog"
+	"gofer.email/components/dropdown"
+	"gofer.email/components/icon"
+	"gofer.email/components/input"
+	"gofer.email/components/textarea"
 )
 
 func ComposeDialog() templ.Component {

@@ -1,0 +1,7 @@
+{
+  "componentsDir": "components",
+  "utilsDir": "utils",
+  "moduleName": "gofer.email",
+  "jsDir": "assets/js",
+  "jsPublicPath": "/assets/js"
+}

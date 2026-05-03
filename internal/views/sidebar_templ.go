@@ -12,11 +12,11 @@ import (
 	"fmt"
 	"gofer.email/internal/models"
 
-	"github.com/templui/templui/components/button"
-	"github.com/templui/templui/components/dialog"
-	"github.com/templui/templui/components/dropdown"
-	"github.com/templui/templui/components/icon"
-	"github.com/templui/templui/utils"
+	"gofer.email/components/button"
+	"gofer.email/components/dialog"
+	"gofer.email/components/dropdown"
+	"gofer.email/components/icon"
+	"gofer.email/utils"
 )
 
 func Sidebar(accounts []models.Account, activeFolder string) templ.Component {

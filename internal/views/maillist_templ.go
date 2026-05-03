@@ -12,12 +12,12 @@ import (
 	"fmt"
 	"gofer.email/internal/models"
 
-	"github.com/templui/templui/components/button"
-	"github.com/templui/templui/components/checkbox"
-	"github.com/templui/templui/components/dropdown"
-	"github.com/templui/templui/components/icon"
-	"github.com/templui/templui/components/input"
-	"github.com/templui/templui/components/tooltip"
+	"gofer.email/components/button"
+	"gofer.email/components/checkbox"
+	"gofer.email/components/dropdown"
+	"gofer.email/components/icon"
+	"gofer.email/components/input"
+	"gofer.email/components/tooltip"
 )
 
 func MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email) templ.Component {

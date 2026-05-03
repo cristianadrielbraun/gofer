@@ -5,8 +5,6 @@ import (
 	"gofer.email/internal/views"
 	"net/http"
 	"os"
-
-	"github.com/templui/templui/utils"
 )
 
 type Handler struct{}
@@ -33,7 +31,6 @@ func setupAssetsRoutes(mux *http.ServeMux) {
 	})
 
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", assetHandler))
-	utils.SetupScriptRoutes(mux, isDevelopment)
 }
 
 func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
