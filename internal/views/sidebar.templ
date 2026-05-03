@@ -1,0 +1,162 @@
+package views
+
+import (
+	"fmt"
+	"gofer.email/internal/models"
+
+	"github.com/templui/templui/components/icon"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/dropdown"
+	"github.com/templui/templui/utils"
+)
+
+templ Sidebar(accounts []models.Account, activeFolder string) {
+	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style="width: 256px">
+		@SidebarHeader(accounts)
+		<hr class="divider-etched mx-4"/>
+		@SidebarFolderTree(accounts, activeFolder)
+		@SidebarFooter()
+	</aside>
+}
+
+templ SidebarHeader(accounts []models.Account) {
+	<div class="px-4 pt-5 pb-4">
+		<div class="flex items-center justify-between mb-5">
+			<div class="flex items-center gap-2.5">
+				<div class="size-8 rounded-lg flex items-center justify-center bg-gradient-to-b from-amber-700 to-amber-900 shadow-[0_1px_0_rgba(255,255,255,0.15)_inset,0_2px_4px_rgba(0,0,0,0.4)]">
+					@icon.Mail(icon.Props{Class: "size-4 text-amber-100"})
+				</div>
+				<span class="text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">
+					gofer<span class="text-sidebar-primary">.email</span>
+				</span>
+			</div>
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+						Class:   "h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+					}) {
+						@icon.Plus(icon.Props{Class: "size-4"})
+					}
+				}
+				@dropdown.Content() {
+					@dropdown.Item() {
+						<a href="/" class="flex items-center gap-2 w-full">
+							@icon.MailPlus(icon.Props{Class: "size-4"})
+							Compose Email
+						</a>
+					}
+					@dropdown.Separator()
+					@dropdown.Item() {
+						<a href="/" class="flex items-center gap-2 w-full">
+							@icon.FolderPlus(icon.Props{Class: "size-4"})
+							New Folder
+						</a>
+					}
+				}
+			}
+		</div>
+		<button class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+			@icon.Pen(icon.Props{Class: "size-4"})
+			Compose
+		</button>
+	</div>
+}
+
+templ SidebarFolderTree(accounts []models.Account, activeFolder string) {
+	<nav class="flex-1 overflow-y-auto px-3 pb-3">
+		for _, account := range accounts {
+			@SidebarAccountSection(account, activeFolder)
+		}
+	</nav>
+}
+
+templ SidebarAccountSection(account models.Account, activeFolder string) {
+	<div class="mb-3">
+		<div class="flex items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground debossed">
+			<div class={ utils.TwMerge("size-2.5 rounded-full shadow-[0_0_0_2px_rgba(0,0,0,0.3),0_0_4px_rgba(0,0,0,0.2)]", account.Color) }></div>
+			<span class="truncate">{ account.Name }</span>
+		</div>
+		<div class="space-y-px mt-0.5">
+			for _, folder := range account.Folders {
+				@SidebarFolderItem(folder, activeFolder, account.ID)
+			}
+		</div>
+	</div>
+}
+
+templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID string) {
+	if len(folder.Children) > 0 {
+		<div class="space-y-px">
+			@SidebarFolderLink(folder, activeFolder, accountID)
+			<div class="pl-5 space-y-px">
+				for _, child := range folder.Children {
+					@SidebarFolderItem(child, activeFolder, accountID)
+				}
+			</div>
+		</div>
+	} else {
+		@SidebarFolderLink(folder, activeFolder, accountID)
+	}
+}
+
+templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID string) {
+	<a
+		href={ templ.URL(fmt.Sprintf("/?folder=%s&account=%s", folder.ID, accountID)) }
+		class={
+			"flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150",
+			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium shadow-[0_1px_0_rgba(0,0,0,0.2)_inset,0_-1px_0_rgba(255,255,255,0.03)_inset]", activeFolder == folder.ID),
+			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", activeFolder != folder.ID),
+		}
+	>
+		<span class="flex items-center justify-center size-5 rounded text-sidebar-foreground/70">
+			@SidebarFolderIcon(folder.Icon)
+		</span>
+		<span class="flex-1 truncate">{ folder.Name }</span>
+		if folder.Unread > 0 {
+			<span class={
+				"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+				templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
+				templ.KV("bg-sidebar-accent text-sidebar-foreground/80", activeFolder != folder.ID),
+			}>
+				{ fmt.Sprintf("%d", folder.Unread) }
+			</span>
+		}
+	</a>
+}
+
+templ SidebarFolderIcon(iconName string) {
+	switch iconName {
+		case "inbox":
+			@icon.Inbox(icon.Props{Class: "size-4"})
+		case "star":
+			@icon.Star(icon.Props{Class: "size-4"})
+		case "starred":
+			@icon.Star(icon.Props{Class: "size-4"})
+		case "send":
+			@icon.Send(icon.Props{Class: "size-4"})
+		case "file":
+			@icon.File(icon.Props{Class: "size-4"})
+		case "archive":
+			@icon.Archive(icon.Props{Class: "size-4"})
+		case "alert-circle":
+			@icon.CircleAlert(icon.Props{Class: "size-4"})
+		case "trash":
+			@icon.Trash2(icon.Props{Class: "size-4"})
+		default:
+			@icon.Folder(icon.Props{Class: "size-4"})
+	}
+}
+
+templ SidebarFooter() {
+	<div class="px-4 py-3 border-t border-sidebar-border">
+		<div class="flex items-center justify-between mb-2">
+			<span class="text-[11px] text-sidebar-foreground/40 uppercase tracking-wider font-semibold">Storage</span>
+			<span class="text-[11px] text-sidebar-foreground/40 tabular-nums">1.2 / 15 GB</span>
+		</div>
+		<div class="w-full h-1.5 rounded-full bg-sidebar-accent shadow-[0_1px_2px_rgba(0,0,0,0.3)_inset] overflow-hidden">
+			<div class="h-full w-[8%] rounded-full bg-gradient-to-r from-amber-700 to-amber-600 shadow-[0_0_4px_rgba(180,120,40,0.3)]"></div>
+		</div>
+	</div>
+}

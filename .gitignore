@@ -1,0 +1,7 @@
+tmp/
+.env
+*.png
+.air.toml
+
+assets/css/output.css
+assets/css/sources.generated.css

@@ -1,0 +1,336 @@
+@import "tailwindcss";
+@import "./sources.generated.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --breakpoint-3xl: 1600px;
+  --breakpoint-4xl: 2000px;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: "Nunito Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces", ui-serif, Georgia, serif;
+
+  --color-paper: var(--paper);
+  --color-paper-foreground: var(--paper-foreground);
+  --color-copper: var(--copper);
+  --color-brass: var(--brass);
+  --color-ink: var(--ink);
+
+  --shadow-card: 0 1px 3px rgba(26,22,18,0.12), 0 4px 12px rgba(26,22,18,0.08);
+  --shadow-card-hover: 0 2px 8px rgba(26,22,18,0.18), 0 8px 24px rgba(26,22,18,0.12);
+  --shadow-raised: 0 4px 12px rgba(26,22,18,0.15), 0 12px 32px rgba(26,22,18,0.1);
+  --shadow-emboss: 0 -1px 0 rgba(255,255,255,0.06) inset, 0 1px 2px rgba(0,0,0,0.3) inset;
+  --shadow-inset: 0 2px 4px rgba(0,0,0,0.15) inset, 0 -1px 0 rgba(255,255,255,0.05) inset;
+  --shadow-paper: 0 2px 4px rgba(26,22,18,0.08), 0 8px 24px rgba(26,22,18,0.12), 0 16px 48px rgba(26,22,18,0.06);
+  --shadow-button: 0 1px 0 rgba(255,255,255,0.1) inset, 0 -1px 0 rgba(0,0,0,0.2) inset, 0 2px 4px rgba(0,0,0,0.2);
+  --shadow-button-pressed: 0 1px 2px rgba(0,0,0,0.3) inset;
+
+  --animate-fade-in: fade-in 0.4s ease-out;
+  --animate-slide-up: slide-up 0.3s ease-out;
+  --animate-slide-in: slide-in 0.2s ease-out;
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+:root {
+  --radius: 0.65rem;
+  --background: #d6cfc2;
+  --foreground: #2c2418;
+  --card: #efe8dc;
+  --card-foreground: #2c2418;
+  --popover: #efe8dc;
+  --popover-foreground: #2c2418;
+  --primary: #c77b30;
+  --primary-foreground: #ffffff;
+  --secondary: #e0d8cc;
+  --secondary-foreground: #2c2418;
+  --muted: #d8d0c4;
+  --muted-foreground: #7a6f60;
+  --accent: #e8dcc8;
+  --accent-foreground: #2c2418;
+  --destructive: #c44040;
+  --border: #c4b9a8;
+  --input: #c4b9a8;
+  --ring: #c77b30;
+  --sidebar: #1e1a14;
+  --sidebar-foreground: #b8a88c;
+  --sidebar-primary: #c77b30;
+  --sidebar-primary-foreground: #fff8ee;
+  --sidebar-accent: #2a241c;
+  --sidebar-accent-foreground: #e0d4c0;
+  --sidebar-border: #3a3228;
+  --sidebar-ring: #c77b30;
+  --paper: #f8f2e6;
+  --paper-foreground: #2c2418;
+  --copper: #c77b30;
+  --brass: #b8a060;
+  --ink: #1a1408;
+}
+
+.dark {
+  --background: #141210;
+  --foreground: #e0d4c0;
+  --card: #1e1a14;
+  --card-foreground: #e0d4c0;
+  --popover: #252018;
+  --popover-foreground: #e0d4c0;
+  --primary: #d49040;
+  --primary-foreground: #1a1408;
+  --secondary: #252018;
+  --secondary-foreground: #e0d4c0;
+  --muted: #1e1a14;
+  --muted-foreground: #7a6f60;
+  --accent: #28221a;
+  --accent-foreground: #e0d4c0;
+  --destructive: #e05050;
+  --border: #3a3228;
+  --input: #3a3228;
+  --ring: #d49040;
+  --sidebar: #12100c;
+  --sidebar-foreground: #8a7e6c;
+  --sidebar-primary: #d49040;
+  --sidebar-primary-foreground: #1a1408;
+  --sidebar-accent: #1e1a14;
+  --sidebar-accent-foreground: #d8ccb4;
+  --sidebar-border: #2a241c;
+  --sidebar-ring: #d49040;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-muted-foreground) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-muted-foreground);
+    border-radius: 4px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--color-foreground);
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--copper) 35%, transparent);
+}
+
+/* === SKEUOMORPHIC MATERIALS === */
+
+.surface-desk {
+  background:
+    repeating-conic-gradient(rgba(255,255,255,0.015) 0% 25%, transparent 0% 50%) 0 0 / 4px 4px,
+    linear-gradient(170deg, var(--background) 0%, color-mix(in srgb, var(--background) 95%, #000) 100%);
+}
+
+.surface-leather {
+  background:
+    repeating-conic-gradient(rgba(255,255,255,0.02) 0% 25%, transparent 0% 50%) 0 0 / 2px 2px,
+    linear-gradient(180deg, var(--sidebar) 0%, color-mix(in srgb, var(--sidebar) 97%, #000) 100%);
+}
+
+.surface-paper {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
+    linear-gradient(175deg, var(--paper) 0%, color-mix(in srgb, var(--paper) 97%, #c0a880) 100%);
+  color: var(--ink);
+  box-shadow: var(--shadow-paper);
+  border-radius: 2px;
+}
+
+.dark .surface-paper {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E"),
+    linear-gradient(175deg, #faf5ea 0%, #f2ead8 100%);
+  color: var(--ink);
+}
+
+/* === SKEUOMORPHIC COMPONENTS === */
+
+.raised {
+  box-shadow: var(--shadow-raised);
+}
+
+.groove {
+  box-shadow: var(--shadow-inset);
+}
+
+.embossed {
+  text-shadow: 0 -1px 0 rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.debossed {
+  text-shadow: 0 1px 0 rgba(0,0,0,0.3);
+}
+
+.btn-skeuo {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-sidebar-primary) 100%, #fff) 0%, var(--color-sidebar-primary) 100%);
+  box-shadow: var(--shadow-button);
+  transition: all 0.1s ease;
+}
+
+.btn-skeuo:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-sidebar-primary) 100%, #fff) 0%, color-mix(in srgb, var(--color-sidebar-primary) 95%, #000) 100%);
+}
+
+.btn-skeuo:active {
+  box-shadow: var(--shadow-button-pressed);
+  transform: translateY(1px);
+}
+
+.divider-etched {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-sidebar-border), transparent);
+}
+
+/* === EMAIL ENVELOPE STYLE === */
+
+.envelope {
+  background: var(--color-card);
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  box-shadow: var(--shadow-card);
+  transition: all 0.2s ease;
+}
+
+.envelope:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+}
+
+.envelope-active {
+  background: var(--color-accent);
+  border-color: var(--color-copper);
+  box-shadow: var(--shadow-card-hover), 0 0 0 1px var(--color-copper);
+}
+
+/* === PROSE FOR EMAIL BODY === */
+
+.prose {
+  color: var(--ink);
+  line-height: 1.8;
+}
+
+.prose p {
+  margin-bottom: 1em;
+}
+
+.prose ul, .prose ol {
+  margin-bottom: 1em;
+  padding-left: 1.5em;
+}
+
+.prose ul {
+  list-style-type: disc;
+}
+
+.prose ol {
+  list-style-type: decimal;
+}
+
+.prose li {
+  margin-bottom: 0.25em;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose code {
+  background: #ede6d8;
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.875em;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.06) inset;
+}
+
+.prose h3 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 1.05em;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+/* === RESIZE HANDLE === */
+
+.resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border);
+  transform: translateX(-50%);
+  transition: all 0.15s ease;
+}
+
+.resize-handle:hover::after,
+.resize-handle.active::after {
+  width: 3px;
+  background: var(--primary);
+  border-radius: 2px;
+}

@@ -1,0 +1,260 @@
+package views
+
+import (
+	"fmt"
+	"gofer.email/internal/models"
+
+	"github.com/templui/templui/components/icon"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/tooltip"
+	"github.com/templui/templui/components/dropdown"
+)
+
+templ MailView(email *models.Email) {
+	<div class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">
+		if email != nil {
+			@MailViewContent(email)
+		} else {
+			@MailViewEmpty()
+		}
+	</div>
+}
+
+templ MailViewContent(email *models.Email) {
+	<div class="flex flex-col h-full p-4">
+		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
+			@MailViewHeader(email)
+			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
+			<div class="flex-1 overflow-y-auto">
+				<div class="max-w-3xl mx-auto px-8 py-6">
+					@MailViewSender(email)
+					<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
+					@MailViewBody(email)
+				</div>
+			</div>
+			@MailViewReplyBar(email)
+		</div>
+	</div>
+}
+
+templ MailViewHeader(email *models.Email) {
+	<div class="flex items-center justify-between px-6 py-2.5">
+		<div class="flex items-center gap-1 min-w-0">
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+						Class:   "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
+					}) {
+						@icon.Archive(icon.Props{Class: "size-4"})
+					}
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					Archive
+				}
+			}
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+						Class:   "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
+					}) {
+						@icon.Trash2(icon.Props{Class: "size-4"})
+					}
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					Delete
+				}
+			}
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+						Class:   "h-8 w-8",
+					}) {
+						if email.IsStarred {
+							@icon.Star(icon.Props{Class: "size-4 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.3)]"})
+						} else {
+							@icon.Star(icon.Props{Class: "size-4 text-ink/30"})
+						}
+					}
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					Star
+				}
+			}
+		</div>
+		<div class="flex items-center gap-2">
+			if len(email.Labels) > 0 {
+				for _, label := range email.Labels {
+					<span class={ "text-[11px] px-2 py-0.5 rounded font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]", label.Color }>
+						{ label.Name }
+					</span>
+				}
+			}
+			<span class="text-xs text-ink/40 tabular-nums">{ email.Date }</span>
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+						Class:   "h-8 w-8 text-ink/40 hover:text-ink/70",
+					}) {
+						@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+					}
+				}
+				@dropdown.Content() {
+					@dropdown.Item() {
+						<span class="flex items-center gap-2">
+							@icon.Reply(icon.Props{Class: "size-4"})
+							Reply
+						</span>
+					}
+					@dropdown.Item() {
+						<span class="flex items-center gap-2">
+							@icon.Forward(icon.Props{Class: "size-4"})
+							Forward
+						</span>
+					}
+					@dropdown.Separator()
+					@dropdown.Item() {
+						<span class="flex items-center gap-2">
+							@icon.Tag(icon.Props{Class: "size-4"})
+							Add label
+						</span>
+					}
+					@dropdown.Item() {
+						<span class="flex items-center gap-2">
+							@icon.FolderInput(icon.Props{Class: "size-4"})
+							Move to...
+						</span>
+					}
+					@dropdown.Separator()
+					@dropdown.Item() {
+						<span class="flex items-center gap-2">
+							@icon.Download(icon.Props{Class: "size-4"})
+							Download
+						</span>
+					}
+					@dropdown.Item() {
+						<span class="flex items-center gap-2">
+							@icon.Printer(icon.Props{Class: "size-4"})
+							Print
+						</span>
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+templ MailViewSender(email *models.Email) {
+	<div class="flex items-start gap-4">
+		<div class="size-11 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-sm font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">
+			{ email.From.Initials }
+		</div>
+		<div class="flex-1 min-w-0">
+			<div class="flex items-center gap-2 flex-wrap">
+				<span class="font-semibold text-ink">{ email.From.Name }</span>
+				<span class="text-xs text-ink/40">&lt;{ email.From.Email }&gt;</span>
+			</div>
+			<div class="text-xs text-ink/40 mt-0.5">
+				to { email.To[0].Name }
+				if len(email.To) > 1 {
+					{ fmt.Sprintf(" and %d more", len(email.To)-1) }
+				}
+				if len(email.CC) > 0 {
+					, cc { email.CC[0].Name }
+				}
+			</div>
+		</div>
+	</div>
+	<h1 class="text-xl font-bold mt-5 tracking-tight text-ink" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+	if email.HasAttachment {
+		<div class="mt-5 flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+			<div class="flex items-center justify-center size-9 rounded-md bg-ink/[0.03] shadow-[0_1px_2px_rgba(0,0,0,0.06)_inset]">
+				@icon.File(icon.Props{Class: "size-4 text-ink/30"})
+			</div>
+			<div class="flex-1 min-w-0">
+				<p class="text-sm font-medium text-ink truncate">attachment.pdf</p>
+				<p class="text-[11px] text-ink/30">2.4 MB</p>
+			</div>
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Size:    button.SizeSm,
+				Class:   "shrink-0 border-ink/10 text-ink/60 hover:text-ink",
+			}) {
+				<span class="flex items-center gap-1.5">
+					@icon.Download(icon.Props{Class: "size-3.5"})
+					Download
+				</span>
+			}
+		</div>
+	}
+}
+
+templ MailViewBody(email *models.Email) {
+	<div class="prose text-[14px]">
+		{ email.Body }
+	</div>
+}
+
+templ MailViewReplyBar(email *models.Email) {
+	<div class="px-6 py-3 border-t border-ink/6">
+		<div class="flex items-center gap-2">
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Class:   "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
+			}) {
+				<span class="flex items-center gap-2 text-[13px]">
+					@icon.Reply(icon.Props{Class: "size-4"})
+					Reply
+				</span>
+			}
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Class:   "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
+			}) {
+				<span class="flex items-center gap-2 text-[13px]">
+					@icon.ReplyAll(icon.Props{Class: "size-4"})
+					Reply All
+				</span>
+			}
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Class:   "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
+			}) {
+				<span class="flex items-center gap-2 text-[13px]">
+					@icon.Forward(icon.Props{Class: "size-4"})
+					Forward
+				</span>
+			}
+		</div>
+	</div>
+}
+
+templ MailViewEmpty() {
+	<div class="flex flex-col items-center justify-center h-full text-center">
+		<div class="space-y-4 animate-fade-in">
+			<div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised">
+				@icon.Mail(icon.Props{Class: "size-9 text-muted-foreground/30"})
+			</div>
+			<div>
+				<h3 class="font-semibold mb-1">Select an email</h3>
+				<p class="text-sm text-muted-foreground">Choose an email from the list to read it</p>
+			</div>
+		</div>
+	</div>
+}

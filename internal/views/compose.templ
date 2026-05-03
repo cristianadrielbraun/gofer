@@ -1,0 +1,28 @@
+package views
+
+import (
+	"github.com/templui/templui/components/icon"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/tooltip"
+)
+
+templ ComposeButton() {
+	<div class="fixed bottom-6 right-6 z-50 lg:hidden">
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				@button.Button(button.Props{
+					Size: button.SizeIcon,
+					Class: "size-14 rounded-full shadow-lg",
+				}) {
+					@icon.Pen(icon.Props{Class: "size-6"})
+				}
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionLeft,
+				ShowArrow: true,
+			}) {
+				Compose
+			}
+		}
+	</div>
+}

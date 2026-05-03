@@ -1,0 +1,265 @@
+package views
+
+import (
+	"fmt"
+	"gofer.email/internal/models"
+
+	"github.com/templui/templui/components/icon"
+	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/input"
+	"github.com/templui/templui/components/checkbox"
+	"github.com/templui/templui/components/tooltip"
+	"github.com/templui/templui/components/dropdown"
+)
+
+templ MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email) {
+	<div class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style="width: 384px">
+		@MailListHeader(activeFolder)
+		@MailListToolbar()
+		<hr class="divider-etched"/>
+		@MailListEmails(emails, selectedEmail)
+	</div>
+}
+
+templ MailListHeader(activeFolder string) {
+	<div class="px-4 py-4 space-y-3">
+		<div class="flex items-center justify-between">
+			<div class="flex items-center gap-2">
+				<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ folderDisplayName(activeFolder) }</h2>
+				<span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">12</span>
+			</div>
+			<div class="flex items-center gap-0.5">
+				@tooltip.Tooltip() {
+					@tooltip.Trigger() {
+						@button.Button(button.Props{
+							Variant: button.VariantGhost,
+							Size:    button.SizeIcon,
+							Class:   "h-8 w-8",
+						}) {
+							@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+						}
+					}
+					@tooltip.Content(tooltip.ContentProps{
+						Position:  tooltip.PositionBottom,
+						ShowArrow: true,
+					}) {
+						Refresh
+					}
+				}
+				@tooltip.Tooltip() {
+					@tooltip.Trigger() {
+						@button.Button(button.Props{
+							Variant: button.VariantGhost,
+							Size:    button.SizeIcon,
+							Class:   "h-8 w-8",
+						}) {
+							@icon.ListFilter(icon.Props{Class: "size-3.5"})
+						}
+					}
+					@tooltip.Content(tooltip.ContentProps{
+						Position:  tooltip.PositionBottom,
+						ShowArrow: true,
+					}) {
+						Filter
+					}
+				}
+			</div>
+		</div>
+		<div class="relative groove rounded-lg">
+			@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
+			@input.Input(input.Props{
+				Placeholder: "Search emails...",
+				Class:       "h-9 pl-8 bg-card border-border/50",
+			})
+		</div>
+	</div>
+}
+
+templ MailListToolbar() {
+	<div class="flex items-center gap-1 px-4 py-1.5">
+		@checkbox.Checkbox(checkbox.Props{
+			Class: "h-3.5 w-3.5",
+		})
+		<div class="flex-1"></div>
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeIcon,
+					Class:   "h-7 w-7",
+				}) {
+					@icon.Archive(icon.Props{Class: "size-3.5"})
+				}
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Archive
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeIcon,
+					Class:   "h-7 w-7",
+				}) {
+					@icon.Trash2(icon.Props{Class: "size-3.5"})
+				}
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Delete
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeIcon,
+					Class:   "h-7 w-7",
+				}) {
+					@icon.MailOpen(icon.Props{Class: "size-3.5"})
+				}
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Mark as read
+			}
+		}
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeIcon,
+					Class:   "h-7 w-7",
+				}) {
+					@icon.EllipsisVertical(icon.Props{Class: "size-3.5"})
+				}
+			}
+			@dropdown.Content() {
+				@dropdown.Item() {
+					<span class="flex items-center gap-2">
+						@icon.Tag(icon.Props{Class: "size-4"})
+						Add label
+					</span>
+				}
+				@dropdown.Item() {
+					<span class="flex items-center gap-2">
+						@icon.Star(icon.Props{Class: "size-4"})
+						Star selected
+					</span>
+				}
+				@dropdown.Separator()
+				@dropdown.Item() {
+					<span class="flex items-center gap-2">
+						@icon.MailX(icon.Props{Class: "size-4"})
+						Move to spam
+					</span>
+				}
+			}
+		}
+	</div>
+}
+
+templ MailListEmails(emails []models.Email, selectedEmail *models.Email) {
+	<div class="flex-1 overflow-y-auto px-2 py-2 space-y-1.5">
+		for _, email := range emails {
+			@MailListItem(email, selectedEmail)
+		}
+		if len(emails) == 0 {
+			@MailListEmpty()
+		}
+	</div>
+}
+
+templ MailListItem(email models.Email, selectedEmail *models.Email) {
+	<a
+		href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
+		class={
+			"flex items-start gap-3 px-3.5 py-3 rounded-lg cursor-pointer transition-all duration-200 group",
+			templ.KV("envelope-active", selectedEmail != nil && selectedEmail.ID == email.ID),
+			templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
+		}
+	>
+		<div class="flex items-center gap-1.5 pt-0.5 shrink-0">
+			@checkbox.Checkbox(checkbox.Props{
+				Class: "h-3.5 w-3.5",
+			})
+			if email.IsStarred {
+				@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
+			} else {
+				<button class="opacity-0 group-hover:opacity-100 transition-opacity">
+					@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
+				</button>
+			}
+		</div>
+		<div class="flex-1 min-w-0 space-y-1">
+			<div class="flex items-center justify-between gap-2">
+				<div class="flex items-center gap-2 min-w-0">
+					<div class={
+						"size-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.15)]",
+						templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !email.IsRead),
+						templ.KV("bg-muted text-muted-foreground", email.IsRead),
+					}>
+						{ email.From.Initials }
+					</div>
+					<span class={
+						"text-sm truncate",
+						templ.KV("font-semibold text-foreground", !email.IsRead),
+						templ.KV("text-foreground/70", email.IsRead),
+					}>{ email.From.Name }</span>
+				</div>
+				<div class="flex items-center gap-1.5 shrink-0">
+					if email.HasAttachment {
+						@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
+					}
+					<span class={
+						"text-xs tabular-nums",
+						templ.KV("text-primary font-medium", !email.IsRead),
+						templ.KV("text-muted-foreground", email.IsRead),
+					}>{ email.Date }</span>
+				</div>
+			</div>
+			<p class={
+				"text-[13px] truncate",
+				templ.KV("font-medium text-foreground", !email.IsRead),
+				templ.KV("text-foreground/60", email.IsRead),
+			}>{ email.Subject }</p>
+			<div class="flex items-center gap-2">
+				<p class="text-xs text-muted-foreground truncate flex-1 leading-relaxed">{ email.Preview }</p>
+				if len(email.Labels) > 0 {
+					for _, label := range email.Labels {
+						<span class={ "text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.08)]", label.Color }>
+							{ label.Name }
+						</span>
+					}
+				}
+				if email.ThreadCount > 0 {
+					<div class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0">
+						@icon.MessagesSquare(icon.Props{Class: "size-3"})
+						{ fmt.Sprintf("%d", email.ThreadCount) }
+					</div>
+				}
+			</div>
+		</div>
+		if !email.IsRead {
+			<div class="w-2 h-2 rounded-full bg-primary shrink-0 mt-2 shadow-[0_0_6px_rgba(199,123,48,0.4)]"></div>
+		}
+	</a>
+}
+
+templ MailListEmpty() {
+	<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
+		<div class="size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
+			@icon.Inbox(icon.Props{Class: "size-7 text-muted-foreground/40"})
+		</div>
+		<h3 class="font-semibold text-sm mb-1">No emails</h3>
+		<p class="text-xs text-muted-foreground">Your inbox is empty</p>
+	</div>
+}

@@ -1,0 +1,41 @@
+package views
+
+import (
+	"gofer.email/internal/models"
+
+	"github.com/templui/templui/components/tooltip"
+)
+
+templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>gofer.email</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+			@tooltip.Script()
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<div class="flex h-screen overflow-hidden">
+				@Sidebar(accounts, activeFolder)
+				@ResizeHandle("sidebar")
+				@MailList(emails, activeFolder, selectedEmail)
+				@ResizeHandle("maillist")
+				@MailView(selectedEmail)
+			</div>
+			<script src="/assets/js/resize.js"></script>
+		</body>
+	</html>
+}
+
+templ ResizeHandle(panel string) {
+	<div
+		class="resize-handle"
+		data-panel={ panel }
+		draggable="false"
+	></div>
+}

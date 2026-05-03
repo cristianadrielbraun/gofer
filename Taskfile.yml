@@ -1,0 +1,41 @@
+version: "3"
+
+tasks:
+  templ:
+    desc: Run templ with integrated server and hot reload
+    cmds:
+      - templ generate --watch --proxy="http://localhost:8090" -proxyport 9090 --cmd="go run ./main.go" --open-browser=false
+
+  tailwind:
+    desc: Watch Tailwind CSS changes
+    cmds:
+      - |
+        TEMPLUI_PATH="$(go list -mod=mod -m -f '{{.Dir}}' github.com/templui/templui)" && \
+        printf '%s\n' \
+          '@source "./**/*.templ";' \
+          "@source \"$TEMPLUI_PATH/components/**/*.templ\";" \
+          > ./assets/css/sources.generated.css && \
+        tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --watch
+
+  dev:
+    desc: Start development server with hot reload
+    cmds:
+      - task --parallel tailwind templ
+
+  build:
+    desc: Build for production
+    cmds:
+      - templ generate
+      - |
+        TEMPLUI_PATH="$(go list -mod=mod -m -f '{{.Dir}}' github.com/templui/templui)" && \
+        printf '%s\n' \
+          '@source "./**/*.templ";' \
+          "@source \"$TEMPLUI_PATH/components/**/*.templ\";" \
+          > ./assets/css/sources.generated.css && \
+        tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css
+      - go build -o ./tmp/main .
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf tmp/ assets/css/output.css
