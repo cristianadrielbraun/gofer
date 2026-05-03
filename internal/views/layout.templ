@@ -4,6 +4,7 @@ import (
 	"gofer.email/internal/models"
 
 	"gofer.email/components/dialog"
+	"gofer.email/components/dropdown"
 	"gofer.email/components/tooltip"
 )
 
@@ -19,6 +20,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
 			<link rel="stylesheet" href="/assets/css/output.css"/>
 			@dialog.Script()
+			@dropdown.Script()
 			@tooltip.Script()
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">

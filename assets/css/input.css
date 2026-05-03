@@ -333,3 +333,316 @@
   background: var(--primary);
   border-radius: 2px;
 }
+
+/* === COMPOSE DIALOG === */
+
+.compose-window {
+  background: var(--paper);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+[data-tui-dialog-panel]:has(> .compose-window) {
+  padding: 0 !important;
+  gap: 0 !important;
+  display: flex !important;
+}
+
+.compose-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sidebar) 95%, #fff) 0%, var(--sidebar) 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.compose-titlebar-text {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sidebar-primary);
+  letter-spacing: 0.01em;
+}
+
+.compose-seal {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--sidebar-primary), color-mix(in srgb, var(--sidebar-primary) 80%, #000));
+  color: #fff;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.15) inset,
+    0 2px 4px rgba(0,0,0,0.3);
+}
+
+.compose-titlebar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: rgba(255,255,255,0.35);
+  transition: all 0.15s ease;
+}
+
+.compose-titlebar-btn:hover {
+  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.08);
+}
+
+.compose-body {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E"),
+    linear-gradient(175deg, var(--paper) 0%, color-mix(in srgb, var(--paper) 97%, #c0a880) 100%);
+}
+
+.compose-fields {
+  padding: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.compose-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.compose-field-row:last-child {
+  border-bottom: none;
+}
+
+.compose-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--copper) 60%, var(--ink));
+  width: 32px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.compose-field-input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  height: 28px !important;
+  font-size: 13px !important;
+  color: var(--ink) !important;
+}
+
+.compose-field-input::placeholder {
+  color: color-mix(in srgb, var(--ink) 20%, transparent) !important;
+  font-style: italic;
+}
+
+.compose-field-input:focus {
+  outline: none !important;
+  ring: none !important;
+}
+
+.compose-field-toggle {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--copper) 50%, transparent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.compose-field-toggle:hover {
+  color: var(--copper);
+  background: color-mix(in srgb, var(--copper) 8%, transparent);
+}
+
+.compose-subject {
+  padding: 4px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.compose-subject-input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  height: 38px !important;
+  font-size: 15px !important;
+  font-family: var(--font-serif) !important;
+  font-weight: 600 !important;
+  color: var(--ink) !important;
+  letter-spacing: -0.01em;
+}
+
+.compose-subject-input::placeholder {
+  font-weight: 400 !important;
+  color: color-mix(in srgb, var(--ink) 22%, transparent) !important;
+  font-style: italic;
+}
+
+.compose-subject-input:focus {
+  outline: none !important;
+}
+
+.compose-toolbar {
+  padding: 4px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+  background: color-mix(in srgb, var(--paper) 97%, #c0a880);
+}
+
+.compose-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--ink) 35%, transparent);
+  transition: all 0.12s ease;
+}
+
+.compose-tool-btn:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+.compose-tool-btn:active {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08) inset;
+  transform: translateY(1px);
+}
+
+.compose-tool-divider {
+  width: 1px;
+  height: 18px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  margin: 0 3px;
+}
+
+.compose-writing-area {
+  min-height: 180px;
+  background:
+    repeating-linear-gradient(
+      transparent,
+      transparent 27px,
+      color-mix(in srgb, var(--ink) 4%, transparent) 27px,
+      color-mix(in srgb, var(--ink) 4%, transparent) 28px
+    );
+  background-position: 0 5px;
+}
+
+.compose-body-input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  resize: none !important;
+  font-size: 14px !important;
+  line-height: 28px !important;
+  color: var(--ink) !important;
+  min-height: 160px !important;
+}
+
+.compose-body-input::placeholder {
+  color: color-mix(in srgb, var(--ink) 18%, transparent) !important;
+  font-style: italic;
+}
+
+.compose-body-input:focus {
+  outline: none !important;
+}
+
+.compose-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, var(--paper) 97%, #c0a880);
+}
+
+.compose-discard-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--ink) 35%, transparent);
+  transition: all 0.15s ease;
+}
+
+.compose-discard-btn:hover {
+  color: color-mix(in srgb, #c44040 70%, var(--ink));
+  background: color-mix(in srgb, #c44040 6%, transparent);
+}
+
+.compose-draft-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.15) inset,
+    0 -1px 0 rgba(0,0,0,0.1) inset,
+    0 1px 3px rgba(0,0,0,0.08);
+  transition: all 0.12s ease;
+}
+
+.compose-draft-btn:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.1) inset,
+    0 -1px 0 rgba(0,0,0,0.12) inset,
+    0 2px 4px rgba(0,0,0,0.1);
+}
+
+.compose-draft-btn:active {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12) inset;
+  transform: translateY(1px);
+}
+
+.compose-send-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--copper) 100%, #fff) 0%, var(--copper) 100%);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.15) inset,
+    0 -1px 0 rgba(0,0,0,0.2) inset,
+    0 2px 6px rgba(0,0,0,0.2);
+  transition: all 0.12s ease;
+  letter-spacing: 0.01em;
+}
+
+.compose-send-btn:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--copper) 100%, #fff) 0%, color-mix(in srgb, var(--copper) 95%, #000) 100%);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.1) inset,
+    0 -1px 0 rgba(0,0,0,0.25) inset,
+    0 4px 12px rgba(0,0,0,0.2);
+}
+
+.compose-send-btn:active {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3) inset;
+  transform: translateY(1px);
+}

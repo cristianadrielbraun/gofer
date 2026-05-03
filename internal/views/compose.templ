@@ -6,6 +6,7 @@ import (
 	"gofer.email/components/input"
 	"gofer.email/components/textarea"
 	"gofer.email/components/dropdown"
+	"gofer.email/components/tooltip"
 )
 
 templ ComposeDialog() {
@@ -16,121 +17,238 @@ templ ComposeDialog() {
 			<span></span>
 		}
 		@dialog.Content(dialog.ContentProps{
-			HideCloseButton: true,
-			Class:           "sm:max-w-2xl p-0 overflow-hidden surface-paper text-paper-foreground rounded",
+			Class: "sm:max-w-2xl",
 		}) {
-			@ComposeForm()
+			@dialog.Header() {
+				@dialog.Title() {
+					New Message
+				}
+			}
+			<div class="space-y-0 -mt-2">
+				@ComposeField("To", "to", "recipient@example.com")
+				<div id="cc-field" class="hidden">
+					@ComposeField("Cc", "cc", "")
+				</div>
+				<div id="bcc-field" class="hidden">
+					@ComposeField("Bcc", "bcc", "")
+				</div>
+				<div class="flex items-center gap-2 pt-1">
+					<button
+						type="button"
+						class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+						onclick="document.getElementById('cc-field').classList.toggle('hidden')"
+					>Cc</button>
+					<button
+						type="button"
+						class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+						onclick="document.getElementById('bcc-field').classList.toggle('hidden')"
+					>Bcc</button>
+				</div>
+			</div>
+			<div class="border-t pt-2">
+				@input.Input(input.Props{
+					Name:        "subject",
+					Placeholder: "Subject",
+					Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 font-semibold placeholder:font-normal",
+				})
+			</div>
+			@ComposeToolbar()
+			<div class="min-h-[180px] max-h-[40vh] overflow-y-auto">
+				@textarea.Textarea(textarea.Props{
+					Name:        "body",
+					Placeholder: "Write your message...",
+					Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none text-sm",
+					AutoResize:  true,
+				})
+			</div>
+			@dialog.Footer() {
+				@dialog.Close() {
+					<button type="button" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-3 py-1.5 rounded-md hover:bg-accent">
+						@icon.Trash2(icon.Props{Class: "size-3.5"})
+						Discard
+					</button>
+				}
+				<div class="flex items-center gap-2">
+					<button type="button" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent">
+						@icon.Save(icon.Props{Class: "size-3.5"})
+						Save Draft
+					</button>
+					<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg">
+						@icon.Send(icon.Props{Class: "size-3.5"})
+						Send
+					</button>
+				</div>
+			}
 		}
 	}
 }
 
-templ ComposeForm() {
-	<div class="flex flex-col max-h-[80vh]">
-		@ComposeHeader()
-		<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent"></div>
-		<div class="px-6 py-2 space-y-0 border-b border-ink/6">
-			@ComposeField("To", "to", "recipient@example.com")
-			<div id="cc-field" class="hidden">
-				@ComposeField("CC", "cc", "")
-			</div>
-			<div id="bcc-field" class="hidden">
-				@ComposeField("BCC", "bcc", "")
-			</div>
-			<div class="flex items-center gap-1 pt-1">
-				<button
-					type="button"
-					class="text-[11px] text-ink/30 hover:text-ink/60 transition-colors px-1.5 py-0.5 rounded hover:bg-ink/5"
-					onclick="document.getElementById('cc-field').classList.toggle('hidden')"
-				>CC</button>
-				<button
-					type="button"
-					class="text-[11px] text-ink/30 hover:text-ink/60 transition-colors px-1.5 py-0.5 rounded hover:bg-ink/5"
-					onclick="document.getElementById('bcc-field').classList.toggle('hidden')"
-				>BCC</button>
-			</div>
-		</div>
-		<div class="px-6 py-2 border-b border-ink/6">
-			@input.Input(input.Props{
-				Name:        "subject",
-				Placeholder: "Subject",
-				Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 text-sm font-semibold placeholder:font-normal placeholder:text-ink/30",
-			})
-		</div>
-		<div class="flex-1 px-6 py-4 overflow-y-auto min-h-[200px]">
-			@textarea.Textarea(textarea.Props{
-				Name:        "body",
-				Placeholder: "Write your message...",
-				Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none text-sm placeholder:text-ink/25",
-				AutoResize:  true,
-			})
-		</div>
-		<div class="px-6 py-3 border-t border-ink/6 flex items-center justify-between">
-			<div class="flex items-center gap-0.5">
-				<button type="button" class="flex items-center justify-center size-8 rounded-md text-ink/30 hover:text-ink/60 hover:bg-ink/5 transition-colors" title="Attach file">
-					@icon.Paperclip(icon.Props{Class: "size-4"})
+templ ComposeToolbar() {
+	<div class="flex items-center gap-0.5 border-t border-b py-1 -mx-1">
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Bold(icon.Props{Class: "size-3.5"})
 				</button>
-				<button type="button" class="flex items-center justify-center size-8 rounded-md text-ink/30 hover:text-ink/60 hover:bg-ink/5 transition-colors" title="Insert image">
-					@icon.Image(icon.Props{Class: "size-4"})
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Bold
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Italic(icon.Props{Class: "size-3.5"})
 				</button>
-				<button type="button" class="flex items-center justify-center size-8 rounded-md text-ink/30 hover:text-ink/60 hover:bg-ink/5 transition-colors" title="Insert link">
-					@icon.Link(icon.Props{Class: "size-4"})
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Italic
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Underline(icon.Props{Class: "size-3.5"})
 				</button>
-				@dropdown.Dropdown() {
-					@dropdown.Trigger() {
-						<button type="button" class="flex items-center justify-center size-8 rounded-md text-ink/30 hover:text-ink/60 hover:bg-ink/5 transition-colors" title="More">
-							@icon.Ellipsis(icon.Props{Class: "size-4"})
-						</button>
-					}
-					@dropdown.Content() {
-						@dropdown.Item() {
-							<span class="flex items-center gap-2">
-								@icon.Clock(icon.Props{Class: "size-4"})
-								Schedule send
-							</span>
-						}
-						@dropdown.Separator()
-						@dropdown.Item() {
-							<span class="flex items-center gap-2">
-								@icon.Save(icon.Props{Class: "size-4"})
-								Save as draft
-							</span>
-						}
-					}
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Underline
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Strikethrough(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Strikethrough
+			}
+		}
+		<div class="w-px h-4 bg-border mx-0.5"></div>
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.List(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Bullet list
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.ListOrdered(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Numbered list
+			}
+		}
+		<div class="w-px h-4 bg-border mx-0.5"></div>
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Paperclip(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Attach file
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Image(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Insert image
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Link(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Insert link
+			}
+		}
+		<div class="w-px h-4 bg-border mx-0.5"></div>
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
+					@icon.Ellipsis(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@dropdown.Content() {
+				@dropdown.Item() {
+					<span class="flex items-center gap-2">
+						@icon.Clock(icon.Props{Class: "size-4"})
+						Schedule send
+					</span>
 				}
-			</div>
-			<div class="flex items-center gap-2">
-				@dialog.Close() {
-					<button type="button" class="h-9 px-4 text-sm text-ink/50 hover:text-ink transition-colors rounded-md hover:bg-ink/5">
-						Discard
-					</button>
+				@dropdown.Item() {
+					<span class="flex items-center gap-2">
+						@icon.Quote(icon.Props{Class: "size-4"})
+						Insert quote
+					</span>
 				}
-				<button type="submit" class="btn-skeuo h-9 px-5 rounded-lg text-sm font-semibold flex items-center gap-2">
-					@icon.Send(icon.Props{Class: "size-4"})
-					Send
-				</button>
-			</div>
-		</div>
-	</div>
-}
-
-templ ComposeHeader() {
-	<div class="flex items-center justify-between px-6 py-3">
-		<h2 class="text-sm font-bold text-ink" style="font-family: var(--font-serif)">New Message</h2>
-		@dialog.Close() {
-			<button type="button" class="flex items-center justify-center size-7 rounded-md text-ink/30 hover:text-ink/60 hover:bg-ink/5 transition-colors">
-				@icon.X(icon.Props{Class: "size-4"})
-			</button>
+				@dropdown.Item() {
+					<span class="flex items-center gap-2">
+						@icon.Code(icon.Props{Class: "size-4"})
+						Insert code
+					</span>
+				}
+				@dropdown.Separator()
+				@dropdown.Item() {
+					<span class="flex items-center gap-2">
+						@icon.Save(icon.Props{Class: "size-4"})
+						Save as draft
+					</span>
+				}
+			}
 		}
 	</div>
 }
 
 templ ComposeField(label string, name string, placeholder string) {
-	<div class="flex items-center gap-2 py-1.5">
-		<label class="text-xs text-ink/30 font-medium w-8 shrink-0">{ label }</label>
+	<div class="flex items-center gap-2">
+		<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">{ label }</label>
 		@input.Input(input.Props{
 			Name:        name,
 			Placeholder: placeholder,
-			Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-7 text-sm placeholder:text-ink/25",
+			Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-7 text-sm",
 		})
 	</div>
 }
