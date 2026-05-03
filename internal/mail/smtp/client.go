@@ -95,8 +95,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 }
 
 func (c *Client) Close() error {
-	c.client.Close()
-	return c.conn.Close()
+	return c.client.Close()
 }
 
 func TestConnection(ctx context.Context, cfg *models.AccountConfig, password string) error {
