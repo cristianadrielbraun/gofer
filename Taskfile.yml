@@ -9,13 +9,7 @@ tasks:
   tailwind:
     desc: Watch Tailwind CSS changes
     cmds:
-      - |
-        TEMPLUI_PATH="$(go list -mod=mod -m -f '{{.Dir}}' github.com/templui/templui)" && \
-        printf '%s\n' \
-          '@source "./**/*.templ";' \
-          "@source \"$TEMPLUI_PATH/components/**/*.templ\";" \
-          > ./assets/css/sources.generated.css && \
-        tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --watch
+      - tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --watch
 
   dev:
     desc: Start development server with hot reload
@@ -27,11 +21,6 @@ tasks:
     cmds:
       - templ generate
       - |
-        TEMPLUI_PATH="$(go list -mod=mod -m -f '{{.Dir}}' github.com/templui/templui)" && \
-        printf '%s\n' \
-          '@source "./**/*.templ";' \
-          "@source \"$TEMPLUI_PATH/components/**/*.templ\";" \
-          > ./assets/css/sources.generated.css && \
         tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css
       - go build -o ./tmp/main .
 

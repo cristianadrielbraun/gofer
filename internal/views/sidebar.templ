@@ -6,6 +6,7 @@ import (
 
 	"github.com/templui/templui/components/icon"
 	"github.com/templui/templui/components/button"
+	"github.com/templui/templui/components/dialog"
 	"github.com/templui/templui/components/dropdown"
 	"github.com/templui/templui/utils"
 )
@@ -57,10 +58,14 @@ templ SidebarHeader(accounts []models.Account) {
 				}
 			}
 		</div>
-		<button class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
-			@icon.Pen(icon.Props{Class: "size-4"})
-			Compose
-		</button>
+		@dialog.Trigger(dialog.TriggerProps{
+			For: "compose-dialog",
+		}) {
+			<button class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+				@icon.Pen(icon.Props{Class: "size-4"})
+				Compose
+			</button>
+		}
 	</div>
 }
 
