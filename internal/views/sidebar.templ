@@ -159,7 +159,11 @@ templ SidebarFolderIcon(iconName string) {
 
 templ SidebarFooter() {
 	<div class="px-4 py-3 border-t border-sidebar-border">
-		<div class="flex items-center justify-between mb-2">
+		<a href="/settings" class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground/60 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/60 transition-colors text-[13px]">
+			@icon.Settings(icon.Props{Class: "size-4"})
+			Settings
+		</a>
+		<div class="flex items-center justify-between mb-2 mt-1">
 			<span class="text-[11px] text-sidebar-foreground/40 uppercase tracking-wider font-semibold">Storage</span>
 			<span class="text-[11px] text-sidebar-foreground/40 tabular-nums">1.2 / 15 GB</span>
 		</div>

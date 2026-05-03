@@ -1,0 +1,365 @@
+package views
+
+import (
+	"fmt"
+	"gofer.email/internal/models"
+
+	"gofer.email/components/button"
+	"gofer.email/components/dialog"
+	"gofer.email/components/icon"
+	"gofer.email/components/input"
+	"gofer.email/components/tabs"
+)
+
+templ SettingsPage(accounts []models.Account) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-3xl px-8 py-10">
+				<div class="mb-6">
+					<h2 class="text-2xl font-bold text-foreground mb-1" style="font-family: var(--font-serif)">Settings</h2>
+					<p class="text-sm text-muted-foreground">Manage your accounts and preferences</p>
+				</div>
+				@tabs.Tabs() {
+					@tabs.List(tabs.ListProps{}) {
+						@tabs.Trigger(tabs.TriggerProps{Value: "accounts", IsActive: true}) {
+							Accounts
+						}
+					}
+					@tabs.Content(tabs.ContentProps{Value: "accounts", IsActive: true}) {
+						@SettingsAccountsTab(accounts)
+					}
+				}
+			</div>
+		</div>
+	</div>
+}
+
+templ SettingsAccountsTab(accounts []models.Account) {
+	<div class="mt-6 bg-card rounded-lg border p-6">
+		<div class="flex items-center justify-between mb-6">
+			<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Accounts</h3>
+			@dialog.Trigger(dialog.TriggerProps{For: "add-account-dialog"}) {
+				@button.Button(button.Props{
+					Size:    button.SizeSm,
+					Class:   "btn-skeuo",
+				}) {
+					@icon.Plus(icon.Props{Class: "size-4"})
+					Add Account
+				}
+			}
+		</div>
+		if len(accounts) == 0 {
+			@SettingsNoAccounts()
+		} else {
+			<div class="space-y-3">
+				for _, a := range accounts {
+					@SettingsAccountCard(a)
+				}
+			</div>
+		}
+	</div>
+}
+
+templ SettingsNoAccounts() {
+	<div class="flex flex-col items-center justify-center py-10 text-center">
+		<div class="size-14 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+			@icon.Mail(icon.Props{Class: "size-6 text-muted-foreground"})
+		</div>
+		<p class="text-sm font-medium text-foreground mb-1">No accounts yet</p>
+		<p class="text-xs text-muted-foreground">Add your email account to get started.</p>
+	</div>
+}
+
+templ SettingsAccountCard(account models.Account) {
+	<div class="flex items-center gap-4 p-4 rounded-lg border bg-background">
+		<div class={ "size-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0", account.Color }>
+			{ account.Initials }
+		</div>
+		<div class="flex-1 min-w-0">
+			<p class="text-sm font-medium truncate">{ account.Name }</p>
+			<p class="text-xs text-muted-foreground truncate">{ account.Email }</p>
+		</div>
+		<button
+			class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
+			hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
+			hx-target={ fmt.Sprintf("#test-%s", account.ID) }
+			hx-swap="innerHTML"
+		>
+			@icon.Wifi(icon.Props{Class: "size-3.5"})
+			Test
+		</button>
+	</div>
+	<div id={ fmt.Sprintf("test-%s", account.ID) }></div>
+}
+
+templ AddAccountDialog() {
+	@dialog.Dialog(dialog.Props{ID: "add-account-dialog"}) {
+		@dialog.Trigger() {
+			<span></span>
+		}
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Add Account
+				}
+				@dialog.Description() {
+					Connect your email account via IMAP and SMTP
+				}
+			}
+			<div id="dialog-settings-content" class="py-2">
+				@AccountForm()
+			</div>
+		}
+	}
+}
+
+templ AccountForm() {
+	<form
+		id="account-form"
+		hx-post="/api/accounts"
+		hx-target="#dialog-settings-content"
+		hx-swap="innerHTML"
+		class="space-y-6"
+	>
+		<div class="space-y-3">
+			<h4 class="text-sm font-semibold text-foreground flex items-center gap-2">
+				@icon.User(icon.Props{Class: "size-4 text-muted-foreground"})
+				Account Details
+			</h4>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="col-span-2">
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Email Address</label>
+					@input.Input(input.Props{
+						Name:        "email_address",
+						Type:        input.TypeEmail,
+						Placeholder: "you@example.com",
+						Required:    true,
+					})
+				</div>
+				<div class="col-span-2">
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Display Name</label>
+					@input.Input(input.Props{
+						Name:        "display_name",
+						Type:        input.TypeText,
+						Placeholder: "Your Name",
+					})
+				</div>
+			</div>
+		</div>
+
+		<hr class="border-border"/>
+
+		<div class="space-y-3">
+			<h4 class="text-sm font-semibold text-foreground flex items-center gap-2">
+				@icon.Server(icon.Props{Class: "size-4 text-muted-foreground"})
+				IMAP Server
+			</h4>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="col-span-2">
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Host</label>
+					@input.Input(input.Props{
+						Name:        "imap_host",
+						Type:        input.TypeText,
+						Placeholder: "imap.example.com",
+						Required:    true,
+					})
+				</div>
+				<div>
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Port</label>
+					@input.Input(input.Props{
+						Name:        "imap_port",
+						Type:        input.TypeNumber,
+						Placeholder: "993",
+						Value:       "993",
+					})
+				</div>
+				<div>
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">TLS Mode</label>
+					<select name="imap_tls_mode" class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+						<option value="tls" selected>TLS</option>
+						<option value="starttls">STARTTLS</option>
+						<option value="none">None</option>
+					</select>
+				</div>
+			</div>
+		</div>
+
+		<hr class="border-border"/>
+
+		<div class="space-y-3">
+			<h4 class="text-sm font-semibold text-foreground flex items-center gap-2">
+				@icon.Send(icon.Props{Class: "size-4 text-muted-foreground"})
+				SMTP Server
+			</h4>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="col-span-2">
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Host</label>
+					@input.Input(input.Props{
+						Name:        "smtp_host",
+						Type:        input.TypeText,
+						Placeholder: "smtp.example.com",
+						Required:    true,
+					})
+				</div>
+				<div>
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Port</label>
+					@input.Input(input.Props{
+						Name:        "smtp_port",
+						Type:        input.TypeNumber,
+						Placeholder: "465",
+						Value:       "465",
+					})
+				</div>
+				<div>
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">TLS Mode</label>
+					<select name="smtp_tls_mode" class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+						<option value="tls" selected>TLS</option>
+						<option value="starttls">STARTTLS</option>
+						<option value="none">None</option>
+					</select>
+				</div>
+			</div>
+		</div>
+
+		<hr class="border-border"/>
+
+		<div class="space-y-3">
+			<h4 class="text-sm font-semibold text-foreground flex items-center gap-2">
+				@icon.Key(icon.Props{Class: "size-4 text-muted-foreground"})
+				Authentication
+			</h4>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="col-span-2">
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Username</label>
+					@input.Input(input.Props{
+						Name:        "username",
+						Type:        input.TypeText,
+						Placeholder: "you@example.com",
+						Required:    true,
+					})
+				</div>
+				<div class="col-span-2">
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Password</label>
+					@input.Input(input.Props{
+						Name:        "password",
+						Type:        input.TypePassword,
+						Placeholder: "••••••••",
+						Required:    true,
+					})
+				</div>
+				<div class="col-span-2">
+					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Method</label>
+					<select name="auth_method" class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+						<option value="plain" selected>PLAIN</option>
+						<option value="oauth2">OAuth2</option>
+					</select>
+				</div>
+			</div>
+		</div>
+
+		@dialog.Footer() {
+			@dialog.Close() {
+				@button.Button(button.Props{
+					Type:    button.TypeButton,
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+				}) {
+					Cancel
+				}
+			}
+			<button
+				type="submit"
+				class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg"
+			>
+				@icon.Plus(icon.Props{Class: "size-4"})
+				Add Account
+			</button>
+		}
+	</form>
+}
+
+templ AccountAdded(account *models.Account) {
+	<div class="space-y-4">
+		<div class="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+			@icon.Check(icon.Props{Class: "size-5 text-emerald-500"})
+			<div>
+				<p class="text-sm font-medium text-emerald-500">Account created</p>
+				<p class="text-xs text-muted-foreground">{ account.Email }</p>
+			</div>
+		</div>
+		<div id="test-results" class="space-y-2">
+			<button
+				class="w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors"
+				hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
+				hx-target="#test-results"
+				hx-swap="innerHTML"
+			>
+				@icon.Wifi(icon.Props{Class: "size-4"})
+				Test Connection
+			</button>
+		</div>
+		<div class="flex justify-end pt-2">
+			<a href="/settings" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent">
+				@icon.ArrowLeft(icon.Props{Class: "size-4"})
+				Back to Settings
+			</a>
+		</div>
+	</div>
+}
+
+templ AccountFormError(message string) {
+	<div class="space-y-4">
+		<div class="flex items-center gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+			@icon.CircleAlert(icon.Props{Class: "size-5 text-destructive"})
+			<p class="text-sm text-destructive">{ message }</p>
+		</div>
+		<button
+			class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+			hx-get="/settings/account-form"
+			hx-target="#dialog-settings-content"
+			hx-swap="innerHTML"
+		>
+			@icon.ArrowLeft(icon.Props{Class: "size-4"})
+			Try Again
+		</button>
+	</div>
+}
+
+templ ConnectionTestResults(results []models.ConnectionTestResult, accountID string) {
+	<div class="space-y-3">
+		for _, r := range results {
+			<div class={
+				"flex items-center gap-3 p-3 rounded-lg border",
+				templ.KV("bg-emerald-500/10 border-emerald-500/20", r.Success),
+				templ.KV("bg-destructive/10 border-destructive/20", !r.Success),
+			}>
+				if r.Success {
+					@icon.Check(icon.Props{Class: "size-5 text-emerald-500"})
+				} else {
+					@icon.X(icon.Props{Class: "size-5 text-destructive"})
+				}
+				<div class="flex-1 min-w-0">
+					<div class="flex items-center gap-2">
+						<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ r.Service }</span>
+						if r.Success {
+							<span class="text-xs text-emerald-500 font-medium">{ r.Message }</span>
+						}
+					</div>
+					if !r.Success {
+						<p class="text-xs text-destructive mt-0.5">{ r.Error }</p>
+						<p class="text-xs text-muted-foreground mt-0.5">{ r.Message }</p>
+					}
+				</div>
+			</div>
+		}
+		<button
+			class="w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors"
+			hx-post={ fmt.Sprintf("/api/accounts/%s/test", accountID) }
+			hx-target="#test-results"
+			hx-swap="outerHTML"
+		>
+			@icon.RefreshCw(icon.Props{Class: "size-4"})
+			Retry
+		</button>
+	</div>
+}

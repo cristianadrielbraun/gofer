@@ -5,6 +5,7 @@ import (
 
 	"gofer.email/components/dialog"
 	"gofer.email/components/dropdown"
+	"gofer.email/components/tabs"
 	"gofer.email/components/tooltip"
 )
 
@@ -21,6 +22,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<link rel="stylesheet" href="/assets/css/output.css"/>
 			@dialog.Script()
 			@dropdown.Script()
+			@tabs.Script()
 			@tooltip.Script()
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
@@ -36,6 +38,35 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<script src="/assets/js/virtual-scroll.js"></script>
 			<script src="/assets/js/app.js"></script>
 			<script src="/assets/js/resize.js"></script>
+		</body>
+	</html>
+}
+
+templ SettingsLayout(accounts []models.Account) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Settings — gofer.email</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+			@dialog.Script()
+			@dropdown.Script()
+			@tabs.Script()
+			@tooltip.Script()
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<div class="flex h-screen overflow-hidden">
+				@Sidebar(accounts, "")
+				@SettingsPage(accounts)
+			</div>
+			@ComposeDialog()
+			@AddAccountDialog()
+			<script src="/assets/js/htmx.min.js"></script>
+			<script src="/assets/js/app.js"></script>
 		</body>
 	</html>
 }

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"fmt"
 	"gofer.email/internal/config"
 	"gofer.email/internal/mail/imap"
@@ -32,6 +31,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)
+	mux.HandleFunc("GET /settings/account-form", h.handleAccountForm)
+	mux.HandleFunc("GET /settings", h.handleSettings)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -186,40 +187,41 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
-	var req models.CreateAccountRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := r.ParseForm(); err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError("Invalid form data").Render(r.Context(), w)
 		return
 	}
 
-	if req.EmailAddress == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email_address is required"})
-		return
+	req := models.CreateAccountRequest{
+		EmailAddress: r.FormValue("email_address"),
+		DisplayName:  r.FormValue("display_name"),
+		IMAPHost:     r.FormValue("imap_host"),
+		IMAPPort:     atoiDefault(r.FormValue("imap_port"), 993),
+		IMAPTLSMode:  r.FormValue("imap_tls_mode"),
+		SMTPHost:     r.FormValue("smtp_host"),
+		SMTPPort:     atoiDefault(r.FormValue("smtp_port"), 465),
+		SMTPTLSMode:  r.FormValue("smtp_tls_mode"),
+		Username:     r.FormValue("username"),
+		Password:     r.FormValue("password"),
+		AuthMethod:   r.FormValue("auth_method"),
 	}
-	if req.IMAPHost == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "imap_host is required"})
-		return
-	}
-	if req.SMTPHost == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "smtp_host is required"})
-		return
-	}
-	if req.Username == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username is required"})
-		return
-	}
-	if req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password is required"})
+
+	if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" || req.Password == "" {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError("All required fields must be filled in").Render(r.Context(), w)
 		return
 	}
 
 	account, err := h.accountStore.CreateAccount(r.Context(), &req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("create account: %v", err), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError(fmt.Sprintf("Failed to create account: %v", err)).Render(r.Context(), w)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, account)
+	w.Header().Set("Content-Type", "text/html")
+	views.AccountAdded(account).Render(r.Context(), w)
 }
 
 func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
@@ -249,7 +251,6 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		Message: fmt.Sprintf("%s:%d (%s)", cfg.IMAPHost, cfg.IMAPPort, cfg.IMAPTLSMode),
 	}
 	if imapErr != nil {
-		imapResult.Success = false
 		imapResult.Error = imapErr.Error()
 	} else {
 		imapResult.Success = true
@@ -263,7 +264,6 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		Message: fmt.Sprintf("%s:%d (%s)", cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPTLSMode),
 	}
 	if smtpErr != nil {
-		smtpResult.Success = false
 		smtpResult.Error = smtpErr.Error()
 	} else {
 		smtpResult.Success = true
@@ -271,11 +271,24 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	results = append(results, smtpResult)
 
-	writeJSON(w, http.StatusOK, results)
+	w.Header().Set("Content-Type", "text/html")
+	views.ConnectionTestResults(results, accountID).Render(r.Context(), w)
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+func (h *Handler) handleAccountForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	views.AccountForm().Render(r.Context(), w)
+}
+
+func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	accounts, _ := h.db.GetAccounts(ctx)
+	views.SettingsLayout(accounts).Render(ctx, w)
+}
+
+func atoiDefault(s string, def int) int {
+	if v, err := strconv.Atoi(s); err == nil && v > 0 {
+		return v
+	}
+	return def
 }

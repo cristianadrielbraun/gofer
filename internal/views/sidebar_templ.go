@@ -702,7 +702,15 @@ func SidebarFooter() templ.Component {
 			templ_7745c5c3_Var26 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<div class=\"px-4 py-3 border-t border-sidebar-border\"><div class=\"flex items-center justify-between mb-2\"><span class=\"text-[11px] text-sidebar-foreground/40 uppercase tracking-wider font-semibold\">Storage</span> <span class=\"text-[11px] text-sidebar-foreground/40 tabular-nums\">1.2 / 15 GB</span></div><div class=\"w-full h-1.5 rounded-full bg-sidebar-accent shadow-[0_1px_2px_rgba(0,0,0,0.3)_inset] overflow-hidden\"><div class=\"h-full w-[8%] rounded-full bg-gradient-to-r from-amber-700 to-amber-600 shadow-[0_0_4px_rgba(180,120,40,0.3)]\"></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<div class=\"px-4 py-3 border-t border-sidebar-border\"><a href=\"/settings\" class=\"w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground/60 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/60 transition-colors text-[13px]\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = icon.Settings(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "Settings</a><div class=\"flex items-center justify-between mb-2 mt-1\"><span class=\"text-[11px] text-sidebar-foreground/40 uppercase tracking-wider font-semibold\">Storage</span> <span class=\"text-[11px] text-sidebar-foreground/40 tabular-nums\">1.2 / 15 GB</span></div><div class=\"w-full h-1.5 rounded-full bg-sidebar-accent shadow-[0_1px_2px_rgba(0,0,0,0.3)_inset] overflow-hidden\"><div class=\"h-full w-[8%] rounded-full bg-gradient-to-r from-amber-700 to-amber-600 shadow-[0_0_4px_rgba(180,120,40,0.3)]\"></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
