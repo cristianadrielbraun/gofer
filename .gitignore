@@ -3,5 +3,6 @@ tmp/
 internal_notes/
 *.png
 .air.toml
+data/
 
 assets/css/output.css

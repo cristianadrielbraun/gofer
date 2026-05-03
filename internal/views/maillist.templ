@@ -25,8 +25,8 @@ templ MailListHeader(activeFolder string, totalCount int) {
 	<div class="px-4 py-4 space-y-3">
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2">
-				<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ folderDisplayName(activeFolder) }</h2>
-				<span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+				<h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ folderDisplayName(activeFolder) }</h2>
+				<span id="mail-folder-count" class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
 			</div>
 			<div class="flex items-center gap-0.5">
 				@tooltip.Tooltip() {

@@ -241,6 +241,11 @@
   height: 88px;
   min-height: 88px;
   max-height: 88px;
+  padding: 3px 0;
+}
+
+.mail-list-item > a {
+  height: 100%;
   overflow: hidden;
 }
 
@@ -252,7 +257,7 @@
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
-  padding: 0.625rem 0.875rem;
+  padding: 3px 0.875rem;
 }
 
 .new-email-banner {

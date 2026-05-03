@@ -2,16 +2,19 @@ package handler
 
 import (
 	"gofer.email/internal/models"
+	"gofer.email/internal/storage"
 	"gofer.email/internal/views"
 	"net/http"
 	"os"
 	"strconv"
 )
 
-type Handler struct{}
+type Handler struct {
+	db *storage.DB
+}
 
-func New() *Handler {
-	return &Handler{}
+func New(db *storage.DB) *Handler {
+	return &Handler{db: db}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {

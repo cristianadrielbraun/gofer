@@ -24,7 +24,6 @@ class VirtualMailList {
     this.itemsContainer = null
     this.bannerEl = null
 
-    this.setupDOM()
     this.bindEvents()
   }
 
@@ -34,8 +33,6 @@ class VirtualMailList {
     this.itemsContainer = document.createElement("div")
 
     this.container.innerHTML = ""
-    this.container.style.overflow = "auto"
-    this.container.style.position = "relative"
     this.container.appendChild(this.spacerTop)
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
@@ -85,11 +82,14 @@ class VirtualMailList {
         var row = document.createElement("div")
         row.innerHTML = item.html
         var el = row.firstChild
-        if (item.id === this.selectedEmailId) {
-          var anchor = el.querySelector("a")
-          if (anchor) {
+        var anchor = el.querySelector("a")
+        if (anchor) {
+          if (item.id === this.selectedEmailId) {
             anchor.classList.remove("envelope")
             anchor.classList.add("envelope-active")
+          } else {
+            anchor.classList.remove("envelope-active")
+            anchor.classList.add("envelope")
           }
         }
         fragment.appendChild(el)
@@ -100,6 +100,14 @@ class VirtualMailList {
 
     this.itemsContainer.innerHTML = ""
     this.itemsContainer.appendChild(fragment)
+
+    if (typeof htmx !== "undefined") {
+      htmx.process(this.itemsContainer)
+    }
+
+    if (this.container.scrollTop !== scrollTop) {
+      this.container.scrollTop = scrollTop
+    }
   }
 
   createSkeleton() {
@@ -144,6 +152,8 @@ class VirtualMailList {
         }
         var html = await this.fetchHTML(url)
         this.ingestHTML(html)
+        this.prevFirst = null
+        this.prevLast = null
         this.render()
       } finally {
         this.activeFetches.delete(key)
@@ -167,6 +177,8 @@ class VirtualMailList {
       var url = "/mail/folder/" + this.folderID + "/items?" + params
       var html = await this.fetchHTML(url)
       this.ingestHTML(html)
+      this.prevFirst = null
+      this.prevLast = null
       this.render()
     } finally {
       this.isLoading = false
@@ -346,6 +358,7 @@ class VirtualMailList {
     }
 
     this.render()
+    this.updateHeader()
   }
 
   reset() {
@@ -367,6 +380,8 @@ class VirtualMailList {
 
   onEmailSelected(emailId) {
     this.selectedEmailId = emailId
+    this.prevFirst = null
+    this.prevLast = null
     this.render()
   }
 
@@ -387,6 +402,23 @@ class VirtualMailList {
     if (this.bannerEl) {
       this.bannerEl.remove()
       this.bannerEl = null
+    }
+  }
+
+  updateHeader() {
+    var nameEl = document.getElementById("mail-folder-name")
+    if (nameEl) {
+      var link = document.querySelector(
+        'aside a[hx-get="/folder/' + this.folderID + '"]'
+      )
+      if (link) {
+        var span = link.querySelector("span.truncate")
+        if (span) nameEl.textContent = span.textContent.trim()
+      }
+    }
+    var countEl = document.getElementById("mail-folder-count")
+    if (countEl) {
+      countEl.textContent = String(this.totalCount)
     }
   }
 
