@@ -8,21 +8,28 @@ import (
 	"gofer.email/internal/config"
 	"gofer.email/internal/mail/imap"
 	"gofer.email/internal/storage"
+	"gofer.email/internal/store"
 )
 
 type SyncOrchestrator struct {
 	db           *storage.DB
 	accountStore *config.AccountStore
+	blobStore    *store.BlobStore
 	mu           sync.Mutex
 	running      map[string]bool
 }
 
-func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore) *SyncOrchestrator {
+func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blobStore *store.BlobStore) *SyncOrchestrator {
 	return &SyncOrchestrator{
 		db:           db,
 		accountStore: accountStore,
+		blobStore:    blobStore,
 		running:      make(map[string]bool),
 	}
+}
+
+func (o *SyncOrchestrator) BlobStore() *store.BlobStore {
+	return o.blobStore
 }
 
 func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) {

@@ -1,27 +1,34 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"gofer.email/internal/config"
 	mail "gofer.email/internal/mail"
 	"gofer.email/internal/mail/imap"
+	"gofer.email/internal/mail/message"
 	smtpclient "gofer.email/internal/mail/smtp"
 	"gofer.email/internal/models"
 	"gofer.email/internal/storage"
+	"gofer.email/internal/store"
 	"gofer.email/internal/views"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type Handler struct {
 	db           *storage.DB
 	accountStore *config.AccountStore
 	syncer       *mail.SyncOrchestrator
+	blobStore    *store.BlobStore
 }
 
-func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator) *Handler {
-	return &Handler{db: db, accountStore: accountStore, syncer: syncer}
+func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore) *Handler {
+	return &Handler{db: db, accountStore: accountStore, syncer: syncer, blobStore: blobStore}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -37,6 +44,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)
 	mux.HandleFunc("DELETE /api/accounts/{id}", h.handleDeleteAccount)
 	mux.HandleFunc("GET /settings", h.handleSettings)
+	mux.HandleFunc("GET /api/attachments/{id}/download", h.handleAttachmentDownload)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -95,20 +103,119 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email, err := h.db.GetEmailByID(r.Context(), emailID)
+	ctx := r.Context()
+
+	email, err := h.db.GetEmailByID(ctx, emailID)
 	if err != nil || email == nil {
 		http.NotFound(w, r)
 		return
 	}
 
+	msgID, _ := strconv.ParseInt(emailID, 10, 64)
+	if msgID > 0 && !h.db.IsBodyFetched(ctx, msgID) {
+		h.fetchBody(ctx, msgID, email.AccountID)
+		email, _ = h.db.GetEmailByID(ctx, emailID)
+		if email == nil {
+			http.NotFound(w, r)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/html")
-	views.MailViewContent(email).Render(r.Context(), w)
+	views.MailViewContent(email).Render(ctx, w)
+}
+
+func (h *Handler) fetchBody(ctx context.Context, msgID int64, accountID string) {
+	info, err := h.db.GetMessageFetchInfo(ctx, msgID)
+	if err != nil || info == nil {
+		return
+	}
+
+	cfg, err := h.accountStore.GetConfig(ctx, accountID)
+	if err != nil {
+		return
+	}
+
+	password, err := h.accountStore.DecryptPassword(ctx, accountID)
+	if err != nil {
+		return
+	}
+
+	client, err := imap.NewClient(ctx, cfg, password)
+	if err != nil {
+		return
+	}
+	defer client.Close()
+
+	bodyData, err := client.FetchBody(ctx, info.FolderRemoteID, info.RemoteUID)
+	if err != nil {
+		return
+	}
+
+	parsed, err := message.ParseMessage(ctx, bytes.NewReader(bodyData), h.blobStore, accountID, msgID)
+	if err != nil {
+		return
+	}
+
+	var textPath, htmlPath string
+	if parsed.TextBody != "" {
+		p, err := h.blobStore.StoreBodyText(ctx, accountID, msgID, []byte(parsed.TextBody))
+		if err == nil {
+			textPath = p
+		}
+	}
+
+	if len(parsed.HTMLBody) > 0 {
+		sanitized := message.SanitizeHTML(parsed.HTMLBody)
+		p, err := h.blobStore.StoreBodyHTML(ctx, accountID, msgID, sanitized)
+		if err == nil {
+			htmlPath = p
+		}
+	}
+
+	snippet := parsed.Snippet
+	if snippet == "" {
+		snippet = parsed.Subject
+	}
+
+	if err := h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, parsed.RawPath, snippet); err != nil {
+		return
+	}
+
+	if len(parsed.Attachments) > 0 {
+		var attRows []storage.AttachmentRow
+		for _, a := range parsed.Attachments {
+			attRows = append(attRows, storage.AttachmentRow{
+				Filename:    a.Filename,
+				ContentType: a.ContentType,
+				SizeBytes:   a.Size,
+				ContentID:   a.ContentID,
+				Inline:      a.Inline,
+				StoragePath: a.BlobPath,
+			})
+		}
+		h.db.InsertAttachments(ctx, msgID, attRows)
+	}
 }
 
 func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	folderID := r.PathValue("id")
 	if folderID == "" {
 		folderID = "inbox"
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		currentURL := r.Header.Get("HX-Current-URL")
+		if currentURL != "" && strings.Contains(currentURL, "/settings") {
+			w.Header().Set("HX-Redirect", fmt.Sprintf("/?folder=%s", folderID))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if currentURL == "" && r.Referer() != "" && strings.Contains(r.Referer(), "/settings") {
+			w.Header().Set("HX-Redirect", fmt.Sprintf("/?folder=%s", folderID))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 	}
 
 	ctx := r.Context()
@@ -370,7 +477,22 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	wizardType := r.URL.Query().Get("wizard")
-	views.ConnectionTestResults(results, accountID, wizardType).Render(r.Context(), w)
+	if wizardType != "" {
+		views.ConnectionTestResults(results, accountID, wizardType).Render(r.Context(), w)
+		return
+	}
+	allSuccess := true
+	for _, r := range results {
+		if !r.Success {
+			allSuccess = false
+			break
+		}
+	}
+	if allSuccess {
+		views.SettingsTestButtonSuccess(accountID).Render(r.Context(), w)
+	} else {
+		views.SettingsTestButtonError(accountID, results).Render(r.Context(), w)
+	}
 }
 
 func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -384,4 +506,35 @@ func atoiDefault(s string, def int) int {
 		return v
 	}
 	return def
+}
+
+func (h *Handler) handleAttachmentDownload(w http.ResponseWriter, r *http.Request) {
+	attIDStr := r.PathValue("id")
+	attID, err := strconv.ParseInt(attIDStr, 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	ctx := r.Context()
+
+	var filename, contentType, storagePath string
+	err = h.db.Read().QueryRowContext(ctx,
+		`SELECT filename, content_type, storage_path FROM attachments WHERE id = ?`, attID,
+	).Scan(&filename, &contentType, &storagePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	f, err := os.Open(storagePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	http.ServeContent(w, r, filename, time.Time{}, f)
 }

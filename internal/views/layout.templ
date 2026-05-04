@@ -63,6 +63,7 @@ templ SettingsLayout(accounts []models.Account) {
 				@Sidebar(accounts, "")
 				@SettingsPage(accounts)
 			</div>
+			<div id="mail-list" class="hidden"></div>
 			@ComposeDialog()
 			@AddAccountDialog()
 			<div id="edit-account-container"></div>

@@ -8,6 +8,7 @@ import (
 	"gofer.email/internal/handler"
 	"gofer.email/internal/mail"
 	"gofer.email/internal/storage"
+	"gofer.email/internal/store"
 	"log"
 	"net/http"
 	"os"
@@ -35,10 +36,12 @@ func main() {
 		log.Fatalf("failed to create account store: %v", err)
 	}
 
-	syncer := mail.NewSyncOrchestrator(db, accountStore)
+	blobStore := store.NewBlobStore(filepath.Join(dataDir, "accounts"))
+
+	syncer := mail.NewSyncOrchestrator(db, accountStore, blobStore)
 
 	mux := http.NewServeMux()
-	h := handler.New(db, accountStore, syncer)
+	h := handler.New(db, accountStore, syncer, blobStore)
 	h.RegisterRoutes(mux)
 
 	addr := ":8090"

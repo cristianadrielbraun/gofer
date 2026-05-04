@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", function () {
   initVirtualScroll()
   setupFolderClickInterception()
   setupEmailSelectionTracking()
+  setupTestButtonAnimation()
 
   function initVirtualScroll() {
     var container = document.getElementById("mail-list-scroll")
@@ -63,4 +64,88 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     })
   }
+
+  function setupTestButtonAnimation() {
+    document.body.addEventListener("htmx:beforeRequest", function (e) {
+      var btn = e.detail.elt
+      if (!btn || !btn.dataset || !btn.dataset.testBtn) return
+
+      window["_testBtn_" + btn.id] = btn.outerHTML
+
+      var w = btn.offsetWidth
+      btn.style.width = w + "px"
+      btn.style.whiteSpace = "nowrap"
+      btn.style.pointerEvents = "none"
+      btn.disabled = true
+
+      btn.innerHTML =
+        '<div class="size-3.5 shrink-0 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>' +
+        '<span class="test-anim-text" style="opacity:0;transition:opacity 0.2s ease 0.15s">Testing...</span>'
+
+      btn.style.width = "auto"
+      var newW = btn.offsetWidth
+      btn.style.width = w + "px"
+
+      void btn.offsetWidth
+      btn.style.transition = "width 0.3s ease"
+      btn.style.width = newW + "px"
+
+      requestAnimationFrame(function () {
+        var text = btn.querySelector(".test-anim-text")
+        if (text) text.style.opacity = "1"
+      })
+
+      setTimeout(function () {
+        btn.style.width = ""
+        btn.style.transition = ""
+        btn.style.whiteSpace = ""
+      }, 400)
+    })
+
+    document.body.addEventListener("htmx:afterSettle", function () {
+      var el = document.querySelector("[data-test-restore]")
+      if (!el) return
+      var id = el.id
+      setTimeout(function () {
+        restoreTestButton(id)
+      }, 3000)
+    })
+  }
 })
+
+window.restoreTestButton = function (id) {
+  var original = window["_testBtn_" + id]
+  if (!original) return
+
+  var el = document.getElementById(id)
+  if (!el) return
+
+  el.style.transition = "opacity 0.3s ease, transform 0.3s ease"
+  el.style.opacity = "0"
+  el.style.transform = "scale(0.95)"
+
+  setTimeout(function () {
+    el.outerHTML = original
+    var restored = document.getElementById(id)
+    if (restored) {
+      restored.style.opacity = "0"
+      restored.style.transform = "scale(0.95)"
+      requestAnimationFrame(function () {
+        restored.style.transition = "opacity 0.3s ease, transform 0.3s ease"
+        restored.style.opacity = "1"
+        restored.style.transform = "scale(1)"
+        setTimeout(function () {
+          restored.style.transition = ""
+          restored.style.transform = ""
+          restored.style.opacity = ""
+        }, 300)
+      })
+    }
+  }, 300)
+}
+
+window.toggleTestError = function (id) {
+  var el = document.getElementById(id)
+  if (!el) return
+  el.classList.toggle("hidden")
+}

@@ -63,6 +63,56 @@ templ SettingsAccountsTab(accounts []models.Account) {
 	</div>
 }
 
+templ SettingsTestButtonSuccess(accountID string) {
+	<button
+		id={ fmt.Sprintf("test-btn-%s", accountID) }
+		data-test-restore
+		class="inline-flex items-center gap-1.5 text-xs text-emerald-600 px-2.5 py-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10"
+	>
+		@icon.CircleCheck(icon.Props{Class: "size-3.5"})
+		Connected
+	</button>
+}
+
+templ SettingsTestButtonError(accountID string, results []models.ConnectionTestResult) {
+	<span id={ fmt.Sprintf("test-btn-%s", accountID) } class="relative inline-flex items-center gap-1">
+		<button
+			data-test-btn
+			class="inline-flex items-center gap-1.5 text-xs text-destructive transition-colors px-2.5 py-1.5 rounded-md border border-destructive/20 bg-destructive/10 hover:bg-destructive/15"
+			hx-post={ fmt.Sprintf("/api/accounts/%s/test", accountID) }
+			hx-target={ fmt.Sprintf("#test-btn-%s", accountID) }
+			hx-swap="outerHTML"
+		>
+			@icon.CircleX(icon.Props{Class: "size-3.5"})
+			Failed
+		</button>
+		<button
+			class="inline-flex items-center justify-center size-5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+			{ templ.Attributes{"onclick": fmt.Sprintf("toggleTestError('test-err-%s')", accountID) }... }
+		>
+			@icon.Info(icon.Props{Class: "size-3"})
+		</button>
+		<div
+			id={ fmt.Sprintf("test-err-%s", accountID) }
+			class="hidden absolute top-full right-0 mt-1 p-3 rounded-lg bg-popover border shadow-lg text-xs max-w-xs z-50"
+		>
+			<div class="space-y-2">
+				for _, r := range results {
+					<div>
+						<p class="font-semibold text-muted-foreground uppercase tracking-wider">{ r.Service }</p>
+						if r.Success {
+							<p class="text-emerald-600 mt-0.5">{ r.Message }</p>
+						} else {
+							<p class="text-destructive mt-0.5">{ r.Error }</p>
+							<p class="text-muted-foreground mt-0.5">{ r.Message }</p>
+						}
+					</div>
+				}
+			</div>
+		</div>
+	</span>
+}
+
 templ SettingsNoAccounts() {
 	<div class="flex flex-col items-center justify-center py-10 text-center">
 		<div class="size-14 rounded-full bg-muted/50 flex items-center justify-center mb-4">
@@ -92,24 +142,17 @@ templ SettingsAccountCard(account models.Account) {
 			Edit
 		</button>
 		<button
+			id={ fmt.Sprintf("test-btn-%s", account.ID) }
+			data-test-btn
 			class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
 			hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
-			hx-target={ fmt.Sprintf("#test-%s", account.ID) }
-			hx-swap="innerHTML"
+			hx-target={ fmt.Sprintf("#test-btn-%s", account.ID) }
+			hx-swap="outerHTML"
 		>
 			@icon.Wifi(icon.Props{Class: "size-3.5"})
 			Test
 		</button>
-		<button
-			class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors px-2.5 py-1.5 rounded-md border border-border hover:bg-destructive/10"
-			hx-delete={ fmt.Sprintf("/api/accounts/%s", account.ID) }
-			hx-confirm="Are you sure you want to delete this account?"
-		>
-			@icon.Trash2(icon.Props{Class: "size-3.5"})
-			Delete
-		</button>
 	</div>
-	<div id={ fmt.Sprintf("test-%s", account.ID) }></div>
 }
 
 templ AddAccountDialog() {

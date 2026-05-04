@@ -8,6 +8,8 @@ import (
 	"gofer.email/components/button"
 	"gofer.email/components/tooltip"
 	"gofer.email/components/dropdown"
+
+	"github.com/dustin/go-humanize"
 )
 
 templ MailView(email *models.Email) {
@@ -171,9 +173,11 @@ templ MailViewSender(email *models.Email) {
 				<span class="text-xs text-ink/40">&lt;{ email.From.Email }&gt;</span>
 			</div>
 			<div class="text-xs text-ink/40 mt-0.5">
-				to { email.To[0].Name }
-				if len(email.To) > 1 {
-					{ fmt.Sprintf(" and %d more", len(email.To)-1) }
+				if len(email.To) > 0 {
+					to { email.To[0].Name }
+					if len(email.To) > 1 {
+						{ fmt.Sprintf(" and %d more", len(email.To)-1) }
+					}
 				}
 				if len(email.CC) > 0 {
 					, cc { email.CC[0].Name }
@@ -182,31 +186,39 @@ templ MailViewSender(email *models.Email) {
 		</div>
 	</div>
 	<h1 class="text-xl font-bold mt-5 tracking-tight text-ink" style="font-family: var(--font-serif)">{ email.Subject }</h1>
-	if email.HasAttachment {
-		<div class="mt-5 flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-			<div class="flex items-center justify-center size-9 rounded-md bg-ink/[0.03] shadow-[0_1px_2px_rgba(0,0,0,0.06)_inset]">
-				@icon.File(icon.Props{Class: "size-4 text-ink/30"})
-			</div>
-			<div class="flex-1 min-w-0">
-				<p class="text-sm font-medium text-ink truncate">attachment.pdf</p>
-				<p class="text-[11px] text-ink/30">2.4 MB</p>
-			</div>
-			@button.Button(button.Props{
-				Variant: button.VariantOutline,
-				Size:    button.SizeSm,
-				Class:   "shrink-0 border-ink/10 text-ink/60 hover:text-ink",
-			}) {
-				<span class="flex items-center gap-1.5">
-					@icon.Download(icon.Props{Class: "size-3.5"})
-					Download
-				</span>
+	if len(email.Attachments) > 0 {
+		<div class="mt-5 space-y-2">
+			for _, att := range email.Attachments {
+				if !att.Inline {
+					<div class="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+						<div class="flex items-center justify-center size-9 rounded-md bg-ink/[0.03] shadow-[0_1px_2px_rgba(0,0,0,0.06)_inset]">
+							@icon.File(icon.Props{Class: "size-4 text-ink/30"})
+						</div>
+						<div class="flex-1 min-w-0">
+							<p class="text-sm font-medium text-ink truncate">{ att.Filename }</p>
+							<p class="text-[11px] text-ink/30">{ humanize.Bytes(uint64(att.SizeBytes)) }</p>
+						</div>
+						<a href={ fmt.Sprintf("/api/attachments/%d/download", att.ID) } download>
+							@button.Button(button.Props{
+								Variant: button.VariantOutline,
+								Size:    button.SizeSm,
+								Class:   "shrink-0 border-ink/10 text-ink/60 hover:text-ink",
+							}) {
+								<span class="flex items-center gap-1.5">
+									@icon.Download(icon.Props{Class: "size-3.5"})
+									Download
+								</span>
+							}
+						</a>
+					</div>
+				}
 			}
 		</div>
 	}
 }
 
 templ MailViewBody(email *models.Email) {
-	<div class="prose text-[14px]">
+	<div class="prose text-[14px]" id="email-body">
 		{ email.Body }
 	</div>
 }

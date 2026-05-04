@@ -38,6 +38,7 @@ type Email struct {
 	Labels        []Label
 	IsSelected    bool
 	ThreadCount   int
+	Attachments   []Attachment
 }
 
 type Contact struct {
@@ -49,6 +50,16 @@ type Contact struct {
 type Label struct {
 	Name  string
 	Color string
+}
+
+type Attachment struct {
+	ID          int64
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+	ContentID   string
+	Inline      bool
+	StoragePath string
 }
 
 type EmailPage struct {

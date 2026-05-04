@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"html/template"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -360,13 +361,16 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 		snippet      string
 		accountID    string
 		hasAttach    int
+		bodyTextPath sql.NullString
+		bodyHTMLPath sql.NullString
 	)
 
 	err = db.Read().QueryRowContext(ctx,
 		`SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email,
-		        m.date_received, m.snippet, m.has_attachments
+		        m.date_received, m.snippet, m.has_attachments,
+		        m.body_text_path, m.body_html_path
 		 FROM messages m WHERE m.id = ?`, msgID,
-	).Scan(&msgID, &accountID, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach)
+	).Scan(&msgID, &accountID, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach, &bodyTextPath, &bodyHTMLPath)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -381,8 +385,25 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	email.Subject = subject
 	email.From = models.Contact{Name: fromName, Email: fromEmail, Initials: initials(fromName)}
 	email.Preview = snippet
-	email.Body = template.HTML(fmt.Sprintf("<p>%s</p>", snippet))
 	email.HasAttachment = hasAttach == 1
+
+	if bodyHTMLPath.Valid && bodyHTMLPath.String != "" {
+		data, err := os.ReadFile(bodyHTMLPath.String)
+		if err == nil {
+			email.Body = template.HTML(data)
+		} else {
+			email.Body = template.HTML(fmt.Sprintf("<p>%s</p>", snippet))
+		}
+	} else if bodyTextPath.Valid && bodyTextPath.String != "" {
+		data, err := os.ReadFile(bodyTextPath.String)
+		if err == nil {
+			email.Body = template.HTML("<pre style=\"white-space:pre-wrap;word-wrap:break-word;font-family:inherit\">" + template.HTML(template.HTMLEscapeString(string(data))) + "</pre>")
+		} else {
+			email.Body = template.HTML(fmt.Sprintf("<p>%s</p>", snippet))
+		}
+	} else {
+		email.Body = template.HTML(fmt.Sprintf("<p>%s</p>", snippet))
+	}
 	if dateReceived.Valid {
 		email.Date = formatRelativeDate(dateReceived.Time, now)
 	}
@@ -401,6 +422,7 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	email.To, _ = db.getRecipients(ctx, msgID, "to")
 	email.CC, _ = db.getRecipients(ctx, msgID, "cc")
 	email.Labels, _ = db.getMessageLabels(ctx, msgID)
+	email.Attachments, _ = db.GetAttachments(ctx, msgID)
 
 	return &email, nil
 }
@@ -687,4 +709,132 @@ func (db *DB) SearchMessages(ctx context.Context, query string, limit int) ([]mo
 		emails[i] = r.email
 	}
 	return emails, nil
+}
+
+type MessageFetchInfo struct {
+	AccountID      string
+	FolderRemoteID string
+	RemoteUID      uint32
+}
+
+func (db *DB) GetMessageFetchInfo(ctx context.Context, messageID int64) (*MessageFetchInfo, error) {
+	var info MessageFetchInfo
+	var remoteUID sql.NullInt64
+
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT m.account_id, f.remote_id, mfs.remote_uid
+		 FROM messages m
+		 JOIN message_folder_state mfs ON m.id = mfs.message_id
+		 JOIN folders f ON mfs.folder_id = f.id
+		 WHERE m.id = ?
+		 LIMIT 1`, messageID,
+	).Scan(&info.AccountID, &info.FolderRemoteID, &remoteUID)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query fetch info: %w", err)
+	}
+
+	if remoteUID.Valid {
+		info.RemoteUID = uint32(remoteUID.Int64)
+	}
+	return &info, nil
+}
+
+func (db *DB) IsBodyFetched(ctx context.Context, messageID int64) bool {
+	var textPath, htmlPath *string
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT body_text_path, body_html_path FROM messages WHERE id = ?`, messageID,
+	).Scan(&textPath, &htmlPath)
+	if err != nil {
+		return false
+	}
+	return (textPath != nil && *textPath != "") || (htmlPath != nil && *htmlPath != "")
+}
+
+func (db *DB) UpdateMessageBody(ctx context.Context, messageID int64, textPath, htmlPath, rawPath string, snippet string) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE messages SET body_text_path = ?, body_html_path = ?, raw_path = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, textPath, htmlPath, rawPath, snippet, snippet, messageID)
+	return err
+}
+
+func (db *DB) InsertAttachments(ctx context.Context, messageID int64, atts []AttachmentRow) error {
+	if len(atts) == 0 {
+		return nil
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO attachments (message_id, filename, content_type, size_bytes, content_id, inline, storage_path)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, a := range atts {
+		var inline int
+		if a.Inline {
+			inline = 1
+		}
+		if _, err := stmt.ExecContext(ctx, messageID, a.Filename, a.ContentType, a.SizeBytes, a.ContentID, inline, a.StoragePath); err != nil {
+			return fmt.Errorf("insert attachment: %w", err)
+		}
+	}
+
+	hasAttach := 0
+	if len(atts) > 0 {
+		hasAttach = 1
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE messages SET has_attachments = ? WHERE id = ?`, hasAttach, messageID); err != nil {
+		return fmt.Errorf("update has_attachments: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+type AttachmentRow struct {
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+	ContentID   string
+	Inline      bool
+	StoragePath string
+}
+
+func (db *DB) GetAttachments(ctx context.Context, messageID int64) ([]models.Attachment, error) {
+	rows, err := db.Read().QueryContext(ctx,
+		`SELECT id, filename, content_type, size_bytes, content_id, inline, storage_path
+		 FROM attachments WHERE message_id = ?`, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var atts []models.Attachment
+	for rows.Next() {
+		var a models.Attachment
+		var inline int
+		if err := rows.Scan(&a.ID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.ContentID, &inline, &a.StoragePath); err != nil {
+			return nil, err
+		}
+		a.Inline = inline == 1
+		atts = append(atts, a)
+	}
+	return atts, nil
+}
+
+func (db *DB) GetMessageBodyPaths(ctx context.Context, messageID int64) (textPath, htmlPath sql.NullString, err error) {
+	err = db.Read().QueryRowContext(ctx,
+		`SELECT body_text_path, body_html_path FROM messages WHERE id = ?`, messageID,
+	).Scan(&textPath, &htmlPath)
+	return
 }
