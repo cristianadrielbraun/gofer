@@ -96,6 +96,135 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	return tx.Commit()
 }
 
+type SyncMessage struct {
+	AccountID    string
+	FolderID     string
+	RemoteUID    uint32
+	MessageID    string
+	Subject      string
+	FromName     string
+	FromEmail    string
+	DateSent     time.Time
+	Snippet      string
+	IsRead       bool
+	IsStarred    bool
+	ToRecipients []Recipient
+	CCRecipients []Recipient
+}
+
+type Recipient struct {
+	Name  string
+	Email string
+}
+
+func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	msgStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO messages (account_id, internet_message_id, subject, from_name, from_email,
+			date_sent, date_received, snippet, preview_text)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(account_id, internet_message_id) DO UPDATE SET
+			subject = excluded.subject,
+			from_name = excluded.from_name,
+			from_email = excluded.from_email,
+			date_sent = excluded.date_sent,
+			snippet = excluded.snippet,
+			preview_text = excluded.preview_text,
+			updated_at = CURRENT_TIMESTAMP`)
+	if err != nil {
+		return fmt.Errorf("prepare msg upsert: %w", err)
+	}
+	defer msgStmt.Close()
+
+	stateStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
+		VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)
+		ON CONFLICT(message_id, folder_id) DO UPDATE SET
+			remote_uid = excluded.remote_uid,
+			is_read = excluded.is_read,
+			is_starred = excluded.is_starred,
+			synced_at = excluded.synced_at`)
+	if err != nil {
+		return fmt.Errorf("prepare state upsert: %w", err)
+	}
+	defer stateStmt.Close()
+
+	recipStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO message_recipients (message_id, kind, name, email)
+		VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare recip insert: %w", err)
+	}
+	defer recipStmt.Close()
+
+	for _, m := range msgs {
+		var msgID int64
+		err := tx.QueryRow(`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`,
+			m.AccountID, m.MessageID).Scan(&msgID)
+		if err != nil {
+			if err != sql.ErrNoRows {
+				return fmt.Errorf("query message: %w", err)
+			}
+			res, err := msgStmt.ExecContext(ctx, m.AccountID, m.MessageID, m.Subject,
+				m.FromName, m.FromEmail, m.DateSent, m.DateSent, m.Snippet, m.Snippet)
+			if err != nil {
+				return fmt.Errorf("insert message: %w", err)
+			}
+			msgID, _ = res.LastInsertId()
+		}
+
+		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, m.RemoteUID,
+			m.IsRead, m.IsStarred, time.Now().UTC()); err != nil {
+			return fmt.Errorf("upsert state: %w", err)
+		}
+
+		for _, r := range m.ToRecipients {
+			if _, err := recipStmt.ExecContext(ctx, msgID, "to", r.Name, r.Email); err != nil {
+				return fmt.Errorf("insert to: %w", err)
+			}
+		}
+		for _, r := range m.CCRecipients {
+			if _, err := recipStmt.ExecContext(ctx, msgID, "cc", r.Name, r.Email); err != nil {
+				return fmt.Errorf("insert cc: %w", err)
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) GetFolderByAccountAndRemote(ctx context.Context, accountID, remoteID string) (string, error) {
+	var id string
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT id FROM folders WHERE account_id = ? AND remote_id = ?`, accountID, remoteID,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+func (db *DB) UpdateFolderSyncState(ctx context.Context, folderID string, highestUID uint32, uidValidity uint32, totalCount int) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE folders SET highest_seen_uid = ?, uid_validity = ?, total_count = ?,
+		 last_full_sync_at = CURRENT_TIMESTAMP, sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, highestUID, uidValidity, totalCount, folderID)
+	return err
+}
+
+func (db *DB) GetFolderHighestUID(ctx context.Context, folderID string) (uint32, error) {
+	var uid uint32
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(remote_uid), 0) FROM message_folder_state WHERE folder_id = ?`, folderID,
+	).Scan(&uid)
+	return uid, err
+}
+
 func (db *DB) GetAccounts(ctx context.Context) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id, email_address, display_name, color, initials FROM accounts ORDER BY id`)

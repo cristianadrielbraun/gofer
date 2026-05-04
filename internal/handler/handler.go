@@ -1,28 +1,27 @@
 package handler
 
 import (
-	"context"
 	"fmt"
 	"gofer.email/internal/config"
+	mail "gofer.email/internal/mail"
 	"gofer.email/internal/mail/imap"
 	smtpclient "gofer.email/internal/mail/smtp"
 	"gofer.email/internal/models"
 	"gofer.email/internal/storage"
 	"gofer.email/internal/views"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type Handler struct {
 	db           *storage.DB
 	accountStore *config.AccountStore
+	syncer       *mail.SyncOrchestrator
 }
 
-func New(db *storage.DB, accountStore *config.AccountStore) *Handler {
-	return &Handler{db: db, accountStore: accountStore}
+func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator) *Handler {
+	return &Handler{db: db, accountStore: accountStore, syncer: syncer}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -227,9 +226,7 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DiscoverFolders(r.Context(), account.ID); err != nil {
-		log.Printf("folder discovery for %s: %v", account.ID, err)
-	}
+	h.syncer.SyncAccount(r.Context(), account.ID)
 
 	w.Header().Set("Content-Type", "text/html")
 	views.WizardStepSuccess("Account created", account.ID, "add").Render(r.Context(), w)
@@ -387,99 +384,4 @@ func atoiDefault(s string, def int) int {
 		return v
 	}
 	return def
-}
-
-func (h *Handler) DiscoverFolders(ctx context.Context, accountID string) error {
-	cfg, err := h.accountStore.GetConfig(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("get config: %w", err)
-	}
-
-	password, err := h.accountStore.DecryptPassword(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("decrypt password: %w", err)
-	}
-
-	client, err := imap.NewClient(ctx, cfg, password)
-	if err != nil {
-		return fmt.Errorf("connect imap: %w", err)
-	}
-	defer client.Close()
-
-	folders, err := client.ListFolders(ctx)
-	if err != nil {
-		return fmt.Errorf("list folders: %w", err)
-	}
-
-	var inputs []storage.UpsertFolderInput
-	sortOrder := map[string]int{"inbox": 0, "starred": 1, "sent": 2, "drafts": 3, "archive": 4, "junk": 5, "trash": 6}
-
-	for i, f := range folders {
-		role := f.Role
-		icon := imap.RoleIcon(role)
-
-		parentID := ""
-		if f.Delimiter != 0 && strings.Contains(f.Name, string(f.Delimiter)) {
-			parts := strings.SplitN(f.Name, string(f.Delimiter), 2)
-			parentRemote := parts[0]
-			parentID = folderID(accountID, parentRemote)
-		}
-
-		order, ok := sortOrder[role]
-		if !ok {
-			order = 100 + i
-		}
-
-		inputs = append(inputs, storage.UpsertFolderInput{
-			ID:        folderID(accountID, f.Name),
-			AccountID: accountID,
-			ParentID:  parentID,
-			RemoteID:  f.Name,
-			Name:      folderDisplayName(f.Name, role),
-			Icon:      icon,
-			Role:      role,
-			SortOrder: order,
-		})
-	}
-
-	if len(inputs) == 0 {
-		return nil
-	}
-
-	return h.db.UpsertFolders(ctx, inputs)
-}
-
-func folderID(accountID, remoteName string) string {
-	sanitized := strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			return r
-		}
-		if r >= 'A' && r <= 'Z' {
-			return r + 32
-		}
-		return '_'
-	}, remoteName)
-	return accountID + "_" + sanitized
-}
-
-func folderDisplayName(remoteName, role string) string {
-	if role != "custom" {
-		switch role {
-		case "inbox":
-			return "Inbox"
-		case "sent":
-			return "Sent"
-		case "drafts":
-			return "Drafts"
-		case "trash":
-			return "Trash"
-		case "junk":
-			return "Spam"
-		case "archive":
-			return "Archive"
-		case "starred":
-			return "Starred"
-		}
-	}
-	return remoteName
 }
