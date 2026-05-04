@@ -307,6 +307,133 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 	return result, nil
 }
 
+func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string) ([]uint32, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, fmt.Errorf("client is closed")
+	}
+
+	_, err := c.client.Select(remoteName, nil).Wait()
+	if err != nil {
+		return nil, fmt.Errorf("select %s: %w", remoteName, err)
+	}
+	defer c.client.Unselect()
+
+	searchCmd := c.client.UIDSearch(&imap.SearchCriteria{}, nil)
+	searchData, err := searchCmd.Wait()
+	if err != nil {
+		return nil, fmt.Errorf("uid search %s: %w", remoteName, err)
+	}
+
+	imapUIDs := searchData.AllUIDs()
+	uids := make([]uint32, len(imapUIDs))
+	for i, uid := range imapUIDs {
+		uids[i] = uint32(uid)
+	}
+	return uids, nil
+}
+
+type FlagUpdate struct {
+	UID       uint32
+	IsRead    bool
+	IsStarred bool
+}
+
+func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint32) ([]FlagUpdate, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, fmt.Errorf("client is closed")
+	}
+
+	if len(uids) == 0 {
+		return nil, nil
+	}
+
+	_, err := c.client.Select(remoteName, nil).Wait()
+	if err != nil {
+		return nil, fmt.Errorf("select %s: %w", remoteName, err)
+	}
+	defer c.client.Unselect()
+
+	var allUpdates []FlagUpdate
+	chunkSize := 500
+
+	for i := 0; i < len(uids); i += chunkSize {
+		end := i + chunkSize
+		if end > len(uids) {
+			end = len(uids)
+		}
+		chunk := uids[i:end]
+
+		var uidSet imap.UIDSet
+		for _, uid := range chunk {
+			uidSet.AddNum(imap.UID(uid))
+		}
+
+		fetchOpts := &imap.FetchOptions{UID: true, Flags: true}
+		cmd := c.client.Fetch(uidSet, fetchOpts)
+
+		for {
+			msg := cmd.Next()
+			if msg == nil {
+				break
+			}
+
+			var update FlagUpdate
+			for {
+				item := msg.Next()
+				if item == nil {
+					break
+				}
+				switch item := item.(type) {
+				case imapclient.FetchItemDataUID:
+					update.UID = uint32(item.UID)
+				case imapclient.FetchItemDataFlags:
+					for _, flag := range item.Flags {
+						switch flag {
+						case imap.FlagSeen:
+							update.IsRead = true
+						case imap.FlagFlagged:
+							update.IsStarred = true
+						}
+					}
+				}
+			}
+
+			if update.UID > 0 {
+				allUpdates = append(allUpdates, update)
+			}
+		}
+
+		if err := cmd.Close(); err != nil {
+			return allUpdates, fmt.Errorf("fetch flags %s: %w", remoteName, err)
+		}
+	}
+
+	return allUpdates, nil
+}
+
+func (c *Client) CheckUIDValidity(ctx context.Context, remoteName string) (uint32, uint32, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return 0, 0, fmt.Errorf("client is closed")
+	}
+
+	selectData, err := c.client.Select(remoteName, nil).Wait()
+	if err != nil {
+		return 0, 0, fmt.Errorf("select %s: %w", remoteName, err)
+	}
+	c.client.Unselect()
+
+	return uint32(selectData.UIDValidity), uint32(selectData.UIDNext), nil
+}
+
 func truncate(s string, maxLen int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= maxLen {

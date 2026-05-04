@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 
 	"gofer.email/internal/config"
 	"gofer.email/internal/mail/imap"
@@ -18,7 +19,8 @@ type SyncOrchestrator struct {
 	events       *EventBus
 	mu           sync.Mutex
 	running      map[string]bool
-	idleWatchers map[string]*imap.IdleWatcher
+	idleWatchers map[string][]*imap.IdleWatcher
+	cancelFuncs  map[string]context.CancelFunc
 }
 
 func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blobStore *store.BlobStore) *SyncOrchestrator {
@@ -28,7 +30,8 @@ func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blob
 		blobStore:    blobStore,
 		events:       NewEventBus(),
 		running:      make(map[string]bool),
-		idleWatchers: make(map[string]*imap.IdleWatcher),
+		idleWatchers: make(map[string][]*imap.IdleWatcher),
+		cancelFuncs:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -69,25 +72,244 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 		return
 	}
 
-	folderID, remoteName, err := o.db.GetFolderIDByRole(ctx, accountID, "inbox")
-	if err != nil {
-		log.Printf("sync idle %s: find inbox: %v", accountID, err)
-		return
-	}
-	if folderID == "" {
-		log.Printf("sync idle %s: no inbox folder found", accountID)
-		return
-	}
+	idleFolders := []string{"inbox"}
+	var watchers []*imap.IdleWatcher
 
-	watcher := imap.NewIdleWatcher(cfg, password, remoteName, func() {
-		o.syncIncremental(ctx, accountID, folderID, remoteName)
-	})
+	for _, role := range idleFolders {
+		folderID, remoteName, err := o.db.GetFolderIDByRole(ctx, accountID, role)
+		if err != nil {
+			log.Printf("sync idle %s: find %s: %v", accountID, role, err)
+			continue
+		}
+		if folderID == "" {
+			continue
+		}
+
+		watcher := imap.NewIdleWatcher(cfg, password, remoteName, func() {
+			o.syncIncremental(ctx, accountID, folderID, remoteName)
+		})
+		watchers = append(watchers, watcher)
+		go watcher.Run(ctx)
+	}
 
 	o.mu.Lock()
-	o.idleWatchers[accountID] = watcher
+	o.idleWatchers[accountID] = watchers
 	o.mu.Unlock()
 
-	go watcher.Run(ctx)
+	accountCtx, cancel := context.WithCancel(ctx)
+	o.mu.Lock()
+	o.cancelFuncs[accountID] = cancel
+	o.mu.Unlock()
+
+	go o.runPeriodicSync(accountCtx, accountID)
+}
+
+func (o *SyncOrchestrator) runPeriodicSync(ctx context.Context, accountID string) {
+	mediumPriorityRoles := map[string]bool{"sent": true, "drafts": true, "starred": true}
+
+	mediumTicker := time.NewTicker(5 * time.Minute)
+	defer mediumTicker.Stop()
+	lowTicker := time.NewTicker(30 * time.Minute)
+	defer lowTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-mediumTicker.C:
+			o.periodicSync(ctx, accountID, mediumPriorityRoles, 5*time.Minute)
+		case <-lowTicker.C:
+			o.periodicSync(ctx, accountID, nil, 30*time.Minute)
+		}
+	}
+}
+
+func (o *SyncOrchestrator) periodicSync(ctx context.Context, accountID string, onlyRoles map[string]bool, interval time.Duration) {
+	folders, err := o.db.GetFoldersForAccount(ctx, accountID)
+	if err != nil {
+		log.Printf("periodic %s: get folders: %v", accountID, err)
+		return
+	}
+
+	cfg, err := o.accountStore.GetConfig(ctx, accountID)
+	if err != nil {
+		log.Printf("periodic %s: config: %v", accountID, err)
+		return
+	}
+
+	password, err := o.accountStore.DecryptPassword(ctx, accountID)
+	if err != nil {
+		log.Printf("periodic %s: password: %v", accountID, err)
+		return
+	}
+
+	client, err := imap.NewClient(ctx, cfg, password)
+	if err != nil {
+		log.Printf("periodic %s: connect: %v", accountID, err)
+		return
+	}
+	defer client.Close()
+
+	for _, folder := range folders {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if onlyRoles != nil && !onlyRoles[folder.Role] {
+			continue
+		}
+
+		if folder.Role == "inbox" {
+			if folder.LastIncrementalAt.Valid && time.Since(folder.LastIncrementalAt.Time) < interval {
+				continue
+			}
+		}
+
+		if err := o.fullFolderSync(ctx, client, accountID, folder); err != nil {
+			log.Printf("periodic %s/%s: %v", accountID, folder.RemoteID, err)
+		}
+	}
+}
+
+func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo) error {
+	storedValidity, _ := o.db.GetStoredUIDValidity(ctx, folder.ID)
+
+	if folder.LastFullSyncAt.Valid && storedValidity > 0 {
+		currentValidity, _, err := client.CheckUIDValidity(ctx, folder.RemoteID)
+		if err != nil {
+			return err
+		}
+		if currentValidity != storedValidity && currentValidity > 0 {
+			log.Printf("UIDVALIDITY changed for %s/%s: %d -> %d, clearing local state", accountID, folder.RemoteID, storedValidity, currentValidity)
+			if err := o.db.ClearFolderMessages(ctx, folder.ID); err != nil {
+				return err
+			}
+			o.syncFolderMessages(ctx, client, accountID, folder.ID, folder.RemoteID)
+			o.events.Publish(Event{
+				Type:      EventSyncComplete,
+				AccountID: accountID,
+				FolderID:  folder.ID,
+			})
+			return nil
+		}
+	}
+
+	if folder.LastFullSyncAt.Valid {
+		o.reconcileFolder(ctx, client, accountID, folder)
+	}
+
+	highestUID, err := o.db.GetHighestSeenUID(ctx, folder.ID)
+	if err != nil {
+		return err
+	}
+
+	if highestUID > 0 {
+		result, err := client.SyncFolderIncremental(ctx, folder.ID, folder.RemoteID, highestUID, func(msgs []storage.SyncMessage) error {
+			return o.db.UpsertSyncMessages(ctx, msgs)
+		})
+		if err != nil {
+			log.Printf("periodic incremental %s/%s: %v", accountID, folder.RemoteID, err)
+		} else if result != nil {
+			o.db.UpdateFolderIncrementalSync(ctx, folder.ID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
+			if result.TotalFetched > 0 {
+				log.Printf("periodic incremental %s/%s: %d new", accountID, folder.RemoteID, result.TotalFetched)
+			}
+		}
+	} else {
+		o.syncFolderMessages(ctx, client, accountID, folder.ID, folder.RemoteID)
+	}
+
+	o.refreshFlags(ctx, client, accountID, folder)
+
+	o.db.RefreshFolderUnreadCount(ctx, folder.ID)
+
+	o.events.Publish(Event{
+		Type:      EventSyncComplete,
+		AccountID: accountID,
+		FolderID:  folder.ID,
+	})
+
+	return nil
+}
+
+func (o *SyncOrchestrator) reconcileFolder(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo) {
+	serverUIDs, err := client.FetchAllUIDs(ctx, folder.RemoteID)
+	if err != nil {
+		log.Printf("reconcile %s/%s: fetch uids: %v", accountID, folder.RemoteID, err)
+		return
+	}
+
+	localUIDs, err := o.db.GetLocalUIDs(ctx, folder.ID)
+	if err != nil {
+		log.Printf("reconcile %s/%s: local uids: %v", accountID, folder.RemoteID, err)
+		return
+	}
+
+	serverSet := make(map[uint32]bool, len(serverUIDs))
+	for _, uid := range serverUIDs {
+		serverSet[uid] = true
+	}
+
+	var expunged []uint32
+	for uid := range localUIDs {
+		if !serverSet[uid] {
+			expunged = append(expunged, uid)
+		}
+	}
+
+	if len(expunged) > 0 {
+		removed, err := o.db.RemoveExpungedUIDs(ctx, folder.ID, expunged)
+		if err != nil {
+			log.Printf("reconcile %s/%s: remove: %v", accountID, folder.RemoteID, err)
+		} else {
+			log.Printf("reconcile %s/%s: removed %d expunged messages", accountID, folder.RemoteID, removed)
+		}
+	}
+}
+
+func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo) {
+	localUIDs, err := o.db.GetLocalUIDs(ctx, folder.ID)
+	if err != nil {
+		log.Printf("flags %s/%s: local uids: %v", accountID, folder.RemoteID, err)
+		return
+	}
+
+	if len(localUIDs) == 0 {
+		return
+	}
+
+	uids := make([]uint32, 0, len(localUIDs))
+	for uid := range localUIDs {
+		uids = append(uids, uid)
+	}
+
+	flagUpdates, err := client.FetchFlags(ctx, folder.RemoteID, uids)
+	if err != nil {
+		log.Printf("flags %s/%s: fetch: %v", accountID, folder.RemoteID, err)
+		return
+	}
+
+	changed, err := o.db.BatchUpdateFlags(ctx, folder.ID, convertFlagUpdates(flagUpdates))
+	if err != nil {
+		log.Printf("flags %s/%s: update: %v", accountID, folder.RemoteID, err)
+	} else if changed > 0 {
+		log.Printf("flags %s/%s: %d changed", accountID, folder.RemoteID, changed)
+		o.db.RefreshFolderUnreadCount(ctx, folder.ID)
+	}
+}
+
+func convertFlagUpdates(imapUpdates []imap.FlagUpdate) []storage.FlagUpdate {
+	updates := make([]storage.FlagUpdate, len(imapUpdates))
+	for i, u := range imapUpdates {
+		updates[i] = storage.FlagUpdate{
+			UID:       u.UID,
+			IsRead:    u.IsRead,
+			IsStarred: u.IsStarred,
+		}
+	}
+	return updates
 }
 
 func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) {
@@ -226,6 +448,8 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 	}
 	defer client.Close()
 
+	o.reconcileAndRefresh(ctx, client, accountID, folderID, remoteName)
+
 	result, err := client.SyncFolderIncremental(ctx, folderID, remoteName, highestUID, func(msgs []storage.SyncMessage) error {
 		return o.db.UpsertSyncMessages(ctx, msgs)
 	})
@@ -250,6 +474,65 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 		FolderID:  folderID,
 	})
 	_ = unread
+}
+
+func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap.Client, accountID, folderID, remoteName string) {
+	localUIDs, err := o.db.GetLocalUIDs(ctx, folderID)
+	if err != nil {
+		log.Printf("reconcile %s/%s: local uids: %v", accountID, remoteName, err)
+		return
+	}
+
+	if len(localUIDs) == 0 {
+		return
+	}
+
+	serverUIDs, err := client.FetchAllUIDs(ctx, remoteName)
+	if err != nil {
+		log.Printf("reconcile %s/%s: fetch uids: %v", accountID, remoteName, err)
+		return
+	}
+
+	serverSet := make(map[uint32]bool, len(serverUIDs))
+	for _, uid := range serverUIDs {
+		serverSet[uid] = true
+	}
+
+	var expunged []uint32
+	for uid := range localUIDs {
+		if !serverSet[uid] {
+			expunged = append(expunged, uid)
+		}
+	}
+
+	if len(expunged) > 0 {
+		removed, err := o.db.RemoveExpungedUIDs(ctx, folderID, expunged)
+		if err != nil {
+			log.Printf("reconcile %s/%s: remove: %v", accountID, remoteName, err)
+		} else if removed > 0 {
+			log.Printf("reconcile %s/%s: removed %d expunged", accountID, remoteName, removed)
+		}
+	}
+
+	uids := make([]uint32, 0, len(localUIDs))
+	for uid := range localUIDs {
+		if serverSet[uid] {
+			uids = append(uids, uid)
+		}
+	}
+
+	flagUpdates, err := client.FetchFlags(ctx, remoteName, uids)
+	if err != nil {
+		log.Printf("flags %s/%s: fetch: %v", accountID, remoteName, err)
+		return
+	}
+
+	changed, err := o.db.BatchUpdateFlags(ctx, folderID, convertFlagUpdates(flagUpdates))
+	if err != nil {
+		log.Printf("flags %s/%s: update: %v", accountID, remoteName, err)
+	} else if changed > 0 {
+		log.Printf("flags %s/%s: %d changed", accountID, remoteName, changed)
+	}
 }
 
 func folderIDFromRemote(accountID, remoteName string) string {

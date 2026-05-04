@@ -1028,6 +1028,211 @@ func (db *DB) AddMessageToFolder(ctx context.Context, messageID int64, folderID 
 	return nil
 }
 
+type FolderSyncInfo struct {
+	ID                  string
+	AccountID           string
+	RemoteID            string
+	Role                string
+	UIDValidity         uint32
+	HighestSeenUID      uint32
+	LastFullSyncAt      sql.NullTime
+	LastIncrementalAt   sql.NullTime
+	TotalCount          int
+}
+
+func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]FolderSyncInfo, error) {
+	rows, err := db.Read().QueryContext(ctx,
+		`SELECT id, account_id, remote_id, role,
+		        COALESCE(uid_validity, 0), COALESCE(highest_seen_uid, 0),
+		        last_full_sync_at, last_incremental_sync_at,
+		        COALESCE(total_count, 0)
+		 FROM folders WHERE account_id = ? ORDER BY sort_order`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("query folders: %w", err)
+	}
+	defer rows.Close()
+
+	var folders []FolderSyncInfo
+	for rows.Next() {
+		var f FolderSyncInfo
+		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.Role,
+			&f.UIDValidity, &f.HighestSeenUID,
+			&f.LastFullSyncAt, &f.LastIncrementalAt,
+			&f.TotalCount); err != nil {
+			return nil, fmt.Errorf("scan folder: %w", err)
+		}
+		folders = append(folders, f)
+	}
+	return folders, nil
+}
+
+func (db *DB) GetStoredUIDValidity(ctx context.Context, folderID string) (uint32, error) {
+	var uidValidity sql.NullInt64
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT uid_validity FROM folders WHERE id = ?`, folderID,
+	).Scan(&uidValidity)
+	if err != nil {
+		return 0, err
+	}
+	if uidValidity.Valid {
+		return uint32(uidValidity.Int64), nil
+	}
+	return 0, nil
+}
+
+func (db *DB) GetLocalUIDs(ctx context.Context, folderID string) (map[uint32]int64, error) {
+	rows, err := db.Read().QueryContext(ctx,
+		`SELECT mfs.remote_uid, mfs.message_id
+		 FROM message_folder_state mfs
+		 WHERE mfs.folder_id = ? AND mfs.remote_uid IS NOT NULL`, folderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uint32]int64)
+	for rows.Next() {
+		var uid uint32
+		var msgID int64
+		if err := rows.Scan(&uid, &msgID); err != nil {
+			return nil, err
+		}
+		result[uid] = msgID
+	}
+	return result, nil
+}
+
+func (db *DB) RemoveExpungedUIDs(ctx context.Context, folderID string, expungedUIDs []uint32) (int, error) {
+	if len(expungedUIDs) == 0 {
+		return 0, nil
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	placeholders := make([]string, len(expungedUIDs))
+	args := make([]any, len(expungedUIDs)+1)
+	args[0] = folderID
+	for i, uid := range expungedUIDs {
+		placeholders[i] = "?"
+		args[i+1] = uid
+	}
+
+	query := fmt.Sprintf(
+		`DELETE FROM message_folder_state WHERE folder_id = ? AND remote_uid IN (%s)`,
+		strings.Join(placeholders, ","))
+
+	res, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("delete expunged: %w", err)
+	}
+	removed, _ := res.RowsAffected()
+
+	_, err = tx.ExecContext(ctx,
+		`DELETE FROM messages WHERE id NOT IN (SELECT message_id FROM message_folder_state)`)
+	if err != nil {
+		return 0, fmt.Errorf("cleanup orphaned: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit: %w", err)
+	}
+
+	return int(removed), nil
+}
+
+func (db *DB) ClearFolderMessages(ctx context.Context, folderID string) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx,
+		`DELETE FROM message_folder_state WHERE folder_id = ?`, folderID)
+	if err != nil {
+		return fmt.Errorf("delete states: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`DELETE FROM messages WHERE id NOT IN (SELECT message_id FROM message_folder_state)`)
+	if err != nil {
+		return fmt.Errorf("cleanup orphaned: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`UPDATE folders SET highest_seen_uid = 0, total_count = 0, unread_count = 0,
+		 last_full_sync_at = NULL, last_incremental_sync_at = NULL, sync_error = NULL,
+		 updated_at = CURRENT_TIMESTAMP WHERE id = ?`, folderID)
+	if err != nil {
+		return fmt.Errorf("reset folder state: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+type FlagUpdate struct {
+	UID       uint32
+	IsRead    bool
+	IsStarred bool
+}
+
+func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []FlagUpdate) (int, error) {
+	if len(updates) == 0 {
+		return 0, nil
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`UPDATE message_folder_state SET is_read = ?, is_starred = ?
+		 WHERE folder_id = ? AND remote_uid = ?`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	changed := 0
+	for _, u := range updates {
+		var isRead, isStarred int
+		err := tx.QueryRow(
+			`SELECT is_read, is_starred FROM message_folder_state WHERE folder_id = ? AND remote_uid = ?`,
+			folderID, u.UID).Scan(&isRead, &isStarred)
+		if err != nil {
+			continue
+		}
+
+		newRead := 0
+		if u.IsRead {
+			newRead = 1
+		}
+		newStarred := 0
+		if u.IsStarred {
+			newStarred = 1
+		}
+
+		if isRead != newRead || isStarred != newStarred {
+			if _, err := stmt.ExecContext(ctx, newRead, newStarred, folderID, u.UID); err != nil {
+				continue
+			}
+			changed++
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit: %w", err)
+	}
+
+	return changed, nil
+}
+
 func (db *DB) GetMessageAllFolderStates(ctx context.Context, messageID int64) ([]struct {
 	FolderID  string
 	RemoteUID uint32
