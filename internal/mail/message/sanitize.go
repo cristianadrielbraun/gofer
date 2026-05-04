@@ -42,11 +42,14 @@ func removeDangerousTags(html []byte) []byte {
 func blockRemoteImages(html []byte) []byte {
 	s := string(html)
 
-	reImg := regexp.MustCompile(`(?i)(<img\b[^>]*?\s)src\s*=\s*(["'])(https?://[^"']*?)\2`)
-	s = reImg.ReplaceAllString(s, `${1}src="" data-remote-src=$2$3$2`)
+	reImgDouble := regexp.MustCompile(`(?i)(<img\b[^>]*?\s)src\s*=\s*"((https?://)[^"]*)"`)
+	s = reImgDouble.ReplaceAllString(s, `${1}src="" data-remote-src="$2"`)
 
-	reCSSUrl := regexp.MustCompile(`(?i)url\s*\(\s*(['"]?)(https?://[^)]*?)\1\s*\)`)
-	s = reCSSUrl.ReplaceAllString(s, `url($1$1)`)
+	reImgSingle := regexp.MustCompile(`(?i)(<img\b[^>]*?\s)src\s*=\s*'((https?://)[^']*)'`)
+	s = reImgSingle.ReplaceAllString(s, `${1}src="" data-remote-src='$2'`)
+
+	reCSSUrl := regexp.MustCompile(`(?i)url\s*\(\s*['"]?(https?://[^)'"]*?)['"]?\s*\)`)
+	s = reCSSUrl.ReplaceAllString(s, `url("")`)
 
 	return []byte(s)
 }
