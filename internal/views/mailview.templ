@@ -224,11 +224,12 @@ templ MailViewBody(email *models.Email) {
 }
 
 templ MailViewReplyBar(email *models.Email) {
-	<div class="px-6 py-3 border-t border-ink/6">
+	<div class="px-6 py-3 border-t border-ink/6" id="reply-bar" data-message-id={ email.InternetMessageID } data-subject={ email.Subject } data-from-email={ email.From.Email } data-from-name={ email.From.Name } data-account-id={ email.AccountID }>
 		<div class="flex items-center gap-2">
 			@button.Button(button.Props{
 				Variant: button.VariantOutline,
 				Class:   "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
+				Attributes: templ.Attributes{"onclick": "handleReply('reply')"},
 			}) {
 				<span class="flex items-center gap-2 text-[13px]">
 					@icon.Reply(icon.Props{Class: "size-4"})
@@ -238,6 +239,7 @@ templ MailViewReplyBar(email *models.Email) {
 			@button.Button(button.Props{
 				Variant: button.VariantOutline,
 				Class:   "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
+				Attributes: templ.Attributes{"onclick": "handleReply('reply-all')"},
 			}) {
 				<span class="flex items-center gap-2 text-[13px]">
 					@icon.ReplyAll(icon.Props{Class: "size-4"})
@@ -247,6 +249,7 @@ templ MailViewReplyBar(email *models.Email) {
 			@button.Button(button.Props{
 				Variant: button.VariantOutline,
 				Class:   "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
+				Attributes: templ.Attributes{"onclick": "handleReply('forward')"},
 			}) {
 				<span class="flex items-center gap-2 text-[13px]">
 					@icon.Forward(icon.Props{Class: "size-4"})

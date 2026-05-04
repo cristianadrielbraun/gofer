@@ -433,24 +433,25 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	}
 
 	var (
-		email        models.Email
-		dateReceived sql.NullTime
-		fromName     string
-		fromEmail    string
-		subject      string
-		snippet      string
-		accountID    string
-		hasAttach    int
-		bodyTextPath sql.NullString
-		bodyHTMLPath sql.NullString
+		email             models.Email
+		dateReceived      sql.NullTime
+		fromName          string
+		fromEmail         string
+		subject           string
+		snippet           string
+		accountID         string
+		hasAttach         int
+		bodyTextPath      sql.NullString
+		bodyHTMLPath      sql.NullString
+		internetMessageID sql.NullString
 	)
 
 	err = db.Read().QueryRowContext(ctx,
 		`SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email,
 		        m.date_received, m.snippet, m.has_attachments,
-		        m.body_text_path, m.body_html_path
+		        m.body_text_path, m.body_html_path, m.internet_message_id
 		 FROM messages m WHERE m.id = ?`, msgID,
-	).Scan(&msgID, &accountID, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach, &bodyTextPath, &bodyHTMLPath)
+	).Scan(&msgID, &accountID, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach, &bodyTextPath, &bodyHTMLPath, &internetMessageID)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -466,6 +467,10 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	email.From = models.Contact{Name: fromName, Email: fromEmail, Initials: initials(fromName)}
 	email.Preview = snippet
 	email.HasAttachment = hasAttach == 1
+
+	if internetMessageID.Valid {
+		email.InternetMessageID = internetMessageID.String
+	}
 
 	if bodyHTMLPath.Valid && bodyHTMLPath.String != "" {
 		data, err := os.ReadFile(bodyHTMLPath.String)

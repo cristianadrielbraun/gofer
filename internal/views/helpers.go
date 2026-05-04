@@ -1,5 +1,7 @@
 package views
 
+import "gofer.email/internal/models"
+
 func folderDisplayName(folderID string) string {
 	names := map[string]string{
 		"inbox":   "Inbox",
@@ -14,4 +16,11 @@ func folderDisplayName(folderID string) string {
 		return name
 	}
 	return "Inbox"
+}
+
+func composeDefaultAccountID(accounts []models.Account) string {
+	if len(accounts) > 0 {
+		return accounts[0].ID
+	}
+	return ""
 }

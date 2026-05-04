@@ -10,6 +10,7 @@ import (
 	smtp "github.com/emersion/go-smtp"
 	"github.com/emersion/go-sasl"
 
+	"gofer.email/internal/mail/message"
 	"gofer.email/internal/models"
 )
 
@@ -99,6 +100,73 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 	}, nil
 }
 
+func (c *Client) Send(ctx context.Context, msg *message.OutgoingMessage) (models.SendResult, error) {
+	recipients := message.AllRecipients(msg)
+	if len(recipients) == 0 {
+		return models.SendFailed, fmt.Errorf("no recipients")
+	}
+
+	if err := c.client.Mail(msg.FromEmail, nil); err != nil {
+		return models.SendFailed, fmt.Errorf("mail from: %w", err)
+	}
+
+	for _, rcpt := range recipients {
+		if err := c.client.Rcpt(rcpt, nil); err != nil {
+			return models.SendFailed, fmt.Errorf("rcpt to %s: %w", rcpt, err)
+		}
+	}
+
+	dataw, err := c.client.Data()
+	if err != nil {
+		return models.SendFailed, fmt.Errorf("data: %w", err)
+	}
+
+	mimeData, err := message.BuildMIMEMessage(msg)
+	if err != nil {
+		dataw.Close()
+		return models.SendFailed, fmt.Errorf("build mime: %w", err)
+	}
+
+	if _, err := dataw.Write(mimeData); err != nil {
+		dataw.Close()
+		return models.SendAmbiguous, fmt.Errorf("write data: %w", err)
+	}
+
+	if err := dataw.Close(); err != nil {
+		return models.SendAmbiguous, fmt.Errorf("close data: %w", err)
+	}
+
+	return models.SendSuccess, nil
+}
+
+func (c *Client) SendRaw(ctx context.Context, from string, recipients []string, mimeData []byte) (models.SendResult, error) {
+	if err := c.client.Mail(from, nil); err != nil {
+		return models.SendFailed, fmt.Errorf("mail from: %w", err)
+	}
+
+	for _, rcpt := range recipients {
+		if err := c.client.Rcpt(rcpt, nil); err != nil {
+			return models.SendFailed, fmt.Errorf("rcpt to %s: %w", rcpt, err)
+		}
+	}
+
+	dataw, err := c.client.Data()
+	if err != nil {
+		return models.SendFailed, fmt.Errorf("data: %w", err)
+	}
+
+	if _, err := dataw.Write(mimeData); err != nil {
+		dataw.Close()
+		return models.SendAmbiguous, fmt.Errorf("write data: %w", err)
+	}
+
+	if err := dataw.Close(); err != nil {
+		return models.SendAmbiguous, fmt.Errorf("close data: %w", err)
+	}
+
+	return models.SendSuccess, nil
+}
+
 func (c *Client) Close() error {
 	return c.client.Close()
 }
@@ -109,4 +177,14 @@ func TestConnection(ctx context.Context, cfg *models.AccountConfig, password str
 		return err
 	}
 	return c.Close()
+}
+
+func SendMessage(ctx context.Context, cfg *models.AccountConfig, password string, msg *message.OutgoingMessage) (models.SendResult, error) {
+	c, err := NewClient(ctx, cfg, password)
+	if err != nil {
+		return models.SendFailed, err
+	}
+	defer c.Close()
+
+	return c.Send(ctx, msg)
 }

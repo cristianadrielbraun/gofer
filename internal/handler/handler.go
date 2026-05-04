@@ -14,6 +14,7 @@ import (
 	"gofer.email/internal/storage"
 	"gofer.email/internal/store"
 	"gofer.email/internal/views"
+	"html/template"
 	"net/http"
 	"os"
 	"strconv"
@@ -48,6 +49,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/attachments/{id}/download", h.handleAttachmentDownload)
 	mux.HandleFunc("GET /api/events", h.handleSSE)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
+	mux.HandleFunc("POST /compose", h.handleCompose)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -557,11 +559,18 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case event := <-ch:
-			data, _ := json.Marshal(map[string]string{
+			m := map[string]string{
 				"type":       string(event.Type),
 				"account_id": event.AccountID,
 				"folder_id":  event.FolderID,
-			})
+			}
+			if event.Status != "" {
+				m["status"] = event.Status
+			}
+			if event.Error != "" {
+				m["error"] = event.Error
+			}
+			data, _ := json.Marshal(m)
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
 			flusher.Flush()
 		}
@@ -577,4 +586,117 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(counts)
+}
+
+func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
+		return
+	}
+
+	ctx := r.Context()
+	accountID := r.FormValue("account_id")
+	if accountID == "" {
+		accountID = h.accountStore.GetFirstAccountID(ctx)
+	}
+	if accountID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no account configured"})
+		return
+	}
+
+	cfg, err := h.accountStore.GetConfig(ctx, accountID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "account not found"})
+		return
+	}
+
+	password, err := h.accountStore.DecryptPassword(ctx, accountID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to decrypt credentials"})
+		return
+	}
+
+	smtpPassword := password
+	if cfg.SmtpUsername != "" {
+		smtpPw, err := h.accountStore.DecryptSmtpPassword(ctx, accountID)
+		if err == nil && smtpPw != "" {
+			smtpPassword = smtpPw
+		}
+	}
+
+	account, err := h.accountStore.GetAccountByID(ctx, accountID)
+	if err != nil || account == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "account not found"})
+		return
+	}
+
+	toAddrs, err := message.ParseAddressList(r.FormValue("to"))
+	if err != nil || len(toAddrs) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Please enter at least one recipient."})
+		return
+	}
+	ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
+	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
+
+	body := r.FormValue("body")
+	htmlBody := ""
+	if body != "" {
+		htmlBody = "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(body) + "</pre></body></html>"
+	}
+
+	msg := &message.OutgoingMessage{
+		FromName:   account.Name,
+		FromEmail:  account.Email,
+		To:         toAddrs,
+		CC:         ccAddrs,
+		Bcc:        bccAddrs,
+		Subject:    r.FormValue("subject"),
+		TextBody:   body,
+		HTMLBody:   htmlBody,
+		InReplyTo:  r.FormValue("in_reply_to"),
+		References: r.FormValue("references"),
+	}
+
+	go func() {
+		result, sendErr := smtpclient.SendMessage(context.Background(), cfg, smtpPassword, msg)
+
+		evt := mail.Event{
+			Type:      mail.EventSendResult,
+			AccountID: accountID,
+		}
+
+		if sendErr != nil {
+			evt.Status = "failed"
+			evt.Error = sendErr.Error()
+		} else {
+			switch result {
+			case models.SendSuccess:
+				evt.Status = "sent"
+			case models.SendAmbiguous:
+				evt.Status = "ambiguous"
+				evt.Error = "Send status unknown. The message may have been sent."
+			default:
+				evt.Status = "failed"
+				evt.Error = "Failed to send message."
+			}
+		}
+
+		h.syncer.Events().Publish(evt)
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"status": "sending"})
 }

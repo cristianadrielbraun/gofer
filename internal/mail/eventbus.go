@@ -7,12 +7,15 @@ type EventType string
 const (
 	EventNewMail     EventType = "new-mail"
 	EventSyncComplete EventType = "sync-complete"
+	EventSendResult  EventType = "send-result"
 )
 
 type Event struct {
 	Type      EventType
 	AccountID string
 	FolderID  string
+	Status    string
+	Error     string
 }
 
 type EventBus struct {

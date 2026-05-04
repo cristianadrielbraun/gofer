@@ -22,6 +22,20 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     })
 
+    source.addEventListener("send-result", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data) return
+
+      if (data.status === "sent") {
+        showSendStatus("sent", "Message sent")
+      } else if (data.status === "ambiguous") {
+        showSendStatus("ambiguous", data.error || "Send status unknown")
+      } else {
+        showSendStatus("failed", data.error || "Failed to send")
+      }
+    })
+
     source.onerror = function () {
       source.close()
       setTimeout(setupSSE, 5000)
@@ -120,3 +134,137 @@ document.addEventListener("DOMContentLoaded", function () {
     })
   }
 })
+
+var sendStatusTimer = null
+
+function showSendStatus(status, text) {
+  var wrapper = document.getElementById("send-status-wrapper")
+  var inner = document.getElementById("send-status-inner")
+  var iconEl = document.getElementById("send-status-icon")
+  var textEl = document.getElementById("send-status-text")
+  if (!wrapper || !inner || !iconEl || !textEl) return
+
+  if (sendStatusTimer) {
+    clearTimeout(sendStatusTimer)
+    sendStatusTimer = null
+  }
+
+  textEl.textContent = text
+
+  if (status === "sending") {
+    inner.className = "flex items-center gap-2.5 px-3 py-3 rounded-lg text-[13px] font-medium transition-colors duration-500 ease-in-out bg-amber-900/40 text-amber-200 border border-amber-700/40"
+    iconEl.innerHTML = '<svg class="size-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>'
+    wrapper.style.maxHeight = "60px"
+    wrapper.style.opacity = "1"
+  } else if (status === "sent") {
+    inner.className = "flex items-center gap-2.5 px-3 py-3 rounded-lg text-[13px] font-medium transition-colors duration-500 ease-in-out bg-emerald-900/40 text-emerald-200 border border-emerald-700/40"
+    iconEl.innerHTML = '<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+    wrapper.style.maxHeight = "60px"
+    wrapper.style.opacity = "1"
+    sendStatusTimer = setTimeout(function () {
+      wrapper.style.maxHeight = "0"
+      wrapper.style.opacity = "0"
+    }, 5000)
+  } else if (status === "ambiguous") {
+    inner.className = "flex items-center gap-2.5 px-3 py-3 rounded-lg text-[13px] font-medium transition-colors duration-500 ease-in-out bg-amber-900/40 text-amber-200 border border-amber-700/40"
+    iconEl.innerHTML = '<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+    wrapper.style.maxHeight = "60px"
+    wrapper.style.opacity = "1"
+    sendStatusTimer = setTimeout(function () {
+      wrapper.style.maxHeight = "0"
+      wrapper.style.opacity = "0"
+    }, 8000)
+  } else {
+    inner.className = "flex items-center gap-2.5 px-3 py-3 rounded-lg text-[13px] font-medium transition-colors duration-500 ease-in-out bg-red-900/40 text-red-200 border border-red-700/40"
+    iconEl.innerHTML = '<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
+    wrapper.style.maxHeight = "60px"
+    wrapper.style.opacity = "1"
+    sendStatusTimer = setTimeout(function () {
+      wrapper.style.maxHeight = "0"
+      wrapper.style.opacity = "0"
+    }, 8000)
+  }
+}
+
+function sendCompose() {
+  var form = document.getElementById("compose-form")
+  if (!form) return
+
+  var toField = form.querySelector('input[name="to"]')
+  if (!toField || !toField.value.trim()) {
+    return
+  }
+
+  var params = new URLSearchParams()
+  var inputs = form.querySelectorAll("input, textarea")
+  for (var i = 0; i < inputs.length; i++) {
+    params.append(inputs[i].name, inputs[i].value)
+  }
+
+  if (window.tui && window.tui.dialog) {
+    window.tui.dialog.close("compose-dialog")
+  }
+
+  showSendStatus("sending", "Sending...")
+
+  fetch("/compose", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  }).catch(function () {
+    showSendStatus("failed", "Failed to connect to server")
+  })
+}
+
+function handleReply(mode) {
+  var bar = document.getElementById("reply-bar")
+  if (!bar) return
+
+  var messageId = bar.dataset.messageId
+  var subject = bar.dataset.subject || ""
+  var fromEmail = bar.dataset.fromEmail || ""
+  var fromName = bar.dataset.fromName || ""
+  var accountId = bar.dataset.accountId || ""
+
+  var form = document.getElementById("compose-form")
+  if (!form) return
+
+  var toField = form.querySelector('input[name="to"]')
+  var subjectField = form.querySelector('input[name="subject"]')
+  var accountIdField = document.getElementById("compose-account-id")
+  var inReplyToField = document.getElementById("compose-in-reply-to")
+  var bodyField = form.querySelector('textarea[name="body"]')
+
+  if (accountId && accountIdField) {
+    accountIdField.value = accountId
+  }
+
+  if (mode === "reply" || mode === "reply-all") {
+    if (toField) toField.value = fromName ? fromName + " <" + fromEmail + ">" : fromEmail
+    if (subjectField) {
+      subjectField.value = subject.match(/^Re:/i) ? subject : "Re: " + subject
+    }
+    if (inReplyToField && messageId) {
+      inReplyToField.value = "<" + messageId + ">"
+    }
+    if (bodyField) {
+      bodyField.value = ""
+      bodyField.focus()
+    }
+  } else if (mode === "forward") {
+    if (toField) toField.value = ""
+    if (subjectField) {
+      subjectField.value = subject.match(/^Fwd:/i) ? subject : "Fwd: " + subject
+    }
+    if (inReplyToField) inReplyToField.value = ""
+  }
+
+  var dialog = document.querySelector('#compose-dialog dialog[data-tui-dialog-content]')
+  if (dialog && window.tui && window.tui.dialog) {
+    window.tui.dialog.open('compose-dialog')
+  }
+
+  setTimeout(function () {
+    if (mode === "forward" && toField) toField.focus()
+  }, 100)
+}

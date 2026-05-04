@@ -7,59 +7,66 @@ import (
 	"gofer.email/components/textarea"
 	"gofer.email/components/dropdown"
 	"gofer.email/components/tooltip"
+	"gofer.email/internal/models"
 )
 
-templ ComposeDialog() {
+templ ComposeDialog(accounts []models.Account) {
 	@dialog.Dialog(dialog.Props{
 		ID: "compose-dialog",
+		Class: "[&_[data-tui-dialog-panel]]:flex [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:gap-3",
 	}) {
 		@dialog.Trigger() {
 			<span></span>
 		}
 		@dialog.Content(dialog.ContentProps{
-			Class: "sm:max-w-2xl",
+			Class: "sm:max-w-2xl flex flex-col max-h-[85vh]",
 		}) {
 			@dialog.Header() {
 				@dialog.Title() {
 					New Message
 				}
 			}
-			<div class="space-y-0 -mt-2">
-				@ComposeField("To", "to", "recipient@example.com")
-				<div id="cc-field" class="hidden">
-					@ComposeField("Cc", "cc", "")
+			<div id="compose-form" class="flex flex-col min-h-0 gap-3">
+				<input type="hidden" name="account_id" id="compose-account-id" value={ composeDefaultAccountID(accounts) }/>
+				<input type="hidden" name="in_reply_to" id="compose-in-reply-to" value=""/>
+				<input type="hidden" name="references" id="compose-references" value=""/>
+				<div class="space-y-0">
+					@ComposeField("To", "to", "recipient@example.com")
+					<div id="cc-field" class="hidden">
+						@ComposeField("Cc", "cc", "")
+					</div>
+					<div id="bcc-field" class="hidden">
+						@ComposeField("Bcc", "bcc", "")
+					</div>
+					<div class="flex items-center gap-2 pt-1">
+						<button
+							type="button"
+							class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+							onclick="document.getElementById('cc-field').classList.toggle('hidden')"
+						>Cc</button>
+						<button
+							type="button"
+							class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+							onclick="document.getElementById('bcc-field').classList.toggle('hidden')"
+						>Bcc</button>
+					</div>
 				</div>
-				<div id="bcc-field" class="hidden">
-					@ComposeField("Bcc", "bcc", "")
+				<div class="border-t pt-2">
+					@input.Input(input.Props{
+						Name:        "subject",
+						Placeholder: "Subject",
+						Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 font-semibold placeholder:font-normal",
+					})
 				</div>
-				<div class="flex items-center gap-2 pt-1">
-					<button
-						type="button"
-						class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
-						onclick="document.getElementById('cc-field').classList.toggle('hidden')"
-					>Cc</button>
-					<button
-						type="button"
-						class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
-						onclick="document.getElementById('bcc-field').classList.toggle('hidden')"
-					>Bcc</button>
+				@ComposeToolbar()
+				<div class="flex-1 min-h-[120px] overflow-y-auto">
+					@textarea.Textarea(textarea.Props{
+						Name:        "body",
+						Placeholder: "Write your message...",
+						Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none text-sm h-full",
+						AutoResize:  false,
+					})
 				</div>
-			</div>
-			<div class="border-t pt-2">
-				@input.Input(input.Props{
-					Name:        "subject",
-					Placeholder: "Subject",
-					Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 font-semibold placeholder:font-normal",
-				})
-			</div>
-			@ComposeToolbar()
-			<div class="min-h-[180px] max-h-[40vh] overflow-y-auto">
-				@textarea.Textarea(textarea.Props{
-					Name:        "body",
-					Placeholder: "Write your message...",
-					Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none text-sm",
-					AutoResize:  true,
-				})
 			</div>
 			@dialog.Footer() {
 				@dialog.Close() {
@@ -73,7 +80,11 @@ templ ComposeDialog() {
 						@icon.Save(icon.Props{Class: "size-3.5"})
 						Save Draft
 					</button>
-					<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg">
+					<button type="button"
+						class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg"
+						id="compose-send-btn"
+						onclick="sendCompose()"
+					>
 						@icon.Send(icon.Props{Class: "size-3.5"})
 						Send
 					</button>

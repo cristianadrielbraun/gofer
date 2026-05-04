@@ -272,6 +272,16 @@ func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*m
 	return &a, nil
 }
 
+func (s *AccountStore) GetFirstAccountID(ctx context.Context) string {
+	var id string
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT id FROM accounts ORDER BY id LIMIT 1`).Scan(&id)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
 func generateAccountID(email string) string {
 	return fmt.Sprintf("acc_%s", strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {

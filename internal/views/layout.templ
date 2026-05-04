@@ -33,7 +33,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 				@ResizeHandle("maillist")
 				@MailView(selectedEmail)
 			</div>
-			@ComposeDialog()
+			@ComposeDialog(accounts)
 			<script src="/assets/js/htmx.min.js"></script>
 			<script src="/assets/js/virtual-scroll.js"></script>
 			<script src="/assets/js/app.js"></script>
@@ -64,7 +64,7 @@ templ SettingsLayout(accounts []models.Account) {
 				@SettingsPage(accounts)
 			</div>
 			<div id="mail-list" class="hidden"></div>
-			@ComposeDialog()
+			@ComposeDialog(accounts)
 			@AddAccountDialog()
 			<div id="edit-account-container"></div>
 			<script src="/assets/js/htmx.min.js"></script>
