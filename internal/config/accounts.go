@@ -97,6 +97,26 @@ func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models
 	return &cfg, nil
 }
 
+func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*models.EditAccountData, error) {
+	var data models.EditAccountData
+	data.AccountID = accountID
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT email_address, display_name,
+		        imap_host, imap_port, imap_tls_mode,
+		        smtp_host, smtp_port, smtp_tls_mode,
+		        username, auth_method, COALESCE(smtp_username, '')
+		 FROM accounts WHERE id = ?`, accountID,
+	).Scan(&data.EmailAddress, &data.DisplayName,
+		&data.IMAPHost, &data.IMAPPort, &data.IMAPTLSMode,
+		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode,
+		&data.Username, &data.AuthMethod, &data.SmtpUsername)
+	if err != nil {
+		return nil, fmt.Errorf("query account edit data: %w", err)
+	}
+	data.SameSmtpAuth = data.SmtpUsername == "" || data.SmtpUsername == data.Username
+	return &data, nil
+}
+
 func (s *AccountStore) CreateAccount(ctx context.Context, req *models.CreateAccountRequest) (*models.Account, error) {
 	encrypted, err := s.encrypt(req.Password)
 	if err != nil {

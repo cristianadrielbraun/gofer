@@ -30,6 +30,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /mail/folder/{id}/items", h.handleMailItems)
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
+	mux.HandleFunc("GET /api/accounts/{id}/edit", h.handleGetEditAccount)
+	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)
 	mux.HandleFunc("GET /settings", h.handleSettings)
 }
@@ -222,7 +224,70 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	views.AccountAdded(account).Render(r.Context(), w)
+	views.WizardStepSuccess("Account created", account.ID, "add").Render(r.Context(), w)
+}
+
+func (h *Handler) handleGetEditAccount(w http.ResponseWriter, r *http.Request) {
+	accountID := r.PathValue("id")
+	if accountID == "" {
+		http.Error(w, "account id required", http.StatusBadRequest)
+		return
+	}
+
+	data, err := h.accountStore.GetEditData(r.Context(), accountID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get account: %v", err), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	views.EditAccountDialog(*data).Render(r.Context(), w)
+}
+
+func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
+	accountID := r.PathValue("id")
+	if accountID == "" {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError("Account ID is required").Render(r.Context(), w)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError("Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	req := models.CreateAccountRequest{
+		EmailAddress: r.FormValue("email_address"),
+		DisplayName:  r.FormValue("display_name"),
+		IMAPHost:     r.FormValue("imap_host"),
+		IMAPPort:     atoiDefault(r.FormValue("imap_port"), 993),
+		IMAPTLSMode:  r.FormValue("imap_tls_mode"),
+		SMTPHost:     r.FormValue("smtp_host"),
+		SMTPPort:     atoiDefault(r.FormValue("smtp_port"), 465),
+		SMTPTLSMode:  r.FormValue("smtp_tls_mode"),
+		Username:     r.FormValue("username"),
+		Password:     r.FormValue("password"),
+		AuthMethod:   r.FormValue("auth_method"),
+		SmtpUsername: r.FormValue("smtp_username"),
+		SmtpPassword: r.FormValue("smtp_password"),
+	}
+
+	if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError("All required fields must be filled in").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.accountStore.UpdateAccount(r.Context(), accountID, &req); err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError(fmt.Sprintf("Failed to update account: %v", err)).Render(r.Context(), w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	views.WizardStepSuccess("Account updated", accountID, "edit").Render(r.Context(), w)
 }
 
 func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +348,8 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	results = append(results, smtpResult)
 
 	w.Header().Set("Content-Type", "text/html")
-	views.ConnectionTestResults(results, accountID).Render(r.Context(), w)
+	wizardType := r.URL.Query().Get("wizard")
+	views.ConnectionTestResults(results, accountID, wizardType).Render(r.Context(), w)
 }
 
 func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {

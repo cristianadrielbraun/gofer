@@ -20,6 +20,22 @@ type ConnectionTestResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type EditAccountData struct {
+	AccountID    string
+	EmailAddress string
+	DisplayName  string
+	IMAPHost     string
+	IMAPPort     int
+	IMAPTLSMode  string
+	SMTPHost     string
+	SMTPPort     int
+	SMTPTLSMode  string
+	Username     string
+	AuthMethod   string
+	SmtpUsername string
+	SameSmtpAuth bool
+}
+
 type CreateAccountRequest struct {
 	EmailAddress string `json:"email_address"`
 	DisplayName  string `json:"display_name"`

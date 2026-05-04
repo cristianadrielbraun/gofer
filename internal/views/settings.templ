@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"gofer.email/internal/models"
+	"strconv"
 
 	"gofer.email/components/button"
 	"gofer.email/components/checkbox"
@@ -81,6 +82,15 @@ templ SettingsAccountCard(account models.Account) {
 			<p class="text-sm font-medium truncate">{ account.Name }</p>
 			<p class="text-xs text-muted-foreground truncate">{ account.Email }</p>
 		</div>
+			<button
+			class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
+			hx-get={ fmt.Sprintf("/api/accounts/%s/edit", account.ID) }
+			hx-target="#edit-account-container"
+			hx-swap="innerHTML"
+		>
+			@icon.Pencil(icon.Props{Class: "size-3.5"})
+			Edit
+		</button>
 		<button
 			class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
 			hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
@@ -108,13 +118,14 @@ templ AddAccountDialog() {
 					Connect your email account
 				}
 			}
-			<div id="add-account-result"></div>
 			<div class="flex items-center gap-2 px-1 pt-2 pb-4">
 				<div class="wizard-dot active" data-step="0"></div>
 				<div class="h-px flex-1 bg-border"></div>
 				<div class="wizard-dot" data-step="1"></div>
 				<div class="h-px flex-1 bg-border"></div>
 				<div class="wizard-dot" data-step="2"></div>
+				<div class="h-px flex-1 bg-border"></div>
+				<div class="wizard-dot" data-step="3"></div>
 			</div>
 			@selectbox.Script()
 			<style>
@@ -128,10 +139,23 @@ templ AddAccountDialog() {
 					var track = document.getElementById('wizard-track');
 					var vp = document.getElementById('wizard-viewport');
 					if (!track || !vp) return;
-					track.style.transform = 'translateX(-' + (step * 33.333) + '%)';
-					var p = track.children[step];
-					if (p) vp.style.height = (p.scrollHeight + 4) + 'px';
-					document.querySelectorAll('.wizard-dot').forEach(function(d) {
+					track.style.transform = 'translateX(-' + (step * 25) + '%)';
+					requestAnimationFrame(function() {
+						var p = track.children[step];
+						if (p) {
+							var h = p.scrollHeight + 4;
+							var rect = vp.getBoundingClientRect();
+							var maxH = window.innerHeight - rect.top - 16;
+							if (h > maxH) {
+								h = maxH;
+								vp.style.overflowY = 'auto';
+							} else {
+								vp.style.overflowY = 'hidden';
+							}
+							vp.style.height = h + 'px';
+						}
+					});
+					document.querySelectorAll('#add-account-dialog .wizard-dot').forEach(function(d) {
 						d.classList.toggle('active', +d.dataset.step <= step);
 					});
 				}
@@ -177,9 +201,9 @@ templ AddAccountDialog() {
 				});
 			</script>
 			<div id="wizard-viewport" class="overflow-hidden" style="height:0;transition:none">
-				<form id="account-form" hx-post="/api/accounts" hx-target="#add-account-result" hx-swap="innerHTML">
-					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 300%">
-						<div class="w-1/3 shrink-0 px-1" data-wizard-step="0">
+				<form id="account-form" hx-post="/api/accounts" hx-target="#add-step-3-content" hx-swap="innerHTML">
+					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 400%">
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="0">
 							<div class="space-y-4">
 								<div>
 									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Email Address</label>
@@ -207,7 +231,7 @@ templ AddAccountDialog() {
 							</div>
 						</div>
 
-						<div class="w-1/3 shrink-0 px-1" data-wizard-step="1">
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="1">
 							<h4 class="text-sm font-semibold text-foreground flex items-center gap-2 mb-4">
 								@icon.Inbox(icon.Props{Class: "size-4 text-muted-foreground"})
 								Incoming Mail
@@ -295,7 +319,7 @@ templ AddAccountDialog() {
 							</div>
 						</div>
 
-						<div class="w-1/3 shrink-0 px-1" data-wizard-step="2">
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="2">
 							<h4 class="text-sm font-semibold text-foreground flex items-center gap-2 mb-4">
 								@icon.Send(icon.Props{Class: "size-4 text-muted-foreground"})
 								Sending Mail
@@ -376,6 +400,10 @@ templ AddAccountDialog() {
 								</button>
 							</div>
 						</div>
+
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="3">
+							<div id="add-step-3-content" hx-on::after-swap="wizardGo(3)"></div>
+						</div>
 					</div>
 				</form>
 			</div>
@@ -383,31 +411,295 @@ templ AddAccountDialog() {
 	}
 }
 
-templ AccountAdded(account *models.Account) {
-	<div class="space-y-4">
+templ EditAccountDialog(data models.EditAccountData) {
+	@dialog.Dialog(dialog.Props{ID: "edit-account-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Edit Account
+				}
+				@dialog.Description() {
+					Update your email account settings
+				}
+			}
+				<div class="flex items-center gap-2 px-1 pt-2 pb-4">
+				<div class="wizard-dot active" data-step="0"></div>
+				<div class="h-px flex-1 bg-border"></div>
+				<div class="wizard-dot" data-step="1"></div>
+				<div class="h-px flex-1 bg-border"></div>
+				<div class="wizard-dot" data-step="2"></div>
+				<div class="h-px flex-1 bg-border"></div>
+				<div class="wizard-dot" data-step="3"></div>
+			</div>
+			<style>
+				.wizard-dot { width: 8px; height: 8px; border-radius: 9999px; background: oklch(0.7 0 0); transition: background 0.3s; flex-shrink: 0; }
+				.wizard-dot.active { background: oklch(0.55 0.18 50); }
+			</style>
+			<script>
+				var _editWizStep = 0;
+				function editWizardGo(step) {
+					_editWizStep = step;
+					var track = document.getElementById('edit-wizard-track');
+					var vp = document.getElementById('edit-wizard-viewport');
+					if (!track || !vp) return;
+					track.style.transform = 'translateX(-' + (step * 25) + '%)';
+					requestAnimationFrame(function() {
+						var p = track.children[step];
+						if (p) {
+							var h = p.scrollHeight + 4;
+							var rect = vp.getBoundingClientRect();
+							var maxH = window.innerHeight - rect.top - 16;
+							if (h > maxH) {
+								h = maxH;
+								vp.style.overflowY = 'auto';
+							} else {
+								vp.style.overflowY = 'hidden';
+							}
+							vp.style.height = h + 'px';
+						}
+					});
+					document.querySelectorAll('#edit-account-dialog .wizard-dot').forEach(function(d) {
+						d.classList.toggle('active', +d.dataset.step <= step);
+					});
+				}
+				function editToggleSmtpAuth(checked) {
+					var fields = document.getElementById('edit-smtp-auth-fields');
+					var inputs = fields.querySelectorAll('input');
+					fields.classList.toggle('opacity-50', checked);
+					inputs.forEach(function(inp) { inp.disabled = checked; });
+					if (checked) {
+						var form = document.getElementById('edit-account-form');
+						var u = form.querySelector('input[name="username"]');
+						var p = form.querySelector('input[name="password"]');
+						var su = form.querySelector('input[name="smtp_username"]');
+						var sp = form.querySelector('input[name="smtp_password"]');
+						if (su && u) su.value = u.value;
+						if (sp && p) sp.value = p.value;
+					}
+				}
+			</script>
+			<div id="edit-wizard-viewport" class="overflow-hidden" style="height:0;transition:none">
+				<form id="edit-account-form" hx-post={ fmt.Sprintf("/api/accounts/%s/edit", data.AccountID) } hx-target="#edit-step-3-content" hx-swap="innerHTML">
+					<div id="edit-wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 400%">
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="0">
+							<div class="space-y-4">
+								<div>
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Email Address</label>
+									@input.Input(input.Props{
+										Name:  "email_address",
+										Type:  input.TypeEmail,
+										Value: data.EmailAddress,
+									})
+								</div>
+								<div>
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Display Name</label>
+									@input.Input(input.Props{
+										Name:  "display_name",
+										Type:  input.TypeText,
+										Value: data.DisplayName,
+									})
+								</div>
+							</div>
+							<div class="flex justify-end pt-6">
+								<button type="button" onclick="editWizardGo(1)" class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+									Next
+									@icon.ChevronRight(icon.Props{Class: "size-4"})
+								</button>
+							</div>
+						</div>
+
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="1">
+							<h4 class="text-sm font-semibold text-foreground flex items-center gap-2 mb-4">
+								@icon.Inbox(icon.Props{Class: "size-4 text-muted-foreground"})
+								Incoming Mail
+								<span class="text-xs font-normal text-muted-foreground">(IMAP)</span>
+							</h4>
+							<div class="grid grid-cols-2 gap-3">
+								<div class="col-span-2">
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">IMAP Host</label>
+									@input.Input(input.Props{
+										Name:  "imap_host",
+										Type:  input.TypeText,
+										Value: data.IMAPHost,
+									})
+								</div>
+								<div>
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Port</label>
+									@input.Input(input.Props{
+										Name:  "imap_port",
+										Type:  input.TypeNumber,
+										Value: strconv.Itoa(data.IMAPPort),
+									})
+								</div>
+								<div>
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Encryption</label>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "imap_tls_mode"}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: data.IMAPTLSMode == "tls"}) { TLS }
+											@selectbox.Item(selectbox.ItemProps{Value: "starttls", Selected: data.IMAPTLSMode == "starttls"}) { STARTTLS }
+											@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: data.IMAPTLSMode == "none"}) { None }
+										}
+									}
+								</div>
+							</div>
+							<hr class="my-4 border-border"/>
+							<h4 class="text-sm font-semibold text-foreground flex items-center gap-2 mb-4">
+								@icon.Key(icon.Props{Class: "size-4 text-muted-foreground"})
+								Login
+							</h4>
+							<div class="grid grid-cols-2 gap-3">
+								<div class="col-span-2">
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Username</label>
+									@input.Input(input.Props{
+										Name:  "username",
+										Type:  input.TypeText,
+										Value: data.Username,
+									})
+								</div>
+								<div class="col-span-2">
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Password</label>
+									@input.Input(input.Props{
+										Name:        "password",
+										Type:        input.TypePassword,
+										Placeholder: "Leave blank to keep current",
+									})
+								</div>
+								<div class="col-span-2">
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Method</label>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "auth_method"}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "PLAIN"}) { PLAIN }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "plain", Selected: data.AuthMethod == "plain"}) { PLAIN }
+											@selectbox.Item(selectbox.ItemProps{Value: "oauth2", Selected: data.AuthMethod == "oauth2"}) { OAuth2 }
+										}
+									}
+								</div>
+							</div>
+							<div class="flex justify-between pt-6">
+								<button type="button" onclick="editWizardGo(0)" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-md border border-border hover:bg-accent">
+									@icon.ArrowLeft(icon.Props{Class: "size-4"})
+									Back
+								</button>
+								<button type="button" onclick="editWizardGo(2)" class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+									Next
+									@icon.ChevronRight(icon.Props{Class: "size-4"})
+								</button>
+							</div>
+						</div>
+
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="2">
+							<h4 class="text-sm font-semibold text-foreground flex items-center gap-2 mb-4">
+								@icon.Send(icon.Props{Class: "size-4 text-muted-foreground"})
+								Sending Mail
+								<span class="text-xs font-normal text-muted-foreground">(SMTP)</span>
+							</h4>
+							<div class="grid grid-cols-2 gap-3">
+								<div class="col-span-2">
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">SMTP Host</label>
+									@input.Input(input.Props{
+										Name:  "smtp_host",
+										Type:  input.TypeText,
+										Value: data.SMTPHost,
+									})
+								</div>
+								<div>
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Port</label>
+									@input.Input(input.Props{
+										Name:  "smtp_port",
+										Type:  input.TypeNumber,
+										Value: strconv.Itoa(data.SMTPPort),
+									})
+								</div>
+								<div>
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Encryption</label>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode"}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: data.SMTPTLSMode == "tls"}) { TLS }
+											@selectbox.Item(selectbox.ItemProps{Value: "starttls", Selected: data.SMTPTLSMode == "starttls"}) { STARTTLS }
+											@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: data.SMTPTLSMode == "none"}) { None }
+										}
+									}
+								</div>
+							</div>
+							<hr class="my-4 border-border"/>
+							<label class="flex items-center gap-2 cursor-pointer mb-4">
+								@checkbox.Checkbox(checkbox.Props{
+									ID:         "edit-smtp-same-auth",
+									Checked:    data.SameSmtpAuth,
+									Attributes: templ.Attributes{"onchange": "editToggleSmtpAuth(this.checked)"},
+								})
+								<span class="text-sm">Use same login as incoming mail</span>
+							</label>
+							<div id="edit-smtp-auth-fields" class={ templ.KV("opacity-50", data.SameSmtpAuth) }>
+								<div class="grid grid-cols-2 gap-3">
+									<div class="col-span-2">
+										<label class="text-xs font-medium text-muted-foreground mb-1.5 block">SMTP Username</label>
+										@input.Input(input.Props{
+											Name:     "smtp_username",
+											Type:     input.TypeText,
+											Value:    data.SmtpUsername,
+											Disabled: data.SameSmtpAuth,
+										})
+									</div>
+									<div class="col-span-2">
+										<label class="text-xs font-medium text-muted-foreground mb-1.5 block">SMTP Password</label>
+										@input.Input(input.Props{
+											Name:        "smtp_password",
+											Type:        input.TypePassword,
+											Placeholder: "Leave blank to keep current",
+											Disabled:    data.SameSmtpAuth,
+										})
+									</div>
+								</div>
+							</div>
+							<div class="flex justify-between pt-6">
+								<button type="button" onclick="editWizardGo(1)" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-md border border-border hover:bg-accent">
+									@icon.ArrowLeft(icon.Props{Class: "size-4"})
+									Back
+								</button>
+								<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg">
+									@icon.Check(icon.Props{Class: "size-4"})
+									Save Changes
+								</button>
+							</div>
+						</div>
+
+						<div class="w-1/4 shrink-0 px-1" data-wizard-step="3">
+							<div id="edit-step-3-content" hx-on::after-swap="editWizardGo(3)"></div>
+						</div>
+					</div>
+				</form>
+			</div>
+		}
+	}
+}
+
+templ WizardStepSuccess(heading string, accountID string, wizardType string) {
+	<div class="space-y-4 pt-2">
 		<div class="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
 			@icon.Check(icon.Props{Class: "size-5 text-emerald-500"})
-			<div>
-				<p class="text-sm font-medium text-emerald-500">Account created</p>
-				<p class="text-xs text-muted-foreground">{ account.Email }</p>
+			<p class="text-sm font-medium text-emerald-500">{ heading }</p>
+		</div>
+		<div
+			id="wizard-test-results"
+			hx-post={ fmt.Sprintf("/api/accounts/%s/test?wizard=%s", accountID, wizardType) }
+			hx-trigger="load"
+			hx-target="#wizard-test-results"
+			hx-swap="innerHTML"
+			class="space-y-3"
+		>
+			<div class="flex items-center justify-center py-4 gap-2">
+				<div class="size-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>
+				<span class="text-xs text-muted-foreground">Testing connection...</span>
 			</div>
-		</div>
-		<div id="test-results" class="space-y-2">
-			<button
-				class="w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors"
-				hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
-				hx-target="#test-results"
-				hx-swap="innerHTML"
-			>
-				@icon.Wifi(icon.Props{Class: "size-4"})
-				Test Connection
-			</button>
-		</div>
-		<div class="flex justify-end pt-2">
-			<a href="/settings" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent">
-				@icon.Check(icon.Props{Class: "size-4"})
-				Done
-			</a>
 		</div>
 	</div>
 }
@@ -418,48 +710,82 @@ templ AccountFormError(message string) {
 			@icon.CircleAlert(icon.Props{Class: "size-5 text-destructive"})
 			<p class="text-sm text-destructive">{ message }</p>
 		</div>
-		<a href="/settings" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent">
-			@icon.ArrowLeft(icon.Props{Class: "size-4"})
-			Try Again
-		</a>
+		<div class="flex justify-end pt-2">
+			<a href="/settings" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent">
+				@icon.ArrowLeft(icon.Props{Class: "size-4"})
+				Try Again
+			</a>
+		</div>
 	</div>
 }
 
-templ ConnectionTestResults(results []models.ConnectionTestResult, accountID string) {
+templ ConnectionTestResults(results []models.ConnectionTestResult, accountID string, wizardType string) {
+	{{ hasFailure := false }}
 	<div class="space-y-3">
-		for _, r := range results {
-			<div class={
-				"flex items-center gap-3 p-3 rounded-lg border",
-				templ.KV("bg-emerald-500/10 border-emerald-500/20", r.Success),
-				templ.KV("bg-destructive/10 border-destructive/20", !r.Success),
-			}>
-				if r.Success {
-					@icon.Check(icon.Props{Class: "size-5 text-emerald-500"})
-				} else {
-					@icon.X(icon.Props{Class: "size-5 text-destructive"})
+		<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+			for _, r := range results {
+				if !r.Success {
+					{{ hasFailure = true }}
 				}
-				<div class="flex-1 min-w-0">
-					<div class="flex items-center gap-2">
-						<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ r.Service }</span>
-						if r.Success {
-							<span class="text-xs text-emerald-500 font-medium">{ r.Message }</span>
+				<div class={
+					"flex items-center gap-3 p-3 rounded-lg border",
+					templ.KV("bg-emerald-500/10 border-emerald-500/20", r.Success),
+					templ.KV("bg-destructive/10 border-destructive/20", !r.Success),
+				}>
+					if r.Success {
+						@icon.Check(icon.Props{Class: "size-5 text-emerald-500"})
+					} else {
+						@icon.X(icon.Props{Class: "size-5 text-destructive"})
+					}
+					<div class="flex-1 min-w-0">
+						<div class="flex items-center gap-2">
+							<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ r.Service }</span>
+							if r.Success {
+								<span class="text-xs text-emerald-500 font-medium">{ r.Message }</span>
+							}
+						</div>
+						if !r.Success {
+							<p class="text-xs text-destructive mt-0.5">{ r.Error }</p>
+							<p class="text-xs text-muted-foreground mt-0.5">{ r.Message }</p>
 						}
 					</div>
-					if !r.Success {
-						<p class="text-xs text-destructive mt-0.5">{ r.Error }</p>
-						<p class="text-xs text-muted-foreground mt-0.5">{ r.Message }</p>
+				</div>
+			}
+		</div>
+		if wizardType != "" {
+			<div class="flex justify-between gap-2 pt-2">
+				if wizardType == "edit" {
+					<button type="button" onclick="editWizardGo(2)" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-md border border-border hover:bg-accent">
+						@icon.ArrowLeft(icon.Props{Class: "size-4"})
+						Back
+					</button>
+				} else {
+					<button type="button" onclick="wizardGo(2)" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-md border border-border hover:bg-accent">
+						@icon.ArrowLeft(icon.Props{Class: "size-4"})
+						Back
+					</button>
+				}
+				<div class="flex gap-2">
+					if hasFailure {
+						<a href="/settings" class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors">
+							Save Anyway
+						</a>
 					}
+					<a href="/settings" class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+						Done
+					</a>
 				</div>
 			</div>
+		} else {
+			<button
+				class="w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors"
+				hx-post={ fmt.Sprintf("/api/accounts/%s/test", accountID) }
+				hx-target="#test-results"
+				hx-swap="outerHTML"
+			>
+				@icon.RefreshCw(icon.Props{Class: "size-4"})
+				Retry
+			</button>
 		}
-		<button
-			class="w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors"
-			hx-post={ fmt.Sprintf("/api/accounts/%s/test", accountID) }
-			hx-target="#test-results"
-			hx-swap="outerHTML"
-		>
-			@icon.RefreshCw(icon.Props{Class: "size-4"})
-			Retry
-		</button>
 	</div>
 }

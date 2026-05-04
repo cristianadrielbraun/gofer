@@ -65,8 +65,45 @@ templ SettingsLayout(accounts []models.Account) {
 			</div>
 			@ComposeDialog()
 			@AddAccountDialog()
+			<div id="edit-account-container"></div>
 			<script src="/assets/js/htmx.min.js"></script>
 			<script src="/assets/js/app.js"></script>
+			<script>
+				function setupEditAccountDialog() {
+					var dlg = document.querySelector('#edit-account-dialog dialog[data-tui-dialog-content]');
+					if (!dlg) return;
+
+					if (window.tui && window.tui.dialog) {
+						window.tui.dialog.open('edit-account-dialog');
+					}
+
+					requestAnimationFrame(function() {
+						var vp = document.getElementById('edit-wizard-viewport');
+						var track = document.getElementById('edit-wizard-track');
+						if (!vp || !track || !dlg.open) return;
+
+						vp.style.transition = 'none';
+						vp.style.height = '9999px';
+						track.style.transform = 'translateX(0)';
+						if (typeof _editWizStep !== 'undefined') _editWizStep = 0;
+						void vp.offsetHeight;
+						var p = track.children[0];
+						if (p) vp.style.height = p.scrollHeight + 'px';
+						void vp.offsetHeight;
+						vp.style.transition = 'height .3s ease-in-out';
+
+						document.querySelectorAll('#edit-account-dialog .wizard-dot').forEach(function(d) {
+							d.classList.toggle('active', +d.dataset.step === 0);
+						});
+					});
+				}
+
+				document.addEventListener('htmx:afterSettle', function(e) {
+					if (e.target && e.target.querySelector && e.target.querySelector('#edit-account-dialog')) {
+						setTimeout(setupEditAccountDialog, 20);
+					}
+				});
+			</script>
 		</body>
 	</html>
 }
