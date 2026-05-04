@@ -53,18 +53,18 @@ func detectRoleByName(upper string) string {
 	}
 }
 
-func roleIcon(role string) string {
+func RoleIcon(role string) string {
 	switch role {
 	case "inbox":
 		return "inbox"
 	case "sent":
 		return "send"
 	case "drafts":
-		return "file-edit"
+		return "file"
 	case "trash":
-		return "trash-2"
+		return "trash"
 	case "junk":
-		return "shield-alert"
+		return "alert-circle"
 	case "archive":
 		return "archive"
 	case "starred":

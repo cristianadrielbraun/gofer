@@ -49,6 +49,53 @@ type folderRow struct {
 	parentID sql.NullString
 }
 
+type UpsertFolderInput struct {
+	ID         string
+	AccountID  string
+	ParentID   string
+	RemoteID   string
+	Name       string
+	Icon       string
+	Role       string
+	SortOrder  int
+}
+
+func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO folders (id, account_id, parent_id, remote_id, name, icon, role, sort_order)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			parent_id = excluded.parent_id,
+			remote_id = excluded.remote_id,
+			name = excluded.name,
+			icon = excluded.icon,
+			role = excluded.role,
+			sort_order = excluded.sort_order,
+			updated_at = CURRENT_TIMESTAMP`)
+	if err != nil {
+		return fmt.Errorf("prepare upsert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, f := range folders {
+		var parentID interface{}
+		if f.ParentID != "" {
+			parentID = f.ParentID
+		}
+		if _, err := stmt.ExecContext(ctx, f.ID, f.AccountID, parentID, f.RemoteID, f.Name, f.Icon, f.Role, f.SortOrder); err != nil {
+			return fmt.Errorf("upsert folder %s: %w", f.ID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (db *DB) GetAccounts(ctx context.Context) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id, email_address, display_name, color, initials FROM accounts ORDER BY id`)
