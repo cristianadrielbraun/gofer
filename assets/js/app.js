@@ -179,6 +179,11 @@ document.addEventListener("DOMContentLoaded", function () {
     var path = "/folder/" + folderID
     if (selectedId) path += "/" + selectedId
     history.replaceState({ folder: folderID, email: selectedId || null }, "", path)
+    if (typeof initResizeHandles === "function") initResizeHandles()
+  })
+
+  document.body.addEventListener("htmx:afterSettle", function () {
+    if (typeof initResizeHandles === "function") initResizeHandles()
   })
 })
 

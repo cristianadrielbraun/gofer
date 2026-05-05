@@ -1,3 +1,5 @@
+var initResizeHandles;
+
 (function () {
   function getPanel(el) {
     return el.previousElementSibling;
@@ -73,14 +75,20 @@
     document.addEventListener("touchend", onUp);
   }
 
-  document.querySelectorAll(".resize-handle").forEach(function (h) {
-    var name = h.dataset.panel;
-    var saved = restore(name + ":width");
-    if (saved) {
-      var b = getBounds(name);
-      setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max));
-    }
-    h.addEventListener("mousedown", onStart);
-    h.addEventListener("touchstart", onStart, { passive: false });
-  });
+  initResizeHandles = function () {
+    document.querySelectorAll(".resize-handle").forEach(function (h) {
+      if (h._resizeBound) return;
+      h._resizeBound = true;
+      var name = h.dataset.panel;
+      var saved = restore(name + ":width");
+      if (saved) {
+        var b = getBounds(name);
+        setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max));
+      }
+      h.addEventListener("mousedown", onStart);
+      h.addEventListener("touchstart", onStart, { passive: false });
+    });
+  };
+
+  initResizeHandles();
 })();
