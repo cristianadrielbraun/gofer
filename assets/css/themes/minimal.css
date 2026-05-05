@@ -1,7 +1,7 @@
 /* === MINIMAL THEME === */
 
 [data-theme="minimal"] {
-  --radius: 0.5rem;
+  --radius: 0px;
   --background: #ffffff;
   --foreground: #0a0a0a;
   --card: #f5f5f5;
@@ -33,6 +33,14 @@
   --copper: #0a0a0a;
   --brass: #737373;
   --ink: #0a0a0a;
+  --shadow-card: none;
+  --shadow-card-hover: none;
+  --shadow-raised: none;
+  --shadow-emboss: none;
+  --shadow-inset: none;
+  --shadow-paper: none;
+  --shadow-button: none;
+  --shadow-button-pressed: none;
 }
 
 [data-theme="minimal"].dark {
@@ -114,6 +122,10 @@
   box-shadow: none;
 }
 
+[data-theme="minimal"]:not(.dark) .envelope {
+	border-color: #b4b4b4;
+}
+
 [data-theme="minimal"] .envelope:hover {
   box-shadow: none;
   transform: none;
@@ -121,8 +133,14 @@
 }
 
 [data-theme="minimal"] .envelope-active {
-  border-color: var(--primary);
+  border: 1px solid var(--primary);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--background));
   box-shadow: none;
+}
+
+[data-theme="minimal"]:not(.dark) .envelope-active {
+  border: 2px solid #888888;
+  background: color-mix(in srgb, var(--foreground) 8%, var(--background));
 }
 
 [data-theme="minimal"] .compose-titlebar {

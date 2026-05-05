@@ -24,7 +24,7 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 					<p class="text-sm text-muted-foreground">Manage your accounts and preferences</p>
 				</div>
 				@tabs.Tabs() {
-					@tabs.List(tabs.ListProps{}) {
+					@tabs.List(tabs.ListProps{Class: "bg-card"}) {
 						@tabs.Trigger(tabs.TriggerProps{Value: "accounts", IsActive: activeTab == "accounts"}) {
 							Accounts
 						}
@@ -60,7 +60,7 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 					</div>
 					<div class="space-y-1 sm:text-right" data-mode-picker>
 						<h4 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Color Mode</h4>
-						<div class="inline-flex rounded-lg border border-border p-0.5 gap-0.5">
+						<div class="inline-flex rounded-lg border border-border bg-background p-0.5 gap-0.5">
 							<button
 								type="button"
 								data-mode="light"
@@ -123,28 +123,28 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 
 					<label class="relative flex flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 						@radio.Radio(radio.Props{Name: "theme_style", Value: "minimal", Checked: uiSettingGet(uiSettings, "theme_style", "classic") == "minimal", Class: "absolute right-2.5 bottom-2.5 z-10"})
-						<div data-theme="minimal" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", templ.KV("dark", uiSettingGet(uiSettings, "theme", "dark") == "dark") } style="background:var(--background); border-radius:4px">
+						<div data-theme="minimal" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", templ.KV("dark", uiSettingGet(uiSettings, "theme", "dark") == "dark") } style="background:var(--background); border-radius:0">
 							<div class="w-1/4 p-2 flex flex-col gap-1.5" style="background:var(--sidebar); border-right:1px solid var(--sidebar-border)">
-								<div style="height:3px; width:70%; background:var(--sidebar-foreground); opacity:0.4; border-radius:2px"></div>
-								<div style="height:3px; width:90%; background:var(--sidebar-foreground); opacity:0.25; border-radius:2px"></div>
-								<div style="height:3px; width:50%; background:var(--primary); opacity:0.7; border-radius:2px"></div>
-								<div style="height:3px; width:80%; background:var(--sidebar-foreground); opacity:0.25; border-radius:2px"></div>
-								<div style="height:3px; width:60%; background:var(--sidebar-foreground); opacity:0.25; border-radius:2px"></div>
+								<div style="height:3px; width:70%; background:var(--sidebar-foreground); opacity:0.4; border-radius:0"></div>
+								<div style="height:3px; width:90%; background:var(--sidebar-foreground); opacity:0.25; border-radius:0"></div>
+								<div style="height:3px; width:50%; background:var(--primary); opacity:0.7; border-radius:0"></div>
+								<div style="height:3px; width:80%; background:var(--sidebar-foreground); opacity:0.25; border-radius:0"></div>
+								<div style="height:3px; width:60%; background:var(--sidebar-foreground); opacity:0.25; border-radius:0"></div>
 							</div>
 							<div class="flex-1 p-2 flex flex-col gap-1.5" style="background:var(--background)">
-								<div style="height:3px; width:60%; background:var(--foreground); opacity:0.2; border-radius:2px; margin-bottom:2px"></div>
-								<div class="flex-1 p-2 flex flex-col" style="background:var(--card); border:1px solid var(--border); border-radius:3px">
-									<div style="height:2px; width:75%; background:var(--foreground); opacity:0.3; border-radius:2px; margin-bottom:3px"></div>
-									<div style="height:2px; width:50%; background:var(--muted-foreground); opacity:0.2; border-radius:2px; margin-bottom:3px"></div>
-									<div style="height:2px; width:85%; background:var(--foreground); opacity:0.12; border-radius:2px; margin-bottom:3px"></div>
-									<div style="height:2px; width:60%; background:var(--foreground); opacity:0.08; border-radius:2px; margin-bottom:3px"></div>
-									<div style="height:2px; width:90%; background:var(--foreground); opacity:0.05; border-radius:2px; margin-bottom:3px"></div>
-									<div style="height:2px; width:40%; background:var(--foreground); opacity:0.08; border-radius:2px; margin-bottom:3px"></div>
-									<div style="height:2px; width:70%; background:var(--foreground); opacity:0.05; border-radius:2px; margin-bottom:3px"></div>
-									<div style="flex:1; width:100%; background:var(--secondary); border-radius:2px; margin-bottom:3px"></div>
+								<div style="height:3px; width:60%; background:var(--foreground); opacity:0.2; border-radius:0; margin-bottom:2px"></div>
+								<div class="flex-1 p-2 flex flex-col" style="background:var(--card); border:1px solid var(--border); border-radius:0">
+									<div style="height:2px; width:75%; background:var(--foreground); opacity:0.3; border-radius:0; margin-bottom:3px"></div>
+									<div style="height:2px; width:50%; background:var(--muted-foreground); opacity:0.2; border-radius:0; margin-bottom:3px"></div>
+									<div style="height:2px; width:85%; background:var(--foreground); opacity:0.12; border-radius:0; margin-bottom:3px"></div>
+									<div style="height:2px; width:60%; background:var(--foreground); opacity:0.08; border-radius:0; margin-bottom:3px"></div>
+									<div style="height:2px; width:90%; background:var(--foreground); opacity:0.05; border-radius:0; margin-bottom:3px"></div>
+									<div style="height:2px; width:40%; background:var(--foreground); opacity:0.08; border-radius:0; margin-bottom:3px"></div>
+									<div style="height:2px; width:70%; background:var(--foreground); opacity:0.05; border-radius:0; margin-bottom:3px"></div>
+									<div style="flex:1; width:100%; background:var(--secondary); border-radius:0; margin-bottom:3px"></div>
 									<div style="display:inline-flex; gap:4px; margin-top:auto">
-										<div style="height:10px; width:28px; background:var(--primary); border-radius:3px"></div>
-										<div style="height:10px; width:28px; background:var(--card); border:1px solid var(--border); border-radius:3px"></div>
+										<div style="height:10px; width:28px; background:var(--primary); border-radius:0"></div>
+										<div style="height:10px; width:28px; background:var(--card); border:1px solid var(--border); border-radius:0"></div>
 									</div>
 								</div>
 							</div>

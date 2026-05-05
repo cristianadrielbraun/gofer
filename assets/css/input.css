@@ -124,7 +124,6 @@
     linear-gradient(175deg, var(--paper) 0%, color-mix(in srgb, var(--paper) 97%, #c0a880) 100%);
   color: var(--ink);
   box-shadow: var(--shadow-paper);
-  border-radius: 2px;
 }
 
 .dark .surface-paper {
@@ -232,8 +231,7 @@
   transition: all 0.2s ease;
 }
 
-[data-theme="classic"]:not(.dark) .envelope,
-[data-theme="minimal"]:not(.dark) .envelope {
+[data-theme="classic"]:not(.dark) .envelope {
   border-color: color-mix(in srgb, var(--color-border) 80%, transparent);
 }
 

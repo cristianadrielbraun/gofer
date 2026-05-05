@@ -33,11 +33,10 @@
     indicator.style.left = "0";
     indicator.style.top = "3px";
     indicator.style.height = "calc(100% - 6px)";
-    indicator.style.borderRadius = "0.5rem";
+    indicator.style.borderRadius = "calc(var(--radius) - 3px)";
     indicator.style.background = "var(--background)";
     indicator.style.border = "1px solid var(--border)";
-    indicator.style.boxShadow = 
-      "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)";
+    indicator.style.boxShadow = "var(--shadow-card)";
     indicator.style.transition = "transform 220ms ease, width 220ms ease";
     indicator.style.willChange = "transform, width";
     indicator.style.pointerEvents = "none";
@@ -153,6 +152,7 @@
 
   // Setup on load and mutations
   document.addEventListener("DOMContentLoaded", setupInitialStates);
+  document.fonts.ready.then(setupInitialStates);
   new MutationObserver(setupInitialStates).observe(document.body, {
     childList: true,
     subtree: true,

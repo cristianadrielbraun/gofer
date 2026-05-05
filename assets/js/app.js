@@ -146,7 +146,7 @@ document.addEventListener("DOMContentLoaded", function () {
       } else {
         virtualMailList.switchFolder(folderID)
       }
-    })
+    }, true)
   }
 
   function setupEmailSelectionTracking() {

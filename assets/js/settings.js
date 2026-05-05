@@ -170,10 +170,10 @@ function setupModePickers() {
     indicator.style.position = "absolute"
     indicator.style.left = "0"
     indicator.style.top = "0"
-    indicator.style.borderRadius = "0.5rem"
-    indicator.style.background = "var(--background)"
+    indicator.style.borderRadius = "calc(var(--radius) - 2px)"
+    indicator.style.background = "var(--card)"
     indicator.style.border = "1px solid var(--border)"
-    indicator.style.boxShadow = "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)"
+    indicator.style.boxShadow = "var(--shadow-card)"
     indicator.style.transition = "transform 220ms ease, width 220ms ease, height 220ms ease"
     indicator.style.willChange = "transform, width, height"
     indicator.style.pointerEvents = "none"
@@ -246,6 +246,10 @@ if (typeof MutationObserver !== "undefined" && document.documentElement) {
   themeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ["class", "data-theme"],
+  })
+
+  document.fonts.ready.then(function () {
+    refreshModePickers(false)
   })
 }
 

@@ -79,8 +79,6 @@ var initResizeHandles;
 
   initResizeHandles = function () {
     document.querySelectorAll(".resize-handle").forEach(function (h) {
-      if (h._resizeBound) return;
-      h._resizeBound = true;
       var name = h.dataset.panel;
       if (typeof GoferSettings !== "undefined") {
         var saved = GoferSettings.get(settingKey(name));
@@ -89,6 +87,8 @@ var initResizeHandles;
           setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max));
         }
       }
+      if (h._resizeBound) return;
+      h._resizeBound = true;
       h.addEventListener("mousedown", onStart);
       h.addEventListener("touchstart", onStart, { passive: false });
     });
