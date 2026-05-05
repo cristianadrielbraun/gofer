@@ -1,10 +1,95 @@
 (function () {
   "use strict";
 
+  function getTabsContainer(tabsId) {
+    return document.querySelector(
+      `[data-tui-tabs][data-tui-tabs-id="${tabsId}"]`,
+    );
+  }
+
+  function getTabList(container, tabsId) {
+    return container.querySelector(
+      `[data-tui-tabs-list][data-tui-tabs-id="${tabsId}"]`,
+    );
+  }
+
+  function getActiveTrigger(container, tabsId, value) {
+    return container.querySelector(
+      `[data-tui-tabs-trigger][data-tui-tabs-id="${tabsId}"][data-tui-tabs-value="${value}"]`,
+    );
+  }
+
+  function prepareSlidingIndicator(list) {
+    let indicator = list.querySelector("[data-tui-tabs-indicator]");
+    if (indicator) return indicator;
+
+    if (getComputedStyle(list).position === "static") {
+      list.style.position = "relative";
+    }
+
+    indicator = document.createElement("div");
+    indicator.setAttribute("data-tui-tabs-indicator", "true");
+    indicator.style.position = "absolute";
+    indicator.style.left = "0";
+    indicator.style.top = "3px";
+    indicator.style.height = "calc(100% - 6px)";
+    indicator.style.borderRadius = "0.5rem";
+    indicator.style.background = "var(--background)";
+    indicator.style.border = "1px solid var(--border)";
+    indicator.style.boxShadow = 
+      "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)";
+    indicator.style.transition = "transform 220ms ease, width 220ms ease";
+    indicator.style.willChange = "transform, width";
+    indicator.style.pointerEvents = "none";
+    indicator.style.zIndex = "0";
+
+    list.prepend(indicator);
+    return indicator;
+  }
+
+  function syncSlidingIndicator(container, tabsId, value, animate) {
+    const list = getTabList(container, tabsId);
+    if (!list) return false;
+
+    const indicator = prepareSlidingIndicator(list);
+    const activeTrigger = getActiveTrigger(container, tabsId, value);
+    if (!activeTrigger) return false;
+
+    const listRect = list.getBoundingClientRect();
+    const triggerRect = activeTrigger.getBoundingClientRect();
+    const left = triggerRect.left - listRect.left;
+    const width = triggerRect.width;
+
+    if (!animate) {
+      const previousTransition = indicator.style.transition;
+      indicator.style.transition = "none";
+      indicator.style.width = `${width}px`;
+      indicator.style.transform = `translateX(${left}px)`;
+      void indicator.offsetHeight;
+      indicator.style.transition = previousTransition;
+      return true;
+    }
+
+    indicator.style.width = `${width}px`;
+    indicator.style.transform = `translateX(${left}px)`;
+    return true;
+  }
+
+  function resetTriggerChrome(trigger, isActive) {
+    trigger.style.position = "relative";
+    trigger.style.zIndex = "1";
+    trigger.style.background = isActive ? "transparent" : "";
+    trigger.style.boxShadow = "none";
+    trigger.style.borderColor = "transparent";
+  }
+
   // Update tab state
-  function setActiveTab(tabsId, value) {
+  function setActiveTab(tabsId, value, animate = true) {
+    const container = getTabsContainer(tabsId);
+    if (!container) return;
+
     // Update all triggers with this tabs-id
-    document
+    container
       .querySelectorAll(`[data-tui-tabs-trigger][data-tui-tabs-id="${tabsId}"]`)
       .forEach((trigger) => {
         const isActive = trigger.getAttribute("data-tui-tabs-value") === value;
@@ -12,10 +97,12 @@
           "data-tui-tabs-state",
           isActive ? "active" : "inactive",
         );
+        resetTriggerChrome(trigger, isActive);
       });
 
-    // Update all contents with this tabs-id
-    document
+    syncSlidingIndicator(container, tabsId, value, animate);
+
+    container
       .querySelectorAll(`[data-tui-tabs-content][data-tui-tabs-id="${tabsId}"]`)
       .forEach((content) => {
         const isActive = content.getAttribute("data-tui-tabs-value") === value;
@@ -35,7 +122,7 @@
     const tabsId = trigger.getAttribute("data-tui-tabs-id");
     const value = trigger.getAttribute("data-tui-tabs-value");
     if (tabsId && value) {
-      setActiveTab(tabsId, value);
+      setActiveTab(tabsId, value, true);
 
       if (window.location.pathname.startsWith("/settings")) {
         var url = "/settings/" + value;
@@ -59,7 +146,7 @@
         ) || container.querySelector(`[data-tui-tabs-trigger]`);
 
       if (activeTrigger) {
-        setActiveTab(tabsId, activeTrigger.getAttribute("data-tui-tabs-value"));
+        setActiveTab(tabsId, activeTrigger.getAttribute("data-tui-tabs-value"), false);
       }
     });
   }
@@ -90,7 +177,7 @@
     }
     var tabsId = container.getAttribute("data-tui-tabs-id");
     if (tabsId && tab) {
-      setActiveTab(tabsId, tab);
+      setActiveTab(tabsId, tab, true);
     }
   });
 })();

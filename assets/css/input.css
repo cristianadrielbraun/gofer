@@ -248,7 +248,7 @@
 
 .envelope-active {
   background: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-foreground) 25%, var(--color-accent));
+  border: 1px solid color-mix(in srgb, var(--color-foreground) 25%, var(--color-accent));
 }
 
 /* === PROSE FOR EMAIL BODY === */

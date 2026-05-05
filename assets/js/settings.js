@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", function () {
   setupTestButtonAnimation()
   setupSettingsHistory()
+  setupModePickers()
 
   function setupTestButtonAnimation() {
     document.body.addEventListener("htmx:beforeRequest", function (e) {
@@ -143,6 +144,111 @@ function escapeHtml(text) {
   return el.innerHTML
 }
 
+function getActiveThemeMode() {
+  if (typeof GoferSettings !== "undefined" && GoferSettings.get) {
+    return GoferSettings.get("theme") || "dark"
+  }
+  return document.documentElement.classList.contains("dark") ? "dark" : "light"
+}
+
+function modeButtonClasses(isActive) {
+  var base = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200"
+  return isActive ? base + " text-foreground" : base + " text-muted-foreground hover:text-foreground"
+}
+
+function setupModePickers() {
+  document.querySelectorAll("[data-mode-picker]").forEach(function (picker) {
+    if (picker.dataset.modePickerReady === "1") return
+    picker.dataset.modePickerReady = "1"
+
+    if (getComputedStyle(picker).position === "static") {
+      picker.style.position = "relative"
+    }
+
+    var indicator = document.createElement("div")
+    indicator.setAttribute("data-mode-picker-indicator", "true")
+    indicator.style.position = "absolute"
+    indicator.style.left = "0"
+    indicator.style.top = "0"
+    indicator.style.borderRadius = "0.5rem"
+    indicator.style.background = "var(--background)"
+    indicator.style.border = "1px solid var(--border)"
+    indicator.style.boxShadow = "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)"
+    indicator.style.transition = "transform 220ms ease, width 220ms ease, height 220ms ease"
+    indicator.style.willChange = "transform, width, height"
+    indicator.style.pointerEvents = "none"
+    indicator.style.zIndex = "0"
+    picker.prepend(indicator)
+
+    var buttons = Array.prototype.slice.call(picker.querySelectorAll("[data-mode]"))
+    buttons.forEach(function (btn) {
+      btn.style.position = "relative"
+      btn.style.zIndex = "1"
+      btn.style.background = "transparent"
+      btn.style.boxShadow = "none"
+      btn.style.borderColor = "transparent"
+    })
+
+    function sync(animate) {
+      var activeMode = getActiveThemeMode()
+      var activeButton = picker.querySelector('[data-mode="' + activeMode + '"]') || buttons[0]
+      if (!activeButton) return
+
+      buttons.forEach(function (btn) {
+        var isActive = btn === activeButton
+        btn.className = modeButtonClasses(isActive)
+      })
+
+      var pickerRect = picker.getBoundingClientRect()
+      var buttonRect = activeButton.getBoundingClientRect()
+      var left = buttonRect.left - pickerRect.left
+      var top = buttonRect.top - pickerRect.top
+
+      if (!animate) {
+        var previousTransition = indicator.style.transition
+        indicator.style.transition = "none"
+        indicator.style.width = buttonRect.width + "px"
+        indicator.style.height = buttonRect.height + "px"
+        indicator.style.transform = "translate(" + left + "px, " + top + "px)"
+        void indicator.offsetHeight
+        indicator.style.transition = previousTransition
+        return
+      }
+
+      indicator.style.width = buttonRect.width + "px"
+      indicator.style.height = buttonRect.height + "px"
+      indicator.style.transform = "translate(" + left + "px, " + top + "px)"
+    }
+
+    picker.__syncModePicker = sync
+    requestAnimationFrame(function () { sync(false) })
+  })
+}
+
+function refreshModePickers(animate) {
+  document.querySelectorAll("[data-mode-picker]").forEach(function (picker) {
+    if (typeof picker.__syncModePicker === "function") {
+      picker.__syncModePicker(animate !== false)
+    }
+  })
+}
+
+if (typeof MutationObserver !== "undefined" && document.documentElement) {
+  var themeObserver = new MutationObserver(function (mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      if (mutations[i].type === "attributes") {
+        refreshModePickers(true)
+        break
+      }
+    }
+  })
+
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class", "data-theme"],
+  })
+}
+
 function setupSettingsHistory() {
   if (!window.location.pathname.startsWith("/settings")) return
   var parts = window.location.pathname.replace(/\/+$/, "").split("/")
@@ -153,6 +259,21 @@ function setupSettingsHistory() {
 
 document.body.addEventListener("htmx:afterSettle", function (e) {
   if (!e.target || !e.target.querySelector) return
-  if (!e.target.querySelector("[data-tui-tabs]")) return
+  if (!e.target.querySelector("[data-tui-tabs]") && !e.target.querySelector("[data-mode-picker]")) return
   setupSettingsHistory()
+  setupModePickers()
+  requestAnimationFrame(function () {
+    refreshModePickers(false)
+  })
+})
+
+document.addEventListener("click", function (e) {
+  var trigger = e.target.closest('[data-tui-tabs-trigger]')
+  if (!trigger) return
+  var value = trigger.getAttribute('data-tui-tabs-value')
+  if (value === 'appearance') {
+    requestAnimationFrame(function () {
+      if (typeof refreshModePickers === 'function') refreshModePickers(false)
+    })
+  }
 })
