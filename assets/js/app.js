@@ -369,3 +369,29 @@ function moveMessage(emailId, folderId) {
     })
     .catch(function () {})
 }
+
+window.addEventListener("message", function (e) {
+  if (e.data && e.data.type === "emailBodyResize") {
+    var iframe = document.getElementById("email-body-frame")
+    if (iframe) iframe.style.height = e.data.height + "px"
+  }
+})
+
+function refetchBody(emailId) {
+  fetch("/api/messages/" + emailId + "/refetch", { method: "POST" })
+    .then(function (r) { return r.json() })
+    .then(function (data) {
+      if (data.status === "refetched" && typeof htmx !== "undefined") {
+        htmx.ajax("GET", "/email/" + emailId, { target: "#mail-view", swap: "innerHTML" })
+      }
+    })
+    .catch(function () {})
+}
+
+document.addEventListener("click", function (e) {
+  var el = e.target.closest("[data-refetch-email]")
+  if (el) {
+    e.preventDefault()
+    refetchBody(el.dataset.refetchEmail)
+  }
+})

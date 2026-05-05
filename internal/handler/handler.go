@@ -39,6 +39,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	setupAssetsRoutes(mux)
 	mux.HandleFunc("GET /", h.handleIndex)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
+	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
 	mux.HandleFunc("GET /folder/{id}", h.handleFolderPartial)
 	mux.HandleFunc("GET /folder/{id}/full", h.handleFolderFull)
 	mux.HandleFunc("GET /folder/{id}/{email}", h.handleFolderWithEmail)
@@ -60,6 +61,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/{id}/star", h.handleToggleStar)
 	mux.HandleFunc("DELETE /api/messages/{id}", h.handleDeleteMessage)
 	mux.HandleFunc("POST /api/messages/{id}/move", h.handleMoveMessage)
+	mux.HandleFunc("POST /api/messages/{id}/refetch", h.handleRefetchBody)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -168,6 +170,58 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 	views.MailViewContent(email).Render(ctx, w)
 }
 
+var emailResizeScript = []byte(`<script>(function(){function r(){parent.postMessage({type:'emailBodyResize',height:document.documentElement.scrollHeight},'*')}r();document.querySelectorAll('img').forEach(function(i){i.onload=r});if(typeof MutationObserver!=='undefined'){new MutationObserver(r).observe(document.body,{childList:true,subtree:true})}})();</script>`)
+
+func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
+	emailID := r.PathValue("id")
+	if emailID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	ctx := r.Context()
+
+	msgID, _ := strconv.ParseInt(emailID, 10, 64)
+	if msgID > 0 && !h.db.IsBodyFetched(ctx, msgID) {
+		info, err := h.db.GetMessageFetchInfo(ctx, msgID)
+		if err != nil || info == nil {
+			http.NotFound(w, r)
+			return
+		}
+		h.fetchBody(ctx, msgID, info.AccountID)
+	}
+
+	body, err := h.db.GetEmailBody(ctx, emailID)
+	if err != nil || body == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(buildBodyDocument(body, emailResizeScript))
+}
+
+func buildBodyDocument(body []byte, resizeScript []byte) []byte {
+	s := string(body)
+	lower := strings.ToLower(s)
+
+	if strings.Contains(lower, "<html") {
+		if idx := strings.LastIndex(lower, "</body>"); idx != -1 {
+			return []byte(s[:idx] + string(resizeScript) + s[idx:])
+		}
+		return []byte(s + string(resizeScript))
+	}
+
+	doc := "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>" +
+		"body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;color:#333;word-wrap:break-word}" +
+		"img{max-width:100%;height:auto}" +
+		"</style></head><body>" +
+		s +
+		string(resizeScript) +
+		"</body></html>"
+	return []byte(doc)
+}
+
 func (h *Handler) fetchBody(ctx context.Context, msgID int64, accountID string) {
 	info, err := h.db.GetMessageFetchInfo(ctx, msgID)
 	if err != nil || info == nil {
@@ -224,6 +278,17 @@ func (h *Handler) fetchBody(ctx context.Context, msgID int64, accountID string) 
 	if err := h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, parsed.RawPath, snippet); err != nil {
 		return
 	}
+
+	h.db.UpdateMessageHeaders(ctx, msgID, parsed.Subject, parsed.FromName, parsed.FromEmail, snippet)
+
+	var toRecs, ccRecs []storage.Recipient
+	for _, r := range parsed.To {
+		toRecs = append(toRecs, storage.Recipient{Name: r.Name, Email: r.Email})
+	}
+	for _, r := range parsed.CC {
+		ccRecs = append(ccRecs, storage.Recipient{Name: r.Name, Email: r.Email})
+	}
+	h.db.UpsertRecipients(ctx, msgID, toRecs, ccRecs)
 
 	if len(parsed.Attachments) > 0 {
 		var attRows []storage.AttachmentRow
@@ -1153,4 +1218,26 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "moved"})
+}
+
+func (h *Handler) handleRefetchBody(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	ctx := r.Context()
+
+	msgID, info, err := h.getMessageInfo(ctx, idStr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := h.db.ClearEmailData(ctx, msgID); err != nil {
+		http.Error(w, "failed to clear message data", http.StatusInternalServerError)
+		return
+	}
+
+	h.fetchBody(ctx, msgID, info.AccountID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "refetched"})
 }

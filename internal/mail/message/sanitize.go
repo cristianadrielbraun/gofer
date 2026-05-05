@@ -17,17 +17,17 @@ func SanitizeHTML(input []byte) []byte {
 }
 
 var dangerousElements = []string{
-	"script", "style", "iframe", "object", "embed", "form", "meta", "link",
+	"script", "iframe", "object", "embed", "form", "meta", "link",
 }
 
 func removeDangerousTags(html []byte) []byte {
 	s := string(html)
 
 	for _, tag := range dangerousElements {
-		reOpen := regexp.MustCompile(`(?is)<` + tag + `\b[^>]*>`)
-		reClose := regexp.MustCompile(`(?is)</` + tag + `\s*>`)
+		re := regexp.MustCompile(`(?is)<` + tag + `\b[^>]*>.*?</` + tag + `\s*>`)
+		s = re.ReplaceAllString(s, "")
+		reOpen := regexp.MustCompile(`(?is)<` + tag + `\b[^>]*/?\s*>`)
 		s = reOpen.ReplaceAllString(s, "")
-		s = reClose.ReplaceAllString(s, "")
 	}
 
 	reEventAttr := regexp.MustCompile(`(?i)\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)`)

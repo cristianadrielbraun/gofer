@@ -840,11 +840,104 @@ func (db *DB) IsBodyFetched(ctx context.Context, messageID int64) bool {
 	return (textPath != nil && *textPath != "") || (htmlPath != nil && *htmlPath != "")
 }
 
+func (db *DB) GetEmailBody(ctx context.Context, id string) ([]byte, error) {
+	msgID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return nil, nil
+	}
+
+	var bodyTextPath, bodyHTMLPath sql.NullString
+	err = db.Read().QueryRowContext(ctx,
+		`SELECT body_text_path, body_html_path FROM messages WHERE id = ?`, msgID,
+	).Scan(&bodyTextPath, &bodyHTMLPath)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query body paths: %w", err)
+	}
+
+	if bodyHTMLPath.Valid && bodyHTMLPath.String != "" {
+		data, err := os.ReadFile(bodyHTMLPath.String)
+		if err != nil {
+			return nil, fmt.Errorf("read html body: %w", err)
+		}
+		return data, nil
+	}
+
+	if bodyTextPath.Valid && bodyTextPath.String != "" {
+		data, err := os.ReadFile(bodyTextPath.String)
+		if err != nil {
+			return nil, fmt.Errorf("read text body: %w", err)
+		}
+		wrapped := "<pre style=\"white-space:pre-wrap;word-wrap:break-word;font-family:inherit;margin:0;padding:8px\">" +
+			template.HTMLEscapeString(string(data)) + "</pre>"
+		return []byte(wrapped), nil
+	}
+
+	return nil, nil
+}
+
 func (db *DB) UpdateMessageBody(ctx context.Context, messageID int64, textPath, htmlPath, rawPath string, snippet string) error {
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE messages SET body_text_path = ?, body_html_path = ?, raw_path = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, textPath, htmlPath, rawPath, snippet, snippet, messageID)
 	return err
+}
+
+func (db *DB) ClearEmailBody(ctx context.Context, messageID int64) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE messages SET body_text_path = NULL, body_html_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, messageID)
+	return err
+}
+
+func (db *DB) ClearEmailData(ctx context.Context, messageID int64) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM attachments WHERE message_id = ?`, messageID); err != nil {
+		return fmt.Errorf("delete attachments: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE message_id = ?`, messageID); err != nil {
+		return fmt.Errorf("delete recipients: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE messages SET body_text_path = NULL, body_html_path = NULL, raw_path = NULL, has_attachments = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, messageID); err != nil {
+		return fmt.Errorf("clear body: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) UpdateMessageHeaders(ctx context.Context, messageID int64, subject, fromName, fromEmail, snippet string) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE messages SET subject = ?, from_name = ?, from_email = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		subject, fromName, fromEmail, snippet, snippet, messageID)
+	return err
+}
+
+func (db *DB) UpsertRecipients(ctx context.Context, messageID int64, to, cc []Recipient) error {
+	stmt, err := db.Write().PrepareContext(ctx,
+		`INSERT INTO message_recipients (message_id, kind, name, email) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare recip: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, r := range to {
+		if _, err := stmt.ExecContext(ctx, messageID, "to", r.Name, r.Email); err != nil {
+			return err
+		}
+	}
+	for _, r := range cc {
+		if _, err := stmt.ExecContext(ctx, messageID, "cc", r.Name, r.Email); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) InsertAttachments(ctx context.Context, messageID int64, atts []AttachmentRow) error {
