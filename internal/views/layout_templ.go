@@ -17,7 +17,7 @@ import (
 	"gofer.email/components/tooltip"
 )
 
-func Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int) templ.Component {
+func Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -38,7 +38,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>gofer.email</title><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"anonymous\"><link href=\"https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"/assets/css/output.css\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>gofer.email</title><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"anonymous\"><link href=\"https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"/assets/css/output.css\"><script>window._goferUISettings={ uiSettingsJSON(uiSettings) }</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -62,7 +62,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Sidebar(accounts, activeFolder).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -74,7 +74,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -98,7 +98,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div id=\"edit-account-container\"></div><script src=\"/assets/js/htmx.min.js\"></script><script src=\"/assets/js/virtual-scroll.js\"></script><script src=\"/assets/js/app.js\"></script><script src=\"/assets/js/settings.js\"></script><script src=\"/assets/js/resize.js\"></script><script>\n\t\t\t\tfunction setupEditAccountDialog() {\n\t\t\t\t\tvar dlg = document.querySelector('#edit-account-dialog dialog[data-tui-dialog-content]');\n\t\t\t\t\tif (!dlg) return;\n\n\t\t\t\t\tif (window.tui && window.tui.dialog) {\n\t\t\t\t\t\twindow.tui.dialog.open('edit-account-dialog');\n\t\t\t\t\t}\n\n\t\t\t\t\trequestAnimationFrame(function() {\n\t\t\t\t\t\tvar vp = document.getElementById('edit-wizard-viewport');\n\t\t\t\t\t\tvar track = document.getElementById('edit-wizard-track');\n\t\t\t\t\t\tif (!vp || !track || !dlg.open) return;\n\n\t\t\t\t\t\tvp.style.transition = 'none';\n\t\t\t\t\t\tvp.style.height = '9999px';\n\t\t\t\t\t\ttrack.style.transform = 'translateX(0)';\n\t\t\t\t\t\tif (typeof _editWizStep !== 'undefined') _editWizStep = 0;\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvar p = track.children[0];\n\t\t\t\t\t\tif (p) vp.style.height = p.scrollHeight + 'px';\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvp.style.transition = 'height .3s ease-in-out';\n\n\t\t\t\t\t\tdocument.querySelectorAll('#edit-account-dialog .wizard-dot').forEach(function(d) {\n\t\t\t\t\t\t\td.classList.toggle('active', +d.dataset.step === 0);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t}\n\n\t\t\t\tdocument.addEventListener('htmx:afterSettle', function(e) {\n\t\t\t\t\tif (e.target && e.target.querySelector && e.target.querySelector('#edit-account-dialog')) {\n\t\t\t\t\t\tsetTimeout(setupEditAccountDialog, 20);\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t</script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div id=\"edit-account-container\"></div><script src=\"/assets/js/htmx.min.js\"></script><script src=\"/assets/js/virtual-scroll.js\"></script><script src=\"/assets/js/app.js\"></script><script src=\"/assets/js/settings.js\"></script><script src=\"/assets/js/ui-settings.js\"></script><script src=\"/assets/js/resize.js\"></script><script>\n\t\t\t\tfunction setupEditAccountDialog() {\n\t\t\t\t\tvar dlg = document.querySelector('#edit-account-dialog dialog[data-tui-dialog-content]');\n\t\t\t\t\tif (!dlg) return;\n\n\t\t\t\t\tif (window.tui && window.tui.dialog) {\n\t\t\t\t\t\twindow.tui.dialog.open('edit-account-dialog');\n\t\t\t\t\t}\n\n\t\t\t\t\trequestAnimationFrame(function() {\n\t\t\t\t\t\tvar vp = document.getElementById('edit-wizard-viewport');\n\t\t\t\t\t\tvar track = document.getElementById('edit-wizard-track');\n\t\t\t\t\t\tif (!vp || !track || !dlg.open) return;\n\n\t\t\t\t\t\tvp.style.transition = 'none';\n\t\t\t\t\t\tvp.style.height = '9999px';\n\t\t\t\t\t\ttrack.style.transform = 'translateX(0)';\n\t\t\t\t\t\tif (typeof _editWizStep !== 'undefined') _editWizStep = 0;\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvar p = track.children[0];\n\t\t\t\t\t\tif (p) vp.style.height = p.scrollHeight + 'px';\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvp.style.transition = 'height .3s ease-in-out';\n\n\t\t\t\t\t\tdocument.querySelectorAll('#edit-account-dialog .wizard-dot').forEach(function(d) {\n\t\t\t\t\t\t\td.classList.toggle('active', +d.dataset.step === 0);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t}\n\n\t\t\t\tdocument.addEventListener('htmx:afterSettle', function(e) {\n\t\t\t\t\tif (e.target && e.target.querySelector && e.target.querySelector('#edit-account-dialog')) {\n\t\t\t\t\t\tsetTimeout(setupEditAccountDialog, 20);\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t</script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -106,7 +106,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 	})
 }
 
-func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings, activeTab string) templ.Component {
+func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings, activeTab string, uiSettings map[string]string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -127,7 +127,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>Settings — gofer.email</title><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"anonymous\"><link href=\"https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"/assets/css/output.css\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<!doctype html><html lang=\"en\" class=\"dark\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>Settings — gofer.email</title><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"anonymous\"><link href=\"https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"/assets/css/output.css\"><script>window._goferUISettings={ uiSettingsJSON(uiSettings) }</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -151,7 +151,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Sidebar(accounts, "").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Sidebar(accounts, "", uiSettingGet(uiSettings, "sidebar_width", "256px")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -179,7 +179,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div id=\"edit-account-container\"></div><script src=\"/assets/js/htmx.min.js\"></script><script src=\"/assets/js/virtual-scroll.js\"></script><script src=\"/assets/js/app.js\"></script><script src=\"/assets/js/settings.js\"></script><script src=\"/assets/js/resize.js\"></script><script>\n\t\t\t\tfunction setupEditAccountDialog() {\n\t\t\t\t\tvar dlg = document.querySelector('#edit-account-dialog dialog[data-tui-dialog-content]');\n\t\t\t\t\tif (!dlg) return;\n\n\t\t\t\t\tif (window.tui && window.tui.dialog) {\n\t\t\t\t\t\twindow.tui.dialog.open('edit-account-dialog');\n\t\t\t\t\t}\n\n\t\t\t\t\trequestAnimationFrame(function() {\n\t\t\t\t\t\tvar vp = document.getElementById('edit-wizard-viewport');\n\t\t\t\t\t\tvar track = document.getElementById('edit-wizard-track');\n\t\t\t\t\t\tif (!vp || !track || !dlg.open) return;\n\n\t\t\t\t\t\tvp.style.transition = 'none';\n\t\t\t\t\t\tvp.style.height = '9999px';\n\t\t\t\t\t\ttrack.style.transform = 'translateX(0)';\n\t\t\t\t\t\tif (typeof _editWizStep !== 'undefined') _editWizStep = 0;\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvar p = track.children[0];\n\t\t\t\t\t\tif (p) vp.style.height = p.scrollHeight + 'px';\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvp.style.transition = 'height .3s ease-in-out';\n\n\t\t\t\t\t\tdocument.querySelectorAll('#edit-account-dialog .wizard-dot').forEach(function(d) {\n\t\t\t\t\t\t\td.classList.toggle('active', +d.dataset.step === 0);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t}\n\n\t\t\t\tdocument.addEventListener('htmx:afterSettle', function(e) {\n\t\t\t\t\tif (e.target && e.target.querySelector && e.target.querySelector('#edit-account-dialog')) {\n\t\t\t\t\t\tsetTimeout(setupEditAccountDialog, 20);\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t</script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div id=\"edit-account-container\"></div><script src=\"/assets/js/htmx.min.js\"></script><script src=\"/assets/js/virtual-scroll.js\"></script><script src=\"/assets/js/app.js\"></script><script src=\"/assets/js/settings.js\"></script><script src=\"/assets/js/ui-settings.js\"></script><script src=\"/assets/js/resize.js\"></script><script>\n\t\t\t\tfunction setupEditAccountDialog() {\n\t\t\t\t\tvar dlg = document.querySelector('#edit-account-dialog dialog[data-tui-dialog-content]');\n\t\t\t\t\tif (!dlg) return;\n\n\t\t\t\t\tif (window.tui && window.tui.dialog) {\n\t\t\t\t\t\twindow.tui.dialog.open('edit-account-dialog');\n\t\t\t\t\t}\n\n\t\t\t\t\trequestAnimationFrame(function() {\n\t\t\t\t\t\tvar vp = document.getElementById('edit-wizard-viewport');\n\t\t\t\t\t\tvar track = document.getElementById('edit-wizard-track');\n\t\t\t\t\t\tif (!vp || !track || !dlg.open) return;\n\n\t\t\t\t\t\tvp.style.transition = 'none';\n\t\t\t\t\t\tvp.style.height = '9999px';\n\t\t\t\t\t\ttrack.style.transform = 'translateX(0)';\n\t\t\t\t\t\tif (typeof _editWizStep !== 'undefined') _editWizStep = 0;\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvar p = track.children[0];\n\t\t\t\t\t\tif (p) vp.style.height = p.scrollHeight + 'px';\n\t\t\t\t\t\tvoid vp.offsetHeight;\n\t\t\t\t\t\tvp.style.transition = 'height .3s ease-in-out';\n\n\t\t\t\t\t\tdocument.querySelectorAll('#edit-account-dialog .wizard-dot').forEach(function(d) {\n\t\t\t\t\t\t\td.classList.toggle('active', +d.dataset.step === 0);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t}\n\n\t\t\t\tdocument.addEventListener('htmx:afterSettle', function(e) {\n\t\t\t\t\tif (e.target && e.target.querySelector && e.target.querySelector('#edit-account-dialog')) {\n\t\t\t\t\t\tsetTimeout(setupEditAccountDialog, 20);\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t</script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -215,7 +215,7 @@ func ResizeHandle(panel string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(panel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 161, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 165, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -250,7 +250,7 @@ func FolderPartial(emails []models.Email, activeFolder string, selectedEmail *mo
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, "384px").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -302,7 +302,7 @@ func MailContentPartial(emails []models.Email, activeFolder string, selectedEmai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, "384px").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

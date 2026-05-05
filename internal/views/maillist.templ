@@ -11,8 +11,8 @@ import (
 	"gofer.email/components/dropdown"
 )
 
-templ MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int) {
-	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style="width: 384px">
+templ MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, width string) {
+	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + width }>
 		@MailListHeader(activeFolder, totalCount)
 		@MailListToolbar()
 		<hr class="divider-etched"/>

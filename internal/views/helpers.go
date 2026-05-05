@@ -1,6 +1,9 @@
 package views
 
-import "gofer.email/internal/models"
+import (
+	"encoding/json"
+	"gofer.email/internal/models"
+)
 
 func folderDisplayName(folderID string) string {
 	names := map[string]string{
@@ -23,4 +26,16 @@ func composeDefaultAccountID(accounts []models.Account) string {
 		return accounts[0].ID
 	}
 	return ""
+}
+
+func uiSettingsJSON(settings map[string]string) string {
+	b, _ := json.Marshal(settings)
+	return string(b)
+}
+
+func uiSettingGet(settings map[string]string, key, fallback string) string {
+	if v, ok := settings[key]; ok && v != "" {
+		return v
+	}
+	return fallback
 }

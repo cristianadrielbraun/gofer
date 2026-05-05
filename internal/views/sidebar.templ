@@ -11,8 +11,8 @@ import (
 	"gofer.email/utils"
 )
 
-templ Sidebar(accounts []models.Account, activeFolder string) {
-	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style="width: 256px">
+templ Sidebar(accounts []models.Account, activeFolder string, width string) {
+	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width }>
 		@SidebarHeader(accounts)
 		<hr class="divider-etched mx-4"/>
 		@SidebarFolderTree(accounts, activeFolder)

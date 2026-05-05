@@ -1208,6 +1208,32 @@ func (db *DB) SetIdleFoldersAll(ctx context.Context, perAccount map[string][]str
 	return db.SetSetting(ctx, "idle_folders", string(val))
 }
 
+func (db *DB) GetUISettings(ctx context.Context) map[string]string {
+	val, err := db.GetSetting(ctx, "ui_settings")
+	if err != nil || val == "" {
+		return defaultUISettings()
+	}
+	var settings map[string]string
+	if err := json.Unmarshal([]byte(val), &settings); err != nil {
+		return defaultUISettings()
+	}
+	return settings
+}
+
+func (db *DB) SetUISettings(ctx context.Context, settings map[string]string) error {
+	val, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return db.SetSetting(ctx, "ui_settings", string(val))
+}
+
+func defaultUISettings() map[string]string {
+	return map[string]string{
+		"theme": "dark",
+	}
+}
+
 func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]FolderSyncInfo, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id, account_id, remote_id, role,

@@ -17,12 +17,10 @@ var initResizeHandles;
     return Math.max(min, Math.min(max, v));
   }
 
-  function persist(key, value) {
-    try { localStorage.setItem("gofer:" + key, value); } catch (_) {}
-  }
-
-  function restore(key) {
-    try { return localStorage.getItem("gofer:" + key); } catch (_) { return null; }
+  function settingKey(panelName) {
+    if (panelName === "sidebar") return "sidebar_width";
+    if (panelName === "maillist") return "mail_list_width";
+    return panelName + "_width";
   }
 
   function getBounds(panelName) {
@@ -62,7 +60,11 @@ var initResizeHandles;
       document.body.style.userSelect = "";
       handle.classList.remove("active");
       var b = getBounds(panelName);
-      persist(panelName + ":width", Math.round(clamp(getSize(panel), b.min, b.max)));
+      var finalW = Math.round(clamp(getSize(panel), b.min, b.max));
+      setSize(panel, finalW);
+      if (typeof GoferSettings !== "undefined") {
+        GoferSettings.set(settingKey(panelName), String(finalW));
+      }
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       document.removeEventListener("touchmove", onMove);
@@ -80,10 +82,12 @@ var initResizeHandles;
       if (h._resizeBound) return;
       h._resizeBound = true;
       var name = h.dataset.panel;
-      var saved = restore(name + ":width");
-      if (saved) {
-        var b = getBounds(name);
-        setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max));
+      if (typeof GoferSettings !== "undefined") {
+        var saved = GoferSettings.get(settingKey(name));
+        if (saved) {
+          var b = getBounds(name);
+          setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max));
+        }
       }
       h.addEventListener("mousedown", onStart);
       h.addEventListener("touchstart", onStart, { passive: false });

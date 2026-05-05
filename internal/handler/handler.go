@@ -53,6 +53,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
+	mux.HandleFunc("GET /api/settings/ui", h.handleGetUISettings)
+	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
 	mux.HandleFunc("GET /api/attachments/{id}/download", h.handleAttachmentDownload)
 	mux.HandleFunc("GET /api/events", h.handleSSE)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
@@ -110,7 +112,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		selectedEmail, _ = h.db.GetEmailByID(ctx, emails[0].ID)
 	}
 
-	views.Layout(accounts, folderID, emails, selectedEmail, totalCount).Render(ctx, w)
+	views.Layout(accounts, folderID, emails, selectedEmail, totalCount, h.db.GetUISettings(ctx)).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +140,7 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 		selectedEmail, _ = h.db.GetEmailByID(ctx, emails[0].ID)
 	}
 
-	views.Layout(accounts, folderID, emails, selectedEmail, totalCount).Render(ctx, w)
+	views.Layout(accounts, folderID, emails, selectedEmail, totalCount, h.db.GetUISettings(ctx)).Render(ctx, w)
 }
 
 func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +335,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accounts, _ := h.db.GetAccounts(ctx)
-	views.Layout(accounts, folderID, emails, selectedEmail, totalCount).Render(ctx, w)
+	views.Layout(accounts, folderID, emails, selectedEmail, totalCount, h.db.GetUISettings(ctx)).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
@@ -626,7 +628,7 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	views.SettingsLayout(accounts, syncSettings, "accounts").Render(ctx, w)
+	views.SettingsLayout(accounts, syncSettings, "accounts", h.db.GetUISettings(ctx)).Render(ctx, w)
 }
 
 func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
@@ -645,7 +647,7 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	views.SettingsLayout(accounts, syncSettings, tab).Render(ctx, w)
+	views.SettingsLayout(accounts, syncSettings, tab, h.db.GetUISettings(ctx)).Render(ctx, w)
 }
 
 func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Account) models.SyncSettings {
@@ -778,6 +780,33 @@ func (h *Handler) handleSaveSyncSettings(w http.ResponseWriter, r *http.Request)
 
 	h.syncer.UpdateInterval(n)
 	h.syncer.RestartIDLEWatchers(ctx)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) handleGetUISettings(w http.ResponseWriter, r *http.Request) {
+	settings := h.db.GetUISettings(r.Context())
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(settings)
+}
+
+func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
+	var updates map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	current := h.db.GetUISettings(r.Context())
+	for k, v := range updates {
+		current[k] = v
+	}
+
+	if err := h.db.SetUISettings(r.Context(), current); err != nil {
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})

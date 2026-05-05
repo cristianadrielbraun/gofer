@@ -2,6 +2,7 @@
 
 <img width="2417" height="1499" alt="gofer-email-screenshot" src="https://github.com/user-attachments/assets/709e6ce1-1bf8-4cae-b679-5bd8891385b5" />
 
+<br>
 
 Small local email client thing I am building for myself.
 

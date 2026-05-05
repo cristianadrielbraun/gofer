@@ -9,7 +9,7 @@ import (
 	"gofer.email/components/tooltip"
 )
 
-templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int) {
+templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark">
 		<head>
@@ -20,6 +20,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
 			<link rel="stylesheet" href="/assets/css/output.css"/>
+			<script>window._goferUISettings={ uiSettingsJSON(uiSettings) }</script>
 			@dialog.Script()
 			@dropdown.Script()
 			@tabs.Script()
@@ -27,10 +28,10 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
 			<div class="flex h-screen overflow-hidden">
-				@Sidebar(accounts, activeFolder)
+				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"))
 				@ResizeHandle("sidebar")
 				<div id="main-content" class="flex flex-1 min-w-0">
-					@MailList(emails, activeFolder, selectedEmail, totalCount)
+					@MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"))
 					@ResizeHandle("maillist")
 					@MailView(selectedEmail)
 				</div>
@@ -42,6 +43,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<script src="/assets/js/virtual-scroll.js"></script>
 			<script src="/assets/js/app.js"></script>
 			<script src="/assets/js/settings.js"></script>
+			<script src="/assets/js/ui-settings.js"></script>
 			<script src="/assets/js/resize.js"></script>
 			<script>
 				function setupEditAccountDialog() {
@@ -83,7 +85,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 	</html>
 }
 
-templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings, activeTab string) {
+templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings, activeTab string, uiSettings map[string]string) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark">
 		<head>
@@ -94,6 +96,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
 			<link rel="stylesheet" href="/assets/css/output.css"/>
+			<script>window._goferUISettings={ uiSettingsJSON(uiSettings) }</script>
 			@dialog.Script()
 			@dropdown.Script()
 			@tabs.Script()
@@ -101,7 +104,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
 			<div class="flex h-screen overflow-hidden">
-				@Sidebar(accounts, "")
+				@Sidebar(accounts, "", uiSettingGet(uiSettings, "sidebar_width", "256px"))
 				@ResizeHandle("sidebar")
 				<div id="main-content" class="flex flex-1 min-w-0">
 					@SettingsPage(accounts, syncSettings, activeTab)
@@ -114,6 +117,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			<script src="/assets/js/virtual-scroll.js"></script>
 			<script src="/assets/js/app.js"></script>
 			<script src="/assets/js/settings.js"></script>
+			<script src="/assets/js/ui-settings.js"></script>
 			<script src="/assets/js/resize.js"></script>
 			<script>
 				function setupEditAccountDialog() {
@@ -164,7 +168,7 @@ templ ResizeHandle(panel string) {
 }
 
 templ FolderPartial(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int) {
-	@MailList(emails, activeFolder, selectedEmail, totalCount)
+	@MailList(emails, activeFolder, selectedEmail, totalCount, "384px")
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" hx-swap-oob="true">
 		if selectedEmail != nil {
 			@MailViewContent(selectedEmail)
@@ -176,7 +180,7 @@ templ FolderPartial(emails []models.Email, activeFolder string, selectedEmail *m
 
 templ MailContentPartial(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int) {
 	<div id="main-content" class="flex flex-1 min-w-0">
-		@MailList(emails, activeFolder, selectedEmail, totalCount)
+		@MailList(emails, activeFolder, selectedEmail, totalCount, "384px")
 		@ResizeHandle("maillist")
 		@MailView(selectedEmail)
 	</div>
