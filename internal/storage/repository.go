@@ -164,6 +164,12 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 	}
 	defer recipStmt.Close()
 
+	delRecipStmt, err := tx.PrepareContext(ctx, `DELETE FROM message_recipients WHERE message_id = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare recip delete: %w", err)
+	}
+	defer delRecipStmt.Close()
+
 	for _, m := range msgs {
 		var msgID int64
 		err := tx.QueryRow(`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`,
@@ -183,6 +189,10 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, m.RemoteUID,
 			m.IsRead, m.IsStarred, time.Now().UTC()); err != nil {
 			return fmt.Errorf("upsert state: %w", err)
+		}
+
+		if _, err := delRecipStmt.ExecContext(ctx, msgID); err != nil {
+			return fmt.Errorf("delete recipients: %w", err)
 		}
 
 		for _, r := range m.ToRecipients {

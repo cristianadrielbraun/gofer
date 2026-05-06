@@ -12,6 +12,13 @@ import (
 	"github.com/dustin/go-humanize"
 )
 
+func contactDisplay(c models.Contact) string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Email
+}
+
 templ MailView(email *models.Email) {
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">
 		if email != nil {
@@ -105,7 +112,7 @@ templ MailViewHeader(email *models.Email) {
 						Variant:    button.VariantGhost,
 						Size:       button.SizeIcon,
 						Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
-						Attributes: templ.Attributes{"onclick": fmt.Sprintf("toggleRead('%s')", email.ID)},
+						Attributes: templ.Attributes{"onclick": fmt.Sprintf("toggleRead('%s')", email.ID), "data-read-email": email.ID},
 					}) {
 						if email.IsRead {
 							@icon.Mail(icon.Props{Class: "size-4"})
@@ -208,13 +215,13 @@ templ MailViewSender(email *models.Email) {
 			</div>
 			<div class="text-xs text-ink/40 mt-0.5">
 				if len(email.To) > 0 {
-					to { email.To[0].Name }
+					to { contactDisplay(email.To[0]) }
 					if len(email.To) > 1 {
 						{ fmt.Sprintf(" and %d more", len(email.To)-1) }
 					}
 				}
 				if len(email.CC) > 0 {
-					, cc { email.CC[0].Name }
+					, cc { contactDisplay(email.CC[0]) }
 				}
 			</div>
 		</div>

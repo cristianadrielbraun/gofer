@@ -53,7 +53,22 @@ class VirtualMailList {
   render() {
     var scrollTop = this.container.scrollTop
     var clientHeight = this.container.clientHeight
-    if (this.totalCount === 0) return
+    if (this.totalCount === 0) {
+      this.spacerTop.style.height = "0px"
+      this.spacerBottom.style.height = "0px"
+      this.itemsContainer.innerHTML =
+        '<div class="flex flex-col items-center justify-center py-20 px-4 text-center">' +
+          '<div class="size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-7 text-muted-foreground/40" data-lucide="icon">' +
+              '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>' +
+              '<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>' +
+            '</svg>' +
+          '</div>' +
+          '<h3 class="font-semibold text-sm mb-1">No emails</h3>' +
+          '<p class="text-xs text-muted-foreground">This folder is empty</p>' +
+        '</div>'
+      return
+    }
 
     var first = Math.max(
       0,
@@ -443,6 +458,26 @@ class VirtualMailList {
       this.newEmailCount++
       this.showNewEmailBanner()
     }
+  }
+
+  invalidateItem(emailId) {
+    var pos = this.indexById.get(emailId)
+    if (pos === undefined) return
+
+    var url = "/mail/folder/" + this.folderID + "/items?start=" + pos + "&limit=1"
+    if (this.selectedEmailId) {
+      url += "&selected=" + encodeURIComponent(this.selectedEmailId)
+    }
+    var self = this
+    fetch(url, { headers: { Accept: "text/html" } })
+      .then(function (r) { return r.text() })
+      .then(function (html) {
+        self.ingestHTML(html)
+        self.prevFirst = null
+        self.prevLast = null
+        self.render()
+      })
+      .catch(function () {})
   }
 
   async restoreFromUrl() {
