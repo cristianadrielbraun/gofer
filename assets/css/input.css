@@ -107,29 +107,21 @@
 /* === SKEUOMORPHIC MATERIALS === */
 
 .surface-desk {
-  background:
-    repeating-conic-gradient(rgba(255,255,255,0.015) 0% 25%, transparent 0% 50%) 0 0 / 4px 4px,
-    linear-gradient(170deg, var(--background) 0%, color-mix(in srgb, var(--background) 95%, #000) 100%);
+  background: linear-gradient(170deg, var(--background) 0%, color-mix(in srgb, var(--background) 95%, #000) 100%);
 }
 
 .surface-leather {
-  background:
-    repeating-conic-gradient(rgba(255,255,255,0.02) 0% 25%, transparent 0% 50%) 0 0 / 2px 2px,
-    linear-gradient(180deg, var(--sidebar) 0%, color-mix(in srgb, var(--sidebar) 97%, #000) 100%);
+  background: linear-gradient(180deg, var(--sidebar) 0%, color-mix(in srgb, var(--sidebar) 97%, #000) 100%);
 }
 
 .surface-paper {
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
-    linear-gradient(175deg, var(--paper) 0%, color-mix(in srgb, var(--paper) 97%, #c0a880) 100%);
+  background: linear-gradient(175deg, var(--paper) 0%, color-mix(in srgb, var(--paper) 97%, #c0a880) 100%);
   color: var(--ink);
   box-shadow: var(--shadow-paper);
 }
 
 .dark .surface-paper {
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E"),
-    linear-gradient(175deg, #faf5ea 0%, #f2ead8 100%);
+  background: linear-gradient(175deg, #faf5ea 0%, #f2ead8 100%);
   color: var(--ink);
 }
 
@@ -391,9 +383,7 @@
 }
 
 .compose-body {
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E"),
-    linear-gradient(175deg, var(--paper) 0%, color-mix(in srgb, var(--paper) 97%, #c0a880) 100%);
+  background: linear-gradient(175deg, var(--paper) 0%, color-mix(in srgb, var(--paper) 97%, #c0a880) 100%);
 }
 
 .compose-fields {
