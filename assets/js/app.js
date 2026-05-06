@@ -121,6 +121,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
       var folderID = link.getAttribute("hx-get").replace("/folder/", "")
 
+      if (document.querySelector("[data-compose-pane]")) {
+        var mailView = document.getElementById("mail-view")
+        collapseComposeFullWidth()
+        if (mailView) mailView.innerHTML = ""
+        _updateComposeBtn(false)
+      }
+
       var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
       for (var i = 0; i < sidebarLinks.length; i++) {
         sidebarLinks[i].classList.remove(
@@ -301,8 +308,35 @@ function showSendStatus(status, text) {
   }
 }
 
-function sendCompose() {
-  var form = document.getElementById("compose-form")
+var _composeActive = false
+
+function _updateComposeBtn(disabled) {
+  if (!disabled) _composeActive = false
+  var btn = document.getElementById("sidebar-compose-btn")
+  if (!btn) return
+  btn.disabled = disabled
+  if (disabled) {
+    btn.classList.add("opacity-40", "pointer-events-none")
+  } else {
+    btn.classList.remove("opacity-40", "pointer-events-none")
+  }
+}
+
+function selectComposeAccount(el, fromPane) {
+  var accountId = el.dataset.accountId
+  var email = el.dataset.accountEmail
+  var name = el.dataset.accountName
+  if (!accountId || !email) return
+  var prefix = fromPane ? "compose-pane-" : "compose-"
+  var idField = document.getElementById(prefix + "account-id")
+  var display = document.getElementById(prefix + "from-display")
+  if (idField) idField.value = accountId
+  if (display) display.innerHTML = (name ? name + " &lt;" : "") + email + (name ? "&gt;" : "")
+}
+
+function sendCompose(fromPane) {
+  var formId = fromPane ? "compose-pane-form" : "compose-form"
+  var form = document.getElementById(formId)
   if (!form) return
 
   var toField = form.querySelector('input[name="to"]')
@@ -312,12 +346,17 @@ function sendCompose() {
 
   var params = new URLSearchParams()
   var inputs = form.querySelectorAll("input, textarea")
-  for (var i = 0; i < inputs.length; i++) {
-    params.append(inputs[i].name, inputs[i].value)
+  for (var i = 0; inputs && i < inputs.length; i++) {
+    if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
   }
 
-  if (window.tui && window.tui.dialog) {
+  if (fromPane) {
+    var mailView = document.getElementById("mail-view")
+    if (mailView) mailView.innerHTML = ""
+    _updateComposeBtn(false)
+  } else if (window.tui && window.tui.dialog) {
     window.tui.dialog.close("compose-dialog")
+    _updateComposeBtn(false)
   }
 
   showSendStatus("sending", "Sending...")
@@ -341,13 +380,16 @@ function handleReply(mode) {
   var fromName = bar.dataset.fromName || ""
   var accountId = bar.dataset.accountId || ""
 
-  var form = document.getElementById("compose-form")
+  var inPane = !!document.querySelector("[data-compose-pane]")
+  var formId = inPane ? "compose-pane-form" : "compose-form"
+  var form = document.getElementById(formId)
   if (!form) return
 
   var toField = form.querySelector('input[name="to"]')
   var subjectField = form.querySelector('input[name="subject"]')
-  var accountIdField = document.getElementById("compose-account-id")
-  var inReplyToField = document.getElementById("compose-in-reply-to")
+  var prefix = inPane ? "compose-pane-" : "compose-"
+  var accountIdField = document.getElementById(prefix + "account-id")
+  var inReplyToField = document.getElementById(prefix + "in-reply-to")
   var bodyField = form.querySelector('textarea[name="body"]')
 
   if (accountId && accountIdField) {
@@ -373,6 +415,8 @@ function handleReply(mode) {
     }
     if (inReplyToField) inReplyToField.value = ""
   }
+
+  if (inPane) return
 
   var dialog = document.querySelector('#compose-dialog dialog[data-tui-dialog-content]')
   if (dialog && window.tui && window.tui.dialog) {
@@ -470,6 +514,92 @@ window.addEventListener("message", function (e) {
   }
 })
 
+function applyEmailBodyTheme() {
+  var iframe = document.getElementById("email-body-frame")
+  if (!iframe || !iframe.dataset.emailId) return
+  var baseTheme = getEmailBodyBaseTheme()
+  var theme = iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme
+  var palette = readEmailBodyPalette(theme)
+  var bg = palette.bg
+  var fg = palette.fg
+  var link = palette.link
+  if (bg) iframe.style.backgroundColor = bg
+  var params = new URLSearchParams()
+  params.set("theme", theme)
+  if (bg) params.set("bg", bg)
+  if (fg) params.set("fg", fg)
+  if (link) params.set("link", link)
+  iframe.src = "/email/" + iframe.dataset.emailId + "/body?" + params.toString()
+  updateEmailBodySchemeButton(iframe, baseTheme, theme)
+}
+
+function getEmailBodyBaseTheme() {
+  if (window.GoferSettings && GoferSettings.get("theme")) return GoferSettings.get("theme")
+  return document.documentElement.classList.contains("dark") ? "dark" : "light"
+}
+
+function oppositeEmailBodyTheme(theme) {
+  return theme === "dark" ? "light" : "dark"
+}
+
+function readEmailBodyPalette(theme) {
+  var themeStyle = (window.GoferSettings && GoferSettings.get("theme_style")) || document.documentElement.getAttribute("data-theme") || "classic"
+  var probe = document.createElement("div")
+  probe.setAttribute("data-theme", themeStyle)
+  if (theme === "dark") probe.className = "dark"
+  probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;width:0;height:0;overflow:hidden"
+  ;(document.body || document.documentElement).appendChild(probe)
+  var cs = getComputedStyle(probe)
+  var palette = {
+    bg: (cs.getPropertyValue("--paper") || "").trim(),
+    fg: (cs.getPropertyValue("--paper-foreground") || "").trim(),
+    link: (cs.getPropertyValue("--copper") || "").trim(),
+  }
+  probe.remove()
+
+  if (!palette.bg || !palette.fg) {
+    var rootStyles = getComputedStyle(document.documentElement)
+    palette.bg = palette.bg || (rootStyles.getPropertyValue("--paper") || "").trim()
+    palette.fg = palette.fg || (rootStyles.getPropertyValue("--paper-foreground") || "").trim()
+    palette.link = palette.link || (rootStyles.getPropertyValue("--copper") || "").trim()
+  }
+  return palette
+}
+
+function toggleEmailBodyScheme() {
+  var iframe = document.getElementById("email-body-frame")
+  if (!iframe || !iframe.dataset.emailId) return
+  if (iframe.dataset.forceScheme === "opposite") {
+    delete iframe.dataset.forceScheme
+  } else {
+    iframe.dataset.forceScheme = "opposite"
+  }
+  applyEmailBodyTheme()
+}
+
+function updateEmailBodySchemeButton(iframe, baseTheme, theme) {
+  var btn = document.querySelector("[data-force-email-scheme]")
+  if (!btn || !iframe) return
+  var forced = iframe.dataset.forceScheme === "opposite"
+  btn.classList.toggle("bg-ink/5", forced)
+  btn.classList.toggle("text-ink/70", forced)
+  btn.classList.toggle("text-ink/40", !forced)
+  var label = forced ? "Showing " + theme + " email body. Click to use " + baseTheme + "." : "Force " + oppositeEmailBodyTheme(baseTheme) + " email body"
+  btn.setAttribute("aria-label", label)
+  btn.setAttribute("title", label)
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  applyEmailBodyTheme()
+})
+
+new MutationObserver(function () {
+  var iframe = document.getElementById("email-body-frame")
+  if (iframe && iframe.dataset.emailId && !iframe.src) {
+    applyEmailBodyTheme()
+  }
+}).observe(document.body, { childList: true, subtree: true })
+
 function refetchBody(emailId) {
   fetch("/api/messages/" + emailId + "/refetch", { method: "POST" })
     .then(function (r) { return r.json() })
@@ -481,10 +611,243 @@ function refetchBody(emailId) {
     .catch(function () {})
 }
 
-document.addEventListener("click", function (e) {
-  var el = e.target.closest("[data-refetch-email]")
-  if (el) {
-    e.preventDefault()
-    refetchBody(el.dataset.refetchEmail)
+  document.addEventListener("click", function (e) {
+    var el = e.target.closest("[data-refetch-email]")
+    if (el) {
+      e.preventDefault()
+      refetchBody(el.dataset.refetchEmail)
+    }
+  })
+
+  var _composeObserver = new MutationObserver(function () {
+    var root = document.getElementById("compose-dialog")
+    if (!root) return
+    var open = root.getAttribute("data-tui-dialog-open") === "true"
+    if (open) {
+      _composeActive = true
+      _updateComposeBtn(true)
+    }
+  })
+
+  function _observeComposeDialog() {
+    var root = document.getElementById("compose-dialog")
+    if (root) _composeObserver.observe(root, { attributes: true, attributeFilter: ["data-tui-dialog-open"] })
   }
-})
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", _observeComposeDialog)
+  } else {
+    _observeComposeDialog()
+  }
+
+function _readComposeFormValues(form) {
+  if (!form) return {}
+  var vals = {}
+  var inputs = form.querySelectorAll("input, textarea")
+  for (var i = 0; inputs && i < inputs.length; i++) {
+    if (inputs[i].name) vals[inputs[i].name] = inputs[i].value
+  }
+  var fromDisplay = form.querySelector("[id$='-from-display']")
+  if (fromDisplay) vals._fromDisplay = fromDisplay.innerHTML
+  var ccVisible = !!form.querySelector('[id^="pane-cc-field"]') && !document.getElementById("pane-cc-field").classList.contains("hidden")
+  var bccVisible = !!form.querySelector('[id^="pane-bcc-field"]') && !document.getElementById("pane-bcc-field").classList.contains("hidden")
+  if (form.id === "compose-form") {
+    ccVisible = !document.getElementById("cc-field").classList.contains("hidden")
+    bccVisible = !document.getElementById("bcc-field").classList.contains("hidden")
+  }
+  vals._ccVisible = ccVisible
+  vals._bccVisible = bccVisible
+  return vals
+}
+
+function _writeComposeFormValues(form, vals, prefix) {
+  if (!form || !vals) return
+  var inputs = form.querySelectorAll("input, textarea")
+  for (var i = 0; inputs && i < inputs.length; i++) {
+    if (inputs[i].name && vals[inputs[i].name] !== undefined) {
+      inputs[i].value = vals[inputs[i].name]
+    }
+  }
+  if (vals._fromDisplay) {
+    var display = document.getElementById(prefix + "from-display")
+    if (display) display.innerHTML = vals._fromDisplay
+  }
+}
+
+function expandToPane() {
+  var dialogForm = document.getElementById("compose-form")
+  var vals = _readComposeFormValues(dialogForm)
+
+  if (window.tui && window.tui.dialog) {
+    window.tui.dialog.close("compose-dialog")
+  }
+
+  _composeActive = true
+  _updateComposeBtn(true)
+
+  var mailView = document.getElementById("mail-view")
+  if (!mailView) return
+
+  fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
+    mailView.innerHTML = html
+
+    var paneForm = document.getElementById("compose-pane-form")
+    _writeComposeFormValues(paneForm, vals, "compose-pane-")
+
+    if (vals._ccVisible) {
+      var ccField = document.getElementById("pane-cc-field")
+      var ccBtn = document.getElementById("pane-cc-btn")
+      if (ccField) ccField.classList.remove("hidden")
+      if (ccBtn) ccBtn.classList.add("hidden")
+    }
+    if (vals._bccVisible) {
+      var bccField = document.getElementById("pane-bcc-field")
+      var bccBtn = document.getElementById("pane-bcc-btn")
+      if (bccField) bccField.classList.remove("hidden")
+      if (bccBtn) bccBtn.classList.add("hidden")
+    }
+
+    var bodyField = paneForm && paneForm.querySelector('textarea[name="body"]')
+    if (bodyField) bodyField.focus()
+  }).catch(function () {})
+}
+
+function collapseToDialog() {
+  collapseComposeFullWidth()
+
+  var paneForm = document.getElementById("compose-pane-form")
+  var vals = _readComposeFormValues(paneForm)
+
+  var mailView = document.getElementById("mail-view")
+  if (mailView) mailView.innerHTML = ""
+
+  var dialogForm = document.getElementById("compose-form")
+  _writeComposeFormValues(dialogForm, vals, "compose-")
+
+  if (vals._ccVisible) {
+    var ccField = document.getElementById("cc-field")
+    var ccBtn = document.getElementById("cc-btn")
+    if (ccField) ccField.classList.remove("hidden")
+    if (ccBtn) ccBtn.classList.add("hidden")
+  }
+  if (vals._bccVisible) {
+    var bccField = document.getElementById("bcc-field")
+    var bccBtn = document.getElementById("bcc-btn")
+    if (bccField) bccField.classList.remove("hidden")
+    if (bccBtn) bccBtn.classList.add("hidden")
+  }
+
+  if (window.tui && window.tui.dialog) {
+    window.tui.dialog.open("compose-dialog")
+  }
+}
+
+function discardComposePane() {
+  collapseComposeFullWidth()
+  var mailView = document.getElementById("mail-view")
+  if (mailView) mailView.innerHTML = ""
+  _updateComposeBtn(false)
+}
+
+function expandComposeFullWidth() {
+  var mailList = document.querySelector("#main-content > #mail-list")
+  var resizeHandles = document.querySelectorAll('[data-panel="maillist"]')
+  if (!mailList || mailList._animating) return
+
+  mailList._animating = true
+  mailList._savedWidth = mailList.style.width
+
+  for (var i = 0; i < resizeHandles.length; i++) {
+    resizeHandles[i]._savedDisplay = resizeHandles[i].style.display
+    resizeHandles[i].style.transition = "opacity 0.25s ease"
+    resizeHandles[i].style.opacity = "0"
+  }
+
+  mailList.style.transition = "width 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
+  mailList.style.overflow = "hidden"
+  mailList.style.borderWidth = "0"
+
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      mailList.style.width = "0px"
+      mailList.style.opacity = "0"
+    })
+  })
+
+  var composePane = document.querySelector("[data-compose-pane]")
+  if (composePane) {
+    composePane.style.animation = "pane-slide-in 0.3s ease-out"
+  }
+
+  function onEnd() {
+    mailList.removeEventListener("transitionend", onEnd)
+    mailList.style.display = "none"
+    mailList.style.transition = ""
+    mailList.style.opacity = ""
+    mailList._animating = false
+    for (var i = 0; i < resizeHandles.length; i++) {
+      resizeHandles[i].style.display = "none"
+      resizeHandles[i].style.transition = ""
+      resizeHandles[i].style.opacity = ""
+    }
+  }
+  mailList.addEventListener("transitionend", onEnd)
+
+  var normal = document.getElementById("pane-btns-normal")
+  var full = document.getElementById("pane-btns-full")
+  if (normal) normal.style.display = "none"
+  if (full) full.style.display = "flex"
+
+  var bodyField = document.querySelector("#compose-pane-form textarea[name='body']")
+  if (bodyField) bodyField.focus()
+}
+
+function collapseComposeFullWidth() {
+  var mailList = document.querySelector("#main-content > #mail-list")
+  var resizeHandles = document.querySelectorAll('[data-panel="maillist"]')
+  if (!mailList || mailList._savedWidth === undefined) return false
+
+  mailList.style.display = ""
+  mailList.style.width = "0px"
+  mailList.style.opacity = "0"
+  mailList.style.overflow = "hidden"
+  mailList.style.transition = "width 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
+
+  for (var i = 0; i < resizeHandles.length; i++) {
+    resizeHandles[i].style.display = resizeHandles[i]._savedDisplay || ""
+    delete resizeHandles[i]._savedDisplay
+    resizeHandles[i].style.opacity = "0"
+    resizeHandles[i].style.transition = "opacity 0.25s ease 0.1s"
+  }
+
+  void mailList.offsetHeight
+
+  requestAnimationFrame(function () {
+    mailList.style.width = mailList._savedWidth
+    mailList.style.opacity = "1"
+    for (var i = 0; i < resizeHandles.length; i++) {
+      resizeHandles[i].style.opacity = "1"
+    }
+  })
+
+  function onEnd() {
+    mailList.removeEventListener("transitionend", onEnd)
+    mailList.style.transition = ""
+    mailList.style.opacity = ""
+    mailList.style.overflow = ""
+    mailList.style.borderWidth = ""
+    delete mailList._savedWidth
+    for (var i = 0; i < resizeHandles.length; i++) {
+      resizeHandles[i].style.transition = ""
+      resizeHandles[i].style.opacity = ""
+    }
+  }
+  mailList.addEventListener("transitionend", onEnd)
+
+  var normal = document.getElementById("pane-btns-normal")
+  var full = document.getElementById("pane-btns-full")
+  if (normal) normal.style.display = "flex"
+  if (full) full.style.display = "none"
+
+  return true
+}

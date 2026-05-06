@@ -37,9 +37,11 @@ var GoferSettings;
   function applySetting(key, value) {
     if (key === "theme") {
       applyTheme(value);
+      if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme();
     }
     if (key === "theme_style") {
       applyThemeStyle(value);
+      if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme();
     }
     if (key === "sidebar_width") {
       var panel = document.querySelector("aside");

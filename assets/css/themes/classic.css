@@ -64,11 +64,11 @@
   --sidebar-accent-foreground: #d8ccb4;
   --sidebar-border: #2a241c;
   --sidebar-ring: #d49040;
-  --paper: #f8f2e6;
-  --paper-foreground: #2c2418;
+  --paper: #2a2520;
+  --paper-foreground: #d8ccb4;
   --copper: #d49040;
   --brass: #b8a060;
-  --ink: #1a1408;
+  --ink: #d8ccb4;
 }
 
 /* Classic materials are the default — defined in input.css */

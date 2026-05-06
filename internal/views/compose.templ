@@ -31,6 +31,31 @@ templ ComposeDialog(accounts []models.Account) {
 				<input type="hidden" name="in_reply_to" id="compose-in-reply-to" value=""/>
 				<input type="hidden" name="references" id="compose-references" value=""/>
 				<div class="space-y-1">
+					<div class="flex items-center gap-2">
+						<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">From</label>
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								<button type="button" id="compose-from-trigger" class="flex items-center gap-1 text-sm text-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent">
+									<span id="compose-from-display">{ composeDefaultName(accounts) } &lt;{ composeDefaultEmail(accounts) }&gt;</span>
+									@icon.ChevronDown(icon.Props{Class: "size-3 text-muted-foreground"})
+								</button>
+							}
+							@dropdown.Content() {
+								for _, acc := range accounts {
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-account-id":    acc.ID,
+											"data-account-email": acc.Email,
+											"data-account-name":  acc.Name,
+											"onclick":            "selectComposeAccount(this)",
+										},
+									}) {
+										<span class="text-sm">{ acc.Name } &lt;{ acc.Email }&gt;</span>
+									}
+								}
+							}
+						}
+					</div>
 					@ComposeField("To", "to", "recipient@example.com")
 					<div id="cc-field" class="hidden">
 						@ComposeField("Cc", "cc", "")
@@ -71,13 +96,17 @@ templ ComposeDialog(accounts []models.Account) {
 				</div>
 			</div>
 			@dialog.Footer() {
-				@dialog.Close() {
-					<button type="button" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-3 py-1.5 rounded-md hover:bg-accent">
-						@icon.Trash2(icon.Props{Class: "size-3.5"})
-						Discard
-					</button>
-				}
+				<button type="button" onclick="expandToPane()" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent mr-auto" title="Compose inline">
+					@icon.PanelLeftOpen(icon.Props{Class: "size-3.5"})
+					Compose inline
+				</button>
 				<div class="flex items-center gap-2">
+					@dialog.Close() {
+						<button type="button" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-3 py-1.5 rounded-md hover:bg-accent">
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+							Discard
+						</button>
+					}
 					<button type="button" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent">
 						@icon.Save(icon.Props{Class: "size-3.5"})
 						Save Draft
@@ -263,5 +292,131 @@ templ ComposeField(label string, name string, placeholder string) {
 			Placeholder: placeholder,
 			Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-7 text-sm",
 		})
+	</div>
+}
+
+templ ComposePane(accounts []models.Account) {
+	<div class="flex flex-col h-full p-2" data-compose-pane>
+		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
+			<div class="flex items-center justify-between px-6 py-2.5">
+				<div class="flex items-center gap-2">
+					<h2 class="font-semibold text-sm">New Message</h2>
+				</div>
+				<div class="flex items-center gap-1" id="compose-pane-size-buttons">
+					<span id="pane-btns-normal" class="flex items-center gap-1">
+						<button type="button" onclick="expandComposeFullWidth()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Full width">
+							@icon.UnfoldHorizontal(icon.Props{Class: "size-4"})
+						</button>
+						<button type="button" onclick="collapseToDialog()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Compose in dialog">
+							@icon.SquareArrowOutUpLeft(icon.Props{Class: "size-4"})
+						</button>
+					</span>
+					<span id="pane-btns-full" class="flex items-center gap-1" style="display:none">
+						<button type="button" onclick="collapseComposeFullWidth()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Normal width">
+							@icon.FoldHorizontal(icon.Props{Class: "size-4"})
+						</button>
+						<button type="button" onclick="collapseToDialog()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Compose in dialog">
+							@icon.SquareArrowOutUpLeft(icon.Props{Class: "size-4"})
+						</button>
+					</span>
+				</div>
+			</div>
+			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
+			<div class="flex-1 overflow-y-auto">
+				<div id="compose-pane-content" class="mx-auto px-8 py-4">
+					<div id="compose-pane-form" class="flex flex-col gap-3">
+						<input type="hidden" name="account_id" id="compose-pane-account-id" value={ composeDefaultAccountID(accounts) }/>
+						<input type="hidden" name="in_reply_to" id="compose-pane-in-reply-to" value=""/>
+						<input type="hidden" name="references" id="compose-pane-references" value=""/>
+						<div class="space-y-1">
+							<div class="flex items-center gap-2">
+								<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">From</label>
+								@dropdown.Dropdown() {
+									@dropdown.Trigger() {
+										<button type="button" id="compose-pane-from-trigger" class="flex items-center gap-1 text-sm text-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent">
+											<span id="compose-pane-from-display">{ composeDefaultName(accounts) } &lt;{ composeDefaultEmail(accounts) }&gt;</span>
+											@icon.ChevronDown(icon.Props{Class: "size-3 text-muted-foreground"})
+										</button>
+									}
+									@dropdown.Content() {
+										for _, acc := range accounts {
+											@dropdown.Item(dropdown.ItemProps{
+												Attributes: templ.Attributes{
+													"data-account-id":    acc.ID,
+													"data-account-email": acc.Email,
+													"data-account-name":  acc.Name,
+													"onclick":            "selectComposeAccount(this, true)",
+												},
+											}) {
+												<span class="text-sm">{ acc.Name } &lt;{ acc.Email }&gt;</span>
+											}
+										}
+									}
+								}
+							</div>
+							@ComposeField("To", "to", "recipient@example.com")
+							<div id="pane-cc-field" class="hidden">
+								@ComposeField("Cc", "cc", "")
+							</div>
+							<div id="pane-bcc-field" class="hidden">
+								@ComposeField("Bcc", "bcc", "")
+							</div>
+							<div id="pane-cc-bcc-buttons" class="flex items-center gap-2 pt-1">
+								<button
+									id="pane-cc-btn"
+									type="button"
+									class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+									onclick="document.getElementById('pane-cc-field').classList.remove('hidden'); document.getElementById('pane-cc-btn').classList.add('hidden')"
+								>Cc</button>
+								<button
+									id="pane-bcc-btn"
+									type="button"
+									class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+									onclick="document.getElementById('pane-bcc-field').classList.remove('hidden'); document.getElementById('pane-bcc-btn').classList.add('hidden')"
+								>Bcc</button>
+							</div>
+						</div>
+						<div class="border-t pt-2">
+							@input.Input(input.Props{
+								Name:        "subject",
+								Placeholder: "Subject",
+								Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 font-semibold placeholder:font-normal",
+							})
+						</div>
+						@ComposeToolbar()
+						<div class="flex-1 min-h-0">
+							@textarea.Textarea(textarea.Props{
+								Name:        "body",
+								Placeholder: "Write your message...",
+								Class:       "border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none text-sm h-full min-h-[200px]",
+								AutoResize:  false,
+							})
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="px-6 py-3 border-t border-ink/6">
+				<div class="flex items-center justify-between">
+					<button type="button" onclick="discardComposePane()" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-3 py-1.5 rounded-md hover:bg-accent">
+						@icon.Trash2(icon.Props{Class: "size-3.5"})
+						Discard
+					</button>
+					<div class="flex items-center gap-2">
+						<button type="button" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent">
+							@icon.Save(icon.Props{Class: "size-3.5"})
+							Save Draft
+						</button>
+						<button type="button"
+							class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg"
+							id="compose-pane-send-btn"
+							onclick="sendCompose(true)"
+						>
+							@icon.Send(icon.Props{Class: "size-3.5"})
+							Send
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
 	</div>
 }

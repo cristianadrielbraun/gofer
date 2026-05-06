@@ -35,7 +35,7 @@ templ MailViewContent(email *models.Email) {
 			@MailViewHeader(email)
 			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 			<div class="flex-1 overflow-y-auto">
-				<div class="max-w-3xl mx-auto px-8 py-6">
+				<div class="mx-auto px-8 py-6">
 					@MailViewSender(email)
 					<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
 					@MailViewBody(email)
@@ -130,6 +130,24 @@ templ MailViewHeader(email *models.Email) {
 					} else {
 						Mark as read
 					}
+				}
+			}
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					@button.Button(button.Props{
+						Variant:    button.VariantGhost,
+						Size:       button.SizeIcon,
+						Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
+						Attributes: templ.Attributes{"onclick": "toggleEmailBodyScheme()", "data-force-email-scheme": email.ID, "aria-label": "Force color scheme"},
+					}) {
+						@icon.SunMoon(icon.Props{Class: "size-4"})
+					}
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					Force color scheme
 				}
 			}
 		</div>
@@ -262,7 +280,7 @@ templ MailViewBody(email *models.Email) {
 	<iframe id="email-body-frame"
 		sandbox="allow-scripts"
 		class="w-full border-0 min-h-[100px]"
-		src={ fmt.Sprintf("/email/%s/body", email.ID) }>
+		data-email-id={ email.ID }>
 	</iframe>
 }
 

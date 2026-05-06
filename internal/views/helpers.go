@@ -28,6 +28,20 @@ func composeDefaultAccountID(accounts []models.Account) string {
 	return ""
 }
 
+func composeDefaultEmail(accounts []models.Account) string {
+	if len(accounts) > 0 {
+		return accounts[0].Email
+	}
+	return ""
+}
+
+func composeDefaultName(accounts []models.Account) string {
+	if len(accounts) > 0 {
+		return accounts[0].Name
+	}
+	return ""
+}
+
 func uiSettingsJSON(settings map[string]string) string {
 	b, _ := json.Marshal(settings)
 	return string(b)

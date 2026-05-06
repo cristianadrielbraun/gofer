@@ -58,6 +58,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/attachments/{id}/download", h.handleAttachmentDownload)
 	mux.HandleFunc("GET /api/events", h.handleSSE)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
+	mux.HandleFunc("GET /compose/pane", h.handleComposePane)
 	mux.HandleFunc("POST /compose", h.handleCompose)
 	mux.HandleFunc("POST /api/messages/{id}/read", h.handleToggleRead)
 	mux.HandleFunc("POST /api/messages/{id}/star", h.handleToggleStar)
@@ -199,27 +200,188 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	theme := r.URL.Query().Get("theme")
+	bg := r.URL.Query().Get("bg")
+	fg := r.URL.Query().Get("fg")
+	link := r.URL.Query().Get("link")
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(buildBodyDocument(body, emailResizeScript))
+	w.Write(buildBodyDocument(body, emailResizeScript, theme, bg, fg, link))
 }
 
-func buildBodyDocument(body []byte, resizeScript []byte) []byte {
-	s := string(body)
-	lower := strings.ToLower(s)
-
-	if strings.Contains(lower, "<html") {
-		if idx := strings.LastIndex(lower, "</body>"); idx != -1 {
-			return []byte(s[:idx] + string(resizeScript) + s[idx:])
-		}
-		return []byte(s + string(resizeScript))
+func safeEmailCSSColor(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
 	}
 
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "#") {
+		hex := lower[1:]
+		if len(hex) != 3 && len(hex) != 6 {
+			return fallback
+		}
+		for _, c := range hex {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				return fallback
+			}
+		}
+		return value
+	}
+
+	if (strings.HasPrefix(lower, "rgb(") || strings.HasPrefix(lower, "rgba(")) && strings.HasSuffix(lower, ")") {
+		if strings.ContainsAny(lower, ";{}") {
+			return fallback
+		}
+		return value
+	}
+
+	return fallback
+}
+
+func buildDarkModeScript(bgColor, fgColor string) []byte {
+	return []byte(fmt.Sprintf(`<script>(function(){
+var db=%q,df=%q;
+function p(s){if(!s)return null;s=String(s).trim().toLowerCase();if(s==="transparent")return null;var h=s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);if(h){var x=h[1];if(x.length===3)x=x[0]+x[0]+x[1]+x[1]+x[2]+x[2];return[parseInt(x.slice(0,2),16),parseInt(x.slice(2,4),16),parseInt(x.slice(4,6),16)]}var m=s.match(/rgba?\(([^)]+)\)/);if(!m)return null;var a=m[1].split(",");if(a.length<3)return null;if(a.length>3&&parseFloat(a[3])===0)return null;return[Math.round(parseFloat(a[0])),Math.round(parseFloat(a[1])),Math.round(parseFloat(a[2]))]}
+function cl(s){var out=[],re=/#(?:[0-9a-f]{3}|[0-9a-f]{6})\b|rgba?\([^)]+\)/ig,m;while((m=re.exec(String(s||"")))!==null){var c=p(m[0]);if(c)out.push(c)}return out}
+function av(a){if(!a.length)return null;var r=0,g=0,b=0;for(var i=0;i<a.length;i++){r+=a[i][0];g+=a[i][1];b+=a[i][2]}return[Math.round(r/a.length),Math.round(g/a.length),Math.round(b/a.length)]}
+function lu(c){if(!c)return-1;var r=c[0]/255,g=c[1]/255,b=c[2]/255;
+r=r<=.03928?r/12.92:Math.pow((r+.055)/1.055,2.4);
+g=g<=.03928?g/12.92:Math.pow((g+.055)/1.055,2.4);
+b=b<=.03928?b/12.92:Math.pow((b+.055)/1.055,2.4);
+return .2126*r+.7152*g+.0722*b}
+function sa(c){if(!c)return 0;var mx=Math.max(c[0],c[1],c[2]),mn=Math.min(c[0],c[1],c[2]);return mx===0?0:(mx-mn)/mx}
+function cr(a,b){var la=lu(a),lb=lu(b),hi=Math.max(la,lb),lo=Math.min(la,lb);return(hi+.05)/(lo+.05)}
+function eb(el){var cur=el;while(cur&&cur.nodeType===1){var c=p(getComputedStyle(cur).backgroundColor);if(c)return c;cur=cur.parentElement}return p(db)}
+function ds(a,b){return a&&b?Math.max(Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]),Math.abs(a[2]-b[2])):999}
+function mx(a,b,t){return[Math.round(a[0]*(1-t)+b[0]*t),Math.round(a[1]*(1-t)+b[1]*t),Math.round(a[2]*(1-t)+b[2]*t)]}
+function rg(c){return"rgb("+c[0]+", "+c[1]+", "+c[2]+")"}
+function sb(s){var m=s&&String(s).match(/background(?:-color)?\s*:\s*([^;]+)/i);return m?m[1]:null}
+function rb(){try{for(var i=0;i<document.styleSheets.length;i++){var rs=document.styleSheets[i].cssRules;if(!rs)continue;for(var j=0;j<rs.length;j++){var r=rs[j];if(!r.selectorText||!r.style)continue;var ss=String(r.selectorText).split(","),body=false;for(var k=0;k<ss.length;k++){if(ss[k].trim()==="body"){body=true;break}}if(!body)continue;var c=p(r.style.backgroundColor)||av(cl(r.style.background));if(c&&ds(c,base)>3)return c}}}catch(_){}return null}
+function bw(v){var n=parseFloat(v);return isNaN(n)?0:n}
+function hb(cs){return(bw(cs.borderTopWidth)>0&&cs.borderTopStyle!=="none"&&cs.borderTopStyle!=="hidden")||(bw(cs.borderRightWidth)>0&&cs.borderRightStyle!=="none"&&cs.borderRightStyle!=="hidden")||(bw(cs.borderBottomWidth)>0&&cs.borderBottomStyle!=="none"&&cs.borderBottomStyle!=="hidden")||(bw(cs.borderLeftWidth)>0&&cs.borderLeftStyle!=="none"&&cs.borderLeftStyle!=="hidden")}
+var de=document.documentElement,bd=document.body,base=p(db)||[20,20,20],canvas=null;
+function mb(c){if(!c)return db;if(canvas&&ds(c,canvas)<=3)return db;var shade=(255-Math.min(c[0],c[1],c[2]))/255,t=.045+Math.min(.16,shade*.85);if(sa(c)>.18)t=Math.max(t,.14);return rg(mx(base,c,t))}
+function ml(c){if(c&&sa(c)>.16&&lu(c)>.35)return rg(mx(base,c,.30));return"rgba(255,255,255,0.22)"}
+if(bd)canvas=p(bd.getAttribute("bgcolor"))||p(sb(bd.getAttribute("style")))||rb();
+de.style.setProperty("background-color",db,"important");de.style.setProperty("color",df,"important");
+if(bd){bd.style.setProperty("background-color",db,"important");bd.style.setProperty("color",df,"important")}
+var bgEls=document.querySelectorAll("[bgcolor]");
+for(var i=0;i<bgEls.length;i++){var ics=getComputedStyle(bgEls[i]),c=p(bgEls[i].getAttribute("bgcolor"))||p(ics.backgroundColor);if(c&&lu(c)>0.4){bgEls[i].removeAttribute("bgcolor");bgEls[i].style.setProperty("background-color",mb(c),"important")}}
+var els=document.querySelectorAll("*");
+for(var i=0;i<els.length;i++){
+var el=els[i],t=el.tagName;
+if(t==="IMG"||t==="VIDEO"||t==="SVG"||t==="CANVAS"||t==="STYLE"||t==="SCRIPT")continue;
+var cs=getComputedStyle(el);
+var gi=av(cl(cs.backgroundImage));
+if(gi&&lu(gi)>0.4){el.style.setProperty("background-image","none","important");el.style.setProperty("background-color",mb(gi),"important")}
+var bc=p(cs.backgroundColor);
+if(bc&&lu(bc)>0.4)el.style.setProperty("background-color",mb(bc),"important");
+var nbg=eb(el);
+var fc=p(cs.color);
+if(fc&&nbg&&cr(fc,nbg)<4.5){
+el.style.setProperty("color",df,"important");
+if(nbg&&cr(p(getComputedStyle(el).color),nbg)<4.5)el.style.setProperty("color","rgba(255,255,255,0.95)","important");
+}
+if(hb(cs)){var bdc=p(cs.borderTopColor)||p(cs.borderRightColor)||p(cs.borderBottomColor)||p(cs.borderLeftColor);if(bdc&&lu(bdc)>0.45&&sa(bdc)>.16){el.style.setProperty("border-color",ml(bdc),"important")}else if(!bdc||!nbg||cr(bdc,nbg)<2.2||lu(bdc)>0.55)el.style.setProperty("border-color","rgba(255,255,255,0.22)","important")}
+var oc=p(cs.outlineColor);
+if(oc&&bw(cs.outlineWidth)>0&&(!nbg||cr(oc,nbg)<2.2||lu(oc)>0.55))el.style.setProperty("outline-color","rgba(255,255,255,0.22)","important");
+}
+})();</script>`, bgColor, fgColor))
+}
+
+func buildLightModeScript(bgColor string) []byte {
+	return []byte(fmt.Sprintf(`<script>(function(){
+var pb=%q;
+function p(s){if(!s)return null;s=String(s).trim().toLowerCase();if(s==="transparent")return null;var h=s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);if(h){var x=h[1];if(x.length===3)x=x[0]+x[0]+x[1]+x[1]+x[2]+x[2];return[parseInt(x.slice(0,2),16),parseInt(x.slice(2,4),16),parseInt(x.slice(4,6),16)]}var m=s.match(/rgba?\(([^)]+)\)/);if(!m)return null;var a=m[1].split(",");if(a.length<3)return null;if(a.length>3&&parseFloat(a[3])===0)return null;return[Math.round(parseFloat(a[0])),Math.round(parseFloat(a[1])),Math.round(parseFloat(a[2]))]}
+function same(a,b){return a&&b&&Math.abs(a[0]-b[0])<=1&&Math.abs(a[1]-b[1])<=1&&Math.abs(a[2]-b[2])<=1}
+function nearWhite(c){return c&&c[0]>248&&c[1]>248&&c[2]>248}
+function styleBg(s){var m=s&&String(s).match(/background(?:-color)?\s*:\s*([^;]+)/i);return m?m[1]:null}
+var paper=p(pb),bd=document.body;if(!bd)return;
+document.documentElement.style.setProperty("background-color",pb,"important");
+bd.style.setProperty("background-color",pb,"important");
+var canvas=p(bd.getAttribute("bgcolor"))||p(styleBg(bd.getAttribute("style")));
+if(!canvas||nearWhite(canvas)||same(canvas,paper)){
+var kids=bd.children;
+for(var i=0;i<kids.length;i++){var bg=p(getComputedStyle(kids[i]).backgroundColor);if(bg&&!nearWhite(bg)&&!same(bg,paper)){canvas=bg;break}}
+}
+if(!canvas||nearWhite(canvas)||same(canvas,paper))return;
+var els=document.querySelectorAll("body,body *");
+for(var i=0;i<els.length;i++){var el=els[i],bg=p(getComputedStyle(el).backgroundColor);if(same(bg,canvas))el.style.setProperty("background-color",pb,"important")}
+})();</script>`, bgColor))
+}
+
+func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string) []byte {
+	s := string(body)
+	lower := strings.ToLower(s)
+	isDark := theme == "dark"
+
+	fallbackBg := "#f8f2e6"
+	fallbackFg := "#2c2418"
+	fallbackLink := "#1a0dab"
+	scheme := "light"
+	if isDark {
+		fallbackBg = "#2a2520"
+		fallbackFg = "#d8ccb4"
+		fallbackLink = "#d49040"
+		scheme = "dark"
+	}
+	bgColor = safeEmailCSSColor(bgColor, fallbackBg)
+	fgColor = safeEmailCSSColor(fgColor, fallbackFg)
+	linkColor = safeEmailCSSColor(linkColor, fallbackLink)
+	baseStyles := "<style>" +
+		":root{color-scheme:" + scheme + ";background:" + bgColor + ";color:" + fgColor + "}" +
+		"html{min-height:100%;background:" + bgColor + " !important;color:" + fgColor + "}" +
+		"body{background:" + bgColor + " !important;color:" + fgColor + "}" +
+		"body[bgcolor]{background-color:" + bgColor + " !important}" +
+		"a{color:" + linkColor + "}" +
+		"</style>"
+
+	if strings.Contains(lower, "<html") {
+		if headIdx := strings.LastIndex(lower, "</head>"); headIdx != -1 {
+			s = s[:headIdx] + baseStyles + s[headIdx:]
+		} else if bodyIdx := strings.Index(lower, "<body"); bodyIdx != -1 {
+			insertIdx := bodyIdx
+			if closeIdx := strings.Index(lower[bodyIdx:], ">"); closeIdx != -1 {
+				insertIdx = bodyIdx + closeIdx + 1
+			}
+			s = s[:insertIdx] + baseStyles + s[insertIdx:]
+		} else {
+			s = baseStyles + s
+		}
+		lowerAfter := strings.ToLower(s)
+		if idx := strings.LastIndex(lowerAfter, "</body>"); idx != -1 {
+			injection := string(resizeScript)
+			if isDark {
+				injection = string(buildDarkModeScript(bgColor, fgColor)) + injection
+			} else {
+				injection = string(buildLightModeScript(bgColor)) + injection
+			}
+			return []byte(s[:idx] + injection + s[idx:])
+		}
+		injection := string(resizeScript)
+		if isDark {
+			injection = string(buildDarkModeScript(bgColor, fgColor)) + injection
+		} else {
+			injection = string(buildLightModeScript(bgColor)) + injection
+		}
+		return []byte(s + injection)
+	}
+
+	injection := string(resizeScript)
+	if isDark {
+		injection = string(buildDarkModeScript(bgColor, fgColor)) + injection
+	} else {
+		injection = string(buildLightModeScript(bgColor)) + injection
+	}
 	doc := "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>" +
-		"body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;color:#333;word-wrap:break-word}" +
+		"html{margin:0;min-height:100%;color-scheme:" + scheme + ";background:" + bgColor + ";color:" + fgColor + "}" +
+		"body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;background:" + bgColor + ";color:" + fgColor + ";word-wrap:break-word}" +
 		"img{max-width:100%;height:auto}" +
+		"a{color:" + linkColor + "}" +
 		"</style></head><body>" +
 		s +
-		string(resizeScript) +
+		injection +
 		"</body></html>"
 	return []byte(doc)
 }
@@ -902,6 +1064,12 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(counts)
+}
+
+func (h *Handler) handleComposePane(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	accounts, _ := h.db.GetAccounts(ctx)
+	views.ComposePane(accounts).Render(ctx, w)
 }
 
 func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {

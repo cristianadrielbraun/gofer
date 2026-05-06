@@ -67,7 +67,7 @@ templ SidebarHeader(accounts []models.Account) {
 		@dialog.Trigger(dialog.TriggerProps{
 			For: "compose-dialog",
 		}) {
-			<button class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+			<button id="sidebar-compose-btn" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
 				@icon.Pen(icon.Props{Class: "size-4"})
 				Compose
 			</button>
