@@ -49,9 +49,22 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupBodyPrefetch() {
-    function prefetchFromEvent(e) {
+    var hoverPrefetchDelay = 300
+    var scrollPrefetchCooldown = 200
+    var hoverPrefetchTimer = null
+    var hoverPrefetchRow = null
+    var lastMailListScrollAt = 0
+
+    var mailListScroll = document.getElementById("mail-list-scroll")
+    if (mailListScroll) {
+      mailListScroll.addEventListener("scroll", function () {
+        lastMailListScrollAt = Date.now()
+        clearHoverPrefetch()
+      }, { passive: true })
+    }
+
+    function prefetchRow(row) {
       if (window.GoferSettings && GoferSettings.get("prefetch_on_hover") === "false") return
-      var row = e.target && e.target.closest && e.target.closest(".mail-list-item[data-email-id]")
       if (!row) return
       var emailId = row.dataset.emailId
       if (!emailId || prefetchedBodies[emailId]) return
@@ -61,8 +74,38 @@ document.addEventListener("DOMContentLoaded", function () {
       })
     }
 
-    document.addEventListener("mouseover", prefetchFromEvent, { passive: true })
-    document.addEventListener("focusin", prefetchFromEvent)
+    function clearHoverPrefetch(row) {
+      if (row && hoverPrefetchRow !== row) return
+      if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer)
+      hoverPrefetchTimer = null
+      hoverPrefetchRow = null
+    }
+
+    document.addEventListener("pointerover", function (e) {
+      if (e.pointerType && e.pointerType !== "mouse") return
+      if (Date.now() - lastMailListScrollAt < scrollPrefetchCooldown) return
+      var row = e.target && e.target.closest && e.target.closest(".mail-list-item[data-email-id]")
+      if (!row || row === hoverPrefetchRow) return
+      clearHoverPrefetch()
+      hoverPrefetchRow = row
+      hoverPrefetchTimer = setTimeout(function () {
+        prefetchRow(row)
+        clearHoverPrefetch(row)
+      }, hoverPrefetchDelay)
+    }, { passive: true })
+
+    document.addEventListener("pointerout", function (e) {
+      if (e.pointerType && e.pointerType !== "mouse") return
+      var row = e.target && e.target.closest && e.target.closest(".mail-list-item[data-email-id]")
+      if (!row) return
+      var next = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest(".mail-list-item[data-email-id]")
+      if (next === row) return
+      clearHoverPrefetch(row)
+    }, { passive: true })
+
+    document.addEventListener("focusin", function (e) {
+      prefetchRow(e.target && e.target.closest && e.target.closest(".mail-list-item[data-email-id]"))
+    })
   }
 
   function markAccountDeleting(accountId) {

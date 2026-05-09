@@ -25,8 +25,8 @@ class VirtualMailList {
     this.windowThreshold = 20000
     this.chunkSize = 100
     this.chunkBuffer = 2
-    this.edgeLoadThreshold = 2
     this.loadingDirection = null
+    this.pendingLoadEnd = null
     this.loadError = null
     this.frontierDown = -1
     this.frontierUp = 0
@@ -40,6 +40,7 @@ class VirtualMailList {
     this.itemsContainer = null
     this.bannerEl = null
     this.loaderEl = null
+    this.debugEl = null
 
     this.rowPool = []
     this.visibleRows = new Map()
@@ -151,6 +152,7 @@ class VirtualMailList {
           '<h3 class="font-semibold text-sm mb-1">' + (syncing ? 'Syncing folder' : 'No emails') + '</h3>' +
           '<p class="text-xs text-muted-foreground">' + subtitle + '</p>' +
         '</div>'
+      this.updateDebugStats()
       return
     }
 
@@ -160,7 +162,11 @@ class VirtualMailList {
     var last = this.positionAtOffset(Math.min(this.totalHeight(), scrollTop + clientHeight + this.overscan * this.itemHeight))
     last = Math.min(last, this.effectiveCount - 1)
 
-    if (first === this.prevFirst && last === this.prevLast) return
+    if (first === this.prevFirst && last === this.prevLast) {
+      this.maybeLoadAtEdges(first, last)
+      this.updateDebugStats()
+      return
+    }
     this.prevFirst = first
     this.prevLast = last
 
@@ -174,6 +180,7 @@ class VirtualMailList {
 
     this.renderPooled(first, last)
     this.syncSelectionClasses(this.itemsContainer)
+    this.evictFarChunks(first, last)
 
     if (typeof htmx !== "undefined") {
       htmx.process(this.itemsContainer)
@@ -182,6 +189,7 @@ class VirtualMailList {
     if (this.container.scrollTop !== scrollTop) {
       this.container.scrollTop = scrollTop
     }
+    this.updateDebugStats()
   }
 
   ensureRowPool() {
@@ -387,8 +395,41 @@ class VirtualMailList {
     return row
   }
 
+  getLoadedCount() {
+    var count = 0
+    for (var i = 0; i < this.loadedRanges.length; i++) {
+      count += this.loadedRanges[i].end - this.loadedRanges[i].start + 1
+    }
+    return count
+  }
+
+  updateDebugStats() {
+    if (!this.debugEl) {
+      this.debugEl = document.createElement("div")
+      this.debugEl.className = "mail-list-debug-stats"
+      this.debugEl.style.position = "fixed"
+      this.debugEl.style.left = "12px"
+      this.debugEl.style.bottom = "12px"
+      this.debugEl.style.zIndex = "9999"
+      this.debugEl.style.padding = "6px 9px"
+      this.debugEl.style.borderRadius = "8px"
+      this.debugEl.style.border = "1px solid var(--border, hsl(var(--border)))"
+      this.debugEl.style.background = "var(--background, hsl(var(--background)))"
+      this.debugEl.style.color = "var(--foreground, hsl(var(--foreground)))"
+      this.debugEl.style.boxShadow = "0 8px 24px rgba(0,0,0,0.12)"
+      this.debugEl.style.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+      document.body.appendChild(this.debugEl)
+    }
+
+    this.debugEl.textContent =
+      this.rowPool.length + " pooled nodes | " +
+      this.getLoadedCount() + " / " + this.totalCount + " loaded | " +
+      "top: " + Math.round(this.container.scrollTop) + "px"
+  }
+
   async ensureRangeLoaded(first, last) {
     if (first > last) return
+    if (this.activeChunkFetches.size > 0) return
     var gaps = this.findGaps(first, last)
     for (var i = 0; i < gaps.length; i++) {
       var gap = gaps[i]
@@ -405,22 +446,19 @@ class VirtualMailList {
   maybeLoadAtEdges(first, last) {
     if (this.activeChunkFetches.size > 0) return
     if (this.effectiveCount >= this.totalCount) return
-    var firstChunk = Math.floor(first / this.chunkSize)
-    var lastChunk = Math.floor(last / this.chunkSize)
-    var loadedFirstChunk = Math.floor(Math.max(0, this.frontierUp) / this.chunkSize)
-    var loadedLastChunk = Math.floor(Math.max(0, this.frontierDown) / this.chunkSize)
 
-    if (lastChunk >= loadedLastChunk - this.edgeLoadThreshold) {
-      this.loadChunk(loadedLastChunk + 1, "down")
+    var viewportBottom = this.container.scrollTop + this.container.clientHeight
+    if (this.frontierDown < this.totalCount - 1 && viewportBottom >= this.totalHeight() - 1) {
+      this.loadChunk(Math.floor((this.frontierDown + 1) / this.chunkSize), "down")
       return
     }
-    if (firstChunk <= loadedFirstChunk + this.edgeLoadThreshold) {
-      this.loadChunk(loadedFirstChunk - 1, "up")
+    if (this.frontierUp > 0 && this.container.scrollTop <= 1) {
+      this.loadChunk(Math.floor((this.frontierUp - 1) / this.chunkSize), "up")
     }
   }
 
   async loadChunk(chunkIndex, direction) {
-    var start = chunkIndex * this.chunkSize
+    var start = direction === "down" ? this.frontierDown + 1 : chunkIndex * this.chunkSize
     if (chunkIndex < 0 || start >= this.totalCount) return
     var end = Math.min(this.totalCount - 1, start + this.chunkSize - 1)
     var chunkKey = "chunk-" + chunkIndex
@@ -428,7 +466,16 @@ class VirtualMailList {
     if (this.findGaps(start, end).length === 0) return
     this.activeChunkFetches.add(chunkKey)
     this.loadingDirection = direction
+    this.pendingLoadEnd = direction === "down" ? start : null
     this.loadError = null
+    var revealPendingDownRow = direction === "down"
+    this.updateEffectiveCount()
+    if (revealPendingDownRow) {
+      this.container.scrollTop = this.container.scrollTop + this.itemHeight
+    }
+    this.prevFirst = null
+    this.prevLast = null
+    this.render()
     try {
       if (window.__debugWindowedMail) {
         console.debug("[mail-chunk] load", direction, chunkIndex, start, end)
@@ -440,7 +487,9 @@ class VirtualMailList {
       this.loadError = "Failed to load emails. Scroll again to retry."
     } finally {
       this.loadingDirection = null
+      this.pendingLoadEnd = null
       this.activeChunkFetches.delete(chunkKey)
+      this.updateEffectiveCount()
     }
   }
 
@@ -455,17 +504,22 @@ class VirtualMailList {
   }
 
   evictFarChunks(first, last) {
-    return
     var firstChunk = Math.floor(first / this.chunkSize)
     var lastChunk = Math.floor(last / this.chunkSize)
     var keepMin = Math.max(0, (firstChunk - this.chunkBuffer) * this.chunkSize)
     var keepMax = Math.min(this.totalCount - 1, ((lastChunk + this.chunkBuffer + 1) * this.chunkSize) - 1)
     var keys = Array.from(this.cache.keys())
+    var evicted = false
     for (var i = 0; i < keys.length; i++) {
       var pos = keys[i]
-      if (pos < keepMin || pos > keepMax) this.cache.delete(pos)
+      if (pos < keepMin || pos > keepMax) {
+        var item = this.cache.get(pos)
+        if (item && item.id) this.indexById.delete(item.id)
+        this.cache.delete(pos)
+        evicted = true
+      }
     }
-    this.invalidateLoadedRanges()
+    if (evicted) this.invalidateLoadedRanges()
   }
 
   async fetchRange(start, end) {
@@ -581,6 +635,9 @@ class VirtualMailList {
       return
     }
     var next = Math.min(this.totalCount, maxLoaded + 1)
+    if (this.loadingDirection === "down" && this.pendingLoadEnd !== null) {
+      next = Math.min(this.totalCount, Math.max(next, this.pendingLoadEnd + 1))
+    }
     if (next !== this.effectiveCount) {
       this.effectiveCount = next
       this.invalidateOffsets()
@@ -617,6 +674,7 @@ class VirtualMailList {
   }
 
   mergeRanges() {
+    if (this.loadedRanges.length === 0) return
     this.loadedRanges.sort(function (a, b) {
       return a.start - b.start
     })
@@ -640,6 +698,7 @@ class VirtualMailList {
       this.loadedRanges.push({ start: entries[i][0], end: entries[i][0] })
     }
     this.mergeRanges()
+    this.updateEffectiveCount()
   }
 
   hydrateFromDOM() {
@@ -783,6 +842,8 @@ class VirtualMailList {
     this.syncState = { active: false, current: 0, total: 0 }
     this.activeFetches.clear()
     this.activeChunkFetches.clear()
+    this.pendingLoadEnd = null
+    this.loadingDirection = null
     this.windowedMode = false
     this.anchorAbsoluteIndex = null
     this.suppressWindowShift = false
