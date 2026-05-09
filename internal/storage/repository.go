@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"log"
 	"os"
 	"regexp"
 	"strconv"
@@ -421,7 +422,7 @@ func (db *DB) updateThreadAggregatesTx(ctx context.Context, tx *sql.Tx, threadID
 	err := tx.QueryRowContext(ctx,
 		`SELECT account_id, subject, normalized_subject, id, date_received
 		 FROM messages WHERE thread_id = ? ORDER BY date_received ASC, id ASC LIMIT 1`, threadID,
-	).Scan(&accountID, &subject, &normalizedSubject, &rootID, new(sql.NullTime))
+	).Scan(&accountID, &subject, &normalizedSubject, &rootID, new(sqliteNullTime))
 	if err != nil {
 		return nil
 	}
@@ -451,16 +452,20 @@ func (db *DB) updateThreadAggregatesTx(ctx context.Context, tx *sql.Tx, threadID
 }
 
 func (db *DB) EnsureThreading(ctx context.Context) error {
+	log.Printf("storage: EnsureThreading started")
 	var needs int
 	if err := db.Read().QueryRowContext(ctx,
-		`SELECT CASE WHEN EXISTS (SELECT 1 FROM messages WHERE COALESCE(thread_id, '') = '' OR COALESCE(message_id_normalized, '') = '' OR COALESCE(normalized_subject, '') = '')
+		`SELECT CASE WHEN EXISTS (SELECT 1 FROM messages WHERE COALESCE(thread_id, '') = '' OR COALESCE(message_id_normalized, '') = '')
 		 OR (SELECT COUNT(*) FROM messages) > 0 AND (SELECT COUNT(*) FROM threads) = 0 THEN 1 ELSE 0 END`,
 	).Scan(&needs); err != nil {
 		return err
 	}
 	if needs == 0 {
+		db.SetThreadingState(ThreadingState{InProgress: false, Processed: 0, Total: 0})
+		log.Printf("storage: EnsureThreading not needed")
 		return nil
 	}
+	log.Printf("storage: EnsureThreading backfill required")
 
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -482,7 +487,7 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 		inReplyTo string
 		refs      string
 		subject   string
-		sentAt    sql.NullTime
+		sentAt    sql.NullString
 	}
 	var messages []row
 	for rows.Next() {
@@ -494,8 +499,10 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 		messages = append(messages, r)
 	}
 	rows.Close()
+	log.Printf("storage: EnsureThreading loaded %d message(s)", len(messages))
+	db.SetThreadingState(ThreadingState{InProgress: true, Processed: 0, Total: len(messages)})
 
-	for _, m := range messages {
+	for i, m := range messages {
 		messageID := mailmessage.NormalizeMessageID(m.msgID)
 		if messageID == "" {
 			messageID = fmt.Sprintf("local-%d@gofer.local", m.id)
@@ -506,14 +513,80 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 		}
 		sentAt := time.Now().UTC()
 		if m.sentAt.Valid {
-			sentAt = m.sentAt.Time
+			if parsed, ok := parseSQLiteDateTime(m.sentAt.String); ok {
+				sentAt = parsed
+			}
 		}
 		if err := db.reconcileMessageThreadTx(ctx, tx, m.id, m.accountID, messageID, inReplyTo, m.refs, m.subject, sentAt); err != nil {
 			return err
 		}
+		if (i+1)%1000 == 0 {
+			db.SetThreadingState(ThreadingState{InProgress: true, Processed: i + 1, Total: len(messages)})
+			log.Printf("storage: EnsureThreading processed %d/%d", i+1, len(messages))
+		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	log.Printf("storage: EnsureThreading complete (%d messages)", len(messages))
+	db.SetThreadingState(ThreadingState{InProgress: false, Processed: len(messages), Total: len(messages)})
+	return nil
+}
+
+type sqliteNullTime struct {
+	Time  time.Time
+	Valid bool
+}
+
+func (nt *sqliteNullTime) Scan(value any) error {
+	if value == nil {
+		nt.Time = time.Time{}
+		nt.Valid = false
+		return nil
+	}
+
+	switch v := value.(type) {
+	case time.Time:
+		nt.Time = v.UTC()
+		nt.Valid = true
+		return nil
+	case string:
+		if parsed, ok := parseSQLiteDateTime(v); ok {
+			nt.Time = parsed
+			nt.Valid = true
+			return nil
+		}
+	case []byte:
+		if parsed, ok := parseSQLiteDateTime(string(v)); ok {
+			nt.Time = parsed
+			nt.Valid = true
+			return nil
+		}
+	}
+
+	nt.Time = time.Time{}
+	nt.Valid = false
+	return nil
+}
+
+func parseSQLiteDateTime(raw string) (time.Time, bool) {
+	if raw == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999Z07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 type SyncMessage struct {
@@ -703,7 +776,7 @@ func (db *DB) GetHighestSeenUID(ctx context.Context, folderID string) (uint32, e
 }
 
 func (db *DB) GetAccountIDs(ctx context.Context, userID string) ([]string, error) {
-	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE user_id = ? ORDER BY id`, userID)
+	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 ORDER BY id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -721,7 +794,7 @@ func (db *DB) GetAccountIDs(ctx context.Context, userID string) ([]string, error
 }
 
 func (db *DB) GetAllAccountIDs(ctx context.Context) ([]string, error) {
-	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts ORDER BY id`)
+	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE COALESCE(is_deleting, 0) = 0 ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -760,6 +833,17 @@ func (db *DB) GetFolderIDByRole(ctx context.Context, accountID, role string) (st
 		return "", "", nil
 	}
 	return id, remoteID, err
+}
+
+func (db *DB) GetFolderRole(ctx context.Context, folderID string) (string, error) {
+	var role string
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT role FROM folders WHERE id = ? LIMIT 1`, folderID,
+	).Scan(&role)
+	if err != nil {
+		return "", err
+	}
+	return role, nil
 }
 
 func (db *DB) RefreshFolderUnreadCount(ctx context.Context, folderID string) (int, error) {
@@ -807,7 +891,7 @@ func (db *DB) GetFolderHighestUID(ctx context.Context, folderID string) (uint32,
 
 func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, email_address, display_name, color, initials FROM accounts WHERE user_id = ? ORDER BY id`, userID)
+		`SELECT id, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 ORDER BY id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
@@ -816,13 +900,48 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		if err := rows.Scan(&a.ID, &a.Email, &a.Name, &a.Color, &a.Initials); err != nil {
+		var isDeleting int
+		if err := rows.Scan(&a.ID, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
+		a.IsDeleting = isDeleting == 1
 		accounts = append(accounts, a)
 	}
 
 	for i := range accounts {
+		folders, err := db.getFolders(ctx, accounts[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("get folders for %s: %w", accounts[i].ID, err)
+		}
+		accounts[i].Folders = folders
+	}
+
+	return accounts, nil
+}
+
+func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) ([]models.Account, error) {
+	rows, err := db.Read().QueryContext(ctx,
+		`SELECT id, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? ORDER BY id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("query accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []models.Account
+	for rows.Next() {
+		var a models.Account
+		var isDeleting int
+		if err := rows.Scan(&a.ID, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
+			return nil, fmt.Errorf("scan account: %w", err)
+		}
+		a.IsDeleting = isDeleting == 1
+		accounts = append(accounts, a)
+	}
+
+	for i := range accounts {
+		if accounts[i].IsDeleting {
+			continue
+		}
 		folders, err := db.getFolders(ctx, accounts[i].ID)
 		if err != nil {
 			return nil, fmt.Errorf("get folders for %s: %w", accounts[i].ID, err)
@@ -914,8 +1033,8 @@ func (db *DB) GetEmailsRange(ctx context.Context, folderID string, start, limit 
 	end := start + len(emails)
 	hasMore := end < totalCount
 	nextCursor := ""
-	if end > 0 && hasMore {
-		nextCursor = emails[end-1].ID
+	if len(emails) > 0 && hasMore {
+		nextCursor = emails[len(emails)-1].ID
 	}
 
 	return &models.EmailPage{
@@ -956,7 +1075,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 			item             models.ThreadItem
 			fromName         string
 			fromEmail        string
-			dateReceived     sql.NullTime
+			dateReceived     sqliteNullTime
 			hasAttach        int
 			isRead           int
 			isStarred        int
@@ -1038,7 +1157,7 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 
 	var (
 		email             models.Email
-		dateReceived      sql.NullTime
+		dateReceived      sqliteNullTime
 		fromName          string
 		fromEmail         string
 		subject           string
@@ -1231,7 +1350,7 @@ func (db *DB) listEmails(ctx context.Context, folderID string, offset, limit int
 
 	for rows.Next() {
 		var r emailRow
-		var dateReceived sql.NullTime
+		var dateReceived sqliteNullTime
 		var isRead, isStarred, hasAttach, threadHasAttach int
 		var subject, fromName, fromEmail, snippet, accountID string
 		var textPath, htmlPath sql.NullString
@@ -1436,7 +1555,7 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 
 	for rows.Next() {
 		var r emailRow
-		var dateReceived sql.NullTime
+		var dateReceived sqliteNullTime
 		var isRead, isStarred, hasAttach int
 		var subject, fromName, fromEmail, snippet, accountID string
 		var textPath, htmlPath sql.NullString
@@ -1614,7 +1733,7 @@ func (db *DB) UpdateMessageThreadHeaders(ctx context.Context, messageID int64, a
 	defer tx.Rollback()
 
 	var messageIDRaw string
-	var sentAt sql.NullTime
+	var sentAt sqliteNullTime
 	if err := tx.QueryRowContext(ctx,
 		`SELECT internet_message_id, date_received FROM messages WHERE id = ?`, messageID,
 	).Scan(&messageIDRaw, &sentAt); err != nil {
@@ -1961,8 +2080,8 @@ type FolderSyncInfo struct {
 	Role              string
 	UIDValidity       uint32
 	HighestSeenUID    uint32
-	LastFullSyncAt    sql.NullTime
-	LastIncrementalAt sql.NullTime
+	LastFullSyncAt    sqliteNullTime
+	LastIncrementalAt sqliteNullTime
 	TotalCount        int
 }
 

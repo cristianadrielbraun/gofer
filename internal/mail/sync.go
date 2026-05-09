@@ -151,11 +151,13 @@ func (o *SyncOrchestrator) getIdleFoldersForAccount(ctx context.Context, account
 }
 
 func (o *SyncOrchestrator) Start(ctx context.Context) {
+	log.Printf("sync: startup scan started")
 	accounts, err := o.db.GetAllAccountIDs(ctx)
 	if err != nil {
 		log.Printf("sync start: get accounts: %v", err)
 		return
 	}
+	log.Printf("sync: found %d account(s)", len(accounts))
 
 	if len(accounts) > 0 {
 		userID, _ := o.db.GetAccountUserID(ctx, accounts[0])
@@ -167,16 +169,22 @@ func (o *SyncOrchestrator) Start(ctx context.Context) {
 	}
 
 	for _, accountID := range accounts {
+		log.Printf("sync: starting account bootstrap for %s", accountID)
 		o.startAccount(ctx, accountID)
 	}
+	log.Printf("sync: startup scan complete")
 }
 
 func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
+	log.Printf("sync: account %s initial sync started", accountID)
 	if err := o.syncAccount(ctx, accountID); err != nil {
 		log.Printf("sync account %s: %v", accountID, err)
+	} else {
+		log.Printf("sync: account %s initial sync finished", accountID)
 	}
 
 	o.startIDLEWatchers(ctx, accountID)
+	log.Printf("sync: account %s IDLE watchers started", accountID)
 
 	accountCtx, cancel := context.WithCancel(ctx)
 	o.mu.Lock()
@@ -184,6 +192,7 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 	o.mu.Unlock()
 
 	go o.runPeriodicSync(accountCtx, accountID)
+	log.Printf("sync: account %s periodic sync worker started", accountID)
 }
 
 func (o *SyncOrchestrator) runPeriodicSync(ctx context.Context, accountID string) {
@@ -473,7 +482,13 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) er
 }
 
 func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.Client, accountID, folderID, remoteName string) {
+	folderRole, _ := o.db.GetFolderRole(ctx, folderID)
+	totalHint, _ := o.db.GetFolderEmailCount(ctx, folderID)
+	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: totalHint})
+	fetched := 0
 	result, err := client.SyncFolder(ctx, folderID, remoteName, 500, func(msgs []storage.SyncMessage) error {
+		fetched += len(msgs)
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: totalHint})
 		return o.db.UpsertSyncMessages(ctx, msgs)
 	})
 	if err != nil {
@@ -485,9 +500,15 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.
 
 	if result != nil {
 		o.db.UpdateFolderSyncState(ctx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
+		total := totalHint
+		if total <= 0 {
+			total = int(result.NumMessages)
+		}
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total})
 	}
 	o.db.RefreshFolderUnreadCount(ctx, folderID)
 	log.Printf("synced %s/%s: %d messages", accountID, remoteName, result.TotalFetched)
+	o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, FolderRole: folderRole})
 }
 
 func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folderID, remoteName string) {

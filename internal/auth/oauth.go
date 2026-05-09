@@ -29,15 +29,26 @@ func (m *Manager) GoogleOAuthURL(state string) string {
 }
 
 func (m *Manager) GoogleAccountOAuthURL(state string) string {
+	return m.accountOAuthConfig().AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+}
+
+func (m *Manager) ExchangeAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
+	token, err := m.accountOAuthConfig().Exchange(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("oauth exchange: %w", err)
+	}
+	return token, nil
+}
+
+func (m *Manager) accountOAuthConfig() *oauth2.Config {
 	cfg := m.config.GoogleClient
-	redirectCfg := &oauth2.Config{
+	return &oauth2.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		RedirectURL:  m.config.BaseURL + "/auth/google/account/callback",
 		Scopes:       cfg.Scopes,
 		Endpoint:     cfg.Endpoint,
 	}
-	return redirectCfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 }
 
 func (m *Manager) GenerateState() string {

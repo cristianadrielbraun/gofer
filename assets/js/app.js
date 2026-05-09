@@ -1,11 +1,22 @@
 document.addEventListener("DOMContentLoaded", function () {
+  if (!document.getElementById("mail-sync-indeterminate-style")) {
+    var style = document.createElement("style")
+    style.id = "mail-sync-indeterminate-style"
+    style.textContent = "@keyframes mailSyncIndeterminate{0%{transform:translateX(-120%)}50%{transform:translateX(40%)}100%{transform:translateX(240%)}}"
+    document.head.appendChild(style)
+  }
   var virtualMailList = null
+  var pendingSyncEvents = []
+  var syncRefreshTimer = null
+  var processingStatusHandler = null
+  var syncStatesByFolder = Object.create(null)
 
   initVirtualScroll()
   setupFolderClickInterception()
   setupEmailSelectionTracking()
   setupSSE()
   setupMailListActions()
+  setupProcessingStatus()
 
   function setupMailListActions() {
     document.addEventListener("click", function (e) {
@@ -17,7 +28,184 @@ document.addEventListener("DOMContentLoaded", function () {
         var emailId = starBtn.dataset.emailId
         if (emailId) toggleStar(emailId)
       }
+
+      var deleteBtn = e.target.closest("[data-delete-account-action]")
+      if (deleteBtn) {
+        var accountId = deleteBtn.getAttribute("data-account-id")
+        if (accountId && window.tui && window.tui.dialog) {
+          window.tui.dialog.close("delete-account-" + accountId)
+        }
+      }
     })
+
+    document.body.addEventListener("htmx:afterRequest", function (evt) {
+      var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
+      var match = path && path.match(/^\/api\/accounts\/([^/]+)$/)
+      if (!match || !evt.detail.xhr || evt.detail.xhr.status !== 202) return
+      markAccountDeleting(match[1])
+    })
+  }
+
+  function markAccountDeleting(accountId) {
+    var card = document.getElementById("account-card-" + accountId)
+    if (!card) return
+    if (window.tui && window.tui.dialog) {
+      window.tui.dialog.close("delete-account-" + accountId)
+    }
+    var row = card.firstElementChild
+    if (!row) return
+    while (row.children.length > 2) {
+      row.removeChild(row.lastElementChild)
+    }
+    var status = document.createElement("button")
+    status.type = "button"
+    status.disabled = true
+    status.className = "inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default"
+    status.innerHTML = '<svg class="size-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Deleting'
+    row.appendChild(status)
+  }
+
+  function setupProcessingStatus() {
+    var minimized = false
+    var animating = false
+    var expandedBodyText = ""
+
+    function ensureWidget() {
+      var existing = document.getElementById("processing-structure-widget")
+      if (existing) return existing
+
+      var widget = document.createElement("div")
+      widget.id = "processing-structure-widget"
+      widget.className = "fixed bottom-3 right-3 z-50 max-w-sm w-[min(92vw,24rem)] origin-bottom-right"
+      widget.style.display = "none"
+      widget.innerHTML =
+        '<button type="button" data-processing-card class="absolute right-0 bottom-0 rounded-[var(--radius)] border border-border bg-card/95 text-card-foreground shadow-lg px-3 py-2.5 text-left transition-all duration-210 ease-in-out origin-bottom-right">' +
+          '<div class="flex items-start justify-between gap-3">' +
+            '<div class="min-w-0" data-processing-content-wrap>' +
+              '<p data-processing-title class="text-[12px] font-semibold leading-5 text-amber-600 dark:text-amber-400 inline-flex items-center gap-1.5"><span class="inline-block size-2 rounded-full bg-amber-500 animate-pulse"></span><span>Processing structure</span></p>' +
+              '<p data-processing-text class="text-[11px] leading-4 text-muted-foreground mt-0.5 transition-opacity duration-180 ease-out"></p>' +
+              '<p data-processing-mini-text class="hidden text-[11px] leading-4 text-muted-foreground mt-0 items-center gap-1.5"><span class="inline-block size-2 rounded-full bg-amber-500 animate-pulse"></span><span>Processing...</span></p>' +
+            '</div>' +
+            '<span data-processing-minimize class="shrink-0 rounded p-1 hover:bg-muted" aria-hidden="true">' +
+              '<svg xmlns="http://www.w3.org/2000/svg" class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>' +
+            '</span>' +
+          '</div>' +
+        '</button>'
+
+      document.body.appendChild(widget)
+      widget.style.minHeight = "44px"
+
+      var card = widget.querySelector("[data-processing-card]")
+
+      if (card) {
+        card.style.transition = "none"
+        card.style.width = "380px"
+        card.style.height = "92px"
+        card.style.paddingTop = "10px"
+        card.style.paddingBottom = "10px"
+        card.offsetHeight
+        card.style.transition = ""
+      }
+
+      if (card) {
+        card.addEventListener("click", function () {
+          minimized = !minimized
+          applyMinimizedState(widget)
+        })
+      }
+
+      return widget
+    }
+
+    function applyMinimizedState(widget) {
+      var card = widget.querySelector("[data-processing-card]")
+      var text = widget.querySelector("[data-processing-text]")
+      var title = widget.querySelector("[data-processing-title]")
+      var miniText = widget.querySelector("[data-processing-mini-text]")
+      var minimizeIcon = widget.querySelector("[data-processing-minimize]")
+      if (!card || !text || !title || !miniText || !minimizeIcon) return
+      if (animating) return
+
+      var FADE_MS = 100
+      var SIZE_MS = 200
+      animating = true
+
+      if (!expandedBodyText) {
+        expandedBodyText = text.textContent || ""
+      }
+
+      if (minimized) {
+        text.style.opacity = "0"
+        title.style.opacity = "0"
+        minimizeIcon.style.opacity = "0"
+        setTimeout(function () {
+          title.style.display = "none"
+          text.style.display = "none"
+          card.style.width = "148px"
+          card.style.height = "44px"
+          card.style.paddingTop = "8px"
+          card.style.paddingBottom = "8px"
+          setTimeout(function () {
+            miniText.style.display = "inline-flex"
+            miniText.style.opacity = "0"
+            miniText.style.transition = "opacity 180ms ease-out"
+            miniText.offsetHeight
+            miniText.style.opacity = "1"
+            animating = false
+          }, SIZE_MS)
+        }, FADE_MS)
+      } else {
+        miniText.style.opacity = "0"
+        setTimeout(function () {
+          miniText.style.display = "none"
+          card.style.width = "380px"
+          card.style.height = "92px"
+          card.style.paddingTop = "10px"
+          card.style.paddingBottom = "10px"
+          setTimeout(function () {
+            title.style.display = "inline-flex"
+            text.style.display = "block"
+            text.textContent = expandedBodyText
+            title.style.opacity = "0"
+            text.style.opacity = "0"
+            minimizeIcon.style.opacity = "0"
+            title.offsetHeight
+            title.style.opacity = "1"
+            text.style.opacity = "1"
+            minimizeIcon.style.opacity = "1"
+            animating = false
+          }, SIZE_MS)
+        }, FADE_MS)
+      }
+    }
+
+    function render(state) {
+      var widget = ensureWidget()
+      if (!widget) return
+      window.__processingState = state
+      var active = !!(state && (state.in_progress || ((state.processed || 0) > 0 && (state.total || 0) > 0 && (state.processed || 0) < (state.total || 0))))
+      if (!active) {
+        widget.style.display = "none"
+        return
+      }
+      var progress = ""
+      if (state.total > 0) progress = " (" + (state.processed || 0) + "/" + state.total + ")"
+      var text = widget.querySelector("[data-processing-text]")
+      if (text) {
+        expandedBodyText = "This may take longer the first time while your mailbox is organized." + progress
+        if (!minimized) {
+          text.textContent = expandedBodyText
+        }
+      }
+      widget.style.display = "block"
+      applyMinimizedState(widget)
+    }
+
+    processingStatusHandler = {
+      render: render,
+      startPolling: function () {},
+      stopPolling: function () {}
+    }
   }
 
   function setupSSE() {
@@ -31,9 +219,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!data || !data.folder_id) return
 
       refreshSidebarUnread()
-      if (virtualMailList && virtualMailList.folderID === data.folder_id) {
-        virtualMailList.onNewEmail()
-      }
+      withMailListForFolder(data.folder_id, data.folder_role || "", function (vml) { vml.onNewEmail() })
     })
 
     source.addEventListener("send-result", function (e) {
@@ -54,10 +240,125 @@ document.addEventListener("DOMContentLoaded", function () {
       refreshSidebarUnread()
     })
 
+    source.addEventListener("processing-status", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !processingStatusHandler) return
+      processingStatusHandler.render(data)
+    })
+
+    source.addEventListener("sync-started", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !data.folder_id) return
+      syncStatesByFolder[data.folder_id] = {
+        active: true,
+        current: data.current || 0,
+        total: data.total || 0,
+        folderRole: data.folder_role || "",
+      }
+      withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
+        vml.setSyncState(true, data.current || 0, data.total || 0)
+      })
+      if (virtualMailList) scheduleSyncRefresh(virtualMailList)
+    })
+
+    source.addEventListener("sync-progress", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !data.folder_id) return
+      syncStatesByFolder[data.folder_id] = {
+        active: true,
+        current: data.current || 0,
+        total: data.total || 0,
+        folderRole: data.folder_role || "",
+      }
+      withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
+        vml.setSyncState(true, data.current || 0, data.total || 0)
+        scheduleSyncRefresh(vml)
+      })
+      if (virtualMailList) scheduleSyncRefresh(virtualMailList)
+    })
+
+    source.addEventListener("sync-complete", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !data.folder_id) return
+      syncStatesByFolder[data.folder_id] = {
+        active: false,
+        current: 0,
+        total: 0,
+        folderRole: data.folder_role || "",
+      }
+      refreshSidebarUnread()
+      withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
+        vml.setSyncState(false, 0, 0)
+        vml.refreshCurrentFolder()
+      })
+      if (virtualMailList) {
+        applyActiveFolderSyncState()
+        virtualMailList.refreshCurrentFolder()
+      }
+    })
+
     source.onerror = function () {
       source.close()
       setTimeout(setupSSE, 5000)
     }
+  }
+
+  function scheduleSyncRefresh(vml) {
+    if (!vml) return
+    if (syncRefreshTimer) return
+    syncRefreshTimer = setTimeout(function () {
+      syncRefreshTimer = null
+      vml.refreshCurrentFolder().catch(function () {})
+    }, 700)
+  }
+
+  function withMailListForFolder(folderId, folderRole, fn) {
+    if (typeof folderRole === "function") {
+      fn = folderRole
+      folderRole = ""
+    }
+    if (typeof fn !== "function") return
+    if (virtualMailList && matchesActiveFolder(virtualMailList.folderID, folderId, folderRole)) {
+      fn(virtualMailList)
+      return
+    }
+    pendingSyncEvents.push({ folderId: folderId, folderRole: folderRole || "", fn: fn })
+  }
+
+  function matchesActiveFolder(activeFolderId, eventFolderId, eventFolderRole) {
+    if (!activeFolderId) return false
+    if (activeFolderId === eventFolderId) return true
+    if (!eventFolderRole) return false
+    return isRoleFolderID(activeFolderId) && activeFolderId === eventFolderRole
+  }
+
+  function isRoleFolderID(folderId) {
+    return folderId === "inbox" || folderId === "sent" || folderId === "drafts" || folderId === "trash" || folderId === "archive" || folderId === "spam"
+  }
+
+  function applyActiveFolderSyncState() {
+    if (!virtualMailList) return
+    var state = syncStatesByFolder[virtualMailList.folderID]
+    if (state && state.active) {
+      virtualMailList.setSyncState(true, state.current || 0, state.total || 0)
+      return
+    }
+    virtualMailList.setSyncState(false, 0, 0)
+  }
+
+  function flushPendingSyncEvents() {
+    if (!virtualMailList || pendingSyncEvents.length === 0) return
+    var remaining = []
+    for (var i = 0; i < pendingSyncEvents.length; i++) {
+      var event = pendingSyncEvents[i]
+      if (matchesActiveFolder(virtualMailList.folderID, event.folderId, event.folderRole)) event.fn(virtualMailList)
+      else remaining.push(event)
+    }
+    pendingSyncEvents = remaining.slice(-50)
   }
 
   function refreshSidebarUnread() {
@@ -101,6 +402,8 @@ document.addEventListener("DOMContentLoaded", function () {
     virtualMailList = new VirtualMailList(container, { folderID: folderID })
     virtualMailList.hydrateFromDOM()
     container._virtualMailList = virtualMailList
+    flushPendingSyncEvents()
+    applyActiveFolderSyncState()
 
     container.addEventListener("click", function (e) {
       var toggle = e.target.closest("[data-thread-toggle]")
@@ -173,7 +476,10 @@ document.addEventListener("DOMContentLoaded", function () {
           htmx.ajax("GET", "/folder/" + folderID + "/full", {target: "#main-content", swap: "outerHTML"})
         }
       } else {
-        virtualMailList.switchFolder(folderID)
+        virtualMailList.switchFolder(folderID).then(function () {
+          applyActiveFolderSyncState()
+          scheduleSyncRefresh(virtualMailList)
+        }).catch(function () {})
       }
     }, true)
   }
@@ -266,6 +572,8 @@ document.addEventListener("DOMContentLoaded", function () {
     virtualMailList = new VirtualMailList(scroll, { folderID: folderID })
     virtualMailList.hydrateFromDOM()
     scroll._virtualMailList = virtualMailList
+    flushPendingSyncEvents()
+    applyActiveFolderSyncState()
 
     var selectedId = virtualMailList.selectedEmailId
     var path = "/folder/" + folderID

@@ -1,13 +1,13 @@
 package storage
 
 import (
-	"context"
 	"database/sql"
 	"embed"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -19,6 +19,14 @@ type DB struct {
 	write *sql.DB
 	read  *sql.DB
 	path  string
+	threadingState ThreadingState
+	threadingMu    sync.RWMutex
+}
+
+type ThreadingState struct {
+	InProgress bool `json:"in_progress"`
+	Processed  int  `json:"processed"`
+	Total      int  `json:"total"`
 }
 
 func New(dbPath string) (*DB, error) {
@@ -50,17 +58,26 @@ func New(dbPath string) (*DB, error) {
 		read.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	if err := db.EnsureThreading(context.Background()); err != nil {
-		write.Close()
-		read.Close()
-		return nil, fmt.Errorf("ensure threading: %w", err)
-	}
+	log.Printf("storage: schema migration check complete")
+	log.Printf("storage: threading backfill deferred to background startup worker")
 
 	return db, nil
 }
 
+func (db *DB) SetThreadingState(state ThreadingState) {
+	db.threadingMu.Lock()
+	db.threadingState = state
+	db.threadingMu.Unlock()
+}
+
+func (db *DB) GetThreadingState() ThreadingState {
+	db.threadingMu.RLock()
+	defer db.threadingMu.RUnlock()
+	return db.threadingState
+}
+
 func openDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=temp_store(MEMORY)")
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=temp_store(MEMORY)&_texttotime=true")
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +109,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 12
+	const targetSchemaVersion = 13
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -173,6 +190,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 11 {
 		if err := migrateV11ToV12(tx); err != nil {
 			return fmt.Errorf("migrate v11 to v12: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 12 {
+		if err := migrateV12ToV13(tx); err != nil {
+			return fmt.Errorf("migrate v12 to v13: %w", err)
 		}
 	}
 
@@ -446,6 +469,20 @@ func migrateV11ToV12(tx *sql.Tx) error {
 		`UPDATE accounts SET user_id = 'default' WHERE user_id IS NULL`,
 		`UPDATE app_settings SET user_id = 'default' WHERE user_id IS NULL`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (12)`,
+	}
+
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV12ToV13(tx *sql.Tx) error {
+	migrations := []string{
+		`ALTER TABLE accounts ADD COLUMN is_deleting INTEGER NOT NULL DEFAULT 0`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (13)`,
 	}
 
 	for _, m := range migrations {

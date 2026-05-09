@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"gofer.email/internal/auth"
@@ -92,6 +93,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/inline-content/{messageID}/{contentID}", h.handleInlineContent)
 	mux.HandleFunc("GET /api/events", h.handleSSE)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
+	mux.HandleFunc("GET /api/system/processing", h.handleProcessingStatus)
 	mux.HandleFunc("GET /compose/pane", h.handleComposePane)
 	mux.HandleFunc("POST /compose", h.handleCompose)
 	mux.HandleFunc("POST /api/messages/{id}/read", h.handleToggleRead)
@@ -131,11 +133,12 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
+	folderID = h.resolveFolderID(r.Context(), folderID)
 
 	emailID := r.URL.Query().Get("email")
 	ctx := r.Context()
 
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
 	totalCount, _ := h.db.GetFolderEmailCount(ctx, folderID)
 
 	page, _ := h.db.GetEmailsRange(ctx, folderID, 0, 50)
@@ -166,9 +169,10 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 	if folderID == "" {
 		folderID = "inbox"
 	}
+	folderID = h.resolveFolderID(r.Context(), folderID)
 
 	ctx := r.Context()
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
 	totalCount, _ := h.db.GetFolderEmailCount(ctx, folderID)
 
 	page, _ := h.db.GetEmailsRange(ctx, folderID, 0, 50)
@@ -583,6 +587,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
+	folderID = h.resolveFolderID(r.Context(), folderID)
 
 	ctx := r.Context()
 	totalCount, _ := h.db.GetFolderEmailCount(ctx, folderID)
@@ -618,6 +623,7 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
+	folderID = h.resolveFolderID(r.Context(), folderID)
 
 	ctx := r.Context()
 	totalCount, _ := h.db.GetFolderEmailCount(ctx, folderID)
@@ -647,6 +653,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
+	folderID = h.resolveFolderID(r.Context(), folderID)
 
 	limit := 50
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 200 {
@@ -657,19 +664,26 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var page *models.EmailPage
+	var pageErr error
 
 	if around := r.URL.Query().Get("around"); around != "" {
-		page, _ = h.db.GetEmailsAroundEmail(ctx, folderID, around, limit)
+		page, pageErr = h.db.GetEmailsAroundEmail(ctx, folderID, around, limit)
 	} else if startStr := r.URL.Query().Get("start"); startStr != "" {
 		start, err := strconv.Atoi(startStr)
 		if err != nil || start < 0 {
 			start = 0
 		}
-		page, _ = h.db.GetEmailsRange(ctx, folderID, start, limit)
+		page, pageErr = h.db.GetEmailsRange(ctx, folderID, start, limit)
 	} else if cursor := r.URL.Query().Get("after"); cursor != "" {
-		page, _ = h.db.GetEmailsAfterCursor(ctx, folderID, cursor, limit)
+		page, pageErr = h.db.GetEmailsAfterCursor(ctx, folderID, cursor, limit)
 	} else {
-		page, _ = h.db.GetEmailsRange(ctx, folderID, 0, limit)
+		page, pageErr = h.db.GetEmailsRange(ctx, folderID, 0, limit)
+	}
+
+	if pageErr != nil {
+		log.Printf("mail items %s: %v", folderID, pageErr)
+		http.Error(w, "mail items unavailable", http.StatusServiceUnavailable)
+		return
 	}
 
 	if page == nil {
@@ -683,6 +697,24 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		page.NextCursor, page.HasMore,
 		selectedEmailId,
 	).Render(ctx, w)
+}
+
+func (h *Handler) resolveFolderID(ctx context.Context, requested string) string {
+	if requested == "" {
+		requested = "inbox"
+	}
+	if requested == "inbox" || requested == "sent" || requested == "drafts" || requested == "trash" || requested == "archive" || requested == "spam" {
+		accounts, err := h.db.GetAccountIDs(ctx, h.userID(ctx))
+		if err == nil {
+			for _, accountID := range accounts {
+				folderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, requested)
+				if err == nil && folderID != "" {
+					return folderID
+				}
+			}
+		}
+	}
+	return requested
 }
 
 func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
@@ -848,18 +880,30 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.syncer.StopAccount(accountID)
-
-	if err := h.blobStore.DeleteAccount(accountID); err != nil {
-		log.Printf("warning: failed to clean up blob storage for account %s: %v", accountID, err)
-	}
-
-	if err := h.accountStore.DeleteAccount(r.Context(), accountID); err != nil {
-		http.Error(w, fmt.Sprintf("delete account: %v", err), http.StatusInternalServerError)
+	if err := h.accountStore.MarkAccountDeleting(r.Context(), accountID); err != nil {
+		http.Error(w, fmt.Sprintf("mark account deleting: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Hx-Redirect", "/settings/accounts")
-	w.WriteHeader(http.StatusOK)
+	go func(id string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
+		if err := h.blobStore.DeleteAccount(id); err != nil {
+			log.Printf("warning: failed to clean up blob storage for account %s: %v", id, err)
+		}
+
+		if err := h.accountStore.DeleteAccount(ctx, id); err != nil {
+			log.Printf("delete account %s failed: %v", id, err)
+			return
+		}
+
+		log.Printf("delete account %s complete", id)
+	}(accountID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": "accepted", "account_id": accountID})
 }
 
 func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
@@ -1361,6 +1405,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	ch := h.syncer.Events().Subscribe()
 	defer h.syncer.Events().Unsubscribe(ch)
+	ticker := time.NewTicker(1200 * time.Millisecond)
+	defer ticker.Stop()
+	lastProcessingActive := false
 
 	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
 	flusher.Flush()
@@ -1369,20 +1416,44 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-ticker.C:
+			state := h.db.GetThreadingState()
+			active := state.InProgress || (state.Total > 0 && state.Processed < state.Total)
+			if active || lastProcessingActive != active {
+				m := map[string]any{
+					"type":       string(mail.EventProcessingStatus),
+					"in_progress": state.InProgress,
+					"processed":  state.Processed,
+					"total":      state.Total,
+				}
+				data, _ := json.Marshal(m)
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", mail.EventProcessingStatus, data)
+				flusher.Flush()
+			}
+			lastProcessingActive = active
 		case event := <-ch:
 			if event.AccountID != "" && !accountSet[event.AccountID] {
 				continue
 			}
-			m := map[string]string{
+			m := map[string]any{
 				"type":       string(event.Type),
 				"account_id": event.AccountID,
 				"folder_id":  event.FolderID,
+			}
+			if event.FolderRole != "" {
+				m["folder_role"] = event.FolderRole
 			}
 			if event.Status != "" {
 				m["status"] = event.Status
 			}
 			if event.Error != "" {
 				m["error"] = event.Error
+			}
+			if event.Current > 0 {
+				m["current"] = event.Current
+			}
+			if event.Total > 0 {
+				m["total"] = event.Total
 			}
 			data, _ := json.Marshal(m)
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
@@ -1400,6 +1471,12 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(counts)
+}
+
+func (h *Handler) handleProcessingStatus(w http.ResponseWriter, r *http.Request) {
+	state := h.db.GetThreadingState()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(state)
 }
 
 func (h *Handler) handleComposePane(w http.ResponseWriter, r *http.Request) {
@@ -2192,6 +2269,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 	}
 
 	jsonData, _ := json.Marshal(formData)
+	formEncoded := base64.StdEncoding.EncodeToString(jsonData)
 
 	state := h.auth.GenerateState()
 	http.SetCookie(w, &http.Cookie{
@@ -2204,7 +2282,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_account_form",
-		Value:    string(jsonData),
+		Value:    formEncoded,
 		Path:     "/",
 		MaxAge:   600,
 		HttpOnly: true,
@@ -2217,51 +2295,66 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.HasGoogleOAuth() {
+		log.Printf("gmail callback: google oauth not configured")
 		http.Error(w, "google oauth not configured", http.StatusNotFound)
 		return
 	}
 
 	stateCookie, err := r.Cookie("oauth_account_state")
 	if err != nil || stateCookie.Value == "" {
+		log.Printf("gmail callback: missing state cookie: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_missing_state", http.StatusSeeOther)
 		return
 	}
 
 	stateParam := r.URL.Query().Get("state")
 	if stateParam != stateCookie.Value {
+		log.Printf("gmail callback: state mismatch")
 		http.Redirect(w, r, "/settings/accounts?error=oauth_invalid_state", http.StatusSeeOther)
+		return
+	}
+
+	formCookie, err := r.Cookie("oauth_account_form")
+	if err != nil || formCookie.Value == "" {
+		log.Printf("gmail callback: missing form cookie: %v", err)
+		http.Redirect(w, r, "/settings/accounts?error=oauth_no_form", http.StatusSeeOther)
+		return
+	}
+
+	formBytes, err := base64.StdEncoding.DecodeString(formCookie.Value)
+	if err != nil {
+		log.Printf("gmail callback: base64 decode error: %v", err)
+		http.Redirect(w, r, "/settings/accounts?error=oauth_bad_form", http.StatusSeeOther)
+		return
+	}
+
+	var formData map[string]string
+	if err := json.Unmarshal(formBytes, &formData); err != nil {
+		log.Printf("gmail callback: json unmarshal error: %v", err)
+		http.Redirect(w, r, "/settings/accounts?error=oauth_bad_form", http.StatusSeeOther)
 		return
 	}
 
 	http.SetCookie(w, &http.Cookie{Name: "oauth_account_state", Value: "", Path: "/", MaxAge: -1})
 	http.SetCookie(w, &http.Cookie{Name: "oauth_account_form", Value: "", Path: "/", MaxAge: -1})
 
-	formCookie, err := r.Cookie("oauth_account_form")
-	if err != nil || formCookie.Value == "" {
-		http.Redirect(w, r, "/settings/accounts?error=oauth_no_form", http.StatusSeeOther)
-		return
-	}
-
-	var formData map[string]string
-	if err := json.Unmarshal([]byte(formCookie.Value), &formData); err != nil {
-		http.Redirect(w, r, "/settings/accounts?error=oauth_bad_form", http.StatusSeeOther)
-		return
-	}
-
 	code := r.URL.Query().Get("code")
 	if code == "" {
+		log.Printf("gmail callback: no code in URL")
 		http.Redirect(w, r, "/settings/accounts?error=oauth_no_code", http.StatusSeeOther)
 		return
 	}
 
-	token, err := h.auth.ExchangeCode(r.Context(), code)
+	token, err := h.auth.ExchangeAccountCode(r.Context(), code)
 	if err != nil {
+		log.Printf("gmail callback: token exchange failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_exchange_failed", http.StatusSeeOther)
 		return
 	}
 
 	info, err := h.auth.GetGoogleUserInfo(r.Context(), token)
 	if err != nil {
+		log.Printf("gmail callback: userinfo failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_userinfo_failed", http.StatusSeeOther)
 		return
 	}
@@ -2298,6 +2391,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 
 	account, err := h.accountStore.CreateAccount(r.Context(), h.userID(r.Context()), req)
 	if err != nil {
+		log.Printf("gmail callback: create account failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=create_failed", http.StatusSeeOther)
 		return
 	}
@@ -2313,7 +2407,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		log.Printf("warning: failed to store oauth tokens for account %s: %v", account.ID, err)
 	}
 
-	h.syncer.SyncAccount(r.Context(), account.ID)
+	h.syncer.SyncAccount(context.Background(), account.ID)
 
 	http.Redirect(w, r, "/settings/accounts", http.StatusSeeOther)
 }

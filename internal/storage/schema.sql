@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     auth_method TEXT NOT NULL DEFAULT 'plain',
     smtp_username TEXT NOT NULL DEFAULT '',
     encrypted_smtp_password BLOB,
+    is_deleting INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -349,4 +350,4 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires
     ON sessions(expires_at);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (12);
+INSERT OR REPLACE INTO schema_version (version) VALUES (13);

@@ -6,7 +6,10 @@ type EventType string
 
 const (
 	EventNewMail      EventType = "new-mail"
-	EventSyncComplete  EventType = "sync-complete"
+	EventSyncStarted  EventType = "sync-started"
+	EventSyncProgress EventType = "sync-progress"
+	EventSyncComplete EventType = "sync-complete"
+	EventProcessingStatus EventType = "processing-status"
 	EventSendResult   EventType = "send-result"
 	EventMutation     EventType = "mutation"
 )
@@ -15,8 +18,11 @@ type Event struct {
 	Type      EventType
 	AccountID string
 	FolderID  string
+	FolderRole string
 	Status    string
 	Error     string
+	Current   int
+	Total     int
 }
 
 type EventBus struct {

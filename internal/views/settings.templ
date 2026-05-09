@@ -600,7 +600,7 @@ templ SettingsNoAccounts() {
 }
 
 templ SettingsAccountCard(account models.Account) {
-	<div>
+	<div id={ fmt.Sprintf("account-card-%s", account.ID) }>
 		<div class="flex items-center gap-4 p-4 rounded-lg border bg-background">
 			<div class={ "size-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0", account.Color }>
 				{ account.Initials }
@@ -609,36 +609,43 @@ templ SettingsAccountCard(account models.Account) {
 				<p class="text-sm font-medium truncate">{ account.Name }</p>
 				<p class="text-xs text-muted-foreground truncate">{ account.Email }</p>
 			</div>
-			<button
-				class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
-				hx-get={ fmt.Sprintf("/api/accounts/%s/edit", account.ID) }
-				hx-target="#edit-account-container"
-				hx-swap="innerHTML"
-			>
-				@icon.Pencil(icon.Props{Class: "size-3.5"})
-				Edit
-			</button>
-			<button
-				id={ fmt.Sprintf("test-btn-%s", account.ID) }
-				data-test-btn
-				data-account-id={ account.ID }
-				class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-all duration-300 px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
-				hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
-				hx-swap="none"
-			>
-				<span data-test-btn-content class="inline-flex items-center gap-1.5">
-					@icon.Wifi(icon.Props{Class: "size-3.5"})
-					Test
-				</span>
-			</button>
-			@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("delete-account-%s", account.ID)}) {
-				<button
-					type="button"
-					class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors px-2.5 py-1.5 rounded-md border border-border hover:border-destructive/30 hover:bg-destructive/5"
-				>
-					@icon.Trash2(icon.Props{Class: "size-3.5"})
-					Delete
+			if account.IsDeleting {
+				<button type="button" class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default" disabled>
+					@icon.RefreshCw(icon.Props{Class: "size-3.5 animate-spin"})
+					Deleting
 				</button>
+			} else {
+				<button
+					class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
+					hx-get={ fmt.Sprintf("/api/accounts/%s/edit", account.ID) }
+					hx-target="#edit-account-container"
+					hx-swap="innerHTML"
+				>
+					@icon.Pencil(icon.Props{Class: "size-3.5"})
+					Edit
+				</button>
+				<button
+					id={ fmt.Sprintf("test-btn-%s", account.ID) }
+					data-test-btn
+					data-account-id={ account.ID }
+					class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-all duration-300 px-2.5 py-1.5 rounded-md border border-border hover:bg-accent"
+					hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
+					hx-swap="none"
+				>
+					<span data-test-btn-content class="inline-flex items-center gap-1.5">
+						@icon.Wifi(icon.Props{Class: "size-3.5"})
+						Test
+					</span>
+				</button>
+				@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("delete-account-%s", account.ID)}) {
+					<button
+						type="button"
+						class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors px-2.5 py-1.5 rounded-md border border-border hover:border-destructive/30 hover:bg-destructive/5"
+					>
+						@icon.Trash2(icon.Props{Class: "size-3.5"})
+						Delete
+					</button>
+				}
 			}
 		</div>
 		@dialog.Dialog(dialog.Props{ID: fmt.Sprintf("delete-account-%s", account.ID)}) {
@@ -673,6 +680,9 @@ templ SettingsAccountCard(account models.Account) {
 						type="button"
 						class="inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors"
 						hx-delete={ fmt.Sprintf("/api/accounts/%s", account.ID) }
+						hx-swap="none"
+						data-delete-account-action="true"
+						data-account-id={ account.ID }
 					>
 						@icon.Trash2(icon.Props{Class: "size-4"})
 						Delete Account

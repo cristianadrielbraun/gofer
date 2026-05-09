@@ -21,11 +21,13 @@ import (
 
 func main() {
 	godotenv.Load()
+	log.Printf("boot: loading configuration")
 
 	dbPath := os.Getenv("GOFER_DB_PATH")
 	if dbPath == "" {
 		dbPath = "data/gofer.db"
 	}
+	log.Printf("boot: database path resolved to %s", dbPath)
 
 	dataDir := filepath.Dir(dbPath)
 
@@ -34,36 +36,58 @@ func main() {
 		log.Fatalf("failed to open database: %v", err)
 	}
 	defer db.Close()
+	log.Printf("boot: database opened")
 
 	secretKey := loadOrGenerateSecretKey(filepath.Join(dataDir, "secret.key"))
+	log.Printf("boot: encryption key loaded")
 
 	accountStore, err := config.NewAccountStore(db, secretKey)
 	if err != nil {
 		log.Fatalf("failed to create account store: %v", err)
 	}
+	log.Printf("boot: account store initialized")
 
 	blobStore := store.NewBlobStore(filepath.Join(dataDir, "accounts"))
+	log.Printf("boot: blob store initialized")
 
 	authConfig := auth.LoadConfig()
 	authManager := auth.NewManager(authConfig, db)
+	log.Printf("boot: auth manager initialized (enabled=%t)", authConfig.Enabled)
 
 	if err := authManager.EnsureDefaultUser(); err != nil {
 		log.Fatalf("failed to ensure default user: %v", err)
 	}
+	log.Printf("boot: default user ensured")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	if authManager.IsEnabled() {
 		authManager.StartSessionCleanup(ctx)
+		log.Printf("boot: session cleanup worker started")
 	}
 
 	syncer := mail.NewSyncOrchestrator(db, accountStore, blobStore, authManager)
-	go syncer.Start(ctx)
+	log.Printf("boot: sync orchestrator initialized")
+
+	go func() {
+		log.Printf("boot: background threading worker started")
+		db.SetThreadingState(storage.ThreadingState{InProgress: true})
+		if err := db.EnsureThreading(ctx); err != nil {
+			log.Printf("boot: background threading worker failed: %v", err)
+			db.SetThreadingState(storage.ThreadingState{InProgress: false})
+		} else {
+			log.Printf("boot: background threading worker finished")
+		}
+
+		log.Printf("boot: sync orchestrator startup launched")
+		syncer.Start(ctx)
+	}()
 
 	mux := http.NewServeMux()
 	h := handler.New(db, accountStore, syncer, blobStore, authManager)
 	h.RegisterRoutes(mux)
+	log.Printf("boot: HTTP routes registered")
 
 	var handler http.Handler = mux
 	handler = authManager.Middleware(handler)

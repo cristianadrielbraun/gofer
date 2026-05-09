@@ -258,6 +258,11 @@ func (s *AccountStore) DeleteAccount(ctx context.Context, accountID string) erro
 	return err
 }
 
+func (s *AccountStore) MarkAccountDeleting(ctx context.Context, accountID string) error {
+	_, err := s.db.Write().ExecContext(ctx, `UPDATE accounts SET is_deleting = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, accountID)
+	return err
+}
+
 func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*models.Account, error) {
 	var a models.Account
 	err := s.db.Read().QueryRowContext(ctx,
@@ -275,7 +280,7 @@ func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*m
 func (s *AccountStore) GetFirstAccountID(ctx context.Context, userID string) string {
 	var id string
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT id FROM accounts WHERE user_id = ? ORDER BY id LIMIT 1`, userID).Scan(&id)
+		`SELECT id FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 ORDER BY id LIMIT 1`, userID).Scan(&id)
 	if err != nil {
 		return ""
 	}

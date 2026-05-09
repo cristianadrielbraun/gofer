@@ -9,6 +9,7 @@ type Account struct {
 	Color    string
 	Initials string
 	IsActive bool
+	IsDeleting bool
 	Folders  []Folder
 }
 
