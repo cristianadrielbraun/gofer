@@ -236,7 +236,10 @@ templ MailListItem(email models.Email, position int, selectedEmail *models.Email
 }
 
 templ MailListTableHeader() {
-	<div class="mail-list-table-header grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
+	<div class="mail-list-table-header grid grid-cols-[1.75rem_minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
+		<div class="flex items-center justify-start" title="Thread">
+			@icon.MessagesSquare(icon.Props{Class: "size-3"})
+		</div>
 		<div>From</div>
 		<div>Subject</div>
 		<div class="min-w-12 text-right">Date</div>
@@ -323,18 +326,27 @@ templ MailListCardItem(email models.Email, position int, selectedEmail *models.E
 }
 
 templ MailListTableItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID }>
+	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) }>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
 			hx-target="#mail-view"
 			hx-swap="innerHTML"
 			class={
-				"grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-all duration-150 group text-xs",
+				"grid grid-cols-[1.75rem_minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-all duration-150 group text-xs",
 				templ.KV("envelope-active", selectedEmail != nil && selectedEmail.ID == email.ID),
 				templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
 			}
 		>
+			<div class="flex items-center justify-start min-w-0">
+				if email.ThreadCount > 1 {
+					<button type="button" data-thread-toggle={ email.ID } class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
+						@icon.MessagesSquare(icon.Props{Class: "size-3"})
+						{ fmt.Sprintf("%d", email.ThreadCount) }
+						@icon.ChevronRight(icon.Props{Class: "size-3 transition-transform thread-toggle-chevron"})
+					</button>
+				}
+			</div>
 			<div class="flex items-center gap-2 min-w-0">
 				<div class={
 					"size-2 rounded-full shrink-0",
@@ -346,13 +358,6 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 					templ.KV("font-semibold text-foreground", !email.IsRead),
 					templ.KV("text-foreground/70", email.IsRead),
 				}>{ senderDisplay(email.From, senderDisplayMode) }</span>
-				if email.ThreadCount > 1 {
-					<button type="button" data-thread-toggle={ email.ID } class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
-						@icon.MessagesSquare(icon.Props{Class: "size-3"})
-						{ fmt.Sprintf("%d", email.ThreadCount) }
-						@icon.ChevronRight(icon.Props{Class: "size-3 transition-transform thread-toggle-chevron"})
-					</button>
-				}
 			</div>
 			<div class="flex items-center gap-2 min-w-0">
 				<span class={

@@ -4,7 +4,7 @@ class VirtualMailList {
     this.folderID = options.folderID || "inbox"
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
     this.itemHeight = this.viewMode === "table" ? 44 : 94
-    this.subItemHeight = 48
+    this.subItemHeight = this.viewMode === "table" ? 38 : 48
     this.expandedThreadGap = 14
     this.overscan = 10
 
@@ -48,8 +48,6 @@ class VirtualMailList {
     this.poolSlack = 6
 
     this.expandedThreads = new Map()
-    this.animateNextLayout = false
-
     this._offsetCache = null
     this._offsetCacheLen = -1
 
@@ -95,7 +93,10 @@ class VirtualMailList {
     var item = this.cache.get(pos)
     if (!item) return this.itemHeight
     var expanded = this.expandedThreads.get(item.id)
-    if (expanded) return this.itemHeight + expanded.subCount * this.subItemHeight + this.expandedThreadGap
+    if (expanded) {
+      var gap = this.viewMode === "table" ? 0 : this.expandedThreadGap
+      return this.itemHeight + expanded.subCount * this.subItemHeight + gap
+    }
     return this.itemHeight
   }
 
@@ -246,6 +247,7 @@ class VirtualMailList {
     shell.style.transform = "translateY(" + this.offsetAtPosition(index) + "px)"
     shell.style.height = this.getHeight(index) + "px"
     shell.className = ""
+    shell.removeAttribute("data-thread-entering")
     if (!item) {
       shell.innerHTML = this.createSkeleton().outerHTML
       return
@@ -266,9 +268,11 @@ class VirtualMailList {
     var toggle = row.querySelector("[data-thread-toggle]")
     if (expanded && expanded.html) {
       shell.className = "mail-list-thread-slot"
+      if (expanded.entering) shell.setAttribute("data-thread-entering", "")
+      else shell.removeAttribute("data-thread-entering")
       var mainRow = document.createElement("div")
       mainRow.className = "mail-list-thread-main"
-      anchor.style.height = "88px"
+      anchor.style.height = this.viewMode === "table" ? "" : "88px"
       if (toggle) toggle.setAttribute("data-expanded", "")
       mainRow.appendChild(row)
 
@@ -342,12 +346,21 @@ class VirtualMailList {
       var newRect = node.getBoundingClientRect()
       var dy = oldRect.top - newRect.top
       if (Math.abs(dy) < 1) continue
+      var baseTransform = node.style.transform || ""
       node.style.transition = "none"
-      node.style.transform = "translateY(" + dy + "px)"
+      node.style.transform = baseTransform + " translateY(" + dy + "px)"
       node.offsetHeight
       node.style.transition = "transform 180ms ease-out"
-      node.style.transform = "translateY(0)"
+      node.style.transform = baseTransform
     }
+  }
+
+  finishThreadEnter(emailId) {
+    var expanded = this.expandedThreads.get(emailId)
+    if (expanded) expanded.entering = false
+    var row = this.container.querySelector('[data-email-id="' + emailId + '"]')
+    var slot = row ? row.closest(".mail-list-thread-slot") : null
+    if (slot) slot.removeAttribute("data-thread-entering")
   }
 
   syncSelectionClasses(root) {
@@ -753,8 +766,8 @@ class VirtualMailList {
     if (this.viewMode !== "table") return
 
     var header = document.createElement("div")
-    header.className = "mail-list-table-header grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
-    header.innerHTML = '<div>From</div><div>Subject</div><div class="min-w-12 text-right">Date</div>'
+    header.className = "mail-list-table-header grid grid-cols-[1.75rem_minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
+    header.innerHTML = '<div class="flex items-center justify-start" title="Thread"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"></path><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"></path></svg></div><div>From</div><div>Subject</div><div class="min-w-12 text-right">Date</div>'
     this.container.insertBefore(header, this.spacerTop)
   }
 
@@ -861,6 +874,7 @@ class VirtualMailList {
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
     this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.subItemHeight = this.viewMode === "table" ? 38 : 48
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
     if (mailList) mailList.dataset.mailListView = this.viewMode
@@ -1034,14 +1048,16 @@ class VirtualMailList {
   async toggleThreadExpand(emailId) {
     var pos = this.indexById.get(emailId)
     if (pos === undefined) return
+    this.onEmailSelected(emailId)
+    var previousLayout = this.captureRenderedLayout()
 
     if (this.expandedThreads.has(emailId)) {
       this.expandedThreads.delete(emailId)
       this.invalidateOffsets()
       this.prevFirst = null
       this.prevLast = null
-      this.animateNextLayout = true
       this.render()
+      this.animateLayoutShift(previousLayout)
       return
     }
 
@@ -1068,13 +1084,16 @@ class VirtualMailList {
 
       this.expandedThreads.set(emailId, {
         subCount: subCount,
-        html: subHtml
+        html: subHtml,
+        entering: true
       })
       this.invalidateOffsets()
       this.prevFirst = null
       this.prevLast = null
-      this.animateNextLayout = true
       this.render()
+      this.animateLayoutShift(previousLayout)
+      var self = this
+      requestAnimationFrame(function () { self.finishThreadEnter(emailId) })
     } catch (e) {
       console.error("Failed to expand thread:", e)
     }

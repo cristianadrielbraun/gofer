@@ -289,6 +289,10 @@ html[data-theme="minimal"] .account-color-marker {
   background: transparent;
 }
 
+[data-view-mode="table"] .mail-list-table-row [data-thread-toggle][data-expanded] .thread-toggle-chevron {
+  transform: rotate(90deg);
+}
+
 [data-view-mode="table"] .mail-list-item > a:hover {
   background: color-mix(in srgb, var(--color-foreground) 4%, transparent);
 }
@@ -314,6 +318,10 @@ html[data-theme="minimal"] .account-color-marker {
   max-height: 44px;
 }
 
+[data-view-mode="table"] .mail-list-thread-slot {
+  padding-bottom: 0;
+}
+
 .mail-list-thread-slot {
   overflow: hidden;
   padding-bottom: 0.625rem;
@@ -335,6 +343,95 @@ html[data-theme="minimal"] .account-color-marker {
   border-bottom: 2px solid color-mix(in srgb, var(--color-foreground) 12%, transparent);
   border-bottom-left-radius: var(--radius);
   overflow: hidden;
+}
+
+[data-view-mode="table"] .thread-sub-items {
+  margin: 0;
+  padding: 0;
+  border-left: 0;
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  position: relative;
+}
+
+[data-view-mode="table"] .thread-sub-item {
+  height: 38px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+  position: relative;
+}
+
+[data-view-mode="table"] .thread-sub-item::before {
+  content: "";
+  position: absolute;
+  left: 1.55rem;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-foreground) 14%, transparent);
+}
+
+[data-view-mode="table"] .thread-sub-item::after {
+  content: "";
+  position: absolute;
+  left: 1.55rem;
+  top: 50%;
+  width: 0.75rem;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-foreground) 14%, transparent);
+}
+
+[data-view-mode="table"] .thread-sub-item:last-child::before {
+  bottom: 50%;
+}
+
+[data-view-mode="table"] .thread-sub-item a {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  height: 100%;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-muted) 28%, transparent);
+}
+
+[data-view-mode="table"] .thread-sub-item a:hover {
+  background: color-mix(in srgb, var(--color-foreground) 6%, var(--color-muted) 24%);
+}
+
+[data-view-mode="table"] .thread-sub-item a > .size-5 {
+  visibility: hidden;
+}
+
+[data-view-mode="table"] .thread-sub-item a > .flex-1 {
+  display: contents;
+}
+
+[data-view-mode="table"] .thread-sub-item a > .flex-1 > div:first-child {
+  display: contents;
+}
+
+[data-view-mode="table"] .thread-sub-item a > .flex-1 > div:first-child > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-view-mode="table"] .thread-sub-item a > .flex-1 > p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+[data-view-mode="table"] .thread-sub-item a > .flex-1 > div:first-child > div {
+  justify-self: end;
+}
+
+[data-view-mode="table"] .thread-sub-item a > .w-1\.5 {
+  display: none;
 }
 
 .mail-list-thread-slot[data-thread-entering] .thread-sub-items {
