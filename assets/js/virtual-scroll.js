@@ -255,6 +255,7 @@ class VirtualMailList {
     shell.style.height = this.getHeight(index) + "px"
     shell.className = ""
     shell.removeAttribute("data-thread-entering")
+    shell.removeAttribute("data-thread-collapsing")
     if (!item) {
       shell.innerHTML = this.createSkeleton().outerHTML
       return
@@ -1343,12 +1344,17 @@ class VirtualMailList {
     var previousLayout = this.captureRenderedLayout()
 
     if (this.expandedThreads.has(emailId)) {
+      var row = this.container.querySelector('[data-email-id="' + emailId + '"]')
+      var slot = row ? row.closest(".mail-list-thread-slot") : null
+      if (slot && !this.prefersReducedMotion()) {
+        slot.setAttribute("data-thread-collapsing", "")
+        await new Promise(function (resolve) { setTimeout(resolve, 170) })
+      }
       this.expandedThreads.delete(emailId)
       this.invalidateOffsets()
       this.prevFirst = null
       this.prevLast = null
       this.render()
-      this.animateLayoutShift(previousLayout)
       return
     }
 
