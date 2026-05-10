@@ -837,13 +837,14 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 		Attachment:  strings.TrimSpace(q.Get("attachment")),
 		Label:       strings.TrimSpace(q.Get("label")),
 		AccountID:   strings.TrimSpace(q.Get("account_id")),
+		Query:       strings.TrimSpace(q.Get("q")),
 		After:       strings.TrimSpace(q.Get("after_date")),
 		Before:      strings.TrimSpace(q.Get("before_date")),
 	}
 }
 
 func emailFiltersActive(filters models.EmailFilters) bool {
-	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasLabels || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Label != "" || filters.AccountID != "" || filters.After != "" || filters.Before != ""
+	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasLabels || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Label != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != ""
 }
 
 func (h *Handler) resolveFolderID(ctx context.Context, requested string) string {

@@ -42,6 +42,7 @@ class VirtualMailList {
     this.itemsContainer = null
     this.bannerEl = null
     this.loaderEl = null
+    this.transitionOverlay = null
 
     this.rowPool = []
     this.visibleRows = new Map()
@@ -135,6 +136,7 @@ class VirtualMailList {
     var scrollTop = this.container.scrollTop
     var clientHeight = this.container.clientHeight
     if (this.effectiveCount === 0) {
+      var stale = this.captureListTransition()
       this.spacerTop.style.height = "0px"
       this.spacerBottom.style.height = "0px"
       this.rowPool = []
@@ -157,6 +159,7 @@ class VirtualMailList {
           '<h3 class="font-semibold text-sm mb-1">' + (syncing ? 'Syncing folder' : 'No emails') + '</h3>' +
           '<p class="text-xs text-muted-foreground">' + subtitle + '</p>' +
         '</div>'
+      this.animateExitingRows(stale ? stale.rows : null, new Set(), 180, "cubic-bezier(0.2, 0, 0, 1)", 14, 18)
       return
     }
 
@@ -337,6 +340,153 @@ class VirtualMailList {
       layout.set(row.dataset.emailId, node.getBoundingClientRect())
     }
     return layout
+  }
+
+  captureListTransition() {
+    if (this.prefersReducedMotion()) return null
+    var rows = new Map()
+    if (!this.itemsContainer) return { rows: rows }
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (!row || !row.dataset.emailId) continue
+      rows.set(row.dataset.emailId, {
+        rect: node.getBoundingClientRect(),
+        html: row.outerHTML,
+      })
+    }
+    return { rows: rows }
+  }
+
+  prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  }
+
+  ensureTransitionOverlay() {
+    var existing = this.container.querySelector("[data-mail-list-transition-overlay]")
+    if (existing) existing.remove()
+    var overlay = document.createElement("div")
+    overlay.setAttribute("data-mail-list-transition-overlay", "")
+    overlay.style.position = "absolute"
+    overlay.style.left = "0"
+    overlay.style.top = "0"
+    overlay.style.right = "0"
+    overlay.style.pointerEvents = "none"
+    overlay.style.zIndex = "30"
+    overlay.style.overflow = "visible"
+    var containerStyle = window.getComputedStyle(this.container)
+    if (containerStyle.position === "static") this.container.style.position = "relative"
+    this.container.appendChild(overlay)
+    this.transitionOverlay = overlay
+    return overlay
+  }
+
+  animateListTransition(snapshot, options) {
+    if (!snapshot || !snapshot.rows || this.prefersReducedMotion()) return
+    if (!this.itemsContainer) return
+
+    options = options || {}
+    var duration = options.duration || 190
+    var ease = "cubic-bezier(0.2, 0, 0, 1)"
+    var before = snapshot.rows
+    var afterIds = new Set()
+    var entering = []
+
+    if (this.effectiveCount === 0) {
+      this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, options.exitStagger || 0)
+      return
+    }
+
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (!row || !row.dataset.emailId) continue
+      var id = row.dataset.emailId
+      afterIds.add(id)
+      var old = before.get(id)
+      if (old) {
+        var next = node.getBoundingClientRect()
+        var dx = old.rect.left - next.left
+        var dy = old.rect.top - next.top
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+          var base = node.style.transform || ""
+          node.style.transition = "none"
+          node.style.transform = base + " translate(" + dx + "px," + dy + "px)"
+          node.offsetHeight
+          node.style.transition = "transform " + duration + "ms " + ease
+          node.style.transform = base
+          this.cleanupTransition(node, duration)
+        }
+      } else {
+        entering.push(node)
+      }
+    }
+
+    var exitCount = 0
+    before.forEach(function (_, id) { if (!afterIds.has(id)) exitCount++ })
+    var exitStagger = options.exitStagger !== undefined ? options.exitStagger : (exitCount > 3 ? 16 : 0)
+    var enterStagger = options.enterStagger !== undefined ? options.enterStagger : (entering.length > 3 ? 12 : 0)
+    var enterDelay = options.enterDelay !== undefined ? options.enterDelay : (exitCount > 3 && entering.length > 0 ? Math.min(140, exitCount * 12) : 0)
+
+    this.animateEnteringRows(entering, duration, ease, options.enterFrom || -10, enterDelay, enterStagger)
+    this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, exitStagger)
+  }
+
+  animateEnteringRows(nodes, duration, ease, offsetY, delay, stagger) {
+    delay = delay || 0
+    stagger = stagger || 0
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i]
+      var base = node.style.transform || ""
+      var itemDelay = delay + Math.min(120, i * stagger)
+      node.style.transition = "none"
+      node.style.opacity = "0"
+      node.style.transform = base + " translateY(" + offsetY + "px) scale(0.985)"
+      node.offsetHeight
+      node.style.transition = "transform " + duration + "ms " + ease + " " + itemDelay + "ms, opacity " + duration + "ms ease-out " + itemDelay + "ms"
+      node.style.opacity = "1"
+      node.style.transform = base
+      this.cleanupTransition(node, duration + itemDelay)
+    }
+  }
+
+  animateExitingRows(before, afterIds, duration, ease, offsetY, stagger) {
+    if (!before || before.size === 0) return
+    stagger = stagger || 0
+    var overlay = null
+    var containerRect = this.container.getBoundingClientRect()
+    var exitIndex = 0
+    before.forEach(function (item, id) {
+      if (afterIds.has(id)) return
+      if (!overlay) overlay = this.ensureTransitionOverlay()
+      var delay = Math.min(140, exitIndex * stagger)
+      exitIndex++
+      var clone = document.createElement("div")
+      clone.innerHTML = item.html
+      clone.style.position = "absolute"
+      clone.style.left = (item.rect.left - containerRect.left + this.container.scrollLeft) + "px"
+      clone.style.top = (item.rect.top - containerRect.top + this.container.scrollTop) + "px"
+      clone.style.width = item.rect.width + "px"
+      clone.style.height = item.rect.height + "px"
+      clone.style.transition = "transform " + duration + "ms " + ease + " " + delay + "ms, opacity " + duration + "ms ease-out " + delay + "ms"
+      clone.style.willChange = "transform, opacity"
+      overlay.appendChild(clone)
+      clone.offsetHeight
+      clone.style.opacity = "0"
+      clone.style.transform = "translateY(" + offsetY + "px) scale(0.985)"
+      setTimeout(function () { clone.remove() }, duration + delay + 40)
+    }, this)
+    if (overlay) {
+      setTimeout(function () { if (overlay.parentNode) overlay.remove() }, duration + Math.min(140, Math.max(0, exitIndex - 1) * stagger) + 80)
+    }
+  }
+
+  cleanupTransition(node, duration) {
+    setTimeout(function () {
+      node.style.transition = ""
+      node.style.opacity = ""
+      node.style.willChange = ""
+    }, duration + 40)
   }
 
   animateLayoutShift(previousLayout) {
@@ -837,6 +987,7 @@ class VirtualMailList {
 
     var self = this
     this.refreshInFlight = (async function () {
+      var transition = self.captureListTransition()
       var params = "limit=50"
       if (self.selectedEmailId) {
         params += "&selected=" + encodeURIComponent(self.selectedEmailId)
@@ -855,6 +1006,7 @@ class VirtualMailList {
       self.prevFirst = null
       self.prevLast = null
       self.render()
+      self.animateListTransition(transition, { enterFrom: -12, exitTo: 12 })
       self.updateHeader()
       self.updateSyncHeader()
     })()
@@ -957,6 +1109,7 @@ class VirtualMailList {
       ["attachment", filters.attachment || ""],
       ["label", filters.label || ""],
       ["account_id", filters.accountId || ""],
+      ["q", filters.query || ""],
       ["after_date", filters.afterDate || ""],
       ["before_date", filters.beforeDate || ""],
     ]
@@ -985,6 +1138,7 @@ class VirtualMailList {
       attachment: "",
       label: "",
       accountId: "",
+      query: "",
       afterDate: "",
       beforeDate: "",
     }
@@ -997,7 +1151,7 @@ class VirtualMailList {
       (filters.threadsOnly ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
       (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
       (filters.attachment ? 1 : 0) + (filters.label ? 1 : 0) + (filters.accountId ? 1 : 0) +
-      (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
+      (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
   }
 
   async applyFilters(filters) {
@@ -1008,17 +1162,37 @@ class VirtualMailList {
       else next[key] = (filters[key] || "").trim()
     }
     this.filters = next
-    var selected = this.selectedEmailId
+    var transition = this.captureListTransition()
+    var previousSelected = this.selectedEmailId
     var params = "limit=50&view=" + encodeURIComponent(this.viewMode)
-    if (selected) params += "&selected=" + encodeURIComponent(selected)
+    if (previousSelected) params += "&selected=" + encodeURIComponent(previousSelected)
     var html = await this.fetchHTML(this.withFilterParams("/mail/folder/" + this.folderID + "/items?" + params))
     var syncState = this.syncState
     this.reset()
-    this.selectedEmailId = selected
     this.syncState = syncState
     this.ingestHTML(html)
+    if (previousSelected && this.indexById.has(previousSelected)) {
+      this.selectedEmailId = previousSelected
+    } else if (this.cache.size > 0) {
+      var firstItem = this.cache.get(0)
+      if (firstItem) this.selectedEmailId = firstItem.id
+    }
     this.render()
+    this.animateListTransition(transition, { enterFrom: -8, exitTo: 14 })
     this.updateHeader()
+    this.updateFilteredSelection(previousSelected)
+  }
+
+  updateFilteredSelection(previousSelected) {
+    if (this.selectedEmailId && this.selectedEmailId !== previousSelected && typeof htmx !== "undefined") {
+      if (typeof showMailViewLoading === "function") showMailViewLoading()
+      htmx.ajax("GET", "/email/" + this.selectedEmailId, "#mail-view")
+      return
+    }
+    if (!this.selectedEmailId) {
+      var mailView = document.getElementById("mail-view")
+      if (mailView) mailView.innerHTML = ""
+    }
   }
 
   onEmailSelected(emailId) {

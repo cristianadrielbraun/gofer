@@ -1128,6 +1128,15 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		cteParts = append(cteParts, "m.account_id = ?")
 		args = append(args, filters.AccountID)
 	}
+	if filters.Query != "" {
+		cteParts = append(cteParts, `EXISTS (
+			SELECT 1 FROM message_search_docs msd
+			WHERE msd.message_id = m.id
+			AND (msd.subject LIKE ? OR msd.sender LIKE ? OR msd.recipients LIKE ? OR msd.body_text LIKE ? OR msd.attachment_names LIKE ?)
+		)`)
+		like := "%" + filters.Query + "%"
+		args = append(args, like, like, like, like, like)
+	}
 	if filters.From != "" {
 		cteParts = append(cteParts, "(m.from_name LIKE ? OR m.from_email LIKE ?)")
 		like := "%" + filters.From + "%"

@@ -94,6 +94,7 @@ type EmailFilters struct {
 	Attachment  string
 	Label       string
 	AccountID   string
+	Query       string
 	After       string
 	Before      string
 }

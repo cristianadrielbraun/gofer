@@ -156,6 +156,8 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupMailFilters() {
+    var searchTimer = null
+
     function emptyFilters() {
       return {
         unread: false,
@@ -173,6 +175,7 @@ document.addEventListener("DOMContentLoaded", function () {
         attachment: "",
         label: "",
         accountId: "",
+        query: "",
         afterDate: "",
         beforeDate: "",
       }
@@ -211,6 +214,8 @@ document.addEventListener("DOMContentLoaded", function () {
         filters.afterDate = (advanced.querySelector('input[name="after_date"]') || {}).value || ""
         filters.beforeDate = (advanced.querySelector('input[name="before_date"]') || {}).value || ""
       }
+      var search = document.querySelector("[data-mail-search-input]")
+      if (search) filters.query = search.value || ""
       return filters
     }
 
@@ -220,7 +225,7 @@ document.addEventListener("DOMContentLoaded", function () {
         (filters.threadsOnly ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
         (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
         (filters.attachment ? 1 : 0) + (filters.label ? 1 : 0) + (filters.accountId ? 1 : 0) +
-        (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
+        (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
       var button = document.querySelector("[data-mail-filter-button]")
       var badge = document.querySelector("[data-mail-filter-count]")
       if (button) {
@@ -349,6 +354,14 @@ document.addEventListener("DOMContentLoaded", function () {
       if (virtualMailList) virtualMailList.applyFilters(filters).catch(function () {})
     }
 
+    function scheduleSearchFilter() {
+      if (searchTimer) clearTimeout(searchTimer)
+      searchTimer = setTimeout(function () {
+        searchTimer = null
+        applyCurrentFilters()
+      }, 300)
+    }
+
     document.addEventListener("submit", function (e) {
       var form = e.target && e.target.closest && e.target.closest("[data-mail-filter-form]")
       if (!form) return
@@ -407,6 +420,8 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault()
       clearInputs("[data-mail-filter-form]")
       clearInputs("[data-mail-advanced-filter-form]")
+      var search = document.querySelector("[data-mail-search-input]")
+      if (search) search.value = ""
       applyCurrentFilters()
     })
 
@@ -426,8 +441,17 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("input", function (e) {
+      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) {
+        scheduleSearchFilter()
+        return
+      }
       if (!e.target || !e.target.closest || !e.target.closest("[data-mail-advanced-filter-form]")) return
       renderAdvancedSummary()
+    })
+
+    document.addEventListener("search", function (e) {
+      if (!e.target || !e.target.matches || !e.target.matches("[data-mail-search-input]")) return
+      scheduleSearchFilter()
     })
 
     document.addEventListener("change", function (e) {
