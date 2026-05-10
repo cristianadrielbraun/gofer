@@ -21,6 +21,8 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<link rel="preconnect" href="https://fonts.googleapis.com"/>
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+			@SavedPanelSizeStyle()
+			@SidebarAccountCollapseStyle()
 			<link rel="stylesheet" href="/assets/css/output.css"/>
 			@dialog.Script()
 			@dropdown.Script()
@@ -100,6 +102,8 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			<link rel="preconnect" href="https://fonts.googleapis.com"/>
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+			@SavedPanelSizeStyle()
+			@SidebarAccountCollapseStyle()
 			<link rel="stylesheet" href="/assets/css/output.css"/>
 			@dialog.Script()
 			@dropdown.Script()
@@ -173,6 +177,57 @@ templ ResizeHandle(panel string) {
 		data-panel={ panel }
 		draggable="false"
 	></div>
+}
+
+templ SavedPanelSizeStyle() {
+	<script>
+		(function() {
+			var settings = {};
+			try {
+				settings = JSON.parse(localStorage.getItem("gofer:ui_settings") || "{}") || {};
+			} catch (_) {}
+
+			function px(value, min, max) {
+				var n = parseInt(value, 10);
+				if (isNaN(n) || n <= 0) return null;
+				return Math.max(min, Math.min(max, n));
+			}
+
+			var vw = window.innerWidth || 1024;
+			var sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));
+			var mailList = px(settings.mail_list_width, 300, Math.min(1200, vw * 0.55));
+			if (!sidebar && !mailList) return;
+
+			var style = document.createElement("style");
+			style.setAttribute("data-saved-panel-size-style", "");
+			style.textContent = (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (mailList ? "#mail-list{width:" + mailList + "px!important}" : "");
+			document.head.appendChild(style);
+		})();
+	</script>
+}
+
+templ SidebarAccountCollapseStyle() {
+	<script>
+		(function() {
+			var state = {};
+			try {
+				state = JSON.parse(localStorage.getItem("gofer:sidebar_account_collapsed") || "{}") || {};
+			} catch (_) {}
+			var escapeIdent = window.CSS && CSS.escape ? CSS.escape : function(value) { return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\\\$&"); };
+			var rules = [];
+			Object.keys(state).forEach(function(accountId) {
+				if (state[accountId] !== true) return;
+				var selector = '[data-sidebar-account="' + escapeIdent(accountId) + '"]:not([data-sidebar-account-active])';
+				rules.push(selector + ' .sidebar-account-folders{grid-template-rows:0fr;opacity:0;margin-top:-0.125rem;transition:none}');
+				rules.push(selector + ' .sidebar-account-chevron{transform:rotate(-90deg);transition:none}');
+			});
+			if (!rules.length) return;
+			var style = document.createElement("style");
+			style.setAttribute("data-sidebar-account-collapse-style", "");
+			style.textContent = rules.join("\n");
+			document.head.appendChild(style);
+		})();
+	</script>
 }
 
 templ FolderPartial(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string) {

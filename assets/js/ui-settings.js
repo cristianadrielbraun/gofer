@@ -63,9 +63,15 @@ var GoferSettings;
     init: function () {
       var bodySettings = document.body ? document.body.dataset.uiSettings : null;
       if (bodySettings) {
+        var serverSettings = {};
         try {
-          _cache = JSON.parse(bodySettings);
+          serverSettings = JSON.parse(bodySettings);
         } catch (_) {}
+        readCache();
+        _cache = Object.assign({}, serverSettings, _cache);
+        for (var k in _cache) {
+          applySetting(k, _cache[k]);
+        }
       } else {
         readCache();
         for (var k in _cache) {
@@ -84,6 +90,8 @@ var GoferSettings;
           })
           .catch(function () {});
       }
+      var initialSizeStyle = document.querySelector("[data-saved-panel-size-style]");
+      if (initialSizeStyle) initialSizeStyle.remove();
       writeCache();
     },
 

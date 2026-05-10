@@ -55,6 +55,27 @@ func uiSettingGet(settings map[string]string, key, fallback string) string {
 	return fallback
 }
 
+func accountHasActiveFolder(account models.Account, activeFolder string) bool {
+	for _, folder := range account.Folders {
+		if folderHasActiveID(folder, activeFolder) {
+			return true
+		}
+	}
+	return false
+}
+
+func folderHasActiveID(folder models.Folder, activeFolder string) bool {
+	if folder.ID == activeFolder {
+		return true
+	}
+	for _, child := range folder.Children {
+		if folderHasActiveID(child, activeFolder) {
+			return true
+		}
+	}
+	return false
+}
+
 func themeClass(settings map[string]string) string {
 	if uiSettingGet(settings, "theme", "dark") == "dark" {
 		return "dark"

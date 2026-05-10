@@ -60,6 +60,8 @@ document.addEventListener("DOMContentLoaded", function () {
         var collapsed = state[accountId] === true && !sectionHasActiveFolder(section)
         setCollapsed(section, collapsed)
       }
+      var initialStyle = document.querySelector("[data-sidebar-account-collapse-style]")
+      if (initialStyle) initialStyle.remove()
     }
 
     document.addEventListener("click", function (e) {

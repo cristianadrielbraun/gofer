@@ -17,7 +17,7 @@ templ Sidebar(accounts []models.Account, activeFolder string, width string) {
 		@SidebarFolderTree(accounts, activeFolder)
 		<div id="send-status-wrapper" class="px-3 pb-2 transition-all duration-300 ease-in-out overflow-hidden" style="max-height:0;opacity:0">
 			<div id="send-status-inner" class="flex items-center gap-2.5 px-3 py-3 rounded-lg text-[13px] font-medium transition-colors duration-300 ease-in-out">
-				<span id="send-status-icon"></span>
+				<span id="send-status-icon" class="inline-flex size-4 shrink-0 items-center justify-center"></span>
 				<span id="send-status-text" class="truncate"></span>
 			</div>
 		</div>
@@ -29,7 +29,7 @@ templ SidebarHeader(accounts []models.Account) {
 	<div class="px-4 pt-5 pb-4">
 		<div class="flex items-center justify-between mb-5">
 			<div class="flex items-center gap-2.5">
-				<img src="/assets/logo.svg" alt="gofer.email" class="h-8 w-auto p-1"/>
+				<img src="/assets/logo.svg" alt="gofer.email" class="h-8 w-8 shrink-0 p-1"/>
 				<span class="text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">
 					gofer<span class="text-sidebar-primary">.email</span>
 				</span>
@@ -81,7 +81,7 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string) {
 }
 
 templ SidebarAccountSection(account models.Account, activeFolder string) {
-	<div class="mb-1.5" data-sidebar-account={ account.ID }>
+	<div class="mb-1.5" data-sidebar-account={ account.ID } data-sidebar-account-active?={ accountHasActiveFolder(account, activeFolder) }>
 		<button
 			type="button"
 			class="sidebar-account-toggle flex w-full items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
@@ -129,7 +129,7 @@ templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID str
 			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", activeFolder != folder.ID),
 		}
 	>
-		<span class="flex items-center justify-center size-5 rounded text-sidebar-foreground/70">
+		<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/70">
 			@SidebarFolderIcon(folder.Icon)
 		</span>
 		<span class="flex-1 truncate">{ folder.Name }</span>
@@ -180,7 +180,9 @@ templ SidebarFooter() {
 			hx-push-url="/settings/accounts"
 			class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground/60 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/60 transition-colors text-[13px]"
 		>
-			@icon.Settings(icon.Props{Class: "size-4"})
+			<span class="flex size-4 shrink-0 items-center justify-center">
+				@icon.Settings(icon.Props{Class: "size-4"})
+			</span>
 			Settings
 		</a>
 		<div class="flex items-center justify-between mb-2 mt-1">
