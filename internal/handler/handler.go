@@ -271,6 +271,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	bg := r.URL.Query().Get("bg")
 	fg := r.URL.Query().Get("fg")
 	link := r.URL.Query().Get("link")
+	original := r.URL.Query().Get("mode") == "original"
 	loadRemote := r.URL.Query().Get("remote") == "true"
 
 	if !loadRemote && msgID > 0 {
@@ -290,7 +291,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	doc := buildBodyDocument(body, emailResizeScript(emailID), theme, bg, fg, link)
+	doc := buildBodyDocument(body, emailResizeScript(emailID), theme, bg, fg, link, original)
 	if !loadRemote {
 		doc = append(doc, remoteImagesDetectScript(emailID)...)
 	}
@@ -344,6 +345,7 @@ function eb(el){var cur=el;while(cur&&cur.nodeType===1){var c=p(getComputedStyle
 function ds(a,b){return a&&b?Math.max(Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]),Math.abs(a[2]-b[2])):999}
 function mx(a,b,t){return[Math.round(a[0]*(1-t)+b[0]*t),Math.round(a[1]*(1-t)+b[1]*t),Math.round(a[2]*(1-t)+b[2]*t)]}
 function rg(c){return"rgb("+c[0]+", "+c[1]+", "+c[2]+")"}
+function ra(c,a){return"rgba("+c[0]+", "+c[1]+", "+c[2]+", "+a+")"}
 function sb(s){var m=s&&String(s).match(/background(?:-color)?\s*:\s*([^;]+)/i);return m?m[1]:null}
 function rb(){try{for(var i=0;i<document.styleSheets.length;i++){var rs=document.styleSheets[i].cssRules;if(!rs)continue;for(var j=0;j<rs.length;j++){var r=rs[j];if(!r.selectorText||!r.style)continue;var ss=String(r.selectorText).split(","),body=false;for(var k=0;k<ss.length;k++){if(ss[k].trim()==="body"){body=true;break}}if(!body)continue;var c=p(r.style.backgroundColor)||av(cl(r.style.background));if(c&&ds(c,base)>3)return c}}}catch(_){}return null}
 function bw(v){var n=parseFloat(v);return isNaN(n)?0:n}
@@ -378,31 +380,68 @@ if(oc&&bw(cs.outlineWidth)>0&&(!nbg||cr(oc,nbg)<2.2||lu(oc)>0.55))el.style.setPr
 })();</script>`, bgColor, fgColor))
 }
 
-func buildLightModeScript(bgColor string) []byte {
+func buildLightModeScript(bgColor, fgColor, linkColor string) []byte {
 	return []byte(fmt.Sprintf(`<script>(function(){
-var pb=%q;
+var pb=%q,pf=%q,pl=%q;
 function p(s){if(!s)return null;s=String(s).trim().toLowerCase();if(s==="transparent")return null;var h=s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);if(h){var x=h[1];if(x.length===3)x=x[0]+x[0]+x[1]+x[1]+x[2]+x[2];return[parseInt(x.slice(0,2),16),parseInt(x.slice(2,4),16),parseInt(x.slice(4,6),16)]}var m=s.match(/rgba?\(([^)]+)\)/);if(!m)return null;var a=m[1].split(",");if(a.length<3)return null;if(a.length>3&&parseFloat(a[3])===0)return null;return[Math.round(parseFloat(a[0])),Math.round(parseFloat(a[1])),Math.round(parseFloat(a[2]))]}
-function same(a,b){return a&&b&&Math.abs(a[0]-b[0])<=1&&Math.abs(a[1]-b[1])<=1&&Math.abs(a[2]-b[2])<=1}
-function nearWhite(c){return c&&c[0]>248&&c[1]>248&&c[2]>248}
-function styleBg(s){var m=s&&String(s).match(/background(?:-color)?\s*:\s*([^;]+)/i);return m?m[1]:null}
-var paper=p(pb),bd=document.body;if(!bd)return;
-document.documentElement.style.setProperty("background-color",pb,"important");
-bd.style.setProperty("background-color",pb,"important");
-var canvas=p(bd.getAttribute("bgcolor"))||p(styleBg(bd.getAttribute("style")));
-if(!canvas||nearWhite(canvas)||same(canvas,paper)){
-var kids=bd.children;
-for(var i=0;i<kids.length;i++){var bg=p(getComputedStyle(kids[i]).backgroundColor);if(bg&&!nearWhite(bg)&&!same(bg,paper)){canvas=bg;break}}
+function cl(s){var out=[],re=/#(?:[0-9a-f]{3}|[0-9a-f]{6})\b|rgba?\([^)]+\)/ig,m;while((m=re.exec(String(s||"")))!==null){var c=p(m[0]);if(c)out.push(c)}return out}
+function av(a){if(!a.length)return null;var r=0,g=0,b=0;for(var i=0;i<a.length;i++){r+=a[i][0];g+=a[i][1];b+=a[i][2]}return[Math.round(r/a.length),Math.round(g/a.length),Math.round(b/a.length)]}
+function lu(c){if(!c)return-1;var r=c[0]/255,g=c[1]/255,b=c[2]/255;r=r<=.03928?r/12.92:Math.pow((r+.055)/1.055,2.4);g=g<=.03928?g/12.92:Math.pow((g+.055)/1.055,2.4);b=b<=.03928?b/12.92:Math.pow((b+.055)/1.055,2.4);return .2126*r+.7152*g+.0722*b}
+function sa(c){if(!c)return 0;var mx=Math.max(c[0],c[1],c[2]),mn=Math.min(c[0],c[1],c[2]);return mx===0?0:(mx-mn)/mx}
+function cr(a,b){var la=lu(a),lb=lu(b),hi=Math.max(la,lb),lo=Math.min(la,lb);return(hi+.05)/(lo+.05)}
+function ds(a,b){return a&&b?Math.max(Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]),Math.abs(a[2]-b[2])):999}
+function mx(a,b,t){return[Math.round(a[0]*(1-t)+b[0]*t),Math.round(a[1]*(1-t)+b[1]*t),Math.round(a[2]*(1-t)+b[2]*t)]}
+function rg(c){return"rgb("+c[0]+", "+c[1]+", "+c[2]+")"}
+function ra(c,a){return"rgba("+c[0]+", "+c[1]+", "+c[2]+", "+a+")"}
+function sb(s){var m=s&&String(s).match(/background(?:-color)?\s*:\s*([^;]+)/i);return m?m[1]:null}
+function bw(v){var n=parseFloat(v);return isNaN(n)?0:n}
+function hb(cs){return(bw(cs.borderTopWidth)>0&&cs.borderTopStyle!=="none"&&cs.borderTopStyle!=="hidden")||(bw(cs.borderRightWidth)>0&&cs.borderRightStyle!=="none"&&cs.borderRightStyle!=="hidden")||(bw(cs.borderBottomWidth)>0&&cs.borderBottomStyle!=="none"&&cs.borderBottomStyle!=="hidden")||(bw(cs.borderLeftWidth)>0&&cs.borderLeftStyle!=="none"&&cs.borderLeftStyle!=="hidden")}
+function eb(el){var cur=el;while(cur&&cur.nodeType===1){var c=p(getComputedStyle(cur).backgroundColor);if(c)return c;cur=cur.parentElement}return p(pb)}
+var de=document.documentElement,bd=document.body,base=p(pb)||[248,242,230],fg=p(pf)||[44,36,24],canvas=null;
+function light(c){return c&&lu(c)>.82}
+function dark(c){return c&&lu(c)<.28}
+function cb(c){if(!c)return pb;if(ds(c,base)<=3||(canvas&&ds(c,canvas)<=3))return pb;if(sa(c)<.08){var nt=.07+Math.min(.14,Math.abs(lu(base)-lu(c))*.42);return rg(mx(base,fg,nt))}if(light(c)){return rg(mx(base,c,.22))}var t=.08+Math.min(.16,(sa(c)*.35)+Math.max(0,.50-lu(c))*.18);return rg(mx(base,c,t))}
+function cf(c,bg){if(!c)return pf;if(sa(c)>.16)return rg(c);var l=lu(c),t=l<.22?.98:l<.38?.84:l<.55?.68:.52;var out=mx(base,fg,t);if(bg&&cr(out,bg)<4.5)out=fg;return rg(out)}
+function bdcol(c,bg){if(c&&sa(c)>.16&&lu(c)<.42)return rg(mx(base,c,.24));return bg&&cr(c,bg)>=2.2?rg(c):ra(fg,.20)}
+function rb(){try{for(var i=0;i<document.styleSheets.length;i++){var rs=document.styleSheets[i].cssRules;if(!rs)continue;for(var j=0;j<rs.length;j++){var r=rs[j];if(!r.selectorText||!r.style)continue;var ss=String(r.selectorText).split(","),body=false;for(var k=0;k<ss.length;k++){if(ss[k].trim()==="body"){body=true;break}}if(!body)continue;var c=p(r.style.backgroundColor)||av(cl(r.style.background));if(c&&ds(c,base)>3)return c}}}catch(_){}return null}
+if(bd)canvas=p(bd.getAttribute("bgcolor"))||p(sb(bd.getAttribute("style")))||rb();
+de.style.setProperty("background-color",pb,"important");de.style.setProperty("color",pf,"important");
+if(bd){bd.style.setProperty("background-color",pb,"important");bd.style.setProperty("color",pf,"important")}
+var bgEls=document.querySelectorAll("[bgcolor]");
+for(var i=0;i<bgEls.length;i++){var c=p(bgEls[i].getAttribute("bgcolor"))||p(getComputedStyle(bgEls[i]).backgroundColor);if(c&&ds(c,base)>3){bgEls[i].removeAttribute("bgcolor");bgEls[i].style.setProperty("background-color",cb(c),"important")}}
+var els=document.querySelectorAll("*");
+for(var i=0;i<els.length;i++){
+var el=els[i],t=el.tagName;
+if(t==="IMG"||t==="VIDEO"||t==="SVG"||t==="CANVAS"||t==="STYLE"||t==="SCRIPT")continue;
+var cs=getComputedStyle(el),gi=av(cl(cs.backgroundImage));
+if(gi&&ds(gi,base)>3){el.style.setProperty("background-image","none","important");el.style.setProperty("background-color",cb(gi),"important")}
+var bc=p(cs.backgroundColor);
+if(bc&&ds(bc,base)>3)el.style.setProperty("background-color",cb(bc),"important");
+var nbg=eb(el),fc=p(cs.color);
+if(el.tagName==="A")el.style.setProperty("color",pl,"important");
+else if(fc&&sa(fc)<.08)el.style.setProperty("color",cf(fc,nbg),"important");
+else if(fc&&nbg&&cr(fc,nbg)<4.5){el.style.setProperty("color",pf,"important");if(cr(p(getComputedStyle(el).color),nbg)<4.5)el.style.setProperty("color",rg(fg),"important")}
+if(hb(cs)){var bdc=p(cs.borderTopColor)||p(cs.borderRightColor)||p(cs.borderBottomColor)||p(cs.borderLeftColor);if(!bdc||!nbg||cr(bdc,nbg)<2.2||dark(bdc)||light(bdc))el.style.setProperty("border-color",bdcol(bdc,nbg),"important")}
+var oc=p(cs.outlineColor);if(oc&&bw(cs.outlineWidth)>0&&(!nbg||cr(oc,nbg)<2.2||dark(oc)||light(oc)))el.style.setProperty("outline-color",ra(fg,.22),"important");
 }
-if(!canvas||nearWhite(canvas)||same(canvas,paper))return;
-var els=document.querySelectorAll("body,body *");
-for(var i=0;i<els.length;i++){var el=els[i],bg=p(getComputedStyle(el).backgroundColor);if(same(bg,canvas))el.style.setProperty("background-color",pb,"important")}
-})();</script>`, bgColor))
+})();</script>`, bgColor, fgColor, linkColor))
 }
 
-func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string) []byte {
+func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool) []byte {
 	s := string(body)
 	lower := strings.ToLower(s)
 	isDark := theme == "dark"
+	injection := string(resizeScript)
+
+	if original {
+		if strings.Contains(lower, "<html") {
+			if idx := strings.LastIndex(lower, "</body>"); idx != -1 {
+				return []byte(s[:idx] + injection + s[idx:])
+			}
+			return []byte(s + injection)
+		}
+		return []byte("<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>" + s + injection + "</body></html>")
+	}
 
 	fallbackBg := "#f8f2e6"
 	fallbackFg := "#2c2418"
@@ -439,28 +478,25 @@ func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor s
 		}
 		lowerAfter := strings.ToLower(s)
 		if idx := strings.LastIndex(lowerAfter, "</body>"); idx != -1 {
-			injection := string(resizeScript)
 			if isDark {
 				injection = string(buildDarkModeScript(bgColor, fgColor)) + injection
 			} else {
-				injection = string(buildLightModeScript(bgColor)) + injection
+				injection = string(buildLightModeScript(bgColor, fgColor, linkColor)) + injection
 			}
 			return []byte(s[:idx] + injection + s[idx:])
 		}
-		injection := string(resizeScript)
 		if isDark {
 			injection = string(buildDarkModeScript(bgColor, fgColor)) + injection
 		} else {
-			injection = string(buildLightModeScript(bgColor)) + injection
+			injection = string(buildLightModeScript(bgColor, fgColor, linkColor)) + injection
 		}
 		return []byte(s + injection)
 	}
 
-	injection := string(resizeScript)
 	if isDark {
 		injection = string(buildDarkModeScript(bgColor, fgColor)) + injection
 	} else {
-		injection = string(buildLightModeScript(bgColor)) + injection
+		injection = string(buildLightModeScript(bgColor, fgColor, linkColor)) + injection
 	}
 	doc := "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>" +
 		"html{margin:0;overflow:hidden;color-scheme:" + scheme + ";background:" + bgColor + ";color:" + fgColor + "}" +

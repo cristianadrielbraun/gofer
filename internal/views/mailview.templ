@@ -10,6 +10,7 @@ import (
 	"gofer.email/components/dropdown"
 	"gofer.email/components/icon"
 	"gofer.email/components/popover"
+	"gofer.email/components/tabs"
 	"gofer.email/components/tooltip"
 
 	"github.com/dustin/go-humanize"
@@ -66,7 +67,10 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 			<div class="flex-1 overflow-y-auto">
 				<div class="mx-auto px-8 py-6">
 					if thread != nil && len(thread) > 1 {
-						<h1 class="text-xl font-bold tracking-tight text-ink mb-1" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+						<div class="flex items-start justify-between gap-4 mb-1">
+							<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+							@EmailBodyStyleTabs(email.ID, true, "h-8", "h-7")
+						</div>
 						<div class="flex items-center gap-2 mb-6">
 							@icon.MessagesSquare(icon.Props{Class: "size-3.5 text-ink/30"})
 							<span class="text-xs font-medium text-ink/40">{ fmt.Sprintf("%d messages in this thread", len(thread)) }</span>
@@ -314,25 +318,29 @@ templ MailViewThreadItemMiniHeader(item *models.ThreadItem) {
 				}
 			}
 		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				@button.Button(button.Props{
-					Variant:    button.VariantGhost,
-					Size:       button.SizeIcon,
-					Class:      "h-7 w-7 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
-					Attributes: templ.Attributes{"onclick": fmt.Sprintf("toggleEmailBodySchemeById('%s')", item.ID), "data-force-email-scheme": item.ID, "aria-label": "Force color scheme"},
-				}) {
-					@icon.SunMoon(icon.Props{Class: "size-3.5"})
-				}
+	</div>
+}
+
+templ EmailBodyStyleTabs(emailID string, global bool, listHeight string, triggerHeight string) {
+	@tabs.Tabs(tabs.Props{Class: "gap-0 shrink-0", Attributes: templ.Attributes{"data-email-body-style-toggle": emailID, "data-force-email-scheme": emailID, "aria-label": "Change email body style"}}) {
+		@tabs.List(tabs.ListProps{Class: "bg-card"}) {
+			@tabs.Trigger(tabs.TriggerProps{Value: "dark", IsActive: true, Attributes: templ.Attributes{"data-email-body-mode-button": "dark", "data-email-body-mode-global": global, "aria-label": "Use dark email body"}}) {
+				@icon.Moon(icon.Props{Class: "size-3.5"})
+				Dark
 			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				Force color scheme
+			@tabs.Trigger(tabs.TriggerProps{Value: "light", Attributes: templ.Attributes{"data-email-body-mode-button": "light", "data-email-body-mode-global": global, "aria-label": "Use light email body"}}) {
+				@icon.Sun(icon.Props{Class: "size-3.5"})
+				Light
+			}
+			@tabs.Trigger(tabs.TriggerProps{Value: "original", Attributes: templ.Attributes{"data-email-body-mode-button": "original", "data-email-body-mode-global": global, "aria-label": "View original email style"}}) {
+				@icon.FileText(icon.Props{Class: "size-3.5"})
+				Original
 			}
 		}
-	</div>
+		@tabs.Content(tabs.ContentProps{Value: "dark", IsActive: true, Class: "sr-only"}) {}
+		@tabs.Content(tabs.ContentProps{Value: "light", Class: "sr-only"}) {}
+		@tabs.Content(tabs.ContentProps{Value: "original", Class: "sr-only"}) {}
+	}
 }
 
 templ MailViewThreadItemActions(item *models.ThreadItem) {
@@ -468,24 +476,6 @@ templ MailViewHeader(email *models.Email) {
 					} else {
 						{ threadAwareLabel("Mark as read", "Mark thread as read", email) }
 					}
-				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					@button.Button(button.Props{
-						Variant:    button.VariantGhost,
-						Size:       button.SizeIcon,
-						Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
-						Attributes: templ.Attributes{"onclick": "toggleEmailBodyScheme()", "data-force-email-scheme": email.ID, "aria-label": "Force color scheme"},
-					}) {
-						@icon.SunMoon(icon.Props{Class: "size-4"})
-					}
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					<span data-email-scheme-tooltip>Force color scheme</span>
 				}
 			}
 		</div>
@@ -649,7 +639,10 @@ templ MailViewSender(email *models.Email) {
 			}
 		}
 	</div>
-	<h1 class="text-xl font-bold mt-5 tracking-tight text-ink" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+	<div class="flex items-start justify-between gap-4 mt-5">
+		<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+		@EmailBodyStyleTabs(email.ID, true, "h-8", "h-7")
+	</div>
 	@MailViewAttachments(email)
 }
 

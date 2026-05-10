@@ -208,6 +208,11 @@
   background: var(--border);
 }
 
+[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item,
+[data-theme="minimal"]:not(.dark) .mail-list-table-skeleton {
+  border-bottom-color: #c6c6c6;
+}
+
 [data-theme="minimal"] [data-folder-unread],
 [data-theme="minimal"] #mail-folder-count {
   border-radius: 0;

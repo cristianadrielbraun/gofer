@@ -23,6 +23,41 @@ document.addEventListener("DOMContentLoaded", function () {
   setupSidebarAccountCollapse()
   setupProcessingStatus()
   setupBodyPrefetch()
+  setupEmailBodyModeTabs()
+
+  function setupEmailBodyModeTabs() {
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-email-body-mode-button]")
+      if (!btn) return
+      var toggle = btn.closest("[data-email-body-style-toggle]")
+      if (!toggle) return
+
+      var mode = btn.getAttribute("data-email-body-mode-button")
+      if (mode !== "dark" && mode !== "light" && mode !== "original") return
+
+      var emailId = toggle.getAttribute("data-email-body-style-toggle")
+      var headerToggle = btn.getAttribute("data-email-body-mode-global") === "true"
+      if (toggle._emailBodyModeTimer) clearTimeout(toggle._emailBodyModeTimer)
+      toggle._emailBodyModeTimer = setTimeout(function () {
+        if (headerToggle) {
+          setEmailBodyModeForContainer(toggle, mode)
+        } else if (emailId) {
+          setEmailBodyModeById(emailId, mode)
+        }
+      }, 240)
+    })
+  }
+
+  function setEmailBodyModeForContainer(toggle, mode) {
+    var scope = toggle.closest("#mail-view") || document
+    var frames = scope.querySelectorAll("[data-email-body-frame]")
+    if (!frames.length) {
+      setEmailBodyMode(mode)
+      return
+    }
+    for (var i = 0; i < frames.length; i++) setEmailBodyModeOnFrame(frames[i], mode)
+    for (var j = 0; j < frames.length; j++) applyEmailBodyTheme(frames[j])
+  }
 
   function setupSidebarAccountCollapse() {
     var storageKey = "gofer:sidebar_account_collapsed"
@@ -1204,20 +1239,27 @@ function applyEmailBodyTheme(targetFrame) {
   var loader = document.querySelector('[data-email-body-loading="' + iframe.dataset.emailId + '"]')
   if (loader) loader.classList.remove("hidden")
   var baseTheme = getEmailBodyBaseTheme()
-  var theme = iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme
+  var bodyMode = iframe.dataset.bodyMode || (iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme)
+  var original = bodyMode === "original"
+  var theme = bodyMode === "dark" || bodyMode === "light" ? bodyMode : baseTheme
   var palette = readEmailBodyPalette(theme)
   var bg = palette.bg
   var fg = palette.fg
   var link = palette.link
-  if (bg) iframe.style.backgroundColor = bg
+  if (original) {
+    iframe.style.backgroundColor = ""
+  } else if (bg) {
+    iframe.style.backgroundColor = bg
+  }
   var params = new URLSearchParams()
   params.set("theme", theme)
-  if (bg) params.set("bg", bg)
-  if (fg) params.set("fg", fg)
-  if (link) params.set("link", link)
+  if (original) params.set("mode", "original")
+  if (!original && bg) params.set("bg", bg)
+  if (!original && fg) params.set("fg", fg)
+  if (!original && link) params.set("link", link)
   if (iframe.dataset.remoteLoaded === "true") params.set("remote", "true")
   iframe.src = "/email/" + iframe.dataset.emailId + "/body?" + params.toString()
-  updateEmailBodySchemeButton(iframe, baseTheme, theme)
+  updateEmailBodySchemeButton(iframe, baseTheme, theme, bodyMode)
 }
 
 function loadRemoteContent(emailId) {
@@ -1295,41 +1337,83 @@ function toggleEmailBodyScheme() {
     if (single) frames = [single]
   }
   for (var i = 0; i < frames.length; i++) {
-    if (frames[i].dataset.forceScheme === "opposite") {
-      delete frames[i].dataset.forceScheme
-    } else {
-      frames[i].dataset.forceScheme = "opposite"
-    }
+    advanceEmailBodyMode(frames[i])
   }
   applyEmailBodyTheme()
+}
+
+function setEmailBodyMode(mode) {
+  var frames = document.querySelectorAll("[data-email-body-frame]")
+  if (!frames.length) {
+    var single = document.getElementById("email-body-frame")
+    if (single) frames = [single]
+  }
+  for (var i = 0; i < frames.length; i++) setEmailBodyModeOnFrame(frames[i], mode)
+  applyEmailBodyTheme()
+}
+
+function setEmailBodyModeById(emailId, mode) {
+  var frame = document.querySelector('[data-email-body-frame][data-email-id="' + emailId + '"]')
+  if (!frame) return
+  setEmailBodyModeOnFrame(frame, mode)
+  applyEmailBodyTheme(frame)
+}
+
+function setEmailBodyModeOnFrame(frame, mode) {
+  if (!frame) return
+  delete frame.dataset.forceScheme
+  frame.dataset.bodyMode = mode === "dark" || mode === "light" || mode === "original" ? mode : getEmailBodyBaseTheme()
+}
+
+function advanceEmailBodyMode(frame) {
+  var baseTheme = getEmailBodyBaseTheme()
+  var mode = frame.dataset.bodyMode || (frame.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme)
+  delete frame.dataset.forceScheme
+  if (mode === "dark") {
+    frame.dataset.bodyMode = "light"
+  } else if (mode === "light") {
+    frame.dataset.bodyMode = "original"
+  } else {
+    frame.dataset.bodyMode = "dark"
+  }
 }
 
 function toggleEmailBodySchemeById(emailId) {
   var frame = document.querySelector('[data-email-body-frame][data-email-id="' + emailId + '"]')
   if (!frame) return
-  if (frame.dataset.forceScheme === "opposite") {
-    delete frame.dataset.forceScheme
-  } else {
-    frame.dataset.forceScheme = "opposite"
-  }
+  advanceEmailBodyMode(frame)
   applyEmailBodyTheme(frame)
 }
 
-function updateEmailBodySchemeButton(iframe, baseTheme, theme) {
+function updateEmailBodySchemeButton(iframe, baseTheme, theme, bodyMode) {
   if (!iframe) return
   var emailId = iframe.dataset.emailId
   var btn = emailId ? document.querySelector('[data-force-email-scheme="' + emailId + '"]') : document.querySelector("[data-force-email-scheme]")
   if (!btn) return
-  var forced = iframe.dataset.forceScheme === "opposite"
-  btn.classList.toggle("bg-ink/5", forced)
-  btn.classList.toggle("text-ink/70", forced)
-  btn.classList.toggle("text-ink/40", !forced)
-  var label = forced ? "Showing " + theme + " email body. Click to use " + baseTheme + "." : "Force " + oppositeEmailBodyTheme(baseTheme) + " email body"
+  var mode = bodyMode || iframe.dataset.bodyMode || (iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme)
+  if (mode !== "dark" && mode !== "light" && mode !== "original") mode = baseTheme
+  var label = "Showing " + theme + " email body."
+  if (mode === "original") label = "Showing original email style."
   btn.setAttribute("aria-label", label)
+  updateEmailBodyModeToggle(emailId, mode, label)
   var tooltipEl = btn.closest("[data-tui-popover-root]")
   if (tooltipEl) {
     var tipText = tooltipEl.querySelector("[data-email-scheme-tooltip]")
     if (tipText) tipText.textContent = label
+  }
+}
+
+function updateEmailBodyModeToggle(emailId, mode, label) {
+  var toggles = document.querySelectorAll('[data-email-body-style-toggle="' + emailId + '"]')
+  for (var i = 0; i < toggles.length; i++) {
+    var toggle = toggles[i]
+    var tabsId = toggle.getAttribute("data-tui-tabs-id")
+    if (tabsId && window.tui && window.tui.tabs && typeof window.tui.tabs.setActive === "function") {
+      window.tui.tabs.setActive(tabsId, mode, true)
+    }
+    if (!label) continue
+    var activeButton = toggle.querySelector('[data-email-body-mode-button="' + mode + '"]')
+    if (activeButton) activeButton.setAttribute("aria-label", label)
   }
 }
 
