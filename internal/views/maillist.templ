@@ -11,12 +11,12 @@ import (
 	"gofer.email/components/dropdown"
 )
 
-templ MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, width string, senderDisplayMode string) {
-	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + width }>
+templ MailList(emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, width string, senderDisplayMode string, viewMode string) {
+	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + width } data-mail-list-view={ mailListViewMode(viewMode) }>
 		@MailListHeader(activeFolder, totalCount)
-		@MailListToolbar()
+		@MailListToolbar(mailListViewMode(viewMode))
 		<hr class="divider-etched"/>
-		@MailListEmails(emails, activeFolder, selectedEmail, totalCount, senderDisplayMode)
+		@MailListEmails(emails, activeFolder, selectedEmail, totalCount, senderDisplayMode, mailListViewMode(viewMode))
 	</div>
 }
 
@@ -81,7 +81,7 @@ templ MailListHeader(activeFolder string, totalCount int) {
 	</div>
 }
 
-templ MailListToolbar() {
+templ MailListToolbar(viewMode string) {
 	<div class="flex items-center gap-1 px-4 py-1.5">
 		@checkbox.Checkbox(checkbox.Props{
 			Class: "h-3.5 w-3.5",
@@ -138,6 +138,40 @@ templ MailListToolbar() {
 				Mark as read
 			}
 		}
+		<div class="h-5 w-px bg-border/70 mx-1"></div>
+		<div class="relative inline-flex rounded-lg border border-border bg-background p-0.5 gap-0.5" data-mail-list-view-toggle>
+			<div
+				data-mail-list-view-indicator
+				class="absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out"
+				style={ mailListViewIndicatorStyle(viewMode) }
+			></div>
+			<button
+				type="button"
+				data-mail-list-view-button="cards"
+				aria-label="Cards view"
+				class={
+					"relative z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
+					templ.KV("text-foreground", viewMode == "cards"),
+					templ.KV("text-muted-foreground hover:text-foreground", viewMode != "cards"),
+				}
+			>
+				@icon.LayoutList(icon.Props{Class: "size-3.5"})
+				Cards
+			</button>
+			<button
+				type="button"
+				data-mail-list-view-button="table"
+				aria-label="Table view"
+				class={
+					"relative z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
+					templ.KV("text-foreground", viewMode == "table"),
+					templ.KV("text-muted-foreground hover:text-foreground", viewMode != "table"),
+				}
+			>
+				@icon.Table2(icon.Props{Class: "size-3.5"})
+				Table
+			</button>
+		</div>
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
 				@button.Button(button.Props{
@@ -173,15 +207,19 @@ templ MailListToolbar() {
 	</div>
 }
 
-templ MailListEmails(emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, senderDisplayMode string) {
+templ MailListEmails(emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, senderDisplayMode string, viewMode string) {
 	<div
 		id="mail-list-scroll"
 		class="flex-1 overflow-y-auto px-2 py-2"
 		data-total-count={ fmt.Sprintf("%d", totalCount) }
 		data-folder-id={ folderID }
+		data-view-mode={ mailListViewMode(viewMode) }
 	>
+		if mailListViewMode(viewMode) == "table" {
+			@MailListTableHeader()
+		}
 		for i, email := range emails {
-			@MailListItem(email, i, selectedEmail, senderDisplayMode)
+			@MailListItem(email, i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode))
 		}
 		if len(emails) == 0 {
 			@MailListEmpty()
@@ -189,7 +227,23 @@ templ MailListEmails(emails []models.Email, folderID string, selectedEmail *mode
 	</div>
 }
 
-templ MailListItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
+templ MailListItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string, viewMode string) {
+	if mailListViewMode(viewMode) == "table" {
+		@MailListTableItem(email, position, selectedEmail, senderDisplayMode)
+	} else {
+		@MailListCardItem(email, position, selectedEmail, senderDisplayMode)
+	}
+}
+
+templ MailListTableHeader() {
+	<div class="mail-list-table-header grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
+		<div>From</div>
+		<div>Subject</div>
+		<div class="min-w-12 text-right">Date</div>
+	</div>
+}
+
+templ MailListCardItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
 	<div class="mail-list-item" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID }>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
@@ -268,6 +322,70 @@ templ MailListItem(email models.Email, position int, selectedEmail *models.Email
 	</div>
 }
 
+templ MailListTableItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
+	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID }>
+		<a
+			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
+			hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
+			hx-target="#mail-view"
+			hx-swap="innerHTML"
+			class={
+				"grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-all duration-150 group text-xs",
+				templ.KV("envelope-active", selectedEmail != nil && selectedEmail.ID == email.ID),
+				templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
+			}
+		>
+			<div class="flex items-center gap-2 min-w-0">
+				<div class={
+					"size-2 rounded-full shrink-0",
+					templ.KV("bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]", !email.IsRead),
+					templ.KV("bg-transparent", email.IsRead),
+				}></div>
+				<span class={
+					"truncate",
+					templ.KV("font-semibold text-foreground", !email.IsRead),
+					templ.KV("text-foreground/70", email.IsRead),
+				}>{ senderDisplay(email.From, senderDisplayMode) }</span>
+				if email.ThreadCount > 1 {
+					<button type="button" data-thread-toggle={ email.ID } class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
+						@icon.MessagesSquare(icon.Props{Class: "size-3"})
+						{ fmt.Sprintf("%d", email.ThreadCount) }
+						@icon.ChevronRight(icon.Props{Class: "size-3 transition-transform thread-toggle-chevron"})
+					</button>
+				}
+			</div>
+			<div class="flex items-center gap-2 min-w-0">
+				<span class={
+					"truncate",
+					templ.KV("font-medium text-foreground", !email.IsRead),
+					templ.KV("text-foreground/65", email.IsRead),
+				}>{ email.Subject }</span>
+				<span class="hidden xl:inline text-muted-foreground truncate">{ email.Preview }</span>
+				if len(email.Labels) > 0 {
+					for _, label := range email.Labels {
+						<span class={ "hidden xl:inline text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0", label.Color }>
+							{ label.Name }
+						</span>
+					}
+				}
+			</div>
+			<div class="flex items-center justify-end gap-1.5 shrink-0 text-muted-foreground tabular-nums">
+				if email.HasAttachment {
+					@icon.Paperclip(icon.Props{Class: "size-3"})
+				}
+				if email.IsStarred {
+					@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500"})
+				} else {
+					<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn" data-email-id={ email.ID }>
+						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
+					</button>
+				}
+				<span class={ templ.Classes("min-w-12 text-right", templ.KV("text-primary font-medium", !email.IsRead)) }>{ email.Date }</span>
+			</div>
+		</a>
+	</div>
+}
+
 templ MailListEmpty() {
 	<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
 		<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
@@ -278,7 +396,7 @@ templ MailListEmpty() {
 	</div>
 }
 
-templ MailListItemsFragment(emails []models.Email, folderID string, windowStart, windowEnd, totalCount int, nextCursor string, hasMore bool, selectedEmailId string, senderDisplayMode string) {
+templ MailListItemsFragment(emails []models.Email, folderID string, windowStart, windowEnd, totalCount int, nextCursor string, hasMore bool, selectedEmailId string, senderDisplayMode string, viewMode string) {
 	<div
 		data-total-count={ fmt.Sprintf("%d", totalCount) }
 		data-window-start={ fmt.Sprintf("%d", windowStart) }
@@ -286,84 +404,10 @@ templ MailListItemsFragment(emails []models.Email, folderID string, windowStart,
 		data-next-cursor={ nextCursor }
 		data-has-more={ fmt.Sprintf("%t", hasMore) }
 		data-folder-id={ folderID }
+		data-view-mode={ mailListViewMode(viewMode) }
 	>
 		for i, email := range emails {
-			<div class="mail-list-item" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", windowStart+i) } data-thread-id={ email.ThreadID }>
-				<a
-					href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
-					hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
-					hx-target="#mail-view"
-					hx-swap="innerHTML"
-					class={
-						"flex items-start gap-3 px-3.5 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group",
-						templ.KV("envelope-active", selectedEmailId == email.ID),
-						templ.KV("envelope", selectedEmailId != email.ID),
-					}
-				>
-				<div class="w-7 flex flex-col items-center justify-between self-stretch py-1 shrink-0">
-						<div class={
-							"size-6 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]",
-							templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !email.IsRead),
-							templ.KV("bg-muted text-muted-foreground", email.IsRead),
-						}>
-							{ email.From.Initials }
-						</div>
-						if email.ThreadCount > 1 {
-							<button type="button" data-thread-toggle={ email.ID } class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
-								@icon.MessagesSquare(icon.Props{Class: "size-3"})
-								{ fmt.Sprintf("%d", email.ThreadCount) }
-								@icon.ChevronRight(icon.Props{Class: "size-3 transition-transform thread-toggle-chevron"})
-							</button>
-						}
-					</div>
-					<div class="flex-1 min-w-0 space-y-0.5">
-						<div class="flex items-center justify-between gap-2">
-							<div class="flex items-center gap-2 min-w-0">
-								<span class={
-									"text-sm truncate",
-									templ.KV("font-semibold text-foreground", !email.IsRead),
-									templ.KV("text-foreground/70", email.IsRead),
-								}>{ senderDisplay(email.From, senderDisplayMode) }</span>
-							</div>
-							<div class="flex items-center gap-1.5 shrink-0">
-								if email.HasAttachment {
-									@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
-								}
-								<span class={
-									"text-xs tabular-nums",
-									templ.KV("text-primary font-medium", !email.IsRead),
-									templ.KV("text-muted-foreground", email.IsRead),
-								}>{ email.Date }</span>
-							</div>
-						</div>
-						<p class={
-							"text-[13px] truncate",
-							templ.KV("font-medium text-foreground", !email.IsRead),
-							templ.KV("text-foreground/60", email.IsRead),
-						}>{ email.Subject }</p>
-						<div class="flex items-center gap-2">
-							<p class="text-xs text-muted-foreground truncate flex-1 leading-relaxed">{ email.Preview }</p>
-							if len(email.Labels) > 0 {
-								for _, label := range email.Labels {
-									<span class={ "text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.08)]", label.Color }>
-										{ label.Name }
-									</span>
-								}
-							}
-							if email.IsStarred {
-								@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 shrink-0 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
-							} else {
-								<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn shrink-0" data-email-id={ email.ID }>
-									@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
-								</button>
-							}
-						</div>
-					</div>
-					if !email.IsRead {
-						<div class="w-2 h-2 rounded-full bg-primary shrink-0 mt-2 shadow-[0_0_6px_rgba(199,123,48,0.4)]"></div>
-					}
-				</a>
-			</div>
+			@MailListItem(email, windowStart+i, &models.Email{ID: selectedEmailId}, senderDisplayMode, mailListViewMode(viewMode))
 		}
 	</div>
 }

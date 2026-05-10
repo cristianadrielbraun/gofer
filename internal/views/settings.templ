@@ -90,6 +90,28 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string) {
 					}
 				</div>
 			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Automatically mark email read after</h4>
+					<p class="text-xs text-muted-foreground mt-1">Choose how long a message must stay open before it is marked as read.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0" data-auto-mark-read-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "auto_mark_read_after", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Immediately"}) {
+								{ autoMarkReadSettingLabel(uiSettingGet(uiSettings, "auto_mark_read_after", "0")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "0", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "0"}) { Immediately }
+							@selectbox.Item(selectbox.ItemProps{Value: "2", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "2"}) { After 2 seconds }
+							@selectbox.Item(selectbox.ItemProps{Value: "5", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "5"}) { After 5 seconds }
+							@selectbox.Item(selectbox.ItemProps{Value: "10", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "10"}) { After 10 seconds }
+							@selectbox.Item(selectbox.ItemProps{Value: "never", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "never"}) { Never }
+						}
+					}
+				</div>
+			</div>
 		</div>
 	</div>
 	<script>
@@ -98,6 +120,10 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string) {
 			var senderDisplay = e.target.closest('input[name="sender_display"]');
 			if (senderDisplay && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('sender_display', senderDisplay.value);
+			}
+			var autoMarkRead = e.target.closest('input[name="auto_mark_read_after"]');
+			if (autoMarkRead && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('auto_mark_read_after', autoMarkRead.value);
 			}
 		});
 	})();

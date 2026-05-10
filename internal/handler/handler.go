@@ -767,12 +767,17 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	viewMode := r.URL.Query().Get("view")
+	if viewMode == "" {
+		viewMode = uiSettings["mail_list_view"]
+	}
 	views.MailListItemsFragment(
 		page.Emails, folderID,
 		page.WindowStart, page.WindowEnd, page.TotalCount,
 		page.NextCursor, page.HasMore,
 		selectedEmailId,
 		uiSettings["sender_display"],
+		viewMode,
 	).Render(ctx, w)
 }
 
@@ -827,7 +832,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if q == "" {
 		w.Header().Set("Content-Type", "text/html")
 		uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-		views.MailListEmails(nil, "", nil, 0, uiSettings["sender_display"]).Render(r.Context(), w)
+		views.MailListEmails(nil, "", nil, 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
 		return
 	}
 
@@ -839,7 +844,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-	views.MailListEmails(emails, "", nil, len(emails), uiSettings["sender_display"]).Render(r.Context(), w)
+	views.MailListEmails(emails, "", nil, len(emails), uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
 }
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
@@ -1848,7 +1853,15 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		`SELECT is_read FROM message_folder_state WHERE message_id = ? LIMIT 1`, msgID,
 	).Scan(&currentState)
 
-	if err := h.db.SetMessageRead(ctx, msgID, !currentState); err != nil {
+	targetRead := !currentState
+	switch r.URL.Query().Get("state") {
+	case "read":
+		targetRead = true
+	case "unread":
+		targetRead = false
+	}
+
+	if err := h.db.SetMessageRead(ctx, msgID, targetRead); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1861,7 +1874,7 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		defer client.Close()
 
 		op := goimap.StoreFlagsAdd
-		if !currentState {
+		if !targetRead {
 			op = goimap.StoreFlagsDel
 		}
 		client.StoreFlags(context.Background(), info.FolderRemoteID, info.RemoteUID, op, []goimap.Flag{goimap.FlagSeen})
@@ -1871,7 +1884,7 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]bool{"is_read": !currentState})
+	json.NewEncoder(w).Encode(map[string]bool{"is_read": targetRead})
 }
 
 func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {

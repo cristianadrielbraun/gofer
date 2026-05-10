@@ -132,7 +132,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -380,7 +380,7 @@ func FolderPartial(emails []models.Email, activeFolder string, selectedEmail *mo
 			templ_7745c5c3_Var13 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -432,7 +432,7 @@ func MailContentPartial(emails []models.Email, activeFolder string, selectedEmai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

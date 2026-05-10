@@ -103,6 +103,24 @@
   *::-webkit-scrollbar-thumb:hover {
     background: var(--color-foreground);
   }
+  html[data-theme="classic"]:not(.dark) #mail-list-scroll {
+    scrollbar-color: #a99b88 transparent;
+  }
+  html[data-theme="classic"]:not(.dark) #mail-list-scroll::-webkit-scrollbar-thumb {
+    background: #a99b88;
+  }
+  html[data-theme="classic"]:not(.dark) #mail-list-scroll::-webkit-scrollbar-thumb:hover {
+    background: #6f6253;
+  }
+  html[data-theme="classic"]:not(.dark) #mail-list-scroll:active {
+    scrollbar-color: #2f241b transparent;
+  }
+  html[data-theme="classic"]:not(.dark) #mail-list-scroll:active::-webkit-scrollbar-thumb {
+    background: #2f241b;
+  }
+  html[data-theme="classic"]:not(.dark) #mail-list-scroll::-webkit-scrollbar-thumb:active {
+    background: #2f241b;
+  }
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
@@ -255,6 +273,30 @@ html[data-theme="minimal"] .account-color-marker {
 .mail-list-item > a {
   height: 100%;
   overflow: hidden;
+}
+
+[data-view-mode="table"] .mail-list-item {
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
+  padding: 2px 0;
+}
+
+[data-view-mode="table"] {
+  padding-top: 0;
+}
+
+[data-view-mode="table"] .mail-list-table-header {
+  margin-left: -0.5rem;
+  margin-right: -0.5rem;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+[data-view-mode="table"] .mail-list-thread-main {
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
 }
 
 .mail-list-thread-slot {

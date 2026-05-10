@@ -11,10 +11,13 @@ document.addEventListener("DOMContentLoaded", function () {
   var processingStatusHandler = null
   var syncStatesByFolder = Object.create(null)
   var prefetchedBodies = Object.create(null)
+  var autoMarkReadTimer = null
+  var autoMarkReadEmailId = null
 
   initVirtualScroll()
   setupFolderClickInterception()
   setupEmailSelectionTracking()
+  setupMailListViewToggle()
   setupSSE()
   setupMailListActions()
   setupSidebarAccountCollapse()
@@ -526,7 +529,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!container) return
 
     var folderID = container.dataset.folderId || "inbox"
-    virtualMailList = new VirtualMailList(container, { folderID: folderID })
+    virtualMailList = new VirtualMailList(container, { folderID: folderID, viewMode: container.dataset.viewMode || "cards" })
     virtualMailList.hydrateFromDOM()
     container._virtualMailList = virtualMailList
     flushPendingSyncEvents()
@@ -622,18 +625,91 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     })
 
-    document.body.addEventListener("htmx:afterRequest", function (evt) {
-      if (!virtualMailList) return
+	document.body.addEventListener("htmx:afterRequest", function (evt) {
+	  if (
+		evt.detail.pathInfo &&
+		evt.detail.pathInfo.requestPath &&
+		evt.detail.pathInfo.requestPath.startsWith("/email/")
+	  ) {
+		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
+		if (virtualMailList) virtualMailList.onEmailSelected(emailId)
+		scheduleAutoMarkRead(emailId, evt.detail.elt)
+	  }
+	})
+  }
 
-      if (
-        evt.detail.pathInfo &&
-        evt.detail.pathInfo.requestPath &&
-        evt.detail.pathInfo.requestPath.startsWith("/email/")
-      ) {
-        var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
-        virtualMailList.onEmailSelected(emailId)
+  function setupMailListViewToggle() {
+    document.body.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-mail-list-view-button]")
+      if (!btn) return
+      e.preventDefault()
+
+      var mode = btn.dataset.mailListViewButton === "table" ? "table" : "cards"
+      if (window.GoferSettings) GoferSettings.set("mail_list_view", mode)
+
+      var group = btn.closest("[data-mail-list-view-toggle]")
+      if (group) {
+        var buttons = group.querySelectorAll("[data-mail-list-view-button]")
+        for (var i = 0; i < buttons.length; i++) {
+          var isActive = buttons[i] === btn
+          buttons[i].classList.toggle("text-foreground", isActive)
+          buttons[i].classList.toggle("text-muted-foreground", !isActive)
+          buttons[i].classList.toggle("hover:text-foreground", !isActive)
+        }
+        var indicator = group.querySelector("[data-mail-list-view-indicator]")
+        if (indicator) {
+          indicator.style.transform = mode === "table" ? "translateX(100%)" : "translateX(0)"
+        }
+      }
+
+      var scroll = document.getElementById("mail-list-scroll")
+      var vml = scroll && scroll._virtualMailList
+      if (vml && typeof vml.switchViewMode === "function") {
+        vml.switchViewMode(mode).catch(function () {})
       }
     })
+  }
+
+  function scheduleAutoMarkRead(emailId, trigger) {
+    if (autoMarkReadTimer) clearTimeout(autoMarkReadTimer)
+    autoMarkReadTimer = null
+    autoMarkReadEmailId = emailId
+
+    var delay = window.GoferSettings ? GoferSettings.get("auto_mark_read_after") : null
+    if (!delay) delay = "0"
+    if (delay === "never") return
+
+    var delayMs = parseInt(delay, 10)
+    if (isNaN(delayMs) || delayMs < 0) delayMs = 0
+
+    var run = function () {
+      if (autoMarkReadEmailId !== emailId) return
+      markRead(emailId, trigger)
+    }
+
+    if (delayMs === 0) {
+      run()
+    } else {
+      autoMarkReadTimer = setTimeout(run, delayMs * 1000)
+    }
+  }
+
+  function markRead(emailId, trigger) {
+    fetch("/api/messages/" + emailId + "/read?state=read", { method: "POST" })
+      .then(function (r) { return r.json() })
+      .then(function (data) {
+        if (!data.is_read) return
+        var row = trigger && trigger.closest ? trigger.closest(".mail-list-item") : null
+        if (row) {
+          var link = row.querySelector("a")
+          if (link) {
+            link.classList.remove("font-semibold")
+          }
+        }
+        invalidateMailListItem(emailId)
+        refreshSidebarUnread()
+      })
+      .catch(function () {})
   }
 
   function textFrom(root, selector) {
@@ -725,7 +801,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!evt.target.querySelector("#mail-list-scroll")) return
 
     var folderID = scroll.dataset.folderId || "inbox"
-    virtualMailList = new VirtualMailList(scroll, { folderID: folderID })
+    virtualMailList = new VirtualMailList(scroll, { folderID: folderID, viewMode: scroll.dataset.viewMode || "cards" })
     virtualMailList.hydrateFromDOM()
     scroll._virtualMailList = virtualMailList
     flushPendingSyncEvents()

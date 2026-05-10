@@ -2,7 +2,8 @@ class VirtualMailList {
   constructor(container, options) {
     this.container = container
     this.folderID = options.folderID || "inbox"
-    this.itemHeight = 94
+    this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
+    this.itemHeight = this.viewMode === "table" ? 44 : 94
     this.subItemHeight = 48
     this.expandedThreadGap = 14
     this.overscan = 10
@@ -497,7 +498,9 @@ class VirtualMailList {
         "/items?start=" +
         start +
         "&limit=" +
-        (end - start + 1)
+        (end - start + 1) +
+        "&view=" +
+        encodeURIComponent(this.viewMode)
       if (this.selectedEmailId) {
         url += "&selected=" + encodeURIComponent(this.selectedEmailId)
       }
@@ -526,7 +529,7 @@ class VirtualMailList {
       if (this.selectedEmailId) {
         params += "&selected=" + encodeURIComponent(this.selectedEmailId)
       }
-      var url = "/mail/folder/" + this.folderID + "/items?" + params
+      var url = "/mail/folder/" + this.folderID + "/items?" + params + "&view=" + encodeURIComponent(this.viewMode)
       var html = await this.fetchHTML(url)
       this.ingestHTML(html)
       this.prevFirst = null
@@ -668,6 +671,7 @@ class VirtualMailList {
   hydrateFromDOM() {
     var scrollEl =
       document.getElementById("mail-list-scroll") || this.container
+    this.setViewMode(scrollEl.dataset.viewMode || this.viewMode, true)
     var totalCount = parseInt(scrollEl.dataset.totalCount)
     if (!isNaN(totalCount)) this.totalCount = totalCount
     if (scrollEl.dataset.folderId) {
@@ -720,7 +724,20 @@ class VirtualMailList {
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
 
+    this.renderTableHeader()
+
     this.render()
+  }
+
+  renderTableHeader() {
+    var existing = this.container.querySelector(".mail-list-table-header")
+    if (existing) existing.remove()
+    if (this.viewMode !== "table") return
+
+    var header = document.createElement("div")
+    header.className = "mail-list-table-header grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
+    header.innerHTML = '<div>From</div><div>Subject</div><div class="min-w-12 text-right">Date</div>'
+    this.container.insertBefore(header, this.spacerTop)
   }
 
   async switchFolder(folderID, pushState) {
@@ -731,6 +748,7 @@ class VirtualMailList {
       params += "&selected=" + encodeURIComponent(previousSelected)
     }
     var url = "/mail/folder/" + folderID + "/items?" + params
+    url += "&view=" + encodeURIComponent(this.viewMode)
     var html = await this.fetchHTML(url)
 
     this.reset()
@@ -771,7 +789,7 @@ class VirtualMailList {
       if (self.selectedEmailId) {
         params += "&selected=" + encodeURIComponent(self.selectedEmailId)
       }
-      var url = "/mail/folder/" + self.folderID + "/items?" + params
+      var url = "/mail/folder/" + self.folderID + "/items?" + params + "&view=" + encodeURIComponent(self.viewMode)
       var html = await self.fetchHTML(url)
       self.ingestHTML(html)
       self.prevFirst = null
@@ -820,6 +838,39 @@ class VirtualMailList {
     this.frontierUp = 0
     this.removeBanner()
     this.updateSyncHeader()
+  }
+
+  setViewMode(viewMode, keepRows) {
+    this.viewMode = viewMode === "table" ? "table" : "cards"
+    this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.container.dataset.viewMode = this.viewMode
+    var mailList = document.getElementById("mail-list")
+    if (mailList) mailList.dataset.mailListView = this.viewMode
+    this.renderTableHeader()
+    this.invalidateOffsets()
+    if (!keepRows) {
+      this.cache.clear()
+      this.indexById.clear()
+      this.loadedRanges = []
+      this.frontierDown = -1
+      this.frontierUp = 0
+      this.effectiveCount = 0
+      this.prevFirst = null
+      this.prevLast = null
+    }
+  }
+
+  async switchViewMode(viewMode) {
+    viewMode = viewMode === "table" ? "table" : "cards"
+    if (viewMode === this.viewMode) return
+    var selected = this.selectedEmailId
+    var params = "limit=50&view=" + encodeURIComponent(viewMode)
+    if (selected) params += "&selected=" + encodeURIComponent(selected)
+    var html = await this.fetchHTML("/mail/folder/" + this.folderID + "/items?" + params)
+    this.setViewMode(viewMode, false)
+    this.ingestHTML(html)
+    this.selectedEmailId = selected
+    this.render()
   }
 
   onEmailSelected(emailId) {
@@ -946,7 +997,7 @@ class VirtualMailList {
     var pos = this.indexById.get(emailId)
     if (pos === undefined) return
 
-    var url = "/mail/folder/" + this.folderID + "/items?start=" + pos + "&limit=1"
+    var url = "/mail/folder/" + this.folderID + "/items?start=" + pos + "&limit=1&view=" + encodeURIComponent(this.viewMode)
     if (this.selectedEmailId) {
       url += "&selected=" + encodeURIComponent(this.selectedEmailId)
     }
@@ -1041,7 +1092,9 @@ class VirtualMailList {
       "/items?around=" +
       encodeURIComponent(selectedId) +
       "&limit=80&selected=" +
-      encodeURIComponent(selectedId)
+      encodeURIComponent(selectedId) +
+      "&view=" +
+      encodeURIComponent(this.viewMode)
     var html = await this.fetchHTML(url)
     this.ingestHTML(html)
 

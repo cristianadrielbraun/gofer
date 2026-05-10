@@ -100,6 +100,37 @@ func senderDisplaySettingLabel(mode string) string {
 	}
 }
 
+func mailListViewMode(mode string) string {
+	if mode == "table" {
+		return "table"
+	}
+	return "cards"
+}
+
+func mailListViewIndicatorStyle(mode string) string {
+	if mailListViewMode(mode) == "table" {
+		return "transform: translateX(100%);"
+	}
+	return "transform: translateX(0);"
+}
+
+func autoMarkReadSettingLabel(value string) string {
+	switch value {
+	case "0":
+		return "Immediately"
+	case "5":
+		return "After 5 seconds"
+	case "10":
+		return "After 10 seconds"
+	case "2":
+		return "After 2 seconds"
+	case "never":
+		return "Never"
+	default:
+		return "Immediately"
+	}
+}
+
 func accountColorStyle(color string) string {
 	if color == "" {
 		color = "#8b5cf6"
