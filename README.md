@@ -1,9 +1,7 @@
-<table>
-  <tr>
-    <td><img src="./assets/logo.svg" width="48" alt="gofer.email logo" /></td>
-    <td><h1>gofer.email</h1></td>
-  </tr>
-</table>
+<h1>
+  <img src="./assets/logo.svg" width="48" alt="gofer.email logo" />
+  <span>gofer.email</span>
+</h1>
 
 <img width="2417" height="1499" alt="gofer-email-screenshot" src="https://github.com/user-attachments/assets/709e6ce1-1bf8-4cae-b679-5bd8891385b5" />
 
