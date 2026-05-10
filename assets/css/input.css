@@ -306,7 +306,7 @@ html[data-theme="minimal"] .account-color-marker {
 }
 
 .mail-list-table-grid {
-  grid-template-columns: var(--mail-list-table-columns, 1.75rem minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) 1.5rem 1.5rem minmax(4.5rem, auto));
+  grid-template-columns: var(--mail-list-table-columns, 1.5rem 1.5rem 1.5rem 1.75rem minmax(7.5rem, 0.8fr) minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) minmax(4.5rem, auto));
 }
 
 .mail-list-table-heading {
@@ -314,8 +314,10 @@ html[data-theme="minimal"] .account-color-marker {
   min-width: 0;
 }
 
+#mail-list-scroll[data-mail-table-hidden~="accountMarker"] [data-mail-table-cell="accountMarker"],
 #mail-list-scroll[data-mail-table-hidden~="thread"] [data-mail-table-cell="thread"],
 #mail-list-scroll[data-mail-table-hidden~="from"] [data-mail-table-cell="from"],
+#mail-list-scroll[data-mail-table-hidden~="to"] [data-mail-table-cell="to"],
 #mail-list-scroll[data-mail-table-hidden~="subject"] [data-mail-table-cell="subject"],
 #mail-list-scroll[data-mail-table-hidden~="starred"] [data-mail-table-cell="starred"],
 #mail-list-scroll[data-mail-table-hidden~="attachment"] [data-mail-table-cell="attachment"],
@@ -418,33 +420,37 @@ body.mail-list-column-resizing {
   position: relative;
 }
 
-[data-view-mode="table"] .thread-sub-item::before {
+[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"] {
+  position: relative;
+}
+
+[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"]::before {
   content: "";
   position: absolute;
-  left: 1.25rem;
-  top: 0;
-  bottom: 0;
+  left: 50%;
+  top: -0.25rem;
+  bottom: -0.25rem;
   width: 2px;
   background: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
 }
 
-[data-view-mode="table"] .thread-sub-item::after {
+[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"]::after {
   content: "";
   position: absolute;
-  left: 1.25rem;
+  left: 50%;
   top: 50%;
-  width: 1.25rem;
+  width: 50%;
   height: 2px;
   background: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
 }
 
-[data-view-mode="table"] .thread-sub-item:last-child::before {
+[data-view-mode="table"] .thread-sub-item:last-child [data-mail-table-cell="thread"]::before {
   bottom: 50%;
 }
 
 [data-view-mode="table"] .thread-sub-item a {
   display: grid;
-  grid-template-columns: var(--mail-list-table-columns, 1.75rem minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) 1.5rem 1.5rem minmax(4.5rem, auto));
+  grid-template-columns: var(--mail-list-table-columns, 1.5rem 1.5rem 1.5rem 1.75rem minmax(7.5rem, 0.8fr) minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) minmax(4.5rem, auto));
   align-items: center;
   gap: 0.75rem;
   height: 100%;
@@ -457,8 +463,13 @@ body.mail-list-column-resizing {
   background: color-mix(in srgb, var(--color-foreground) 6%, var(--color-muted) 24%);
 }
 
-[data-view-mode="table"] .thread-sub-item a > .size-5 {
-  visibility: hidden;
+[data-view-mode="table"] .thread-sub-item a > .size-5[data-mail-table-cell="thread"] {
+  visibility: visible;
+  width: 100%;
+  height: 100%;
+  margin-top: 0;
+  background: transparent;
+  color: transparent;
 }
 
 [data-view-mode="table"] .thread-sub-item a > .flex-1 {
@@ -469,30 +480,39 @@ body.mail-list-column-resizing {
   display: contents;
 }
 
-[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"] {
+[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="accountMarker"] {
   order: 1;
 }
 
+[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"] {
+  order: 4;
+}
+
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="from"] {
-  order: 2;
+  order: 5;
   padding-left: 0.625rem;
 }
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="subject"] {
-  order: 3;
+  order: 7;
+  padding-left: 0.25rem;
+}
+
+[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="to"] {
+  order: 6;
   padding-left: 0.25rem;
 }
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="starred"] {
-  order: 4;
+  order: 2;
 }
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="attachment"] {
-  order: 5;
+  order: 3;
 }
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="date"] {
-  order: 6;
+  order: 8;
   justify-self: end;
   justify-content: flex-end;
   width: 100%;

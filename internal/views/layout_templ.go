@@ -87,10 +87,6 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = SidebarAccountCollapseStyle().Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<link rel=\"stylesheet\" href=\"/assets/css/output.css\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -142,7 +138,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 42, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 41, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -152,7 +148,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -254,7 +250,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 105, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 104, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -265,10 +261,6 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = SavedPanelSizeStyle().Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = SidebarAccountCollapseStyle().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -323,7 +315,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 127, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 125, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -333,7 +325,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Sidebar(accounts, "", uiSettingGet(uiSettings, "sidebar_width", "256px")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Sidebar(accounts, "", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -405,7 +397,7 @@ func ResizeHandle(panel string) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(panel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 189, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 187, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -448,7 +440,7 @@ func SavedPanelSizeStyle() templ.Component {
 	})
 }
 
-func SidebarAccountCollapseStyle() templ.Component {
+func FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -469,40 +461,11 @@ func SidebarAccountCollapseStyle() templ.Component {
 			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<script>\n\t\t(function() {\n\t\t\tvar state = {};\n\t\t\ttry {\n\t\t\t\tstate = JSON.parse(localStorage.getItem(\"gofer:sidebar_account_collapsed\") || \"{}\") || {};\n\t\t\t} catch (_) {}\n\t\t\tvar escapeIdent = window.CSS && CSS.escape ? CSS.escape : function(value) { return String(value).replace(/[^a-zA-Z0-9_-]/g, \"\\\\\\\\$&\"); };\n\t\t\tvar rules = [];\n\t\t\tObject.keys(state).forEach(function(accountId) {\n\t\t\t\tif (state[accountId] !== true) return;\n\t\t\t\tvar selector = '[data-sidebar-account=\"' + escapeIdent(accountId) + '\"]:not([data-sidebar-account-active])';\n\t\t\t\trules.push(selector + ' .sidebar-account-folders{grid-template-rows:0fr;opacity:0;margin-top:-0.125rem;transition:none}');\n\t\t\t\trules.push(selector + ' .sidebar-account-chevron{transform:rotate(-90deg);transition:none}');\n\t\t\t});\n\t\t\tif (!rules.length) return;\n\t\t\tvar style = document.createElement(\"style\");\n\t\t\tstyle.setAttribute(\"data-sidebar-account-collapse-style\", \"\");\n\t\t\tstyle.textContent = rules.join(\"\\n\");\n\t\t\tdocument.head.appendChild(style);\n\t\t})();\n\t</script>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-func FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var15 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var15 == nil {
-			templ_7745c5c3_Var15 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<div id=\"mail-view\" class=\"hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk\" hx-swap-oob=\"true\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<div id=\"mail-view\" class=\"hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk\" hx-swap-oob=\"true\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -517,7 +480,7 @@ func FolderPartial(accounts []models.Account, emails []models.Email, activeFolde
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -541,12 +504,12 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var16 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var16 == nil {
-			templ_7745c5c3_Var16 = templ.NopComponent
+		templ_7745c5c3_Var15 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var15 == nil {
+			templ_7745c5c3_Var15 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<div id=\"main-content\" class=\"flex flex-1 min-w-0\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div id=\"main-content\" class=\"flex flex-1 min-w-0\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -562,7 +525,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -586,12 +549,12 @@ func SettingsPartial(accounts []models.Account, syncSettings models.SyncSettings
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var17 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var17 == nil {
-			templ_7745c5c3_Var17 = templ.NopComponent
+		templ_7745c5c3_Var16 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var16 == nil {
+			templ_7745c5c3_Var16 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div id=\"main-content\" class=\"flex flex-1 min-w-0\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div id=\"main-content\" class=\"flex flex-1 min-w-0\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -599,7 +562,7 @@ func SettingsPartial(accounts []models.Account, syncSettings models.SyncSettings
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -615,7 +578,7 @@ func SettingsPartial(accounts []models.Account, syncSettings models.SyncSettings
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div id=\"edit-account-container\"></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<div id=\"edit-account-container\"></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

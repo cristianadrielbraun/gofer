@@ -26,6 +26,7 @@ type Folder struct {
 type Email struct {
 	ID                string
 	AccountID         string
+	AccountColor      string
 	FolderID          string
 	From              Contact
 	To                []Contact
@@ -103,6 +104,7 @@ type EmailFilters struct {
 type ThreadItem struct {
 	ID                string
 	AccountID         string
+	AccountColor      string
 	From              Contact
 	To                []Contact
 	CC                []Contact

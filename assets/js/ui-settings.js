@@ -35,11 +35,13 @@ var GoferSettings;
   }
 
   var MAIL_TABLE_COLUMNS = [
-    { id: "thread", min: 28 },
-    { id: "from", min: 90 },
-    { id: "subject", min: 140 },
+    { id: "accountMarker", fixed: 24 },
     { id: "starred", fixed: 24 },
     { id: "attachment", fixed: 24 },
+    { id: "thread", min: 28 },
+    { id: "from", min: 90 },
+    { id: "to", min: 90 },
+    { id: "subject", min: 140 },
     { id: "date", min: 64 },
   ];
 
@@ -59,7 +61,7 @@ var GoferSettings;
 
   function normalizeMailTableColumnWidths(value, visibleIds) {
     var parts = String(value).split(",");
-    if (!value || parts.length !== MAIL_TABLE_COLUMNS.length) parts = ["1", "3", "5", "0.8", "0.8", "2"];
+    if (!value || parts.length !== MAIL_TABLE_COLUMNS.length) parts = ["0.8", "0.8", "0.8", "1", "3", "3", "5", "2"];
     var values = [];
     for (var i = 0; i < parts.length; i++) {
       var n = parseFloat(parts[i]);
@@ -162,7 +164,7 @@ var GoferSettings;
           serverSettings = JSON.parse(bodySettings);
         } catch (_) {}
         readCache();
-        _cache = Object.assign({}, serverSettings, _cache);
+        _cache = Object.assign({}, _cache, serverSettings);
         for (var k in _cache) {
           applySetting(k, _cache[k]);
         }

@@ -1314,7 +1314,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 
 	now := time.Now()
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email, m.snippet,
+		`SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email, m.snippet,
 		        m.date_received, m.has_attachments,
 		        COALESCE((SELECT is_read FROM message_folder_state WHERE message_id = m.id LIMIT 1), 1),
 		        COALESCE((SELECT is_starred FROM message_folder_state WHERE message_id = m.id LIMIT 1), 0),
@@ -1322,6 +1322,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 		        COALESCE((SELECT f.role FROM message_folder_state mfs JOIN folders f ON mfs.folder_id = f.id WHERE mfs.message_id = m.id AND mfs.is_deleted = 0 LIMIT 1), ''),
 		        m.internet_message_id, m."references", m.body_text_path
 		 FROM messages m
+		 JOIN accounts a ON m.account_id = a.id
 		 WHERE m.account_id = ? AND m.thread_id = ?
 		 ORDER BY m.date_received ASC`, accountID, threadID)
 	if err != nil {
@@ -1343,7 +1344,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 			refs          sql.NullString
 			bodyTextPath  sql.NullString
 		)
-		if err := rows.Scan(&item.ID, &item.AccountID, &item.Subject, &fromName, &fromEmail, &item.Preview,
+		if err := rows.Scan(&item.ID, &item.AccountID, &item.AccountColor, &item.Subject, &fromName, &fromEmail, &item.Preview,
 			&dateReceived, &hasAttach, &isRead, &isStarred, &item.FolderName, &item.FolderRole,
 			&internetMsgID, &refs, &bodyTextPath); err != nil {
 			continue
@@ -1419,6 +1420,7 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 		subject           string
 		snippet           string
 		accountID         string
+		accountColor      string
 		hasAttach         int
 		bodyTextPath      sql.NullString
 		bodyHTMLPath      sql.NullString
@@ -1429,11 +1431,13 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	)
 
 	err = db.Read().QueryRowContext(ctx,
-		`SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email,
+		`SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email,
 		        m.date_received, m.snippet, m.has_attachments,
 		        m.body_text_path, m.body_html_path, m.internet_message_id, m.thread_id, m.in_reply_to, m."references"
-		 FROM messages m WHERE m.id = ?`, msgID,
-	).Scan(&msgID, &accountID, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach, &bodyTextPath, &bodyHTMLPath, &internetMessageID, &threadID, &inReplyTo, &references)
+		 FROM messages m
+		 JOIN accounts a ON m.account_id = a.id
+		 WHERE m.id = ?`, msgID,
+	).Scan(&msgID, &accountID, &accountColor, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach, &bodyTextPath, &bodyHTMLPath, &internetMessageID, &threadID, &inReplyTo, &references)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -1445,6 +1449,7 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	now := time.Now()
 	email.ID = strconv.FormatInt(msgID, 10)
 	email.AccountID = accountID
+	email.AccountColor = accountColor
 	email.Subject = subject
 	email.From = contactFromSender(fromName, fromEmail)
 	email.Preview = snippet
@@ -1596,7 +1601,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 	}
 
 	query := `WITH visible AS (
-			  SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email,
+			  SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			         m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 			         mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
 			         ROW_NUMBER() OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) ORDER BY m.date_received DESC, m.id DESC) AS rn,
@@ -1608,7 +1613,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
 			  ` + where + filterSQL.cteClause + `
 			)
-			SELECT id, account_id, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
+			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
 			ORDER BY date_received DESC
@@ -1627,7 +1632,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
 	filterSQL := emailFilterSQL(filters)
 	query := `WITH visible AS (
-			  SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email,
+			  SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			         m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 			         mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
 			         ROW_NUMBER() OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) ORDER BY m.date_received DESC, m.id DESC) AS rn,
@@ -1637,9 +1642,10 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			         MAX(m.has_attachments) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_has_attachments
 			  FROM messages m
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
+			  JOIN accounts a ON m.account_id = a.id
 			  WHERE mfs.folder_id = ? AND mfs.is_deleted = 0` + filterSQL.cteClause + `
 			)
-			SELECT id, account_id, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
+			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
 			ORDER BY date_received DESC
@@ -1648,7 +1654,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 	var args []any
 	if isStarredFolder(folderID) {
 		query = `WITH visible AS (
-			 SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email,
+			 SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			        m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 				        mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
 				        ROW_NUMBER() OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) ORDER BY m.date_received DESC, m.id DESC) AS rn,
@@ -1656,13 +1662,14 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 				        MIN(mfs.is_read) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_read,
 				        MAX(mfs.is_starred) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_starred,
 				        MAX(m.has_attachments) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_has_attachments
-				 FROM messages m
-				 JOIN message_folder_state mfs ON m.id = mfs.message_id
-				 JOIN folders f ON mfs.folder_id = f.id
+			 FROM messages m
+			 JOIN message_folder_state mfs ON m.id = mfs.message_id
+			 JOIN folders f ON mfs.folder_id = f.id
+			 JOIN accounts a ON m.account_id = a.id
 					 WHERE f.account_id = (SELECT account_id FROM folders WHERE id = ?)
 					 AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + filterSQL.cteClause + `
 			)
-			SELECT id, account_id, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
+			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
 			ORDER BY date_received DESC
@@ -1692,12 +1699,12 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 		var r emailRow
 		var dateReceived sqliteNullTime
 		var isRead, isStarred, hasAttach, threadHasAttach int
-		var subject, fromName, fromEmail, snippet, accountID string
+		var subject, fromName, fromEmail, snippet, accountID, accountColor string
 		var textPath, htmlPath sql.NullString
 		var threadID sql.NullString
 		var threadCount int
 
-		if err := rows.Scan(&r.msgID, &accountID, &subject, &fromName, &fromEmail,
+		if err := rows.Scan(&r.msgID, &accountID, &accountColor, &subject, &fromName, &fromEmail,
 			&dateReceived, &snippet, &hasAttach, &textPath, &htmlPath,
 			&threadHasAttach, &r.email.FolderID, &isRead, &isStarred,
 			&threadID, &threadCount); err != nil {
@@ -1706,6 +1713,7 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 
 		r.email.ID = strconv.FormatInt(r.msgID, 10)
 		r.email.AccountID = accountID
+		r.email.AccountColor = accountColor
 		r.email.Subject = subject
 		r.email.From = contactFromSender(fromName, fromEmail)
 		r.email.Preview = snippet
@@ -1735,8 +1743,10 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 			msgIDs[i] = r.msgID
 		}
 		labelsMap, _ := db.batchGetLabels(ctx, msgIDs)
+		toMap, _ := db.batchGetRecipients(ctx, msgIDs, "to")
 		for i := range items {
 			items[i].email.Labels = labelsMap[items[i].msgID]
+			items[i].email.To = toMap[items[i].msgID]
 		}
 	}
 
@@ -1869,6 +1879,40 @@ func (db *DB) getMessageLabels(ctx context.Context, messageID int64) ([]models.L
 	return labels, nil
 }
 
+func (db *DB) batchGetRecipients(ctx context.Context, msgIDs []int64, kind string) (map[int64][]models.Contact, error) {
+	placeholders := make([]string, len(msgIDs))
+	args := make([]any, 0, len(msgIDs)+1)
+	for _, id := range msgIDs {
+		placeholders[len(args)] = "?"
+		args = append(args, id)
+	}
+	args = append(args, kind)
+
+	query := fmt.Sprintf(
+		`SELECT message_id, name, email
+		 FROM message_recipients
+		 WHERE message_id IN (%s) AND kind = ?
+		 ORDER BY message_id, id`, strings.Join(placeholders, ","))
+
+	rows, err := db.Read().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]models.Contact)
+	for rows.Next() {
+		var msgID int64
+		var c models.Contact
+		if err := rows.Scan(&msgID, &c.Name, &c.Email); err != nil {
+			return nil, err
+		}
+		c.Initials = initials(c.Name)
+		result[msgID] = append(result[msgID], c)
+	}
+	return result, nil
+}
+
 func (db *DB) batchGetLabels(ctx context.Context, msgIDs []int64) (map[int64][]models.Label, error) {
 	placeholders := make([]string, len(msgIDs))
 	args := make([]any, len(msgIDs))
@@ -1907,7 +1951,7 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 	}
 
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT m.id, m.account_id, m.subject, m.from_name, m.from_email,
+		`SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email,
 		        m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 		        mfs.folder_id, mfs.is_read, mfs.is_starred
 		 FROM message_fts fts
@@ -1934,10 +1978,10 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 		var r emailRow
 		var dateReceived sqliteNullTime
 		var isRead, isStarred, hasAttach int
-		var subject, fromName, fromEmail, snippet, accountID string
+		var subject, fromName, fromEmail, snippet, accountID, accountColor string
 		var textPath, htmlPath sql.NullString
 
-		if err := rows.Scan(&r.msgID, &accountID, &subject, &fromName, &fromEmail,
+		if err := rows.Scan(&r.msgID, &accountID, &accountColor, &subject, &fromName, &fromEmail,
 			&dateReceived, &snippet, &hasAttach, &textPath, &htmlPath,
 			&r.email.FolderID, &isRead, &isStarred); err != nil {
 			return nil, fmt.Errorf("scan search result: %w", err)
@@ -1945,6 +1989,7 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 
 		r.email.ID = strconv.FormatInt(r.msgID, 10)
 		r.email.AccountID = accountID
+		r.email.AccountColor = accountColor
 		r.email.Subject = subject
 		r.email.From = contactFromSender(fromName, fromEmail)
 		r.email.Preview = snippet
@@ -1968,8 +2013,10 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 			msgIDs[i] = r.msgID
 		}
 		labelsMap, _ := db.batchGetLabels(ctx, msgIDs)
+		toMap, _ := db.batchGetRecipients(ctx, msgIDs, "to")
 		for i := range items {
 			items[i].email.Labels = labelsMap[items[i].msgID]
+			items[i].email.To = toMap[items[i].msgID]
 		}
 	}
 
@@ -2545,6 +2592,11 @@ func (db *DB) GetUISettings(ctx context.Context, userID string) map[string]strin
 	if err := json.Unmarshal([]byte(val), &settings); err != nil {
 		return defaultUISettings()
 	}
+	for k, v := range defaultUISettings() {
+		if settings[k] == "" {
+			settings[k] = v
+		}
+	}
 	return settings
 }
 
@@ -2558,11 +2610,14 @@ func (db *DB) SetUISettings(ctx context.Context, userID string, settings map[str
 
 func defaultUISettings() map[string]string {
 	return map[string]string{
-		"theme":                "dark",
-		"theme_style":          "classic",
-		"prefetch_on_hover":    "true",
-		"sender_display":       "name",
-		"auto_mark_read_after": "0",
+		"theme":                     "dark",
+		"theme_style":               "classic",
+		"prefetch_on_hover":         "true",
+		"sender_display":            "name",
+		"auto_mark_read_after":      "0",
+		"mail_table_columns":        "accountMarker,starred,attachment,thread,from,to,subject,date",
+		"mail_table_column_widths":  "0.8,0.8,0.8,1,3,3,5,2",
+		"sidebar_account_collapsed": "{}",
 	}
 }
 

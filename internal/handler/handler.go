@@ -887,7 +887,8 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if q == "" {
 		w.Header().Set("Content-Type", "text/html")
 		uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-		views.MailListEmails(nil, "", nil, 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
+		accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
+		views.MailListEmails(accounts, nil, "", nil, 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
 		return
 	}
 
@@ -899,7 +900,8 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-	views.MailListEmails(emails, "", nil, len(emails), uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
+	accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
+	views.MailListEmails(accounts, emails, "", nil, len(emails), uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
 }
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {

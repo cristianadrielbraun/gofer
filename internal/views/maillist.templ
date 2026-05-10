@@ -22,7 +22,7 @@ templ MailList(accounts []models.Account, emails []models.Email, activeFolder st
 		@MailListToolbar(mailListViewMode(viewMode))
 		@MailFilterAdvancedDialog(accounts)
 		<hr class="divider-etched"/>
-		@MailListEmails(emails, activeFolder, selectedEmail, totalCount, senderDisplayMode, mailListViewMode(viewMode))
+		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, senderDisplayMode, mailListViewMode(viewMode))
 	</div>
 }
 
@@ -406,16 +406,17 @@ templ MailFilterCalendarField(name string, id string, placeholder string) {
 	}
 }
 
-templ MailListEmails(emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, senderDisplayMode string, viewMode string) {
+templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, senderDisplayMode string, viewMode string) {
 	<div
 		id="mail-list-scroll"
 		class="flex-1 overflow-y-auto px-2 py-2"
 		data-total-count={ fmt.Sprintf("%d", totalCount) }
 		data-folder-id={ folderID }
 		data-view-mode={ mailListViewMode(viewMode) }
+		data-account-marker-style={ accountMarkerStyle(accounts) }
 	>
 		if mailListViewMode(viewMode) == "table" {
-			@MailListTableHeader()
+			@MailListTableHeader(accountMarkerStyle(accounts))
 		}
 		for i, email := range emails {
 			@MailListItem(email, i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode))
@@ -434,17 +435,21 @@ templ MailListItem(email models.Email, position int, selectedEmail *models.Email
 	}
 }
 
-templ MailListTableHeader() {
+templ MailListTableHeader(markerStyle string) {
 	<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
-		<div class="mail-list-table-heading flex items-center justify-start" data-mail-table-column="0" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread">
-			@icon.MessagesSquare(icon.Props{Class: "size-3"})
-			<span class="mail-list-column-resize" data-mail-table-resize="0"></span>
+		<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="Account Marker">
+			<span class="account-color-marker size-2.5" style={ markerStyle }></span><span class="mail-list-column-separator"></span>
 		</div>
-		<div class="mail-list-table-heading" data-mail-table-column="1" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="1"></span></div>
-		<div class="mail-list-table-heading" data-mail-table-column="2" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="2"></span></div>
-		<div class="mail-list-table-heading text-center" data-mail-table-column="3" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred">@icon.Star(icon.Props{Class: "size-3 mx-auto"})<span class="mail-list-column-separator"></span></div>
-		<div class="mail-list-table-heading text-center" data-mail-table-column="4" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment">@icon.Paperclip(icon.Props{Class: "size-3 mx-auto"})<span class="mail-list-column-separator"></span></div>
-		<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="5" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>
+		<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred">@icon.Star(icon.Props{Class: "size-3 mx-auto"})<span class="mail-list-column-separator"></span></div>
+		<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment">@icon.Paperclip(icon.Props{Class: "size-3 mx-auto"})<span class="mail-list-column-separator"></span></div>
+		<div class="mail-list-table-heading flex items-center justify-start" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread">
+			@icon.MessagesSquare(icon.Props{Class: "size-3"})
+			<span class="mail-list-column-resize" data-mail-table-resize="3"></span>
+		</div>
+		<div class="mail-list-table-heading" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>
+		<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">To<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>
+		<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>
+		<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>
 	</div>
 }
 
@@ -459,11 +464,13 @@ templ MailListColumnSelector() {
 			@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
 				Columns
 			}
-			@MailListColumnOption("thread", "Thread")
-			@MailListColumnOption("from", "From")
-			@MailListColumnOption("subject", "Subject")
+			@MailListColumnOption("accountMarker", "Account Marker")
 			@MailListColumnOption("starred", "Starred")
 			@MailListColumnOption("attachment", "Attachment")
+			@MailListColumnOption("thread", "Thread")
+			@MailListColumnOption("from", "From")
+			@MailListColumnOption("to", "To")
+			@MailListColumnOption("subject", "Subject")
 			@MailListColumnOption("date", "Date")
 		}
 	}
@@ -570,6 +577,23 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 				templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
 			}
 		>
+			<div class="flex items-center justify-center" data-mail-table-cell="accountMarker">
+				<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(email.AccountColor) }></span>
+			</div>
+			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="starred">
+				if email.IsStarred {
+					@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500"})
+				} else {
+					<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn" data-email-id={ email.ID }>
+						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
+					</button>
+				}
+			</div>
+			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="attachment">
+				if email.HasAttachment {
+					@icon.Paperclip(icon.Props{Class: "size-3"})
+				}
+			</div>
 			<div class="flex items-center justify-start min-w-0" data-mail-table-cell="thread">
 				if email.ThreadCount > 1 {
 					<button type="button" data-thread-toggle={ email.ID } class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
@@ -586,6 +610,13 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 					templ.KV("text-foreground/70", email.IsRead),
 				}>{ senderDisplay(email.From, senderDisplayMode) }</span>
 			</div>
+			<div class="flex items-center min-w-0" data-mail-table-cell="to">
+				<span class={
+					"truncate",
+					templ.KV("font-medium text-foreground/80", !email.IsRead),
+					templ.KV("text-foreground/55", email.IsRead),
+				}>{ contactsDisplay(email.To, senderDisplayMode) }</span>
+			</div>
 			<div class="flex items-center gap-2 min-w-0" data-mail-table-cell="subject">
 				<span class={
 					"truncate",
@@ -598,20 +629,6 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 							{ label.Name }
 						</span>
 					}
-				}
-			</div>
-			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="starred">
-				if email.IsStarred {
-					@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500"})
-				} else {
-					<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn" data-email-id={ email.ID }>
-						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
-					</button>
-				}
-			</div>
-			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="attachment">
-				if email.HasAttachment {
-					@icon.Paperclip(icon.Props{Class: "size-3"})
 				}
 			</div>
 			<div class="flex items-center justify-end shrink-0 text-muted-foreground tabular-nums" data-mail-table-cell="date">
@@ -658,6 +675,9 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 					hx-swap="innerHTML"
 					class="flex items-start gap-2.5 px-3 py-1.5 cursor-pointer transition-colors hover:bg-muted/50"
 				>
+					<div class="flex items-center justify-center shrink-0" data-mail-table-cell="accountMarker">
+						<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(item.AccountColor) }></span>
+					</div>
 					<div class={
 						"size-5 rounded-full flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5",
 						templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !item.IsRead),
@@ -672,6 +692,11 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 								templ.KV("font-medium text-foreground", !item.IsRead),
 								templ.KV("text-foreground/60", item.IsRead),
 							} data-mail-table-cell="from">{ senderDisplay(item.From, senderDisplayMode) }</span>
+							<span class={
+								"text-xs truncate",
+								templ.KV("font-medium text-foreground/75", !item.IsRead),
+								templ.KV("text-foreground/55", item.IsRead),
+							} data-mail-table-cell="to">{ contactsDisplay(item.To, senderDisplayMode) }</span>
 							<div class="flex items-center justify-center shrink-0" data-mail-table-cell="attachment">
 								if item.HasAttachment {
 									@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})

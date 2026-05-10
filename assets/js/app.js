@@ -62,20 +62,17 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupSidebarAccountCollapse() {
-    var storageKey = "gofer:sidebar_account_collapsed"
-
     function readState() {
+      var raw = window.GoferSettings ? GoferSettings.get("sidebar_account_collapsed") : null
       try {
-        return JSON.parse(localStorage.getItem(storageKey) || "{}") || {}
+        return JSON.parse(raw || "{}") || {}
       } catch (_) {
         return {}
       }
     }
 
     function writeState(state) {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(state))
-      } catch (_) {}
+      if (window.GoferSettings) GoferSettings.set("sidebar_account_collapsed", JSON.stringify(state))
     }
 
     function setCollapsed(section, collapsed) {
@@ -1025,10 +1022,10 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupMailTableColumnResize() {
-    var columnIds = ["thread", "from", "subject", "starred", "attachment", "date"]
-    var minWidths = [28, 90, 140, 32, 32, 64]
-    var fixedWidths = { starred: 24, attachment: 24 }
-    var defaultRatios = [1, 3, 5, 0.8, 0.8, 2]
+    var columnIds = ["accountMarker", "starred", "attachment", "thread", "from", "to", "subject", "date"]
+    var minWidths = [24, 32, 32, 28, 90, 90, 140, 64]
+    var fixedWidths = { accountMarker: 24, starred: 24, attachment: 24 }
+    var defaultRatios = [0.8, 0.8, 0.8, 1, 3, 3, 5, 2]
 
     function clamp(value, index) {
       return Math.max(minWidths[index], value)
@@ -1037,6 +1034,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function currentRatioSetting() {
       var raw = window.GoferSettings ? GoferSettings.get("mail_table_column_widths") : null
       var parts = raw ? String(raw).split(",") : []
+      if (parts.length !== columnIds.length) parts = []
       var values = []
       for (var i = 0; i < columnIds.length; i++) {
         var n = parseFloat(parts[i])
@@ -1067,7 +1065,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (cells[i].offsetParent === null) continue
         var id = cells[i].dataset.mailTableColumnId
         var index = columnIds.indexOf(id)
-        if (index === -1 || fixedWidths[id]) continue
+        if (index === -1) continue
         widths.push(clamp(Math.round(cells[i].getBoundingClientRect().width), index))
         ids.push(id)
       }
@@ -1098,6 +1096,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var cell = handle.closest("[data-mail-table-column-id]")
       var visibleIndex = cell ? state.ids.indexOf(cell.dataset.mailTableColumnId) : -1
       if (visibleIndex < 0 || visibleIndex >= state.widths.length - 1) return
+      if (fixedWidths[state.ids[visibleIndex]] || fixedWidths[state.ids[visibleIndex + 1]]) return
 
       var startX = e.clientX
       var widths = state.widths.slice()

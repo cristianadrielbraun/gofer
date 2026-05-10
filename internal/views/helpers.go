@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"gofer.email/internal/models"
+	"math/rand"
 
 	"github.com/a-h/templ"
 )
@@ -55,6 +56,17 @@ func uiSettingGet(settings map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func sidebarAccountCollapsed(settings map[string]string, accountID string, active bool) bool {
+	if active {
+		return false
+	}
+	var state map[string]bool
+	if err := json.Unmarshal([]byte(uiSettingGet(settings, "sidebar_account_collapsed", "{}")), &state); err != nil {
+		return false
+	}
+	return state[accountID]
 }
 
 func accountHasActiveFolder(account models.Account, activeFolder string) bool {
@@ -169,6 +181,16 @@ func senderDisplay(contact models.Contact, mode string) string {
 	}
 }
 
+func contactsDisplay(contacts []models.Contact, mode string) string {
+	if len(contacts) == 0 {
+		return ""
+	}
+	if len(contacts) == 1 {
+		return senderDisplay(contacts[0], mode)
+	}
+	return fmt.Sprintf("%s +%d", senderDisplay(contacts[0], mode), len(contacts)-1)
+}
+
 func senderDisplaySettingLabel(mode string) string {
 	switch mode {
 	case "email":
@@ -216,6 +238,48 @@ func accountColorStyle(color string) string {
 		color = "#8b5cf6"
 	}
 	return "background-color: " + color
+}
+
+func accountMarkerStyle(accounts []models.Account) string {
+	colors := make([]string, 0, len(accounts))
+	seen := map[string]bool{}
+	for _, account := range accounts {
+		color := account.Color
+		if color == "" {
+			color = "#8b5cf6"
+		}
+		if seen[color] {
+			continue
+		}
+		seen[color] = true
+		colors = append(colors, color)
+	}
+	if len(colors) == 0 {
+		return "background-color: #8b5cf6"
+	}
+	if len(colors) > 3 {
+		rand.Shuffle(len(colors), func(i, j int) {
+			colors[i], colors[j] = colors[j], colors[i]
+		})
+		colors = colors[:3]
+	}
+	if len(colors) == 1 {
+		return "background-color: " + colors[0]
+	}
+	step := 360 / len(colors)
+	style := "background: conic-gradient("
+	for i, color := range colors {
+		if i > 0 {
+			style += ", "
+		}
+		start := i * step
+		end := (i + 1) * step
+		if i == len(colors)-1 {
+			end = 360
+		}
+		style += fmt.Sprintf("%s %ddeg %ddeg", color, start, end)
+	}
+	return style + ")"
 }
 
 func sidebarFolderHref(folderID, accountID string) templ.SafeURL {
