@@ -13,6 +13,8 @@ It is very much a work in progress. Stuff is missing, some things are messy, and
 
 Right now it is a Go app with templ views, HTMX-ish interactions, SQLite storage, and IMAP/SMTP support. The idea is to have a fast local mail client that stores mail locally and talks directly to normal mail servers.
 
+A bunch of the UI bits are built with [templUI](https://templui.io). I recommend you to check it out.
+
 ## current state
 
 Some things work:
