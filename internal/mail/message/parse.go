@@ -90,19 +90,19 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 	}
 
 	if fromList, err := header.AddressList("From"); err == nil && len(fromList) > 0 {
-		parsed.FromName = fromList[0].Name
+		parsed.FromName = DecodeHeader(fromList[0].Name)
 		parsed.FromEmail = fromList[0].Address
 	}
 
 	if toList, err := header.AddressList("To"); err == nil {
 		for _, addr := range toList {
-			parsed.To = append(parsed.To, Recipient{Name: addr.Name, Email: addr.Address})
+			parsed.To = append(parsed.To, Recipient{Name: DecodeHeader(addr.Name), Email: addr.Address})
 		}
 	}
 
 	if ccList, err := header.AddressList("Cc"); err == nil {
 		for _, addr := range ccList {
-			parsed.CC = append(parsed.CC, Recipient{Name: addr.Name, Email: addr.Address})
+			parsed.CC = append(parsed.CC, Recipient{Name: DecodeHeader(addr.Name), Email: addr.Address})
 		}
 	}
 

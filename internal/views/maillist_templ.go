@@ -651,7 +651,7 @@ func MailListToolbar(viewMode string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"h-5 w-px bg-border/70 mx-1\"></div><div class=\"relative inline-flex rounded-lg border border-border bg-background p-0.5 gap-0.5\" data-mail-list-view-toggle><div data-mail-list-view-indicator class=\"absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out\" style=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"h-5 w-px bg-border/70 mx-1\"></div><div class=\"relative inline-flex h-7 rounded-lg border border-border bg-background p-0.5 gap-0.5\" data-mail-list-view-toggle><div data-mail-list-view-indicator class=\"absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out\" style=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -668,7 +668,7 @@ func MailListToolbar(viewMode string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var29 = []any{"relative z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
+		var templ_7745c5c3_Var29 = []any{"relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
 			templ.KV("text-foreground", viewMode == "cards"),
 			templ.KV("text-muted-foreground hover:text-foreground", viewMode != "cards"),
 		}
@@ -701,7 +701,7 @@ func MailListToolbar(viewMode string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var31 = []any{"relative z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
+		var templ_7745c5c3_Var31 = []any{"relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
 			templ.KV("text-foreground", viewMode == "table"),
 			templ.KV("text-muted-foreground hover:text-foreground", viewMode != "table"),
 		}

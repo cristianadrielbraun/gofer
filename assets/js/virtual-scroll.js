@@ -372,7 +372,25 @@ class VirtualMailList {
 
   createSkeleton() {
     var row = document.createElement("div")
-    row.className = "mail-list-skeleton"
+    row.className = "mail-list-skeleton" + (this.viewMode === "table" ? " mail-list-table-skeleton" : "")
+    if (this.viewMode === "table") {
+      row.innerHTML =
+        '<div class="grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 w-full px-3 py-1.5">' +
+        '<div class="flex items-center gap-2 min-w-0">' +
+        '<div class="size-2 rounded-full bg-muted animate-pulse shrink-0"></div>' +
+        '<div class="h-3 w-24 rounded bg-muted animate-pulse"></div>' +
+        "</div>" +
+        '<div class="flex items-center gap-2 min-w-0">' +
+        '<div class="h-3 w-40 rounded bg-muted animate-pulse"></div>' +
+        '<div class="hidden xl:block h-3 w-28 rounded bg-muted animate-pulse"></div>' +
+        "</div>" +
+        '<div class="flex items-center justify-end gap-1.5 shrink-0">' +
+        '<div class="h-3 w-3 rounded bg-muted animate-pulse"></div>' +
+        '<div class="h-3 w-12 rounded bg-muted animate-pulse"></div>' +
+        "</div>" +
+        "</div>"
+      return row
+    }
     row.innerHTML =
       '<div class="flex items-center gap-1.5 pt-0.5 shrink-0">' +
       '<div class="h-3.5 w-3.5 rounded bg-muted animate-pulse"></div>' +

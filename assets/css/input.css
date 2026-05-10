@@ -279,7 +279,22 @@ html[data-theme="minimal"] .account-color-marker {
   height: 44px;
   min-height: 44px;
   max-height: 44px;
-  padding: 2px 0;
+  padding: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+[data-view-mode="table"] .mail-list-item > a {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-view-mode="table"] .mail-list-item > a:hover {
+  background: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+}
+
+[data-view-mode="table"] .mail-list-item > a.envelope-active {
+  background: var(--color-accent);
 }
 
 [data-view-mode="table"] {
@@ -375,6 +390,20 @@ html[data-theme="minimal"] .account-color-marker {
   border: 1px solid color-mix(in srgb, var(--color-foreground) 14%, transparent);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--color-foreground) 4%, var(--color-card));
+}
+
+.mail-list-table-skeleton {
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 0;
+  background: transparent;
 }
 
 .mail-list-skeleton .bg-muted {
