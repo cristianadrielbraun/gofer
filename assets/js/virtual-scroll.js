@@ -388,17 +388,22 @@ class VirtualMailList {
     row.className = "mail-list-skeleton" + (this.viewMode === "table" ? " mail-list-table-skeleton" : "")
     if (this.viewMode === "table") {
       row.innerHTML =
-        '<div class="grid grid-cols-[minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 w-full px-3 py-1.5">' +
-        '<div class="flex items-center gap-2 min-w-0">' +
-        '<div class="size-2 rounded-full bg-muted animate-pulse shrink-0"></div>' +
+        '<div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5">' +
+        '<div data-mail-table-cell="thread"></div>' +
+        '<div class="flex items-center min-w-0" data-mail-table-cell="from">' +
         '<div class="h-3 w-24 rounded bg-muted animate-pulse"></div>' +
         "</div>" +
-        '<div class="flex items-center gap-2 min-w-0">' +
+        '<div class="flex items-center gap-2 min-w-0" data-mail-table-cell="subject">' +
         '<div class="h-3 w-40 rounded bg-muted animate-pulse"></div>' +
         '<div class="hidden xl:block h-3 w-28 rounded bg-muted animate-pulse"></div>' +
         "</div>" +
-        '<div class="flex items-center justify-end gap-1.5 shrink-0">' +
+        '<div class="flex items-center justify-center shrink-0" data-mail-table-cell="starred">' +
         '<div class="h-3 w-3 rounded bg-muted animate-pulse"></div>' +
+        "</div>" +
+        '<div class="flex items-center justify-center shrink-0" data-mail-table-cell="attachment">' +
+        '<div class="h-3 w-3 rounded bg-muted animate-pulse"></div>' +
+        "</div>" +
+        '<div class="flex items-center justify-end shrink-0" data-mail-table-cell="date">' +
         '<div class="h-3 w-12 rounded bg-muted animate-pulse"></div>' +
         "</div>" +
         "</div>"
@@ -766,9 +771,18 @@ class VirtualMailList {
     if (this.viewMode !== "table") return
 
     var header = document.createElement("div")
-    header.className = "mail-list-table-header grid grid-cols-[1.75rem_minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
-    header.innerHTML = '<div class="flex items-center justify-start" title="Thread"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"></path><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"></path></svg></div><div>From</div><div>Subject</div><div class="min-w-12 text-right">Date</div>'
+    header.className = "mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
+    header.innerHTML = this.tableHeaderHTML()
     this.container.insertBefore(header, this.spacerTop)
+  }
+
+  tableHeaderHTML() {
+    return '<div class="mail-list-table-heading flex items-center justify-start" data-mail-table-column="0" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"></path><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"></path></svg><span class="mail-list-column-resize" data-mail-table-resize="0"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="1" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="1"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="2" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="2"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="3" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 mx-auto"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.751a.53.53 0 0 1 .294.904l-3.736 3.643a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.75a2.12 2.12 0 0 0 1.596-1.16z"/></svg><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="4" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 mx-auto"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="5" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>'
   }
 
   async switchFolder(folderID, pushState) {

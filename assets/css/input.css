@@ -305,6 +305,64 @@ html[data-theme="minimal"] .account-color-marker {
   padding-top: 0;
 }
 
+.mail-list-table-grid {
+  grid-template-columns: var(--mail-list-table-columns, 1.75rem minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) 1.5rem 1.5rem minmax(4.5rem, auto));
+}
+
+.mail-list-table-heading {
+  position: relative;
+  min-width: 0;
+}
+
+#mail-list-scroll[data-mail-table-hidden~="thread"] [data-mail-table-cell="thread"],
+#mail-list-scroll[data-mail-table-hidden~="from"] [data-mail-table-cell="from"],
+#mail-list-scroll[data-mail-table-hidden~="subject"] [data-mail-table-cell="subject"],
+#mail-list-scroll[data-mail-table-hidden~="starred"] [data-mail-table-cell="starred"],
+#mail-list-scroll[data-mail-table-hidden~="attachment"] [data-mail-table-cell="attachment"],
+#mail-list-scroll[data-mail-table-hidden~="date"] [data-mail-table-cell="date"] {
+  display: none;
+}
+
+.mail-list-column-resize {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.5rem;
+  bottom: -0.375rem;
+  width: 0.75rem;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.mail-list-column-resize::after {
+  content: "";
+  position: absolute;
+  top: 0.25rem;
+  right: 0.375rem;
+  bottom: 0.25rem;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-border) 70%, transparent);
+  transition: background-color 0.12s ease;
+}
+
+.mail-list-column-separator {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.5rem;
+  bottom: -0.375rem;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.mail-list-column-resize:hover::after,
+.mail-list-column-resize[data-resizing]::after {
+  background: color-mix(in srgb, var(--color-primary) 70%, var(--color-border));
+}
+
+body.mail-list-column-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 [data-view-mode="table"] .mail-list-table-header {
   margin-left: -0.5rem;
   margin-right: -0.5rem;
@@ -386,7 +444,7 @@ html[data-theme="minimal"] .account-color-marker {
 
 [data-view-mode="table"] .thread-sub-item a {
   display: grid;
-  grid-template-columns: 1.75rem minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) auto;
+  grid-template-columns: var(--mail-list-table-columns, 1.75rem minmax(7.5rem, 0.8fr) minmax(10rem, 1.3fr) minmax(4.5rem, auto));
   align-items: center;
   gap: 0.75rem;
   height: 100%;
@@ -427,7 +485,7 @@ html[data-theme="minimal"] .account-color-marker {
 }
 
 [data-view-mode="table"] .thread-sub-item a > .flex-1 > div:first-child > div {
-  justify-self: end;
+  justify-self: center;
 }
 
 [data-view-mode="table"] .thread-sub-item a > .w-1\.5 {

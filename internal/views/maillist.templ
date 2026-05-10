@@ -6,7 +6,6 @@ import (
 
 	"gofer.email/components/icon"
 	"gofer.email/components/button"
-	"gofer.email/components/checkbox"
 	"gofer.email/components/tooltip"
 	"gofer.email/components/dropdown"
 )
@@ -45,23 +44,6 @@ templ MailListHeader(activeFolder string, totalCount int) {
 						Refresh
 					}
 				}
-				@tooltip.Tooltip() {
-					@tooltip.Trigger() {
-						@button.Button(button.Props{
-							Variant: button.VariantGhost,
-							Size:    button.SizeIcon,
-							Class:   "h-8 w-8",
-						}) {
-							@icon.ListFilter(icon.Props{Class: "size-3.5"})
-						}
-					}
-					@tooltip.Content(tooltip.ContentProps{
-						Position:  tooltip.PositionBottom,
-						ShowArrow: true,
-					}) {
-						Filter
-					}
-				}
 			</div>
 		</div>
 		<div class="relative groove rounded-lg">
@@ -83,9 +65,23 @@ templ MailListHeader(activeFolder string, totalCount int) {
 
 templ MailListToolbar(viewMode string) {
 	<div class="flex items-center gap-1 px-4 py-1.5">
-		@checkbox.Checkbox(checkbox.Props{
-			Class: "h-3.5 w-3.5",
-		})
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeIcon,
+					Class:   "h-7 w-7",
+				}) {
+					@icon.ListFilter(icon.Props{Class: "size-3.5"})
+				}
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Filter
+			}
+		}
 		<div class="flex-1"></div>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
@@ -172,6 +168,7 @@ templ MailListToolbar(viewMode string) {
 				Table
 			</button>
 		</div>
+		@MailListColumnSelector()
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
 				@button.Button(button.Props{
@@ -236,14 +233,47 @@ templ MailListItem(email models.Email, position int, selectedEmail *models.Email
 }
 
 templ MailListTableHeader() {
-	<div class="mail-list-table-header grid grid-cols-[1.75rem_minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
-		<div class="flex items-center justify-start" title="Thread">
+	<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
+		<div class="mail-list-table-heading flex items-center justify-start" data-mail-table-column="0" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread">
 			@icon.MessagesSquare(icon.Props{Class: "size-3"})
+			<span class="mail-list-column-resize" data-mail-table-resize="0"></span>
 		</div>
-		<div>From</div>
-		<div>Subject</div>
-		<div class="min-w-12 text-right">Date</div>
+		<div class="mail-list-table-heading" data-mail-table-column="1" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="1"></span></div>
+		<div class="mail-list-table-heading" data-mail-table-column="2" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="2"></span></div>
+		<div class="mail-list-table-heading text-center" data-mail-table-column="3" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred">@icon.Star(icon.Props{Class: "size-3 mx-auto"})<span class="mail-list-column-separator"></span></div>
+		<div class="mail-list-table-heading text-center" data-mail-table-column="4" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment">@icon.Paperclip(icon.Props{Class: "size-3 mx-auto"})<span class="mail-list-column-separator"></span></div>
+		<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="5" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>
 	</div>
+}
+
+templ MailListColumnSelector() {
+	@dropdown.Dropdown() {
+		@dropdown.Trigger(dropdown.TriggerProps{Attributes: templ.Attributes{"data-mail-table-column-menu-button": ""}}) {
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-7 w-7", Attributes: templ.Attributes{"aria-label": "Choose table columns"}}) {
+				@icon.Settings(icon.Props{Class: "size-3.5"})
+			}
+		}
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "normal-case tracking-normal", Attributes: templ.Attributes{"data-mail-table-column-menu": ""}}) {
+			@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
+				Columns
+			}
+			@MailListColumnOption("thread", "Thread")
+			@MailListColumnOption("from", "From")
+			@MailListColumnOption("subject", "Subject")
+			@MailListColumnOption("starred", "Starred")
+			@MailListColumnOption("attachment", "Attachment")
+			@MailListColumnOption("date", "Date")
+		}
+	}
+}
+
+templ MailListColumnOption(value string, label string) {
+	@dropdown.Item(dropdown.ItemProps{PreventClose: true, Class: "gap-2", Attributes: templ.Attributes{"data-mail-table-column-item": value}}) {
+		<span class="w-4 shrink-0 text-primary opacity-0" data-mail-table-column-check={ value }>
+			@icon.Check(icon.Props{Class: "size-4"})
+		</span>
+		<span class="flex-1 text-left">{ label }</span>
+	}
 }
 
 templ MailListCardItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
@@ -333,12 +363,12 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 			hx-target="#mail-view"
 			hx-swap="innerHTML"
 			class={
-				"grid grid-cols-[1.75rem_minmax(7.5rem,0.8fr)_minmax(10rem,1.3fr)_auto] items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-all duration-150 group text-xs",
+				"mail-list-table-grid grid items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-all duration-150 group text-xs",
 				templ.KV("envelope-active", selectedEmail != nil && selectedEmail.ID == email.ID),
 				templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
 			}
 		>
-			<div class="flex items-center justify-start min-w-0">
+			<div class="flex items-center justify-start min-w-0" data-mail-table-cell="thread">
 				if email.ThreadCount > 1 {
 					<button type="button" data-thread-toggle={ email.ID } class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
 						@icon.MessagesSquare(icon.Props{Class: "size-3"})
@@ -347,25 +377,19 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 					</button>
 				}
 			</div>
-			<div class="flex items-center gap-2 min-w-0">
-				<div class={
-					"size-2 rounded-full shrink-0",
-					templ.KV("bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]", !email.IsRead),
-					templ.KV("bg-transparent", email.IsRead),
-				}></div>
+			<div class="flex items-center min-w-0" data-mail-table-cell="from">
 				<span class={
 					"truncate",
 					templ.KV("font-semibold text-foreground", !email.IsRead),
 					templ.KV("text-foreground/70", email.IsRead),
 				}>{ senderDisplay(email.From, senderDisplayMode) }</span>
 			</div>
-			<div class="flex items-center gap-2 min-w-0">
+			<div class="flex items-center gap-2 min-w-0" data-mail-table-cell="subject">
 				<span class={
 					"truncate",
 					templ.KV("font-medium text-foreground", !email.IsRead),
 					templ.KV("text-foreground/65", email.IsRead),
 				}>{ email.Subject }</span>
-				<span class="hidden xl:inline text-muted-foreground truncate">{ email.Preview }</span>
 				if len(email.Labels) > 0 {
 					for _, label := range email.Labels {
 						<span class={ "hidden xl:inline text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0", label.Color }>
@@ -374,10 +398,7 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 					}
 				}
 			</div>
-			<div class="flex items-center justify-end gap-1.5 shrink-0 text-muted-foreground tabular-nums">
-				if email.HasAttachment {
-					@icon.Paperclip(icon.Props{Class: "size-3"})
-				}
+			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="starred">
 				if email.IsStarred {
 					@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500"})
 				} else {
@@ -385,6 +406,13 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
 					</button>
 				}
+			</div>
+			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="attachment">
+				if email.HasAttachment {
+					@icon.Paperclip(icon.Props{Class: "size-3"})
+				}
+			</div>
+			<div class="flex items-center justify-end shrink-0 text-muted-foreground tabular-nums" data-mail-table-cell="date">
 				<span class={ templ.Classes("min-w-12 text-right", templ.KV("text-primary font-medium", !email.IsRead)) }>{ email.Date }</span>
 			</div>
 		</a>
@@ -432,7 +460,7 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 						"size-5 rounded-full flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5",
 						templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !item.IsRead),
 						templ.KV("bg-muted text-muted-foreground", item.IsRead),
-					}>
+					} data-mail-table-cell="thread">
 						{ item.From.Initials }
 					</div>
 					<div class="flex-1 min-w-0">
@@ -441,12 +469,13 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 								"text-xs truncate",
 								templ.KV("font-medium text-foreground", !item.IsRead),
 								templ.KV("text-foreground/60", item.IsRead),
-							}>{ senderDisplay(item.From, senderDisplayMode) }</span>
-							<div class="flex items-center gap-1.5 shrink-0">
+							} data-mail-table-cell="from">{ senderDisplay(item.From, senderDisplayMode) }</span>
+							<div class="flex items-center justify-center shrink-0" data-mail-table-cell="attachment">
 								if item.HasAttachment {
 									@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
 								}
-								<span class="text-[11px] text-muted-foreground tabular-nums">{ item.Date }</span>
+							</div>
+							<div class="flex items-center justify-center shrink-0" data-mail-table-cell="starred">
 								if item.IsStarred {
 									@icon.Star(icon.Props{Class: "size-3 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
 								} else {
@@ -455,8 +484,11 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 									</button>
 								}
 							</div>
+							<div class="flex items-center gap-1.5 shrink-0" data-mail-table-cell="date">
+								<span class="text-[11px] text-muted-foreground tabular-nums">{ item.Date }</span>
+							</div>
 						</div>
-						<p class="text-[11px] text-muted-foreground truncate leading-relaxed">{ item.Preview }</p>
+						<p class="text-[11px] text-muted-foreground truncate leading-relaxed" data-mail-table-cell="subject">{ item.Preview }</p>
 					</div>
 					if !item.IsRead {
 						<div class="w-1.5 h-1.5 rounded-full bg-primary shrink-0"></div>

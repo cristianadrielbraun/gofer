@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupFolderClickInterception()
   setupEmailSelectionTracking()
   setupMailListViewToggle()
+  setupMailTableColumnResize()
   setupSSE()
   setupMailListActions()
   setupSidebarAccountCollapse()
@@ -705,6 +706,155 @@ document.addEventListener("DOMContentLoaded", function () {
         vml.switchViewMode(mode).catch(function () {})
       }
     })
+  }
+
+  function setupMailTableColumnResize() {
+    var columnIds = ["thread", "from", "subject", "starred", "attachment", "date"]
+    var minWidths = [28, 90, 140, 32, 32, 64]
+    var fixedWidths = { starred: 24, attachment: 24 }
+    var defaultRatios = [1, 3, 5, 0.8, 0.8, 2]
+
+    function clamp(value, index) {
+      return Math.max(minWidths[index], value)
+    }
+
+    function currentRatioSetting() {
+      var raw = window.GoferSettings ? GoferSettings.get("mail_table_column_widths") : null
+      var parts = raw ? String(raw).split(",") : []
+      var values = []
+      for (var i = 0; i < columnIds.length; i++) {
+        var n = parseFloat(parts[i])
+        values.push(isNaN(n) || n <= 0 ? defaultRatios[i] : n)
+      }
+      return values
+    }
+
+    function widthSetting(widths, ids) {
+      var values = currentRatioSetting()
+      var total = 0
+      for (var i = 0; i < widths.length; i++) {
+        if (!fixedWidths[ids[i]]) total += widths[i]
+      }
+      if (total <= 0) return values.join(",")
+      for (var j = 0; j < ids.length; j++) {
+        var index = columnIds.indexOf(ids[j])
+        if (index !== -1 && !fixedWidths[ids[j]]) values[index] = widths[j] / total
+      }
+      return values.map(function (value) { return value.toFixed(5) }).join(",")
+    }
+
+    function currentWidths(header) {
+      var cells = header.querySelectorAll("[data-mail-table-column-id]")
+      var widths = []
+      var ids = []
+      for (var i = 0; i < cells.length; i++) {
+        if (cells[i].offsetParent === null) continue
+        var id = cells[i].dataset.mailTableColumnId
+        var index = columnIds.indexOf(id)
+        if (index === -1 || fixedWidths[id]) continue
+        widths.push(clamp(Math.round(cells[i].getBoundingClientRect().width), index))
+        ids.push(id)
+      }
+      return widths.length > 1 ? { ids: ids, widths: widths } : null
+    }
+
+    function applyWidths(widths, ids, scroll) {
+      var value = widthSetting(widths, ids)
+      if (typeof window.applyMailTableColumnWidths === "function") {
+        window.applyMailTableColumnWidths(value, scroll)
+      } else if (scroll) {
+        scroll.style.setProperty("--mail-list-table-columns", widths.map(function (w) { return w + "px" }).join(" "))
+      }
+    }
+
+    document.body.addEventListener("pointerdown", function (e) {
+      var handle = e.target.closest("[data-mail-table-resize]")
+      if (!handle) return
+      var header = handle.closest(".mail-list-table-header")
+      var scroll = header && header.closest("#mail-list-scroll")
+      if (!header || !scroll) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      var state = currentWidths(header)
+      if (!state) return
+      var cell = handle.closest("[data-mail-table-column-id]")
+      var visibleIndex = cell ? state.ids.indexOf(cell.dataset.mailTableColumnId) : -1
+      if (visibleIndex < 0 || visibleIndex >= state.widths.length - 1) return
+
+      var startX = e.clientX
+      var widths = state.widths.slice()
+      var startLeft = widths[visibleIndex]
+      var startRight = widths[visibleIndex + 1]
+      var leftIndex = columnIds.indexOf(state.ids[visibleIndex])
+      var rightIndex = columnIds.indexOf(state.ids[visibleIndex + 1])
+      document.body.classList.add("mail-list-column-resizing")
+      handle.setAttribute("data-resizing", "")
+      if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId)
+
+      function onMove(moveEvent) {
+        var delta = moveEvent.clientX - startX
+        var nextLeft = clamp(startLeft + delta, leftIndex)
+        var consumed = nextLeft - startLeft
+        var nextRight = clamp(startRight - consumed, rightIndex)
+        if (nextRight !== startRight - consumed) {
+          nextLeft = clamp(startLeft + (startRight - nextRight), leftIndex)
+        }
+        widths[visibleIndex] = nextLeft
+        widths[visibleIndex + 1] = nextRight
+        applyWidths(widths, state.ids, scroll)
+      }
+
+      function onUp() {
+        document.removeEventListener("pointermove", onMove)
+        document.removeEventListener("pointerup", onUp)
+        document.body.classList.remove("mail-list-column-resizing")
+        handle.removeAttribute("data-resizing")
+        if (window.GoferSettings) GoferSettings.set("mail_table_column_widths", widthSetting(widths, state.ids))
+      }
+
+      document.addEventListener("pointermove", onMove)
+      document.addEventListener("pointerup", onUp)
+    })
+
+    document.body.addEventListener("click", function (e) {
+      var button = e.target.closest("[data-mail-table-column-menu-button]")
+      if (button) {
+        var root = button.closest("[data-tui-popover-root]")
+        var menu = root && root.querySelector("[data-mail-table-column-menu]")
+        if (menu) syncColumnMenu(menu)
+        return
+      }
+
+      var item = e.target.closest("[data-mail-table-column-item]")
+      if (item) {
+        var menuPanel = item.closest("[data-mail-table-column-menu]")
+        if (!menuPanel) return
+        var selected = typeof window.getMailTableColumns === "function" ? window.getMailTableColumns().slice() : columnIds.slice()
+        var id = item.dataset.mailTableColumnItem
+        var index = selected.indexOf(id)
+        if (index === -1) {
+          selected.push(id)
+        } else if (selected.length > 1) {
+          selected.splice(index, 1)
+        } else {
+          return
+        }
+        selected.sort(function (a, b) { return columnIds.indexOf(a) - columnIds.indexOf(b) })
+        if (window.GoferSettings) GoferSettings.set("mail_table_columns", selected.join(","))
+        syncColumnMenu(menuPanel)
+      }
+    })
+
+    function syncColumnMenu(menu) {
+      var selected = typeof window.getMailTableColumns === "function" ? window.getMailTableColumns() : columnIds
+      for (var i = 0; i < columnIds.length; i++) {
+        var check = menu.querySelector('[data-mail-table-column-check="' + columnIds[i] + '"]')
+        if (check) check.classList.toggle("opacity-0", selected.indexOf(columnIds[i]) === -1)
+      }
+    }
+
   }
 
   function scheduleAutoMarkRead(emailId, trigger) {
