@@ -153,8 +153,12 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
-	totalCount, _ := h.db.GetFolderEmailCountForUser(ctx, h.userID(ctx), folderID)
+	if emailID == "" {
+		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, h.userID(ctx)), nil).Render(ctx, w)
+		return
+	}
 
+	totalCount, _ := h.db.GetFolderEmailCountForUser(ctx, h.userID(ctx), folderID)
 	page, _ := h.db.GetEmailsRangeForUser(ctx, h.userID(ctx), folderID, 0, 50)
 	var emails []models.Email
 	if page != nil {
@@ -699,6 +703,11 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	if r.Header.Get("HX-Request") != "true" {
+		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, h.userID(ctx)), nil).Render(ctx, w)
+		return
+	}
+
 	totalCount, _ := h.db.GetFolderEmailCountForUser(ctx, h.userID(ctx), folderID)
 
 	page, _ := h.db.GetEmailsRangeForUser(ctx, h.userID(ctx), folderID, 0, 50)
@@ -710,13 +719,8 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	var selectedEmail *models.Email
 	var selectedThread []models.ThreadItem
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html")
-		views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, h.userID(ctx))).Render(ctx, w)
-		return
-	}
-
-	views.Layout(accounts, folderID, emails, selectedEmail, totalCount, h.db.GetUISettings(ctx, h.userID(ctx)), selectedThread).Render(ctx, w)
+	w.Header().Set("Content-Type", "text/html")
+	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, h.userID(ctx))).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {

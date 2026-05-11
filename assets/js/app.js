@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var prefetchedBodies = Object.create(null)
   var autoMarkReadTimer = null
   var autoMarkReadEmailId = null
+  var suppressEmailUrlPushFor = null
 
   initVirtualScroll()
   setupFolderClickInterception()
@@ -26,6 +27,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupProcessingStatus()
   setupBodyPrefetch()
   setupEmailBodyModeTabs()
+  refreshSidebarUnread()
 
   function setupEmailBodyModeTabs() {
     document.addEventListener("click", function (e) {
@@ -866,7 +868,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 badge.dataset.folderUnread = id
                 badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground/80"
                 badge.textContent = String(counts[id])
-                link.insertBefore(badge, link.firstChild.nextSibling ? link.firstChild.nextSibling : null)
+                link.appendChild(badge)
               }
             }
           }
@@ -880,6 +882,8 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!container) return
 
     var folderID = container.dataset.folderId || "inbox"
+    if (loadInitialFolderContent(container, folderID)) return
+
     virtualMailList = new VirtualMailList(container, { folderID: folderID, viewMode: container.dataset.viewMode || "cards" })
     virtualMailList.hydrateFromDOM()
     container._virtualMailList = virtualMailList
@@ -904,6 +908,18 @@ document.addEventListener("DOMContentLoaded", function () {
     history.replaceState({ folder: folderID, email: selectedId || null }, "", path)
   }
 
+  function loadInitialFolderContent(container, folderID) {
+    if (!container || !container.hasAttribute("data-load-folder")) return false
+    container.removeAttribute("data-load-folder")
+    if (window.location.pathname !== "/folder/" + folderID) {
+      history.replaceState({ folder: folderID, email: null }, "", "/folder/" + folderID)
+    }
+    if (typeof htmx !== "undefined") {
+      htmx.ajax("GET", "/folder/" + folderID + "/full", {target: "#main-content", swap: "outerHTML"})
+    }
+    return true
+  }
+
   function autoloadFirstEmail(container) {
     if (!container || !container.hasAttribute("data-autoload-first-email")) return
     container.removeAttribute("data-autoload-first-email")
@@ -916,6 +932,7 @@ document.addEventListener("DOMContentLoaded", function () {
       virtualMailList.pushUrl()
     }
     if (typeof showMailViewLoading === "function") showMailViewLoading()
+    suppressEmailUrlPushFor = first.dataset.emailId
     htmx.ajax("GET", "/email/" + first.dataset.emailId, "#mail-view")
   }
 
@@ -1041,7 +1058,15 @@ document.addEventListener("DOMContentLoaded", function () {
 		evt.detail.pathInfo.requestPath.startsWith("/email/")
 	  ) {
 		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
-		if (virtualMailList) virtualMailList.onEmailSelected(emailId)
+		if (virtualMailList) {
+		  if (suppressEmailUrlPushFor === emailId) {
+		    suppressEmailUrlPushFor = null
+		    virtualMailList.selectedEmailId = emailId
+		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+		  } else {
+		    virtualMailList.onEmailSelected(emailId)
+		  }
+		}
 		scheduleAutoMarkRead(emailId, evt.detail.elt)
 	  }
 	})

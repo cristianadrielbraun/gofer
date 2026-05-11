@@ -31,7 +31,11 @@ templ MailListHeader(activeFolder string, totalCount int) {
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2">
 				<h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ folderDisplayName(activeFolder) }</h2>
-				<span id="mail-folder-count" class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+				if totalCount >= 0 {
+					<span id="mail-folder-count" class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+				} else {
+					<span id="mail-folder-count" class="h-5 w-10 rounded-full bg-muted animate-pulse"></span>
+				}
 			</div>
 			<div class="flex items-center gap-0.5">
 				@tooltip.Tooltip() {
@@ -415,15 +419,25 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 		data-view-mode={ mailListViewMode(viewMode) }
 		data-account-marker-style={ accountMarkerStyle(accounts) }
 		data-autoload-first-email?={ selectedEmail == nil && len(emails) > 0 }
+		data-load-folder?={ totalCount < 0 }
 	>
-		if mailListViewMode(viewMode) == "table" {
+		if totalCount < 0 {
+			<div class="flex h-full items-center justify-center">
+				<div class="flex items-center gap-2 text-sm text-muted-foreground">
+					<div class="size-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>
+					<span>Loading content...</span>
+				</div>
+			</div>
+		} else if mailListViewMode(viewMode) == "table" {
 			@MailListTableHeader(accountMarkerStyle(accounts))
 		}
-		for i, email := range emails {
-			@MailListItem(email, i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode))
-		}
-		if len(emails) == 0 {
-			@MailListEmpty()
+		if totalCount >= 0 {
+			for i, email := range emails {
+				@MailListItem(email, i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode))
+			}
+			if len(emails) == 0 {
+				@MailListEmpty()
+			}
 		}
 	</div>
 }

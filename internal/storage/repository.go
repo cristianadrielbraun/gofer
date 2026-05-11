@@ -931,16 +931,17 @@ func (db *DB) GetAllFolderUnreadCounts(ctx context.Context, userID string) (map[
 		result[role] = count
 	}
 
-	var starred int
+	var starredUnread int
 	if err := db.Read().QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT m.id)
 		 FROM message_folder_state mfs
 		 JOIN messages m ON mfs.message_id = m.id
 		 JOIN accounts a ON m.account_id = a.id
-		 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0`, userID).Scan(&starred); err != nil {
+		 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_read = 0 AND mfs.is_deleted = 0`, userID).Scan(&starredUnread); err != nil {
 		return nil, err
 	}
-	result["starred"] = starred
+	result["starred"] = starredUnread
+
 	return result, nil
 }
 
