@@ -477,6 +477,8 @@ func (db *DB) updateThreadAggregatesTx(ctx context.Context, tx *sql.Tx, threadID
 }
 
 func (db *DB) EnsureThreading(ctx context.Context) error {
+	const batchSize = 500
+
 	log.Printf("storage: EnsureThreading started")
 	var needs int
 	if err := db.Read().QueryRowContext(ctx,
@@ -492,13 +494,7 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 	}
 	log.Printf("storage: EnsureThreading backfill required")
 
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	rows, err := tx.QueryContext(ctx,
+	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id, account_id, internet_message_id, in_reply_to, "references", subject, date_received
 		 FROM messages ORDER BY date_received ASC, id ASC`)
 	if err != nil {
@@ -523,37 +519,66 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 		}
 		messages = append(messages, r)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
 	rows.Close()
 	log.Printf("storage: EnsureThreading loaded %d message(s)", len(messages))
 	db.SetThreadingState(ThreadingState{InProgress: true, Processed: 0, Total: len(messages)})
 
-	for i, m := range messages {
-		messageID := mailmessage.NormalizeMessageID(m.msgID)
-		if messageID == "" {
-			messageID = fmt.Sprintf("local-%d@gofer.local", m.id)
+	for start := 0; start < len(messages); start += batchSize {
+		end := start + batchSize
+		if end > len(messages) {
+			end = len(messages)
 		}
-		inReplyTo := ""
-		if ids := mailmessage.ParseMessageIDs(m.inReplyTo); len(ids) > 0 {
-			inReplyTo = ids[0]
-		}
-		sentAt := time.Now().UTC()
-		if m.sentAt.Valid {
-			if parsed, ok := parseSQLiteDateTime(m.sentAt.String); ok {
-				sentAt = parsed
-			}
-		}
-		if err := db.reconcileMessageThreadTx(ctx, tx, m.id, m.accountID, messageID, inReplyTo, m.refs, m.subject, sentAt); err != nil {
+
+		tx, err := db.Write().BeginTx(ctx, nil)
+		if err != nil {
 			return err
 		}
-		if (i+1)%1000 == 0 {
-			db.SetThreadingState(ThreadingState{InProgress: true, Processed: i + 1, Total: len(messages)})
-			log.Printf("storage: EnsureThreading processed %d/%d", i+1, len(messages))
+
+		for i := start; i < end; i++ {
+			var m row
+			err := tx.QueryRowContext(ctx,
+				`SELECT id, account_id, internet_message_id, in_reply_to, "references", subject, date_received
+				 FROM messages WHERE id = ?`, messages[i].id,
+			).Scan(&m.id, &m.accountID, &m.msgID, &m.inReplyTo, &m.refs, &m.subject, &m.sentAt)
+			if err == sql.ErrNoRows {
+				continue
+			}
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+			messageID := mailmessage.NormalizeMessageID(m.msgID)
+			if messageID == "" {
+				messageID = fmt.Sprintf("local-%d@gofer.local", m.id)
+			}
+			inReplyTo := ""
+			if ids := mailmessage.ParseMessageIDs(m.inReplyTo); len(ids) > 0 {
+				inReplyTo = ids[0]
+			}
+			sentAt := time.Now().UTC()
+			if m.sentAt.Valid {
+				if parsed, ok := parseSQLiteDateTime(m.sentAt.String); ok {
+					sentAt = parsed
+				}
+			}
+			if err := db.reconcileMessageThreadTx(ctx, tx, m.id, m.accountID, messageID, inReplyTo, m.refs, m.subject, sentAt); err != nil {
+				tx.Rollback()
+				return err
+			}
 		}
+
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+
+		db.SetThreadingState(ThreadingState{InProgress: true, Processed: end, Total: len(messages)})
+		log.Printf("storage: EnsureThreading processed %d/%d", end, len(messages))
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
-	}
 	log.Printf("storage: EnsureThreading complete (%d messages)", len(messages))
 	db.SetThreadingState(ThreadingState{InProgress: false, Processed: len(messages), Total: len(messages)})
 	return nil

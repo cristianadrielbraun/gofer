@@ -253,19 +253,24 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	msgID, _ := strconv.ParseInt(emailID, 10, 64)
+	var body []byte
 	if msgID > 0 && !h.db.IsBodyFetched(ctx, msgID) {
 		info, err := h.db.GetMessageFetchInfo(ctx, msgID)
-		if err != nil || info == nil {
+		if err == nil && info != nil {
+			if parsed, err := h.fetchParsedBody(ctx, msgID, info.AccountID); err == nil {
+				body = bodyFromParsedMessage(parsed, msgID)
+				h.persistParsedBodyAsync(msgID, info.AccountID, parsed)
+			}
+		}
+	}
+
+	if body == nil {
+		var err error
+		body, err = h.db.GetEmailBody(ctx, emailID)
+		if err != nil || body == nil {
 			http.NotFound(w, r)
 			return
 		}
-		h.ensureBodyFetched(ctx, msgID, info.AccountID)
-	}
-
-	body, err := h.db.GetEmailBody(ctx, emailID)
-	if err != nil || body == nil {
-		http.NotFound(w, r)
-		return
 	}
 
 	theme := r.URL.Query().Get("theme")
@@ -511,6 +516,30 @@ func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor s
 	return []byte(doc)
 }
 
+func bodyFromParsedMessage(parsed *message.ParsedMessage, msgID int64) []byte {
+	if parsed == nil {
+		return nil
+	}
+
+	cidToURL := make(map[string]string)
+	for _, a := range parsed.Attachments {
+		if a.Inline && a.ContentID != "" {
+			cidToURL[a.ContentID] = "/api/inline-content/" + strconv.FormatInt(msgID, 10) + "/" + a.ContentID
+		}
+	}
+
+	if len(parsed.HTMLBody) > 0 {
+		sanitized := message.SanitizeHTML(parsed.HTMLBody)
+		return message.RewriteCIDReferences(sanitized, cidToURL)
+	}
+	if parsed.TextBody != "" {
+		wrapped := "<pre style=\"white-space:pre-wrap;word-wrap:break-word;font-family:inherit;margin:0;padding:8px\">" +
+			template.HTMLEscapeString(parsed.TextBody) + "</pre>"
+		return []byte(wrapped)
+	}
+	return nil
+}
+
 func (h *Handler) storeParsedBody(ctx context.Context, parsed *message.ParsedMessage, msgID int64, accountID string) {
 	if len(parsed.Attachments) > 0 {
 		var attRows []storage.AttachmentRow
@@ -577,7 +606,10 @@ func (h *Handler) ensureBodyFetched(ctx context.Context, msgID int64, accountID 
 	if h.db.IsBodyFetched(ctx, msgID) {
 		return
 	}
+	h.fetchAndStoreBody(ctx, msgID, accountID)
+}
 
+func (h *Handler) fetchAndStoreBody(ctx context.Context, msgID int64, accountID string) {
 	h.bodyFetchMu.Lock()
 	if done, ok := h.bodyFetches[msgID]; ok {
 		h.bodyFetchMu.Unlock()
@@ -598,10 +630,54 @@ func (h *Handler) ensureBodyFetched(ctx context.Context, msgID int64, accountID 
 		h.bodyFetchMu.Unlock()
 	}()
 
-	h.fetchBody(ctx, msgID, accountID)
+	if h.db.IsBodyFetched(ctx, msgID) {
+		return
+	}
+	parsed, err := h.fetchParsedBody(ctx, msgID, accountID)
+	if err != nil || parsed == nil {
+		return
+	}
+	h.storeParsedBody(ctx, parsed, msgID, accountID)
 }
 
-func (h *Handler) fetchBody(ctx context.Context, msgID int64, accountID string) {
+func (h *Handler) persistParsedBodyAsync(msgID int64, accountID string, parsed *message.ParsedMessage) {
+	go h.persistParsedBody(context.Background(), msgID, accountID, parsed)
+}
+
+func (h *Handler) persistParsedBody(ctx context.Context, msgID int64, accountID string, parsed *message.ParsedMessage) {
+	if parsed == nil || h.db.IsBodyFetched(ctx, msgID) {
+		return
+	}
+
+	h.bodyFetchMu.Lock()
+	if done, ok := h.bodyFetches[msgID]; ok {
+		h.bodyFetchMu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
+		if ctx.Err() == nil && !h.db.IsBodyFetched(ctx, msgID) {
+			h.persistParsedBody(ctx, msgID, accountID, parsed)
+		}
+		return
+	}
+	done := make(chan struct{})
+	h.bodyFetches[msgID] = done
+	h.bodyFetchMu.Unlock()
+
+	defer func() {
+		h.bodyFetchMu.Lock()
+		delete(h.bodyFetches, msgID)
+		close(done)
+		h.bodyFetchMu.Unlock()
+	}()
+
+	if !h.db.IsBodyFetched(ctx, msgID) {
+		h.storeParsedBody(ctx, parsed, msgID, accountID)
+	}
+}
+
+func (h *Handler) fetchParsedBody(ctx context.Context, msgID int64, accountID string) (*message.ParsedMessage, error) {
 	var bodyData []byte
 
 	var rawPath string
@@ -618,21 +694,20 @@ func (h *Handler) fetchBody(ctx context.Context, msgID int64, accountID string) 
 	if bodyData == nil {
 		info, err := h.db.GetMessageFetchInfo(ctx, msgID)
 		if err != nil || info == nil {
-			return
+			return nil, err
 		}
 
 		bodyData, err = h.fetchBodyRemote(ctx, accountID, info.FolderRemoteID, info.RemoteUID)
 		if err != nil {
-			return
+			return nil, err
 		}
 	}
 
 	parsed, err := message.ParseMessage(ctx, bytes.NewReader(bodyData), h.blobStore, accountID, msgID)
 	if err != nil {
-		return
+		return nil, err
 	}
-
-	h.storeParsedBody(ctx, parsed, msgID, accountID)
+	return parsed, nil
 }
 
 func (h *Handler) fetchBodyRemote(ctx context.Context, accountID, folderRemoteID string, remoteUID uint32) ([]byte, error) {
