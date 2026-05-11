@@ -231,7 +231,7 @@ templ ComposeToolbar() {
 		}
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors" onclick="composeUnavailable('Inline images are next on the compose roadmap.')">
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors" onclick="triggerComposeInlineImageUpload(this)">
 					@icon.Image(icon.Props{Class: "size-3.5"})
 				</button>
 			}
@@ -316,6 +316,7 @@ templ ComposeRichEditor() {
 templ ComposeAttachments() {
 	<div class="hidden rounded-md border border-border/60 bg-background/40 p-2" data-compose-attachments>
 		<input type="file" multiple class="hidden" data-compose-attachment-input onchange="uploadComposeAttachments(this.files, this)"/>
+		<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/bmp,image/x-icon" class="hidden" data-compose-inline-input onchange="uploadComposeInlineImages(this.files, this)"/>
 		<div class="flex flex-wrap gap-2" data-compose-attachment-list></div>
 	</div>
 }

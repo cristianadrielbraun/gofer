@@ -1524,6 +1524,7 @@ function resetComposeForm(fromPane) {
   for (var i = 0; i < fields.length; i++) fields[i].value = ""
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
+  syncComposeInlineImageInputs(form)
   var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
   for (var i = 0; i < recipientFields.length; i++) renderComposeRecipientField(recipientFields[i], "")
   renderComposeAttachments(form, [])
@@ -1741,12 +1742,23 @@ function _composePlainToHTML(text) {
   return html
 }
 
+function _sanitizeComposeImageStyle(style) {
+  var out = []
+  var width = String(style || "").match(/(?:^|;)\s*width\s*:\s*(\d{1,4})(px|%)\s*(?:;|$)/i)
+  if (width) out.push("width: " + Math.min(1200, Math.max(1, Number(width[1]))) + width[2])
+  var transform = String(style || "").match(/(?:^|;)\s*transform\s*:[^;]*rotate\(\s*(-?\d{1,4})deg\s*\)/i)
+  var rotate = transform ? "rotate(" + (Number(transform[1]) % 360) + "deg)" : ""
+  var flip = /(?:^|;)\s*transform\s*:.*scaleX\(\s*-1\s*\)/i.test(String(style || "")) ? "scaleX(-1)" : ""
+  if (rotate || flip) out.push("transform: " + [rotate, flip].filter(Boolean).join(" "))
+  return out.join("; ")
+}
+
 function _sanitizeComposeHTML(html) {
   var template = document.createElement("template")
   template.innerHTML = html || ""
   var blocked = template.content.querySelectorAll("script, iframe, object, embed, form, meta, link")
   for (var i = 0; i < blocked.length; i++) blocked[i].remove()
-  var allowed = { A: true, B: true, BLOCKQUOTE: true, BR: true, CODE: true, DIV: true, EM: true, I: true, LI: true, OL: true, P: true, PRE: true, S: true, SPAN: true, STRIKE: true, STRONG: true, U: true, UL: true }
+  var allowed = { A: true, B: true, BLOCKQUOTE: true, BR: true, CODE: true, DIV: true, EM: true, I: true, IMG: true, LI: true, OL: true, P: true, PRE: true, S: true, SPAN: true, STRIKE: true, STRONG: true, U: true, UL: true }
   var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT)
   var nodes = []
   while (walker.nextNode()) nodes.push(walker.currentNode)
@@ -1762,7 +1774,21 @@ function _sanitizeComposeHTML(html) {
     for (var a = node.attributes.length - 1; a >= 0; a--) {
       var attr = node.attributes[a]
       var name = attr.name.toLowerCase()
-      if (name.indexOf("on") === 0 || name === "style" || name === "class") {
+      if (name.indexOf("on") === 0 || name === "class") {
+        node.removeAttribute(attr.name)
+        continue
+      }
+      if (tag === "IMG") {
+        var imgAllowed = { src: true, alt: true, title: true, width: true, height: true, style: true, "data-compose-inline-image": true, "data-attachment-id": true, "data-existing-attachment-id": true, "data-content-id": true, "data-filename": true, "data-content-type": true, "data-size": true, "data-preview-url": true }
+        if (!imgAllowed[name]) node.removeAttribute(attr.name)
+        if (name === "style") {
+          var safeStyle = _sanitizeComposeImageStyle(attr.value)
+          if (safeStyle) node.setAttribute("style", safeStyle)
+          else node.removeAttribute("style")
+        }
+        continue
+      }
+      if (name === "style") {
         node.removeAttribute(attr.name)
         continue
       }
@@ -1775,6 +1801,18 @@ function _sanitizeComposeHTML(html) {
       if (!/^(https?:|mailto:|#)/i.test(href)) node.removeAttribute("href")
       node.setAttribute("rel", "noopener noreferrer")
       if (href && href.charAt(0) !== "#") node.setAttribute("target", "_blank")
+    } else if (tag === "IMG") {
+      var src = node.getAttribute("src") || ""
+      if (!/^(cid:|\/api\/attachments\/|\/compose\/attachments\/)/i.test(src)) {
+        node.remove()
+        continue
+      }
+      var width = Number(node.getAttribute("width") || 0)
+      if (width) node.setAttribute("width", String(Math.min(1200, Math.max(1, Math.round(width)))))
+      var height = Number(node.getAttribute("height") || 0)
+      if (height) node.setAttribute("height", String(Math.min(1200, Math.max(1, Math.round(height)))))
+      if (!width && node.hasAttribute("width")) node.removeAttribute("width")
+      if (!height && node.hasAttribute("height")) node.removeAttribute("height")
     }
   }
   return template.innerHTML
@@ -1785,6 +1823,59 @@ function _composeEditorText(editor) {
   return (editor.innerText || "").replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim()
 }
 
+function _composeHTMLForSending(editor) {
+  if (!editor) return ""
+  var template = document.createElement("template")
+  template.innerHTML = editor.innerHTML || ""
+  var imgs = template.content.querySelectorAll("img[data-compose-inline-image]")
+  for (var i = 0; i < imgs.length; i++) {
+    var cid = imgs[i].dataset.contentId || ""
+    if (!cid) {
+      imgs[i].remove()
+      continue
+    }
+    imgs[i].setAttribute("src", "cid:" + cid)
+    imgs[i].removeAttribute("data-compose-inline-image")
+    imgs[i].removeAttribute("data-attachment-id")
+    imgs[i].removeAttribute("data-existing-attachment-id")
+    imgs[i].removeAttribute("data-content-id")
+    imgs[i].removeAttribute("data-filename")
+    imgs[i].removeAttribute("data-content-type")
+    imgs[i].removeAttribute("data-size")
+    imgs[i].removeAttribute("data-preview-url")
+    imgs[i].classList.remove("compose-inline-image-selected")
+  }
+  return _sanitizeComposeHTML(template.innerHTML).trim()
+}
+
+function _composeHTMLForEditor(html, inlineImages) {
+  var template = document.createElement("template")
+  template.innerHTML = html || ""
+  var byCID = {}
+  for (var i = 0; inlineImages && i < inlineImages.length; i++) {
+    if (inlineImages[i].content_id) byCID[inlineImages[i].content_id] = inlineImages[i]
+  }
+  var imgs = template.content.querySelectorAll("img[src]")
+  for (var j = 0; j < imgs.length; j++) {
+    var src = imgs[j].getAttribute("src") || ""
+    if (src.toLowerCase().indexOf("cid:") !== 0) continue
+    var cid = src.slice(4)
+    var att = byCID[cid]
+    if (!att || !att.preview_url) continue
+    imgs[j].dataset.composeInlineImage = ""
+    imgs[j].dataset.attachmentId = att.id || ""
+    imgs[j].dataset.existingAttachmentId = att.existing ? String(att.id || "") : ""
+    imgs[j].dataset.contentId = cid
+    imgs[j].dataset.filename = att.filename || "image"
+    imgs[j].dataset.contentType = att.content_type || "image/png"
+    imgs[j].dataset.size = String(att.size || 0)
+    imgs[j].dataset.previewUrl = att.preview_url || ""
+    imgs[j].src = att.preview_url
+    if (!imgs[j].alt) imgs[j].alt = att.filename || "Inline image"
+  }
+  return template.innerHTML
+}
+
 function syncComposeEditor(editor) {
   if (!editor) return
   var form = _composeFormFrom(editor)
@@ -1792,7 +1883,8 @@ function syncComposeEditor(editor) {
   var plain = form.querySelector('textarea[name="body"]')
   var html = form.querySelector('textarea[name="html_body"]')
   if (plain) plain.value = _composeEditorText(editor)
-  if (html) html.value = _sanitizeComposeHTML(editor.innerHTML).trim()
+  if (html) html.value = _composeHTMLForSending(editor)
+  syncComposeInlineImageInputs(form)
 }
 
 function composeChanged(editor) {
@@ -1806,7 +1898,7 @@ function _syncComposeFormEditor(form) {
   if (editor) syncComposeEditor(editor)
 }
 
-function _setComposeEditorValue(form, plain, html) {
+function _setComposeEditorValue(form, plain, html, inlineImages) {
   if (!form) return
   var editor = form.querySelector("[data-compose-editor]")
   var plainField = form.querySelector('textarea[name="body"]')
@@ -1814,8 +1906,9 @@ function _setComposeEditorValue(form, plain, html) {
   if (plainField) plainField.value = plain || ""
   if (htmlField) htmlField.value = html || ""
   if (editor) {
-    editor.innerHTML = html ? _sanitizeComposeHTML(html) : _composePlainToHTML(plain || "")
+    editor.innerHTML = html ? _sanitizeComposeHTML(_composeHTMLForEditor(html, inlineImages || [])) : _composePlainToHTML(plain || "")
   }
+  syncComposeInlineImageInputs(form)
 }
 
 function composeExec(el, command, value) {
@@ -1891,10 +1984,25 @@ document.addEventListener("selectionchange", function () {
 })
 
 document.addEventListener("mousedown", function (event) {
-  if (event.target && event.target.closest && event.target.closest("[data-compose-toolbar] button")) {
+  if (event.target && event.target.closest && (event.target.closest("[data-compose-toolbar] button") || event.target.closest(".compose-inline-image-toolbar"))) {
     event.preventDefault()
   }
 })
+
+document.addEventListener("click", function (event) {
+  if (!event.target || !event.target.closest) return
+  var img = event.target.closest("[data-compose-editor] img[data-compose-inline-image]")
+  if (img) {
+    event.preventDefault()
+    selectComposeInlineImage(img)
+    return
+  }
+  if (event.target.closest(".compose-inline-image-toolbar")) return
+  hideComposeInlineImageToolbar()
+})
+
+window.addEventListener("resize", positionComposeInlineImageToolbar)
+window.addEventListener("scroll", positionComposeInlineImageToolbar, true)
 
 function composeUnavailable(message) {
   showSendStatus("failed", message)
@@ -1941,6 +2049,7 @@ function _composeHasDraftContent(form) {
     if ((recipientInputs[r].textContent || "").trim()) return true
   }
   if (form.querySelector("[data-compose-attachment]")) return true
+  if (form.querySelector("[data-compose-editor] img[data-compose-inline-image]")) return true
   var names = ["to", "cc", "bcc", "subject", "body", "html_body"]
   for (var i = 0; i < names.length; i++) {
     var field = form.querySelector('[name="' + names[i] + '"]')
@@ -2009,6 +2118,14 @@ function triggerComposeAttachmentUpload(el) {
   if (input) input.click()
 }
 
+function triggerComposeInlineImageUpload(el) {
+  var form = _composeFormFrom(el)
+  var editor = _composeEditorFrom(el)
+  if (editor) _saveComposeSelection(editor)
+  var input = form && form.querySelector("[data-compose-inline-input]")
+  if (input) input.click()
+}
+
 function uploadComposeAttachments(files, input) {
   var form = _composeFormFrom(input)
   if (!form || !files || !files.length) return
@@ -2029,6 +2146,241 @@ function uploadComposeAttachments(files, input) {
       })
   })
   input.value = ""
+}
+
+function uploadComposeInlineImages(files, input) {
+  var form = _composeFormFrom(input)
+  if (!form || !files || !files.length) return
+  Array.prototype.forEach.call(files, function (file) {
+    if (file.type && file.type.indexOf("image/") !== 0) {
+      showSendStatus("failed", "Inline images must be image files")
+      return
+    }
+    var data = new FormData()
+    data.append("attachment", file)
+    fetch("/compose/attachments", { method: "POST", body: data })
+      .then(function (r) {
+        if (!r.ok) throw new Error("Failed to insert " + file.name)
+        return r.json()
+      })
+      .then(function (att) {
+        if (!att.preview_url) throw new Error("That image type cannot be previewed inline")
+        insertComposeInlineImage(form, att)
+        _markComposeDirty(form)
+      })
+      .catch(function (err) {
+        showSendStatus("failed", err && err.message ? err.message : "Failed to insert image")
+      })
+  })
+  input.value = ""
+}
+
+function composeInlineContentID(att) {
+  var id = att && att.id ? String(att.id) : String(Date.now())
+  return "inline-" + id.replace(/[^a-z0-9._-]/gi, "") + "@gofer"
+}
+
+function insertComposeInlineImage(form, att) {
+  var editor = form && form.querySelector("[data-compose-editor]")
+  if (!editor) return
+  editor.focus()
+  _restoreComposeSelection(editor)
+
+  var img = document.createElement("img")
+  img.src = att.preview_url
+  img.alt = att.filename || "Inline image"
+  img.loading = "lazy"
+  img.dataset.composeInlineImage = ""
+  img.dataset.attachmentId = att.id || ""
+  img.dataset.existingAttachmentId = att.existing ? String(att.id || "") : ""
+  img.dataset.contentId = att.content_id || composeInlineContentID(att)
+  img.dataset.filename = att.filename || "image"
+  img.dataset.contentType = att.content_type || "image/png"
+  img.dataset.size = String(att.size || 0)
+  img.dataset.previewUrl = att.preview_url || ""
+  img.onload = function () { setComposeInlineImageDefaultSize(img) }
+
+  var selection = window.getSelection && window.getSelection()
+  if (selection && selection.rangeCount) {
+    var range = selection.getRangeAt(0)
+    range.deleteContents()
+    range.insertNode(img)
+    var spacer = document.createTextNode(" ")
+    img.parentNode.insertBefore(spacer, img.nextSibling)
+    range.setStartAfter(spacer)
+    range.setEndAfter(spacer)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  } else {
+    editor.appendChild(img)
+    editor.appendChild(document.createTextNode(" "))
+  }
+  syncComposeEditor(editor)
+  updateComposeToolbar(editor)
+  selectComposeInlineImage(img)
+  if (img.complete) setComposeInlineImageDefaultSize(img)
+}
+
+var _selectedComposeInlineImage = null
+var _composeInlineImageToolbar = null
+var COMPOSE_INLINE_IMAGE_MIN_WIDTH = 120
+var COMPOSE_INLINE_IMAGE_MAX_WIDTH = 1440
+var COMPOSE_INLINE_IMAGE_WIDTH_STEP = 80
+var COMPOSE_INLINE_IMAGE_DEFAULT_SIZE = 450
+
+function _composeInlineImageEditor(img) {
+  return img && img.closest ? img.closest("[data-compose-editor]") : null
+}
+
+function _composeInlineImageCurrentWidth(img) {
+  var width = Number(img && img.getAttribute("width"))
+  if (!width && img) width = Math.round(img.getBoundingClientRect().width)
+  if (!width) width = 360
+  return width
+}
+
+function setComposeInlineImageDefaultSize(img) {
+  if (!img || img.getAttribute("width") || img.getAttribute("height")) return
+  var naturalWidth = img.naturalWidth || 0
+  var naturalHeight = img.naturalHeight || 0
+  var width = COMPOSE_INLINE_IMAGE_DEFAULT_SIZE
+  if (naturalWidth && naturalHeight && naturalHeight > naturalWidth) {
+    width = Math.round((naturalWidth / naturalHeight) * COMPOSE_INLINE_IMAGE_DEFAULT_SIZE)
+  }
+  width = Math.max(COMPOSE_INLINE_IMAGE_MIN_WIDTH, Math.min(COMPOSE_INLINE_IMAGE_MAX_WIDTH, width))
+  img.setAttribute("width", String(width))
+  img.removeAttribute("height")
+  var editor = _composeInlineImageEditor(img)
+  if (editor) syncComposeEditor(editor)
+  updateComposeInlineImageToolbarState()
+}
+
+function _composeInlineImageRotate(img) {
+  var match = String((img && img.style && img.style.transform) || "").match(/rotate\((-?\d+)deg\)/i)
+  return match ? Number(match[1]) : 0
+}
+
+function _composeInlineImageFlipped(img) {
+  return /scaleX\(\s*-1\s*\)/i.test(String((img && img.style && img.style.transform) || ""))
+}
+
+function _composeInlineImageToolbarButton(action, label, path) {
+  var button = document.createElement("button")
+  button.type = "button"
+  button.dataset.composeInlineAction = action
+  button.setAttribute("aria-label", label)
+  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  svg.setAttribute("viewBox", "0 0 24 24")
+  svg.setAttribute("aria-hidden", "true")
+  var iconPath = document.createElementNS("http://www.w3.org/2000/svg", "path")
+  iconPath.setAttribute("d", path)
+  svg.appendChild(iconPath)
+  var text = document.createElement("span")
+  text.textContent = label
+  button.appendChild(svg)
+  button.appendChild(text)
+  return button
+}
+
+function _ensureComposeInlineImageToolbar() {
+  if (_composeInlineImageToolbar) return _composeInlineImageToolbar
+  var toolbar = document.createElement("div")
+  toolbar.className = "compose-inline-image-toolbar hidden"
+  toolbar.setAttribute("contenteditable", "false")
+  toolbar.appendChild(_composeInlineImageToolbarButton("smaller", "Smaller", "M5 12h14"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("larger", "Larger", "M12 5v14M5 12h14"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("rotate", "Rotate", "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("flip", "Flip", "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("remove", "Remove", "M18 6 6 18M6 6l12 12"))
+  toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
+  toolbar.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
+    if (!button) return
+    event.preventDefault()
+    if (button.disabled) return
+    applyComposeInlineImageAction(button.dataset.composeInlineAction)
+  })
+  document.body.appendChild(toolbar)
+  _composeInlineImageToolbar = toolbar
+  return toolbar
+}
+
+function positionComposeInlineImageToolbar() {
+  if (!_selectedComposeInlineImage || !_selectedComposeInlineImage.isConnected) return hideComposeInlineImageToolbar()
+  var toolbar = _ensureComposeInlineImageToolbar()
+  var rect = _selectedComposeInlineImage.getBoundingClientRect()
+  var top = Math.max(8, rect.top - toolbar.offsetHeight - 8)
+  var left = Math.max(8, Math.min(rect.left, window.innerWidth - toolbar.offsetWidth - 8))
+  toolbar.style.top = top + "px"
+  toolbar.style.left = left + "px"
+}
+
+function updateComposeInlineImageToolbarState() {
+  if (!_composeInlineImageToolbar || !_selectedComposeInlineImage) return
+  var width = _composeInlineImageCurrentWidth(_selectedComposeInlineImage)
+  var smaller = _composeInlineImageToolbar.querySelector('[data-compose-inline-action="smaller"]')
+  var larger = _composeInlineImageToolbar.querySelector('[data-compose-inline-action="larger"]')
+  if (smaller) smaller.disabled = width <= COMPOSE_INLINE_IMAGE_MIN_WIDTH
+  if (larger) larger.disabled = width >= COMPOSE_INLINE_IMAGE_MAX_WIDTH
+}
+
+function selectComposeInlineImage(img) {
+  if (!img || !img.matches || !img.matches("img[data-compose-inline-image]")) return
+  if (_selectedComposeInlineImage && _selectedComposeInlineImage !== img) {
+    _selectedComposeInlineImage.classList.remove("compose-inline-image-selected")
+  }
+  _selectedComposeInlineImage = img
+  img.classList.add("compose-inline-image-selected")
+  var toolbar = _ensureComposeInlineImageToolbar()
+  toolbar.classList.remove("hidden")
+  positionComposeInlineImageToolbar()
+  updateComposeInlineImageToolbarState()
+}
+
+function hideComposeInlineImageToolbar() {
+  if (_selectedComposeInlineImage) _selectedComposeInlineImage.classList.remove("compose-inline-image-selected")
+  _selectedComposeInlineImage = null
+  if (_composeInlineImageToolbar) _composeInlineImageToolbar.classList.add("hidden")
+}
+
+function _syncSelectedComposeInlineImage() {
+  var img = _selectedComposeInlineImage
+  var editor = _composeInlineImageEditor(img)
+  if (!editor) return
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+  positionComposeInlineImageToolbar()
+  updateComposeInlineImageToolbarState()
+}
+
+function applyComposeInlineImageAction(action) {
+  var img = _selectedComposeInlineImage
+  if (!img) return
+  if (action === "smaller" || action === "larger") {
+    var width = _composeInlineImageCurrentWidth(img) + (action === "larger" ? COMPOSE_INLINE_IMAGE_WIDTH_STEP : -COMPOSE_INLINE_IMAGE_WIDTH_STEP)
+    width = Math.max(COMPOSE_INLINE_IMAGE_MIN_WIDTH, Math.min(COMPOSE_INLINE_IMAGE_MAX_WIDTH, width))
+    img.setAttribute("width", String(width))
+    img.removeAttribute("height")
+    _syncSelectedComposeInlineImage()
+  } else if (action === "rotate") {
+    var rotate = (_composeInlineImageRotate(img) + 90) % 360
+    var flipped = _composeInlineImageFlipped(img)
+    img.style.transform = [rotate ? "rotate(" + rotate + "deg)" : "", flipped ? "scaleX(-1)" : ""].filter(Boolean).join(" ")
+    _syncSelectedComposeInlineImage()
+  } else if (action === "flip") {
+    var rotateNow = _composeInlineImageRotate(img)
+    var flipNow = !_composeInlineImageFlipped(img)
+    img.style.transform = [rotateNow ? "rotate(" + rotateNow + "deg)" : "", flipNow ? "scaleX(-1)" : ""].filter(Boolean).join(" ")
+    _syncSelectedComposeInlineImage()
+  } else if (action === "remove") {
+    var editor = _composeInlineImageEditor(img)
+    img.remove()
+    hideComposeInlineImageToolbar()
+    if (editor) {
+      syncComposeEditor(editor)
+      _markComposeDirty(_composeFormFrom(editor))
+    }
+  }
 }
 
 function composeAttachmentKind(att) {
@@ -2108,11 +2460,12 @@ function addComposeAttachment(form, att) {
   list.appendChild(item)
 }
 
-function _composeHiddenInput(name, value) {
+function _composeHiddenInput(name, value, inline) {
   var input = document.createElement("input")
   input.type = "hidden"
   input.name = name
   input.value = value
+  if (inline) input.dataset.composeInlineHidden = ""
   return input
 }
 
@@ -2165,6 +2518,49 @@ function readComposeAttachments(form) {
   return attachments
 }
 
+function readComposeInlineImages(form) {
+  var imgs = form ? form.querySelectorAll("[data-compose-editor] img[data-compose-inline-image]") : []
+  var inlineImages = []
+  var seen = {}
+  for (var i = 0; i < imgs.length; i++) {
+    var cid = imgs[i].dataset.contentId || ""
+    var id = imgs[i].dataset.attachmentId || imgs[i].dataset.existingAttachmentId || ""
+    var key = (imgs[i].dataset.existingAttachmentId ? "existing:" : "new:") + id + ":" + cid
+    if (!id || !cid || seen[key]) continue
+    seen[key] = true
+    inlineImages.push({
+      id: id,
+      existing: !!imgs[i].dataset.existingAttachmentId,
+      content_id: cid,
+      filename: imgs[i].dataset.filename || imgs[i].alt || "image",
+      content_type: imgs[i].dataset.contentType || "image/png",
+      size: Number(imgs[i].dataset.size || 0),
+      preview_url: imgs[i].dataset.previewUrl || imgs[i].src || ""
+    })
+  }
+  return inlineImages
+}
+
+function syncComposeInlineImageInputs(form) {
+  if (!form) return
+  var old = form.querySelectorAll("[data-compose-inline-hidden]")
+  for (var i = 0; i < old.length; i++) old[i].remove()
+  var inlineImages = readComposeInlineImages(form)
+  for (var j = 0; j < inlineImages.length; j++) {
+    var att = inlineImages[j]
+    if (att.existing) {
+      form.appendChild(_composeHiddenInput("existing_inline_attachment_id", att.id, true))
+      form.appendChild(_composeHiddenInput("existing_inline_attachment_cid", att.content_id, true))
+    } else {
+      form.appendChild(_composeHiddenInput("inline_attachment_id", att.id, true))
+      form.appendChild(_composeHiddenInput("inline_attachment_cid", att.content_id, true))
+      form.appendChild(_composeHiddenInput("inline_attachment_filename", att.filename, true))
+      form.appendChild(_composeHiddenInput("inline_attachment_content_type", att.content_type, true))
+      form.appendChild(_composeHiddenInput("inline_attachment_size", String(att.size || 0), true))
+    }
+  }
+}
+
 function _composeValsFromDraft(draft) {
   return {
     account_id: draft.account_id || "",
@@ -2178,6 +2574,7 @@ function _composeValsFromDraft(draft) {
     in_reply_to: draft.in_reply_to || "",
     references: draft.references || "",
     attachments: draft.attachments || [],
+    inline_images: draft.inline_images || [],
     _ccVisible: !!(draft.cc && draft.cc.trim()),
     _bccVisible: !!(draft.bcc && draft.bcc.trim()),
     _composeDirty: "false"
@@ -2936,6 +3333,7 @@ function _readComposeFormValues(form) {
   vals._bccVisible = bccVisible
   vals._composeDirty = form.dataset.composeDirty || "false"
   vals.attachments = readComposeAttachments(form)
+  vals.inline_images = readComposeInlineImages(form)
   return vals
 }
 
@@ -2952,7 +3350,7 @@ function _writeComposeFormValues(form, vals, prefix) {
     var display = document.getElementById(prefix + "from-display")
     if (display) display.innerHTML = vals._fromDisplay
   }
-  _setComposeEditorValue(form, vals.body || "", vals.html_body || "")
+  _setComposeEditorValue(form, vals.body || "", vals.html_body || "", vals.inline_images || [])
   renderComposeAttachments(form, vals.attachments || [])
   form.dataset.composeDirty = vals._composeDirty || "false"
   _setComposeDraftButtonState(form, "default")

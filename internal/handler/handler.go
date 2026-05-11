@@ -1485,6 +1485,7 @@ func (h *Handler) handleComposeAttachmentUpload(w http.ResponseWriter, r *http.R
 		"content_type": contentType,
 		"size":         len(data),
 		"preview_url":  composeAttachmentPreviewURL(id, contentType, header.Filename),
+		"content_id":   composeInlineContentID(id),
 	})
 }
 
@@ -1523,6 +1524,29 @@ func composeAttachmentPreviewURL(id, contentType, filename string) string {
 		return ""
 	}
 	return "/compose/attachments/" + id + "/preview"
+}
+
+func composeInlineContentID(id string) string {
+	id = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-' {
+			return r
+		}
+		return -1
+	}, id)
+	if id == "" {
+		id = strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return "inline-" + id + "@gofer"
+}
+
+func cleanContentID(cid string) string {
+	cid = strings.TrimSpace(strings.Trim(cid, "<>"))
+	return strings.Map(func(r rune) rune {
+		if r > 32 && r != '<' && r != '>' && r != '"' && r != '\'' && r != '\\' {
+			return r
+		}
+		return -1
+	}, cid)
 }
 
 func attachmentPreviewURL(id int64, contentType, filename string) string {
@@ -1978,6 +2002,27 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 		rows = append(rows, storage.AttachmentRow{Filename: filename, ContentType: contentType, SizeBytes: size, StoragePath: path})
 	}
 
+	inlineIDs := r.Form["inline_attachment_id"]
+	inlineCIDs := r.Form["inline_attachment_cid"]
+	inlineFilenames := r.Form["inline_attachment_filename"]
+	inlineContentTypes := r.Form["inline_attachment_content_type"]
+	inlineSizes := r.Form["inline_attachment_size"]
+	for i, id := range inlineIDs {
+		path, err := h.blobStore.ComposeAttachmentPath(id)
+		if err != nil {
+			continue
+		}
+		contentID := cleanContentID(formValueAt(inlineCIDs, i, composeInlineContentID(id)))
+		if contentID == "" {
+			contentID = composeInlineContentID(id)
+		}
+		filename := formValueAt(inlineFilenames, i, filepath.Base(path))
+		contentType := formValueAt(inlineContentTypes, i, "application/octet-stream")
+		size, _ := strconv.ParseInt(formValueAt(inlineSizes, i, "0"), 10, 64)
+		outgoing = append(outgoing, message.OutgoingAttachment{Filename: filename, ContentType: contentType, Path: path, Size: size, ContentID: contentID, Inline: true})
+		rows = append(rows, storage.AttachmentRow{Filename: filename, ContentType: contentType, SizeBytes: size, ContentID: contentID, Inline: true, StoragePath: path})
+	}
+
 	for _, existingID := range r.Form["existing_attachment_id"] {
 		attID, err := strconv.ParseInt(existingID, 10, 64)
 		if err != nil {
@@ -1993,6 +2038,30 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 		}
 		outgoing = append(outgoing, message.OutgoingAttachment{Filename: filename, ContentType: contentType, Path: storagePath, Size: size})
 		rows = append(rows, storage.AttachmentRow{Filename: filename, ContentType: contentType, SizeBytes: size, StoragePath: storagePath})
+	}
+
+	existingInlineCIDs := r.Form["existing_inline_attachment_cid"]
+	for i, existingID := range r.Form["existing_inline_attachment_id"] {
+		attID, err := strconv.ParseInt(existingID, 10, 64)
+		if err != nil {
+			continue
+		}
+		var filename, contentType, storagePath, contentID string
+		var size int64
+		err = h.db.Read().QueryRowContext(ctx,
+			`SELECT filename, content_type, size_bytes, storage_path, content_id FROM attachments WHERE id = ?`, attID,
+		).Scan(&filename, &contentType, &size, &storagePath, &contentID)
+		if err != nil {
+			continue
+		}
+		if cid := cleanContentID(formValueAt(existingInlineCIDs, i, "")); cid != "" {
+			contentID = cid
+		}
+		if contentID == "" {
+			contentID = composeInlineContentID(existingID)
+		}
+		outgoing = append(outgoing, message.OutgoingAttachment{Filename: filename, ContentType: contentType, Path: storagePath, Size: size, ContentID: contentID, Inline: true})
+		rows = append(rows, storage.AttachmentRow{Filename: filename, ContentType: contentType, SizeBytes: size, ContentID: contentID, Inline: true, StoragePath: storagePath})
 	}
 
 	return outgoing, rows
@@ -2018,10 +2087,13 @@ func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
 		Size        int64  `json:"size"`
 		Existing    bool   `json:"existing"`
 		PreviewURL  string `json:"preview_url"`
+		ContentID   string `json:"content_id,omitempty"`
 	}
 	attachments := make([]draftAttachment, 0, len(email.Attachments))
+	inlineImages := make([]draftAttachment, 0)
 	for _, att := range email.Attachments {
 		if att.Inline {
+			inlineImages = append(inlineImages, draftAttachment{ID: att.ID, Filename: att.Filename, ContentType: att.ContentType, Size: att.SizeBytes, Existing: true, PreviewURL: attachmentPreviewURL(att.ID, att.ContentType, att.Filename), ContentID: att.ContentID})
 			continue
 		}
 		attachments = append(attachments, draftAttachment{ID: att.ID, Filename: att.Filename, ContentType: att.ContentType, Size: att.SizeBytes, Existing: true})
@@ -2029,17 +2101,18 @@ func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"account_id":  email.AccountID,
-		"draft_id":    email.InternetMessageID,
-		"to":          contactsToAddressList(email.To),
-		"cc":          contactsToAddressList(email.CC),
-		"bcc":         contactsToAddressList(email.BCC),
-		"subject":     email.Subject,
-		"body":        email.TextBody,
-		"html_body":   email.HTMLBody,
-		"in_reply_to": email.InReplyTo,
-		"references":  email.References,
-		"attachments": attachments,
+		"account_id":    email.AccountID,
+		"draft_id":      email.InternetMessageID,
+		"to":            contactsToAddressList(email.To),
+		"cc":            contactsToAddressList(email.CC),
+		"bcc":           contactsToAddressList(email.BCC),
+		"subject":       email.Subject,
+		"body":          email.TextBody,
+		"html_body":     email.HTMLBody,
+		"in_reply_to":   email.InReplyTo,
+		"references":    email.References,
+		"attachments":   attachments,
+		"inline_images": inlineImages,
 	})
 }
 
@@ -2276,7 +2349,7 @@ func (h *Handler) saveSentMessage(ctx context.Context, accountID string, msg *me
 			if err != nil {
 				continue
 			}
-			attRows = append(attRows, storage.AttachmentRow{Filename: att.Filename, ContentType: att.ContentType, SizeBytes: att.Size, StoragePath: storedPath})
+			attRows = append(attRows, storage.AttachmentRow{Filename: att.Filename, ContentType: att.ContentType, SizeBytes: att.Size, ContentID: att.ContentID, Inline: att.Inline, StoragePath: storedPath})
 		}
 		_ = h.db.ReplaceAttachments(ctx, localID, attRows)
 	}

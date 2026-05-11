@@ -35,6 +35,8 @@ type OutgoingAttachment struct {
 	ContentType string
 	Path        string
 	Size        int64
+	ContentID   string
+	Inline      bool
 }
 
 func NewMessageID() string {
@@ -70,7 +72,15 @@ func BuildMIMEMessage(msg *OutgoingMessage) ([]byte, error) {
 	}
 
 	body, bodyContentType := buildMessageBody(msg)
-	if len(msg.Attachments) > 0 {
+	inlineAttachments, fileAttachments := splitOutgoingAttachments(msg.Attachments)
+	if len(inlineAttachments) > 0 {
+		var err error
+		body, bodyContentType, err = buildRelatedBody(body, bodyContentType, inlineAttachments)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(fileAttachments) > 0 {
 		boundary := uuid.New().String()
 		buf.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=%s\r\n", boundary))
 		buf.WriteString("\r\n")
@@ -79,7 +89,7 @@ func BuildMIMEMessage(msg *OutgoingMessage) ([]byte, error) {
 		buf.WriteString("\r\n\r\n")
 		buf.Write(body)
 		buf.WriteString("\r\n")
-		for _, att := range msg.Attachments {
+		for _, att := range fileAttachments {
 			if err := writeAttachmentPart(&buf, boundary, att); err != nil {
 				return nil, err
 			}
@@ -93,6 +103,34 @@ func BuildMIMEMessage(msg *OutgoingMessage) ([]byte, error) {
 	buf.Write(body)
 
 	return buf.Bytes(), nil
+}
+
+func splitOutgoingAttachments(atts []OutgoingAttachment) (inline []OutgoingAttachment, files []OutgoingAttachment) {
+	for _, att := range atts {
+		if att.Inline && att.ContentID != "" {
+			inline = append(inline, att)
+			continue
+		}
+		files = append(files, att)
+	}
+	return inline, files
+}
+
+func buildRelatedBody(body []byte, bodyContentType string, inlineAttachments []OutgoingAttachment) ([]byte, string, error) {
+	boundary := uuid.New().String()
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+	buf.WriteString(bodyContentType)
+	buf.WriteString("\r\n\r\n")
+	buf.Write(body)
+	buf.WriteString("\r\n")
+	for _, att := range inlineAttachments {
+		if err := writeAttachmentPart(&buf, boundary, att); err != nil {
+			return nil, "", err
+		}
+	}
+	buf.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+	return buf.Bytes(), fmt.Sprintf("Content-Type: multipart/related; boundary=%s", boundary), nil
 }
 
 func buildMessageBody(msg *OutgoingMessage) ([]byte, string) {
@@ -137,7 +175,12 @@ func writeAttachmentPart(buf *bytes.Buffer, boundary string, att OutgoingAttachm
 	buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 	buf.WriteString(fmt.Sprintf("Content-Type: %s; name=\"%s\"\r\n", contentType, filename))
 	buf.WriteString("Content-Transfer-Encoding: base64\r\n")
-	buf.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename))
+	if att.Inline && att.ContentID != "" {
+		buf.WriteString(fmt.Sprintf("Content-ID: <%s>\r\n", att.ContentID))
+		buf.WriteString(fmt.Sprintf("Content-Disposition: inline; filename=\"%s\"\r\n\r\n", filename))
+	} else {
+		buf.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename))
+	}
 	enc := base64.NewEncoder(base64.StdEncoding, newBase64LineWriter(buf))
 	if _, err := io.Copy(enc, f); err != nil {
 		enc.Close()

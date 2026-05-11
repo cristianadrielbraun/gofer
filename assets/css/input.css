@@ -381,6 +381,78 @@
   font-size: 0.85em;
 }
 
+.compose-rich-editor img[data-compose-inline-image] {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.65rem 0;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.compose-rich-editor img[data-compose-inline-image].compose-inline-image-selected {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  outline-offset: 3px;
+}
+
+.compose-inline-image-toolbar {
+  position: fixed;
+  z-index: 80;
+  display: inline-flex;
+  gap: 0.2rem;
+  align-items: center;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-raised);
+}
+
+.compose-inline-image-toolbar.hidden {
+  display: none;
+}
+
+.compose-inline-image-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: calc(var(--radius) * 0.75);
+  padding: 0.25rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--ink) 70%, var(--foreground));
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.compose-inline-image-toolbar svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.compose-inline-image-toolbar button:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.compose-inline-image-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.compose-inline-image-toolbar button:disabled:hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 70%, var(--foreground));
+}
+
 .compose-rich-editor ul,
 .compose-rich-editor ol {
   margin: 0.35rem 0;
