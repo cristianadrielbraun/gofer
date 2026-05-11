@@ -2873,15 +2873,19 @@ func (db *DB) SetUISettings(ctx context.Context, userID string, settings map[str
 
 func defaultUISettings() map[string]string {
 	return map[string]string{
-		"theme":                     "dark",
-		"theme_style":               "classic",
-		"prefetch_on_hover":         "true",
-		"default_compose_view":      "dialog",
-		"sender_display":            "name",
-		"auto_mark_read_after":      "0",
-		"mail_table_columns":        "accountMarker,starred,attachment,thread,from,to,subject,date",
-		"mail_table_column_widths":  "0.8,0.8,0.8,1,3,3,5,2",
-		"sidebar_account_collapsed": "{}",
+		"theme":                       "dark",
+		"theme_style":                 "classic",
+		"prefetch_on_hover":           "true",
+		"default_compose_view":        "dialog",
+		"compose_autosave_enabled":    "true",
+		"compose_autosave_conditions": "chars,attachment",
+		"compose_autosave_min_chars":  "30",
+		"compose_autosave_debounce":   "5",
+		"sender_display":              "name",
+		"auto_mark_read_after":        "0",
+		"mail_table_columns":          "accountMarker,starred,attachment,thread,from,to,subject,date",
+		"mail_table_column_widths":    "0.8,0.8,0.8,1,3,3,5,2",
+		"sidebar_account_collapsed":   "{}",
 	}
 }
 

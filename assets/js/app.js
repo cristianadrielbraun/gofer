@@ -1565,10 +1565,12 @@ function selectComposeAccount(el, fromPane) {
   _markComposeDirty(document.getElementById(prefix + "form"))
 }
 
-function resetComposeForm(fromPane) {
+function resetComposeForm(fromPane, skipCleanup) {
   var prefix = fromPane ? "compose-pane-" : "compose-"
   var form = document.getElementById(prefix + "form")
   if (!form) return
+  cancelComposeAutosave(form)
+  if (!skipCleanup) cleanupComposeStagedUploads(form)
   var fields = form.querySelectorAll('input[name="to"], input[name="cc"], input[name="bcc"], input[name="subject"], input[name="draft_id"], input[name="in_reply_to"], input[name="references"], textarea[name="body"], textarea[name="html_body"]')
   for (var i = 0; i < fields.length; i++) fields[i].value = ""
   var editor = form.querySelector("[data-compose-editor]")
@@ -1583,6 +1585,16 @@ function resetComposeForm(fromPane) {
   form.dataset.composeDirty = "false"
   updateComposeSendState(form)
   _setComposeDraftButtonState(form, "default")
+}
+
+function cleanupComposeStagedUploads(form) {
+  if (!form) return
+  readComposeAttachments(form).forEach(function (att) {
+    if (att.id && !att.existing) fetch("/compose/attachments/" + encodeURIComponent(att.id), { method: "DELETE" }).catch(function () {})
+  })
+  readComposeInlineImages(form).forEach(function (att) {
+    if (att.id && !att.existing) fetch("/compose/attachments/" + encodeURIComponent(att.id), { method: "DELETE" }).catch(function () {})
+  })
 }
 
 function _composeRecipientEmail(value) {
@@ -2101,6 +2113,19 @@ function handleComposePaste(event) {
 
 document.addEventListener("keydown", function (event) {
   var editor = event.target && event.target.closest ? event.target.closest("[data-compose-editor]") : null
+  var form = event.target && event.target.closest ? event.target.closest("#compose-form, #compose-pane-form") : null
+  if (form && (event.ctrlKey || event.metaKey)) {
+    if (event.key === "Enter") {
+      event.preventDefault()
+      sendCompose(form.id === "compose-pane-form")
+      return
+    }
+    if (event.key.toLowerCase() === "s") {
+      event.preventDefault()
+      saveComposeDraft(form.id === "compose-pane-form", false)
+      return
+    }
+  }
   if (!editor || (!event.ctrlKey && !event.metaKey)) return
   var key = event.key.toLowerCase()
   if (key === "b") {
@@ -2204,6 +2229,67 @@ function _markComposeDirty(form) {
   if (button && button.dataset.composeDraftState !== "saving") {
     _setComposeDraftButtonState(form, "default")
   }
+  scheduleComposeAutosave(form)
+}
+
+function composeAutosaveEligible(form) {
+  if (!form || form.dataset.composeDirty !== "true") return false
+  if (composeAutosaveSetting("compose_autosave_enabled", "true") === "false") return false
+  if (_composePendingUploads(form) > 0 || form.dataset.composeSending === "true") return false
+  _syncComposeFormEditor(form)
+  var conditions = composeAutosaveConditions()
+  if (!conditions.length) return false
+  var text = ""
+  var fields = form.querySelectorAll('input[name="to"], input[name="cc"], input[name="bcc"], input[name="subject"], textarea[name="body"]')
+  for (var i = 0; i < fields.length; i++) text += " " + (fields[i].value || "")
+  var recipientInputs = form.querySelectorAll('[data-recipient-name="to"] [data-compose-recipient-input]')
+  for (var r = 0; r < recipientInputs.length; r++) text += " " + (recipientInputs[r].textContent || "")
+  var checks = {
+    chars: text.replace(/\s+/g, "").length >= composeAutosaveMinChars(),
+    attachment: !!form.querySelector("[data-compose-attachment], [data-compose-editor] img[data-compose-inline-image]"),
+    to: !!String((form.querySelector('input[name="to"]') || {}).value || "").trim() || !!String((form.querySelector('[data-recipient-name="to"] [data-compose-recipient-input]') || {}).textContent || "").trim()
+  }
+  for (var c = 0; c < conditions.length; c++) {
+    if (checks[conditions[c]]) return true
+  }
+  return false
+}
+
+function scheduleComposeAutosave(form) {
+  if (!form || !composeAutosaveEligible(form)) return
+  clearTimeout(form._composeAutosaveTimer)
+  form._composeAutosaveTimer = setTimeout(function () {
+    if (!composeAutosaveEligible(form) || form._composeAutosaveInFlight) return
+    form._composeAutosaveInFlight = true
+    saveComposeDraft(form.id === "compose-pane-form", true).finally(function () {
+      form._composeAutosaveInFlight = false
+    })
+  }, composeAutosaveDebounceMS())
+}
+
+function cancelComposeAutosave(form) {
+  if (form && form._composeAutosaveTimer) clearTimeout(form._composeAutosaveTimer)
+}
+
+function composeAutosaveSetting(key, fallback) {
+  return window.GoferSettings ? (GoferSettings.get(key) || fallback) : fallback
+}
+
+function composeAutosaveConditions() {
+  var raw = composeAutosaveSetting("compose_autosave_conditions", "chars,attachment")
+  return String(raw || "").split(",").map(function (part) { return part.trim() }).filter(Boolean)
+}
+
+function composeAutosaveMinChars() {
+  var n = parseInt(composeAutosaveSetting("compose_autosave_min_chars", "30"), 10)
+  if (isNaN(n) || n < 1) return 30
+  return Math.min(1000, n)
+}
+
+function composeAutosaveDebounceMS() {
+  var seconds = parseInt(composeAutosaveSetting("compose_autosave_debounce", "5"), 10)
+  if (isNaN(seconds) || seconds < 1) seconds = 5
+  return Math.min(60, seconds) * 1000
 }
 
 function _composeSendButton(form) {
@@ -2287,6 +2373,7 @@ function handleComposeSendResult(status) {
 
 function saveComposeDraft(fromPane, auto) {
   var form = document.getElementById(fromPane ? "compose-pane-form" : "compose-form")
+  if (form && auto && form._composeManualDraftSave) return Promise.resolve(false)
   finalizeComposeRecipients(form)
   if (!form || !_composeHasDraftContent(form)) {
     if (!auto) _setComposeDraftButtonState(form, "empty")
@@ -2297,6 +2384,7 @@ function saveComposeDraft(fromPane, auto) {
     return Promise.resolve(false)
   }
   _setComposeDraftButtonState(form, "saving")
+  if (form) form._composeManualDraftSave = !auto
 
   var params = new URLSearchParams()
   var inputs = form.querySelectorAll("input, textarea")
@@ -2320,11 +2408,13 @@ function saveComposeDraft(fromPane, auto) {
     if (draftField && data.draft_id) draftField.value = data.draft_id
     form.dataset.composeDirty = "false"
     _setComposeDraftButtonState(form, "saved")
+    form._composeManualDraftSave = false
     return true
   }).catch(function (err) {
     form.dataset.composeDirty = "true"
     _setComposeDraftButtonState(form, "failed")
-    if (!auto) showSendStatus("failed", err && err.message ? err.message : "Failed to save draft")
+    form._composeManualDraftSave = false
+    showSendStatus("failed", err && err.message ? err.message : "Failed to save draft")
     return false
   })
 }
@@ -2357,12 +2447,18 @@ function uploadComposeAttachments(files, input) {
     changeComposeUploadCount(form, 1)
     uploadComposeAttachmentFile(file, pendingChip)
       .then(function (att) {
+        if (pendingChip && pendingChip._composeUploadCancelled) return
         removeComposePendingAttachment(pendingChip)
         addComposeAttachment(form, att)
         _markComposeDirty(form)
         changeComposeUploadCount(form, -1)
       })
       .catch(function (err) {
+        if (pendingChip && pendingChip._composeUploadCancelled) {
+          removeComposePendingAttachment(pendingChip)
+          changeComposeUploadCount(form, -1, "cancelled")
+          return
+        }
         failComposePendingAttachment(pendingChip)
         changeComposeUploadCount(form, -1, "failed")
         composeUploadFailed(form, composeUploadErrorMessage("attach", file, err))
@@ -2384,6 +2480,7 @@ function uploadComposeInlineImages(files, input) {
     changeComposeUploadCount(form, 1)
     uploadComposeAttachmentFile(file, pendingChip)
       .then(function (att) {
+        if (pendingChip && pendingChip._composeUploadCancelled) return
         if (!att.preview_url) throw new Error("That image type cannot be previewed inline")
         removeComposePendingAttachment(pendingChip)
         insertComposeInlineImage(form, att)
@@ -2391,6 +2488,11 @@ function uploadComposeInlineImages(files, input) {
         changeComposeUploadCount(form, -1)
       })
       .catch(function (err) {
+        if (pendingChip && pendingChip._composeUploadCancelled) {
+          removeComposePendingAttachment(pendingChip)
+          changeComposeUploadCount(form, -1, "cancelled")
+          return
+        }
         failComposePendingAttachment(pendingChip)
         changeComposeUploadCount(form, -1, "failed")
         composeUploadFailed(form, composeUploadErrorMessage("insert", file, err))
@@ -2463,6 +2565,13 @@ function uploadComposeAttachmentFile(file, pendingChip) {
     var data = new FormData()
     data.append("attachment", file)
     var xhr = new XMLHttpRequest()
+    if (pendingChip) {
+      pendingChip._composeUploadXhr = xhr
+      pendingChip._composeCancelUpload = function () {
+        pendingChip._composeUploadCancelled = true
+        xhr.abort()
+      }
+    }
     xhr.open("POST", "/compose/attachments")
     xhr.upload.onprogress = function (event) {
       if (event.lengthComputable) updateComposePendingAttachment(pendingChip, Math.round((event.loaded / event.total) * 100))
@@ -2825,6 +2934,7 @@ function _ensureComposeInlineImageToolbar() {
   toolbar.appendChild(_composeInlineImageToolbarButton("larger", "Larger", "M12 5v14M5 12h14"))
   toolbar.appendChild(_composeInlineImageToolbarButton("rotate", "Rotate", "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
   toolbar.appendChild(_composeInlineImageToolbarButton("flip", "Flip", "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("attach", "Attach", "M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"))
   toolbar.appendChild(_composeInlineImageToolbarButton("remove", "Remove", "M18 6 6 18M6 6l12 12"))
   toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
   toolbar.addEventListener("click", function (event) {
@@ -2914,7 +3024,27 @@ function applyComposeInlineImageAction(action) {
       syncComposeEditor(editor)
       _markComposeDirty(_composeFormFrom(editor))
     }
+  } else if (action === "attach") {
+    convertComposeInlineImageToAttachment(img)
   }
+}
+
+function convertComposeInlineImageToAttachment(img) {
+  var editor = _composeInlineImageEditor(img)
+  var form = _composeFormFrom(editor)
+  if (!editor || !form) return
+  addComposeAttachment(form, {
+    id: img.dataset.existingAttachmentId || img.dataset.attachmentId || "",
+    existing: !!img.dataset.existingAttachmentId,
+    filename: img.dataset.filename || img.alt || "image",
+    content_type: img.dataset.contentType || "image/png",
+    size: Number(img.dataset.size || 0),
+    preview_url: img.dataset.previewUrl || img.src || ""
+  })
+  img.remove()
+  hideComposeInlineImageToolbar()
+  syncComposeEditor(editor)
+  _markComposeDirty(form)
 }
 
 function composeAttachmentKind(att) {
@@ -2937,6 +3067,59 @@ function composeAttachmentKind(att) {
   if (hasExt([".json", ".xml", ".html", ".css", ".js", ".ts", ".go", ".py", ".rb", ".java", ".c", ".cpp", ".sh"])) return { kind: "code", label: "DEV", title: "Code file" }
   if (contentType.indexOf("text/") === 0 || hasExt([".txt", ".md", ".log"])) return { kind: "text", label: "TXT", title: "Text file" }
   return { kind: "file", label: "FILE", title: "File" }
+}
+
+function toggleComposeAttachments(el) {
+  var form = _composeFormFrom(el)
+  var wrap = form && form.querySelector("[data-compose-attachments]")
+  var list = form && form.querySelector("[data-compose-attachment-list]")
+  if (!wrap || !list) return
+  var collapsed = wrap.dataset.composeAttachmentsCollapsed !== "true"
+  wrap.dataset.composeAttachmentsCollapsed = collapsed ? "true" : "false"
+  list.classList.toggle("hidden", collapsed)
+  updateComposeAttachmentSummary(form)
+}
+
+function updateComposeAttachmentSummary(form) {
+  var wrap = form && form.querySelector("[data-compose-attachments]")
+  if (!wrap) return
+  var summary = wrap.querySelector("[data-compose-attachment-summary]")
+  var toggle = wrap.querySelector("[data-compose-attachment-toggle]")
+  var attachments = form.querySelectorAll("[data-compose-attachment]")
+  var pending = form.querySelectorAll("[data-compose-upload-pending]")
+  var totalCount = attachments.length + pending.length
+  var totalSize = 0
+  for (var i = 0; i < attachments.length; i++) totalSize += Number(attachments[i].dataset.size || 0)
+  for (var p = 0; p < pending.length; p++) totalSize += Number(pending[p].dataset.size || 0)
+  if (summary) {
+    if (totalCount) {
+      summary.textContent = totalCount + " " + (totalCount === 1 ? "attachment" : "attachments") + " · " + formatComposeAttachmentSize(totalSize) + (pending.length ? " · " + pending.length + " uploading" : "") + " · Max 35 MB total"
+    } else {
+      summary.textContent = "Max 25 MB per file, 35 MB total"
+    }
+  }
+  if (toggle) {
+    var collapsed = wrap.dataset.composeAttachmentsCollapsed === "true"
+    toggle.textContent = collapsed ? "Show" : "Hide"
+    toggle.classList.toggle("hidden", totalCount === 0)
+  }
+}
+
+function _composeAttachmentDataFromItem(item) {
+  if (!item) return null
+  var existing = item.dataset.existingAttachmentId
+  return {
+    id: existing || item.dataset.attachmentId || "",
+    existing: !!existing,
+    filename: item.dataset.filename || "attachment",
+    content_type: item.dataset.contentType || "application/octet-stream",
+    size: Number(item.dataset.size || 0),
+    preview_url: item.dataset.previewUrl || ""
+  }
+}
+
+function _composeAttachmentLooksInlineable(att) {
+  return !!(att && att.preview_url && composeAttachmentKind(att).kind === "image")
 }
 
 function addComposeAttachment(form, att) {
@@ -2990,8 +3173,62 @@ function addComposeAttachment(form, att) {
   remove.textContent = "x"
   remove.onclick = function () { removeComposeAttachment(item) }
   item.appendChild(label)
+  if (_composeAttachmentLooksInlineable(att)) {
+    var actions = document.createElement("button")
+    actions.type = "button"
+    actions.className = "compose-attachment-actions"
+    actions.setAttribute("aria-label", "Attachment actions")
+    actions.textContent = "⋯"
+    actions.onclick = function (event) {
+      event.preventDefault()
+      event.stopPropagation()
+      showComposeAttachmentActions(item)
+    }
+    item.appendChild(actions)
+  }
   item.appendChild(remove)
   list.appendChild(item)
+  updateComposeAttachmentSummary(form)
+}
+
+var _composeAttachmentMenu = null
+
+function closeComposeAttachmentActions() {
+  if (_composeAttachmentMenu) _composeAttachmentMenu.remove()
+  _composeAttachmentMenu = null
+}
+
+function showComposeAttachmentActions(item) {
+  closeComposeAttachmentActions()
+  var att = _composeAttachmentDataFromItem(item)
+  if (!_composeAttachmentLooksInlineable(att)) return
+  var menu = document.createElement("div")
+  menu.className = "compose-attachment-menu"
+  var convert = document.createElement("button")
+  convert.type = "button"
+  convert.textContent = "Insert inline"
+  convert.onclick = function () {
+    closeComposeAttachmentActions()
+    convertComposeAttachmentToInline(item)
+  }
+  menu.appendChild(convert)
+  document.body.appendChild(menu)
+  _composeAttachmentMenu = menu
+  var rect = item.getBoundingClientRect()
+  menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
+  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
+  setTimeout(function () { document.addEventListener("mousedown", closeComposeAttachmentActions, { once: true }) }, 0)
+}
+
+function convertComposeAttachmentToInline(item) {
+  var form = _composeFormFrom(item)
+  var att = _composeAttachmentDataFromItem(item)
+  if (!form || !_composeAttachmentLooksInlineable(att)) return
+  var editor = form.querySelector("[data-compose-editor]")
+  if (editor) _saveComposeSelection(editor)
+  removeComposeAttachment(item, true)
+  insertComposeInlineImage(form, att)
+  _markComposeDirty(form)
 }
 
 function addComposePendingAttachment(form, file, inline) {
@@ -3003,6 +3240,7 @@ function addComposePendingAttachment(form, file, inline) {
   var item = document.createElement("span")
   item.className = "compose-attachment-chip compose-attachment-uploading"
   item.dataset.composeUploadPending = ""
+  item.dataset.size = String((file && file.size) || 0)
 
   var spinner = document.createElement("span")
   spinner.className = "compose-attachment-spinner"
@@ -3021,7 +3259,18 @@ function addComposePendingAttachment(form, file, inline) {
   progress.textContent = "0%"
   item.appendChild(progress)
 
+  var cancel = document.createElement("button")
+  cancel.type = "button"
+  cancel.className = "compose-attachment-cancel"
+  cancel.setAttribute("aria-label", "Cancel upload")
+  cancel.textContent = "Cancel"
+  cancel.onclick = function () {
+    if (item._composeCancelUpload) item._composeCancelUpload()
+  }
+  item.appendChild(cancel)
+
   list.appendChild(item)
+  updateComposeAttachmentSummary(form)
   return item
 }
 
@@ -3038,10 +3287,13 @@ function removeComposePendingAttachment(item) {
   var wrap = form && form.querySelector("[data-compose-attachments]")
   var list = form && form.querySelector("[data-compose-attachment-list]")
   if (wrap && list && !list.children.length) wrap.classList.add("hidden")
+  updateComposeAttachmentSummary(form)
 }
 
 function failComposePendingAttachment(item) {
   if (!item) return
+  var form = _composeFormFrom(item)
+  delete item.dataset.composeUploadPending
   item.classList.remove("compose-attachment-uploading")
   item.classList.add("compose-attachment-failed")
   var label = item.querySelector("[data-compose-upload-label]")
@@ -3057,6 +3309,7 @@ function failComposePendingAttachment(item) {
     remove.onclick = function () { removeComposePendingAttachment(item) }
     item.appendChild(remove)
   }
+  updateComposeAttachmentSummary(form)
 }
 
 function _composeHiddenInput(name, value, inline) {
@@ -3068,7 +3321,7 @@ function _composeHiddenInput(name, value, inline) {
   return input
 }
 
-function removeComposeAttachment(item) {
+function removeComposeAttachment(item, keepFile) {
   var form = _composeFormFrom(item)
   var id = item.dataset.attachmentId
   var existing = item.dataset.existingAttachmentId
@@ -3077,10 +3330,11 @@ function removeComposeAttachment(item) {
     item.remove()
     var wrap = form && form.querySelector("[data-compose-attachments]")
     var list = form && form.querySelector("[data-compose-attachment-list]")
-    if (wrap && list && !list.querySelector("[data-compose-attachment]")) wrap.classList.add("hidden")
+    if (wrap && list && !list.children.length) wrap.classList.add("hidden")
+    updateComposeAttachmentSummary(form)
     _markComposeDirty(form)
   }, 140)
-  if (id && !existing) fetch("/compose/attachments/" + encodeURIComponent(id), { method: "DELETE" }).catch(function () {})
+  if (id && !existing && !keepFile) fetch("/compose/attachments/" + encodeURIComponent(id), { method: "DELETE" }).catch(function () {})
 }
 
 function formatComposeAttachmentSize(size) {
@@ -3098,6 +3352,7 @@ function renderComposeAttachments(form, attachments) {
   list.innerHTML = ""
   for (var i = 0; attachments && i < attachments.length; i++) addComposeAttachment(form, attachments[i])
   wrap.classList.toggle("hidden", !attachments || !attachments.length)
+  updateComposeAttachmentSummary(form)
 }
 
 function readComposeAttachments(form) {
@@ -3268,24 +3523,58 @@ function _deleteComposeDraft(form) {
   }).catch(function () { return false })
 }
 
-function _confirmComposeDiscard(form) {
-  if (!form || !_composeHasDraftContent(form)) return true
-  var draftField = form.querySelector('input[name="draft_id"]')
-  var hasSavedDraft = !!(draftField && draftField.value)
-  if (form.dataset.composeDirty === "true") return window.confirm("Discard this unsaved draft?")
-  if (hasSavedDraft) return window.confirm("Discard this saved draft?")
-  return window.confirm("Discard this message?")
+function chooseComposeCloseAction(form) {
+  if (!form || !_composeHasDraftContent(form)) return Promise.resolve("discard")
+  return new Promise(function (resolve) {
+    var backdrop = document.createElement("div")
+    backdrop.className = "compose-close-choice-backdrop"
+    var panel = document.createElement("div")
+    panel.className = "compose-close-choice"
+    panel.innerHTML = '<h2>Close compose?</h2><p>Keep this message as a draft, discard it permanently, or continue editing.</p>'
+    function button(label, action, primary) {
+      var btn = document.createElement("button")
+      btn.type = "button"
+      btn.textContent = label
+      btn.dataset.composeCloseAction = action
+      if (primary) btn.className = "compose-close-choice-primary"
+      return btn
+    }
+    var actions = document.createElement("div")
+    actions.className = "compose-close-choice-actions"
+    actions.appendChild(button("Exit and keep draft", "keep", true))
+    actions.appendChild(button("Exit and discard", "discard", false))
+    actions.appendChild(button("Cancel", "cancel", false))
+    panel.appendChild(actions)
+    backdrop.appendChild(panel)
+    backdrop.addEventListener("click", function (event) {
+      var btn = event.target && event.target.closest ? event.target.closest("[data-compose-close-action]") : null
+      if (!btn && event.target !== backdrop) return
+      backdrop.remove()
+      resolve(btn ? btn.dataset.composeCloseAction : "cancel")
+    })
+    document.body.appendChild(backdrop)
+  })
 }
 
 function discardComposeDialog() {
   var form = document.getElementById("compose-form")
-  if (!_confirmComposeDiscard(form)) return
-  _deleteComposeDraft(form)
-  resetComposeForm(false)
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.close("compose-dialog")
-  }
-  _updateComposeBtn(false)
+  chooseComposeCloseAction(form).then(function (action) {
+    if (action === "cancel") return
+    if (action === "keep") {
+      saveComposeDraft(false, false).then(function (saved) {
+        if (!saved) return
+        resetComposeForm(false, true)
+        if (window.tui && window.tui.dialog) window.tui.dialog.close("compose-dialog")
+        _updateComposeBtn(false)
+      })
+      return
+    }
+    cleanupComposeStagedUploads(form)
+    _deleteComposeDraft(form)
+    resetComposeForm(false, true)
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("compose-dialog")
+    _updateComposeBtn(false)
+  })
 }
 
 document.addEventListener("input", function (event) {
@@ -4175,12 +4464,25 @@ function collapseToDialog() {
 
 function discardComposePane() {
   var paneForm = document.getElementById("compose-pane-form")
-  if (!_confirmComposeDiscard(paneForm)) return
-  _deleteComposeDraft(paneForm)
-  collapseComposeFullWidth()
-  var mailView = document.getElementById("mail-view")
-  if (mailView) setMailViewEmpty()
-  _updateComposeBtn(false)
+  chooseComposeCloseAction(paneForm).then(function (action) {
+    if (action === "cancel") return
+    if (action === "keep") {
+      saveComposeDraft(true, false).then(function (saved) {
+        if (!saved) return
+        collapseComposeFullWidth()
+        var mailView = document.getElementById("mail-view")
+        if (mailView) setMailViewEmpty()
+        _updateComposeBtn(false)
+      })
+      return
+    }
+    cleanupComposeStagedUploads(paneForm)
+    _deleteComposeDraft(paneForm)
+    collapseComposeFullWidth()
+    var mailView = document.getElementById("mail-view")
+    if (mailView) setMailViewEmpty()
+    _updateComposeBtn(false)
+  })
 }
 
 function applyComposeFullWidthInstant() {

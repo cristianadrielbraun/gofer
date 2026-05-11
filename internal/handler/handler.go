@@ -2049,6 +2049,7 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	ctx := r.Context()
 	accountID := r.FormValue("account_id")
 	draftID := r.FormValue("draft_id")
+	draftPaths := h.composeDraftAttachmentPaths(ctx, accountID, draftID)
 	folderID, err := h.db.DeleteDraftMessage(ctx, accountID, draftID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -2059,6 +2060,7 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	if folderID != "" {
 		h.publishMutation(accountID, folderID)
 	}
+	h.deleteComposeAttachmentPaths(draftPaths)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "discarded"})
 }
@@ -2310,6 +2312,7 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	draftPaths := attachmentStoragePaths(email.Attachments)
 	folderID, err := h.db.DeleteDraftMessage(r.Context(), email.AccountID, email.InternetMessageID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -2320,6 +2323,7 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 	if folderID != "" {
 		h.publishMutation(email.AccountID, folderID)
 	}
+	h.deleteComposeAttachmentPaths(draftPaths)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "discarded"})
 }
@@ -2452,6 +2456,7 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 			switch result {
 			case models.SendSuccess:
 				h.saveSentMessage(context.Background(), accountID, msg)
+				h.deleteComposeAttachmentPaths(outgoingAttachmentPaths(msg.Attachments))
 				if draftID != "" {
 					if folderID, err := h.db.DeleteDraftMessage(context.Background(), accountID, draftID); err == nil && folderID != "" {
 						h.publishMutation(accountID, folderID)
@@ -2547,7 +2552,61 @@ func (h *Handler) saveSentMessage(ctx context.Context, accountID string, msg *me
 		}
 		_ = h.db.ReplaceAttachments(ctx, localID, attRows)
 	}
+	h.deleteComposeAttachmentPaths(outgoingAttachmentPaths(msg.Attachments))
 	h.publishMutation(accountID, sentFolderID)
+}
+
+func outgoingAttachmentPaths(atts []message.OutgoingAttachment) []string {
+	paths := make([]string, 0, len(atts))
+	for _, att := range atts {
+		if att.Path != "" {
+			paths = append(paths, att.Path)
+		}
+	}
+	return paths
+}
+
+func attachmentStoragePaths(atts []models.Attachment) []string {
+	paths := make([]string, 0, len(atts))
+	for _, att := range atts {
+		if att.StoragePath != "" {
+			paths = append(paths, att.StoragePath)
+		}
+	}
+	return paths
+}
+
+func (h *Handler) composeDraftAttachmentPaths(ctx context.Context, accountID, internetMessageID string) []string {
+	if accountID == "" || internetMessageID == "" {
+		return nil
+	}
+	rows, err := h.db.Read().QueryContext(ctx, `
+		SELECT att.storage_path
+		FROM attachments att
+		JOIN messages m ON m.id = att.message_id
+		JOIN message_folder_state mfs ON m.id = mfs.message_id
+		WHERE m.account_id = ? AND m.internet_message_id = ? AND mfs.is_draft = 1`, accountID, internetMessageID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var path string
+		if rows.Scan(&path) == nil && path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func (h *Handler) deleteComposeAttachmentPaths(paths []string) {
+	for _, path := range paths {
+		clean := filepath.Clean(path)
+		if strings.Contains(clean, string(filepath.Separator)+"_compose"+string(filepath.Separator)) {
+			_ = os.Remove(clean)
+		}
+	}
 }
 
 func (h *Handler) validComposeThreadHeaders(ctx context.Context, accountID, subject, inReplyToRaw, referencesRaw string) (string, string) {

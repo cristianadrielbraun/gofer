@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gofer.email/internal/models"
 	"math/rand"
+	"strings"
 
 	"github.com/a-h/templ"
 )
@@ -56,6 +57,15 @@ func uiSettingGet(settings map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func uiSettingCSVHas(settings map[string]string, key, fallback, value string) bool {
+	for _, part := range strings.Split(uiSettingGet(settings, key, fallback), ",") {
+		if strings.TrimSpace(part) == value {
+			return true
+		}
+	}
+	return false
 }
 
 func sidebarAccountCollapsed(settings map[string]string, accountID string, active bool) bool {
@@ -211,6 +221,38 @@ func defaultComposeViewSettingLabel(view string) string {
 	default:
 		return "Dialog"
 	}
+}
+
+func composeAutosaveDebounceLabel(value string) string {
+	switch value {
+	case "3":
+		return "3 seconds"
+	case "10":
+		return "10 seconds"
+	case "15":
+		return "15 seconds"
+	case "1":
+		return "1 second"
+	default:
+		return "5 seconds"
+	}
+}
+
+func composeAutosaveConditionsLabel(settings map[string]string) string {
+	value := uiSettingGet(settings, "compose_autosave_conditions", "chars,attachment")
+	if value == "" {
+		return "No conditions"
+	}
+	count := 0
+	for _, part := range strings.Split(value, ",") {
+		if strings.TrimSpace(part) != "" {
+			count++
+		}
+	}
+	if count == 1 {
+		return "1 condition"
+	}
+	return fmt.Sprintf("%d conditions", count)
 }
 
 func mailListViewMode(mode string) string {

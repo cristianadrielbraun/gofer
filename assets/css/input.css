@@ -322,13 +322,13 @@
 .compose-attachment-icon-audio { background: color-mix(in srgb, #ec4899 14%, transparent); color: #be185d; }
 .compose-attachment-icon-video { background: color-mix(in srgb, #6366f1 14%, transparent); color: #4338ca; }
 
-.compose-attachment-remove {
+.compose-attachment-remove,
+.compose-attachment-actions,
+.compose-attachment-cancel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25rem;
   height: 1.25rem;
-  margin-right: -0.3rem;
   padding: 0 0 0.0625rem;
   border-radius: calc(var(--radius) * 0.8);
   color: currentcolor;
@@ -337,9 +337,47 @@
   transition: opacity 150ms ease, background-color 150ms ease;
 }
 
-.compose-attachment-remove:hover {
+.compose-attachment-remove,
+.compose-attachment-actions {
+  width: 1.25rem;
+  margin-right: -0.3rem;
+}
+
+.compose-attachment-cancel {
+  width: auto;
+  padding: 0 0.4rem 0.0625rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.compose-attachment-remove:hover,
+.compose-attachment-actions:hover,
+.compose-attachment-cancel:hover {
   opacity: 1;
   background: color-mix(in srgb, currentcolor 10%, transparent);
+}
+
+.compose-attachment-menu {
+  position: fixed;
+  z-index: 90;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 2px 10px color-mix(in srgb, #000 10%, transparent);
+}
+
+.compose-attachment-menu button {
+  border-radius: calc(var(--radius) * 0.75);
+  padding: 0.4rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.compose-attachment-menu button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .compose-attachment-removing {
@@ -463,6 +501,68 @@
 .compose-drop-choice button:hover {
   background: var(--accent);
   color: var(--accent-foreground);
+}
+
+.compose-close-choice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, #000 24%, transparent);
+}
+
+.compose-close-choice {
+  width: min(30rem, 100%);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.15);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 2px 12px color-mix(in srgb, #000 12%, transparent);
+  padding: 1rem;
+}
+
+.compose-close-choice h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.compose-close-choice p {
+  margin: 0.35rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.compose-close-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.compose-close-choice-actions button {
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.compose-close-choice-actions button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.compose-close-choice-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.compose-close-choice-primary:hover {
+  background: color-mix(in srgb, var(--primary) 88%, var(--foreground));
 }
 
 .gofer-toast-card {
@@ -679,6 +779,14 @@
 }
 
 html[data-theme="minimal"] .account-color-marker {
+  border-radius: 0;
+}
+
+html[data-theme="minimal"] input[role="switch"] + div {
+  border-radius: 0;
+}
+
+html[data-theme="minimal"] input[role="switch"] + div::after {
   border-radius: 0;
 }
 

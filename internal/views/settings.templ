@@ -7,12 +7,13 @@ import (
 
 	"gofer.email/components/button"
 	"gofer.email/components/checkbox"
+	"gofer.email/components/dialog"
+	"gofer.email/components/dropdown"
+	"gofer.email/components/icon"
+	"gofer.email/components/input"
 	"gofer.email/components/radio"
 	"gofer.email/components/selectbox"
 	switchcomp "gofer.email/components/switch"
-	"gofer.email/components/dialog"
-	"gofer.email/components/icon"
-	"gofer.email/components/input"
 	"gofer.email/components/tabs"
 )
 
@@ -90,6 +91,66 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string) {
 					}
 				</div>
 			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<label for="compose-autosave-enabled" class="text-sm font-medium text-foreground">Autosave drafts</label>
+					<p class="text-xs text-muted-foreground mt-1">Save drafts after meaningful compose activity instead of creating drafts for tiny edits.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0 space-y-3" data-compose-autosave-controls>
+					<div class="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/40 px-3 py-2">
+						<span class="text-xs font-medium text-muted-foreground">Enable autosave</span>
+						@switchcomp.Switch(switchcomp.Props{
+							ID:      "compose-autosave-enabled",
+							Name:    "compose_autosave_enabled",
+							Checked: uiSettingGet(uiSettings, "compose_autosave_enabled", "true") != "false",
+							Attributes: templ.Attributes{"data-compose-autosave-setting": "enabled"},
+						})
+					</div>
+					<div data-compose-autosave-dependent>
+						<input type="hidden" name="compose_autosave_conditions" value={ uiSettingGet(uiSettings, "compose_autosave_conditions", "chars,attachment") } data-compose-autosave-conditions-value/>
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								@button.Button(button.Props{Variant: button.VariantOutline, Class: "settings-select select-trigger w-full h-9 justify-between bg-background", Disabled: uiSettingGet(uiSettings, "compose_autosave_enabled", "true") == "false", Attributes: templ.Attributes{"data-compose-autosave-conditions-button": ""}}) {
+									<span data-compose-autosave-conditions-label>{ composeAutosaveConditionsLabel(uiSettings) }</span>
+									@icon.ChevronDown(icon.Props{Class: "size-4 text-muted-foreground"})
+								}
+							}
+							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-64 normal-case tracking-normal", Attributes: templ.Attributes{"data-compose-autosave-conditions-menu": ""}}) {
+								@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { Autosave when }
+								<div class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" data-compose-autosave-condition-item="chars">
+									<span class={ "w-4 shrink-0 text-primary", templ.KV("opacity-0", !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "chars")) } data-compose-autosave-condition-check="chars">@icon.Check(icon.Props{Class: "size-4"})</span>
+									<span class="flex-1 text-left">Min characters</span>
+									<input type="text" inputmode="numeric" pattern="[0-9]*" value={ uiSettingGet(uiSettings, "compose_autosave_min_chars", "30") } class="h-7 w-14 rounded-md border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50" data-compose-autosave-min-chars disabled?={ uiSettingGet(uiSettings, "compose_autosave_enabled", "true") == "false" || !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "chars") }/>
+								</div>
+								@dropdown.Item(dropdown.ItemProps{PreventClose: true, Class: "gap-2", Attributes: templ.Attributes{"data-compose-autosave-condition-item": "attachment"}}) {
+									<span class={ "w-4 shrink-0 text-primary", templ.KV("opacity-0", !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "attachment")) } data-compose-autosave-condition-check="attachment">@icon.Check(icon.Props{Class: "size-4"})</span>
+									<span class="flex-1 text-left">Has attachment</span>
+								}
+								@dropdown.Item(dropdown.ItemProps{PreventClose: true, Class: "gap-2", Attributes: templ.Attributes{"data-compose-autosave-condition-item": "to"}}) {
+									<span class={ "w-4 shrink-0 text-primary", templ.KV("opacity-0", !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "to")) } data-compose-autosave-condition-check="to">@icon.Check(icon.Props{Class: "size-4"})</span>
+									<span class="flex-1 text-left">Has recipient</span>
+								}
+							}
+						}
+					</div>
+					<div data-compose-autosave-dependent>
+						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "compose_autosave_debounce", Class: "bg-background", DisableClear: true, Disabled: uiSettingGet(uiSettings, "compose_autosave_enabled", "true") == "false"}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "5 seconds"}) {
+									{ composeAutosaveDebounceLabel(uiSettingGet(uiSettings, "compose_autosave_debounce", "5")) }
+								}
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "1", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "1"}) { 1 second }
+								@selectbox.Item(selectbox.ItemProps{Value: "3", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "3"}) { 3 seconds }
+								@selectbox.Item(selectbox.ItemProps{Value: "5", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "5"}) { 5 seconds }
+								@selectbox.Item(selectbox.ItemProps{Value: "10", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "10"}) { 10 seconds }
+								@selectbox.Item(selectbox.ItemProps{Value: "15", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "15"}) { 15 seconds }
+							}
+						}
+					</div>
+				</div>
+			</div>
 		</div>
 		<div class="bg-card rounded-lg border p-6 space-y-5">
 			<div>
@@ -142,10 +203,68 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string) {
 	</div>
 	<script>
 	(function() {
+		function composeAutosaveEnabled() {
+			var toggle = document.querySelector('[data-compose-autosave-setting="enabled"]');
+			return !toggle || toggle.checked;
+		}
+		function selectedComposeAutosaveConditions() {
+			var input = document.querySelector('[data-compose-autosave-conditions-value]');
+			return (input && input.value ? input.value : '').split(',').filter(Boolean);
+		}
+		function saveComposeAutosaveConditions(values) {
+			var input = document.querySelector('[data-compose-autosave-conditions-value]');
+			if (input) input.value = values.join(',');
+			if (typeof GoferSettings !== 'undefined') GoferSettings.set('compose_autosave_conditions', values.join(','));
+		}
+		function composeAutosaveConditionLabel(values) {
+			if (!values.length) return 'No conditions';
+			return values.length === 1 ? '1 condition' : values.length + ' conditions';
+		}
+		function syncComposeAutosaveControls() {
+			var enabled = composeAutosaveEnabled();
+			var selected = selectedComposeAutosaveConditions();
+			document.querySelectorAll('[data-compose-autosave-dependent] .select-trigger, [data-compose-autosave-conditions-button], [data-compose-autosave-min-chars]').forEach(function(el) {
+				el.disabled = !enabled;
+				el.classList.toggle('opacity-50', !enabled);
+			});
+			document.querySelectorAll('[data-compose-autosave-condition-check]').forEach(function(check) {
+				check.classList.toggle('opacity-0', selected.indexOf(check.dataset.composeAutosaveConditionCheck) === -1);
+			});
+			var label = document.querySelector('[data-compose-autosave-conditions-label]');
+			if (label) label.textContent = composeAutosaveConditionLabel(selected);
+			var minChars = document.querySelector('[data-compose-autosave-min-chars]');
+			if (minChars) minChars.disabled = !enabled || selected.indexOf('chars') === -1;
+		}
+		document.addEventListener('click', function(e) {
+			var item = e.target.closest && e.target.closest('[data-compose-autosave-condition-item]');
+			if (!item || e.target.closest('[data-compose-autosave-min-chars]')) return;
+			var selected = selectedComposeAutosaveConditions();
+			var value = item.dataset.composeAutosaveConditionItem;
+			var index = selected.indexOf(value);
+			if (index === -1) selected.push(value);
+			else selected.splice(index, 1);
+			saveComposeAutosaveConditions(selected);
+			syncComposeAutosaveControls();
+		});
 		document.addEventListener('change', function(e) {
 			var defaultComposeView = e.target.closest('input[name="default_compose_view"]');
 			if (defaultComposeView && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('default_compose_view', defaultComposeView.value);
+			}
+			var autosaveToggle = e.target.closest('[data-compose-autosave-setting="enabled"]');
+			if (autosaveToggle && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('compose_autosave_enabled', autosaveToggle.checked ? 'true' : 'false');
+				syncComposeAutosaveControls();
+			}
+			var minChars = e.target.closest('[data-compose-autosave-min-chars]');
+			if (minChars && typeof GoferSettings !== 'undefined') {
+				var n = Math.max(1, Math.min(1000, parseInt(minChars.value.replace(/\D/g, '') || '30', 10) || 30));
+				minChars.value = n;
+				GoferSettings.set('compose_autosave_min_chars', String(n));
+			}
+			var autosaveDebounce = e.target.closest('input[name="compose_autosave_debounce"]');
+			if (autosaveDebounce && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('compose_autosave_debounce', autosaveDebounce.value);
 			}
 			var senderDisplay = e.target.closest('input[name="sender_display"]');
 			if (senderDisplay && typeof GoferSettings !== 'undefined') {
@@ -156,11 +275,17 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string) {
 				GoferSettings.set('auto_mark_read_after', autoMarkRead.value);
 			}
 		});
+		document.addEventListener('input', function(e) {
+			var minChars = e.target.closest && e.target.closest('[data-compose-autosave-min-chars]');
+			if (!minChars) return;
+			minChars.value = minChars.value.replace(/\D/g, '').slice(0, 4);
+		});
+		setTimeout(syncComposeAutosaveControls, 0);
 	})();
 	</script>
 }
 
-	templ SettingsAppearanceTab(uiSettings map[string]string) {
+templ SettingsAppearanceTab(uiSettings map[string]string) {
 		<div class="mt-6 space-y-6">
 			<div class="bg-card rounded-lg border p-6 space-y-6">
 				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

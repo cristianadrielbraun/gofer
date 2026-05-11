@@ -317,7 +317,10 @@ templ ComposeAttachments() {
 	<div class="hidden rounded-md border border-border/60 bg-background/40 p-2" data-compose-attachments>
 		<input type="file" multiple class="hidden" data-compose-attachment-input onchange="uploadComposeAttachments(this.files, this)"/>
 		<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/bmp,image/x-icon" class="hidden" data-compose-inline-input onchange="uploadComposeInlineImages(this.files, this)"/>
-		<div class="mb-2 text-[11px] font-medium text-muted-foreground/70">Max 25 MB per file, 35 MB total</div>
+		<div class="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium text-muted-foreground/70" data-compose-attachment-header>
+			<span data-compose-attachment-summary>Max 25 MB per file, 35 MB total</span>
+			<button type="button" class="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" onclick="toggleComposeAttachments(this)" data-compose-attachment-toggle>Hide</button>
+		</div>
 		<div class="flex flex-wrap gap-2" data-compose-attachment-list></div>
 	</div>
 }
