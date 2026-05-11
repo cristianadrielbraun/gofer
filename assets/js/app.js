@@ -918,9 +918,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var folderID = link.getAttribute("hx-get").replace("/folder/", "")
 
       if (document.querySelector("[data-compose-pane]")) {
-        var mailView = document.getElementById("mail-view")
         collapseComposeFullWidth()
-        if (mailView) mailView.innerHTML = ""
+        setMailViewEmpty()
         _updateComposeBtn(false)
       }
 
@@ -1323,6 +1322,23 @@ document.addEventListener("DOMContentLoaded", function () {
 
 var sendStatusTimer = null
 
+function setMailViewEmpty() {
+  var mailView = document.getElementById("mail-view")
+  if (!mailView) return
+  mailView.innerHTML =
+    '<div class="flex flex-col items-center justify-center h-full text-center">' +
+      '<div class="space-y-4 animate-fade-in">' +
+        '<div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised">' +
+          '<svg class="size-9 text-muted-foreground/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>' +
+        '</div>' +
+        '<div>' +
+          '<h3 class="font-semibold mb-1">Select an email</h3>' +
+          '<p class="text-sm text-muted-foreground">Choose an email from the list to read it</p>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+}
+
 function showSendStatus(status, text) {
   var wrapper = document.getElementById("send-status-wrapper")
   var inner = document.getElementById("send-status-inner")
@@ -1423,8 +1439,7 @@ function sendCompose(fromPane) {
   }
 
   if (fromPane) {
-    var mailView = document.getElementById("mail-view")
-    if (mailView) mailView.innerHTML = ""
+    setMailViewEmpty()
     _updateComposeBtn(false)
   } else if (window.tui && window.tui.dialog) {
     window.tui.dialog.close("compose-dialog")
@@ -1530,9 +1545,49 @@ function handleReply(el, mode) {
 
 function openNewCompose() {
   resetComposeForm(false)
+  var view = window.GoferSettings ? GoferSettings.get("default_compose_view") : null
+  if (view === "pane" || view === "full") {
+    openComposeInMain(view === "full")
+    return
+  }
   if (window.tui && window.tui.dialog) {
     window.tui.dialog.open("compose-dialog")
   }
+}
+
+function openComposeInMain(fullWidth) {
+  if (document.getElementById("mail-list") && document.getElementById("mail-view")) {
+    expandToPane(fullWidth)
+    return
+  }
+
+  if (typeof htmx === "undefined") {
+    window.location.href = "/"
+    return
+  }
+
+  var vals = _readComposeFormValues(document.getElementById("compose-form"))
+  var paneHTML = null
+  var mainReady = false
+
+  function openWhenReady() {
+    if (!mainReady || paneHTML === null) return
+    writeComposePane(paneHTML, vals, fullWidth)
+  }
+
+  function afterMainContentSettle(evt) {
+    if (!evt.target || evt.target.id !== "main-content") return
+    document.body.removeEventListener("htmx:afterSettle", afterMainContentSettle)
+    mainReady = true
+    openWhenReady()
+  }
+
+  document.body.addEventListener("htmx:afterSettle", afterMainContentSettle)
+  fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
+    paneHTML = html
+    openWhenReady()
+  }).catch(function () {})
+  htmx.ajax("GET", "/folder/inbox/full", { target: "#main-content", swap: "outerHTML" })
 }
 
 function toggleRead(emailId) {
@@ -1601,7 +1656,7 @@ function deleteMessage(emailId) {
   fetch("/api/messages/" + emailId, { method: "DELETE" })
     .then(function () {
       var mailView = document.getElementById("mail-view")
-      if (mailView) mailView.innerHTML = ""
+      if (mailView) setMailViewEmpty()
       var container = document.getElementById("mail-list-scroll")
       if (container && container._virtualMailList) {
         var vml = container._virtualMailList
@@ -1619,7 +1674,7 @@ function archiveThread(emailId) {
   fetch("/api/messages/" + emailId + "/thread/archive", { method: "POST" })
     .then(function () {
       var mailView = document.getElementById("mail-view")
-      if (mailView) mailView.innerHTML = ""
+      if (mailView) setMailViewEmpty()
       var container = document.getElementById("mail-list-scroll")
       if (container && container._virtualMailList) {
         var vml = container._virtualMailList
@@ -1637,7 +1692,7 @@ function deleteThread(emailId) {
   fetch("/api/messages/" + emailId + "/thread", { method: "DELETE" })
     .then(function () {
       var mailView = document.getElementById("mail-view")
-      if (mailView) mailView.innerHTML = ""
+      if (mailView) setMailViewEmpty()
       var container = document.getElementById("mail-list-scroll")
       if (container && container._virtualMailList) {
         var vml = container._virtualMailList
@@ -1990,7 +2045,7 @@ function _writeComposeFormValues(form, vals, prefix) {
   }
 }
 
-function expandToPane() {
+function expandToPane(fullWidth) {
   var dialogForm = document.getElementById("compose-form")
   var vals = _readComposeFormValues(dialogForm)
 
@@ -2001,31 +2056,37 @@ function expandToPane() {
   _composeActive = true
   _updateComposeBtn(true)
 
+  fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
+    writeComposePane(html, vals, fullWidth)
+  }).catch(function () {})
+}
+
+function writeComposePane(html, vals, fullWidth) {
   var mailView = document.getElementById("mail-view")
   if (!mailView) return
 
-  fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
-    mailView.innerHTML = html
+  mailView.innerHTML = html
 
-    var paneForm = document.getElementById("compose-pane-form")
-    _writeComposeFormValues(paneForm, vals, "compose-pane-")
+  var paneForm = document.getElementById("compose-pane-form")
+  _writeComposeFormValues(paneForm, vals, "compose-pane-")
 
-    if (vals._ccVisible) {
-      var ccField = document.getElementById("pane-cc-field")
-      var ccBtn = document.getElementById("pane-cc-btn")
-      if (ccField) ccField.classList.remove("hidden")
-      if (ccBtn) ccBtn.classList.add("hidden")
-    }
-    if (vals._bccVisible) {
-      var bccField = document.getElementById("pane-bcc-field")
-      var bccBtn = document.getElementById("pane-bcc-btn")
-      if (bccField) bccField.classList.remove("hidden")
-      if (bccBtn) bccBtn.classList.add("hidden")
-    }
+  if (vals._ccVisible) {
+    var ccField = document.getElementById("pane-cc-field")
+    var ccBtn = document.getElementById("pane-cc-btn")
+    if (ccField) ccField.classList.remove("hidden")
+    if (ccBtn) ccBtn.classList.add("hidden")
+  }
+  if (vals._bccVisible) {
+    var bccField = document.getElementById("pane-bcc-field")
+    var bccBtn = document.getElementById("pane-bcc-btn")
+    if (bccField) bccField.classList.remove("hidden")
+    if (bccBtn) bccBtn.classList.add("hidden")
+  }
 
-    var bodyField = paneForm && paneForm.querySelector('textarea[name="body"]')
-    if (bodyField) bodyField.focus()
-  }).catch(function () {})
+  var bodyField = paneForm && paneForm.querySelector('textarea[name="body"]')
+  if (bodyField) bodyField.focus()
+
+  if (fullWidth) expandComposeFullWidth()
 }
 
 function collapseToDialog() {
@@ -2035,7 +2096,7 @@ function collapseToDialog() {
   var vals = _readComposeFormValues(paneForm)
 
   var mailView = document.getElementById("mail-view")
-  if (mailView) mailView.innerHTML = ""
+  if (mailView) setMailViewEmpty()
 
   var dialogForm = document.getElementById("compose-form")
   _writeComposeFormValues(dialogForm, vals, "compose-")
@@ -2061,7 +2122,7 @@ function collapseToDialog() {
 function discardComposePane() {
   collapseComposeFullWidth()
   var mailView = document.getElementById("mail-view")
-  if (mailView) mailView.innerHTML = ""
+  if (mailView) setMailViewEmpty()
   _updateComposeBtn(false)
 }
 

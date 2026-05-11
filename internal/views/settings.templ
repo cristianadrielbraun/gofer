@@ -67,6 +67,32 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string) {
 	<div class="mt-6 space-y-6">
 		<div class="bg-card rounded-lg border p-6 space-y-5">
 			<div>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">New emails</h3>
+				<p class="text-xs text-muted-foreground">Choose how a new compose window opens when you start an email.</p>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Default compose view</h4>
+					<p class="text-xs text-muted-foreground mt-1">Pick whether new messages start in a dialog, the reading pane, or the full-width composer.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0" data-compose-view-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "default_compose_view", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Dialog"}) {
+								{ defaultComposeViewSettingLabel(uiSettingGet(uiSettings, "default_compose_view", "dialog")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "dialog", Selected: uiSettingGet(uiSettings, "default_compose_view", "dialog") == "dialog"}) { Dialog }
+							@selectbox.Item(selectbox.ItemProps{Value: "pane", Selected: uiSettingGet(uiSettings, "default_compose_view", "dialog") == "pane"}) { Right pane }
+							@selectbox.Item(selectbox.ItemProps{Value: "full", Selected: uiSettingGet(uiSettings, "default_compose_view", "dialog") == "full"}) { Full width }
+						}
+					}
+				</div>
+			</div>
+		</div>
+		<div class="bg-card rounded-lg border p-6 space-y-5">
+			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">List view</h3>
 				<p class="text-xs text-muted-foreground">Control how messages are summarized in the email list.</p>
 			</div>
@@ -117,6 +143,10 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string) {
 	<script>
 	(function() {
 		document.addEventListener('change', function(e) {
+			var defaultComposeView = e.target.closest('input[name="default_compose_view"]');
+			if (defaultComposeView && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('default_compose_view', defaultComposeView.value);
+			}
 			var senderDisplay = e.target.closest('input[name="sender_display"]');
 			if (senderDisplay && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('sender_display', senderDisplay.value);

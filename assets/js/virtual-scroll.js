@@ -979,10 +979,7 @@ class VirtualMailList {
         }
       }
     } else {
-      var mailView = document.getElementById("mail-view")
-      if (mailView) {
-        mailView.innerHTML = ""
-      }
+      if (typeof setMailViewEmpty === "function") setMailViewEmpty()
     }
 
     this.render()
@@ -1202,8 +1199,7 @@ class VirtualMailList {
       return
     }
     if (!this.selectedEmailId) {
-      var mailView = document.getElementById("mail-view")
-      if (mailView) mailView.innerHTML = ""
+      if (typeof setMailViewEmpty === "function") setMailViewEmpty()
     }
   }
 

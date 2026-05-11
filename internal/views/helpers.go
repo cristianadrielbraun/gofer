@@ -202,6 +202,17 @@ func senderDisplaySettingLabel(mode string) string {
 	}
 }
 
+func defaultComposeViewSettingLabel(view string) string {
+	switch view {
+	case "pane":
+		return "Right pane"
+	case "full":
+		return "Full width"
+	default:
+		return "Dialog"
+	}
+}
+
 func mailListViewMode(mode string) string {
 	if mode == "table" {
 		return "table"

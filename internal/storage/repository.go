@@ -2613,6 +2613,7 @@ func defaultUISettings() map[string]string {
 		"theme":                     "dark",
 		"theme_style":               "classic",
 		"prefetch_on_hover":         "true",
+		"default_compose_view":      "dialog",
 		"sender_display":            "name",
 		"auto_mark_read_after":      "0",
 		"mail_table_columns":        "accountMarker,starred,attachment,thread,from,to,subject,date",
