@@ -113,6 +113,8 @@ var GoferSettings;
     applyMailTableColumnSettings(root);
   };
 
+  window.applyMailTableColumnSettings = applyMailTableColumnSettings;
+
   window.applyMailTableColumns = function (value, root) {
     _cache.mail_table_columns = normalizeMailTableColumnIds(value).join(",");
     applyMailTableColumnSettings(root);

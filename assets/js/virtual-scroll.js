@@ -923,6 +923,9 @@ class VirtualMailList {
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
 
+    if (typeof window.applyMailTableColumnSettings === "function") {
+      window.applyMailTableColumnSettings(this.container)
+    }
     this.renderTableHeader()
 
     this.render()

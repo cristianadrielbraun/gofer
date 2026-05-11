@@ -1375,6 +1375,16 @@ document.addEventListener("DOMContentLoaded", function () {
     if (typeof initResizeHandles === "function") initResizeHandles()
   })
 
+  document.body.addEventListener("htmx:afterSwap", function (evt) {
+    if (typeof window.applyMailTableColumnSettings !== "function") return
+    if (!evt.target || !evt.target.querySelector) return
+
+    var scroll = evt.target.id === "mail-list-scroll"
+      ? evt.target
+      : evt.target.querySelector("#mail-list-scroll")
+    if (scroll) window.applyMailTableColumnSettings(scroll)
+  })
+
   document.body.addEventListener("htmx:afterSettle", function () {
     if (typeof initResizeHandles === "function") initResizeHandles()
   })
