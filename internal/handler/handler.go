@@ -110,6 +110,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/{id}/prefetch-body", h.handlePrefetchBody)
 	mux.HandleFunc("GET /compose/pane", h.handleComposePane)
 	mux.HandleFunc("POST /compose", h.handleCompose)
+	mux.HandleFunc("POST /compose/draft", h.handleComposeDraft)
+	mux.HandleFunc("POST /compose/draft/discard", h.handleDiscardComposeDraft)
+	mux.HandleFunc("GET /api/drafts/{id}", h.handleGetDraft)
+	mux.HandleFunc("DELETE /api/drafts/{id}", h.handleDeleteDraft)
 	mux.HandleFunc("POST /api/messages/{id}/read", h.handleToggleRead)
 	mux.HandleFunc("POST /api/messages/{id}/star", h.handleToggleStar)
 	mux.HandleFunc("POST /api/messages/{id}/thread/read", h.handleToggleThreadRead)
@@ -1689,6 +1693,186 @@ func (h *Handler) handleComposePane(w http.ResponseWriter, r *http.Request) {
 	views.ComposePane(accounts).Render(ctx, w)
 }
 
+func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
+		return
+	}
+
+	ctx := r.Context()
+	accountID := r.FormValue("account_id")
+	if accountID == "" {
+		accountID = h.accountStore.GetFirstAccountID(ctx, h.userID(ctx))
+	}
+	if accountID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no account configured"})
+		return
+	}
+
+	account, err := h.accountStore.GetAccountByID(ctx, accountID)
+	if err != nil || account == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "account not found"})
+		return
+	}
+
+	draftFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
+	if err != nil || draftFolderID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "drafts folder not available"})
+		return
+	}
+
+	draftID := strings.TrimSpace(r.FormValue("draft_id"))
+	if draftID == "" {
+		draftID = message.NewMessageID()
+	}
+	body := r.FormValue("body")
+	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
+	if htmlBody != "" {
+		htmlBody = string(message.SanitizeHTML([]byte(htmlBody)))
+	}
+	subject := r.FormValue("subject")
+	snippet := sentSnippet(body, subject)
+
+	msgID, err := h.db.SaveDraftMessage(ctx, storage.DraftMessageInput{
+		AccountID:         accountID,
+		FolderID:          draftFolderID,
+		InternetMessageID: draftID,
+		InReplyTo:         r.FormValue("in_reply_to"),
+		References:        r.FormValue("references"),
+		Subject:           subject,
+		FromName:          account.Name,
+		FromEmail:         account.Email,
+		Snippet:           snippet,
+		ToRecipients:      parseDraftRecipients(r.FormValue("to")),
+		CCRecipients:      parseDraftRecipients(r.FormValue("cc")),
+		BCCRecipients:     parseDraftRecipients(r.FormValue("bcc")),
+		Date:              time.Now().UTC(),
+	})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save draft"})
+		return
+	}
+
+	var textPath, htmlPath string
+	if body != "" {
+		if p, err := h.blobStore.StoreBodyText(ctx, accountID, msgID, []byte(body)); err == nil {
+			textPath = p
+		}
+	}
+	if htmlBody != "" {
+		if p, err := h.blobStore.StoreBodyHTML(ctx, accountID, msgID, []byte(htmlBody)); err == nil {
+			htmlPath = p
+		}
+	}
+	_ = h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, "", snippet)
+	h.publishMutation(accountID, draftFolderID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "draft_id": draftID})
+}
+
+func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
+		return
+	}
+	ctx := r.Context()
+	accountID := r.FormValue("account_id")
+	draftID := r.FormValue("draft_id")
+	folderID, err := h.db.DeleteDraftMessage(ctx, accountID, draftID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to discard draft"})
+		return
+	}
+	if folderID != "" {
+		h.publishMutation(accountID, folderID)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "discarded"})
+}
+
+func parseDraftRecipients(raw string) []storage.Recipient {
+	addrs, err := message.ParseAddressList(raw)
+	if err != nil {
+		return nil
+	}
+	recipients := make([]storage.Recipient, 0, len(addrs))
+	for _, addr := range addrs {
+		recipients = append(recipients, storage.Recipient{Name: addr.Name, Email: addr.Address})
+	}
+	return recipients
+}
+
+func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
+	email, err := h.db.GetEmailByID(r.Context(), r.PathValue("id"))
+	if err != nil || email == nil || !email.IsDraft {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"account_id":  email.AccountID,
+		"draft_id":    email.InternetMessageID,
+		"to":          contactsToAddressList(email.To),
+		"cc":          contactsToAddressList(email.CC),
+		"bcc":         contactsToAddressList(email.BCC),
+		"subject":     email.Subject,
+		"body":        email.TextBody,
+		"html_body":   email.HTMLBody,
+		"in_reply_to": email.InReplyTo,
+		"references":  email.References,
+	})
+}
+
+func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
+	email, err := h.db.GetEmailByID(r.Context(), r.PathValue("id"))
+	if err != nil || email == nil || !email.IsDraft {
+		http.NotFound(w, r)
+		return
+	}
+	folderID, err := h.db.DeleteDraftMessage(r.Context(), email.AccountID, email.InternetMessageID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to discard draft"})
+		return
+	}
+	if folderID != "" {
+		h.publishMutation(email.AccountID, folderID)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "discarded"})
+}
+
+func contactsToAddressList(contacts []models.Contact) string {
+	parts := make([]string, 0, len(contacts))
+	for _, c := range contacts {
+		if c.Email == "" {
+			continue
+		}
+		if c.Name != "" && c.Name != c.Email {
+			parts = append(parts, fmt.Sprintf("%s <%s>", c.Name, c.Email))
+		} else {
+			parts = append(parts, c.Email)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
 func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -1752,8 +1936,13 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
 
 	body := r.FormValue("body")
-	htmlBody := ""
-	if body != "" {
+	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
+	if htmlBody != "" {
+		htmlBody = string(message.SanitizeHTML([]byte(htmlBody)))
+		if !strings.Contains(strings.ToLower(htmlBody), "<html") {
+			htmlBody = "<html><body>" + htmlBody + "</body></html>"
+		}
+	} else if body != "" {
 		htmlBody = "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(body) + "</pre></body></html>"
 	}
 	inReplyTo, references := h.validComposeThreadHeaders(ctx, accountID, r.FormValue("subject"), r.FormValue("in_reply_to"), r.FormValue("references"))
@@ -1772,6 +1961,7 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 		MessageID:  message.NewMessageID(),
 		Date:       time.Now().UTC(),
 	}
+	draftID := strings.TrimSpace(r.FormValue("draft_id"))
 
 	go func() {
 		result, sendErr := smtpclient.SendMessage(context.Background(), cfg, smtpPassword, msg)
@@ -1788,6 +1978,11 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 			switch result {
 			case models.SendSuccess:
 				h.saveSentMessage(context.Background(), accountID, msg)
+				if draftID != "" {
+					if folderID, err := h.db.DeleteDraftMessage(context.Background(), accountID, draftID); err == nil && folderID != "" {
+						h.publishMutation(accountID, folderID)
+					}
+				}
 				evt.Status = "sent"
 			case models.SendAmbiguous:
 				evt.Status = "ambiguous"

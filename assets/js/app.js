@@ -1489,6 +1489,7 @@ function showSendStatus(status, text) {
 }
 
 var _composeActive = false
+var _activeComposeEditor = null
 
 function _updateComposeBtn(disabled) {
   if (!disabled) _composeActive = false
@@ -1512,20 +1513,645 @@ function selectComposeAccount(el, fromPane) {
   var display = document.getElementById(prefix + "from-display")
   if (idField) idField.value = accountId
   if (display) display.innerHTML = (name ? name + " &lt;" : "") + email + (name ? "&gt;" : "")
+  _markComposeDirty(document.getElementById(prefix + "form"))
 }
 
 function resetComposeForm(fromPane) {
   var prefix = fromPane ? "compose-pane-" : "compose-"
   var form = document.getElementById(prefix + "form")
   if (!form) return
-  var fields = form.querySelectorAll('input[name="to"], input[name="cc"], input[name="bcc"], input[name="subject"], input[name="in_reply_to"], input[name="references"], textarea[name="body"]')
+  var fields = form.querySelectorAll('input[name="to"], input[name="cc"], input[name="bcc"], input[name="subject"], input[name="draft_id"], input[name="in_reply_to"], input[name="references"], textarea[name="body"], textarea[name="html_body"]')
   for (var i = 0; i < fields.length; i++) fields[i].value = ""
+  var editor = form.querySelector("[data-compose-editor]")
+  if (editor) editor.innerHTML = ""
+  var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
+  for (var i = 0; i < recipientFields.length; i++) renderComposeRecipientField(recipientFields[i], "")
+  form.dataset.composeDirty = "false"
+  _setComposeDraftButtonState(form, "default")
 }
+
+function _composeRecipientEmail(value) {
+  value = String(value || "").trim()
+  var match = value.match(/<([^<>\s]+@[^<>\s]+)>/)
+  return (match ? match[1] : value).replace(/^mailto:/i, "").trim().toLowerCase()
+}
+
+function _isComposeRecipientValid(value) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(_composeRecipientEmail(value))
+}
+
+function _splitComposeRecipients(value) {
+  return String(value || "")
+    .split(/[;,\n]+/) 
+    .map(function (part) { return part.trim() })
+    .filter(Boolean)
+}
+
+function focusComposeRecipientField(field) {
+  var input = field && field.querySelector ? field.querySelector("[data-compose-recipient-input]") : null
+  if (input) input.focus()
+}
+
+function _composeRecipientValueInput(field) {
+  var form = field && field.closest ? field.closest("#compose-form, #compose-pane-form") : null
+  return form ? form.querySelector('input[name="' + field.dataset.recipientName + '"]') : null
+}
+
+function _composeRecipientValues(field) {
+  var chips = field ? field.querySelectorAll("[data-compose-recipient-chip]") : []
+  var values = []
+  for (var i = 0; i < chips.length; i++) values.push(chips[i].dataset.value || chips[i].textContent.trim())
+  return values
+}
+
+function _syncComposeRecipientField(field) {
+  var hidden = _composeRecipientValueInput(field)
+  if (hidden) hidden.value = _composeRecipientValues(field).join(", ")
+}
+
+function _makeComposeRecipientChip(value) {
+  var chip = document.createElement("span")
+  chip.dataset.composeRecipientChip = ""
+  chip.dataset.value = value
+  chip.className = "compose-recipient-chip"
+  if (_isComposeRecipientValid(value)) {
+    chip.dataset.valid = "true"
+  } else {
+    chip.dataset.valid = "false"
+  }
+  var label = document.createElement("span")
+  label.className = "truncate"
+  label.textContent = value
+  var remove = document.createElement("button")
+  remove.type = "button"
+  remove.className = "compose-recipient-remove"
+  remove.setAttribute("aria-label", "Remove recipient")
+  remove.textContent = "x"
+  remove.onclick = function () {
+    var field = chip.closest("[data-compose-recipient-field]")
+    removeComposeRecipientChip(chip)
+  }
+  chip.appendChild(label)
+  chip.appendChild(remove)
+  return chip
+}
+
+function removeComposeRecipientChip(chip) {
+  if (!chip || chip.dataset.removing === "true") return
+  var field = chip.closest("[data-compose-recipient-field]")
+  chip.dataset.removing = "true"
+  chip.classList.add("compose-recipient-chip-removing")
+  setTimeout(function () {
+    chip.remove()
+    _syncComposeRecipientField(field)
+    _markComposeDirty(_composeFormFrom(field))
+  }, 140)
+}
+
+function renderComposeRecipientField(field, value) {
+  if (!field) return
+  var input = field.querySelector("[data-compose-recipient-input]")
+  if (!input) return
+  var existing = field.querySelectorAll("[data-compose-recipient-chip]")
+  for (var i = 0; i < existing.length; i++) existing[i].remove()
+  var seen = {}
+  var tokens = _splitComposeRecipients(value)
+  for (var t = 0; t < tokens.length; t++) {
+    var email = _composeRecipientEmail(tokens[t])
+    if (seen[email]) continue
+    seen[email] = true
+    field.insertBefore(_makeComposeRecipientChip(tokens[t]), input)
+  }
+  input.textContent = ""
+  _syncComposeRecipientField(field)
+}
+
+function renderComposeRecipientFields(form) {
+  if (!form) return
+  var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
+  for (var i = 0; i < recipientFields.length; i++) {
+    var hidden = _composeRecipientValueInput(recipientFields[i])
+    renderComposeRecipientField(recipientFields[i], hidden ? hidden.value : "")
+  }
+}
+
+function finalizeComposeRecipientInput(input) {
+  var field = input && input.closest ? input.closest("[data-compose-recipient-field]") : null
+  if (!field) return
+  var text = input.textContent || ""
+  if (!text.trim()) return
+  var merged = _composeRecipientValues(field).concat(_splitComposeRecipients(text)).join(", ")
+  renderComposeRecipientField(field, merged)
+  _markComposeDirty(_composeFormFrom(field))
+}
+
+function handleComposeRecipientKeydown(event) {
+  var input = event.currentTarget
+  var field = input.closest("[data-compose-recipient-field]")
+  if (event.key === "Enter" || event.key === "Tab" || event.key === "," || event.key === ";") {
+    if ((input.textContent || "").trim()) {
+      event.preventDefault()
+      finalizeComposeRecipientInput(input)
+    }
+    return
+  }
+  if (event.key === "Backspace" && !(input.textContent || "").trim()) {
+    var chips = field.querySelectorAll("[data-compose-recipient-chip]")
+    if (chips.length) {
+      removeComposeRecipientChip(chips[chips.length - 1])
+    }
+  }
+}
+
+function handleComposeRecipientInput(input) {
+  var text = input.textContent || ""
+  if (/[;,\n]/.test(text)) finalizeComposeRecipientInput(input)
+}
+
+function finalizeComposeRecipients(form) {
+  if (!form) return true
+  var fields = form.querySelectorAll("[data-compose-recipient-field]")
+  var valid = true
+  for (var i = 0; i < fields.length; i++) {
+    var input = fields[i].querySelector("[data-compose-recipient-input]")
+    if (input) finalizeComposeRecipientInput(input)
+    _syncComposeRecipientField(fields[i])
+    var chips = fields[i].querySelectorAll("[data-compose-recipient-chip]")
+    for (var c = 0; c < chips.length; c++) {
+      if (!_isComposeRecipientValid(chips[c].dataset.value)) valid = false
+    }
+  }
+  return valid
+}
+
+function _composeFormFrom(el) {
+  if (el && el.closest) {
+    var form = el.closest("#compose-form, #compose-pane-form")
+    if (form) return form
+  }
+  if (_activeComposeEditor) return _activeComposeEditor.closest("#compose-form, #compose-pane-form")
+  return document.querySelector("[data-compose-pane]") ? document.getElementById("compose-pane-form") : document.getElementById("compose-form")
+}
+
+function _composeEditorFrom(el) {
+  var form = _composeFormFrom(el)
+  return form ? form.querySelector("[data-compose-editor]") : _activeComposeEditor
+}
+
+function setActiveComposeEditor(editor) {
+  _activeComposeEditor = editor
+  _saveComposeSelection(editor)
+  updateComposeToolbar(editor)
+}
+
+function _saveComposeSelection(editor) {
+  if (!editor) return
+  var selection = window.getSelection && window.getSelection()
+  if (!selection || !selection.rangeCount) return
+  var anchor = selection.anchorNode
+  if (anchor && editor.contains(anchor)) {
+    editor._composeRange = selection.getRangeAt(0).cloneRange()
+  }
+}
+
+function _restoreComposeSelection(editor) {
+  if (!editor || !editor._composeRange) return
+  var selection = window.getSelection && window.getSelection()
+  if (!selection) return
+  selection.removeAllRanges()
+  selection.addRange(editor._composeRange)
+}
+
+function _escapeComposeHTML(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+function _composePlainToHTML(text) {
+  var lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")
+  var html = ""
+  for (var i = 0; i < lines.length; i++) {
+    html += _escapeComposeHTML(lines[i])
+    if (i < lines.length - 1) html += "<br>"
+  }
+  return html
+}
+
+function _sanitizeComposeHTML(html) {
+  var template = document.createElement("template")
+  template.innerHTML = html || ""
+  var blocked = template.content.querySelectorAll("script, iframe, object, embed, form, meta, link")
+  for (var i = 0; i < blocked.length; i++) blocked[i].remove()
+  var allowed = { A: true, B: true, BLOCKQUOTE: true, BR: true, CODE: true, DIV: true, EM: true, I: true, LI: true, OL: true, P: true, PRE: true, S: true, SPAN: true, STRIKE: true, STRONG: true, U: true, UL: true }
+  var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT)
+  var nodes = []
+  while (walker.nextNode()) nodes.push(walker.currentNode)
+  for (var n = nodes.length - 1; n >= 0; n--) {
+    var node = nodes[n]
+    var tag = node.tagName
+    if (!allowed[tag]) {
+      var parent = node.parentNode
+      while (node.firstChild) parent.insertBefore(node.firstChild, node)
+      parent.removeChild(node)
+      continue
+    }
+    for (var a = node.attributes.length - 1; a >= 0; a--) {
+      var attr = node.attributes[a]
+      var name = attr.name.toLowerCase()
+      if (name.indexOf("on") === 0 || name === "style" || name === "class") {
+        node.removeAttribute(attr.name)
+        continue
+      }
+      if (tag !== "A" || (name !== "href" && name !== "target" && name !== "rel")) {
+        node.removeAttribute(attr.name)
+      }
+    }
+    if (tag === "A") {
+      var href = node.getAttribute("href") || ""
+      if (!/^(https?:|mailto:|#)/i.test(href)) node.removeAttribute("href")
+      node.setAttribute("rel", "noopener noreferrer")
+      if (href && href.charAt(0) !== "#") node.setAttribute("target", "_blank")
+    }
+  }
+  return template.innerHTML
+}
+
+function _composeEditorText(editor) {
+  if (!editor) return ""
+  return (editor.innerText || "").replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim()
+}
+
+function syncComposeEditor(editor) {
+  if (!editor) return
+  var form = _composeFormFrom(editor)
+  if (!form) return
+  var plain = form.querySelector('textarea[name="body"]')
+  var html = form.querySelector('textarea[name="html_body"]')
+  if (plain) plain.value = _composeEditorText(editor)
+  if (html) html.value = _sanitizeComposeHTML(editor.innerHTML).trim()
+}
+
+function composeChanged(editor) {
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+}
+
+function _syncComposeFormEditor(form) {
+  if (!form) return
+  var editor = form.querySelector("[data-compose-editor]")
+  if (editor) syncComposeEditor(editor)
+}
+
+function _setComposeEditorValue(form, plain, html) {
+  if (!form) return
+  var editor = form.querySelector("[data-compose-editor]")
+  var plainField = form.querySelector('textarea[name="body"]')
+  var htmlField = form.querySelector('textarea[name="html_body"]')
+  if (plainField) plainField.value = plain || ""
+  if (htmlField) htmlField.value = html || ""
+  if (editor) {
+    editor.innerHTML = html ? _sanitizeComposeHTML(html) : _composePlainToHTML(plain || "")
+  }
+}
+
+function composeExec(el, command, value) {
+  var editor = _composeEditorFrom(el)
+  if (!editor) return
+  editor.focus()
+  _restoreComposeSelection(editor)
+  document.execCommand(command, false, value || null)
+  syncComposeEditor(editor)
+  updateComposeToolbar(editor)
+}
+
+function composeCreateLink(el) {
+  var editor = _composeEditorFrom(el)
+  if (!editor) return
+  editor.focus()
+  _restoreComposeSelection(editor)
+  var url = window.prompt("Paste a URL or email address")
+  if (!url) return
+  if (url.indexOf("@") > 0 && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = "mailto:" + url
+  if (!/^(https?:|mailto:)/i.test(url)) url = "https://" + url
+  document.execCommand("createLink", false, url)
+  syncComposeEditor(editor)
+  updateComposeToolbar(editor)
+}
+
+function updateComposeToolbar(editor) {
+  var form = _composeFormFrom(editor)
+  if (!form) return
+  _saveComposeSelection(editor)
+  var buttons = form.querySelectorAll("[data-compose-command]")
+  for (var i = 0; i < buttons.length; i++) {
+    var command = buttons[i].dataset.composeCommand
+    var active = false
+    try { active = document.queryCommandState(command) } catch (e) {}
+    buttons[i].classList.toggle("bg-accent", active)
+    buttons[i].classList.toggle("text-foreground", active)
+  }
+}
+
+function handleComposePaste(event) {
+  var editor = event.currentTarget
+  var clipboard = event.clipboardData || window.clipboardData
+  if (!clipboard) return
+  event.preventDefault()
+  var html = clipboard.getData("text/html")
+  var text = clipboard.getData("text/plain")
+  document.execCommand("insertHTML", false, html ? _sanitizeComposeHTML(html) : _composePlainToHTML(text))
+  syncComposeEditor(editor)
+}
+
+document.addEventListener("keydown", function (event) {
+  var editor = event.target && event.target.closest ? event.target.closest("[data-compose-editor]") : null
+  if (!editor || (!event.ctrlKey && !event.metaKey)) return
+  var key = event.key.toLowerCase()
+  if (key === "b") {
+    event.preventDefault()
+    composeExec(editor, "bold")
+  } else if (key === "i") {
+    event.preventDefault()
+    composeExec(editor, "italic")
+  } else if (key === "u") {
+    event.preventDefault()
+    composeExec(editor, "underline")
+  } else if (key === "k") {
+    event.preventDefault()
+    composeCreateLink(editor)
+  }
+})
+
+document.addEventListener("selectionchange", function () {
+  if (_activeComposeEditor) _saveComposeSelection(_activeComposeEditor)
+})
+
+document.addEventListener("mousedown", function (event) {
+  if (event.target && event.target.closest && event.target.closest("[data-compose-toolbar] button")) {
+    event.preventDefault()
+  }
+})
+
+function composeUnavailable(message) {
+  showSendStatus("failed", message)
+}
+
+function _composeRootForForm(form) {
+  if (!form) return
+  return form.id === "compose-pane-form" ? form.closest("[data-compose-pane]") : document.getElementById("compose-dialog")
+}
+
+function _composeDraftButton(form) {
+  var root = _composeRootForForm(form)
+  return root ? root.querySelector("[data-compose-draft-button]") : null
+}
+
+function _setComposeDraftButtonState(form, state) {
+  var button = _composeDraftButton(form)
+  if (!button) return
+  var label = button.querySelector("[data-compose-draft-label]")
+  clearTimeout(button._composeDraftResetTimer)
+  button.dataset.composeDraftState = state || "default"
+  button.disabled = state === "saving"
+
+  if (label) {
+    if (state === "saving") label.textContent = "Saving..."
+    else if (state === "saved") label.textContent = "Saved"
+    else if (state === "failed") label.textContent = "Save failed"
+    else if (state === "empty") label.textContent = "Nothing to save"
+    else label.textContent = "Save Draft"
+  }
+
+  if (state === "saved" || state === "failed" || state === "empty") {
+    button._composeDraftResetTimer = setTimeout(function () {
+      _setComposeDraftButtonState(form, "default")
+    }, state === "saved" ? 1400 : 1900)
+  }
+}
+
+function _composeHasDraftContent(form) {
+  if (!form) return false
+  _syncComposeFormEditor(form)
+  var recipientInputs = form.querySelectorAll("[data-compose-recipient-input]")
+  for (var r = 0; r < recipientInputs.length; r++) {
+    if ((recipientInputs[r].textContent || "").trim()) return true
+  }
+  var names = ["to", "cc", "bcc", "subject", "body", "html_body"]
+  for (var i = 0; i < names.length; i++) {
+    var field = form.querySelector('[name="' + names[i] + '"]')
+    if (field && field.value && field.value.trim()) return true
+  }
+  return false
+}
+
+function _markComposeDirty(form) {
+  if (!form) return
+  form.dataset.composeDirty = "true"
+  var button = _composeDraftButton(form)
+  if (button && button.dataset.composeDraftState !== "saving") {
+    _setComposeDraftButtonState(form, "default")
+  }
+}
+
+function saveComposeDraft(fromPane, auto) {
+  var form = document.getElementById(fromPane ? "compose-pane-form" : "compose-form")
+  finalizeComposeRecipients(form)
+  if (!form || !_composeHasDraftContent(form)) {
+    if (!auto) _setComposeDraftButtonState(form, "empty")
+    return Promise.resolve(false)
+  }
+  _setComposeDraftButtonState(form, "saving")
+
+  var params = new URLSearchParams()
+  var inputs = form.querySelectorAll("input, textarea")
+  for (var i = 0; inputs && i < inputs.length; i++) {
+    if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
+  }
+
+  return fetch("/compose/draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  }).then(function (r) {
+    if (!r.ok) {
+      return r.json().catch(function () { return {} }).then(function (data) {
+        throw new Error(data.error || "Failed to save draft")
+      })
+    }
+    return r.json()
+  }).then(function (data) {
+    var draftField = form.querySelector('input[name="draft_id"]')
+    if (draftField && data.draft_id) draftField.value = data.draft_id
+    form.dataset.composeDirty = "false"
+    _setComposeDraftButtonState(form, "saved")
+    return true
+  }).catch(function (err) {
+    form.dataset.composeDirty = "true"
+    _setComposeDraftButtonState(form, "failed")
+    if (!auto) showSendStatus("failed", err && err.message ? err.message : "Failed to save draft")
+    return false
+  })
+}
+
+function saveActiveComposeDraft(auto) {
+  var form = _composeFormFrom(_activeComposeEditor)
+  saveComposeDraft(form && form.id === "compose-pane-form", !!auto)
+}
+
+function _composeValsFromDraft(draft) {
+  return {
+    account_id: draft.account_id || "",
+    draft_id: draft.draft_id || "",
+    to: draft.to || "",
+    cc: draft.cc || "",
+    bcc: draft.bcc || "",
+    subject: draft.subject || "",
+    body: draft.body || "",
+    html_body: draft.html_body || "",
+    in_reply_to: draft.in_reply_to || "",
+    references: draft.references || "",
+    _ccVisible: !!(draft.cc && draft.cc.trim()),
+    _bccVisible: !!(draft.bcc && draft.bcc.trim()),
+    _composeDirty: "false"
+  }
+}
+
+function _showComposeOptionalFields(form, vals) {
+  if (!form || !vals) return
+  var pane = form.id === "compose-pane-form"
+  var ccField = document.getElementById(pane ? "pane-cc-field" : "cc-field")
+  var ccBtn = document.getElementById(pane ? "pane-cc-btn" : "cc-btn")
+  var bccField = document.getElementById(pane ? "pane-bcc-field" : "bcc-field")
+  var bccBtn = document.getElementById(pane ? "pane-bcc-btn" : "bcc-btn")
+  if (ccField) ccField.classList.toggle("hidden", !vals._ccVisible)
+  if (ccBtn) ccBtn.classList.toggle("hidden", !!vals._ccVisible)
+  if (bccField) bccField.classList.toggle("hidden", !vals._bccVisible)
+  if (bccBtn) bccBtn.classList.toggle("hidden", !!vals._bccVisible)
+  renderComposeRecipientFields(form)
+}
+
+function _activeComposeCanBeReplaced() {
+  var form = document.querySelector("[data-compose-pane] #compose-pane-form") || document.getElementById("compose-form")
+  if (!form || form.dataset.composeDirty !== "true" || !_composeHasDraftContent(form)) return true
+  return window.confirm("Replace the current unsaved draft?")
+}
+
+function continueEditingDraft(emailId) {
+  if (!_activeComposeCanBeReplaced()) return
+  fetch("/api/drafts/" + encodeURIComponent(emailId))
+    .then(function (r) {
+      if (!r.ok) throw new Error("Failed to load draft")
+      return r.json()
+    })
+    .then(function (draft) {
+      var vals = _composeValsFromDraft(draft)
+      var view = window.GoferSettings ? GoferSettings.get("default_compose_view") : null
+      var fullWidth = view === "full"
+
+      if (view === "pane" || view === "full") {
+        if (document.getElementById("mail-list") && document.getElementById("mail-view")) {
+          fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
+            writeComposePane(html, vals, fullWidth, fullWidth)
+          })
+        } else {
+          var dialogForm = document.getElementById("compose-form")
+          _writeComposeFormValues(dialogForm, vals, "compose-")
+          _showComposeOptionalFields(dialogForm, vals)
+          openComposeInMain(fullWidth, fullWidth)
+        }
+        return
+      }
+
+      var form = document.getElementById("compose-form")
+      _writeComposeFormValues(form, vals, "compose-")
+      _showComposeOptionalFields(form, vals)
+      if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+    })
+    .catch(function (err) {
+      showSendStatus("failed", err && err.message ? err.message : "Failed to load draft")
+    })
+}
+
+function discardReadPaneDraft(emailId) {
+  if (!window.confirm("Discard this draft?")) return
+  fetch("/api/drafts/" + encodeURIComponent(emailId), { method: "DELETE" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("Failed to discard draft")
+      setMailViewEmpty()
+      refreshSidebarUnread()
+    })
+    .catch(function (err) {
+      showSendStatus("failed", err && err.message ? err.message : "Failed to discard draft")
+    })
+}
+
+function _deleteComposeDraft(form) {
+  if (!form) return Promise.resolve(false)
+  var draftField = form.querySelector('input[name="draft_id"]')
+  var accountField = form.querySelector('input[name="account_id"]')
+  if (!draftField || !draftField.value) return Promise.resolve(false)
+  var params = new URLSearchParams()
+  params.append("draft_id", draftField.value)
+  if (accountField) params.append("account_id", accountField.value)
+  draftField.value = ""
+  form.dataset.composeDirty = "false"
+  _setComposeDraftButtonState(form, "default")
+  return fetch("/compose/draft/discard", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  }).catch(function () { return false })
+}
+
+function _confirmComposeDiscard(form) {
+  if (!form || !_composeHasDraftContent(form)) return true
+  var draftField = form.querySelector('input[name="draft_id"]')
+  var hasSavedDraft = !!(draftField && draftField.value)
+  if (form.dataset.composeDirty === "true") return window.confirm("Discard this unsaved draft?")
+  if (hasSavedDraft) return window.confirm("Discard this saved draft?")
+  return window.confirm("Discard this message?")
+}
+
+function discardComposeDialog() {
+  var form = document.getElementById("compose-form")
+  if (!_confirmComposeDiscard(form)) return
+  _deleteComposeDraft(form)
+  resetComposeForm(false)
+  if (window.tui && window.tui.dialog) {
+    window.tui.dialog.close("compose-dialog")
+  }
+  _updateComposeBtn(false)
+}
+
+document.addEventListener("input", function (event) {
+  var form = event.target && event.target.closest ? event.target.closest("#compose-form, #compose-pane-form") : null
+  if (!form || event.target.matches("[data-compose-editor]")) return
+  _markComposeDirty(form)
+})
+
+window.addEventListener("beforeunload", function (event) {
+  var forms = [document.getElementById("compose-form"), document.getElementById("compose-pane-form")]
+  for (var i = 0; i < forms.length; i++) {
+    if (forms[i] && forms[i].dataset.composeDirty === "true" && _composeHasDraftContent(forms[i])) {
+      event.preventDefault()
+      event.returnValue = ""
+      return ""
+    }
+  }
+})
 
 function sendCompose(fromPane) {
   var formId = fromPane ? "compose-pane-form" : "compose-form"
   var form = document.getElementById(formId)
   if (!form) return
+  if (!finalizeComposeRecipients(form)) {
+    showSendStatus("failed", "Fix invalid recipient addresses before sending")
+    return
+  }
+  _syncComposeFormEditor(form)
 
   var toField = form.querySelector('input[name="to"]')
   if (!toField || !toField.value.trim()) {
@@ -1538,22 +2164,27 @@ function sendCompose(fromPane) {
     if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
   }
 
-  if (fromPane) {
-    setMailViewEmpty()
-    _updateComposeBtn(false)
-  } else if (window.tui && window.tui.dialog) {
-    window.tui.dialog.close("compose-dialog")
-    _updateComposeBtn(false)
-  }
-
   showSendStatus("sending", "Sending...")
 
   fetch("/compose", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString()
-  }).catch(function () {
-    showSendStatus("failed", "Failed to connect to server")
+  }).then(function (r) {
+    if (!r.ok) {
+      return r.json().catch(function () { return {} }).then(function (data) {
+        throw new Error(data.error || "Failed to send message")
+      })
+    }
+    if (fromPane) {
+      setMailViewEmpty()
+      _updateComposeBtn(false)
+    } else if (window.tui && window.tui.dialog) {
+      window.tui.dialog.close("compose-dialog")
+      _updateComposeBtn(false)
+    }
+  }).catch(function (err) {
+    showSendStatus("failed", err && err.message ? err.message : "Failed to connect to server")
   })
 }
 
@@ -1585,7 +2216,7 @@ function handleReply(el, mode) {
   var accountIdField = document.getElementById(prefix + "account-id")
   var inReplyToField = document.getElementById(prefix + "in-reply-to")
   var referencesField = document.getElementById(prefix + "references")
-  var bodyField = form.querySelector('textarea[name="body"]')
+  var bodyField = form.querySelector('[data-compose-editor]')
 
   if (accountId && accountIdField) {
     accountIdField.value = accountId
@@ -1608,9 +2239,14 @@ function handleReply(el, mode) {
     if (bodyField) {
       var quotedBody = body.split("\n").map(function(line) { return "> " + line }).join("\n")
       var header = date ? "On " + date + ", " + fromLine + " wrote:" : fromLine + " wrote:"
-      bodyField.value = "\n\n" + header + "\n" + quotedBody
+      _setComposeEditorValue(form, "\n\n" + header + "\n" + quotedBody, "")
       bodyField.focus()
-      bodyField.setSelectionRange(0, 0)
+      var range = document.createRange()
+      range.setStart(bodyField, 0)
+      range.collapse(true)
+      var selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
     }
   } else if (mode === "forward") {
     if (toField) toField.value = ""
@@ -1627,9 +2263,11 @@ function handleReply(el, mode) {
       if (subject) fwdHeader += "\nSubject: " + subject
       if (to) fwdHeader += "\nTo: " + to
       if (cc) fwdHeader += "\nCc: " + cc
-      bodyField.value = fwdHeader + "\n\n" + body
+      _setComposeEditorValue(form, fwdHeader + "\n\n" + body, "")
     }
   }
+
+  renderComposeRecipientFields(form)
 
   if (inPane) return
 
@@ -1647,7 +2285,7 @@ function openNewCompose() {
   resetComposeForm(false)
   var view = window.GoferSettings ? GoferSettings.get("default_compose_view") : null
   if (view === "pane" || view === "full") {
-    openComposeInMain(view === "full")
+    openComposeInMain(view === "full", view === "full")
     return
   }
   if (window.tui && window.tui.dialog) {
@@ -1655,9 +2293,9 @@ function openNewCompose() {
   }
 }
 
-function openComposeInMain(fullWidth) {
+function openComposeInMain(fullWidth, instantFullWidth) {
   if (document.getElementById("mail-list") && document.getElementById("mail-view")) {
-    expandToPane(fullWidth)
+    expandToPane(fullWidth, instantFullWidth)
     return
   }
 
@@ -1672,7 +2310,7 @@ function openComposeInMain(fullWidth) {
 
   function openWhenReady() {
     if (!mainReady || paneHTML === null) return
-    writeComposePane(paneHTML, vals, fullWidth)
+    writeComposePane(paneHTML, vals, fullWidth, instantFullWidth)
   }
 
   function afterMainContentSettle(evt) {
@@ -2113,6 +2751,8 @@ function refetchBody(emailId) {
 
 function _readComposeFormValues(form) {
   if (!form) return {}
+  finalizeComposeRecipients(form)
+  _syncComposeFormEditor(form)
   var vals = {}
   var inputs = form.querySelectorAll("input, textarea")
   for (var i = 0; inputs && i < inputs.length; i++) {
@@ -2128,6 +2768,7 @@ function _readComposeFormValues(form) {
   }
   vals._ccVisible = ccVisible
   vals._bccVisible = bccVisible
+  vals._composeDirty = form.dataset.composeDirty || "false"
   return vals
 }
 
@@ -2139,13 +2780,17 @@ function _writeComposeFormValues(form, vals, prefix) {
       inputs[i].value = vals[inputs[i].name]
     }
   }
+  renderComposeRecipientFields(form)
   if (vals._fromDisplay) {
     var display = document.getElementById(prefix + "from-display")
     if (display) display.innerHTML = vals._fromDisplay
   }
+  _setComposeEditorValue(form, vals.body || "", vals.html_body || "")
+  form.dataset.composeDirty = vals._composeDirty || "false"
+  _setComposeDraftButtonState(form, "default")
 }
 
-function expandToPane(fullWidth) {
+function expandToPane(fullWidth, instantFullWidth) {
   var dialogForm = document.getElementById("compose-form")
   var vals = _readComposeFormValues(dialogForm)
 
@@ -2157,11 +2802,11 @@ function expandToPane(fullWidth) {
   _updateComposeBtn(true)
 
   fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
-    writeComposePane(html, vals, fullWidth)
+    writeComposePane(html, vals, fullWidth, instantFullWidth)
   }).catch(function () {})
 }
 
-function writeComposePane(html, vals, fullWidth) {
+function writeComposePane(html, vals, fullWidth, instantFullWidth) {
   var mailView = document.getElementById("mail-view")
   if (!mailView) return
 
@@ -2183,10 +2828,16 @@ function writeComposePane(html, vals, fullWidth) {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  var bodyField = paneForm && paneForm.querySelector('textarea[name="body"]')
+  var bodyField = paneForm && paneForm.querySelector('[data-compose-editor]')
   if (bodyField) bodyField.focus()
 
-  if (fullWidth) expandComposeFullWidth()
+  if (fullWidth) {
+    if (instantFullWidth) {
+      applyComposeFullWidthInstant()
+    } else {
+      expandComposeFullWidth()
+    }
+  }
 }
 
 function collapseToDialog() {
@@ -2220,10 +2871,40 @@ function collapseToDialog() {
 }
 
 function discardComposePane() {
+  var paneForm = document.getElementById("compose-pane-form")
+  if (!_confirmComposeDiscard(paneForm)) return
+  _deleteComposeDraft(paneForm)
   collapseComposeFullWidth()
   var mailView = document.getElementById("mail-view")
   if (mailView) setMailViewEmpty()
   _updateComposeBtn(false)
+}
+
+function applyComposeFullWidthInstant() {
+  var mailList = document.querySelector("#main-content > #mail-list")
+  var resizeHandles = document.querySelectorAll('[data-panel="maillist"]')
+  if (!mailList || mailList._savedWidth !== undefined) return
+
+  mailList._savedWidth = mailList.style.width
+  mailList.style.display = "none"
+  mailList.style.width = "0px"
+  mailList.style.opacity = "0"
+  mailList.style.overflow = "hidden"
+  mailList.style.borderWidth = "0"
+
+  for (var i = 0; i < resizeHandles.length; i++) {
+    resizeHandles[i]._savedDisplay = resizeHandles[i].style.display
+    resizeHandles[i].style.display = "none"
+    resizeHandles[i].style.opacity = "0"
+  }
+
+  var normal = document.getElementById("pane-btns-normal")
+  var full = document.getElementById("pane-btns-full")
+  if (normal) normal.style.display = "none"
+  if (full) full.style.display = "flex"
+
+  var bodyField = document.querySelector("#compose-pane-form [data-compose-editor]")
+  if (bodyField) bodyField.focus()
 }
 
 function expandComposeFullWidth() {
@@ -2275,7 +2956,7 @@ function expandComposeFullWidth() {
   if (normal) normal.style.display = "none"
   if (full) full.style.display = "flex"
 
-  var bodyField = document.querySelector("#compose-pane-form textarea[name='body']")
+  var bodyField = document.querySelector("#compose-pane-form [data-compose-editor]")
   if (bodyField) bodyField.focus()
 }
 

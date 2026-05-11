@@ -210,6 +210,150 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
+.compose-recipient-field {
+  border-color: color-mix(in srgb, var(--ink) 12%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  cursor: text;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.compose-recipient-field:focus-within {
+  border-color: color-mix(in srgb, var(--ink) 20%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.compose-recipient-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: var(--foreground);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+  animation: compose-recipient-chip-in 140ms ease-out;
+  transform-origin: left center;
+}
+
+.compose-recipient-chip[data-valid="false"] {
+  border-color: color-mix(in srgb, var(--destructive) 35%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  color: var(--destructive);
+}
+
+.compose-recipient-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: -0.3rem;
+  padding: 0 0 0.0625rem;
+  border-radius: calc(var(--radius) * 0.8);
+  color: currentcolor;
+  opacity: 0.55;
+  line-height: 1;
+  transition: opacity 150ms ease, background-color 150ms ease;
+}
+
+.compose-recipient-remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentcolor 10%, transparent);
+}
+
+.compose-recipient-chip-removing {
+  animation: compose-recipient-chip-out 140ms ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes compose-recipient-chip-in {
+  from { opacity: 0; transform: translateY(2px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes compose-recipient-chip-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(2px) scale(0.96); }
+}
+
+.compose-rich-editor:empty::before {
+  content: attr(data-placeholder);
+  color: color-mix(in srgb, var(--ink) 28%, transparent);
+  font-style: italic;
+  pointer-events: none;
+}
+
+.compose-rich-editor blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+.compose-rich-editor pre {
+  margin: 0.5rem 0;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85em;
+}
+
+.compose-rich-editor ul,
+.compose-rich-editor ol {
+  margin: 0.35rem 0;
+  padding-left: 1.35rem;
+}
+
+.compose-rich-editor a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-compose-draft-button] [data-compose-draft-label] {
+  display: inline-block;
+}
+
+[data-compose-draft-button][data-compose-draft-state="saving"] {
+  cursor: wait;
+  opacity: 0.82;
+}
+
+[data-compose-draft-button][data-compose-draft-state="saving"] [data-compose-draft-icon] {
+  animation: compose-draft-saving 0.7s ease-in-out infinite alternate;
+}
+
+[data-compose-draft-button][data-compose-draft-state="saved"] {
+  color: var(--primary);
+}
+
+[data-compose-draft-button][data-compose-draft-state="failed"],
+[data-compose-draft-button][data-compose-draft-state="empty"] {
+  color: var(--destructive);
+}
+
+[data-compose-draft-button][data-compose-draft-state="saved"] [data-compose-draft-label],
+[data-compose-draft-button][data-compose-draft-state="failed"] [data-compose-draft-label],
+[data-compose-draft-button][data-compose-draft-state="empty"] [data-compose-draft-label] {
+  animation: compose-draft-pop 0.22s ease-out;
+}
+
+@keyframes compose-draft-saving {
+  from { transform: translateY(0) scale(1); opacity: 0.65; }
+  to { transform: translateY(-1px) scale(1.08); opacity: 1; }
+}
+
+@keyframes compose-draft-pop {
+  0% { transform: translateY(2px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
 .account-color-marker {
   border-radius: 9999px;
 }

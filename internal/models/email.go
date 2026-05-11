@@ -31,9 +31,11 @@ type Email struct {
 	From              Contact
 	To                []Contact
 	CC                []Contact
+	BCC               []Contact
 	Subject           string
 	Preview           string
 	Body              template.HTML
+	HTMLBody          string
 	TextBody          string
 	Date              string
 	DateFull          string
@@ -48,6 +50,7 @@ type Email struct {
 	InternetMessageID string
 	InReplyTo         string
 	References        string
+	IsDraft           bool
 }
 
 type Contact struct {

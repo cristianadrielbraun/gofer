@@ -664,6 +664,160 @@ type Recipient struct {
 	Email string
 }
 
+type DraftMessageInput struct {
+	AccountID         string
+	FolderID          string
+	InternetMessageID string
+	InReplyTo         string
+	References        string
+	Subject           string
+	FromName          string
+	FromEmail         string
+	Snippet           string
+	ToRecipients      []Recipient
+	CCRecipients      []Recipient
+	BCCRecipients     []Recipient
+	Date              time.Time
+}
+
+func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (int64, error) {
+	if draft.AccountID == "" || draft.FolderID == "" || draft.InternetMessageID == "" {
+		return 0, fmt.Errorf("missing draft identity")
+	}
+	if draft.Date.IsZero() {
+		draft.Date = time.Now().UTC()
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	messageIDNorm := mailmessage.NormalizeMessageID(draft.InternetMessageID)
+	if messageIDNorm == "" {
+		return 0, fmt.Errorf("invalid draft message id")
+	}
+	inReplyTo := ""
+	if ids := mailmessage.ParseMessageIDs(draft.InReplyTo); len(ids) > 0 {
+		inReplyTo = ids[0]
+	}
+	normalizedSubject := normalizeSubject(draft.Subject)
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO messages (account_id, internet_message_id, message_id_normalized, in_reply_to, "references", normalized_subject, subject, from_name, from_email,
+			date_sent, date_received, snippet, preview_text)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(account_id, internet_message_id) DO UPDATE SET
+			message_id_normalized = excluded.message_id_normalized,
+			subject = excluded.subject,
+			normalized_subject = excluded.normalized_subject,
+			from_name = excluded.from_name,
+			from_email = excluded.from_email,
+			date_sent = excluded.date_sent,
+			date_received = excluded.date_received,
+			in_reply_to = excluded.in_reply_to,
+			"references" = excluded."references",
+			snippet = excluded.snippet,
+			preview_text = excluded.preview_text,
+			updated_at = CURRENT_TIMESTAMP`, draft.AccountID, draft.InternetMessageID, messageIDNorm, inReplyTo, draft.References, normalizedSubject, draft.Subject,
+		draft.FromName, draft.FromEmail, draft.Date, draft.Date, draft.Snippet, draft.Snippet); err != nil {
+		return 0, fmt.Errorf("upsert draft message: %w", err)
+	}
+
+	var msgID int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`, draft.AccountID, draft.InternetMessageID).Scan(&msgID); err != nil {
+		return 0, fmt.Errorf("query draft message: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
+		VALUES (?, ?, NULL, 1, 0, 0, 1, 0, ?)
+		ON CONFLICT(message_id, folder_id) DO UPDATE SET
+			is_read = 1,
+			is_draft = 1,
+			is_deleted = 0,
+			synced_at = excluded.synced_at`, msgID, draft.FolderID, time.Now().UTC()); err != nil {
+		return 0, fmt.Errorf("upsert draft state: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE message_id = ?`, msgID); err != nil {
+		return 0, fmt.Errorf("delete draft recipients: %w", err)
+	}
+	insertRecipient := func(kind string, r Recipient) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO message_recipients (message_id, kind, name, email) VALUES (?, ?, ?, ?)`, msgID, kind, r.Name, r.Email)
+		return err
+	}
+	for _, r := range draft.ToRecipients {
+		if err := insertRecipient("to", r); err != nil {
+			return 0, fmt.Errorf("insert draft to: %w", err)
+		}
+	}
+	for _, r := range draft.CCRecipients {
+		if err := insertRecipient("cc", r); err != nil {
+			return 0, fmt.Errorf("insert draft cc: %w", err)
+		}
+	}
+	for _, r := range draft.BCCRecipients {
+		if err := insertRecipient("bcc", r); err != nil {
+			return 0, fmt.Errorf("insert draft bcc: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	db.RefreshFolderUnreadCount(ctx, draft.FolderID)
+	return msgID, nil
+}
+
+func (db *DB) DeleteDraftMessage(ctx context.Context, accountID, internetMessageID string) (string, error) {
+	if accountID == "" || internetMessageID == "" {
+		return "", nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var msgID int64
+	var folderID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT m.id, mfs.folder_id
+		FROM messages m
+		JOIN message_folder_state mfs ON m.id = mfs.message_id
+		WHERE m.account_id = ? AND m.internet_message_id = ? AND mfs.is_draft = 1
+		LIMIT 1`, accountID, internetMessageID).Scan(&msgID, &folderID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_folder_state WHERE message_id = ?`, msgID); err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE message_id = ?`, msgID); err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_references WHERE message_id = ?`, msgID); err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM unresolved_references WHERE child_message_id = ?`, msgID); err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, msgID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	db.RefreshFolderUnreadCount(ctx, folderID)
+	return folderID, nil
+}
+
 func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -1487,6 +1641,12 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	email.InReplyTo = inReplyTo
 	email.References = references
 
+	if bodyHTMLPath.Valid && bodyHTMLPath.String != "" {
+		if data, err := os.ReadFile(bodyHTMLPath.String); err == nil {
+			email.HTMLBody = string(data)
+		}
+	}
+
 	if bodyTextPath.Valid && bodyTextPath.String != "" {
 		data, err := os.ReadFile(bodyTextPath.String)
 		if err == nil {
@@ -1519,14 +1679,15 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	}
 
 	var folderID string
-	var isRead, isStarred int
+	var isRead, isStarred, isDraft int
 	err = db.Read().QueryRowContext(ctx,
-		`SELECT folder_id, is_read, is_starred FROM message_folder_state WHERE message_id = ? LIMIT 1`, msgID,
-	).Scan(&folderID, &isRead, &isStarred)
+		`SELECT folder_id, is_read, is_starred, is_draft FROM message_folder_state WHERE message_id = ? LIMIT 1`, msgID,
+	).Scan(&folderID, &isRead, &isStarred, &isDraft)
 	if err == nil {
 		email.FolderID = folderID
 		email.IsRead = isRead == 1
 		email.IsStarred = isStarred == 1
+		email.IsDraft = isDraft == 1
 	}
 	if email.ThreadID != "" {
 		var threadCount, threadIsRead int
@@ -1545,6 +1706,7 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 
 	email.To, _ = db.getRecipients(ctx, msgID, "to")
 	email.CC, _ = db.getRecipients(ctx, msgID, "cc")
+	email.BCC, _ = db.getRecipients(ctx, msgID, "bcc")
 	email.Labels, _ = db.getMessageLabels(ctx, msgID)
 	email.Attachments, _ = db.GetAttachments(ctx, msgID)
 

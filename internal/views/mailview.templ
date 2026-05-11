@@ -112,7 +112,11 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 				</div>
 			</div>
 			if thread == nil || len(thread) <= 1 {
-				@MailViewReplyBar(email)
+				if email.IsDraft {
+					@MailViewDraftBar(email)
+				} else {
+					@MailViewReplyBar(email)
+				}
 			}
 		</div>
 	</div>
@@ -499,19 +503,35 @@ templ MailViewHeader(email *models.Email) {
 					}
 				}
 				@dropdown.Content() {
-					@dropdown.Item() {
-						<span class="flex items-center gap-2">
-							@icon.Reply(icon.Props{Class: "size-4"})
-							Reply
-						</span>
+					if email.IsDraft {
+						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": fmt.Sprintf("continueEditingDraft('%s')", email.ID)}}) {
+							<span class="flex items-center gap-2">
+								@icon.Pencil(icon.Props{Class: "size-4"})
+								Continue editing
+							</span>
+						}
+						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": fmt.Sprintf("discardReadPaneDraft('%s')", email.ID)}}) {
+							<span class="flex items-center gap-2 text-destructive">
+								@icon.Trash2(icon.Props{Class: "size-4"})
+								Discard draft
+							</span>
+						}
+						@dropdown.Separator()
+					} else {
+						@dropdown.Item() {
+							<span class="flex items-center gap-2">
+								@icon.Reply(icon.Props{Class: "size-4"})
+								Reply
+							</span>
+						}
+						@dropdown.Item() {
+							<span class="flex items-center gap-2">
+								@icon.Forward(icon.Props{Class: "size-4"})
+								Forward
+							</span>
+						}
+						@dropdown.Separator()
 					}
-					@dropdown.Item() {
-						<span class="flex items-center gap-2">
-							@icon.Forward(icon.Props{Class: "size-4"})
-							Forward
-						</span>
-					}
-					@dropdown.Separator()
 					@dropdown.Item() {
 						<span class="flex items-center gap-2">
 							@icon.Tag(icon.Props{Class: "size-4"})
@@ -766,6 +786,33 @@ templ MailViewReplyBar(email *models.Email) {
 				<span class="flex items-center gap-2 text-[13px]">
 					@icon.Forward(icon.Props{Class: "size-4"})
 					Forward
+				</span>
+			}
+		</div>
+	</div>
+}
+
+templ MailViewDraftBar(email *models.Email) {
+	<div class="px-6 py-3 border-t border-ink/6" id="reply-bar">
+		<div class="flex items-center gap-2">
+			@button.Button(button.Props{
+				Variant:    button.VariantOutline,
+				Class:      "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
+				Attributes: templ.Attributes{"onclick": fmt.Sprintf("continueEditingDraft('%s')", email.ID)},
+			}) {
+				<span class="flex items-center gap-2 text-[13px]">
+					@icon.Pencil(icon.Props{Class: "size-4"})
+					Continue editing
+				</span>
+			}
+			@button.Button(button.Props{
+				Variant:    button.VariantOutline,
+				Class:      "flex-1 h-9 border-ink/10 text-ink/60 hover:text-destructive hover:border-destructive/20",
+				Attributes: templ.Attributes{"onclick": fmt.Sprintf("discardReadPaneDraft('%s')", email.ID)},
+			}) {
+				<span class="flex items-center gap-2 text-[13px]">
+					@icon.Trash2(icon.Props{Class: "size-4"})
+					Discard draft
 				</span>
 			}
 		</div>
