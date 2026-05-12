@@ -258,6 +258,23 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 	return err
 }
 
+func (s *AccountStore) UpdateAccountColor(ctx context.Context, userID, accountID, color string) error {
+	res, err := s.db.Write().ExecContext(ctx,
+		`UPDATE accounts SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0`,
+		color, accountID, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *AccountStore) DeleteAccount(ctx context.Context, accountID string) error {
 	_, err := s.db.Write().ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, accountID)
 	return err

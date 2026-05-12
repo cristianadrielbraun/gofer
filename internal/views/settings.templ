@@ -11,6 +11,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
@@ -532,7 +533,7 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 						for _, account := range settings.Accounts {
 							<div class="rounded-lg border border-border bg-background p-4" data-sync-account-card>
 								<div class="flex items-center gap-2.5 mb-4">
-									<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(account.Color) }></div>
+									<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.AccountID }></div>
 									<div class="min-w-0">
 										<p class="text-sm font-medium leading-tight truncate">{ account.AccountName }</p>
 										<p class="text-xs text-muted-foreground truncate">{ account.AccountEmail }</p>
@@ -874,7 +875,7 @@ templ SettingsNoAccounts() {
 templ SettingsAccountCard(account models.Account) {
 	<div id={ fmt.Sprintf("account-card-%s", account.ID) }>
 		<div class="flex items-center gap-4 p-4 rounded-lg border bg-background">
-			<div class="account-color-marker size-5 shrink-0" style={ accountColorStyle(account.Color) }></div>
+			@AccountColorPopover(account)
 			<div class="flex-1 min-w-0">
 				<p class="text-sm font-medium truncate">{ account.Name }</p>
 				<p class="text-xs text-muted-foreground truncate">{ account.Email }</p>
@@ -929,7 +930,7 @@ templ SettingsAccountCard(account models.Account) {
 					}
 				}
 				<div class="flex items-center gap-3 p-3 rounded-lg bg-destructive/5 border border-destructive/15">
-					<div class="account-color-marker size-5 shrink-0" style={ accountColorStyle(account.Color) }></div>
+					<div class="account-color-marker size-5 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
 					<div class="flex-1 min-w-0">
 						<p class="text-sm font-medium truncate">{ account.Name }</p>
 						<p class="text-xs text-muted-foreground truncate">{ account.Email }</p>
@@ -959,6 +960,55 @@ templ SettingsAccountCard(account models.Account) {
 			}
 		}
 	</div>
+}
+
+templ AccountColorPopover(account models.Account) {
+	@popover.Root(popover.RootProps{ID: fmt.Sprintf("account-color-%s", account.ID), Class: "shrink-0"}) {
+		@popover.Trigger() {
+			<button
+				type="button"
+				class="account-color-marker size-5 shrink-0 cursor-pointer ring-2 ring-transparent ring-offset-2 ring-offset-background transition-[box-shadow,filter] hover:brightness-110 hover:ring-border focus-visible:outline-none focus-visible:ring-ring"
+				style={ accountColorStyle(account.Color) }
+				data-account-marker={ account.ID }
+				aria-label={ fmt.Sprintf("Change marker color for %s", account.Name) }
+			></button>
+		}
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "w-64"}) {
+			<div class="p-3" data-account-color-picker data-account-id={ account.ID }>
+				<div class="mb-3 flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Marker color</p>
+						<p class="mt-0.5 truncate text-sm font-medium text-popover-foreground">{ account.Name }</p>
+					</div>
+					<div class="account-color-marker size-6 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
+				</div>
+				<div class="grid grid-cols-6 gap-2">
+					for _, color := range accountColorOptions() {
+						<button
+							type="button"
+							class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+							style={ accountColorStyle(color) }
+							data-account-color-option={ color }
+							data-account-color-active={ fmt.Sprintf("%t", accountColorSelected(account.Color, color)) }
+							aria-label={ fmt.Sprintf("Use %s", color) }
+							aria-pressed={ fmt.Sprintf("%t", accountColorSelected(account.Color, color)) }
+						></button>
+					}
+				</div>
+				<div class="mt-3 flex items-center gap-2 rounded-md border border-border/70 bg-background/50 px-2.5 py-2">
+					<label for={ fmt.Sprintf("account-color-custom-%s", account.ID) } class="text-xs font-medium text-muted-foreground">Custom</label>
+					<input
+						id={ fmt.Sprintf("account-color-custom-%s", account.ID) }
+						type="color"
+						value={ accountColorValue(account.Color) }
+						class="h-7 w-9 cursor-pointer rounded border border-border bg-transparent p-0.5"
+						data-account-color-custom
+					/>
+					<span class="ml-auto text-xs text-muted-foreground" data-account-color-status></span>
+				</div>
+			</div>
+		}
+	}
 }
 
 templ AccountSignaturesSettings(accounts []models.AccountSignatureData) {
@@ -1024,7 +1074,7 @@ templ SignatureManagerGrid(accounts []models.AccountSignatureData) {
 					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
 						@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_account_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-account-select": ""}}) {
 							<span class="flex min-w-0 flex-1 items-center gap-2">
-								<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(first.Account.Color) } data-signature-account-marker></span>
+								<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(first.Account.Color) } data-signature-account-marker data-account-marker={ first.Account.ID }></span>
 								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose account", Class: "min-w-0 text-left"}) {
 									{ first.Account.Name } &lt;{ first.Account.Email }&gt;
 								}
@@ -1034,7 +1084,7 @@ templ SignatureManagerGrid(accounts []models.AccountSignatureData) {
 							for _, data := range accounts {
 								@selectbox.Item(selectbox.ItemProps{Value: data.Account.ID, Selected: data.Account.ID == first.Account.ID}) {
 									<span class="inline-flex min-w-0 items-center gap-2">
-										<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(data.Account.Color) } data-signature-account-marker-source></span>
+										<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(data.Account.Color) } data-signature-account-marker-source data-account-marker={ data.Account.ID }></span>
 										<span class="truncate">{ data.Account.Name } &lt;{ data.Account.Email }&gt;</span>
 									</span>
 								}

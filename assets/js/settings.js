@@ -2,6 +2,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupTestButtonAnimation()
   setupSettingsHistory()
   setupModePickers()
+  setupAccountColorPickers()
   setupAccountSignaturesDialog(document)
 
   function setupTestButtonAnimation() {
@@ -143,6 +144,105 @@ function escapeHtml(text) {
   var el = document.createElement("span")
   el.textContent = text
   return el.innerHTML
+}
+
+function normalizeAccountColorInput(color) {
+  color = (color || "").trim()
+  if (/^[0-9a-f]{6}$/i.test(color)) color = "#" + color
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return ""
+  return color.toLowerCase()
+}
+
+function setupAccountColorPickers() {
+  if (setupAccountColorPickers.ready) return
+  setupAccountColorPickers.ready = true
+
+  document.addEventListener("click", function (e) {
+    var swatch = e.target.closest && e.target.closest("[data-account-color-option]")
+    if (!swatch) return
+    e.preventDefault()
+    var picker = swatch.closest("[data-account-color-picker]")
+    if (!picker) return
+    saveAccountColor(picker, swatch.getAttribute("data-account-color-option"), swatch)
+  })
+
+  document.addEventListener("change", function (e) {
+    var input = e.target.closest && e.target.closest("[data-account-color-custom]")
+    if (!input) return
+    var picker = input.closest("[data-account-color-picker]")
+    if (!picker) return
+    saveAccountColor(picker, input.value, input)
+  })
+}
+
+function setAccountColorStatus(picker, message, isError) {
+  var status = picker && picker.querySelector("[data-account-color-status]")
+  if (!status) return
+  status.textContent = message || ""
+  status.classList.toggle("text-destructive", !!isError)
+  status.classList.toggle("text-muted-foreground", !isError)
+}
+
+function setAccountColorSaving(picker, saving) {
+  if (!picker) return
+  picker.querySelectorAll("[data-account-color-option], [data-account-color-custom]").forEach(function (el) {
+    el.disabled = !!saving
+    el.classList.toggle("opacity-60", !!saving)
+  })
+}
+
+function updateAccountColorUI(accountId, color) {
+  document.querySelectorAll("[data-account-marker]").forEach(function (marker) {
+    if (marker.getAttribute("data-account-marker") === accountId) marker.style.backgroundColor = color
+  })
+  document.querySelectorAll("[data-account-color-picker]").forEach(function (picker) {
+    if (picker.getAttribute("data-account-id") !== accountId) return
+    var input = picker.querySelector("[data-account-color-custom]")
+    if (input) input.value = color
+    picker.querySelectorAll("[data-account-color-option]").forEach(function (swatch) {
+      var active = normalizeAccountColorInput(swatch.getAttribute("data-account-color-option")) === color
+      swatch.setAttribute("data-account-color-active", active ? "true" : "false")
+      swatch.setAttribute("aria-pressed", active ? "true" : "false")
+    })
+  })
+}
+
+function closeAccountColorPopover(source) {
+  var root = source && source.closest && source.closest("[data-tui-popover-root]")
+  if (!root || !root.id || !window.tui || !window.tui.popover) return
+  setTimeout(function () { window.tui.popover.close(root.id) }, 180)
+}
+
+function saveAccountColor(picker, rawColor, source) {
+  var accountId = picker.getAttribute("data-account-id") || ""
+  var color = normalizeAccountColorInput(rawColor)
+  if (!accountId || !color) {
+    setAccountColorStatus(picker, "Invalid", true)
+    return
+  }
+
+  setAccountColorSaving(picker, true)
+  setAccountColorStatus(picker, "Saving", false)
+  fetch("/api/accounts/" + encodeURIComponent(accountId) + "/color", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+    body: new URLSearchParams({ color: color }).toString()
+  }).then(function (res) {
+    return res.json().catch(function () { return {} }).then(function (data) {
+      if (!res.ok) throw new Error(data.error || "Failed to update color")
+      return data
+    })
+  }).then(function (data) {
+    var nextColor = normalizeAccountColorInput(data.color) || color
+    updateAccountColorUI(accountId, nextColor)
+    setAccountColorStatus(picker, "Saved", false)
+    closeAccountColorPopover(source)
+    setTimeout(function () { setAccountColorStatus(picker, "", false) }, 1800)
+  }).catch(function (err) {
+    setAccountColorStatus(picker, err && err.message ? err.message : "Failed", true)
+  }).finally(function () {
+    setAccountColorSaving(picker, false)
+  })
 }
 
 function sanitizeSignatureStyle(style) {

@@ -319,10 +319,35 @@ func autoMarkReadSettingLabel(value string) string {
 }
 
 func accountColorStyle(color string) string {
-	if color == "" {
-		color = "#8b5cf6"
+	return "background-color: " + accountColorValue(color)
+}
+
+func accountColorValue(color string) string {
+	color = strings.TrimSpace(color)
+	if len(color) == 6 {
+		color = "#" + color
 	}
-	return "background-color: " + color
+	if len(color) != 7 || color[0] != '#' {
+		return "#8b5cf6"
+	}
+	for _, r := range color[1:] {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return "#8b5cf6"
+		}
+	}
+	return strings.ToLower(color)
+}
+
+func accountColorOptions() []string {
+	return []string{
+		"#ef4444", "#f97316", "#facc15", "#84cc16", "#22c55e", "#14b8a6",
+		"#06b6d4", "#0ea5e9", "#2563eb", "#4f46e5", "#7c3aed", "#d946ef",
+		"#ec4899", "#fb7185", "#7f1d1d", "#14532d", "#083344", "#111827",
+	}
+}
+
+func accountColorSelected(current, option string) bool {
+	return accountColorValue(current) == accountColorValue(option)
 }
 
 func accountMarkerStyle(accounts []models.Account) string {

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -102,6 +103,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
 	mux.HandleFunc("GET /api/accounts/{id}/edit", h.handleGetEditAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
+	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
 	mux.HandleFunc("GET /api/accounts/{id}/signatures", h.handleAccountSignatures)
 	mux.HandleFunc("GET /api/accounts/{id}/signatures/manage", h.handleManageAccountSignatures)
 	mux.HandleFunc("POST /api/accounts/{id}/signature-settings", h.handleSaveAccountSignatureSettings)
@@ -1162,6 +1164,46 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	views.WizardStepSuccess("Account updated", accountID, "edit").Render(r.Context(), w)
 }
 
+func (h *Handler) handleUpdateAccountColor(w http.ResponseWriter, r *http.Request) {
+	accountID := r.PathValue("id")
+	if accountID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "account id required"})
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
+		return
+	}
+
+	color, ok := normalizeAccountColor(r.FormValue("color"))
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "choose a valid hex color"})
+		return
+	}
+
+	if err := h.accountStore.UpdateAccountColor(r.Context(), h.userID(r.Context()), accountID, color); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if err == sql.ErrNoRows {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "account not found"})
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to update account color"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"color": color})
+}
+
 func (h *Handler) handleAccountSignatures(w http.ResponseWriter, r *http.Request) {
 	accountID := r.PathValue("id")
 	if accountID == "" {
@@ -1655,6 +1697,22 @@ func atoiDefault(s string, def int) int {
 		return v
 	}
 	return def
+}
+
+func normalizeAccountColor(color string) (string, bool) {
+	color = strings.TrimSpace(color)
+	if len(color) == 6 {
+		color = "#" + color
+	}
+	if len(color) != 7 || color[0] != '#' {
+		return "", false
+	}
+	for _, r := range color[1:] {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return "", false
+		}
+	}
+	return strings.ToLower(color), true
 }
 
 func (h *Handler) handleAttachmentDownload(w http.ResponseWriter, r *http.Request) {
