@@ -49,6 +49,15 @@ func formatContacts(contacts []models.Contact) string {
 	return strings.Join(parts, ", ")
 }
 
+func shouldShowAttachment(att models.Attachment) bool {
+	if !att.Inline {
+		return true
+	}
+	ct := strings.ToLower(att.ContentType)
+	name := strings.ToLower(att.Filename)
+	return !(strings.HasPrefix(ct, "image/") || strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".jpg") || strings.HasSuffix(name, ".jpeg") || strings.HasSuffix(name, ".gif") || strings.HasSuffix(name, ".webp") || strings.HasSuffix(name, ".svg"))
+}
+
 templ MailView(email *models.Email, thread []models.ThreadItem) {
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">
 		if email != nil {
@@ -227,7 +236,7 @@ templ MailViewThreadItemSender(email *models.Email, item *models.ThreadItem) {
 templ MailViewThreadItemAttachments(item *models.ThreadItem) {
 	<div class="mt-5 space-y-2">
 		for _, att := range item.Attachments {
-			if !att.Inline {
+			if shouldShowAttachment(att) {
 				<div class="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
 					<div class="flex items-center justify-center size-9 rounded-md bg-ink/[0.03] shadow-[0_1px_2px_rgba(0,0,0,0.06)_inset]">
 						@icon.File(icon.Props{Class: "size-4 text-ink/30"})
@@ -670,7 +679,7 @@ templ MailViewAttachments(email *models.Email) {
 	if len(email.Attachments) > 0 {
 		<div class="mt-5 space-y-2">
 			for _, att := range email.Attachments {
-				if !att.Inline {
+				if shouldShowAttachment(att) {
 					<div class="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
 						<div class="flex items-center justify-center size-9 rounded-md bg-ink/[0.03] shadow-[0_1px_2px_rgba(0,0,0,0.06)_inset]">
 							@icon.File(icon.Props{Class: "size-4 text-ink/30"})

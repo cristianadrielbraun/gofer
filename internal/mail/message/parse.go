@@ -172,7 +172,7 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 
 			cid := h.Get("Content-Id")
 			cid = strings.Trim(cid, "<>")
-			isInline := cid != ""
+			isInline := strings.HasPrefix(strings.ToLower(strings.TrimSpace(h.Get("Content-Disposition"))), "inline")
 
 			var sizeBuf countingWriter
 			teeReader := io.TeeReader(part.Body, &sizeBuf)
