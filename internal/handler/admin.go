@@ -8,7 +8,6 @@ import (
 
 func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	avatarStatus, err := h.avatarStatus(ctx)
 	if err != nil {
@@ -22,5 +21,5 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	views.AdminLayout(accounts, uiSettings, avatarStatus).Render(ctx, w)
+	views.AdminLayout(uiSettings, avatarStatus).Render(ctx, w)
 }

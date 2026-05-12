@@ -184,7 +184,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 	</html>
 }
 
-templ AdminLayout(accounts []models.Account, uiSettings map[string]string, avatarStatus models.AvatarStatus) {
+templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -209,16 +209,13 @@ templ AdminLayout(accounts []models.Account, uiSettings map[string]string, avata
 			@toast.Script()
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
-			<div class="flex h-screen overflow-hidden">
-				@Sidebar(accounts, "admin", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
-				@ResizeHandle("sidebar")
+			<div class="flex h-screen overflow-hidden bg-background">
+				@AdminSidebar()
 				<div id="main-content" class="flex flex-1 min-w-0">
 					@AdminPage(avatarStatus)
 				</div>
 			</div>
-			<script src="/assets/js/htmx.min.js"></script>
 			<script src="/assets/js/ui-settings.js"></script>
-			<script src="/assets/js/resize.js"></script>
 		</body>
 	</html>
 }
