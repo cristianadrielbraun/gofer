@@ -14,7 +14,7 @@ templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSe
 		@SidebarHeader(accounts)
 		<hr class="divider-etched mx-4"/>
 		@SidebarFolderTree(accounts, activeFolder, uiSettings)
-		@SidebarFooter()
+		@SidebarFooter(activeFolder)
 	</aside>
 }
 
@@ -186,7 +186,7 @@ templ SidebarFolderIcon(iconName string) {
 	}
 }
 
-templ SidebarFooter() {
+templ SidebarFooter(activeFolder string) {
 	<div class="px-4 py-3 border-t border-sidebar-border">
 		<a
 			href="/settings/accounts"
@@ -200,6 +200,23 @@ templ SidebarFooter() {
 				@icon.Settings(icon.Props{Class: "size-4"})
 			</span>
 			Settings
+		</a>
+		<a
+			href="/admin"
+			hx-get="/admin"
+			hx-target="#main-content"
+			hx-swap="outerHTML"
+			hx-push-url="/admin"
+			class={
+				"w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors text-[13px] mt-1",
+				templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", activeFolder == "admin"),
+				templ.KV("text-sidebar-foreground/60 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/60", activeFolder != "admin"),
+			}
+		>
+			<span class="flex size-4 shrink-0 items-center justify-center">
+				@icon.Activity(icon.Props{Class: "size-4"})
+			</span>
+			Admin
 		</a>
 		<div class="flex items-center justify-between mb-2 mt-1">
 			<span class="text-[11px] text-sidebar-foreground/40 uppercase tracking-wider font-semibold">Storage</span>

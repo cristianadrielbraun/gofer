@@ -991,7 +991,8 @@ class VirtualMailList {
     if (pushState) this.pushUrl()
   }
 
-  async refreshCurrentFolder() {
+  async refreshCurrentFolder(options) {
+    options = options || {}
     if (this.refreshInFlight) {
       this.refreshQueued = true
       return this.refreshInFlight
@@ -999,7 +1000,7 @@ class VirtualMailList {
 
     var self = this
     this.refreshInFlight = (async function () {
-      var transition = self.captureListTransition()
+      var transition = options.noAnimation ? null : self.captureListTransition()
       var params = "limit=50"
       if (self.selectedEmailId) {
         params += "&selected=" + encodeURIComponent(self.selectedEmailId)
@@ -1018,7 +1019,7 @@ class VirtualMailList {
       self.prevFirst = null
       self.prevLast = null
       self.render()
-      self.animateListTransition(transition, { enterFrom: -12, exitTo: 12 })
+      if (transition) self.animateListTransition(transition, { enterFrom: -12, exitTo: 12 })
       self.updateHeader()
       self.updateSyncHeader()
     })()
@@ -1029,7 +1030,7 @@ class VirtualMailList {
       this.refreshInFlight = null
       if (this.refreshQueued) {
         this.refreshQueued = false
-        this.refreshCurrentFolder()
+        this.refreshCurrentFolder(options)
       }
     }
   }

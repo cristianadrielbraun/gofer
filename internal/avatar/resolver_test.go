@@ -16,14 +16,6 @@ func TestGravatarHashInvalidEmail(t *testing.T) {
 	}
 }
 
-func TestAvatarURL(t *testing.T) {
-	got := AvatarURL("MyEmailAddress@example.com")
-	want := "/api/avatars/0bc83cb571cd1c50ba6f3e8a78ef1346"
-	if got != want {
-		t.Fatalf("AvatarURL() = %q, want %q", got, want)
-	}
-}
-
 func TestIsGravatarHash(t *testing.T) {
 	if !IsGravatarHash("0bc83cb571cd1c50ba6f3e8a78ef1346") {
 		t.Fatal("expected valid hash")

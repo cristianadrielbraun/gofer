@@ -8,7 +8,8 @@ import (
 	"time"
 
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
-	"github.com/cristianadrielbraun/gofer/internal/storage"
+	mail "github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
 const (
@@ -17,23 +18,6 @@ const (
 	avatarMissingTTL         = 24 * time.Hour
 	avatarErrorRetryAfter    = 6 * time.Hour
 )
-
-type AvatarBackfillState struct {
-	InProgress bool      `json:"in_progress"`
-	Processed  int       `json:"processed"`
-	Total      int       `json:"total"`
-	Found      int       `json:"found"`
-	Missing    int       `json:"missing"`
-	Errors     int       `json:"errors"`
-	LastError  string    `json:"last_error,omitempty"`
-	StartedAt  time.Time `json:"started_at,omitempty"`
-	FinishedAt time.Time `json:"finished_at,omitempty"`
-}
-
-type AvatarStatusResponse struct {
-	Backfill AvatarBackfillState       `json:"backfill"`
-	Cache    storage.SenderAvatarStats `json:"cache"`
-}
 
 func (h *Handler) StartAvatarBackfill(ctx context.Context) {
 	go func() {
@@ -56,22 +40,22 @@ func (h *Handler) StartAvatarBackfill(ctx context.Context) {
 func (h *Handler) runAvatarBackfill(ctx context.Context) {
 	log.Printf("avatar: backfill worker started")
 	startedAt := time.Now()
-	h.setAvatarBackfillState(AvatarBackfillState{InProgress: true, StartedAt: startedAt})
+	h.setAvatarBackfillState(models.AvatarBackfillState{InProgress: true, StartedAt: startedAt})
 
 	if _, err := h.db.EnsureSenderAvatarCandidates(ctx); err != nil {
 		log.Printf("avatar: candidate scan failed: %v", err)
-		h.setAvatarBackfillState(AvatarBackfillState{InProgress: false, LastError: err.Error(), StartedAt: startedAt, FinishedAt: time.Now()})
+		h.setAvatarBackfillState(models.AvatarBackfillState{InProgress: false, LastError: err.Error(), StartedAt: startedAt, FinishedAt: time.Now()})
 		return
 	}
 
 	stats, err := h.db.GetSenderAvatarStats(ctx)
 	if err != nil {
 		log.Printf("avatar: status count failed: %v", err)
-		h.setAvatarBackfillState(AvatarBackfillState{InProgress: false, LastError: err.Error(), StartedAt: startedAt, FinishedAt: time.Now()})
+		h.setAvatarBackfillState(models.AvatarBackfillState{InProgress: false, LastError: err.Error(), StartedAt: startedAt, FinishedAt: time.Now()})
 		return
 	}
 
-	state := AvatarBackfillState{InProgress: true, Total: stats.Due, StartedAt: startedAt}
+	state := models.AvatarBackfillState{InProgress: true, Total: stats.Due, StartedAt: startedAt}
 	h.setAvatarBackfillState(state)
 
 	for {
@@ -141,6 +125,9 @@ func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string)
 		if err := h.db.SaveSenderAvatarFound(ctx, hash, email, image.ContentType, image.Data, expiresAt); err != nil {
 			return avatarresolver.Image{}, false, err
 		}
+		if dataURL, err := h.db.SenderAvatarDataURL(ctx, hash); err == nil && dataURL != "" {
+			h.syncer.Events().Publish(mail.Event{Type: mail.EventAvatarUpdated, AvatarHash: hash, AvatarDataURL: dataURL})
+		}
 		return image, true, nil
 	}
 
@@ -151,25 +138,40 @@ func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string)
 }
 
 func (h *Handler) handleAvatarStatus(w http.ResponseWriter, r *http.Request) {
-	stats, err := h.db.GetSenderAvatarStats(r.Context())
+	status, err := h.avatarStatus(r.Context())
 	if err != nil {
 		http.Error(w, "failed to get avatar status", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(AvatarStatusResponse{
-		Backfill: h.getAvatarBackfillState(),
-		Cache:    stats,
-	})
+	_ = json.NewEncoder(w).Encode(status)
 }
 
-func (h *Handler) setAvatarBackfillState(state AvatarBackfillState) {
+func (h *Handler) avatarStatus(ctx context.Context) (models.AvatarStatus, error) {
+	stats, err := h.db.GetSenderAvatarStats(ctx)
+	if err != nil {
+		return models.AvatarStatus{}, err
+	}
+	return models.AvatarStatus{
+		Backfill: h.getAvatarBackfillState(),
+		Cache: models.AvatarCacheStats{
+			Total:   stats.Total,
+			Pending: stats.Pending,
+			Found:   stats.Found,
+			Missing: stats.Missing,
+			Error:   stats.Error,
+			Due:     stats.Due,
+		},
+	}, nil
+}
+
+func (h *Handler) setAvatarBackfillState(state models.AvatarBackfillState) {
 	h.avatarBackfillMu.Lock()
 	h.avatarBackfillState = state
 	h.avatarBackfillMu.Unlock()
 }
 
-func (h *Handler) getAvatarBackfillState() AvatarBackfillState {
+func (h *Handler) getAvatarBackfillState() models.AvatarBackfillState {
 	h.avatarBackfillMu.RLock()
 	defer h.avatarBackfillMu.RUnlock()
 	return h.avatarBackfillState

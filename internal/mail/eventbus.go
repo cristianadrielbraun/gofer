@@ -12,17 +12,20 @@ const (
 	EventProcessingStatus EventType = "processing-status"
 	EventSendResult       EventType = "send-result"
 	EventMutation         EventType = "mutation"
+	EventAvatarUpdated    EventType = "avatar-updated"
 )
 
 type Event struct {
-	Type       EventType
-	AccountID  string
-	FolderID   string
-	FolderRole string
-	Status     string
-	Error      string
-	Current    int
-	Total      int
+	Type          EventType
+	AccountID     string
+	FolderID      string
+	FolderRole    string
+	Status        string
+	Error         string
+	Current       int
+	Total         int
+	AvatarHash    string
+	AvatarDataURL string
 }
 
 type EventBus struct {

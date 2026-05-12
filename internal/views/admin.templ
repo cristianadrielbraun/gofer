@@ -1,0 +1,115 @@
+package views
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+func adminPercent(part, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	p := part * 100 / total
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+func adminTime(t time.Time) string {
+	if t.IsZero() {
+		return "Never"
+	}
+	return t.Local().Format("Jan 2, 3:04 PM")
+}
+
+templ AdminPage(status models.AvatarStatus) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-4xl px-8 py-10">
+				<div class="mb-7 flex items-start justify-between gap-6">
+					<div>
+						<div class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground shadow-sm">
+							@icon.Activity(icon.Props{Class: "size-3.5"})
+							Admin
+						</div>
+						<h2 class="mt-4 text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">System console</h2>
+						<p class="mt-1 text-sm text-muted-foreground">Operational status for background services.</p>
+					</div>
+					<a href="/api/avatars/status" class="shrink-0 rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Raw JSON</a>
+				</div>
+
+				<div class="rounded-xl border border-border bg-card shadow-[0_14px_45px_rgba(0,0,0,0.10)] overflow-hidden">
+					<div class="border-b border-border bg-background/45 px-5 py-4 flex items-center justify-between gap-4">
+						<div>
+							<h3 class="text-sm font-semibold text-foreground">Avatar backfill</h3>
+							<p class="mt-1 text-xs text-muted-foreground">Server-side Gravatar detection and persisted sender avatar cache.</p>
+						</div>
+						<span class={
+							"inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
+							templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress),
+							templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress),
+						}>
+							if status.Backfill.InProgress {
+								Running
+							} else {
+								Idle
+							}
+						</span>
+					</div>
+
+					<div class="p-5 space-y-5">
+						<div>
+							<div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+								<span>{ fmt.Sprintf("%d of %d processed", status.Backfill.Processed, status.Backfill.Total) }</span>
+								<span>{ fmt.Sprintf("%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }</span>
+							</div>
+							<div class="h-2 overflow-hidden rounded-full bg-muted shadow-inner">
+								<div class="h-full rounded-full bg-gradient-to-r from-amber-700 to-amber-500 transition-all" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }></div>
+							</div>
+						</div>
+
+						<div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+							@AdminMetric("Total", status.Cache.Total)
+							@AdminMetric("Pending", status.Cache.Pending)
+							@AdminMetric("Found", status.Cache.Found)
+							@AdminMetric("Missing", status.Cache.Missing)
+							@AdminMetric("Errors", status.Cache.Error)
+							@AdminMetric("Due", status.Cache.Due)
+						</div>
+
+						<div class="grid gap-3 sm:grid-cols-3">
+							@AdminDetail("Started", adminTime(status.Backfill.StartedAt))
+							@AdminDetail("Finished", adminTime(status.Backfill.FinishedAt))
+							@AdminDetail("Last error", adminError(status.Backfill.LastError))
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+func adminError(err string) string {
+	if err == "" {
+		return "None"
+	}
+	return err
+}
+
+templ AdminMetric(label string, value int) {
+	<div class="rounded-lg border border-border bg-background/45 px-3 py-3">
+		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 text-xl font-bold tabular-nums text-foreground">{ fmt.Sprintf("%d", value) }</div>
+	</div>
+}
+
+templ AdminDetail(label string, value string) {
+	<div class="rounded-lg border border-border bg-background/35 px-3 py-3 min-w-0">
+		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 truncate text-sm font-medium text-foreground">{ value }</div>
+	</div>
+}

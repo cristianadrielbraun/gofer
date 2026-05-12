@@ -45,7 +45,7 @@ type Handler struct {
 	bodyFetchMu         sync.Mutex
 	bodyFetches         map[int64]chan struct{}
 	avatarBackfillMu    sync.RWMutex
-	avatarBackfillState AvatarBackfillState
+	avatarBackfillState models.AvatarBackfillState
 }
 
 const (
@@ -97,6 +97,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/oauth2/authorize", h.handleAccountOAuthAuthorize)
 
 	mux.HandleFunc("GET /", h.handleIndex)
+	mux.HandleFunc("GET /admin", h.handleAdmin)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
 	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
 	mux.HandleFunc("GET /folder/{id}", h.handleFolderPartial)
@@ -2213,6 +2214,12 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 			if event.Total > 0 {
 				m["total"] = event.Total
+			}
+			if event.AvatarHash != "" {
+				m["avatar_hash"] = event.AvatarHash
+			}
+			if event.AvatarDataURL != "" {
+				m["avatar_data_url"] = event.AvatarDataURL
 			}
 			data, _ := json.Marshal(m)
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)

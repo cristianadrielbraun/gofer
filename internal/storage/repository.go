@@ -84,7 +84,7 @@ func contactFromSender(name, email string) models.Contact {
 	if display == "" {
 		display = strings.TrimSpace(email)
 	}
-	return models.Contact{Name: display, Email: email, Initials: initials(display), AvatarURL: avatarresolver.AvatarURL(email)}
+	return models.Contact{Name: display, Email: email, Initials: initials(display), AvatarHash: avatarresolver.GravatarHash(email)}
 }
 
 func firstRune(s string) string {
@@ -1532,6 +1532,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 		}
 		item.Preview = mailmessage.PreviewFromText(item.Preview)
 		item.From = contactFromSender(fromName, fromEmail)
+		db.hydrateContactAvatar(ctx, &item.From)
 		item.IsRead = isRead == 1
 		item.IsStarred = isStarred == 1
 		item.HasAttachment = hasAttach == 1
@@ -1635,6 +1636,7 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	email.AccountColor = accountColor
 	email.Subject = subject
 	email.From = contactFromSender(fromName, fromEmail)
+	db.hydrateContactAvatar(ctx, &email.From)
 	email.Preview = mailmessage.PreviewFromText(snippet)
 	email.HasAttachment = hasAttach == 1
 
@@ -1912,6 +1914,7 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 		r.email.AccountColor = accountColor
 		r.email.Subject = subject
 		r.email.From = contactFromSender(fromName, fromEmail)
+		db.hydrateContactAvatar(ctx, &r.email.From)
 		r.email.Preview = mailmessage.PreviewFromText(snippet)
 		if r.email.Preview == "" || r.email.Preview == subject {
 			if preview := previewFromBodyPaths(nullStringValue(textPath), nullStringValue(htmlPath)); preview != "" {
@@ -2049,7 +2052,8 @@ func (db *DB) getRecipients(ctx context.Context, messageID int64, kind string) (
 			return nil, err
 		}
 		c.Initials = initials(c.Name)
-		c.AvatarURL = avatarresolver.AvatarURL(c.Email)
+		c.AvatarHash = avatarresolver.GravatarHash(c.Email)
+		db.hydrateContactAvatar(ctx, &c)
 		contacts = append(contacts, c)
 	}
 	return contacts, nil
@@ -2105,7 +2109,8 @@ func (db *DB) batchGetRecipients(ctx context.Context, msgIDs []int64, kind strin
 			return nil, err
 		}
 		c.Initials = initials(c.Name)
-		c.AvatarURL = avatarresolver.AvatarURL(c.Email)
+		c.AvatarHash = avatarresolver.GravatarHash(c.Email)
+		db.hydrateContactAvatar(ctx, &c)
 		result[msgID] = append(result[msgID], c)
 	}
 	return result, nil
@@ -2190,6 +2195,7 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 		r.email.AccountColor = accountColor
 		r.email.Subject = subject
 		r.email.From = contactFromSender(fromName, fromEmail)
+		db.hydrateContactAvatar(ctx, &r.email.From)
 		r.email.Preview = mailmessage.PreviewFromText(snippet)
 		if r.email.Preview == "" || r.email.Preview == subject {
 			if preview := previewFromBodyPaths(nullStringValue(textPath), nullStringValue(htmlPath)); preview != "" {

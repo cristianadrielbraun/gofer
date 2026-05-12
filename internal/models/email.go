@@ -55,10 +55,12 @@ type Email struct {
 }
 
 type Contact struct {
-	Name      string
-	Email     string
-	Initials  string
-	AvatarURL string
+	Name          string
+	Email         string
+	Initials      string
+	AvatarHash    string
+	AvatarStatus  string
+	AvatarDataURL string
 }
 
 type Label struct {

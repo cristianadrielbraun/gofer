@@ -3,10 +3,13 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"time"
 
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
 type SenderAvatarRecord struct {
@@ -109,6 +112,31 @@ func (db *DB) GetSenderAvatarByHash(ctx context.Context, hash string) (*SenderAv
 	return &rec, nil
 }
 
+func (db *DB) hydrateContactAvatar(ctx context.Context, contact *models.Contact) {
+	if contact == nil || contact.AvatarHash == "" {
+		return
+	}
+	rec, err := db.GetSenderAvatarByHash(ctx, contact.AvatarHash)
+	if err != nil || rec == nil {
+		contact.AvatarStatus = "unknown"
+		return
+	}
+	contact.AvatarStatus = rec.Status
+	if rec.Status == "found" && len(rec.ImageData) > 0 && (!rec.ExpiresAtValid || time.Now().Before(rec.ExpiresAt)) {
+		contact.AvatarDataURL = avatarDataURL(rec.ContentType, rec.ImageData)
+	}
+}
+
+func avatarDataURL(contentType string, data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	return fmt.Sprintf("data:%s;base64,%s", contentType, base64.StdEncoding.EncodeToString(data))
+}
+
 func (db *DB) GetDueSenderAvatarCandidates(ctx context.Context, limit int) ([]SenderAvatarCandidate, error) {
 	if limit <= 0 {
 		limit = 100
@@ -153,6 +181,17 @@ func (db *DB) SaveSenderAvatarFound(ctx context.Context, hash, email, contentTyp
 		 	error = '',
 		 	updated_at = CURRENT_TIMESTAMP`, strings.ToLower(strings.TrimSpace(hash)), strings.ToLower(strings.TrimSpace(email)), contentType, data, expiresAt)
 	return err
+}
+
+func (db *DB) SenderAvatarDataURL(ctx context.Context, hash string) (string, error) {
+	rec, err := db.GetSenderAvatarByHash(ctx, hash)
+	if err != nil || rec == nil {
+		return "", err
+	}
+	if rec.Status != "found" || len(rec.ImageData) == 0 || (rec.ExpiresAtValid && time.Now().After(rec.ExpiresAt)) {
+		return "", nil
+	}
+	return avatarDataURL(rec.ContentType, rec.ImageData), nil
 }
 
 func (db *DB) SaveSenderAvatarMissing(ctx context.Context, hash, email string, expiresAt time.Time) error {

@@ -55,14 +55,6 @@ func GravatarHash(email string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func AvatarURL(email string) string {
-	hash := GravatarHash(email)
-	if hash == "" {
-		return ""
-	}
-	return "/api/avatars/" + hash
-}
-
 func IsGravatarHash(hash string) bool {
 	return gravatarHashPattern.MatchString(strings.ToLower(strings.TrimSpace(hash)))
 }

@@ -728,6 +728,13 @@ document.addEventListener("DOMContentLoaded", function () {
       refreshSidebarUnread()
     })
 
+    source.addEventListener("avatar-updated", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !data.avatar_hash || !data.avatar_data_url) return
+      updateVisibleAvatars(data.avatar_hash, data.avatar_data_url)
+    })
+
     source.addEventListener("processing-status", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
@@ -747,8 +754,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         vml.setSyncState(true, data.current || 0, data.total || 0)
-      })
-      if (virtualMailList) scheduleSyncRefresh(virtualMailList)
+        scheduleSyncRefresh(vml, { noAnimation: true })
+      }, false)
     })
 
     source.addEventListener("sync-progress", function (e) {
@@ -763,9 +770,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         vml.setSyncState(true, data.current || 0, data.total || 0)
-        scheduleSyncRefresh(vml)
-      })
-      if (virtualMailList) scheduleSyncRefresh(virtualMailList)
+        scheduleSyncRefresh(vml, { noAnimation: true })
+      }, false)
     })
 
     source.addEventListener("sync-complete", function (e) {
@@ -781,12 +787,8 @@ document.addEventListener("DOMContentLoaded", function () {
       refreshSidebarUnread()
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         vml.setSyncState(false, 0, 0)
-        vml.refreshCurrentFolder()
-      })
-      if (virtualMailList) {
-        applyActiveFolderSyncState()
-        virtualMailList.refreshCurrentFolder()
-      }
+        scheduleSyncRefresh(vml, { noAnimation: true })
+      }, false)
     })
 
     source.onerror = function () {
@@ -795,25 +797,49 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  function scheduleSyncRefresh(vml) {
+  function updateVisibleAvatars(hash, dataURL) {
+    var nodes = document.querySelectorAll("[data-contact-avatar][data-avatar-hash]")
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i]
+      if (node.getAttribute("data-avatar-hash") !== hash) continue
+
+      var img = node.querySelector("img[data-avatar-image]")
+      if (!img) {
+        img = document.createElement("img")
+        img.setAttribute("data-avatar-image", "")
+        img.decoding = "async"
+        img.alt = ""
+        img.className = "absolute inset-0 h-full w-full object-cover"
+        node.appendChild(img)
+      }
+      if (img.getAttribute("src") !== dataURL) {
+        img.setAttribute("src", dataURL)
+      }
+    }
+  }
+
+  function scheduleSyncRefresh(vml, options) {
     if (!vml) return
     if (syncRefreshTimer) return
     syncRefreshTimer = setTimeout(function () {
       syncRefreshTimer = null
-      vml.refreshCurrentFolder().catch(function () {})
+      vml.refreshCurrentFolder(options || {}).catch(function () {})
     }, 700)
   }
 
-  function withMailListForFolder(folderId, folderRole, fn) {
+  function withMailListForFolder(folderId, folderRole, fn, queueIfInactive) {
     if (typeof folderRole === "function") {
+      queueIfInactive = fn
       fn = folderRole
       folderRole = ""
     }
+    if (queueIfInactive === undefined) queueIfInactive = true
     if (typeof fn !== "function") return
     if (virtualMailList && matchesActiveFolder(virtualMailList.folderID, folderId, folderRole)) {
       fn(virtualMailList)
       return
     }
+    if (!queueIfInactive) return
     pendingSyncEvents.push({ folderId: folderId, folderRole: folderRole || "", fn: fn })
   }
 
