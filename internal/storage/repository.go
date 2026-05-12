@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/google/uuid"
@@ -83,7 +84,7 @@ func contactFromSender(name, email string) models.Contact {
 	if display == "" {
 		display = strings.TrimSpace(email)
 	}
-	return models.Contact{Name: display, Email: email, Initials: initials(display)}
+	return models.Contact{Name: display, Email: email, Initials: initials(display), AvatarURL: avatarresolver.AvatarURL(email)}
 }
 
 func firstRune(s string) string {
@@ -2048,6 +2049,7 @@ func (db *DB) getRecipients(ctx context.Context, messageID int64, kind string) (
 			return nil, err
 		}
 		c.Initials = initials(c.Name)
+		c.AvatarURL = avatarresolver.AvatarURL(c.Email)
 		contacts = append(contacts, c)
 	}
 	return contacts, nil
@@ -2103,6 +2105,7 @@ func (db *DB) batchGetRecipients(ctx context.Context, msgIDs []int64, kind strin
 			return nil, err
 		}
 		c.Initials = initials(c.Name)
+		c.AvatarURL = avatarresolver.AvatarURL(c.Email)
 		result[msgID] = append(result[msgID], c)
 	}
 	return result, nil

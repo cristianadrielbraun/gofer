@@ -55,9 +55,10 @@ type Email struct {
 }
 
 type Contact struct {
-	Name     string
-	Email    string
-	Initials string
+	Name      string
+	Email     string
+	Initials  string
+	AvatarURL string
 }
 
 type Label struct {

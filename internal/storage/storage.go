@@ -109,7 +109,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 16
+	const targetSchemaVersion = 17
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -214,6 +214,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 15 {
 		if err := migrateV15ToV16(tx); err != nil {
 			return fmt.Errorf("migrate v15 to v16: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 16 {
+		if err := migrateV16ToV17(tx); err != nil {
+			return fmt.Errorf("migrate v16 to v17: %w", err)
 		}
 	}
 
@@ -561,6 +567,34 @@ func migrateV15ToV16(tx *sql.Tx) error {
 		`ALTER TABLE account_signature_settings ADD COLUMN reply_placement TEXT NOT NULL DEFAULT 'before'`,
 		`ALTER TABLE account_signature_settings ADD COLUMN forward_placement TEXT NOT NULL DEFAULT 'before'`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (16)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV16ToV17(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS sender_avatars (
+			email_hash TEXT PRIMARY KEY,
+			email TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT 'gravatar',
+			status TEXT NOT NULL DEFAULT 'pending',
+			content_type TEXT NOT NULL DEFAULT '',
+			image_data BLOB,
+			fetched_at DATETIME,
+			expires_at DATETIME,
+			next_retry_at DATETIME,
+			error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sender_avatars_status_retry ON sender_avatars(status, next_retry_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_sender_avatars_expires ON sender_avatars(expires_at)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (17)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {

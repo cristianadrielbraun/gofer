@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	mail "github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
@@ -33,15 +34,18 @@ import (
 )
 
 type Handler struct {
-	db           *storage.DB
-	accountStore *config.AccountStore
-	syncer       *mail.SyncOrchestrator
-	blobStore    *store.BlobStore
-	auth         *auth.Manager
-	bodyClientMu sync.Mutex
-	bodyClients  map[string]*imap.Client
-	bodyFetchMu  sync.Mutex
-	bodyFetches  map[int64]chan struct{}
+	db                  *storage.DB
+	accountStore        *config.AccountStore
+	syncer              *mail.SyncOrchestrator
+	blobStore           *store.BlobStore
+	auth                *auth.Manager
+	avatar              *avatarresolver.Resolver
+	bodyClientMu        sync.Mutex
+	bodyClients         map[string]*imap.Client
+	bodyFetchMu         sync.Mutex
+	bodyFetches         map[int64]chan struct{}
+	avatarBackfillMu    sync.RWMutex
+	avatarBackfillState AvatarBackfillState
 }
 
 const (
@@ -57,6 +61,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		syncer:       syncer,
 		blobStore:    blobStore,
 		auth:         authManager,
+		avatar:       avatarresolver.NewResolver(),
 		bodyClients:  make(map[string]*imap.Client),
 		bodyFetches:  make(map[int64]chan struct{}),
 	}
@@ -144,6 +149,53 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/{id}/refetch", h.handleRefetchBody)
 	mux.HandleFunc("POST /api/remote-content/{id}/allow", h.handleAllowRemoteContent)
 	mux.HandleFunc("GET /api/remote-assets/{messageID}/{filename}", h.handleRemoteAsset)
+	mux.HandleFunc("GET /api/avatars/status", h.handleAvatarStatus)
+	mux.HandleFunc("GET /api/avatars/{hash}", h.handleAvatar)
+}
+
+func (h *Handler) handleAvatar(w http.ResponseWriter, r *http.Request) {
+	hash := strings.ToLower(strings.TrimSpace(r.PathValue("hash")))
+	if !avatarresolver.IsGravatarHash(hash) {
+		http.NotFound(w, r)
+		return
+	}
+	now := time.Now()
+
+	if rec, err := h.db.GetSenderAvatarByHash(r.Context(), hash); err != nil {
+		log.Printf("avatar: read cache: %v", err)
+	} else if rec != nil {
+		switch rec.Status {
+		case "found":
+			if len(rec.ImageData) > 0 && (!rec.ExpiresAtValid || now.Before(rec.ExpiresAt)) {
+				serveAvatarImage(w, rec.ContentType, rec.ImageData, rec.ExpiresAt)
+				return
+			}
+		case "missing":
+			if rec.ExpiresAtValid && now.Before(rec.ExpiresAt) {
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+				http.NotFound(w, r)
+				return
+			}
+		case "error":
+			if rec.NextRetryAtValid && now.Before(rec.NextRetryAt) {
+				w.Header().Set("Cache-Control", "public, max-age=300")
+				http.NotFound(w, r)
+				return
+			}
+		}
+	}
+
+	image, found, err := h.fetchAndPersistAvatar(r.Context(), hash, "")
+	if err != nil {
+		log.Printf("avatar: resolve gravatar: %v", err)
+	}
+	if !found {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.NotFound(w, r)
+		return
+	}
+
+	serveAvatarImage(w, image.ContentType, image.Data, image.ExpiresAt)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {

@@ -133,9 +133,7 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 
 templ MailViewThreadItemSender(email *models.Email, item *models.ThreadItem) {
 	<div class="flex items-start gap-4">
-		<div class={ "size-11 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", templ.KV("bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100", item.ID == email.ID), templ.KV("bg-ink/[0.06] text-ink/40", item.ID != email.ID) }>
-			{ item.From.Initials }
-		</div>
+		@ContactAvatar(item.From, "size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", contactAvatarThreadFallback(item.ID == email.ID))
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2 flex-wrap">
 				<span class="font-semibold text-ink">{ item.From.Name }</span>
@@ -179,9 +177,7 @@ templ MailViewThreadItemSender(email *models.Email, item *models.ThreadItem) {
 			}) {
 				<div class="p-4 space-y-3">
 					<div class="flex items-start gap-3">
-						<div class="size-10 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-xs font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">
-							{ item.From.Initials }
-						</div>
+						@ContactAvatar(item.From, "size-10 rounded-full text-xs font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
 								<span class="font-semibold text-sm text-ink truncate">{ item.From.Name }</span>
@@ -580,9 +576,7 @@ templ MailViewHeader(email *models.Email) {
 
 templ MailViewSender(email *models.Email) {
 	<div class="flex items-start gap-4">
-		<div class="size-11 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-sm font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">
-			{ email.From.Initials }
-		</div>
+		@ContactAvatar(email.From, "size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2 flex-wrap">
 				<span class="font-semibold text-ink">{ email.From.Name }</span>
@@ -616,9 +610,7 @@ templ MailViewSender(email *models.Email) {
 			}) {
 				<div class="p-4 space-y-3">
 					<div class="flex items-start gap-3">
-						<div class="size-10 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-xs font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">
-							{ email.From.Initials }
-						</div>
+						@ContactAvatar(email.From, "size-10 rounded-full text-xs font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
 								<span class="font-semibold text-sm text-ink truncate">{ email.From.Name }</span>

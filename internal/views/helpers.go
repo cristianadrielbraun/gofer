@@ -201,6 +201,20 @@ func contactsDisplay(contacts []models.Contact, mode string) string {
 	return fmt.Sprintf("%s +%d", senderDisplay(contacts[0], mode), len(contacts)-1)
 }
 
+func contactAvatarListFallback(isRead bool) string {
+	if isRead {
+		return "bg-muted text-muted-foreground"
+	}
+	return "bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100"
+}
+
+func contactAvatarThreadFallback(isCurrent bool) string {
+	if isCurrent {
+		return "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100"
+	}
+	return "bg-ink/[0.06] text-ink/40"
+}
+
 func senderDisplaySettingLabel(mode string) string {
 	switch mode {
 	case "email":

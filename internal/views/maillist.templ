@@ -513,14 +513,8 @@ templ MailListCardItem(email models.Email, position int, selectedEmail *models.E
 				templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
 			}
 		>
-		<div class="w-7 flex flex-col items-center justify-between self-stretch py-1 shrink-0">
-				<div class={
-					"size-6 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]",
-					templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !email.IsRead),
-					templ.KV("bg-muted text-muted-foreground", email.IsRead),
-				}>
-					{ email.From.Initials }
-				</div>
+			<div class="w-7 flex flex-col items-center justify-between self-stretch py-1 shrink-0">
+				@ContactAvatar(email.From, "size-6 rounded-full text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]", contactAvatarListFallback(email.IsRead))
 				if email.ThreadCount > 1 {
 					<button type="button" data-thread-toggle={ email.ID } class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
 						@icon.MessagesSquare(icon.Props{Class: "size-3"})
@@ -693,12 +687,8 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 					<div class="flex items-center justify-center shrink-0" data-mail-table-cell="accountMarker">
 						<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(item.AccountColor) }></span>
 					</div>
-					<div class={
-						"size-5 rounded-full flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5",
-						templ.KV("bg-gradient-to-b from-amber-700/80 to-amber-900/80 text-amber-100", !item.IsRead),
-						templ.KV("bg-muted text-muted-foreground", item.IsRead),
-					} data-mail-table-cell="thread">
-						{ item.From.Initials }
+					<div data-mail-table-cell="thread">
+						@ContactAvatar(item.From, "size-5 rounded-full text-[9px] font-semibold shrink-0 mt-0.5", contactAvatarListFallback(item.IsRead))
 					</div>
 					<div class="flex-1 min-w-0">
 						<div class="flex items-center justify-between gap-2">

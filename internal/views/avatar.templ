@@ -1,0 +1,21 @@
+package views
+
+import "github.com/cristianadrielbraun/gofer/internal/models"
+
+templ ContactAvatar(contact models.Contact, class string, fallbackClass string) {
+	<div class={ "relative overflow-hidden " + class }>
+		<span class={ "flex h-full w-full items-center justify-center rounded-full " + fallbackClass }>{ contact.Initials }</span>
+		if contact.AvatarURL != "" {
+			<img
+				src={ contact.AvatarURL }
+				alt={ contactDisplay(contact) }
+				loading="lazy"
+				decoding="async"
+				referrerpolicy="no-referrer"
+				onload="this.classList.remove('opacity-0')"
+				onerror="this.remove()"
+				class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-150"
+			/>
+		}
+	</div>
+}

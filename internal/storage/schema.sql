@@ -377,5 +377,26 @@ CREATE TABLE IF NOT EXISTS account_signature_settings (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS sender_avatars (
+    email_hash TEXT PRIMARY KEY,
+    email TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'gravatar',
+    status TEXT NOT NULL DEFAULT 'pending',
+    content_type TEXT NOT NULL DEFAULT '',
+    image_data BLOB,
+    fetched_at DATETIME,
+    expires_at DATETIME,
+    next_retry_at DATETIME,
+    error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sender_avatars_status_retry
+ON sender_avatars(status, next_retry_at);
+
+CREATE INDEX IF NOT EXISTS idx_sender_avatars_expires
+ON sender_avatars(expires_at);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (16);
+INSERT OR REPLACE INTO schema_version (version) VALUES (17);

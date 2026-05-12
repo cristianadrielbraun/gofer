@@ -86,6 +86,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	h := handler.New(db, accountStore, syncer, blobStore, authManager)
+	h.StartAvatarBackfill(ctx)
 	h.RegisterRoutes(mux)
 	log.Printf("boot: HTTP routes registered")
 
