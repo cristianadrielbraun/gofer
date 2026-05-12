@@ -1,3 +1,5 @@
+var suppressNextAutoloadFirstEmail = false
+
 document.addEventListener("DOMContentLoaded", function () {
   if (!document.getElementById("mail-sync-indeterminate-style")) {
     var style = document.createElement("style")
@@ -930,6 +932,10 @@ document.addEventListener("DOMContentLoaded", function () {
   function autoloadFirstEmail(container) {
     if (!container || !container.hasAttribute("data-autoload-first-email")) return
     container.removeAttribute("data-autoload-first-email")
+    if (suppressNextAutoloadFirstEmail) {
+      suppressNextAutoloadFirstEmail = false
+      return
+    }
     var first = container.querySelector(".mail-list-item[data-email-id]")
     if (!first || !first.dataset.emailId || typeof htmx === "undefined") return
 
@@ -4062,6 +4068,87 @@ function openNewCompose() {
   applyDefaultComposeSignatureWhenReady(document.getElementById("compose-form"), true)
 }
 
+function composeOpeningHTML() {
+  return '<div class="flex flex-1 w-full min-w-0 flex-col items-center justify-center h-full text-center p-8">' +
+    '<div class="size-5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mb-3"></div>' +
+    '<p class="text-sm text-muted-foreground">Opening compose...</p>' +
+    '</div>'
+}
+
+function savedMailListWidth() {
+  var value = window.GoferSettings ? GoferSettings.get("mail_list_width") : null
+  if (!value) {
+    try {
+      var settings = JSON.parse(localStorage.getItem("gofer:ui_settings") || "{}") || {}
+      value = settings.mail_list_width
+    } catch (_) {}
+  }
+  var width = parseInt(value || "384", 10)
+  if (isNaN(width) || width <= 0) width = 384
+  var max = Math.min(1200, (window.innerWidth || 1024) * 0.55)
+  width = Math.max(300, Math.min(max, width))
+  return Math.round(width) + "px"
+}
+
+function composeOpeningShellHTML() {
+  var safeWidth = _escapeComposeHTML(savedMailListWidth())
+  return '<div id="mail-list" class="shrink-0 lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style="width:' + safeWidth + ';flex:0 0 ' + safeWidth + ';max-width:' + safeWidth + '">' +
+    '<div class="px-4 py-4 space-y-3">' +
+      '<div class="flex items-center justify-between">' +
+        '<div class="flex items-center gap-2">' +
+          '<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2>' +
+          '<span class="h-5 w-10 rounded-full bg-muted animate-pulse"></span>' +
+        '</div>' +
+        '<div class="h-8 w-8 rounded-md bg-muted/50"></div>' +
+      '</div>' +
+      '<div class="flex items-center gap-2">' +
+        '<div class="h-9 flex-1 rounded-lg bg-background border border-border/50 opacity-60"></div>' +
+        '<div class="h-9 w-28 rounded-lg border border-border bg-card opacity-60"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="flex items-center gap-1 px-4 py-1.5 border-y border-border/70">' +
+      '<div class="h-7 w-7 rounded-md bg-muted/50"></div>' +
+      '<div class="flex-1"></div>' +
+      '<div class="h-7 w-20 rounded-lg bg-muted/50"></div>' +
+    '</div>' +
+    '<div class="flex-1 overflow-y-auto px-2 py-2 flex items-center justify-center">' +
+      '<div class="flex items-center gap-2 text-sm text-muted-foreground">' +
+        '<div class="size-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>' +
+        '<span>Loading messages...</span>' +
+      '</div>' +
+    '</div>' +
+  '</div>' +
+  '<div class="resize-handle" data-panel="maillist" draggable="false"></div>' +
+  '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">' + composeOpeningHTML() + '</div>'
+}
+
+function composeOpeningFullShellHTML() {
+  return '<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style="display:none;width:0px;opacity:0;overflow:hidden;border-width:0"></div>' +
+    '<div class="resize-handle" data-panel="maillist" draggable="false" style="display:none;opacity:0"></div>' +
+    '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">' + composeOpeningHTML() + '</div>'
+}
+
+function mergeFolderShellBehindCompose(folderID, fullWidth) {
+  fetch("/folder/" + encodeURIComponent(folderID || "inbox") + "/full")
+    .then(function (r) { return r.text() })
+    .then(function (html) {
+      var tmp = document.createElement("div")
+      tmp.innerHTML = html
+      var nextMailList = tmp.querySelector("#mail-list")
+      var nextHandle = tmp.querySelector('[data-panel="maillist"]')
+      var currentMailList = document.querySelector("#main-content > #mail-list")
+      var currentHandle = document.querySelector('#main-content > [data-panel="maillist"]')
+      var scroll = nextMailList && nextMailList.querySelector("#mail-list-scroll")
+      if (scroll) scroll.removeAttribute("data-autoload-first-email")
+      if (nextMailList && currentMailList) currentMailList.replaceWith(nextMailList)
+      if (nextHandle && currentHandle) currentHandle.replaceWith(nextHandle)
+      if (typeof initResizeHandles === "function") initResizeHandles()
+      if (typeof window.applyMailTableColumnSettings === "function") window.applyMailTableColumnSettings(document.getElementById("mail-list-scroll"))
+      if (fullWidth) applyComposeFullWidthInstant()
+    })
+    .catch(function () {})
+}
+
 function openComposeInMain(fullWidth, instantFullWidth) {
   if (document.getElementById("mail-list") && document.getElementById("mail-view")) {
     expandToPane(fullWidth, instantFullWidth)
@@ -4077,24 +4164,67 @@ function openComposeInMain(fullWidth, instantFullWidth) {
   var paneHTML = null
   var mainReady = false
 
+  function showComposeOpeningContent() {
+    var mainContent = document.getElementById("main-content")
+    if (!mainContent) return
+    mainContent.className = "flex flex-1 min-w-0"
+    mainContent.innerHTML = fullWidth ? composeOpeningFullShellHTML() : composeOpeningShellHTML()
+    mainReady = true
+  }
+
   function openWhenReady() {
     if (!mainReady || paneHTML === null) return
     writeComposePane(paneHTML, vals, fullWidth, instantFullWidth)
   }
 
-  function afterMainContentSettle(evt) {
+  function beforeMainContentSwap(evt) {
     if (!evt.target || evt.target.id !== "main-content") return
-    document.body.removeEventListener("htmx:afterSettle", afterMainContentSettle)
+    var paneForm = document.getElementById("compose-pane-form")
+    if (paneForm) {
+      vals = _readComposeFormValues(paneForm)
+      vals._skipDefaultSignature = !!existingComposeSignature(paneForm.querySelector("[data-compose-editor]"))
+    }
+  }
+
+  function afterMainContentSwap(evt) {
+    if (!evt.target || evt.target.id !== "main-content") return
+    document.body.removeEventListener("htmx:beforeSwap", beforeMainContentSwap)
+    document.body.removeEventListener("htmx:afterSwap", afterMainContentSwap)
+    if (paneHTML === null) {
+      var mailView = document.getElementById("mail-view")
+      if (mailView) mailView.innerHTML = composeOpeningHTML()
+    }
     mainReady = true
     openWhenReady()
   }
 
-  document.body.addEventListener("htmx:afterSettle", afterMainContentSettle)
+  function afterMainContentSettle(evt) {
+    if (!evt.target || evt.target.id !== "main-content") return
+    document.body.removeEventListener("htmx:afterSettle", afterMainContentSettle)
+    suppressNextAutoloadFirstEmail = false
+  }
+
+  if (!fullWidth) {
+    document.body.addEventListener("htmx:beforeSwap", beforeMainContentSwap)
+    document.body.addEventListener("htmx:afterSwap", afterMainContentSwap)
+    document.body.addEventListener("htmx:afterSettle", afterMainContentSettle)
+  }
+  showComposeOpeningContent()
   fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
     paneHTML = html
     openWhenReady()
-  }).catch(function () {})
-  htmx.ajax("GET", "/folder/inbox/full", { target: "#main-content", swap: "outerHTML" })
+  }).catch(function () {
+    document.body.removeEventListener("htmx:beforeSwap", beforeMainContentSwap)
+    document.body.removeEventListener("htmx:afterSwap", afterMainContentSwap)
+    document.body.removeEventListener("htmx:afterSettle", afterMainContentSettle)
+    suppressNextAutoloadFirstEmail = false
+  })
+  if (fullWidth) {
+    mergeFolderShellBehindCompose("inbox", true)
+  } else {
+    suppressNextAutoloadFirstEmail = true
+    htmx.ajax("GET", "/folder/inbox/full", { target: "#main-content", swap: "outerHTML" })
+  }
 }
 
 function toggleRead(emailId) {
@@ -4579,6 +4709,9 @@ function expandToPane(fullWidth, instantFullWidth) {
   _composeActive = true
   _updateComposeBtn(true)
 
+  var mailView = document.getElementById("mail-view")
+  if (mailView) mailView.innerHTML = composeOpeningHTML()
+
   fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
     writeComposePane(html, vals, fullWidth, instantFullWidth)
   }).catch(function () {})
@@ -4592,7 +4725,7 @@ function writeComposePane(html, vals, fullWidth, instantFullWidth) {
 
   var paneForm = document.getElementById("compose-pane-form")
   _writeComposeFormValues(paneForm, vals, "compose-pane-")
-  applyDefaultComposeSignatureWhenReady(paneForm, false)
+  if (!vals || !vals._skipDefaultSignature) applyDefaultComposeSignatureWhenReady(paneForm, false)
 
   if (vals._ccVisible) {
     var ccField = document.getElementById("pane-cc-field")
