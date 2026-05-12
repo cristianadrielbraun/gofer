@@ -16,7 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/toast"
 )
 
-templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem) {
+templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -40,14 +40,18 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@copybutton.Script()
 			@toast.Script()
 		</head>
-		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
+		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) } data-initial-email-id={ initialEmailID }>
 			<div class="flex h-screen overflow-hidden">
 				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
 				@ResizeHandle("sidebar")
 				<div id="main-content" class="flex flex-1 min-w-0">
 					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
 					@ResizeHandle("maillist")
-					@MailView(selectedEmail, selectedThread)
+					if initialEmailID != "" && selectedEmail == nil {
+						@MailViewLoading()
+					} else {
+						@MailView(selectedEmail, selectedThread)
+					}
 				</div>
 			</div>
 			@ComposeDialog(accounts)
@@ -266,11 +270,15 @@ templ FolderPartial(accounts []models.Account, emails []models.Email, activeFold
 	</div>
 }
 
-templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string) {
+templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string) {
 	<div id="main-content" class="flex flex-1 min-w-0">
 		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
 		@ResizeHandle("maillist")
-		@MailView(selectedEmail, selectedThread)
+		if initialEmailID != "" {
+			@MailViewLoading()
+		} else {
+			@MailView(selectedEmail, selectedThread)
+		}
 	</div>
 }
 

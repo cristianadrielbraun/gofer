@@ -932,11 +932,24 @@ document.addEventListener("DOMContentLoaded", function () {
   function loadInitialFolderContent(container, folderID) {
     if (!container || !container.hasAttribute("data-load-folder")) return false
     container.removeAttribute("data-load-folder")
-    if (window.location.pathname !== "/folder/" + folderID) {
-      history.replaceState({ folder: folderID, email: null }, "", "/folder/" + folderID)
+    var initialEmailId = document.body ? (document.body.getAttribute("data-initial-email-id") || "") : ""
+    if (document.body) document.body.removeAttribute("data-initial-email-id")
+    var path = "/folder/" + folderID + (initialEmailId ? "/" + initialEmailId : "")
+    if (window.location.pathname !== path) {
+      history.replaceState({ folder: folderID, email: initialEmailId || null }, "", path)
     }
     if (typeof htmx !== "undefined") {
-      htmx.ajax("GET", "/folder/" + folderID + "/full", {target: "#main-content", swap: "outerHTML"})
+      if (initialEmailId) {
+        var loadEmailAfterShell = function (evt) {
+          if (!evt.target || evt.target.id !== "main-content") return
+          document.body.removeEventListener("htmx:afterSettle", loadEmailAfterShell)
+          htmx.ajax("GET", "/email/" + initialEmailId, "#mail-view")
+        }
+        document.body.addEventListener("htmx:afterSettle", loadEmailAfterShell)
+      }
+      var url = "/folder/" + folderID + "/full"
+      if (initialEmailId) url += "?selected=" + encodeURIComponent(initialEmailId)
+      htmx.ajax("GET", url, {target: "#main-content", swap: "outerHTML"})
     }
     return true
   }
