@@ -2,16 +2,35 @@ package views
 
 import "github.com/cristianadrielbraun/gofer/internal/models"
 
+func contactAvatarFallbackClass(contact models.Contact, fallbackClass string) string {
+	base := "flex h-full w-full items-center justify-center rounded-full "
+	if contact.AvatarURL != "" {
+		base = "hidden h-full w-full items-center justify-center rounded-full "
+	}
+	return base + fallbackClass
+}
+
+func contactAvatarImageClass(contact models.Contact) string {
+	base := "absolute inset-0 h-full w-full object-cover"
+	switch contact.AvatarSource {
+	case "bimi", "domain_icon":
+		return base + " scale-110"
+	default:
+		return base
+	}
+}
+
 templ ContactAvatar(contact models.Contact, class string, fallbackClass string) {
 	<div class={ "relative overflow-hidden " + class } data-contact-avatar data-avatar-hash={ contact.AvatarHash }>
-		<span class={ "flex h-full w-full items-center justify-center rounded-full " + fallbackClass }>{ contact.Initials }</span>
+		<span class={ contactAvatarFallbackClass(contact, fallbackClass) } data-avatar-fallback>{ contact.Initials }</span>
 		if contact.AvatarURL != "" {
 			<img
 				src={ contact.AvatarURL }
 				alt={ contactDisplay(contact) }
 				decoding="async"
 				data-avatar-image
-				class="absolute inset-0 h-full w-full object-cover"
+				data-avatar-source={ contact.AvatarSource }
+				class={ contactAvatarImageClass(contact) }
 			/>
 		}
 	</div>

@@ -3,18 +3,19 @@ package models
 import "time"
 
 type AvatarBackfillState struct {
-	InProgress      bool      `json:"in_progress"`
-	CancelRequested bool      `json:"cancel_requested"`
-	Canceled        bool      `json:"canceled"`
-	Mode            string    `json:"mode"`
-	Processed       int       `json:"processed"`
-	Total           int       `json:"total"`
-	Found           int       `json:"found"`
-	Missing         int       `json:"missing"`
-	Errors          int       `json:"errors"`
-	LastError       string    `json:"last_error,omitempty"`
-	StartedAt       time.Time `json:"started_at,omitempty"`
-	FinishedAt      time.Time `json:"finished_at,omitempty"`
+	InProgress      bool                  `json:"in_progress"`
+	CancelRequested bool                  `json:"cancel_requested"`
+	Canceled        bool                  `json:"canceled"`
+	Mode            string                `json:"mode"`
+	Processed       int                   `json:"processed"`
+	Total           int                   `json:"total"`
+	Found           int                   `json:"found"`
+	Missing         int                   `json:"missing"`
+	Errors          int                   `json:"errors"`
+	ProviderStats   []AvatarProviderStats `json:"provider_stats,omitempty"`
+	LastError       string                `json:"last_error,omitempty"`
+	StartedAt       time.Time             `json:"started_at,omitempty"`
+	FinishedAt      time.Time             `json:"finished_at,omitempty"`
 }
 
 type AvatarCacheStats struct {

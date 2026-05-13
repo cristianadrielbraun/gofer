@@ -15,6 +15,7 @@ import (
 type SenderAvatarRecord struct {
 	EmailHash        string
 	Email            string
+	Source           string
 	Status           string
 	ContentType      string
 	ImageData        []byte
@@ -159,11 +160,12 @@ func (db *DB) GetSenderAvatarByHash(ctx context.Context, hash string) (*SenderAv
 	var rec SenderAvatarRecord
 	var expiresAt, nextRetryAt sql.NullTime
 	err := db.Read().QueryRowContext(ctx,
-		`SELECT email_hash, email, status, content_type, image_data, storage_path, expires_at, next_retry_at, error
+		`SELECT email_hash, email, source, status, content_type, image_data, storage_path, expires_at, next_retry_at, error
 		 FROM sender_avatars
 		 WHERE email_hash = ?`, strings.ToLower(strings.TrimSpace(hash))).Scan(
 		&rec.EmailHash,
 		&rec.Email,
+		&rec.Source,
 		&rec.Status,
 		&rec.ContentType,
 		&rec.ImageData,
@@ -189,6 +191,56 @@ func (db *DB) GetSenderAvatarByHash(ctx context.Context, hash string) (*SenderAv
 	return &rec, nil
 }
 
+func (db *DB) GetReusableDomainIconAvatar(ctx context.Context, hash, email string) (*SenderAvatarRecord, error) {
+	domain := avatarresolver.EmailDomain(email)
+	if domain == "" || avatarresolver.IsPublicMailboxDomain(domain) {
+		return nil, nil
+	}
+	domainSuffix := "@" + domain
+
+	var rec SenderAvatarRecord
+	var expiresAt, nextRetryAt sql.NullTime
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT email_hash, email, source, status, content_type, image_data, storage_path, expires_at, next_retry_at, error
+		 FROM sender_avatars
+		 WHERE status = 'found'
+		  AND source = 'domain_icon'
+		  AND email_hash != ?
+		  AND substr(lower(trim(email)), -length(?)) = ?
+		  AND expires_at IS NOT NULL
+		  AND expires_at > CURRENT_TIMESTAMP
+		  AND (storage_path != '' OR image_data IS NOT NULL)
+		 ORDER BY fetched_at DESC, updated_at DESC
+		 LIMIT 1`, strings.ToLower(strings.TrimSpace(hash)), domainSuffix, domainSuffix).Scan(
+		&rec.EmailHash,
+		&rec.Email,
+		&rec.Source,
+		&rec.Status,
+		&rec.ContentType,
+		&rec.ImageData,
+		&rec.StoragePath,
+		&expiresAt,
+		&nextRetryAt,
+		&rec.Error,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !expiresAt.Valid {
+		return nil, nil
+	}
+	rec.ExpiresAt = expiresAt.Time
+	rec.ExpiresAtValid = true
+	if nextRetryAt.Valid {
+		rec.NextRetryAt = nextRetryAt.Time
+		rec.NextRetryAtValid = true
+	}
+	return &rec, nil
+}
+
 func (db *DB) hydrateContactAvatar(ctx context.Context, contact *models.Contact) {
 	if contact == nil || contact.AvatarHash == "" {
 		return
@@ -199,6 +251,7 @@ func (db *DB) hydrateContactAvatar(ctx context.Context, contact *models.Contact)
 		return
 	}
 	contact.AvatarStatus = rec.Status
+	contact.AvatarSource = rec.Source
 	if rec.Status == "found" && (rec.StoragePath != "" || len(rec.ImageData) > 0) && (!rec.ExpiresAtValid || time.Now().Before(rec.ExpiresAt)) {
 		contact.AvatarURL = senderAvatarURL(rec.EmailHash, rec.FetchedAtVersion())
 	}
@@ -671,7 +724,7 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		switch source {
 		case "gravatar":
 			stats.GravatarFound = count
-		case "libravatar":
+		case "libravatar", "domain_icon":
 		case "bimi":
 			stats.BIMIFound = count
 		default:

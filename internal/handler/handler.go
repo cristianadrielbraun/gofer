@@ -2131,6 +2131,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 				"account_id": event.AccountID,
 				"folder_id":  event.FolderID,
 			}
+			for key, value := range event.Payload {
+				m[key] = value
+			}
 			if event.FolderRole != "" {
 				m["folder_role"] = event.FolderRole
 			}

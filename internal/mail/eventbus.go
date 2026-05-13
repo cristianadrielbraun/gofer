@@ -21,6 +21,7 @@ type Event struct {
 	AccountID     string
 	FolderID      string
 	FolderRole    string
+	Payload       map[string]any
 	Status        string
 	Error         string
 	Current       int

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
@@ -51,16 +52,30 @@ func TestResolveAvatarWithRetryStopsOnCanceledContext(t *testing.T) {
 	}
 }
 
-func TestAvatarProviderSpecsCheckLibravatarBeforeBIMI(t *testing.T) {
+func TestAvatarProviderSpecsCheckFallbackOrder(t *testing.T) {
 	providers := avatarProviderSpecs()
-	if len(providers) < 3 {
-		t.Fatalf("provider count = %d, want at least 3", len(providers))
+	if len(providers) < 4 {
+		t.Fatalf("provider count = %d, want at least 4", len(providers))
 	}
-	want := []string{"gravatar", "libravatar", "bimi"}
+	want := []string{"gravatar", "libravatar", "bimi", "domain_icon"}
 	for i, name := range want {
 		if providers[i].name != name {
 			t.Fatalf("provider[%d] = %q, want %q", i, providers[i].name, name)
 		}
+	}
+}
+
+func TestAvatarProviderSpecsThrottleSharedProvidersOnly(t *testing.T) {
+	providers := avatarProviderSpecs()
+	throttled := map[string]bool{}
+	for _, provider := range providers {
+		throttled[provider.name] = provider.throttled
+	}
+	if !throttled["gravatar"] || !throttled["libravatar"] {
+		t.Fatalf("throttled providers = %+v, want gravatar and libravatar throttled", throttled)
+	}
+	if throttled["bimi"] || throttled["domain_icon"] {
+		t.Fatalf("throttled providers = %+v, want domain providers unthrottled", throttled)
 	}
 }
 
@@ -71,6 +86,45 @@ func TestLibravatarAttemptMessages(t *testing.T) {
 	}
 	if got := libravatarErrorAttemptMessage(hash, errors.New("boom")); !strings.Contains(got, "seccdn.libravatar.org") || !strings.Contains(got, "boom") {
 		t.Fatalf("libravatarErrorAttemptMessage() = %q", got)
+	}
+}
+
+func TestDomainIconAttemptMessages(t *testing.T) {
+	if got := domainIconSkippedAttemptMessage("gmail.com"); !strings.Contains(got, "public mailbox domain") {
+		t.Fatalf("domainIconSkippedAttemptMessage() = %q", got)
+	}
+	if got := domainIconMissingAttemptMessage("brand.example"); !strings.Contains(got, "https://brand.example/favicon.ico") {
+		t.Fatalf("domainIconMissingAttemptMessage() = %q", got)
+	}
+	if got := domainIconErrorAttemptMessage("brand.example", errors.New("boom")); !strings.Contains(got, "brand.example") || !strings.Contains(got, "boom") {
+		t.Fatalf("domainIconErrorAttemptMessage() = %q", got)
+	}
+}
+
+func TestAddAvatarProviderOutcomesCountsRunStats(t *testing.T) {
+	stats := emptyAvatarProviderStats()
+	stats = addAvatarProviderOutcomes(stats, []avatarProviderOutcome{
+		{provider: "gravatar", status: "missing"},
+		{provider: "libravatar", status: "found"},
+		{provider: "bimi", status: "skipped"},
+		{provider: "domain_icon", status: "error"},
+	})
+
+	byProvider := map[string]models.AvatarProviderStats{}
+	for _, stat := range stats {
+		byProvider[stat.Provider] = stat
+	}
+	if got := byProvider["gravatar"]; got.Checked != 1 || got.Missing != 1 {
+		t.Fatalf("gravatar stats = %+v, want checked=1 missing=1", got)
+	}
+	if got := byProvider["libravatar"]; got.Checked != 1 || got.Found != 1 {
+		t.Fatalf("libravatar stats = %+v, want checked=1 found=1", got)
+	}
+	if got := byProvider["bimi"]; got.Checked != 0 || got.Skipped != 1 {
+		t.Fatalf("bimi stats = %+v, want checked=0 skipped=1", got)
+	}
+	if got := byProvider["domain_icon"]; got.Checked != 1 || got.Error != 1 {
+		t.Fatalf("domain_icon stats = %+v, want checked=1 error=1", got)
 	}
 }
 
@@ -110,5 +164,49 @@ func TestHandleAvatarImageAddsStrictHeadersForSVG(t *testing.T) {
 	csp := rec.Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "script-src 'none'") || !strings.Contains(csp, "object-src 'none'") {
 		t.Fatalf("Content-Security-Policy = %q, want strict SVG policy", csp)
+	}
+}
+
+func TestReuseStoredDomainIconAvatarMarksSenderFound(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := storage.New(filepath.Join(dir, "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	defer db.Close()
+
+	blobs := store.NewBlobStore(filepath.Join(dir, "blobs"))
+	h := &Handler{db: db, blobStore: blobs}
+	expiresAt := time.Now().Add(time.Hour)
+	existingEmail := "alice@brand.example"
+	existingHash := avatarresolver.GravatarHash(existingEmail)
+	storagePath, err := blobs.StoreAvatar(existingHash, "image/png", []byte("png"))
+	if err != nil {
+		t.Fatalf("StoreAvatar() error = %v", err)
+	}
+	if err := db.SaveSenderAvatarFound(ctx, existingHash, existingEmail, "domain_icon", "image/png", storagePath, nil, expiresAt, "missing", "missing"); err != nil {
+		t.Fatalf("SaveSenderAvatarFound() error = %v", err)
+	}
+
+	newEmail := "bob@brand.example"
+	newHash := avatarresolver.GravatarHash(newEmail)
+	image, message, found, err := h.reuseStoredDomainIconAvatar(ctx, newHash, newEmail, "missing", "missing")
+	if err != nil {
+		t.Fatalf("reuseStoredDomainIconAvatar() error = %v", err)
+	}
+	if !found || image.Source != "domain_icon" || image.ContentType != "image/png" || image.SourceURL == "" {
+		t.Fatalf("reuseStoredDomainIconAvatar() = (%+v, %q, %v), want reused domain icon", image, message, found)
+	}
+	if !strings.Contains(message, "Reused stored domain icon") || !strings.Contains(message, existingHash) {
+		t.Fatalf("message = %q, want reuse details", message)
+	}
+
+	rec, err := db.GetSenderAvatarByHash(ctx, newHash)
+	if err != nil {
+		t.Fatalf("GetSenderAvatarByHash() error = %v", err)
+	}
+	if rec == nil || rec.Status != "found" || rec.StoragePath != storagePath {
+		t.Fatalf("reused record = %+v, want found sender with reused storage path %q", rec, storagePath)
 	}
 }

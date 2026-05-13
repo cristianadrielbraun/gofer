@@ -72,6 +72,10 @@ func adminLatestAvatarError(status models.AvatarStatus) string {
 	return adminError(status.Backfill.LastError)
 }
 
+func adminPanelTitleClass() string {
+	return "text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+}
+
 templ AdminPage(status models.AvatarStatus, activeTab string) {
 	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
@@ -85,11 +89,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
 				<div class="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
 					<div>
-						<div class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground shadow-sm">
-							@icon.Activity(icon.Props{Class: "size-3.5"})
-							Admin
-						</div>
-						<h2 class="mt-4 text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Avatar checks</h2>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Avatar checks</h2>
 						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">Control scheduled due checks and manual full rechecks, inspect provider outcomes, and search sender history.</p>
 					</div>
 					<div class="flex shrink-0 flex-wrap items-center gap-2">
@@ -126,33 +126,44 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 					@tabs.Content(tabs.ContentProps{Value: "overview", IsActive: activeTab == "overview", Class: "mt-6 space-y-5", Attributes: templ.Attributes{"data-avatar-tab-panel": "overview"}}) {
 						<div class="rounded-lg border border-border bg-card p-4">
 							<div class="flex items-start justify-between gap-4">
-								<div>
-									<div class="flex flex-wrap items-center gap-2">
-										<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Check run</div>
-										<span class={
-											"inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
+								<div class="min-w-0">
+									<div class={ adminPanelTitleClass() }>Check run</div>
+									<p class="mt-1 text-sm text-muted-foreground" data-avatar-run-description>{ adminAvatarRunDescription(status.Backfill) }</p>
+								</div>
+								<span class={
+											"inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold",
 											templ.KV("bg-red-500/12 text-red-700 dark:text-red-300", status.Backfill.CancelRequested || status.Backfill.Canceled),
 											templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress && !status.Backfill.CancelRequested),
 											templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress && !status.Backfill.Canceled),
 										} data-avatar-state>
-										if status.Backfill.CancelRequested {
-											Canceling
-										} else if status.Backfill.InProgress {
-											{ adminAvatarRunLabel(status.Backfill.Mode) }
-										} else if status.Backfill.Canceled {
-											Canceled
-										} else {
-											Idle
-											}
-										</span>
-									</div>
-									<p class="mt-1 text-sm text-muted-foreground" data-avatar-run-description>{ adminAvatarRunDescription(status.Backfill) }</p>
-									<div class="mt-2 text-sm font-medium text-foreground" data-avatar-progress-text>{ fmt.Sprintf("%d of %d processed", status.Backfill.Processed, status.Backfill.Total) }</div>
-								</div>
-								<div class="text-2xl font-bold tabular-nums text-foreground" data-avatar-progress-percent>{ fmt.Sprintf("%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }</div>
+									if status.Backfill.CancelRequested {
+										Canceling
+									} else if status.Backfill.InProgress {
+										{ adminAvatarRunLabel(status.Backfill.Mode) }
+									} else if status.Backfill.Canceled {
+										Canceled
+									} else {
+										Idle
+										}
+								</span>
 							</div>
-							<div class="mt-4 h-2 overflow-hidden rounded-full bg-muted shadow-inner">
-								<div class="h-full rounded-full bg-primary transition-all duration-500" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) } data-avatar-progress-bar></div>
+							<div class="mt-2 flex items-center justify-between gap-4">
+								<div class="text-sm font-medium text-foreground" data-avatar-progress-text>{ fmt.Sprintf("%d of %d processed", status.Backfill.Processed, status.Backfill.Total) }</div>
+								<div class="text-sm font-semibold tabular-nums text-foreground" data-avatar-progress-percent>{ fmt.Sprintf("%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }</div>
+							</div>
+							<div class="mt-4 h-2 overflow-hidden rounded-md bg-muted shadow-inner">
+								<div class="h-full rounded-md bg-primary transition-all duration-500" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) } data-avatar-progress-bar></div>
+							</div>
+						</div>
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="mb-3">
+								<div class={ adminPanelTitleClass() }>Current run provider activity</div>
+								<p class="mt-1 text-sm text-muted-foreground">Provider outcomes counted only for the active or most recent avatar check run.</p>
+							</div>
+							<div class="space-y-2">
+								for _, provider := range status.Backfill.ProviderStats {
+									@AdminRunProviderCard(provider)
+								}
 							</div>
 						</div>
 
@@ -184,7 +195,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 						<div class="rounded-lg border border-border bg-card p-4" data-avatar-explorer>
 						<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 								<div>
-									<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sender registry</div>
+									<div class={ adminPanelTitleClass() }>Sender registry</div>
 									<p class="mt-1 text-sm text-muted-foreground">Search senders, inspect final avatar status, and review provider states per sender.</p>
 								</div>
 								<div class="flex flex-col gap-2 lg:items-end">
@@ -204,9 +215,9 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
-											@selectbox.Item(selectbox.ItemProps{Value: "gravatar"}) { Gravatar }
-											@selectbox.Item(selectbox.ItemProps{Value: "libravatar"}) { Libravatar }
-											@selectbox.Item(selectbox.ItemProps{Value: "bimi"}) { BIMI }
+											for _, provider := range status.Cache.ProviderStats {
+												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) { { adminProviderLabel(provider.Provider) } }
+											}
 										}
 									}
 								</label>
@@ -256,7 +267,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 						<div class="rounded-lg border border-border bg-card p-4">
 							<div class="grid gap-5 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
 								<div>
-									<h3 class="text-xl font-bold text-foreground" style="font-family: var(--font-serif)">Avatar source mix</h3>
+									<div class={ adminPanelTitleClass() }>Avatar source mix</div>
 									<p class="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">Track where final sender avatars come from, then compare each provider's lookup outcomes. In-use counts are assigned avatars; checked counts are provider attempts.</p>
 									<div class="mt-5 grid gap-3 sm:grid-cols-3">
 										@AdminMetric("providers_total", "Providers", len(status.Cache.ProviderStats))
@@ -288,7 +299,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 							<div class="rounded-lg border border-border bg-card p-4">
 								<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 									<div>
-										<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Event log</div>
+										<div class={ adminPanelTitleClass() }>Event log</div>
 										<p class="mt-1 text-sm text-muted-foreground">Technical provider attempt history, including specific errors.</p>
 									</div>
 									<div class="flex flex-col gap-2 lg:items-end">
@@ -308,9 +319,9 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
-											@selectbox.Item(selectbox.ItemProps{Value: "gravatar"}) { Gravatar }
-											@selectbox.Item(selectbox.ItemProps{Value: "libravatar"}) { Libravatar }
-											@selectbox.Item(selectbox.ItemProps{Value: "bimi"}) { BIMI }
+											for _, provider := range status.Cache.ProviderStats {
+												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) { { adminProviderLabel(provider.Provider) } }
+											}
 										}
 									}
 								</label>
@@ -422,6 +433,8 @@ func adminProviderLabel(provider string) string {
 		return "Gravatar"
 	case "libravatar":
 		return "Libravatar"
+	case "domain_icon":
+		return "Domain icon"
 	case "":
 		return "Unknown"
 	default:
@@ -438,6 +451,8 @@ func adminProviderRole(provider string) string {
 		return "Open hash fallback"
 	case "bimi":
 		return "Domain brand fallback"
+	case "domain_icon":
+		return "Website icon fallback"
 	default:
 		return "Custom provider"
 	}
@@ -451,6 +466,10 @@ func adminProviderMetricKey(provider string, metric string) string {
 		provider = "unknown"
 	}
 	return provider + "_" + metric
+}
+
+func adminRunProviderMetricKey(provider string, metric string) string {
+	return "run_" + adminProviderMetricKey(provider, metric)
 }
 
 func adminProviderInUseTotal(stats []models.AvatarProviderStats) int {
@@ -534,7 +553,7 @@ templ AdminCompactMetric(key string, label string, value int) {
 }
 
 templ AdminCompactDetail(key string, label string, value string) {
-	<div class="flex items-center justify-between gap-3" data-admin-detail={ key }>
+	<div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors duration-300" data-admin-detail={ key }>
 		<div class="text-sm text-muted-foreground">{ label }</div>
 		<div class="max-w-40 truncate text-right text-sm font-semibold text-foreground" data-admin-detail-value>{ value }</div>
 	</div>
@@ -572,6 +591,21 @@ templ AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int)
 		</div>
 		<div class="h-2 overflow-hidden rounded-md bg-muted shadow-inner">
 			<div class="h-full rounded-md bg-primary/80" style={ fmt.Sprintf("width:%d%%", adminProviderPercent(provider.InUse, totalFound)) }></div>
+		</div>
+	</div>
+}
+
+templ AdminRunProviderCard(provider models.AvatarProviderStats) {
+	<div class="flex flex-col gap-3 rounded-lg border border-border bg-background/35 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+		<div class="min-w-36 shrink-0">
+			<div class="min-w-0 truncate text-sm font-semibold text-foreground">{ adminProviderLabel(provider.Provider) }</div>
+		</div>
+		<div class="grid flex-1 grid-cols-5 gap-2">
+			@AdminInlineMetric(adminRunProviderMetricKey(provider.Provider, "checked"), "Checked", provider.Checked)
+			@AdminInlineMetric(adminRunProviderMetricKey(provider.Provider, "found"), "Found", provider.Found)
+			@AdminInlineMetric(adminRunProviderMetricKey(provider.Provider, "missing"), "Missing", provider.Missing)
+			@AdminInlineMetric(adminRunProviderMetricKey(provider.Provider, "skipped"), "Skipped", provider.Skipped)
+			@AdminInlineMetric(adminRunProviderMetricKey(provider.Provider, "error"), "Errors", provider.Error)
 		</div>
 	</div>
 }

@@ -304,6 +304,8 @@ func avatarExtension(contentType string, data []byte) string {
 		return ".webp"
 	case "image/svg+xml", "application/svg+xml":
 		return ".svg"
+	case "image/x-icon", "image/vnd.microsoft.icon":
+		return ".ico"
 	}
 	return assetExtension("", data)
 }

@@ -6,7 +6,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -303,4 +305,285 @@ func TestResolveLibravatarUsesSeparateCacheFromGravatar(t *testing.T) {
 	if requests["www.gravatar.com"] != 1 || requests["seccdn.libravatar.org"] != 1 {
 		t.Fatalf("requests = %+v, want one request per provider", requests)
 	}
+}
+
+func TestParseIconLinks(t *testing.T) {
+	got := parseIconLinks("https://brand.example/mail/", []byte(`
+		<html><head>
+			<link rel="stylesheet" href="/app.css">
+			<link rel="icon" href="/favicon.png">
+			<link rel="apple-touch-icon" href="https://cdn.brand.example/touch.png">
+			<link rel="icon" href="http://brand.example/insecure.png">
+		</head></html>`))
+	want := []string{"https://brand.example/favicon.png", "https://cdn.brand.example/touch.png"}
+	if len(got) != len(want) {
+		t.Fatalf("parseIconLinks() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("parseIconLinks()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestResolveDomainIconDiscoversLinkedIcon(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+				Body:       io.NopCloser(strings.NewReader(`<link rel="icon" href="/icon.png">`)),
+			}, nil
+		case "/icon.png":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/png"}},
+				Body:       io.NopCloser(strings.NewReader("png")),
+			}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+	})}
+
+	image, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if !found || image.Source != "domain_icon" || image.SourceURL != "https://brand.example/icon.png" {
+		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want linked domain_icon", image, found)
+	}
+}
+
+func TestResolveDomainIconFallsBackToFavicon(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/favicon.ico" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/x-icon"}},
+				Body:       io.NopCloser(strings.NewReader("ico")),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<html><head></head></html>`)),
+		}, nil
+	})}
+
+	image, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if !found || image.SourceURL != "https://brand.example/favicon.ico" || image.ContentType != "image/x-icon" {
+		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want favicon fallback", image, found)
+	}
+}
+
+func TestResolveDomainIconFollowsSafeRedirect(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.URL.Host == "brand.example" && req.URL.Path == "/":
+			return &http.Response{
+				StatusCode: http.StatusMovedPermanently,
+				Header:     http.Header{"Location": []string{"https://www.brand.example/"}},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		case req.URL.Host == "www.brand.example" && req.URL.Path == "/":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Body:       io.NopCloser(strings.NewReader(`<link rel="icon" href="/icon.svg">`)),
+				Request:    req,
+			}, nil
+		case req.URL.Host == "www.brand.example" && req.URL.Path == "/icon.svg":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/svg+xml"}},
+				Body:       io.NopCloser(strings.NewReader(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`)),
+				Request:    req,
+			}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+	})}
+
+	image, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if !found || image.SourceURL != "https://www.brand.example/icon.svg" {
+		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want redirected icon", image, found)
+	}
+}
+
+func TestResolveDomainIconTriesAlternateFavicons(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	requests := map[string]int{}
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests[req.URL.Path]++
+		if req.URL.Path == "/favicon.svg" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/svg+xml"}},
+				Body:       io.NopCloser(strings.NewReader(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`)),
+			}, nil
+		}
+		if req.URL.Path == "/" {
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/html"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+
+	image, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if !found || image.SourceURL != "https://brand.example/favicon.svg" {
+		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want svg favicon fallback", image, found)
+	}
+	if requests["/favicon.ico"] != 1 || requests["/favicon.svg"] != 1 {
+		t.Fatalf("requests = %+v, want ico then svg favicon attempts", requests)
+	}
+}
+
+func TestResolveDomainIconRetriesRootDomainAfterSubdomainConnectionError(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	requests := map[string]int{}
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests[req.URL.Host+req.URL.Path]++
+		if req.URL.Host == "msg.salesforce.com" {
+			return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: &net.DNSError{Err: "no such host", Name: req.URL.Host, IsNotFound: true}}
+		}
+		if req.URL.Host == "salesforce.com" && req.URL.Path == "/favicon.ico" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/x-icon"}},
+				Body:       io.NopCloser(strings.NewReader("ico")),
+			}, nil
+		}
+		if req.URL.Host == "salesforce.com" && req.URL.Path == "/" {
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/html"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+
+	image, found, err := r.ResolveDomainIcon(context.Background(), "person@msg.salesforce.com")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if !found || image.SourceURL != "https://salesforce.com/favicon.ico" {
+		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want root-domain favicon", image, found)
+	}
+	if requests["msg.salesforce.com/"] == 0 || requests["salesforce.com/favicon.ico"] != 1 {
+		t.Fatalf("requests = %+v, want failed subdomain then root favicon", requests)
+	}
+}
+
+func TestResolveDomainIconSkipsPublicMailboxDomains(t *testing.T) {
+	r := NewResolver()
+	requests := 0
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		return nil, errors.New("unexpected request")
+	})}
+
+	_, found, err := r.ResolveDomainIcon(context.Background(), "person@gmail.com")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if found || requests != 0 {
+		t.Fatalf("ResolveDomainIcon() found=%v requests=%d, want false and no requests", found, requests)
+	}
+}
+
+func TestResolveDomainIconRejectsPrivateAddress(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+	}
+
+	_, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err == nil || !strings.Contains(err.Error(), "private address") {
+		t.Fatalf("ResolveDomainIcon() error = %v, want private address error", err)
+	}
+	if found {
+		t.Fatal("ResolveDomainIcon() found = true, want false")
+	}
+}
+
+func TestResolveDomainIconDedupesConcurrentLookups(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	var mu sync.Mutex
+	requests := map[string]int{}
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests[req.URL.Path]++
+		mu.Unlock()
+		if req.URL.Path == "/" {
+			startedOnce.Do(func() { close(started) })
+			<-release
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Body:       io.NopCloser(strings.NewReader(`<html><head></head></html>`)),
+			}, nil
+		}
+		if req.URL.Path == "/favicon.ico" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/png"}},
+				Body:       io.NopCloser(strings.NewReader("png")),
+			}, nil
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			image, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if !found || image.SourceURL != "https://brand.example/favicon.ico" {
+				errCh <- errors.New("unexpected domain icon result")
+			}
+		}()
+	}
+	<-started
+	close(release)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if requests["/"] != 1 || requests["/favicon.ico"] != 1 {
+		t.Fatalf("requests = %+v, want one homepage and one favicon request", requests)
+	}
+}
+
+func publicLookupIPAddr(context.Context, string) ([]net.IPAddr, error) {
+	return []net.IPAddr{{IP: net.ParseIP("93.184.216.34")}}, nil
 }

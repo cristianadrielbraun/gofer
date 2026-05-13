@@ -5,7 +5,9 @@
 	if (!root) return
 
 	var statusTimer = null
+	var tableTimer = null
 	var tableLiveUpdates = true
+	var lastBackfill = null
 
   function qs(selector, base) {
     return (base || document).querySelector(selector)
@@ -86,6 +88,12 @@
     })
   }
 
+  function providerMetricKey(provider, metric) {
+    provider = String(provider || "unknown").toLowerCase().trim().replace(/[\s-]+/g, "_")
+    if (!provider) provider = "unknown"
+    return provider + "_" + metric
+  }
+
   function setDetail(key, value) {
     root.querySelectorAll('[data-admin-detail="' + key + '"] [data-admin-detail-value]').forEach(function (node) {
       node.textContent = value
@@ -99,7 +107,7 @@
     var canceling = running && !!backfill.cancel_requested
     var canceled = !running && !!backfill.canceled
     state.textContent = canceling ? "Canceling" : (running ? (backfill.mode === "manual" ? "Full recheck" : "Due check") : (canceled ? "Canceled" : "Idle"))
-    state.className = "inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold " + (canceling || canceled ? "bg-red-500/12 text-red-700 dark:text-red-300" : (running ? "bg-amber-500/12 text-amber-700 dark:text-amber-300" : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"))
+    state.className = "inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold " + (canceling || canceled ? "bg-red-500/12 text-red-700 dark:text-red-300" : (running ? "bg-amber-500/12 text-amber-700 dark:text-amber-300" : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"))
     var description = qs("[data-avatar-run-description]", root)
     if (description) {
       description.textContent = canceling ? "Cancel requested. In-flight avatar checks are stopping safely." : (running ? (backfill.mode === "manual" ? "Manual full recheck across all known senders, regardless of retry or expiration state." : "Scheduled due check for pending, retryable, or expired sender avatars.") : (canceled ? "Last run was canceled. Scheduled due checks will continue normally." : "Scheduled checks only process pending, retryable, or expired senders. Use Force full recheck to scan every known sender."))
@@ -110,10 +118,10 @@
     if (cancelButton) cancelButton.disabled = !running || canceling
   }
 
-  function renderStatus(status) {
-    if (!status || !status.cache || !status.backfill) return
-    var cache = status.cache
-    var backfill = status.backfill
+  function renderBackfill(backfill) {
+    if (!backfill) return
+    lastBackfill = Object.assign({}, lastBackfill || {}, backfill)
+    backfill = lastBackfill
     var pct = percent(backfill.processed, backfill.total)
     var progressText = qs("[data-avatar-progress-text]", root)
     var progressPct = qs("[data-avatar-progress-percent]", root)
@@ -122,6 +130,22 @@
     if (progressPct) progressPct.textContent = pct + "%"
     if (progressBar) progressBar.style.width = pct + "%"
     setState(backfill)
+    ;(backfill.provider_stats || []).forEach(function (provider) {
+      setMetric("run_" + providerMetricKey(provider.provider, "checked"), provider.checked)
+      setMetric("run_" + providerMetricKey(provider.provider, "found"), provider.found)
+      setMetric("run_" + providerMetricKey(provider.provider, "missing"), provider.missing)
+      setMetric("run_" + providerMetricKey(provider.provider, "skipped"), provider.skipped)
+      setMetric("run_" + providerMetricKey(provider.provider, "error"), provider.error)
+    })
+    setDetail("started", fmtTime(backfill.started_at))
+    setDetail("finished", fmtTime(backfill.finished_at))
+  }
+
+  function renderStatus(status) {
+    if (!status || !status.cache || !status.backfill) return
+    var cache = status.cache
+    var backfill = status.backfill
+    renderBackfill(backfill)
 
     setMetric("total", cache.total)
     setMetric("pending", cache.pending)
@@ -134,27 +158,52 @@
     ;(cache.provider_stats || []).forEach(function (provider) { providerAssignments += provider.in_use || 0 })
     setMetric("providers_total", (cache.provider_stats || []).length)
     setMetric("provider_assignments", providerAssignments)
-    setMetric("gravatar_checked", cache.gravatar_checked)
-    setMetric("gravatar_found", cache.gravatar_found)
-    setMetric("gravatar_missing", cache.gravatar_missing)
-    setMetric("gravatar_error", cache.gravatar_error)
-    setMetric("bimi_checked", cache.bimi_checked)
-    setMetric("bimi_found", cache.bimi_found)
-    setMetric("bimi_missing", cache.bimi_missing)
-    setMetric("bimi_skipped", cache.bimi_skipped)
-    setMetric("bimi_error", cache.bimi_error)
     ;(cache.provider_stats || []).forEach(function (provider) {
-      var key = provider.provider || "unknown"
-      setMetric(key + "_in_use", provider.in_use)
-      setMetric(key + "_checked", provider.checked)
-      setMetric(key + "_found", provider.found)
-      setMetric(key + "_missing", provider.missing)
-      setMetric(key + "_skipped", provider.skipped)
-      setMetric(key + "_error", provider.error)
+      setMetric(providerMetricKey(provider.provider, "in_use"), provider.in_use)
+      setMetric(providerMetricKey(provider.provider, "checked"), provider.checked)
+      setMetric(providerMetricKey(provider.provider, "found"), provider.found)
+      setMetric(providerMetricKey(provider.provider, "missing"), provider.missing)
+      setMetric(providerMetricKey(provider.provider, "skipped"), provider.skipped)
+      setMetric(providerMetricKey(provider.provider, "error"), provider.error)
     })
-    setDetail("started", fmtTime(backfill.started_at))
-    setDetail("finished", fmtTime(backfill.finished_at))
     setDetail("last_error", latestAvatarError(status))
+  }
+
+  function parseEventData(event) {
+    try {
+      return JSON.parse(event.data || "{}")
+    } catch (_) {
+      return {}
+    }
+  }
+
+  function renderBackfillEvent(event) {
+    var data = parseEventData(event)
+    var wasRunning = !!(lastBackfill && lastBackfill.in_progress)
+    if (data.backfill) {
+      renderBackfill(data.backfill)
+      return { wasRunning: wasRunning, running: !!data.backfill.in_progress, status: data.status || "" }
+    }
+    var backfill = Object.assign({}, lastBackfill || {})
+    if (data.status === "manual" || data.status === "scheduled") {
+      backfill.in_progress = true
+      backfill.cancel_requested = false
+      backfill.canceled = false
+      backfill.mode = data.status
+    } else if (data.status === "canceling") {
+      backfill.in_progress = true
+      backfill.cancel_requested = true
+      backfill.mode = backfill.mode || "manual"
+    } else if (data.status === "idle") {
+      backfill.in_progress = false
+      backfill.cancel_requested = false
+      backfill.canceled = false
+    }
+    if (data.current != null) backfill.processed = data.current
+    if (data.total != null) backfill.total = data.total
+    if (data.error != null) backfill.last_error = data.error
+    renderBackfill(backfill)
+    return { wasRunning: wasRunning, running: !!backfill.in_progress, status: data.status || "" }
   }
 
 	function refreshStatus() {
@@ -183,6 +232,14 @@
 		if (list) list.refresh(!!resetScroll)
 	}
 
+	function scheduleActiveTableRefresh(delay) {
+		if (!tableLiveUpdates || tableTimer || !activeTableList()) return
+		tableTimer = setTimeout(function () {
+			tableTimer = null
+			refreshActiveTable(false)
+		}, delay == null ? 1500 : delay)
+	}
+
 	function updateTableControls() {
 		root.querySelectorAll("[data-avatar-table-live]").forEach(function (node) {
 			node.checked = tableLiveUpdates
@@ -192,16 +249,16 @@
 		})
 	}
 
-	function scheduleStatusRefresh() {
+	function scheduleStatusRefresh(delay, force) {
+		if (force && statusTimer) {
+			clearTimeout(statusTimer)
+			statusTimer = null
+		}
 		if (statusTimer) return
 		statusTimer = setTimeout(function () {
 			statusTimer = null
 			refreshStatus()
-			if (tableLiveUpdates) {
-				if (attemptList) attemptList.refresh(false)
-				if (eventList) eventList.refresh(false)
-			}
-		}, 300)
+		}, delay == null ? 1500 : delay)
 	}
 
 	function bindTabRerender() {
@@ -285,9 +342,10 @@
       }
       var inUse = item.in_use || { status: item.status, source: item.source, avatar_url: item.avatar_url, error: item.error }
       var avatarURL = inUse.avatar_url || inUse.avatar_data_url
+      var avatarImageClass = "h-full w-full object-cover" + ((inUse.source === "bimi" || inUse.source === "domain_icon") ? " scale-110" : "")
       var avatar = avatarURL
-        ? '<img src="' + escapeHTML(avatarURL) + '" alt="" class="size-9 rounded-full object-cover"/>'
-        : '<div class="size-9 rounded-full bg-muted text-xs font-semibold text-muted-foreground flex items-center justify-center">' + escapeHTML((item.email || "?").slice(0, 1).toUpperCase()) + '</div>'
+        ? '<div class="size-9 shrink-0 overflow-hidden rounded-full bg-muted/40"><img src="' + escapeHTML(avatarURL) + '" alt="" class="' + avatarImageClass + '"/></div>'
+        : '<div class="size-9 shrink-0 rounded-full bg-muted text-xs font-semibold text-muted-foreground flex items-center justify-center">' + escapeHTML((item.email || "?").slice(0, 1).toUpperCase()) + '</div>'
       var providerByName = new Map()
       ;(item.providers || []).forEach(function (provider) { providerByName.set(provider.provider, provider) })
 		var providerCells = this.providerColumns.map(function (name) {
@@ -295,16 +353,15 @@
 			if (!provider) return '<div class="text-xs text-muted-foreground">not attempted</div>'
 			return '<div class="min-w-0 text-sm font-medium ' + plainStatusClass(provider.status) + '">' + escapeHTML(provider.status || "unchecked") + '</div>'
 		}, this).join('')
-      var error = inUse.error ? '<div class="mt-0.5 truncate text-xs text-red-600 dark:text-red-300">' + escapeHTML(inUse.error) + '</div>' : ''
-      return '<div class="grid h-[76px] min-w-[48rem] items-center gap-2 border-b border-border/70 bg-background/55 px-4 py-2 text-sm odd:bg-background/70 hover:bg-accent/35" style="grid-template-columns:' + columns + '">' +
-        '<div class="flex min-w-0 items-center gap-3">' + avatar + '<div class="min-w-0"><div class="truncate font-medium text-foreground">' + escapeHTML(item.email || "Unknown sender") + '</div><div class="mt-0.5 truncate text-xs text-muted-foreground">' + escapeHTML(item.email_hash || "") + '</div>' + error + '</div></div>' +
+      return '<div class="grid h-[76px] min-w-[48rem] items-center gap-1.5 border-b border-border/70 bg-background/55 px-4 py-2 text-sm odd:bg-background/70 hover:bg-accent/35" style="grid-template-columns:' + columns + '">' +
+        '<div class="flex min-w-0 items-center gap-3">' + avatar + '<div class="min-w-0"><div class="truncate font-medium text-foreground">' + escapeHTML(item.email || "Unknown sender") + '</div><div class="mt-0.5 truncate text-xs text-muted-foreground">' + escapeHTML(item.email_hash || "") + '</div></div></div>' +
         '<div class="truncate text-sm font-medium text-foreground">' + escapeHTML(inUse.source || "none") + '</div>' +
         providerCells +
       '</div>'
     }
 
     gridTemplateColumns() {
-      return 'minmax(18rem,1fr) 10rem ' + this.providerColumns.map(function () { return 'minmax(8rem,10rem)' }).join(' ')
+      return 'minmax(22rem,1.4fr) 7rem ' + this.providerColumns.map(function () { return 'minmax(6.5rem,8rem)' }).join(' ')
     }
 
     providerLabel(provider) {
@@ -686,7 +743,7 @@
       liveSwitch.addEventListener("change", function () {
         tableLiveUpdates = liveSwitch.checked
         updateTableControls()
-        if (tableLiveUpdates) refreshActiveTable(false)
+        if (tableLiveUpdates) scheduleActiveTableRefresh(0)
       })
     })
     root.querySelectorAll("[data-avatar-table-refresh]").forEach(function (refreshButton) {
@@ -701,8 +758,19 @@
   function setupSSE() {
     if (!window.EventSource) return
     var source = new EventSource("/api/events")
-    source.addEventListener("avatar-backfill", scheduleStatusRefresh)
-    source.addEventListener("avatar-updated", scheduleStatusRefresh)
+    source.addEventListener("avatar-backfill", function (event) {
+      var transition = renderBackfillEvent(event) || {}
+      if (transition.wasRunning !== transition.running || transition.status === "canceling") {
+        scheduleStatusRefresh(0, true)
+      } else {
+        scheduleStatusRefresh(10000)
+      }
+      scheduleActiveTableRefresh(2500)
+    })
+    source.addEventListener("avatar-updated", function () {
+      scheduleStatusRefresh(2500)
+      scheduleActiveTableRefresh(2500)
+    })
     source.onerror = function () {
       source.close()
       setTimeout(setupSSE, 5000)

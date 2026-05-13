@@ -24,6 +24,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupMailFilters()
   setupMailTableColumnResize()
   setupSSE()
+  setupContactAvatarImages()
   setupMailListActions()
   setupSidebarAccountCollapse()
   setupProcessingStatus()
@@ -803,6 +804,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var node = nodes[i]
       if (node.getAttribute("data-avatar-hash") !== hash) continue
 
+      hideContactAvatarFallback(node)
+
       var img = node.querySelector("img[data-avatar-image]")
       if (!img) {
         img = document.createElement("img")
@@ -816,6 +819,50 @@ document.addEventListener("DOMContentLoaded", function () {
         img.setAttribute("src", avatarURL)
       }
     }
+  }
+
+  function setupContactAvatarImages() {
+    document.addEventListener("load", function (e) {
+      if (!e.target.matches || !e.target.matches("img[data-avatar-image]")) return
+      var node = e.target.closest("[data-contact-avatar]")
+      if (node) hideContactAvatarFallback(node)
+      e.target.classList.remove("hidden")
+    }, true)
+
+    document.addEventListener("error", function (e) {
+      if (!e.target.matches || !e.target.matches("img[data-avatar-image]")) return
+      e.target.classList.add("hidden")
+      var node = e.target.closest("[data-contact-avatar]")
+      if (node) showContactAvatarFallback(node)
+    }, true)
+
+    document.querySelectorAll("[data-contact-avatar]").forEach(function (node) {
+      var img = node.querySelector("img[data-avatar-image]")
+      if (!img) {
+        showContactAvatarFallback(node)
+        return
+      }
+      if (img.complete && img.naturalWidth === 0) {
+        img.classList.add("hidden")
+        showContactAvatarFallback(node)
+      } else {
+        hideContactAvatarFallback(node)
+      }
+    })
+  }
+
+  function hideContactAvatarFallback(node) {
+    var fallback = node.querySelector("[data-avatar-fallback]")
+    if (!fallback) return
+    fallback.classList.add("hidden")
+    fallback.classList.remove("flex")
+  }
+
+  function showContactAvatarFallback(node) {
+    var fallback = node.querySelector("[data-avatar-fallback]")
+    if (!fallback) return
+    fallback.classList.remove("hidden")
+    fallback.classList.add("flex")
   }
 
   function scheduleSyncRefresh(vml, options) {
