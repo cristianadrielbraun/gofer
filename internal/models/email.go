@@ -60,6 +60,7 @@ type Contact struct {
 	Initials      string
 	AvatarHash    string
 	AvatarStatus  string
+	AvatarURL     string
 	AvatarDataURL string
 }
 

@@ -731,8 +731,8 @@ document.addEventListener("DOMContentLoaded", function () {
     source.addEventListener("avatar-updated", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
-      if (!data || !data.avatar_hash || !data.avatar_data_url) return
-      updateVisibleAvatars(data.avatar_hash, data.avatar_data_url)
+      if (!data || !data.avatar_hash || !data.avatar_url) return
+      updateVisibleAvatars(data.avatar_hash, data.avatar_url)
     })
 
     source.addEventListener("processing-status", function (e) {
@@ -797,7 +797,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  function updateVisibleAvatars(hash, dataURL) {
+  function updateVisibleAvatars(hash, avatarURL) {
     var nodes = document.querySelectorAll("[data-contact-avatar][data-avatar-hash]")
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i]
@@ -812,8 +812,8 @@ document.addEventListener("DOMContentLoaded", function () {
         img.className = "absolute inset-0 h-full w-full object-cover"
         node.appendChild(img)
       }
-      if (img.getAttribute("src") !== dataURL) {
-        img.setAttribute("src", dataURL)
+      if (img.getAttribute("src") !== avatarURL) {
+        img.setAttribute("src", avatarURL)
       }
     }
   }

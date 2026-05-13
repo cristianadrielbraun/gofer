@@ -381,9 +381,14 @@ CREATE TABLE IF NOT EXISTS sender_avatars (
     email_hash TEXT PRIMARY KEY,
     email TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'gravatar',
+    gravatar_status TEXT NOT NULL DEFAULT 'unchecked',
+    gravatar_checked_at DATETIME,
+    bimi_status TEXT NOT NULL DEFAULT 'unchecked',
+    bimi_checked_at DATETIME,
     status TEXT NOT NULL DEFAULT 'pending',
     content_type TEXT NOT NULL DEFAULT '',
     image_data BLOB,
+    storage_path TEXT NOT NULL DEFAULT '',
     fetched_at DATETIME,
     expires_at DATETIME,
     next_retry_at DATETIME,
@@ -398,5 +403,36 @@ ON sender_avatars(status, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_sender_avatars_expires
 ON sender_avatars(expires_at);
 
+CREATE TABLE IF NOT EXISTS avatar_attempt_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_hash TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL,
+    message TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_avatar_attempt_logs_created
+ON avatar_attempt_logs(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_avatar_attempt_logs_provider_status
+ON avatar_attempt_logs(provider, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS avatar_provider_states (
+    email_hash TEXT NOT NULL,
+    email TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'unchecked',
+    message TEXT NOT NULL DEFAULT '',
+    checked_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (email_hash, provider)
+);
+
+CREATE INDEX IF NOT EXISTS idx_avatar_provider_states_provider_status
+ON avatar_provider_states(provider, status);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (17);
+INSERT OR REPLACE INTO schema_version (version) VALUES (21);

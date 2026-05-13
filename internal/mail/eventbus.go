@@ -13,6 +13,7 @@ const (
 	EventSendResult       EventType = "send-result"
 	EventMutation         EventType = "mutation"
 	EventAvatarUpdated    EventType = "avatar-updated"
+	EventAvatarBackfill   EventType = "avatar-backfill"
 )
 
 type Event struct {
@@ -25,6 +26,7 @@ type Event struct {
 	Current       int
 	Total         int
 	AvatarHash    string
+	AvatarURL     string
 	AvatarDataURL string
 }
 

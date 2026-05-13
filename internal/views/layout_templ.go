@@ -398,7 +398,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 	})
 }
 
-func AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus) templ.Component {
+func AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus, activeTab string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -535,11 +535,11 @@ func AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = AdminPage(avatarStatus).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = AdminPage(avatarStatus, activeTab).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div></div><script src=\"/assets/js/ui-settings.js\"></script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div></div><script src=\"/assets/js/ui-settings.js\"></script><script src=\"/assets/js/admin.js\"></script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -575,7 +575,7 @@ func ResizeHandle(panel string) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(panel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 230, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 231, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -771,7 +771,7 @@ func SettingsPartial(accounts []models.Account, syncSettings models.SyncSettings
 	})
 }
 
-func AdminPartial(avatarStatus models.AvatarStatus) templ.Component {
+func AdminPartial(avatarStatus models.AvatarStatus, activeTab string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -796,7 +796,7 @@ func AdminPartial(avatarStatus models.AvatarStatus) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = AdminPage(avatarStatus).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = AdminPage(avatarStatus, activeTab).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

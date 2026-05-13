@@ -34,18 +34,20 @@ import (
 )
 
 type Handler struct {
-	db                  *storage.DB
-	accountStore        *config.AccountStore
-	syncer              *mail.SyncOrchestrator
-	blobStore           *store.BlobStore
-	auth                *auth.Manager
-	avatar              *avatarresolver.Resolver
-	bodyClientMu        sync.Mutex
-	bodyClients         map[string]*imap.Client
-	bodyFetchMu         sync.Mutex
-	bodyFetches         map[int64]chan struct{}
-	avatarBackfillMu    sync.RWMutex
-	avatarBackfillState models.AvatarBackfillState
+	db                   *storage.DB
+	accountStore         *config.AccountStore
+	syncer               *mail.SyncOrchestrator
+	blobStore            *store.BlobStore
+	auth                 *auth.Manager
+	avatar               *avatarresolver.Resolver
+	bodyClientMu         sync.Mutex
+	bodyClients          map[string]*imap.Client
+	bodyFetchMu          sync.Mutex
+	bodyFetches          map[int64]chan struct{}
+	avatarBackfillMu     sync.RWMutex
+	avatarBackfillState  models.AvatarBackfillState
+	avatarBackfillCancel context.CancelFunc
+	avatarBackfillRunID  int64
 }
 
 const (
@@ -97,7 +99,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/oauth2/authorize", h.handleAccountOAuthAuthorize)
 
 	mux.HandleFunc("GET /", h.handleIndex)
-	mux.HandleFunc("GET /admin", h.handleAdmin)
+	mux.HandleFunc("GET /admin", h.handleAdminRedirect)
+	mux.HandleFunc("GET /admin/avatars", h.handleAdminRedirect)
+	mux.HandleFunc("GET /admin/avatars/{$}", h.handleAdmin)
+	mux.HandleFunc("GET /admin/avatars/{tab}", h.handleAdmin)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
 	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
 	mux.HandleFunc("GET /folder/{id}", h.handleFolderPartial)
@@ -151,52 +156,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/remote-content/{id}/allow", h.handleAllowRemoteContent)
 	mux.HandleFunc("GET /api/remote-assets/{messageID}/{filename}", h.handleRemoteAsset)
 	mux.HandleFunc("GET /api/avatars/status", h.handleAvatarStatus)
-	mux.HandleFunc("GET /api/avatars/{hash}", h.handleAvatar)
-}
-
-func (h *Handler) handleAvatar(w http.ResponseWriter, r *http.Request) {
-	hash := strings.ToLower(strings.TrimSpace(r.PathValue("hash")))
-	if !avatarresolver.IsGravatarHash(hash) {
-		http.NotFound(w, r)
-		return
-	}
-	now := time.Now()
-
-	if rec, err := h.db.GetSenderAvatarByHash(r.Context(), hash); err != nil {
-		log.Printf("avatar: read cache: %v", err)
-	} else if rec != nil {
-		switch rec.Status {
-		case "found":
-			if len(rec.ImageData) > 0 && (!rec.ExpiresAtValid || now.Before(rec.ExpiresAt)) {
-				serveAvatarImage(w, rec.ContentType, rec.ImageData, rec.ExpiresAt)
-				return
-			}
-		case "missing":
-			if rec.ExpiresAtValid && now.Before(rec.ExpiresAt) {
-				w.Header().Set("Cache-Control", "public, max-age=86400")
-				http.NotFound(w, r)
-				return
-			}
-		case "error":
-			if rec.NextRetryAtValid && now.Before(rec.NextRetryAt) {
-				w.Header().Set("Cache-Control", "public, max-age=300")
-				http.NotFound(w, r)
-				return
-			}
-		}
-	}
-
-	image, found, err := h.fetchAndPersistAvatar(r.Context(), hash, "")
-	if err != nil {
-		log.Printf("avatar: resolve gravatar: %v", err)
-	}
-	if !found {
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		http.NotFound(w, r)
-		return
-	}
-
-	serveAvatarImage(w, image.ContentType, image.Data, image.ExpiresAt)
+	mux.HandleFunc("GET /api/avatars/{hash}", h.handleAvatarImage)
+	mux.HandleFunc("GET /api/avatars/attempts", h.handleAvatarAttempts)
+	mux.HandleFunc("GET /api/avatars/senders", h.handleAvatarSenders)
+	mux.HandleFunc("POST /api/avatars/senders/{hash}/recheck", h.handleRecheckAvatarSender)
+	mux.HandleFunc("POST /admin/avatar-backfill/recheck", h.handleForceAvatarBackfill)
+	mux.HandleFunc("POST /admin/avatar-backfill/cancel", h.handleCancelAvatarBackfill)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -2183,6 +2148,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 			if event.AvatarHash != "" {
 				m["avatar_hash"] = event.AvatarHash
+			}
+			if event.AvatarURL != "" {
+				m["avatar_url"] = event.AvatarURL
 			}
 			if event.AvatarDataURL != "" {
 				m["avatar_data_url"] = event.AvatarDataURL

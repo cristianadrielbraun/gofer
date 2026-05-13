@@ -109,7 +109,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 17
+	const targetSchemaVersion = 21
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -220,6 +220,30 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 16 {
 		if err := migrateV16ToV17(tx); err != nil {
 			return fmt.Errorf("migrate v16 to v17: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 17 {
+		if err := migrateV17ToV18(tx); err != nil {
+			return fmt.Errorf("migrate v17 to v18: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 18 {
+		if err := migrateV18ToV19(tx); err != nil {
+			return fmt.Errorf("migrate v18 to v19: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 19 {
+		if err := migrateV19ToV20(tx); err != nil {
+			return fmt.Errorf("migrate v19 to v20: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 20 {
+		if err := migrateV20ToV21(tx); err != nil {
+			return fmt.Errorf("migrate v20 to v21: %w", err)
 		}
 	}
 
@@ -595,6 +619,122 @@ func migrateV16ToV17(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_sender_avatars_status_retry ON sender_avatars(status, next_retry_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_sender_avatars_expires ON sender_avatars(expires_at)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (17)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV17ToV18(tx *sql.Tx) error {
+	migrations := []string{
+		`ALTER TABLE sender_avatars ADD COLUMN gravatar_status TEXT NOT NULL DEFAULT 'unchecked'`,
+		`ALTER TABLE sender_avatars ADD COLUMN gravatar_checked_at DATETIME`,
+		`ALTER TABLE sender_avatars ADD COLUMN bimi_status TEXT NOT NULL DEFAULT 'unchecked'`,
+		`ALTER TABLE sender_avatars ADD COLUMN bimi_checked_at DATETIME`,
+		`UPDATE sender_avatars
+		 SET gravatar_status = CASE
+		 	WHEN source = 'gravatar' AND status = 'found' THEN 'found'
+		 	WHEN source = 'gravatar' AND status = 'error' THEN 'error'
+		 	WHEN status IN ('found', 'missing') THEN 'missing'
+		 	ELSE gravatar_status
+		 END`,
+		`UPDATE sender_avatars
+		 SET bimi_status = CASE
+		 	WHEN source = 'bimi' AND status = 'found' THEN 'found'
+		 	WHEN source = 'bimi' AND status = 'error' THEN 'error'
+		 	WHEN source = 'none' AND status = 'missing' THEN 'missing'
+		 	ELSE bimi_status
+		 END`,
+		`UPDATE sender_avatars SET gravatar_checked_at = fetched_at WHERE gravatar_status != 'unchecked' AND fetched_at IS NOT NULL`,
+		`UPDATE sender_avatars SET bimi_checked_at = fetched_at WHERE bimi_status NOT IN ('unchecked', 'skipped') AND fetched_at IS NOT NULL`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (18)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV18ToV19(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS avatar_attempt_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email_hash TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL DEFAULT '',
+			provider TEXT NOT NULL,
+			status TEXT NOT NULL,
+			message TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_avatar_attempt_logs_created ON avatar_attempt_logs(created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_avatar_attempt_logs_provider_status ON avatar_attempt_logs(provider, status, created_at DESC)`,
+		`INSERT INTO avatar_attempt_logs (email_hash, email, provider, status, message, created_at)
+		 SELECT email_hash, email, 'gravatar', gravatar_status,
+		 	CASE WHEN gravatar_status = 'error' THEN error ELSE '' END,
+		 	COALESCE(gravatar_checked_at, fetched_at, updated_at, CURRENT_TIMESTAMP)
+		 FROM sender_avatars
+		 WHERE gravatar_status IN ('found', 'missing', 'error')`,
+		`INSERT INTO avatar_attempt_logs (email_hash, email, provider, status, message, created_at)
+		 SELECT email_hash, email, 'bimi', bimi_status,
+		 	CASE WHEN bimi_status = 'error' THEN error ELSE '' END,
+		 	COALESCE(bimi_checked_at, fetched_at, updated_at, CURRENT_TIMESTAMP)
+		 FROM sender_avatars
+		 WHERE bimi_status IN ('found', 'missing', 'skipped', 'error')`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (19)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV19ToV20(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS avatar_provider_states (
+			email_hash TEXT NOT NULL,
+			email TEXT NOT NULL DEFAULT '',
+			provider TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'unchecked',
+			message TEXT NOT NULL DEFAULT '',
+			checked_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (email_hash, provider)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_avatar_provider_states_provider_status ON avatar_provider_states(provider, status)`,
+		`INSERT OR REPLACE INTO avatar_provider_states (email_hash, email, provider, status, message, checked_at)
+		 SELECT email_hash, email, 'gravatar', gravatar_status,
+		 	CASE WHEN gravatar_status = 'error' THEN error ELSE '' END,
+		 	gravatar_checked_at
+		 FROM sender_avatars
+		 WHERE gravatar_status != 'unchecked'`,
+		`INSERT OR REPLACE INTO avatar_provider_states (email_hash, email, provider, status, message, checked_at)
+		 SELECT email_hash, email, 'bimi', bimi_status,
+		 	CASE WHEN bimi_status = 'error' THEN error ELSE '' END,
+		 	bimi_checked_at
+		 FROM sender_avatars
+		 WHERE bimi_status != 'unchecked'`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (20)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV20ToV21(tx *sql.Tx) error {
+	migrations := []string{
+		`ALTER TABLE sender_avatars ADD COLUMN storage_path TEXT NOT NULL DEFAULT ''`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (21)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {

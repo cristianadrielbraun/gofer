@@ -5,9 +5,9 @@ import "github.com/cristianadrielbraun/gofer/internal/models"
 templ ContactAvatar(contact models.Contact, class string, fallbackClass string) {
 	<div class={ "relative overflow-hidden " + class } data-contact-avatar data-avatar-hash={ contact.AvatarHash }>
 		<span class={ "flex h-full w-full items-center justify-center rounded-full " + fallbackClass }>{ contact.Initials }</span>
-		if contact.AvatarDataURL != "" {
+		if contact.AvatarURL != "" {
 			<img
-				src={ contact.AvatarDataURL }
+				src={ contact.AvatarURL }
 				alt={ contactDisplay(contact) }
 				decoding="async"
 				data-avatar-image

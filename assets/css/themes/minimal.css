@@ -233,9 +233,20 @@
   background: var(--background);
 }
 
+[data-theme="minimal"]:not(.dark) [data-avatar-admin] .select-content {
+  background: var(--background);
+}
+
 [data-theme="minimal"]:not(.dark) .settings-select .select-item:hover,
 [data-theme="minimal"]:not(.dark) .settings-select .select-item:focus-visible,
 [data-theme="minimal"]:not(.dark) .settings-select .select-item[data-tui-selectbox-selected="true"] {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+[data-theme="minimal"]:not(.dark) [data-avatar-admin] .select-item:hover,
+[data-theme="minimal"]:not(.dark) [data-avatar-admin] .select-item:focus-visible,
+[data-theme="minimal"]:not(.dark) [data-avatar-admin] .select-item[data-tui-selectbox-selected="true"] {
   background: var(--secondary);
   color: var(--foreground);
 }

@@ -832,7 +832,9 @@ html[data-theme="minimal"] input[role="switch"] + div::after {
 }
 
 .settings-select .select-trigger,
-.settings-select .select-item {
+.settings-select .select-item,
+[data-avatar-admin] .select-trigger,
+[data-avatar-admin] .select-item {
   transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
 
@@ -1700,6 +1702,19 @@ body.mail-list-column-resizing {
     0 1px 0 rgba(255,255,255,0.15) inset,
     0 -1px 0 rgba(0,0,0,0.2) inset,
     0 2px 6px rgba(0,0,0,0.2);
+}
+
+.avatar-live-switch::after {
+  transform: scaleX(-1);
+}
+
+.avatar-live-switch {
+  transform: scaleX(-1);
+}
+
+.avatar-table-refresh:disabled:hover {
+  background-color: var(--background);
+  color: var(--muted-foreground);
 }
 
 :root {

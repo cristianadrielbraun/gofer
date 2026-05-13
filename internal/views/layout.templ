@@ -188,7 +188,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 	</html>
 }
 
-templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus) {
+templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus, activeTab string) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -216,10 +216,11 @@ templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus
 			<div class="flex h-screen overflow-hidden bg-background">
 				@AdminSidebar()
 				<div id="main-content" class="flex flex-1 min-w-0">
-					@AdminPage(avatarStatus)
+					@AdminPage(avatarStatus, activeTab)
 				</div>
 			</div>
 			<script src="/assets/js/ui-settings.js"></script>
+			<script src="/assets/js/admin.js"></script>
 		</body>
 	</html>
 }
@@ -292,8 +293,8 @@ templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSetting
 	<div id="edit-account-container"></div>
 }
 
-templ AdminPartial(avatarStatus models.AvatarStatus) {
+templ AdminPartial(avatarStatus models.AvatarStatus, activeTab string) {
 	<div id="main-content" class="flex flex-1 min-w-0">
-		@AdminPage(avatarStatus)
+		@AdminPage(avatarStatus, activeTab)
 	</div>
 }

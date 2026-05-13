@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
+	"github.com/cristianadrielbraun/gofer/components/tabs"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -18,9 +22,9 @@ templ AdminSidebar() {
 			<p class="mt-2 text-xs text-muted-foreground leading-relaxed">Operational controls and diagnostics.</p>
 		</div>
 		<nav class="flex-1 px-3 py-4 space-y-1">
-			<a href="/admin" class="flex items-center gap-2.5 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-foreground">
+			<a href="/admin/avatars/" class="flex items-center gap-2.5 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-foreground">
 				@icon.Activity(icon.Props{Class: "size-4 text-primary"})
-				System status
+				Avatar checks
 			</a>
 		</nav>
 		<div class="px-5 py-4 border-t border-border">
@@ -50,7 +54,24 @@ func adminTime(t time.Time) string {
 	return t.Local().Format("Jan 2, 3:04 PM")
 }
 
-templ AdminPage(status models.AvatarStatus) {
+func adminChecked(total, pending int) int {
+	checked := total - pending
+	if checked < 0 {
+		return 0
+	}
+	return checked
+}
+
+func adminLatestAvatarError(status models.AvatarStatus) string {
+	for _, attempt := range status.RecentErrors {
+		if attempt.Message != "" {
+			return attempt.Message
+		}
+	}
+	return adminError(status.Backfill.LastError)
+}
+
+templ AdminPage(status models.AvatarStatus, activeTab string) {
 	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
 			<div class="lg:hidden border-b border-border bg-card px-4 py-3 flex items-center justify-between">
@@ -60,67 +81,348 @@ templ AdminPage(status models.AvatarStatus) {
 				</a>
 				<span class="text-sm font-bold" style="font-family: var(--font-serif)">Gofer Admin</span>
 			</div>
-			<div class="max-w-4xl px-6 py-8 lg:px-8 lg:py-10">
-				<div class="mb-7 flex items-start justify-between gap-6">
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
 					<div>
 						<div class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground shadow-sm">
 							@icon.Activity(icon.Props{Class: "size-3.5"})
 							Admin
 						</div>
-						<h2 class="mt-4 text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">System console</h2>
-						<p class="mt-1 text-sm text-muted-foreground">Operational status for background services.</p>
+						<h2 class="mt-4 text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Avatar checks</h2>
+						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">Control scheduled due checks and manual full rechecks, inspect provider outcomes, and search sender history.</p>
 					</div>
-					<a href="/api/avatars/status" class="shrink-0 rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Raw JSON</a>
+					<div class="flex shrink-0 flex-wrap items-center gap-2">
+						<form method="post" action="/admin/avatar-backfill/recheck">
+							<button
+								type="submit"
+								class="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-200"
+								disabled?={ status.Backfill.InProgress }
+							>
+								Force full recheck
+							</button>
+						</form>
+						<form method="post" action="/admin/avatar-backfill/cancel">
+							<button
+								type="submit"
+								class="rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-300"
+								disabled?={ !status.Backfill.InProgress || status.Backfill.CancelRequested }
+								data-avatar-cancel-button
+							>
+								Cancel run
+							</button>
+						</form>
+						<a href="/api/avatars/status" class="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Raw JSON</a>
+					</div>
 				</div>
+				@tabs.Tabs(tabs.Props{ID: "avatar-admin-tabs", Attributes: templ.Attributes{"data-avatar-admin": ""}}) {
+					@tabs.List(tabs.ListProps{Class: "bg-card"}) {
+						@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: activeTab == "overview"}) { Overview }
+						@tabs.Trigger(tabs.TriggerProps{Value: "senders", IsActive: activeTab == "senders"}) { Sender registry }
+						@tabs.Trigger(tabs.TriggerProps{Value: "providers", IsActive: activeTab == "providers"}) { Providers }
+						@tabs.Trigger(tabs.TriggerProps{Value: "events", IsActive: activeTab == "events"}) { Event log }
+					}
 
-				<div class="rounded-xl border border-border bg-card shadow-[0_14px_45px_rgba(0,0,0,0.10)] overflow-hidden">
-					<div class="border-b border-border bg-background/45 px-5 py-4 flex items-center justify-between gap-4">
-						<div>
-							<h3 class="text-sm font-semibold text-foreground">Avatar backfill</h3>
-							<p class="mt-1 text-xs text-muted-foreground">Server-side Gravatar detection and persisted sender avatar cache.</p>
+					@tabs.Content(tabs.ContentProps{Value: "overview", IsActive: activeTab == "overview", Class: "mt-6 space-y-5", Attributes: templ.Attributes{"data-avatar-tab-panel": "overview"}}) {
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="flex items-start justify-between gap-4">
+								<div>
+									<div class="flex flex-wrap items-center gap-2">
+										<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Check run</div>
+										<span class={
+											"inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
+											templ.KV("bg-red-500/12 text-red-700 dark:text-red-300", status.Backfill.CancelRequested || status.Backfill.Canceled),
+											templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress && !status.Backfill.CancelRequested),
+											templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress && !status.Backfill.Canceled),
+										} data-avatar-state>
+										if status.Backfill.CancelRequested {
+											Canceling
+										} else if status.Backfill.InProgress {
+											{ adminAvatarRunLabel(status.Backfill.Mode) }
+										} else if status.Backfill.Canceled {
+											Canceled
+										} else {
+											Idle
+											}
+										</span>
+									</div>
+									<p class="mt-1 text-sm text-muted-foreground" data-avatar-run-description>{ adminAvatarRunDescription(status.Backfill) }</p>
+									<div class="mt-2 text-sm font-medium text-foreground" data-avatar-progress-text>{ fmt.Sprintf("%d of %d processed", status.Backfill.Processed, status.Backfill.Total) }</div>
+								</div>
+								<div class="text-2xl font-bold tabular-nums text-foreground" data-avatar-progress-percent>{ fmt.Sprintf("%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }</div>
+							</div>
+							<div class="mt-4 h-2 overflow-hidden rounded-full bg-muted shadow-inner">
+								<div class="h-full rounded-full bg-primary transition-all duration-500" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) } data-avatar-progress-bar></div>
+							</div>
 						</div>
-						<span class={
-							"inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
-							templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress),
-							templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress),
-						}>
-							if status.Backfill.InProgress {
-								Running
-							} else {
-								Idle
+
+						<div class="grid gap-4 lg:grid-cols-2">
+							<div class="rounded-lg border border-border bg-card p-4">
+								<div class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Avatar outcomes</div>
+								<div class="flex min-h-[10.75rem] flex-col justify-between gap-3">
+									@AdminCompactMetric("total", "Total senders", status.Cache.Total)
+									@AdminCompactMetric("found", "Found avatars", status.Cache.Found)
+									@AdminCompactMetric("missing", "Missing avatars", status.Cache.Missing)
+									@AdminCompactMetric("checked", "Checked senders", adminChecked(status.Cache.Total, status.Cache.Pending))
+									@AdminCompactMetric("pending", "Pending checks", status.Cache.Pending)
+								</div>
+							</div>
+							<div class="rounded-lg border border-border bg-card p-4">
+								<div class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Run status</div>
+								<div class="space-y-3">
+									@AdminCompactDetail("started", "Started", adminTime(status.Backfill.StartedAt))
+									@AdminCompactDetail("finished", "Finished", adminTime(status.Backfill.FinishedAt))
+									@AdminCompactMetric("due", "Ready to recheck", status.Cache.Due)
+									@AdminCompactMetric("error", "Errors", status.Cache.Error)
+									@AdminErrorDetail("last_error", "Latest error", adminLatestAvatarError(status))
+								</div>
+							</div>
+						</div>
+					}
+
+					@tabs.Content(tabs.ContentProps{Value: "senders", IsActive: activeTab == "senders", Class: "mt-6", Attributes: templ.Attributes{"data-avatar-tab-panel": "senders"}}) {
+						<div class="rounded-lg border border-border bg-card p-4" data-avatar-explorer>
+						<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+								<div>
+									<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sender registry</div>
+									<p class="mt-1 text-sm text-muted-foreground">Search senders, inspect final avatar status, and review provider states per sender.</p>
+								</div>
+								<div class="flex flex-col gap-2 lg:items-end">
+									@AdminTableUpdateControls()
+								</div>
+							</div>
+							<div class="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_10rem_10rem_auto]">
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sender search</span>
+									@input.Input(input.Props{Type: input.TypeSearch, Placeholder: "sender@example.com", Class: "bg-background", Attributes: templ.Attributes{"data-avatar-filter": "query"}})
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider checked</span>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "provider"}}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) { All providers }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
+											@selectbox.Item(selectbox.ItemProps{Value: "gravatar"}) { Gravatar }
+											@selectbox.Item(selectbox.ItemProps{Value: "bimi"}) { BIMI }
+										}
+									}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Final status</span>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "status"}}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All statuses"}) { All statuses }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All statuses }
+											@selectbox.Item(selectbox.ItemProps{Value: "found"}) { Found }
+											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) { Missing }
+											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) { Skipped }
+											@selectbox.Item(selectbox.ItemProps{Value: "error"}) { Error }
+										}
+									}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Errors only</span>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "errors"}}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) { No }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) { No }
+											@selectbox.Item(selectbox.ItemProps{Value: "true"}) { Yes }
+										}
+									}
+								</label>
+							</div>
+							<div class="mt-3 text-xs font-medium text-muted-foreground" data-avatar-log-count>Loading senders...</div>
+							<div class="mt-4 overflow-x-auto rounded-lg border border-border bg-muted/25 shadow-inner">
+								<div class="min-w-[48rem]">
+								<div class="grid gap-2 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground" data-avatar-sender-header>
+									<div>Sender</div>
+									<div>In use</div>
+									<div>Providers</div>
+								</div>
+								<div class="h-[34rem] overflow-y-auto" data-avatar-log-viewport></div>
+								</div>
+							</div>
+						</div>
+					}
+
+					@tabs.Content(tabs.ContentProps{Value: "providers", IsActive: activeTab == "providers", Class: "mt-6 space-y-4", Attributes: templ.Attributes{"data-avatar-tab-panel": "providers"}}) {
+							<div>
+								<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider metrics</div>
+								<p class="mt-1 text-sm text-muted-foreground">Aggregate outcomes per avatar provider. This is secondary to the sender registry.</p>
+							</div>
+							<div class="grid gap-4 lg:grid-cols-2">
+								@AdminProviderCard("Gravatar", []adminMetricData{
+									{Key: "gravatar_checked", Label: "Checked", Value: status.Cache.GravatarChecked},
+									{Key: "gravatar_found", Label: "Found", Value: status.Cache.GravatarFound},
+									{Key: "gravatar_missing", Label: "Missing", Value: status.Cache.GravatarMissing},
+									{Key: "gravatar_error", Label: "Errors", Value: status.Cache.GravatarError},
+								})
+								@AdminProviderCard("BIMI fallback", []adminMetricData{
+									{Key: "bimi_checked", Label: "Checked", Value: status.Cache.BIMIChecked},
+									{Key: "bimi_found", Label: "Found", Value: status.Cache.BIMIFound},
+									{Key: "bimi_missing", Label: "Missing", Value: status.Cache.BIMIMissing},
+									{Key: "bimi_skipped", Label: "Skipped", Value: status.Cache.BIMISkipped},
+									{Key: "bimi_error", Label: "Errors", Value: status.Cache.BIMIError},
+								})
+							</div>
 							}
-						</span>
-					</div>
 
-					<div class="p-5 space-y-5">
-						<div>
-							<div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-								<span>{ fmt.Sprintf("%d of %d processed", status.Backfill.Processed, status.Backfill.Total) }</span>
-								<span>{ fmt.Sprintf("%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }</span>
+					@tabs.Content(tabs.ContentProps{Value: "events", IsActive: activeTab == "events", Class: "mt-6 space-y-4", Attributes: templ.Attributes{"data-avatar-tab-panel": "events"}}) {
+							<div class="rounded-lg border border-border bg-card p-4">
+								<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+									<div>
+										<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Event log</div>
+										<p class="mt-1 text-sm text-muted-foreground">Technical provider attempt history, including specific errors.</p>
+									</div>
+									<div class="flex flex-col gap-2 lg:items-end">
+										@AdminTableUpdateControls()
+									</div>
+								</div>
+							<div class="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_10rem_10rem_auto]">
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sender search</span>
+									@input.Input(input.Props{Type: input.TypeSearch, Placeholder: "sender@example.com", Class: "bg-background", Attributes: templ.Attributes{"data-avatar-event-filter": "query"}})
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider</span>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "provider"}}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) { All providers }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
+											@selectbox.Item(selectbox.ItemProps{Value: "gravatar"}) { Gravatar }
+											@selectbox.Item(selectbox.ItemProps{Value: "bimi"}) { BIMI }
+										}
+									}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Outcome</span>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "status"}}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All outcomes"}) { All outcomes }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All outcomes }
+											@selectbox.Item(selectbox.ItemProps{Value: "found"}) { Found }
+											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) { Missing }
+											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) { Skipped }
+											@selectbox.Item(selectbox.ItemProps{Value: "error"}) { Error }
+										}
+									}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Errors only</span>
+									@selectbox.SelectBox() {
+										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "errors"}}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) { No }
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) { No }
+											@selectbox.Item(selectbox.ItemProps{Value: "true"}) { Yes }
+										}
+									}
+								</label>
 							</div>
-							<div class="h-2 overflow-hidden rounded-full bg-muted shadow-inner">
-								<div class="h-full rounded-full bg-gradient-to-r from-amber-700 to-amber-500 transition-all" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }></div>
+							<div class="mt-3 text-xs font-medium text-muted-foreground" data-avatar-event-count>Loading events...</div>
+								<div class="mt-4 overflow-x-auto rounded-lg border border-border bg-muted/25 shadow-inner">
+									<div class="min-w-[58rem]">
+										<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_8rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+											<div>Time</div>
+											<div>Sender</div>
+											<div>Provider</div>
+											<div>Outcome</div>
+											<div>Details</div>
+										</div>
+										<div class="h-[34rem] overflow-y-auto" data-avatar-event-viewport></div>
+									</div>
+								</div>
 							</div>
-						</div>
-
-						<div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-							@AdminMetric("Total", status.Cache.Total)
-							@AdminMetric("Pending", status.Cache.Pending)
-							@AdminMetric("Found", status.Cache.Found)
-							@AdminMetric("Missing", status.Cache.Missing)
-							@AdminMetric("Errors", status.Cache.Error)
-							@AdminMetric("Due", status.Cache.Due)
-						</div>
-
-						<div class="grid gap-3 sm:grid-cols-3">
-							@AdminDetail("Started", adminTime(status.Backfill.StartedAt))
-							@AdminDetail("Finished", adminTime(status.Backfill.FinishedAt))
-							@AdminDetail("Last error", adminError(status.Backfill.LastError))
-						</div>
-					</div>
-				</div>
+							}
+				}
 			</div>
 		</div>
+	</div>
+}
+
+func adminAvatarRunLabel(mode string) string {
+	if mode == "manual" {
+		return "Full recheck"
+	}
+	return "Due check"
+}
+
+func adminAvatarRunDescription(state models.AvatarBackfillState) string {
+	if state.CancelRequested {
+		return "Cancel requested. In-flight avatar checks are stopping safely."
+	}
+	if state.InProgress && state.Mode == "manual" {
+		return "Manual full recheck across all known senders, regardless of retry or expiration state."
+	}
+	if state.InProgress {
+		return "Scheduled due check for pending, retryable, or expired sender avatars."
+	}
+	if state.Canceled {
+		return "Last run was canceled. Scheduled due checks will continue normally."
+	}
+	return "Scheduled checks only process pending, retryable, or expired senders. Use Force full recheck to scan every known sender."
+}
+
+func adminAttemptEmail(email string) string {
+	if email == "" {
+		return "Unknown sender"
+	}
+	return email
+}
+
+func adminAttemptMessage(message string) string {
+	return message
+}
+
+func adminHasMore(attempts []models.AvatarAttemptLog) string {
+	if len(attempts) >= 50 {
+		return "true"
+	}
+	return "false"
+}
+
+func adminAttemptID(attempt models.AvatarAttemptLog) string {
+	return fmt.Sprintf("%s|%s|%s|%s|%d", attempt.CreatedAt.UTC().Format(time.RFC3339Nano), attempt.Provider, attempt.Status, attempt.Email, len(attempt.Message))
+}
+
+type adminMetricData struct {
+	Key   string
+	Label string
+	Value int
+}
+
+func adminAttemptStatusClass(status string) string {
+	switch status {
+	case "found":
+		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+	case "missing":
+		return "bg-slate-500/12 text-slate-700 dark:text-slate-300"
+	case "skipped":
+		return "bg-blue-500/12 text-blue-700 dark:text-blue-300"
+	case "error":
+		return "bg-red-500/12 text-red-700 dark:text-red-300"
+	default:
+		return "bg-muted text-muted-foreground"
+	}
+}
+
+templ AdminTableUpdateControls() {
+	<div class="flex shrink-0 items-center gap-2">
+		<span class="text-xs font-semibold text-muted-foreground">Live updates</span>
+		@switchcomp.Switch(switchcomp.Props{Checked: true, Class: "avatar-live-switch", Attributes: templ.Attributes{"data-avatar-table-live": ""}})
+		<button type="button" class="avatar-table-refresh rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50" data-avatar-table-refresh disabled>
+			Manual refresh
+		</button>
 	</div>
 }
 
@@ -131,16 +433,82 @@ func adminError(err string) string {
 	return err
 }
 
-templ AdminMetric(label string, value int) {
-	<div class="rounded-lg border border-border bg-background/45 px-3 py-3">
-		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
-		<div class="mt-1 text-xl font-bold tabular-nums text-foreground">{ fmt.Sprintf("%d", value) }</div>
+templ AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) {
+	<div class="grid gap-2 px-4 py-3 text-sm lg:grid-cols-[10rem_1fr_12rem] lg:items-start" data-log-row data-log-id={ adminAttemptID(attempt) }>
+		<div class="flex items-center gap-2">
+			<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ attempt.Provider }</span>
+			<span class={ "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", adminAttemptStatusClass(attempt.Status) }>{ attempt.Status }</span>
+		</div>
+		<div class="min-w-0">
+			<div class="truncate font-medium text-foreground">{ adminAttemptEmail(attempt.Email) }</div>
+			if errorMode {
+				<div class="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">{ adminAttemptMessage(attempt.Message) }</div>
+			} else if attempt.Message != "" {
+				<div class="mt-0.5 truncate text-xs text-muted-foreground">{ attempt.Message }</div>
+			}
+		</div>
+		<div class="text-xs font-medium text-muted-foreground lg:text-right">{ adminTime(attempt.CreatedAt) }</div>
 	</div>
 }
 
-templ AdminDetail(label string, value string) {
-	<div class="rounded-lg border border-border bg-background/35 px-3 py-3 min-w-0">
+templ AdminMetric(key string, label string, value int) {
+	<div class="rounded-lg border border-border bg-background/45 px-3 py-3 transition-colors duration-300" data-admin-metric={ key }>
 		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
-		<div class="mt-1 truncate text-sm font-medium text-foreground">{ value }</div>
+		<div class="mt-1 text-xl font-bold tabular-nums text-foreground" data-admin-metric-value>{ fmt.Sprintf("%d", value) }</div>
+	</div>
+}
+
+templ AdminCompactMetric(key string, label string, value int) {
+	<div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors duration-300" data-admin-metric={ key }>
+		<div class="text-sm text-muted-foreground">{ label }</div>
+		<div class="text-sm font-semibold tabular-nums text-foreground" data-admin-metric-value>{ fmt.Sprintf("%d", value) }</div>
+	</div>
+}
+
+templ AdminCompactDetail(key string, label string, value string) {
+	<div class="flex items-center justify-between gap-3" data-admin-detail={ key }>
+		<div class="text-sm text-muted-foreground">{ label }</div>
+		<div class="max-w-40 truncate text-right text-sm font-semibold text-foreground" data-admin-detail-value>{ value }</div>
+	</div>
+}
+
+templ AdminErrorDetail(key string, label string, value string) {
+	<div class="space-y-1" data-admin-detail={ key }>
+		<div class="text-sm text-muted-foreground">{ label }</div>
+		<div class="line-clamp-3 break-words text-sm font-semibold text-foreground" data-admin-detail-value>{ value }</div>
+	</div>
+}
+
+templ AdminInlineMetric(key string, label string, value int) {
+	<div class="rounded-md border border-border bg-card px-2.5 py-1.5 transition-colors duration-300" data-admin-metric={ key }>
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="text-sm font-bold tabular-nums text-foreground" data-admin-metric-value>{ fmt.Sprintf("%d", value) }</div>
+	</div>
+}
+
+templ AdminInlineDetail(key string, label string, value string) {
+	<div class="inline-flex min-w-0 items-center gap-1.5 text-xs" data-admin-detail={ key }>
+		<span class="text-muted-foreground">{ label }</span>
+		<span class="max-w-40 truncate font-semibold text-foreground" data-admin-detail-value>{ value }</span>
+	</div>
+}
+
+templ AdminProviderCard(title string, metrics []adminMetricData) {
+	<div class="rounded-lg border border-border bg-card p-4">
+		<div class="mb-3 flex items-center justify-between gap-3">
+			<div class="text-sm font-semibold text-foreground">{ title }</div>
+		</div>
+		<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+			for _, metric := range metrics {
+				@AdminMetric(metric.Key, metric.Label, metric.Value)
+			}
+		</div>
+	</div>
+}
+
+templ AdminDetail(key string, label string, value string) {
+	<div class="rounded-lg border border-border bg-background/35 px-3 py-3 min-w-0" data-admin-detail={ key }>
+		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 truncate text-sm font-medium text-foreground" data-admin-detail-value>{ value }</div>
 	</div>
 }

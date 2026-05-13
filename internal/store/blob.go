@@ -226,6 +226,49 @@ func (s *BlobStore) ReadRemoteBodyHTML(path string) (io.ReadCloser, error) {
 	return os.Open(path)
 }
 
+func (s *BlobStore) StoreAvatar(hash, contentType string, data []byte) (string, error) {
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	if len(hash) < 4 || strings.ContainsAny(hash, `/\`) || strings.Contains(hash, "..") {
+		return "", fmt.Errorf("invalid avatar hash")
+	}
+	dir := filepath.Join(s.basePath, "avatars", hash[:2], hash[2:4])
+	if err := s.ensureDir(dir); err != nil {
+		return "", fmt.Errorf("create avatar dir: %w", err)
+	}
+	relPath := filepath.Join("avatars", hash[:2], hash[2:4], hash+avatarExtension(contentType, data))
+	absPath := filepath.Join(s.basePath, relPath)
+	tmp, err := os.CreateTemp(dir, hash+"-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	if err := os.Rename(tmpPath, absPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	return relPath, nil
+}
+
+func (s *BlobStore) ReadAvatar(relPath string) ([]byte, error) {
+	if relPath == "" || filepath.IsAbs(relPath) || strings.Contains(relPath, "..") {
+		return nil, fmt.Errorf("invalid avatar path")
+	}
+	clean := filepath.Clean(relPath)
+	if !strings.HasPrefix(clean, "avatars"+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("invalid avatar path")
+	}
+	return os.ReadFile(filepath.Join(s.basePath, clean))
+}
+
 func assetExtension(url string, data []byte) string {
 	lower := strings.ToLower(url)
 	for _, ext := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"} {
@@ -246,6 +289,23 @@ func assetExtension(url string, data []byte) string {
 		}
 	}
 	return ""
+}
+
+func avatarExtension(contentType string, data []byte) string {
+	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	switch contentType {
+	case "image/png":
+		return ".png"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "image/svg+xml", "application/svg+xml":
+		return ".svg"
+	}
+	return assetExtension("", data)
 }
 
 func (s *BlobStore) DeleteAccount(accountID string) error {
