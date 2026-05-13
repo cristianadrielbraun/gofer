@@ -130,6 +130,10 @@
     setMetric("error", cache.error)
     setMetric("due", cache.due)
     setMetric("checked", Math.max(0, (cache.total || 0) - (cache.pending || 0)))
+    var providerAssignments = 0
+    ;(cache.provider_stats || []).forEach(function (provider) { providerAssignments += provider.in_use || 0 })
+    setMetric("providers_total", (cache.provider_stats || []).length)
+    setMetric("provider_assignments", providerAssignments)
     setMetric("gravatar_checked", cache.gravatar_checked)
     setMetric("gravatar_found", cache.gravatar_found)
     setMetric("gravatar_missing", cache.gravatar_missing)
@@ -139,6 +143,15 @@
     setMetric("bimi_missing", cache.bimi_missing)
     setMetric("bimi_skipped", cache.bimi_skipped)
     setMetric("bimi_error", cache.bimi_error)
+    ;(cache.provider_stats || []).forEach(function (provider) {
+      var key = provider.provider || "unknown"
+      setMetric(key + "_in_use", provider.in_use)
+      setMetric(key + "_checked", provider.checked)
+      setMetric(key + "_found", provider.found)
+      setMetric(key + "_missing", provider.missing)
+      setMetric(key + "_skipped", provider.skipped)
+      setMetric(key + "_error", provider.error)
+    })
     setDetail("started", fmtTime(backfill.started_at))
     setDetail("finished", fmtTime(backfill.finished_at))
     setDetail("last_error", latestAvatarError(status))

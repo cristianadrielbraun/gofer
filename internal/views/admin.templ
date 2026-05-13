@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/input"
@@ -204,6 +205,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
 											@selectbox.Item(selectbox.ItemProps{Value: "gravatar"}) { Gravatar }
+											@selectbox.Item(selectbox.ItemProps{Value: "libravatar"}) { Libravatar }
 											@selectbox.Item(selectbox.ItemProps{Value: "bimi"}) { BIMI }
 										}
 									}
@@ -250,27 +252,37 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 						</div>
 					}
 
-					@tabs.Content(tabs.ContentProps{Value: "providers", IsActive: activeTab == "providers", Class: "mt-6 space-y-4", Attributes: templ.Attributes{"data-avatar-tab-panel": "providers"}}) {
-							<div>
-								<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider metrics</div>
-								<p class="mt-1 text-sm text-muted-foreground">Aggregate outcomes per avatar provider. This is secondary to the sender registry.</p>
+					@tabs.Content(tabs.ContentProps{Value: "providers", IsActive: activeTab == "providers", Class: "mt-6 space-y-5", Attributes: templ.Attributes{"data-avatar-tab-panel": "providers"}}) {
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="grid gap-5 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
+								<div>
+									<h3 class="text-xl font-bold text-foreground" style="font-family: var(--font-serif)">Avatar source mix</h3>
+									<p class="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">Track where final sender avatars come from, then compare each provider's lookup outcomes. In-use counts are assigned avatars; checked counts are provider attempts.</p>
+									<div class="mt-5 grid gap-3 sm:grid-cols-3">
+										@AdminMetric("providers_total", "Providers", len(status.Cache.ProviderStats))
+										@AdminMetric("provider_assignments", "Assigned avatars", adminProviderInUseTotal(status.Cache.ProviderStats))
+										@AdminMetric("other_found", "Other sources", status.Cache.OtherFound)
+									</div>
+								</div>
+								<div class="rounded-lg border border-border bg-background/35 p-4">
+									<div class="mb-3 flex items-center justify-between gap-3">
+										<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Usage per provider</div>
+										<div class="text-xs font-semibold tabular-nums text-muted-foreground">{ fmt.Sprintf("%d assigned", adminProviderInUseTotal(status.Cache.ProviderStats)) }</div>
+									</div>
+									<div class="space-y-3">
+										for _, provider := range status.Cache.ProviderStats {
+											@AdminProviderUsageRow(provider, status.Cache.Found)
+										}
+									</div>
+								</div>
 							</div>
-							<div class="grid gap-4 lg:grid-cols-2">
-								@AdminProviderCard("Gravatar", []adminMetricData{
-									{Key: "gravatar_checked", Label: "Checked", Value: status.Cache.GravatarChecked},
-									{Key: "gravatar_found", Label: "Found", Value: status.Cache.GravatarFound},
-									{Key: "gravatar_missing", Label: "Missing", Value: status.Cache.GravatarMissing},
-									{Key: "gravatar_error", Label: "Errors", Value: status.Cache.GravatarError},
-								})
-								@AdminProviderCard("BIMI fallback", []adminMetricData{
-									{Key: "bimi_checked", Label: "Checked", Value: status.Cache.BIMIChecked},
-									{Key: "bimi_found", Label: "Found", Value: status.Cache.BIMIFound},
-									{Key: "bimi_missing", Label: "Missing", Value: status.Cache.BIMIMissing},
-									{Key: "bimi_skipped", Label: "Skipped", Value: status.Cache.BIMISkipped},
-									{Key: "bimi_error", Label: "Errors", Value: status.Cache.BIMIError},
-								})
-							</div>
+						</div>
+						<div class="grid gap-4 xl:grid-cols-3">
+							for _, provider := range status.Cache.ProviderStats {
+								@AdminProviderCard(provider)
 							}
+						</div>
+					}
 
 					@tabs.Content(tabs.ContentProps{Value: "events", IsActive: activeTab == "events", Class: "mt-6 space-y-4", Attributes: templ.Attributes{"data-avatar-tab-panel": "events"}}) {
 							<div class="rounded-lg border border-border bg-card p-4">
@@ -297,6 +309,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
 											@selectbox.Item(selectbox.ItemProps{Value: "gravatar"}) { Gravatar }
+											@selectbox.Item(selectbox.ItemProps{Value: "libravatar"}) { Libravatar }
 											@selectbox.Item(selectbox.ItemProps{Value: "bimi"}) { BIMI }
 										}
 									}
@@ -401,6 +414,61 @@ type adminMetricData struct {
 	Value int
 }
 
+func adminProviderLabel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "bimi":
+		return "BIMI"
+	case "gravatar":
+		return "Gravatar"
+	case "libravatar":
+		return "Libravatar"
+	case "":
+		return "Unknown"
+	default:
+		label := strings.ReplaceAll(provider, "_", " ")
+		return strings.Title(label)
+	}
+}
+
+func adminProviderRole(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gravatar":
+		return "Primary hash lookup"
+	case "libravatar":
+		return "Open hash fallback"
+	case "bimi":
+		return "Domain brand fallback"
+	default:
+		return "Custom provider"
+	}
+}
+
+func adminProviderMetricKey(provider string, metric string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	provider = strings.ReplaceAll(provider, "-", "_")
+	provider = strings.ReplaceAll(provider, " ", "_")
+	if provider == "" {
+		provider = "unknown"
+	}
+	return provider + "_" + metric
+}
+
+func adminProviderInUseTotal(stats []models.AvatarProviderStats) int {
+	total := 0
+	for _, stat := range stats {
+		total += stat.InUse
+	}
+	return total
+}
+
+func adminProviderAttemptTotal(stat models.AvatarProviderStats) int {
+	return stat.Checked + stat.Skipped
+}
+
+func adminProviderPercent(part, total int) int {
+	return adminPercent(part, total)
+}
+
 func adminAttemptStatusClass(status string) string {
 	switch status {
 	case "found":
@@ -493,15 +561,47 @@ templ AdminInlineDetail(key string, label string, value string) {
 	</div>
 }
 
-templ AdminProviderCard(title string, metrics []adminMetricData) {
-	<div class="rounded-lg border border-border bg-card p-4">
-		<div class="mb-3 flex items-center justify-between gap-3">
-			<div class="text-sm font-semibold text-foreground">{ title }</div>
+templ AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int) {
+	<div>
+		<div class="mb-1.5 flex items-center justify-between gap-3 text-sm">
+			<div class="min-w-0">
+				<div class="truncate font-semibold text-foreground">{ adminProviderLabel(provider.Provider) }</div>
+				<div class="text-xs text-muted-foreground">{ adminProviderRole(provider.Provider) }</div>
+			</div>
+			<div class="shrink-0 text-right text-xs font-semibold tabular-nums text-foreground" data-admin-metric={ adminProviderMetricKey(provider.Provider, "in_use") }><span data-admin-metric-value>{ fmt.Sprintf("%d", provider.InUse) }</span></div>
 		</div>
-		<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-			for _, metric := range metrics {
-				@AdminMetric(metric.Key, metric.Label, metric.Value)
-			}
+		<div class="h-2 overflow-hidden rounded-md bg-muted shadow-inner">
+			<div class="h-full rounded-md bg-primary/80" style={ fmt.Sprintf("width:%d%%", adminProviderPercent(provider.InUse, totalFound)) }></div>
+		</div>
+	</div>
+}
+
+templ AdminProviderCard(provider models.AvatarProviderStats) {
+	<div class="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent/20">
+		<div class="mb-4 flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<div class="truncate text-base font-bold text-foreground" style="font-family: var(--font-serif)">{ adminProviderLabel(provider.Provider) }</div>
+				<div class="mt-0.5 text-xs font-medium text-muted-foreground">{ adminProviderRole(provider.Provider) }</div>
+			</div>
+			<div class="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ provider.Provider }</div>
+		</div>
+		<div class="grid gap-3 sm:grid-cols-2">
+			@AdminMetric(adminProviderMetricKey(provider.Provider, "in_use"), "In use", provider.InUse)
+			@AdminMetric(adminProviderMetricKey(provider.Provider, "checked"), "Checked", provider.Checked)
+			@AdminMetric(adminProviderMetricKey(provider.Provider, "found"), "Found", provider.Found)
+			@AdminMetric(adminProviderMetricKey(provider.Provider, "missing"), "Missing", provider.Missing)
+			@AdminMetric(adminProviderMetricKey(provider.Provider, "skipped"), "Skipped", provider.Skipped)
+			@AdminMetric(adminProviderMetricKey(provider.Provider, "error"), "Errors", provider.Error)
+		</div>
+		<div class="mt-4 border-t border-border pt-3">
+			<div class="mb-1 flex items-center justify-between text-xs">
+				<span class="font-medium text-muted-foreground">Found rate</span>
+				<span class="font-semibold tabular-nums text-foreground">{ fmt.Sprintf("%d%%", adminProviderPercent(provider.Found, provider.Checked)) }</span>
+			</div>
+			<div class="h-1.5 overflow-hidden rounded-md bg-muted">
+				<div class="h-full rounded-md bg-emerald-500/80" style={ fmt.Sprintf("width:%d%%", adminProviderPercent(provider.Found, provider.Checked)) }></div>
+			</div>
+			<div class="mt-2 text-[11px] text-muted-foreground">{ fmt.Sprintf("%d total lookup outcomes", adminProviderAttemptTotal(provider)) }</div>
 		</div>
 	</div>
 }

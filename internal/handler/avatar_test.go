@@ -51,6 +51,29 @@ func TestResolveAvatarWithRetryStopsOnCanceledContext(t *testing.T) {
 	}
 }
 
+func TestAvatarProviderSpecsCheckLibravatarBeforeBIMI(t *testing.T) {
+	providers := avatarProviderSpecs()
+	if len(providers) < 3 {
+		t.Fatalf("provider count = %d, want at least 3", len(providers))
+	}
+	want := []string{"gravatar", "libravatar", "bimi"}
+	for i, name := range want {
+		if providers[i].name != name {
+			t.Fatalf("provider[%d] = %q, want %q", i, providers[i].name, name)
+		}
+	}
+}
+
+func TestLibravatarAttemptMessages(t *testing.T) {
+	hash := "0bc83cb571cd1c50ba6f3e8a78ef1346"
+	if got := libravatarMissingAttemptMessage(hash); !strings.Contains(got, "seccdn.libravatar.org") || !strings.Contains(got, "no Libravatar image") {
+		t.Fatalf("libravatarMissingAttemptMessage() = %q", got)
+	}
+	if got := libravatarErrorAttemptMessage(hash, errors.New("boom")); !strings.Contains(got, "seccdn.libravatar.org") || !strings.Contains(got, "boom") {
+		t.Fatalf("libravatarErrorAttemptMessage() = %q", got)
+	}
+}
+
 func TestHandleAvatarImageAddsStrictHeadersForSVG(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

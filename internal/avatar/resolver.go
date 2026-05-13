@@ -152,6 +152,14 @@ func IsGravatarHash(hash string) bool {
 }
 
 func (r *Resolver) ResolveGravatar(ctx context.Context, hash string) (Image, bool, error) {
+	return r.resolveHashedAvatar(ctx, "gravatar", hash, r.fetchGravatar)
+}
+
+func (r *Resolver) ResolveLibravatar(ctx context.Context, hash string) (Image, bool, error) {
+	return r.resolveHashedAvatar(ctx, "libravatar", hash, r.fetchLibravatar)
+}
+
+func (r *Resolver) resolveHashedAvatar(ctx context.Context, source, hash string, fetch func(context.Context, string) (Image, bool, error)) (Image, bool, error) {
 	if r == nil {
 		return Image{}, false, fmt.Errorf("avatar resolver is nil")
 	}
@@ -160,15 +168,16 @@ func (r *Resolver) ResolveGravatar(ctx context.Context, hash string) (Image, boo
 		return Image{}, false, nil
 	}
 
+	cacheKey := source + ":" + hash
 	now := time.Now()
 	r.mu.Lock()
-	if entry, ok := r.cache[hash]; ok && now.Before(entry.expires) {
+	if entry, ok := r.cache[cacheKey]; ok && now.Before(entry.expires) {
 		r.mu.Unlock()
 		return entry.image, entry.found, nil
 	}
 	r.mu.Unlock()
 
-	image, found, err := r.fetchGravatar(ctx, hash)
+	image, found, err := fetch(ctx, hash)
 	if err != nil {
 		return Image{}, false, err
 	}
@@ -177,11 +186,11 @@ func (r *Resolver) ResolveGravatar(ctx context.Context, hash string) (Image, boo
 	if found {
 		expires = now.Add(positiveTTL)
 		image.ExpiresAt = expires
-		image.Source = "gravatar"
+		image.Source = source
 	}
 
 	r.mu.Lock()
-	r.cache[hash] = cacheEntry{image: image, found: found, expires: expires}
+	r.cache[cacheKey] = cacheEntry{image: image, found: found, expires: expires}
 	r.mu.Unlock()
 
 	return image, found, nil
@@ -226,7 +235,16 @@ func (r *Resolver) ResolveBIMI(ctx context.Context, email string) (Image, bool, 
 
 func (r *Resolver) fetchGravatar(ctx context.Context, hash string) (Image, bool, error) {
 	url := fmt.Sprintf("https://www.gravatar.com/avatar/%s?s=96&d=404&r=pg", hash)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	return r.fetchHashedAvatar(ctx, "gravatar", url)
+}
+
+func (r *Resolver) fetchLibravatar(ctx context.Context, hash string) (Image, bool, error) {
+	url := fmt.Sprintf("https://seccdn.libravatar.org/avatar/%s?s=96&d=404", hash)
+	return r.fetchHashedAvatar(ctx, "libravatar", url)
+}
+
+func (r *Resolver) fetchHashedAvatar(ctx context.Context, source, rawURL string) (Image, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return Image{}, false, err
 	}
@@ -243,12 +261,12 @@ func (r *Resolver) fetchGravatar(ctx context.Context, hash string) (Image, bool,
 		return Image{}, false, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Image{}, false, fmt.Errorf("gravatar returned %d", resp.StatusCode)
+		return Image{}, false, fmt.Errorf("%s returned %d", source, resp.StatusCode)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(strings.ToLower(contentType), "image/") {
-		return Image{}, false, fmt.Errorf("gravatar returned non-image content type %q", contentType)
+		return Image{}, false, fmt.Errorf("%s returned non-image content type %q", source, contentType)
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageSize+1))
@@ -256,10 +274,10 @@ func (r *Resolver) fetchGravatar(ctx context.Context, hash string) (Image, bool,
 		return Image{}, false, err
 	}
 	if len(data) > maxImageSize {
-		return Image{}, false, fmt.Errorf("gravatar image exceeds %d bytes", maxImageSize)
+		return Image{}, false, fmt.Errorf("%s image exceeds %d bytes", source, maxImageSize)
 	}
 
-	return Image{Data: data, ContentType: contentType, Source: "gravatar", SourceURL: url}, true, nil
+	return Image{Data: data, ContentType: contentType, Source: source, SourceURL: rawURL}, true, nil
 }
 
 func (r *Resolver) fetchBIMI(ctx context.Context, domain string) (Image, bool, error) {

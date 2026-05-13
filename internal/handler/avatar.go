@@ -259,6 +259,14 @@ func avatarProviderSpecs() []avatarProviderSpec {
 			errorMessage:   func(hash, _ string, err error) string { return gravatarErrorAttemptMessage(hash, err) },
 		},
 		{
+			name: "libravatar",
+			resolve: func(ctx context.Context, h *Handler, hash, _ string) (avatarresolver.Image, bool, error) {
+				return h.avatar.ResolveLibravatar(ctx, hash)
+			},
+			missingMessage: func(hash, _ string) string { return libravatarMissingAttemptMessage(hash) },
+			errorMessage:   func(hash, _ string, err error) string { return libravatarErrorAttemptMessage(hash, err) },
+		},
+		{
 			name: "bimi",
 			skip: func(email string) (bool, string) {
 				domain := avatarresolver.EmailDomain(email)
@@ -278,10 +286,20 @@ func avatarProviderSpecs() []avatarProviderSpec {
 	}
 }
 
+func avatarProviderNames() []string {
+	providers := avatarProviderSpecs()
+	names := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		names = append(names, provider.name)
+	}
+	return names
+}
+
 func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string) (avatarresolver.Image, bool, error) {
 	providerStatuses := map[string]string{
-		"gravatar": "unchecked",
-		"bimi":     "unchecked",
+		"gravatar":   "unchecked",
+		"libravatar": "unchecked",
+		"bimi":       "unchecked",
 	}
 
 	for _, provider := range avatarProviderSpecs() {
@@ -379,6 +397,14 @@ func gravatarErrorAttemptMessage(hash string, err error) string {
 	return fmt.Sprintf("GET %s failed: %v", gravatarSourceURL(hash), err)
 }
 
+func libravatarMissingAttemptMessage(hash string) string {
+	return fmt.Sprintf("GET %s -> 404; default=404; no Libravatar image", libravatarSourceURL(hash))
+}
+
+func libravatarErrorAttemptMessage(hash string, err error) string {
+	return fmt.Sprintf("GET %s failed: %v", libravatarSourceURL(hash), err)
+}
+
 func bimiSkippedAttemptMessage(domain string) string {
 	if domain == "" {
 		return "Skipped BIMI lookup: sender email has no registrable domain"
@@ -406,6 +432,10 @@ func avatarSourceURL(image avatarresolver.Image) string {
 
 func gravatarSourceURL(hash string) string {
 	return fmt.Sprintf("https://www.gravatar.com/avatar/%s?s=96&d=404&r=pg", hash)
+}
+
+func libravatarSourceURL(hash string) string {
+	return fmt.Sprintf("https://seccdn.libravatar.org/avatar/%s?s=96&d=404", hash)
 }
 
 func avatarContentType(contentType string) string {
@@ -738,10 +768,43 @@ func (h *Handler) avatarStatus(ctx context.Context) (models.AvatarStatus, error)
 			BIMIError:       stats.BIMIError,
 			BIMISkipped:     stats.BIMISkipped,
 			OtherFound:      stats.OtherFound,
+			ProviderStats:   avatarProviderStats(stats.ProviderStats),
 		},
 		RecentAttempts: recentAttempts,
 		RecentErrors:   recentErrorAttempts,
 	}, nil
+}
+
+func avatarProviderStats(stats []storage.SenderAvatarProviderStats) []models.AvatarProviderStats {
+	byProvider := make(map[string]models.AvatarProviderStats, len(stats))
+	for _, stat := range stats {
+		byProvider[stat.Provider] = models.AvatarProviderStats{
+			Provider: stat.Provider,
+			InUse:    stat.InUse,
+			Checked:  stat.Checked,
+			Found:    stat.Found,
+			Missing:  stat.Missing,
+			Skipped:  stat.Skipped,
+			Error:    stat.Error,
+		}
+	}
+
+	ordered := make([]models.AvatarProviderStats, 0, len(byProvider)+len(avatarProviderNames()))
+	seen := map[string]struct{}{}
+	for _, provider := range avatarProviderNames() {
+		stat := byProvider[provider]
+		stat.Provider = provider
+		ordered = append(ordered, stat)
+		seen[provider] = struct{}{}
+	}
+	for _, stat := range stats {
+		if _, ok := seen[stat.Provider]; ok {
+			continue
+		}
+		ordered = append(ordered, byProvider[stat.Provider])
+		seen[stat.Provider] = struct{}{}
+	}
+	return ordered
 }
 
 func (h *Handler) setAvatarBackfillState(state models.AvatarBackfillState) {

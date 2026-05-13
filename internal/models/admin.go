@@ -18,22 +18,33 @@ type AvatarBackfillState struct {
 }
 
 type AvatarCacheStats struct {
-	Total           int `json:"total"`
-	Pending         int `json:"pending"`
-	Found           int `json:"found"`
-	Missing         int `json:"missing"`
-	Error           int `json:"error"`
-	Due             int `json:"due"`
-	GravatarChecked int `json:"gravatar_checked"`
-	GravatarFound   int `json:"gravatar_found"`
-	GravatarMissing int `json:"gravatar_missing"`
-	GravatarError   int `json:"gravatar_error"`
-	BIMIChecked     int `json:"bimi_checked"`
-	BIMIFound       int `json:"bimi_found"`
-	BIMIMissing     int `json:"bimi_missing"`
-	BIMIError       int `json:"bimi_error"`
-	BIMISkipped     int `json:"bimi_skipped"`
-	OtherFound      int `json:"other_found"`
+	Total           int                   `json:"total"`
+	Pending         int                   `json:"pending"`
+	Found           int                   `json:"found"`
+	Missing         int                   `json:"missing"`
+	Error           int                   `json:"error"`
+	Due             int                   `json:"due"`
+	GravatarChecked int                   `json:"gravatar_checked"`
+	GravatarFound   int                   `json:"gravatar_found"`
+	GravatarMissing int                   `json:"gravatar_missing"`
+	GravatarError   int                   `json:"gravatar_error"`
+	BIMIChecked     int                   `json:"bimi_checked"`
+	BIMIFound       int                   `json:"bimi_found"`
+	BIMIMissing     int                   `json:"bimi_missing"`
+	BIMIError       int                   `json:"bimi_error"`
+	BIMISkipped     int                   `json:"bimi_skipped"`
+	OtherFound      int                   `json:"other_found"`
+	ProviderStats   []AvatarProviderStats `json:"provider_stats"`
+}
+
+type AvatarProviderStats struct {
+	Provider string `json:"provider"`
+	InUse    int    `json:"in_use"`
+	Checked  int    `json:"checked"`
+	Found    int    `json:"found"`
+	Missing  int    `json:"missing"`
+	Skipped  int    `json:"skipped"`
+	Error    int    `json:"error"`
 }
 
 type AvatarStatus struct {

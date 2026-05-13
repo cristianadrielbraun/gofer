@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,22 +32,33 @@ type SenderAvatarCandidate struct {
 }
 
 type SenderAvatarStats struct {
-	Total           int `json:"total"`
-	Pending         int `json:"pending"`
-	Found           int `json:"found"`
-	Missing         int `json:"missing"`
-	Error           int `json:"error"`
-	Due             int `json:"due"`
-	GravatarChecked int `json:"gravatar_checked"`
-	GravatarFound   int `json:"gravatar_found"`
-	GravatarMissing int `json:"gravatar_missing"`
-	GravatarError   int `json:"gravatar_error"`
-	BIMIChecked     int `json:"bimi_checked"`
-	BIMIFound       int `json:"bimi_found"`
-	BIMIMissing     int `json:"bimi_missing"`
-	BIMIError       int `json:"bimi_error"`
-	BIMISkipped     int `json:"bimi_skipped"`
-	OtherFound      int `json:"other_found"`
+	Total           int                         `json:"total"`
+	Pending         int                         `json:"pending"`
+	Found           int                         `json:"found"`
+	Missing         int                         `json:"missing"`
+	Error           int                         `json:"error"`
+	Due             int                         `json:"due"`
+	GravatarChecked int                         `json:"gravatar_checked"`
+	GravatarFound   int                         `json:"gravatar_found"`
+	GravatarMissing int                         `json:"gravatar_missing"`
+	GravatarError   int                         `json:"gravatar_error"`
+	BIMIChecked     int                         `json:"bimi_checked"`
+	BIMIFound       int                         `json:"bimi_found"`
+	BIMIMissing     int                         `json:"bimi_missing"`
+	BIMIError       int                         `json:"bimi_error"`
+	BIMISkipped     int                         `json:"bimi_skipped"`
+	OtherFound      int                         `json:"other_found"`
+	ProviderStats   []SenderAvatarProviderStats `json:"provider_stats"`
+}
+
+type SenderAvatarProviderStats struct {
+	Provider string `json:"provider"`
+	InUse    int    `json:"in_use"`
+	Checked  int    `json:"checked"`
+	Found    int    `json:"found"`
+	Missing  int    `json:"missing"`
+	Skipped  int    `json:"skipped"`
+	Error    int    `json:"error"`
 }
 
 type SenderAvatarAttemptLog struct {
@@ -601,6 +613,19 @@ func (db *DB) GetAvatarProviderNames(ctx context.Context) ([]string, error) {
 
 func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, error) {
 	var stats SenderAvatarStats
+	providerStats := map[string]*SenderAvatarProviderStats{}
+	providerStat := func(provider string) *SenderAvatarProviderStats {
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		if provider == "" {
+			provider = "unknown"
+		}
+		if existing := providerStats[provider]; existing != nil {
+			return existing
+		}
+		entry := &SenderAvatarProviderStats{Provider: provider}
+		providerStats[provider] = entry
+		return entry
+	}
 	rows, err := db.Read().QueryContext(ctx, `SELECT status, COUNT(*) FROM sender_avatars GROUP BY status`)
 	if err != nil {
 		return stats, err
@@ -641,13 +666,47 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		if err := rows.Scan(&source, &count); err != nil {
 			return stats, err
 		}
-		switch strings.ToLower(strings.TrimSpace(source)) {
+		source = strings.ToLower(strings.TrimSpace(source))
+		providerStat(source).InUse = count
+		switch source {
 		case "gravatar":
 			stats.GravatarFound = count
+		case "libravatar":
 		case "bimi":
 			stats.BIMIFound = count
 		default:
 			stats.OtherFound += count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return stats, err
+	}
+
+	rows, err = db.Read().QueryContext(ctx, `SELECT provider, status, COUNT(*) FROM avatar_provider_states GROUP BY provider, status`)
+	if err != nil {
+		return stats, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var provider, status string
+		var count int
+		if err := rows.Scan(&provider, &status, &count); err != nil {
+			return stats, err
+		}
+		entry := providerStat(provider)
+		switch strings.ToLower(strings.TrimSpace(status)) {
+		case "found":
+			entry.Checked += count
+			entry.Found = count
+		case "missing":
+			entry.Checked += count
+			entry.Missing = count
+		case "error":
+			entry.Checked += count
+			entry.Error = count
+		case "skipped":
+			entry.Skipped = count
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -718,5 +777,14 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		 WHERE status = 'pending'
 		 	OR (status = 'error' AND (next_retry_at IS NULL OR next_retry_at <= CURRENT_TIMESTAMP))
 		 	OR (status IN ('found', 'missing') AND (expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP))`).Scan(&stats.Due)
+	if err != nil {
+		return stats, err
+	}
+	for _, entry := range providerStats {
+		stats.ProviderStats = append(stats.ProviderStats, *entry)
+	}
+	sort.Slice(stats.ProviderStats, func(i, j int) bool {
+		return stats.ProviderStats[i].Provider < stats.ProviderStats[j].Provider
+	})
 	return stats, err
 }

@@ -252,3 +252,55 @@ func TestFetchGravatarMissingAndInvalidResponses(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveLibravatarUsesSeparateCacheFromGravatar(t *testing.T) {
+	r := NewResolver()
+	requests := map[string]int{}
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests[req.URL.Host]++
+		switch req.URL.Host {
+		case "www.gravatar.com":
+			return &http.Response{
+				StatusCode: http.StatusNotFound,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		case "seccdn.libravatar.org":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/png"}},
+				Body:       io.NopCloser(strings.NewReader("png")),
+			}, nil
+		default:
+			return nil, errors.New("unexpected host")
+		}
+	})}
+	hash := "0bc83cb571cd1c50ba6f3e8a78ef1346"
+
+	_, found, err := r.ResolveGravatar(context.Background(), hash)
+	if err != nil {
+		t.Fatalf("ResolveGravatar() error = %v", err)
+	}
+	if found {
+		t.Fatal("ResolveGravatar() found = true, want false")
+	}
+
+	image, found, err := r.ResolveLibravatar(context.Background(), hash)
+	if err != nil {
+		t.Fatalf("ResolveLibravatar() error = %v", err)
+	}
+	if !found || image.Source != "libravatar" {
+		t.Fatalf("ResolveLibravatar() = (%+v, %v), want found libravatar", image, found)
+	}
+	if !strings.Contains(image.SourceURL, "seccdn.libravatar.org") {
+		t.Fatalf("SourceURL = %q, want Libravatar CDN", image.SourceURL)
+	}
+
+	_, found, err = r.ResolveLibravatar(context.Background(), hash)
+	if err != nil || !found {
+		t.Fatalf("cached ResolveLibravatar() = found %v error %v, want found nil", found, err)
+	}
+	if requests["www.gravatar.com"] != 1 || requests["seccdn.libravatar.org"] != 1 {
+		t.Fatalf("requests = %+v, want one request per provider", requests)
+	}
+}
