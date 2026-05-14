@@ -79,6 +79,67 @@ func TestAvatarProviderSpecsThrottleSharedProvidersOnly(t *testing.T) {
 	}
 }
 
+func TestAvatarProviderPlanForEmail(t *testing.T) {
+	tests := []struct {
+		name      string
+		email     string
+		domainCnt int
+		want      []string
+		skipped   []string
+	}{
+		{
+			name:    "public mailbox uses per-sender providers only",
+			email:   "person@gmail.com",
+			want:    []string{"gravatar", "libravatar"},
+			skipped: []string{"bimi", "domain_icon"},
+		},
+		{
+			name:    "role sender uses domain providers only",
+			email:   "support@brand.example",
+			want:    []string{"bimi", "domain_icon"},
+			skipped: []string{"gravatar", "libravatar"},
+		},
+		{
+			name:      "high volume custom domain uses domain providers only",
+			email:     "alice@brand.example",
+			domainCnt: avatarDomainFirstThreshold,
+			want:      []string{"bimi", "domain_icon"},
+			skipped:   []string{"gravatar", "libravatar"},
+		},
+		{
+			name:      "low volume custom person uses quality order",
+			email:     "alice@brand.example",
+			domainCnt: avatarDomainFirstThreshold - 1,
+			want:      []string{"gravatar", "libravatar", "bimi", "domain_icon"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := avatarProviderPlanForEmail(tt.email, tt.domainCnt)
+			if strings.Join(plan.providers, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("providers = %v, want %v", plan.providers, tt.want)
+			}
+			for _, provider := range tt.skipped {
+				if plan.skipped[provider] == "" {
+					t.Fatalf("skipped[%q] missing in %+v", provider, plan.skipped)
+				}
+			}
+		})
+	}
+}
+
+func TestIsRoleLikeSender(t *testing.T) {
+	for _, email := range []string{"no-reply@brand.example", "support@brand.example", "sales.eu@brand.example", "reporting@brand.example"} {
+		if !isRoleLikeSender(email) {
+			t.Fatalf("isRoleLikeSender(%q) = false, want true", email)
+		}
+	}
+	if isRoleLikeSender("alice.smith@brand.example") {
+		t.Fatal("isRoleLikeSender(person email) = true, want false")
+	}
+}
+
 func TestLibravatarAttemptMessages(t *testing.T) {
 	hash := "0bc83cb571cd1c50ba6f3e8a78ef1346"
 	if got := libravatarMissingAttemptMessage(hash); !strings.Contains(got, "seccdn.libravatar.org") || !strings.Contains(got, "no Libravatar image") {

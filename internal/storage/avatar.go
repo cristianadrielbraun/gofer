@@ -328,6 +328,32 @@ func (db *DB) GetAllSenderAvatarCandidates(ctx context.Context, limit, offset in
 	return candidates, rows.Err()
 }
 
+func (db *DB) GetSenderAvatarDomainCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := db.Read().QueryContext(ctx,
+		`SELECT lower(substr(trim(email), instr(trim(email), '@') + 1)) AS domain, COUNT(*)
+		 FROM sender_avatars
+		 WHERE trim(email) != '' AND instr(trim(email), '@') > 1
+		 GROUP BY domain`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var domain string
+		var count int
+		if err := rows.Scan(&domain, &count); err != nil {
+			return nil, err
+		}
+		domain = strings.Trim(strings.ToLower(strings.TrimSpace(domain)), ".")
+		if domain != "" {
+			counts[domain] = count
+		}
+	}
+	return counts, rows.Err()
+}
+
 func normalizeProviderStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "found", "missing", "error", "skipped":
@@ -365,6 +391,17 @@ func (db *DB) RecordSenderAvatarAttempt(ctx context.Context, hash, email, provid
 		return err
 	}
 	return tx.Commit()
+}
+
+func (db *DB) CountSenderAvatarAttemptsSince(ctx context.Context, hash string, since time.Time) (int, error) {
+	var count int
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		 FROM avatar_attempt_logs
+		 WHERE email_hash = ?
+		  AND status IN ('found', 'missing', 'error')
+		  AND created_at >= ?`, strings.ToLower(strings.TrimSpace(hash)), since).Scan(&count)
+	return count, err
 }
 
 func (db *DB) SaveSenderAvatarFound(ctx context.Context, hash, email, source, contentType, storagePath string, data []byte, expiresAt time.Time, gravatarStatus, bimiStatus string) error {

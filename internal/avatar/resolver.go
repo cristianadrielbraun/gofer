@@ -29,6 +29,7 @@ const (
 
 var gravatarHashPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var svgEventAttrPattern = regexp.MustCompile(`(?i)[[:space:]]on[a-z]+[[:space:]]*=`)
+var errAvatarURLMustUseHTTPS = errors.New("avatar url must use https")
 
 type Image struct {
 	Data        []byte
@@ -380,7 +381,7 @@ func (r *Resolver) fetchBIMILogo(ctx context.Context, rawURL string) (Image, boo
 		if len(via) >= 3 {
 			return http.ErrUseLastResponse
 		}
-		return r.validateRemoteAvatarURL(req.Context(), req.URL.String())
+		return r.validateRemoteAvatarRedirect(req)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -392,6 +393,9 @@ func (r *Resolver) fetchBIMILogo(ctx context.Context, rawURL string) (Image, boo
 
 	resp, err := client.Do(req)
 	if err != nil {
+		if errors.Is(err, errAvatarURLMustUseHTTPS) {
+			return Image{}, false, nil
+		}
 		return Image{}, false, err
 	}
 	defer resp.Body.Close()
@@ -436,10 +440,31 @@ func (r *Resolver) fetchDomainIcon(ctx context.Context, domain string) (Image, b
 }
 
 func (r *Resolver) fetchDomainIconForDomain(ctx context.Context, domain string) (Image, bool, error) {
-	candidates, discoverErr := r.discoverDomainIconURLs(ctx, domain)
-	candidates = append(candidates, domainIconFallbackURLs(domain)...)
+	image, found, directErr := r.fetchFirstDomainIconCandidate(ctx, domainIconFallbackURLs(domain))
+	if found {
+		return image, true, nil
+	}
 
+	candidates, discoverErr := r.discoverDomainIconURLs(ctx, domain)
+	image, found, discoveredErr := r.fetchFirstDomainIconCandidate(ctx, candidates)
+	if found {
+		return image, true, nil
+	}
+	if discoveredErr != nil {
+		return Image{}, false, discoveredErr
+	}
+	if directErr != nil {
+		return Image{}, false, directErr
+	}
+	if discoverErr != nil && isRemoteConnectionError(discoverErr) {
+		return Image{}, false, discoverErr
+	}
+	return Image{}, false, nil
+}
+
+func (r *Resolver) fetchFirstDomainIconCandidate(ctx context.Context, candidates []string) (Image, bool, error) {
 	var lastErr error
+	unique := []string{}
 	seen := map[string]struct{}{}
 	for _, candidate := range candidates {
 		if candidate = strings.TrimSpace(candidate); candidate == "" {
@@ -449,19 +474,40 @@ func (r *Resolver) fetchDomainIconForDomain(ctx context.Context, domain string) 
 			continue
 		}
 		seen[candidate] = struct{}{}
-		image, found, err := r.fetchRemoteAvatarImage(ctx, "domain_icon", candidate)
-		if err == nil && found {
-			return image, true, nil
+		unique = append(unique, candidate)
+	}
+	if len(unique) == 0 {
+		return Image{}, false, nil
+	}
+
+	type result struct {
+		image Image
+		found bool
+		err   error
+	}
+	fetchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan result, len(unique))
+	for _, candidate := range unique {
+		candidate := candidate
+		go func() {
+			image, found, err := r.fetchRemoteAvatarImage(fetchCtx, "domain_icon", candidate)
+			results <- result{image: image, found: found, err: err}
+		}()
+	}
+
+	for range unique {
+		result := <-results
+		if result.err == nil && result.found {
+			cancel()
+			return result.image, true, nil
 		}
-		if err != nil {
-			lastErr = err
+		if result.err != nil && !errors.Is(result.err, context.Canceled) {
+			lastErr = result.err
 		}
 	}
 	if lastErr != nil {
 		return Image{}, false, lastErr
-	}
-	if discoverErr != nil {
-		return Image{}, false, discoverErr
 	}
 	return Image{}, false, nil
 }
@@ -489,7 +535,7 @@ func (r *Resolver) discoverDomainIconURLs(ctx context.Context, domain string) ([
 		if len(via) >= maxRedirects {
 			return http.ErrUseLastResponse
 		}
-		return r.validateRemoteAvatarURL(req.Context(), req.URL.String())
+		return r.validateRemoteAvatarRedirect(req)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -515,12 +561,9 @@ func (r *Resolver) discoverDomainIconURLs(ctx context.Context, domain string) ([
 		return nil, nil
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxHTMLSize+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxHTMLSize))
 	if err != nil {
 		return nil, err
-	}
-	if len(data) > maxHTMLSize {
-		return nil, fmt.Errorf("domain homepage exceeds %d bytes", maxHTMLSize)
 	}
 	baseURL := rawURL
 	if resp.Request != nil && resp.Request.URL != nil {
@@ -538,7 +581,7 @@ func (r *Resolver) fetchRemoteAvatarImage(ctx context.Context, source, rawURL st
 		if len(via) >= maxRedirects {
 			return http.ErrUseLastResponse
 		}
-		return r.validateRemoteAvatarURL(req.Context(), req.URL.String())
+		return r.validateRemoteAvatarRedirect(req)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -550,6 +593,9 @@ func (r *Resolver) fetchRemoteAvatarImage(ctx context.Context, source, rawURL st
 
 	resp, err := client.Do(req)
 	if err != nil {
+		if errors.Is(err, errAvatarURLMustUseHTTPS) {
+			return Image{}, false, nil
+		}
 		return Image{}, false, err
 	}
 	defer resp.Body.Close()
@@ -611,7 +657,7 @@ func (r *Resolver) validateRemoteAvatarURL(ctx context.Context, rawURL string) e
 		return err
 	}
 	if u.Scheme != "https" {
-		return fmt.Errorf("avatar url must use https")
+		return errAvatarURLMustUseHTTPS
 	}
 	if u.Hostname() == "" {
 		return fmt.Errorf("avatar url missing host")
@@ -629,6 +675,19 @@ func (r *Resolver) validateRemoteAvatarURL(ctx context.Context, rawURL string) e
 		}
 	}
 	return nil
+}
+
+func (r *Resolver) validateRemoteAvatarRedirect(req *http.Request) error {
+	if req == nil || req.URL == nil {
+		return fmt.Errorf("avatar redirect url missing")
+	}
+	if req.URL.Scheme == "http" {
+		req.URL.Scheme = "https"
+		if req.URL.Port() == "80" {
+			req.URL.Host = req.URL.Hostname()
+		}
+	}
+	return r.validateRemoteAvatarURL(req.Context(), req.URL.String())
 }
 
 func isPrivateIP(ip net.IP) bool {

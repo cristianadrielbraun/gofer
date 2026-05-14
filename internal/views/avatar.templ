@@ -21,7 +21,7 @@ func contactAvatarImageClass(contact models.Contact) string {
 }
 
 templ ContactAvatar(contact models.Contact, class string, fallbackClass string) {
-	<div class={ "relative overflow-hidden " + class } data-contact-avatar data-avatar-hash={ contact.AvatarHash }>
+	<div class={ "relative overflow-hidden " + class } data-contact-avatar data-avatar-hash={ contact.AvatarHash } data-avatar-email={ contact.Email }>
 		<span class={ contactAvatarFallbackClass(contact, fallbackClass) } data-avatar-fallback>{ contact.Initials }</span>
 		if contact.AvatarURL != "" {
 			<img

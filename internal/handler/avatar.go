@@ -26,9 +26,22 @@ const (
 	avatarBackfillStartInterval = 75 * time.Millisecond
 	avatarBackfillRetryAttempts = 1
 	avatarBackfillRetryDelay    = 250 * time.Millisecond
+	avatarBackfillWatchInterval = 10 * time.Second
+	avatarSlowCheckLogAfter     = 10 * time.Second
+	avatarDomainFirstThreshold  = 5
+	avatarWarmupQueueSize       = 200
+	avatarWarmupWorkers         = 2
+	avatarWarmupRequestLimit    = 50
+	avatarWarmupProviderDelay   = 250 * time.Millisecond
+	avatarWarmupAttemptWindow   = 7 * 24 * time.Hour
+	avatarWarmupAttemptLimit    = 12
 	avatarMissingTTL            = 24 * time.Hour
 	avatarErrorRetryAfter       = 6 * time.Hour
 )
+
+type avatarWarmupRequest struct {
+	Emails []string `json:"emails"`
+}
 
 type avatarBackfillResult struct {
 	found    bool
@@ -39,6 +52,14 @@ type avatarBackfillResult struct {
 type avatarProviderOutcome struct {
 	provider string
 	status   string
+}
+
+type avatarActiveCheck struct {
+	email    string
+	domain   string
+	provider string
+	started  time.Time
+	updated  time.Time
 }
 
 func (h *Handler) StartAvatarBackfill(ctx context.Context) {
@@ -57,6 +78,35 @@ func (h *Handler) StartAvatarBackfill(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (h *Handler) startAvatarWarmupWorkers() {
+	for i := 0; i < avatarWarmupWorkers; i++ {
+		go func() {
+			throttle := time.NewTicker(avatarWarmupProviderDelay)
+			defer throttle.Stop()
+			for candidate := range h.avatarWarmupQueue {
+				func() {
+					defer h.clearAvatarWarmupQueued(candidate.EmailHash)
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					log.Printf("avatar: warmup started email=%s", candidate.Email)
+					_, found, outcomes, err := h.fetchAndPersistAvatar(ctx, candidate.EmailHash, candidate.Email, throttle, 0, nil)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						log.Printf("avatar: warmup failed email=%s outcomes=%s err=%v", candidate.Email, avatarOutcomeSummary(outcomes), err)
+						return
+					}
+					log.Printf("avatar: warmup completed email=%s found=%v outcomes=%s", candidate.Email, found, avatarOutcomeSummary(outcomes))
+				}()
+			}
+		}()
+	}
+}
+
+func (h *Handler) clearAvatarWarmupQueued(hash string) {
+	h.avatarWarmupMu.Lock()
+	delete(h.avatarWarmupQueued, strings.ToLower(strings.TrimSpace(hash)))
+	h.avatarWarmupMu.Unlock()
 }
 
 func (h *Handler) startAvatarBackfill(ctx context.Context, force bool) bool {
@@ -104,6 +154,13 @@ func (h *Handler) runAvatarBackfill(ctx context.Context, runID int64, force bool
 		h.setAvatarBackfillState(state)
 		return
 	}
+	domainCounts, err := h.db.GetSenderAvatarDomainCounts(ctx)
+	if err != nil {
+		log.Printf("avatar: domain count load failed: %v", err)
+		state := finishAvatarBackfillCanceled(models.AvatarBackfillState{InProgress: true, Mode: mode, StartedAt: startedAt}, err)
+		h.setAvatarBackfillState(state)
+		return
+	}
 
 	total := stats.Due
 	if force {
@@ -112,7 +169,36 @@ func (h *Handler) runAvatarBackfill(ctx context.Context, runID int64, force bool
 	state := models.AvatarBackfillState{InProgress: true, Mode: mode, Total: total, StartedAt: startedAt, ProviderStats: emptyAvatarProviderStats()}
 	h.setAvatarBackfillState(state)
 
-	offset := 0
+	handleResult := func(found bool, outcomes []avatarProviderOutcome, err error) {
+		state.Processed++
+		if state.Total < state.Processed {
+			state.Total = state.Processed
+		}
+		state.ProviderStats = addAvatarProviderOutcomes(state.ProviderStats, outcomes)
+		if err != nil {
+			state.Errors++
+			state.LastError = err.Error()
+		} else if found {
+			state.Found++
+		} else {
+			state.Missing++
+		}
+		h.setAvatarBackfillState(state)
+	}
+
+	if force {
+		if err := h.runAvatarBackfillFull(ctx, domainCounts, handleResult); err != nil {
+			state = finishAvatarBackfillCanceled(state, err)
+			h.setAvatarBackfillState(state)
+			return
+		}
+		state.InProgress = false
+		state.FinishedAt = time.Now()
+		h.setAvatarBackfillState(state)
+		log.Printf("avatar: %s backfill worker finished processed=%d found=%d missing=%d errors=%d", mode, state.Processed, state.Found, state.Missing, state.Errors)
+		return
+	}
+
 	for {
 		if err := ctx.Err(); err != nil {
 			state = finishAvatarBackfillCanceled(state, err)
@@ -120,12 +206,7 @@ func (h *Handler) runAvatarBackfill(ctx context.Context, runID int64, force bool
 			return
 		}
 
-		var candidates []storage.SenderAvatarCandidate
-		if force {
-			candidates, err = h.db.GetAllSenderAvatarCandidates(ctx, avatarBackfillBatchSize, offset)
-		} else {
-			candidates, err = h.db.GetDueSenderAvatarCandidates(ctx, avatarBackfillBatchSize)
-		}
+		candidates, err := h.db.GetDueSenderAvatarCandidates(ctx, avatarBackfillBatchSize)
 		if err != nil {
 			state = finishAvatarBackfillCanceled(state, err)
 			h.setAvatarBackfillState(state)
@@ -135,23 +216,12 @@ func (h *Handler) runAvatarBackfill(ctx context.Context, runID int64, force bool
 		if len(candidates) == 0 {
 			break
 		}
-		if force {
-			offset += len(candidates)
+		if state.Total < state.Processed+len(candidates) {
+			state.Total = state.Processed + len(candidates)
+			h.setAvatarBackfillState(state)
 		}
 
-		batchErr := h.runAvatarBackfillBatch(ctx, candidates, func(found bool, outcomes []avatarProviderOutcome, err error) {
-			state.Processed++
-			state.ProviderStats = addAvatarProviderOutcomes(state.ProviderStats, outcomes)
-			if err != nil {
-				state.Errors++
-				state.LastError = err.Error()
-			} else if found {
-				state.Found++
-			} else {
-				state.Missing++
-			}
-			h.setAvatarBackfillState(state)
-		})
+		batchErr := h.runAvatarBackfillBatch(ctx, candidates, domainCounts, handleResult)
 		if batchErr != nil {
 			state = finishAvatarBackfillCanceled(state, batchErr)
 			h.setAvatarBackfillState(state)
@@ -178,7 +248,7 @@ func finishAvatarBackfillCanceled(state models.AvatarBackfillState, err error) m
 	return state
 }
 
-func (h *Handler) runAvatarBackfillBatch(ctx context.Context, candidates []storage.SenderAvatarCandidate, handle func(found bool, outcomes []avatarProviderOutcome, err error)) error {
+func (h *Handler) runAvatarBackfillBatch(ctx context.Context, candidates []storage.SenderAvatarCandidate, domainCounts map[string]int, handle func(found bool, outcomes []avatarProviderOutcome, err error)) error {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -189,11 +259,97 @@ func (h *Handler) runAvatarBackfillBatch(ctx context.Context, candidates []stora
 	if workerCount < 1 {
 		workerCount = 1
 	}
+	return h.runAvatarBackfillWorkers(ctx, workerCount, domainCounts, func(ctx context.Context, jobs chan<- storage.SenderAvatarCandidate) error {
+		for _, candidate := range candidates {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case jobs <- candidate:
+			}
+		}
+		return ctx.Err()
+	}, handle)
+}
+
+func (h *Handler) runAvatarBackfillFull(ctx context.Context, domainCounts map[string]int, handle func(found bool, outcomes []avatarProviderOutcome, err error)) error {
+	return h.runAvatarBackfillWorkers(ctx, avatarBackfillWorkers, domainCounts, func(ctx context.Context, jobs chan<- storage.SenderAvatarCandidate) error {
+		offset := 0
+		for {
+			candidates, err := h.db.GetAllSenderAvatarCandidates(ctx, avatarBackfillBatchSize, offset)
+			if err != nil {
+				return err
+			}
+			if len(candidates) == 0 {
+				return ctx.Err()
+			}
+			offset += len(candidates)
+			for _, candidate := range candidates {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case jobs <- candidate:
+				}
+			}
+		}
+	}, handle)
+}
+
+func (h *Handler) runAvatarBackfillWorkers(ctx context.Context, workerCount int, domainCounts map[string]int, produce func(context.Context, chan<- storage.SenderAvatarCandidate) error, handle func(found bool, outcomes []avatarProviderOutcome, err error)) error {
+	if workerCount < 1 {
+		workerCount = 1
+	}
 
 	jobs := make(chan storage.SenderAvatarCandidate)
 	results := make(chan avatarBackfillResult)
+	producerErr := make(chan error, 1)
 	throttle := time.NewTicker(avatarBackfillStartInterval)
 	defer throttle.Stop()
+	active := map[string]avatarActiveCheck{}
+	var activeMu sync.Mutex
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+
+	setActiveProvider := func(candidate storage.SenderAvatarCandidate, provider string) {
+		activeMu.Lock()
+		check := active[candidate.EmailHash]
+		if check.started.IsZero() {
+			check.started = time.Now()
+		}
+		check.email = candidate.Email
+		check.domain = avatarresolver.EmailDomain(candidate.Email)
+		check.provider = provider
+		check.updated = time.Now()
+		active[candidate.EmailHash] = check
+		activeMu.Unlock()
+	}
+	clearActive := func(candidate storage.SenderAvatarCandidate, found bool, outcomes []avatarProviderOutcome, err error) {
+		activeMu.Lock()
+		check, ok := active[candidate.EmailHash]
+		delete(active, candidate.EmailHash)
+		activeMu.Unlock()
+		if !ok {
+			return
+		}
+		elapsed := time.Since(check.started)
+		if elapsed >= avatarSlowCheckLogAfter {
+			log.Printf("avatar: slow check completed email=%s domain=%s provider=%s elapsed=%s found=%v outcomes=%s err=%v", check.email, check.domain, check.provider, elapsed.Round(time.Millisecond), found, avatarOutcomeSummary(outcomes), err)
+		}
+	}
+
+	go func() {
+		watch := time.NewTicker(avatarBackfillWatchInterval)
+		defer watch.Stop()
+		for {
+			select {
+			case <-watchDone:
+				return
+			case <-ctx.Done():
+				return
+			case <-watch.C:
+				h.logSlowAvatarChecks(active, &activeMu)
+			}
+		}
+	}()
 
 	var wg sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
@@ -201,7 +357,11 @@ func (h *Handler) runAvatarBackfillBatch(ctx context.Context, candidates []stora
 		go func() {
 			defer wg.Done()
 			for candidate := range jobs {
-				_, found, outcomes, err := h.fetchAndPersistAvatar(ctx, candidate.EmailHash, candidate.Email, throttle)
+				setActiveProvider(candidate, "queued")
+				_, found, outcomes, err := h.fetchAndPersistAvatar(ctx, candidate.EmailHash, candidate.Email, throttle, avatarDomainSenderCount(candidate.Email, domainCounts), func(provider string) {
+					setActiveProvider(candidate, provider)
+				})
+				clearActive(candidate, found, outcomes, err)
 				results <- avatarBackfillResult{found: found, outcomes: outcomes, err: err}
 			}
 		}()
@@ -209,13 +369,7 @@ func (h *Handler) runAvatarBackfillBatch(ctx context.Context, candidates []stora
 
 	go func() {
 		defer close(jobs)
-		for _, candidate := range candidates {
-			select {
-			case <-ctx.Done():
-				return
-			case jobs <- candidate:
-			}
-		}
+		producerErr <- produce(ctx, jobs)
 	}()
 
 	go func() {
@@ -229,7 +383,57 @@ func (h *Handler) runAvatarBackfillBatch(ctx context.Context, candidates []stora
 		}
 		handle(result.found, result.outcomes, result.err)
 	}
+	if err := <-producerErr; err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
 	return ctx.Err()
+}
+
+func avatarDomainSenderCount(email string, domainCounts map[string]int) int {
+	domain := avatarresolver.EmailDomain(email)
+	if domain == "" {
+		return 0
+	}
+	if count := domainCounts[domain]; count > 0 {
+		return count
+	}
+	return 1
+}
+
+func (h *Handler) logSlowAvatarChecks(active map[string]avatarActiveCheck, activeMu *sync.Mutex) {
+	now := time.Now()
+	slow := []avatarActiveCheck{}
+	activeMu.Lock()
+	for _, check := range active {
+		if now.Sub(check.started) >= avatarSlowCheckLogAfter {
+			slow = append(slow, check)
+		}
+	}
+	activeMu.Unlock()
+	if len(slow) == 0 {
+		return
+	}
+	limit := len(slow)
+	if limit > 5 {
+		limit = 5
+	}
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		check := slow[i]
+		parts = append(parts, fmt.Sprintf("%s provider=%s domain=%s elapsed=%s", check.email, check.provider, check.domain, now.Sub(check.started).Round(time.Millisecond)))
+	}
+	log.Printf("avatar: backfill waiting on %d slow active checks: %s", len(slow), strings.Join(parts, "; "))
+}
+
+func avatarOutcomeSummary(outcomes []avatarProviderOutcome) string {
+	if len(outcomes) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(outcomes))
+	for _, outcome := range outcomes {
+		parts = append(parts, outcome.provider+":"+outcome.status)
+	}
+	return strings.Join(parts, ",")
 }
 
 func waitForAvatarProviderSlot(ctx context.Context, throttle *time.Ticker) error {
@@ -321,7 +525,94 @@ func avatarProviderNames() []string {
 	return names
 }
 
-func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string, throttle *time.Ticker) (avatarresolver.Image, bool, []avatarProviderOutcome, error) {
+type avatarProviderPlan struct {
+	providers []string
+	skipped   map[string]string
+}
+
+func avatarProviderPlanForEmail(email string, domainSenderCount int) avatarProviderPlan {
+	domain := avatarresolver.EmailDomain(email)
+	if domain == "" {
+		return avatarProviderPlan{providers: []string{"gravatar", "libravatar", "bimi", "domain_icon"}}
+	}
+	if avatarresolver.IsPublicMailboxDomain(domain) {
+		return avatarProviderPlan{
+			providers: []string{"gravatar", "libravatar"},
+			skipped: map[string]string{
+				"bimi":        bimiSkippedAttemptMessage(domain),
+				"domain_icon": domainIconSkippedAttemptMessage(domain),
+			},
+		}
+	}
+	if isRoleLikeSender(email) {
+		return avatarProviderPlan{
+			providers: []string{"bimi", "domain_icon"},
+			skipped: map[string]string{
+				"gravatar":   gravatarSkippedAttemptMessage(email, "role-like sender; domain avatar preferred"),
+				"libravatar": libravatarSkippedAttemptMessage(email, "role-like sender; domain avatar preferred"),
+			},
+		}
+	}
+	if domainSenderCount >= avatarDomainFirstThreshold {
+		return avatarProviderPlan{
+			providers: []string{"bimi", "domain_icon"},
+			skipped: map[string]string{
+				"gravatar":   gravatarSkippedAttemptMessage(email, "high-volume domain; domain avatar preferred"),
+				"libravatar": libravatarSkippedAttemptMessage(email, "high-volume domain; domain avatar preferred"),
+			},
+		}
+	}
+	return avatarProviderPlan{providers: []string{"gravatar", "libravatar", "bimi", "domain_icon"}}
+}
+
+func isRoleLikeSender(email string) bool {
+	local := emailLocalPart(email)
+	if local == "" {
+		return false
+	}
+	if plus := strings.Index(local, "+"); plus >= 0 {
+		local = local[:plus]
+	}
+	compact := strings.NewReplacer(".", "", "-", "", "_", "").Replace(local)
+	if compact == "noreply" || compact == "donotreply" {
+		return true
+	}
+	roleNames := map[string]struct{}{
+		"abuse": {}, "admin": {}, "billing": {}, "careers": {}, "contact": {}, "customerservice": {}, "events": {},
+		"hello": {}, "help": {}, "info": {}, "jobs": {}, "legal": {}, "marketing": {}, "media": {}, "news": {},
+		"newsletter": {}, "notifications": {}, "office": {}, "orders": {}, "press": {}, "privacy": {}, "recruiting": {},
+		"report": {}, "reporting": {}, "reports": {}, "sales": {}, "security": {}, "service": {}, "support": {}, "team": {}, "webmaster": {},
+	}
+	if _, ok := roleNames[local]; ok {
+		return true
+	}
+	for _, token := range strings.FieldsFunc(local, func(r rune) bool { return r == '.' || r == '-' || r == '_' }) {
+		if _, ok := roleNames[token]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func emailLocalPart(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	at := strings.LastIndex(email, "@")
+	if at <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(email[:at])
+}
+
+func avatarProviderSpecByName() map[string]avatarProviderSpec {
+	providers := avatarProviderSpecs()
+	byName := make(map[string]avatarProviderSpec, len(providers))
+	for _, provider := range providers {
+		byName[provider.name] = provider
+	}
+	return byName
+}
+
+func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string, throttle *time.Ticker, domainSenderCount int, observeProvider func(string)) (avatarresolver.Image, bool, []avatarProviderOutcome, error) {
 	providerStatuses := map[string]string{
 		"gravatar":    "unchecked",
 		"libravatar":  "unchecked",
@@ -329,8 +620,24 @@ func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string,
 		"domain_icon": "unchecked",
 	}
 	outcomes := []avatarProviderOutcome{}
+	lastProviderErr := error(nil)
+	lastErrorProvider := ""
+	plan := avatarProviderPlanForEmail(email, domainSenderCount)
+	for provider, message := range plan.skipped {
+		providerStatuses[provider] = "skipped"
+		outcomes = append(outcomes, avatarProviderOutcome{provider: provider, status: "skipped"})
+		_ = h.db.RecordSenderAvatarAttempt(ctx, hash, email, provider, "skipped", message)
+	}
+	providersByName := avatarProviderSpecByName()
 
-	for _, provider := range avatarProviderSpecs() {
+	for _, providerName := range plan.providers {
+		provider, ok := providersByName[providerName]
+		if !ok {
+			continue
+		}
+		if observeProvider != nil {
+			observeProvider(provider.name)
+		}
 		if provider.skip != nil {
 			skipped, message := provider.skip(email)
 			if skipped {
@@ -353,8 +660,8 @@ func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string,
 				providerStatuses[provider.name] = "error"
 				outcomes = append(outcomes, avatarProviderOutcome{provider: provider.name, status: "error"})
 				_ = h.db.RecordSenderAvatarAttempt(ctx, hash, email, provider.name, "error", provider.errorMessage(hash, email, err))
-				_ = h.db.SaveSenderAvatarError(ctx, hash, email, provider.name, err.Error(), time.Now().Add(avatarErrorRetryAfter), avatarStatus(providerStatuses, "gravatar"), avatarStatus(providerStatuses, "bimi"))
-				return avatarresolver.Image{}, false, outcomes, err
+				lastProviderErr = err
+				lastErrorProvider = provider.name
 			}
 			if reused {
 				providerStatuses[provider.name] = "found"
@@ -374,8 +681,9 @@ func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string,
 			providerStatuses[provider.name] = "error"
 			outcomes = append(outcomes, avatarProviderOutcome{provider: provider.name, status: "error"})
 			_ = h.db.RecordSenderAvatarAttempt(ctx, hash, email, provider.name, "error", provider.errorMessage(hash, email, err))
-			_ = h.db.SaveSenderAvatarError(ctx, hash, email, provider.name, err.Error(), time.Now().Add(avatarErrorRetryAfter), avatarStatus(providerStatuses, "gravatar"), avatarStatus(providerStatuses, "bimi"))
-			return avatarresolver.Image{}, false, outcomes, err
+			lastProviderErr = err
+			lastErrorProvider = provider.name
+			continue
 		}
 		if found {
 			providerStatuses[provider.name] = "found"
@@ -390,6 +698,12 @@ func (h *Handler) fetchAndPersistAvatar(ctx context.Context, hash, email string,
 		_ = h.db.RecordSenderAvatarAttempt(ctx, hash, email, provider.name, "missing", provider.missingMessage(hash, email))
 	}
 
+	if lastProviderErr != nil {
+		if err := h.db.SaveSenderAvatarError(ctx, hash, email, lastErrorProvider, lastProviderErr.Error(), time.Now().Add(avatarErrorRetryAfter), avatarStatus(providerStatuses, "gravatar"), avatarStatus(providerStatuses, "bimi")); err != nil {
+			return avatarresolver.Image{}, false, outcomes, err
+		}
+		return avatarresolver.Image{}, false, outcomes, lastProviderErr
+	}
 	if err := h.db.SaveSenderAvatarMissing(ctx, hash, email, "none", time.Now().Add(avatarMissingTTL), avatarStatus(providerStatuses, "gravatar"), avatarStatus(providerStatuses, "bimi")); err != nil {
 		return avatarresolver.Image{}, false, outcomes, err
 	}
@@ -470,12 +784,20 @@ func gravatarMissingAttemptMessage(hash string) string {
 	return fmt.Sprintf("GET %s -> 404; default=404; no Gravatar image", gravatarSourceURL(hash))
 }
 
+func gravatarSkippedAttemptMessage(email, reason string) string {
+	return fmt.Sprintf("Skipped Gravatar lookup for %s: %s", strings.ToLower(strings.TrimSpace(email)), reason)
+}
+
 func gravatarErrorAttemptMessage(hash string, err error) string {
 	return fmt.Sprintf("GET %s failed: %v", gravatarSourceURL(hash), err)
 }
 
 func libravatarMissingAttemptMessage(hash string) string {
 	return fmt.Sprintf("GET %s -> 404; default=404; no Libravatar image", libravatarSourceURL(hash))
+}
+
+func libravatarSkippedAttemptMessage(email, reason string) string {
+	return fmt.Sprintf("Skipped Libravatar lookup for %s: %s", strings.ToLower(strings.TrimSpace(email)), reason)
 }
 
 func libravatarErrorAttemptMessage(hash string, err error) string {
@@ -653,6 +975,138 @@ func (h *Handler) handleAvatarImage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
+func (h *Handler) handleAvatarWarmup(w http.ResponseWriter, r *http.Request) {
+	var req avatarWarmupRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
+		http.Error(w, "invalid warmup request", http.StatusBadRequest)
+		return
+	}
+	queued := 0
+	skipped := 0
+	invalid := 0
+	duplicate := 0
+	notDue := 0
+	notQueued := 0
+	forced := 0
+	capped := 0
+	seen := map[string]struct{}{}
+	for _, email := range req.Emails {
+		if queued+skipped >= avatarWarmupRequestLimit {
+			break
+		}
+		email = strings.ToLower(strings.TrimSpace(email))
+		hash := avatarresolver.GravatarHash(email)
+		if hash == "" {
+			skipped++
+			invalid++
+			continue
+		}
+		if _, ok := seen[hash]; ok {
+			skipped++
+			duplicate++
+			continue
+		}
+		seen[hash] = struct{}{}
+		candidate, ok, forceRetry, attemptCapped, err := h.avatarWarmupCandidate(r.Context(), email, hash)
+		if err != nil {
+			http.Error(w, "failed to inspect avatar warmup candidates", http.StatusInternalServerError)
+			return
+		}
+		if attemptCapped {
+			skipped++
+			capped++
+			continue
+		}
+		if !ok {
+			skipped++
+			notDue++
+			continue
+		}
+		if !h.enqueueAvatarWarmup(candidate) {
+			skipped++
+			notQueued++
+			continue
+		}
+		if forceRetry {
+			forced++
+		}
+		queued++
+	}
+	log.Printf("avatar: warmup request emails=%d queued=%d skipped=%d invalid=%d duplicate=%d not_due=%d not_queued=%d forced=%d capped=%d", len(req.Emails), queued, skipped, invalid, duplicate, notDue, notQueued, forced, capped)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]int{"queued": queued, "skipped": skipped, "forced": forced, "capped": capped})
+}
+
+func (h *Handler) avatarWarmupCandidate(ctx context.Context, email, hash string) (storage.SenderAvatarCandidate, bool, bool, bool, error) {
+	if err := h.db.UpsertSenderAvatarCandidate(ctx, email); err != nil {
+		return storage.SenderAvatarCandidate{}, false, false, false, err
+	}
+	attempts, err := h.db.CountSenderAvatarAttemptsSince(ctx, hash, time.Now().Add(-avatarWarmupAttemptWindow))
+	if err != nil {
+		return storage.SenderAvatarCandidate{}, false, false, false, err
+	}
+	if attempts >= avatarWarmupAttemptLimit {
+		return storage.SenderAvatarCandidate{}, false, false, true, nil
+	}
+	rec, err := h.db.GetSenderAvatarByHash(ctx, hash)
+	if err != nil {
+		return storage.SenderAvatarCandidate{}, false, false, false, err
+	}
+	if rec != nil && !senderAvatarRecordDue(*rec) {
+		if rec.Status == "error" && h.allowAvatarWarmupForced(hash) {
+			return storage.SenderAvatarCandidate{EmailHash: hash, Email: email}, true, true, false, nil
+		}
+		return storage.SenderAvatarCandidate{}, false, false, false, nil
+	}
+	return storage.SenderAvatarCandidate{EmailHash: hash, Email: email}, true, false, false, nil
+}
+
+func (h *Handler) allowAvatarWarmupForced(hash string) bool {
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	now := time.Now()
+	h.avatarWarmupMu.Lock()
+	defer h.avatarWarmupMu.Unlock()
+	until, ok := h.avatarWarmupForced[hash]
+	if ok && now.Before(until) {
+		return false
+	}
+	h.avatarWarmupForced[hash] = now.Add(avatarErrorRetryAfter)
+	return true
+}
+
+func senderAvatarRecordDue(rec storage.SenderAvatarRecord) bool {
+	now := time.Now()
+	switch rec.Status {
+	case "pending":
+		return true
+	case "found", "missing":
+		return !rec.ExpiresAtValid || !now.Before(rec.ExpiresAt)
+	case "error":
+		return !rec.NextRetryAtValid || !now.Before(rec.NextRetryAt)
+	default:
+		return true
+	}
+}
+
+func (h *Handler) enqueueAvatarWarmup(candidate storage.SenderAvatarCandidate) bool {
+	h.avatarWarmupMu.Lock()
+	if _, ok := h.avatarWarmupQueued[candidate.EmailHash]; ok {
+		h.avatarWarmupMu.Unlock()
+		return false
+	}
+	h.avatarWarmupQueued[candidate.EmailHash] = struct{}{}
+	h.avatarWarmupMu.Unlock()
+
+	select {
+	case h.avatarWarmupQueue <- candidate:
+		log.Printf("avatar: warmup queued email=%s", candidate.Email)
+		return true
+	default:
+		h.clearAvatarWarmupQueued(candidate.EmailHash)
+		return false
+	}
+}
+
 func isSVGAvatarContentType(contentType string) bool {
 	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 	return contentType == "image/svg+xml" || contentType == "application/svg+xml"
@@ -795,7 +1249,7 @@ func (h *Handler) handleRecheckAvatarSender(w http.ResponseWriter, r *http.Reque
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, _, _, _ = h.fetchAndPersistAvatar(ctx, rec.EmailHash, rec.Email, nil)
+		_, _, _, _ = h.fetchAndPersistAvatar(ctx, rec.EmailHash, rec.Email, nil, 0, nil)
 	}()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"started": true})

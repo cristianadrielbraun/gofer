@@ -13,6 +13,8 @@ document.addEventListener("DOMContentLoaded", function () {
   var processingStatusHandler = null
   var syncStatesByFolder = Object.create(null)
   var prefetchedBodies = Object.create(null)
+  var avatarWarmupTimer = null
+  var avatarWarmupSent = Object.create(null)
   var autoMarkReadTimer = null
   var autoMarkReadEmailId = null
   var suppressEmailUrlPushFor = null
@@ -25,6 +27,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupMailTableColumnResize()
   setupSSE()
   setupContactAvatarImages()
+  setupAvatarWarmup()
   setupMailListActions()
   setupSidebarAccountCollapse()
   setupProcessingStatus()
@@ -863,6 +866,49 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!fallback) return
     fallback.classList.remove("hidden")
     fallback.classList.add("flex")
+  }
+
+  function setupAvatarWarmup() {
+    scheduleAvatarWarmup()
+    document.addEventListener("scroll", scheduleAvatarWarmup, true)
+    window.addEventListener("resize", scheduleAvatarWarmup)
+    var observer = new MutationObserver(scheduleAvatarWarmup)
+    observer.observe(document.body, { childList: true, subtree: true })
+  }
+
+  function scheduleAvatarWarmup() {
+    if (avatarWarmupTimer) return
+    avatarWarmupTimer = setTimeout(function () {
+      avatarWarmupTimer = null
+      warmupVisibleAvatars()
+    }, 500)
+  }
+
+  function warmupVisibleAvatars() {
+    var now = Date.now()
+    var emails = []
+    document.querySelectorAll("[data-contact-avatar][data-avatar-email]").forEach(function (node) {
+      if (emails.length >= 25) return
+      if (!isAvatarWarmupVisible(node)) return
+      if (node.querySelector("img[data-avatar-image]:not(.hidden)")) return
+      var email = (node.getAttribute("data-avatar-email") || "").trim().toLowerCase()
+      if (!email || email.indexOf("@") < 1) return
+      if (avatarWarmupSent[email] && now - avatarWarmupSent[email] < 10 * 60 * 1000) return
+      avatarWarmupSent[email] = now
+      emails.push(email)
+    })
+    if (!emails.length) return
+    fetch("/api/avatars/warmup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ emails: emails }),
+      keepalive: true,
+    }).catch(function () {})
+  }
+
+  function isAvatarWarmupVisible(node) {
+    var rect = node.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.right >= 0 && rect.top <= window.innerHeight && rect.left <= window.innerWidth
   }
 
   function scheduleSyncRefresh(vml, options) {

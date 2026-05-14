@@ -44,6 +44,10 @@ type Handler struct {
 	bodyClients          map[string]*imap.Client
 	bodyFetchMu          sync.Mutex
 	bodyFetches          map[int64]chan struct{}
+	avatarWarmupQueue    chan storage.SenderAvatarCandidate
+	avatarWarmupMu       sync.Mutex
+	avatarWarmupQueued   map[string]struct{}
+	avatarWarmupForced   map[string]time.Time
 	avatarBackfillMu     sync.RWMutex
 	avatarBackfillState  models.AvatarBackfillState
 	avatarBackfillCancel context.CancelFunc
@@ -57,16 +61,21 @@ const (
 )
 
 func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore, authManager *auth.Manager) *Handler {
-	return &Handler{
-		db:           db,
-		accountStore: accountStore,
-		syncer:       syncer,
-		blobStore:    blobStore,
-		auth:         authManager,
-		avatar:       avatarresolver.NewResolver(),
-		bodyClients:  make(map[string]*imap.Client),
-		bodyFetches:  make(map[int64]chan struct{}),
+	h := &Handler{
+		db:                 db,
+		accountStore:       accountStore,
+		syncer:             syncer,
+		blobStore:          blobStore,
+		auth:               authManager,
+		avatar:             avatarresolver.NewResolver(),
+		bodyClients:        make(map[string]*imap.Client),
+		bodyFetches:        make(map[int64]chan struct{}),
+		avatarWarmupQueue:  make(chan storage.SenderAvatarCandidate, avatarWarmupQueueSize),
+		avatarWarmupQueued: make(map[string]struct{}),
+		avatarWarmupForced: make(map[string]time.Time),
 	}
+	h.startAvatarWarmupWorkers()
+	return h
 }
 
 func (h *Handler) userID(ctx context.Context) string {
@@ -159,6 +168,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/avatars/{hash}", h.handleAvatarImage)
 	mux.HandleFunc("GET /api/avatars/attempts", h.handleAvatarAttempts)
 	mux.HandleFunc("GET /api/avatars/senders", h.handleAvatarSenders)
+	mux.HandleFunc("POST /api/avatars/warmup", h.handleAvatarWarmup)
 	mux.HandleFunc("POST /api/avatars/senders/{hash}/recheck", h.handleRecheckAvatarSender)
 	mux.HandleFunc("POST /admin/avatar-backfill/recheck", h.handleForceAvatarBackfill)
 	mux.HandleFunc("POST /admin/avatar-backfill/cancel", h.handleCancelAvatarBackfill)

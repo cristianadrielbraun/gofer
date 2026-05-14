@@ -3,6 +3,7 @@ package avatar
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -360,7 +361,12 @@ func TestResolveDomainIconDiscoversLinkedIcon(t *testing.T) {
 func TestResolveDomainIconFallsBackToFavicon(t *testing.T) {
 	r := NewResolver()
 	r.lookupIPAddr = publicLookupIPAddr
+	requests := map[string]int{}
+	var mu sync.Mutex
 	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests[req.URL.Path]++
+		mu.Unlock()
 		if req.URL.Path == "/favicon.ico" {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -381,6 +387,11 @@ func TestResolveDomainIconFallsBackToFavicon(t *testing.T) {
 	}
 	if !found || image.SourceURL != "https://brand.example/favicon.ico" || image.ContentType != "image/x-icon" {
 		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want favicon fallback", image, found)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests["/"] != 0 {
+		t.Fatalf("requests = %+v, want direct favicon before homepage discovery", requests)
 	}
 }
 
@@ -427,8 +438,11 @@ func TestResolveDomainIconTriesAlternateFavicons(t *testing.T) {
 	r := NewResolver()
 	r.lookupIPAddr = publicLookupIPAddr
 	requests := map[string]int{}
+	var mu sync.Mutex
 	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		mu.Lock()
 		requests[req.URL.Path]++
+		mu.Unlock()
 		if req.URL.Path == "/favicon.svg" {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -449,8 +463,109 @@ func TestResolveDomainIconTriesAlternateFavicons(t *testing.T) {
 	if !found || image.SourceURL != "https://brand.example/favicon.svg" {
 		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want svg favicon fallback", image, found)
 	}
-	if requests["/favicon.ico"] != 1 || requests["/favicon.svg"] != 1 {
-		t.Fatalf("requests = %+v, want ico then svg favicon attempts", requests)
+	mu.Lock()
+	defer mu.Unlock()
+	if requests["/favicon.svg"] != 1 || requests["/"] != 0 {
+		t.Fatalf("requests = %+v, want direct svg favicon without homepage discovery", requests)
+	}
+}
+
+func TestResolveDomainIconUpgradesInsecureHomepageRedirect(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme != "https" {
+			return nil, fmt.Errorf("unexpected %s request", req.URL.Scheme)
+		}
+		switch {
+		case req.URL.Host == "brand.example":
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{"http://www.brand.example" + req.URL.Path}},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		case req.URL.Host == "www.brand.example" && req.URL.Path == "/":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Body:       io.NopCloser(strings.NewReader(`<link rel="icon" href="https://cdn.brand.example/favicon-32x32.png">`)),
+				Request:    req,
+			}, nil
+		case req.URL.Host == "www.brand.example":
+			return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+		case req.URL.Host == "cdn.brand.example" && req.URL.Path == "/favicon-32x32.png":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/png"}},
+				Body:       io.NopCloser(strings.NewReader("png")),
+				Request:    req,
+			}, nil
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+	})}
+
+	image, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if !found || image.SourceURL != "https://cdn.brand.example/favicon-32x32.png" {
+		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want CDN icon from upgraded homepage redirect", image, found)
+	}
+}
+
+func TestResolveDomainIconTreatsOversizedHomepageAsMissing(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Body:       io.NopCloser(strings.NewReader(strings.Repeat("x", maxHTMLSize+1))),
+			}, nil
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+
+	_, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v, want nil for oversized homepage miss", err)
+	}
+	if found {
+		t.Fatal("ResolveDomainIcon() found = true, want false")
+	}
+}
+
+func TestResolveDomainIconParsesBoundedHomepagePrefix(t *testing.T) {
+	r := NewResolver()
+	r.lookupIPAddr = publicLookupIPAddr
+	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.URL.Host == "brand.example" && req.URL.Path == "/":
+			body := `<link rel="icon" href="https://cdn.brand.example/favicon-32x32.png">` + strings.Repeat("x", maxHTMLSize+1)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Request:    req,
+			}, nil
+		case req.URL.Host == "cdn.brand.example" && req.URL.Path == "/favicon-32x32.png":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/png"}},
+				Body:       io.NopCloser(strings.NewReader("png")),
+				Request:    req,
+			}, nil
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+	})}
+
+	image, found, err := r.ResolveDomainIcon(context.Background(), "person@brand.example")
+	if err != nil {
+		t.Fatalf("ResolveDomainIcon() error = %v", err)
+	}
+	if !found || image.SourceURL != "https://cdn.brand.example/favicon-32x32.png" {
+		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want icon from bounded homepage prefix", image, found)
 	}
 }
 
@@ -458,8 +573,11 @@ func TestResolveDomainIconRetriesRootDomainAfterSubdomainConnectionError(t *test
 	r := NewResolver()
 	r.lookupIPAddr = publicLookupIPAddr
 	requests := map[string]int{}
+	var mu sync.Mutex
 	r.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		mu.Lock()
 		requests[req.URL.Host+req.URL.Path]++
+		mu.Unlock()
 		if req.URL.Host == "msg.salesforce.com" {
 			return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: &net.DNSError{Err: "no such host", Name: req.URL.Host, IsNotFound: true}}
 		}
@@ -483,6 +601,8 @@ func TestResolveDomainIconRetriesRootDomainAfterSubdomainConnectionError(t *test
 	if !found || image.SourceURL != "https://salesforce.com/favicon.ico" {
 		t.Fatalf("ResolveDomainIcon() = (%+v, %v), want root-domain favicon", image, found)
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if requests["msg.salesforce.com/"] == 0 || requests["salesforce.com/favicon.ico"] != 1 {
 		t.Fatalf("requests = %+v, want failed subdomain then root favicon", requests)
 	}
@@ -532,16 +652,9 @@ func TestResolveDomainIconDedupesConcurrentLookups(t *testing.T) {
 		mu.Lock()
 		requests[req.URL.Path]++
 		mu.Unlock()
-		if req.URL.Path == "/" {
+		if req.URL.Path == "/favicon.ico" {
 			startedOnce.Do(func() { close(started) })
 			<-release
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     http.Header{"Content-Type": []string{"text/html"}},
-				Body:       io.NopCloser(strings.NewReader(`<html><head></head></html>`)),
-			}, nil
-		}
-		if req.URL.Path == "/favicon.ico" {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"image/png"}},
@@ -579,8 +692,8 @@ func TestResolveDomainIconDedupesConcurrentLookups(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if requests["/"] != 1 || requests["/favicon.ico"] != 1 {
-		t.Fatalf("requests = %+v, want one homepage and one favicon request", requests)
+	if requests["/favicon.ico"] != 1 {
+		t.Fatalf("requests = %+v, want one favicon request", requests)
 	}
 }
 
