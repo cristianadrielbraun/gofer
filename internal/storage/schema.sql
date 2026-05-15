@@ -490,6 +490,12 @@ ON contact_emails(user_id, normalized_email);
 CREATE INDEX IF NOT EXISTS idx_contact_sources_contact
 ON contact_sources(contact_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_sources_contact_provider_account
+ON contact_sources(user_id, contact_id, provider, account_id);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sources_remote
+ON contact_sources(user_id, provider, account_id, remote_id);
+
 CREATE TABLE IF NOT EXISTS contact_save_targets (
     contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -519,4 +525,4 @@ CREATE INDEX IF NOT EXISTS idx_contact_activity_events_type_created
 ON contact_activity_events(event_type, created_at DESC);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (26);
+INSERT OR REPLACE INTO schema_version (version) VALUES (27);

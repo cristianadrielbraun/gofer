@@ -19,6 +19,16 @@ type ContactSettings struct {
 	ObserveRecipients      bool
 }
 
+type ContactSource struct {
+	ContactID string
+	UserID    string
+	Provider  string
+	AccountID string
+	RemoteID  string
+	Etag      string
+	SyncToken string
+}
+
 func normalizeContactEmail(email string) string {
 	email = strings.TrimSpace(strings.TrimPrefix(email, "mailto:"))
 	email = strings.Trim(email, "<>")
@@ -371,6 +381,66 @@ func (db *DB) replaceContactSaveTargetsTx(ctx context.Context, tx *sql.Tx, userI
 	return nil
 }
 
+func (db *DB) UpsertContactSource(ctx context.Context, source ContactSource) error {
+	if strings.TrimSpace(source.UserID) == "" || strings.TrimSpace(source.ContactID) == "" || strings.TrimSpace(source.Provider) == "" || strings.TrimSpace(source.AccountID) == "" {
+		return nil
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO contact_sources (id, user_id, contact_id, provider, account_id, remote_id, etag, sync_token)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id, contact_id, provider, account_id) DO UPDATE SET
+			remote_id = excluded.remote_id,
+			etag = excluded.etag,
+			sync_token = excluded.sync_token,
+			updated_at = CURRENT_TIMESTAMP`,
+		uuid.NewString(), strings.TrimSpace(source.UserID), strings.TrimSpace(source.ContactID), strings.TrimSpace(source.Provider), strings.TrimSpace(source.AccountID), strings.TrimSpace(source.RemoteID), strings.TrimSpace(source.Etag), strings.TrimSpace(source.SyncToken))
+	return err
+}
+
+func (db *DB) GetContactSource(ctx context.Context, userID, contactID, provider, accountID string) (*ContactSource, error) {
+	var source ContactSource
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT contact_id, user_id, provider, account_id, remote_id, etag, sync_token
+		FROM contact_sources
+		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, contactID, provider, accountID).Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.RemoteID, &source.Etag, &source.SyncToken)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &source, nil
+}
+
+func (db *DB) GetContactSources(ctx context.Context, userID, contactID, provider string) ([]ContactSource, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT contact_id, user_id, provider, account_id, remote_id, etag, sync_token
+		FROM contact_sources
+		WHERE user_id = ? AND contact_id = ? AND provider = ?
+		ORDER BY account_id`, userID, contactID, provider)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sources []ContactSource
+	for rows.Next() {
+		var source ContactSource
+		if err := rows.Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.RemoteID, &source.Etag, &source.SyncToken); err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, rows.Err()
+}
+
+func (db *DB) DeleteContactSource(ctx context.Context, userID, contactID, provider, accountID string) error {
+	_, err := db.Write().ExecContext(ctx, `
+		DELETE FROM contact_sources
+		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, contactID, provider, accountID)
+	return err
+}
+
 func scanContactRow(scanner interface{ Scan(dest ...any) error }) (models.Contact, error) {
 	var c models.Contact
 	var isManual, isDeleted int
@@ -467,12 +537,12 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 	return *saved, nil
 }
 
-func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, email string) (bool, error) {
+func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, email string) (string, bool, error) {
 	email = strings.TrimSpace(email)
 	normalized := normalizeContactEmail(email)
 	accountID = strings.TrimSpace(accountID)
 	if userID == "" || accountID == "" || normalized == "" {
-		return false, nil
+		return "", false, nil
 	}
 	display := contactDisplayName(name, email)
 	source := "synced:" + accountID
@@ -480,7 +550,7 @@ func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, 
 
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	defer tx.Rollback()
 
@@ -493,7 +563,7 @@ func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, 
 		JOIN contacts c ON ce.contact_id = c.id
 		WHERE ce.user_id = ? AND ce.normalized_email = ?`, userID, normalized).Scan(&contactID, &isManual, &currentDisplay, &currentSource)
 	if err != nil && err != sql.ErrNoRows {
-		return false, err
+		return "", false, err
 	}
 
 	created := false
@@ -502,7 +572,7 @@ func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, 
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO contacts (id, user_id, display_name, source, is_manual, is_deleted, suppress_auto_create)
 			VALUES (?, ?, ?, ?, 0, 0, 0)`, contactID, userID, display, source); err != nil {
-			return false, err
+			return "", false, err
 		}
 		created = true
 	} else {
@@ -518,14 +588,14 @@ func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, 
 				SET display_name = ?, source = ?,
 				    is_deleted = 0, suppress_auto_create = 0, updated_at = CURRENT_TIMESTAMP
 				WHERE id = ? AND user_id = ?`, display, source, contactID, userID); err != nil {
-				return false, err
+				return "", false, err
 			}
 		} else {
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE contacts
 				SET is_deleted = 0, suppress_auto_create = 0, updated_at = CURRENT_TIMESTAMP
 				WHERE id = ? AND user_id = ?`, contactID, userID); err != nil {
-				return false, err
+				return "", false, err
 			}
 		}
 	}
@@ -537,18 +607,18 @@ func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, 
 			contact_id = excluded.contact_id,
 			email = excluded.email,
 			updated_at = CURRENT_TIMESTAMP`, uuid.NewString(), userID, contactID, email, normalized, strings.TrimSpace(name)); err != nil {
-		return false, err
+		return "", false, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO contact_save_targets (contact_id, user_id, target)
 		VALUES (?, ?, ?)`, contactID, userID, target); err != nil {
-		return false, err
+		return "", false, err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return false, err
+		return "", false, err
 	}
-	return created, nil
+	return contactID, created, nil
 }
 
 func (db *DB) DeleteContact(ctx context.Context, userID, contactID string, preventRecreate bool) error {

@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 26
+	const targetSchemaVersion = 27
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -300,6 +300,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 25 {
 		if err := migrateV25ToV26(tx); err != nil {
 			return fmt.Errorf("migrate v25 to v26: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 26 {
+		if err := migrateV26ToV27(tx); err != nil {
+			return fmt.Errorf("migrate v26 to v27: %w", err)
 		}
 	}
 
@@ -949,6 +955,28 @@ func migrateV25ToV26(tx *sql.Tx) error {
 		 WHERE target = 'gmail'
 		   AND 1 = (SELECT COUNT(*) FROM accounts a WHERE a.user_id = contact_save_targets.user_id AND a.provider = 'gmail')`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (26)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV26ToV27(tx *sql.Tx) error {
+	migrations := []string{
+		`DELETE FROM contact_sources
+		 WHERE rowid NOT IN (
+		   SELECT MIN(rowid)
+		   FROM contact_sources
+		   GROUP BY user_id, contact_id, provider, account_id
+		 )`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_sources_contact_provider_account
+		 ON contact_sources(user_id, contact_id, provider, account_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sources_remote
+		 ON contact_sources(user_id, provider, account_id, remote_id)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (27)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {

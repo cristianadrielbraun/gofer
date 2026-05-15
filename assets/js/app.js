@@ -13,6 +13,8 @@ document.addEventListener("DOMContentLoaded", function () {
   var syncRefreshTimer = null
   var processingStatusHandler = null
   var syncStatesByFolder = Object.create(null)
+  var appEventSource = null
+  var contactGmailSyncEmail = ""
   var prefetchedBodies = Object.create(null)
   var avatarWarmupTimer = null
   var avatarWarmupSent = Object.create(null)
@@ -147,10 +149,82 @@ document.addEventListener("DOMContentLoaded", function () {
     }, true)
 
     document.addEventListener("submit", function (e) {
+      if (e.target && e.target.matches("[data-contact-editor-form]")) {
+        e.preventDefault()
+        saveContactEditor(e.target)
+        return
+      }
       if (!e.target || (!e.target.matches("[data-contact-filter-form]") && !e.target.matches("[data-contact-search-form]"))) return
       e.preventDefault()
       applyFilters()
     })
+
+    function saveContactEditor(form) {
+      if (!form || form.dataset.saving === "true") return
+      form.dataset.saving = "true"
+      var submit = form.querySelector('button[type="submit"]')
+      if (submit) submit.disabled = true
+      var formData = new FormData(form)
+
+      fetch(form.action, {
+        method: "POST",
+        body: new URLSearchParams(formData),
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.text().then(function (text) { throw new Error(text || "Save failed") })
+        }
+        return res.json()
+      }).then(function (data) {
+        if (data && data.contact_id) {
+          form.action = "/api/contacts?id=" + encodeURIComponent(data.contact_id)
+          if (data.location) history.replaceState({ contacts: true, contact: data.contact_id }, "", data.location)
+        }
+        if (data && data.gmail_sync_queued) {
+          setupSSE()
+          var emailInput = form.querySelector('[name="email"]')
+          contactGmailSyncEmail = emailInput ? emailInput.value || "" : ""
+          showGoferToast({
+            id: "contact-sync-toast",
+            title: "Contact saved",
+            description: "Syncing contact with Gmail...",
+            variant: "info",
+            icon: "spinner",
+            position: "bottom-right",
+            duration: 0,
+            dismissible: false,
+          })
+        } else {
+          showGoferToast({
+            id: "contact-save-toast",
+            title: "Contact saved locally",
+            description: "Changes are stored in Gofer.",
+            variant: "success",
+            icon: "success",
+            position: "top-center",
+            duration: 3000,
+            dismissible: true,
+          })
+        }
+      }).catch(function (err) {
+        showGoferToast({
+          id: "contact-save-toast",
+          title: "Contact save failed",
+          description: err && err.message ? err.message : "Could not save contact.",
+          variant: "error",
+          icon: "error",
+          position: "top-center",
+          duration: 8000,
+          dismissible: true,
+        })
+      }).finally(function () {
+        form.dataset.saving = "false"
+        if (submit) submit.disabled = false
+      })
+    }
 
     document.addEventListener("input", function (e) {
       if (!e.target || !e.target.matches("[data-contact-search-input]")) return
@@ -836,9 +910,10 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupSSE() {
-    if (window.location.pathname.startsWith("/settings")) return
+    if (appEventSource) return
 
     var source = new EventSource("/api/events")
+    appEventSource = source
 
     source.addEventListener("new-mail", function (e) {
       var data
@@ -882,6 +957,13 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !processingStatusHandler) return
       processingStatusHandler.render(data)
+    })
+
+    source.addEventListener("contact-activity", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !data.event_type) return
+      handleContactActivityEvent(data)
     })
 
     source.addEventListener("sync-started", function (e) {
@@ -935,8 +1017,26 @@ document.addEventListener("DOMContentLoaded", function () {
 
     source.onerror = function () {
       source.close()
+      if (appEventSource === source) appEventSource = null
       setTimeout(setupSSE, 5000)
     }
+  }
+
+  function handleContactActivityEvent(data) {
+    if (data.event_type !== "gmail_contact_synced" && data.event_type !== "gmail_contact_sync_failed") return
+    if (contactGmailSyncEmail && data.email && data.email !== contactGmailSyncEmail) return
+    var failed = data.event_type === "gmail_contact_sync_failed"
+    showGoferToast({
+      id: "contact-sync-toast",
+      title: failed ? "Gmail sync failed" : "Gmail sync complete",
+      description: data.message || (failed ? "Could not sync contact to Gmail." : "Contact synced to Gmail."),
+      variant: failed ? "error" : "success",
+      icon: failed ? "error" : "success",
+      position: "bottom-right",
+      duration: failed ? 7000 : 3500,
+      dismissible: true,
+    })
+    contactGmailSyncEmail = ""
   }
 
   function updateVisibleAvatars(hash, avatarURL) {

@@ -660,7 +660,7 @@ templ ContactEditor(contact *models.Contact, accounts []models.Account) {
 				</div>
 			</div>
 			<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
-			<form action={ contactFormAction(contact) } method="post" class="space-y-5 max-w-2xl">
+			<form action={ contactFormAction(contact) } method="post" class="space-y-5 max-w-2xl" data-contact-editor-form>
 				<div class="grid gap-5 sm:grid-cols-2">
 					<div>
 						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Name</label>

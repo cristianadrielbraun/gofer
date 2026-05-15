@@ -432,15 +432,31 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	userID := h.userID(ctx)
 	contact := models.Contact{
 		ID:          strings.TrimSpace(r.URL.Query().Get("id")),
 		Name:        strings.TrimSpace(r.FormValue("name")),
 		Email:       strings.TrimSpace(r.FormValue("email")),
 		SaveTargets: h.contactSaveTargets(ctx, r.FormValue("save_targets")),
 	}
-	saved, err := h.db.SaveContact(ctx, h.userID(ctx), contact)
+	var previous *models.Contact
+	if contact.ID != "" {
+		previous, _ = h.db.GetContact(ctx, userID, contact.ID)
+	}
+	saved, err := h.db.SaveContact(ctx, userID, contact)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	syncQueued := h.scheduleContactGmailSync(ctx, userID, saved, previous)
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":                true,
+			"contact_id":        saved.ID,
+			"location":          "/contacts?contact=" + saved.ID,
+			"gmail_sync_queued": syncQueued,
+		})
 		return
 	}
 	http.Redirect(w, r, "/contacts?contact="+saved.ID, http.StatusSeeOther)
@@ -527,10 +543,12 @@ func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
 	}
 	imported := 0
 	for _, contact := range contacts {
-		if _, err := h.db.SaveContact(ctx, h.userID(ctx), contact); err != nil {
+		saved, err := h.db.SaveContact(ctx, h.userID(ctx), contact)
+		if err != nil {
 			http.Error(w, "failed to import contacts", http.StatusInternalServerError)
 			return
 		}
+		h.scheduleContactGmailSync(ctx, h.userID(ctx), saved, nil)
 		imported++
 	}
 	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
@@ -538,8 +556,20 @@ func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	userID := h.userID(ctx)
+	contact, err := h.db.GetContact(ctx, userID, r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
+	if contact != nil {
+		if err := h.deleteContactFromGmail(ctx, userID, *contact); err != nil {
+			http.Error(w, "Gmail delete failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
 	settings := h.db.GetContactSettings(ctx, h.userID(ctx))
-	if err := h.db.DeleteContact(ctx, h.userID(ctx), r.PathValue("id"), settings.PreventRecreateDeleted); err != nil {
+	if err := h.db.DeleteContact(ctx, userID, r.PathValue("id"), settings.PreventRecreateDeleted); err != nil {
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
