@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 24
+	const targetSchemaVersion = 26
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -288,6 +288,18 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 23 {
 		if err := migrateV23ToV24(tx); err != nil {
 			return fmt.Errorf("migrate v23 to v24: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 24 {
+		if err := migrateV24ToV25(tx); err != nil {
+			return fmt.Errorf("migrate v24 to v25: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 25 {
+		if err := migrateV25ToV26(tx); err != nil {
+			return fmt.Errorf("migrate v25 to v26: %w", err)
 		}
 	}
 
@@ -885,6 +897,88 @@ func migrateV23ToV24(tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+func migrateV24ToV25(tx *sql.Tx) error {
+	if ok, err := columnExistsTx(tx, "accounts", "provider"); err != nil {
+		return err
+	} else if !ok {
+		if _, err := tx.Exec(`ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'imap'`); err != nil {
+			return err
+		}
+	}
+
+	if ok, err := columnExistsTx(tx, "accounts", "provider_account_id"); err != nil {
+		return err
+	} else if !ok {
+		if _, err := tx.Exec(`ALTER TABLE accounts ADD COLUMN provider_account_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	migrations := []string{
+		`UPDATE accounts SET provider = 'gmail' WHERE provider = 'imap' AND imap_host = 'imap.gmail.com' AND auth_method = 'oauth2'`,
+		`CREATE INDEX IF NOT EXISTS idx_accounts_provider_identity ON accounts(provider, provider_account_id)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (25)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV25ToV26(tx *sql.Tx) error {
+	migrations := []string{
+		`UPDATE contacts
+		 SET source = 'synced:' || (
+		   SELECT a.id FROM accounts a
+		   WHERE a.user_id = contacts.user_id AND a.provider = 'gmail'
+		   LIMIT 1
+		 )
+		 WHERE source = 'provider:gmail'
+		   AND 1 = (SELECT COUNT(*) FROM accounts a WHERE a.user_id = contacts.user_id AND a.provider = 'gmail')`,
+		`INSERT OR IGNORE INTO contact_save_targets (contact_id, user_id, target, created_at, updated_at)
+		 SELECT cst.contact_id, cst.user_id, 'account:' || a.id, cst.created_at, CURRENT_TIMESTAMP
+		 FROM contact_save_targets cst
+		 JOIN accounts a ON a.user_id = cst.user_id AND a.provider = 'gmail'
+		 WHERE cst.target = 'gmail'
+		   AND 1 = (SELECT COUNT(*) FROM accounts ga WHERE ga.user_id = cst.user_id AND ga.provider = 'gmail')`,
+		`DELETE FROM contact_save_targets
+		 WHERE target = 'gmail'
+		   AND 1 = (SELECT COUNT(*) FROM accounts a WHERE a.user_id = contact_save_targets.user_id AND a.provider = 'gmail')`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (26)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func columnExistsTx(tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (db *DB) Read() *sql.DB {

@@ -84,11 +84,13 @@ func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models
 	var cfg models.AccountConfig
 	cfg.AccountID = accountID
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT imap_host, imap_port, imap_tls_mode,
+		`SELECT provider, provider_account_id,
+		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode,
 		        username, auth_method, smtp_username
 		 FROM accounts WHERE id = ?`, accountID,
-	).Scan(&cfg.IMAPHost, &cfg.IMAPPort, &cfg.IMAPTLSMode,
+	).Scan(&cfg.Provider, &cfg.ProviderAccountID,
+		&cfg.IMAPHost, &cfg.IMAPPort, &cfg.IMAPTLSMode,
 		&cfg.SMTPHost, &cfg.SMTPPort, &cfg.SMTPTLSMode,
 		&cfg.Username, &cfg.AuthMethod, &cfg.SmtpUsername)
 	if err != nil {
@@ -101,12 +103,12 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 	var data models.EditAccountData
 	data.AccountID = accountID
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT email_address, display_name,
+		`SELECT provider, provider_account_id, email_address, display_name,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode,
 		        username, auth_method, COALESCE(smtp_username, '')
 		 FROM accounts WHERE id = ?`, accountID,
-	).Scan(&data.EmailAddress, &data.DisplayName,
+	).Scan(&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
 		&data.IMAPHost, &data.IMAPPort, &data.IMAPTLSMode,
 		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode,
 		&data.Username, &data.AuthMethod, &data.SmtpUsername)
@@ -143,6 +145,9 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 	if req.AuthMethod == "" {
 		req.AuthMethod = "plain"
 	}
+	if req.Provider == "" {
+		req.Provider = "imap"
+	}
 
 	var encryptedSmtpPw []byte
 	if req.SmtpPassword != "" {
@@ -157,13 +162,13 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 	color := generateColor(id)
 
 	_, err = s.db.Write().ExecContext(ctx,
-		`INSERT INTO accounts (id, user_id, email_address, display_name, color, initials,
+		`INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, display_name, color, initials,
 		  imap_host, imap_port, imap_tls_mode,
 		  smtp_host, smtp_port, smtp_tls_mode,
 		  username, encrypted_password, auth_method,
 		  smtp_username, encrypted_smtp_password)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, userID, req.EmailAddress, req.DisplayName, color, initials,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, userID, req.Provider, req.ProviderAccountID, req.EmailAddress, req.DisplayName, color, initials,
 		req.IMAPHost, req.IMAPPort, req.IMAPTLSMode,
 		req.SMTPHost, req.SMTPPort, req.SMTPTLSMode,
 		req.Username, encrypted, req.AuthMethod,
@@ -192,6 +197,14 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 	if req.DisplayName != "" {
 		setClauses = append(setClauses, "display_name = ?")
 		args = append(args, req.DisplayName)
+	}
+	if req.Provider != "" {
+		setClauses = append(setClauses, "provider = ?")
+		args = append(args, req.Provider)
+	}
+	if req.ProviderAccountID != "" {
+		setClauses = append(setClauses, "provider_account_id = ?")
+		args = append(args, req.ProviderAccountID)
 	}
 	if req.IMAPHost != "" {
 		setClauses = append(setClauses, "imap_host = ?")
@@ -258,6 +271,27 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 	return err
 }
 
+func (s *AccountStore) FindProviderAccountID(ctx context.Context, userID, provider, providerAccountID, email string) (string, error) {
+	var id string
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT id FROM accounts
+		 WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0
+		   AND (
+		     (provider = ? AND provider_account_id = ? AND provider_account_id != '')
+		     OR (email_address = ? AND imap_host = 'imap.gmail.com' AND auth_method = 'oauth2')
+		   )
+		 LIMIT 1`,
+		userID, provider, providerAccountID, email,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 func (s *AccountStore) UpdateAccountColor(ctx context.Context, userID, accountID, color string) error {
 	res, err := s.db.Write().ExecContext(ctx,
 		`UPDATE accounts SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0`,
@@ -288,8 +322,8 @@ func (s *AccountStore) MarkAccountDeleting(ctx context.Context, accountID string
 func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*models.Account, error) {
 	var a models.Account
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT id, email_address, display_name, color, initials FROM accounts WHERE id = ?`, accountID,
-	).Scan(&a.ID, &a.Email, &a.Name, &a.Color, &a.Initials)
+		`SELECT id, provider, email_address, display_name, color, initials FROM accounts WHERE id = ?`, accountID,
+	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

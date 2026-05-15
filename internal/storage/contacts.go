@@ -228,6 +228,13 @@ func contactFilterSQL(userID string, filters models.ContactFilters) (string, []a
 		where += ` AND c.is_manual = 1`
 	case "observed":
 		where += ` AND c.is_manual = 0`
+	case "synced":
+		where += ` AND c.is_manual = 0 AND c.source LIKE 'synced:%'`
+	default:
+		if strings.HasPrefix(filters.Source, "synced:") {
+			where += ` AND c.source = ?`
+			args = append(args, filters.Source)
+		}
 	}
 	switch filters.Activity {
 	case "seen":
@@ -458,6 +465,90 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		_ = db.LogContactActivity(ctx, userID, "manual_contact_added", email, "Manual contact added", 1)
 	}
 	return *saved, nil
+}
+
+func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, email string) (bool, error) {
+	email = strings.TrimSpace(email)
+	normalized := normalizeContactEmail(email)
+	accountID = strings.TrimSpace(accountID)
+	if userID == "" || accountID == "" || normalized == "" {
+		return false, nil
+	}
+	display := contactDisplayName(name, email)
+	source := "synced:" + accountID
+	target := "account:" + accountID
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var contactID string
+	var isManual int
+	var currentDisplay, currentSource string
+	err = tx.QueryRowContext(ctx, `
+		SELECT c.id, c.is_manual, c.display_name, c.source
+		FROM contact_emails ce
+		JOIN contacts c ON ce.contact_id = c.id
+		WHERE ce.user_id = ? AND ce.normalized_email = ?`, userID, normalized).Scan(&contactID, &isManual, &currentDisplay, &currentSource)
+	if err != nil && err != sql.ErrNoRows {
+		return false, err
+	}
+
+	created := false
+	if contactID == "" {
+		contactID = uuid.NewString()
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO contacts (id, user_id, display_name, source, is_manual, is_deleted, suppress_auto_create)
+			VALUES (?, ?, ?, ?, 0, 0, 0)`, contactID, userID, display, source); err != nil {
+			return false, err
+		}
+		created = true
+	} else {
+		if isManual == 0 {
+			if strings.TrimSpace(currentDisplay) != "" && normalizeContactEmail(currentDisplay) != normalized {
+				display = currentDisplay
+			}
+			if currentSource != "" && currentSource != "observed" && currentSource != "provider:gmail" {
+				source = currentSource
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE contacts
+				SET display_name = ?, source = ?,
+				    is_deleted = 0, suppress_auto_create = 0, updated_at = CURRENT_TIMESTAMP
+				WHERE id = ? AND user_id = ?`, display, source, contactID, userID); err != nil {
+				return false, err
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE contacts
+				SET is_deleted = 0, suppress_auto_create = 0, updated_at = CURRENT_TIMESTAMP
+				WHERE id = ? AND user_id = ?`, contactID, userID); err != nil {
+				return false, err
+			}
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO contact_emails (id, user_id, contact_id, email, normalized_email, is_primary, observed_name)
+		VALUES (?, ?, ?, ?, ?, 1, ?)
+		ON CONFLICT(user_id, normalized_email) DO UPDATE SET
+			contact_id = excluded.contact_id,
+			email = excluded.email,
+			updated_at = CURRENT_TIMESTAMP`, uuid.NewString(), userID, contactID, email, normalized, strings.TrimSpace(name)); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO contact_save_targets (contact_id, user_id, target)
+		VALUES (?, ?, ?)`, contactID, userID, target); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return created, nil
 }
 
 func (db *DB) DeleteContact(ctx context.Context, userID, contactID string, preventRecreate bool) error {

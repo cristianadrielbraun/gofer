@@ -145,6 +145,7 @@ templ SidebarContactsLink(activeFolder string) {
 		hx-target="#main-content"
 		hx-swap="outerHTML"
 		hx-push-url="/contacts"
+		data-sidebar-contacts-link
 		class={
 			"flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150 mb-1",
 			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", activeFolder == "contacts"),

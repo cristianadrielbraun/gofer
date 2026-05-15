@@ -1142,7 +1142,7 @@ func (db *DB) GetFolderHighestUID(ctx context.Context, folderID string) (uint32,
 
 func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 ORDER BY id`, userID)
+		`SELECT id, provider, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 ORDER BY id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
@@ -1152,7 +1152,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	for rows.Next() {
 		var a models.Account
 		var isDeleting int
-		if err := rows.Scan(&a.ID, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.IsDeleting = isDeleting == 1
@@ -1172,7 +1172,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 
 func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? ORDER BY id`, userID)
+		`SELECT id, provider, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? ORDER BY id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
@@ -1182,7 +1182,7 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 	for rows.Next() {
 		var a models.Account
 		var isDeleting int
-		if err := rows.Scan(&a.ID, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.IsDeleting = isDeleting == 1

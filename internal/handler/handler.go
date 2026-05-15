@@ -15,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -138,6 +139,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /mail/folder/{id}/items", h.handleMailItems)
 	mux.HandleFunc("GET /mail/thread/{threadId}/subitems", h.handleThreadSubItems)
 	mux.HandleFunc("GET /contacts", h.handleContacts)
+	mux.HandleFunc("GET /contacts/items", h.handleContactItems)
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("GET /api/contacts/export", h.handleExportContacts)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)
@@ -163,6 +165,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings/ui", h.handleGetUISettings)
 	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
 	mux.HandleFunc("GET /api/settings/contacts/suppressed", h.handleSuppressedContactsSettings)
+	mux.HandleFunc("POST /api/settings/contacts/providers/gmail/sync", h.handleSyncGmailContacts)
 	mux.HandleFunc("POST /api/settings/contacts/suppressed/clear", h.handleClearSuppressedContacts)
 	mux.HandleFunc("POST /api/settings/contacts/suppressed/{id}/clear", h.handleClearSuppressedContact)
 	mux.HandleFunc("POST /api/settings/contacts/delete-observed", h.handleDeleteObservedContacts)
@@ -313,6 +316,12 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	h.ensureContactsBackfilled(ctx)
 	userID := h.userID(ctx)
 	filters := h.parseContactFilters(r)
+	if filters.View == "" {
+		filters.View = contactViewMode(h.db.GetUISettings(ctx, userID)["contacts_list_view"])
+	}
+	if filters.View == "" {
+		filters.View = "cards"
+	}
 	contacts, err := h.db.ListContacts(ctx, userID, filters, 200, 0)
 	if err != nil {
 		http.Error(w, "failed to load contacts", http.StatusInternalServerError)
@@ -351,6 +360,41 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	views.ContactsLayout(layoutAccounts, contacts, selected, showNew, filters, totalCount, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
 }
 
+func (h *Handler) handleContactItems(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	h.ensureContactsBackfilled(ctx)
+	userID := h.userID(ctx)
+	filters := h.parseContactFilters(r)
+	if filters.View == "" {
+		filters.View = "cards"
+	}
+	start := atoiDefault(r.URL.Query().Get("start"), 0)
+	if start < 0 {
+		start = 0
+	}
+	limit := atoiDefault(r.URL.Query().Get("limit"), 100)
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	contacts, err := h.db.ListContacts(ctx, userID, filters, limit, start)
+	if err != nil {
+		http.Error(w, "failed to load contacts", http.StatusInternalServerError)
+		return
+	}
+	totalCount, err := h.db.CountContacts(ctx, userID, filters)
+	if err != nil {
+		http.Error(w, "failed to count contacts", http.StatusInternalServerError)
+		return
+	}
+	var selected *models.Contact
+	if id := strings.TrimSpace(r.URL.Query().Get("selected")); id != "" {
+		selected, _ = h.db.GetContact(ctx, userID, id)
+	}
+	accounts, _ := h.db.GetAccounts(ctx, userID)
+	w.Header().Set("Content-Type", "text/html")
+	views.ContactsItemsFragment(contacts, selected, filters, totalCount, start, accounts).Render(ctx, w)
+}
+
 func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 	q := r.URL.Query()
 	filters := models.ContactFilters{
@@ -358,8 +402,9 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 		Source:     strings.TrimSpace(q.Get("source")),
 		SaveTarget: strings.TrimSpace(q.Get("save_target")),
 		Activity:   strings.TrimSpace(q.Get("activity")),
+		View:       contactViewMode(q.Get("view")),
 	}
-	if filters.Source != "manual" && filters.Source != "observed" {
+	if filters.Source != "manual" && filters.Source != "observed" && filters.Source != "synced" && !strings.HasPrefix(filters.Source, "synced:") {
 		filters.Source = ""
 	}
 	if filters.Activity != "seen" && filters.Activity != "none" {
@@ -369,6 +414,16 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 		filters.SaveTarget = ""
 	}
 	return filters
+}
+
+func contactViewMode(mode string) string {
+	if mode == "table" {
+		return "table"
+	}
+	if mode == "cards" {
+		return "cards"
+	}
+	return ""
 }
 
 func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
@@ -1326,6 +1381,7 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := models.CreateAccountRequest{
+		Provider:     r.FormValue("provider"),
 		EmailAddress: r.FormValue("email_address"),
 		DisplayName:  r.FormValue("display_name"),
 		IMAPHost:     r.FormValue("imap_host"),
@@ -1397,6 +1453,7 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := models.CreateAccountRequest{
+		Provider:     r.FormValue("provider"),
 		EmailAddress: r.FormValue("email_address"),
 		DisplayName:  r.FormValue("display_name"),
 		IMAPHost:     r.FormValue("imap_host"),
@@ -3798,6 +3855,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 	}
 
 	formData := map[string]string{
+		"provider":      r.FormValue("provider"),
 		"email_address": r.FormValue("email_address"),
 		"display_name":  r.FormValue("display_name"),
 		"imap_host":     r.FormValue("imap_host"),
@@ -3902,37 +3960,38 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if formData["username"] == "" {
-		formData["username"] = info.Email
+	requestedEmail := strings.TrimSpace(strings.ToLower(formData["email_address"]))
+	googleEmail := strings.TrimSpace(strings.ToLower(info.Email))
+	if requestedEmail != "" && googleEmail != "" && requestedEmail != googleEmail {
+		log.Printf("gmail callback: requested email %q does not match authorized google account %q", formData["email_address"], info.Email)
+		http.Redirect(w, r, "/settings/accounts?error=oauth_email_mismatch", http.StatusSeeOther)
+		return
 	}
-	if formData["smtp_host"] == "" && formData["imap_host"] == "imap.gmail.com" {
-		formData["smtp_host"] = "smtp.gmail.com"
-		formData["smtp_port"] = "465"
-		formData["smtp_tls_mode"] = "tls"
-	}
-	if formData["imap_host"] == "" {
-		formData["imap_host"] = "imap.gmail.com"
-		formData["imap_port"] = "993"
-		formData["imap_tls_mode"] = "tls"
+	displayName := strings.TrimSpace(formData["display_name"])
+	if displayName == "" {
+		displayName = info.Name
 	}
 
-	req := &models.CreateAccountRequest{
-		EmailAddress: formData["email_address"],
-		DisplayName:  formData["display_name"],
-		IMAPHost:     formData["imap_host"],
-		IMAPPort:     atoiDefault(formData["imap_port"], 993),
-		IMAPTLSMode:  formData["imap_tls_mode"],
-		SMTPHost:     formData["smtp_host"],
-		SMTPPort:     atoiDefault(formData["smtp_port"], 465),
-		SMTPTLSMode:  formData["smtp_tls_mode"],
-		Username:     formData["username"],
-		Password:     "_oauth2_",
-		AuthMethod:   "oauth2",
-		SmtpUsername: formData["smtp_username"],
-		SmtpPassword: formData["smtp_password"],
-	}
+	req := providers.GmailAccountRequest(info.Email, displayName, info.Sub)
+	req.Password = "_oauth2_"
 
-	account, err := h.accountStore.CreateAccount(r.Context(), h.userID(r.Context()), req)
+	userID := h.userID(r.Context())
+	existingAccountID, err := h.accountStore.FindProviderAccountID(r.Context(), userID, req.Provider, req.ProviderAccountID, req.EmailAddress)
+	if err != nil {
+		log.Printf("gmail callback: find existing account failed: %v", err)
+		http.Redirect(w, r, "/settings/accounts?error=create_failed", http.StatusSeeOther)
+		return
+	}
+	accountID := existingAccountID
+	if accountID != "" {
+		err = h.accountStore.UpdateAccount(r.Context(), accountID, req)
+	} else {
+		account, createErr := h.accountStore.CreateAccount(r.Context(), userID, req)
+		if createErr == nil {
+			accountID = account.ID
+		}
+		err = createErr
+	}
 	if err != nil {
 		log.Printf("gmail callback: create account failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=create_failed", http.StatusSeeOther)
@@ -3945,12 +4004,12 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		expiresAt = &t
 	}
 
-	err = h.auth.UpsertOAuthAccount(r.Context(), h.userID(r.Context()), "google", info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, "")
+	err = h.auth.UpsertOAuthAccount(r.Context(), userID, providers.OAuthGoogle, info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, "")
 	if err != nil {
-		log.Printf("warning: failed to store oauth tokens for account %s: %v", account.ID, err)
+		log.Printf("warning: failed to store oauth tokens for account %s: %v", accountID, err)
 	}
 
-	h.syncer.SyncAccount(context.Background(), account.ID)
+	h.syncer.SyncAccount(context.Background(), accountID)
 
 	http.Redirect(w, r, "/settings/accounts", http.StatusSeeOther)
 }

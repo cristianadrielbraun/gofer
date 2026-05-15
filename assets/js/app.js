@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", function () {
     document.head.appendChild(style)
   }
   var virtualMailList = null
+  var virtualContactsList = null
   var pendingSyncEvents = []
   var syncRefreshTimer = null
   var processingStatusHandler = null
@@ -23,26 +24,152 @@ document.addEventListener("DOMContentLoaded", function () {
   setupFolderClickInterception()
   setupEmailSelectionTracking()
   setupMailListViewToggle()
+  setupContactsList()
   setupMailFilters()
   setupMailTableColumnResize()
   setupSSE()
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
-  setupContactListSelection()
   setupSidebarAccountCollapse()
   setupProcessingStatus()
   setupBodyPrefetch()
   setupEmailBodyModeTabs()
   refreshSidebarUnread()
 
-  function setupContactListSelection() {
+  function setupContactsList() {
+    var searchTimer = null
+
+    function init(root) {
+      var scroll = root && root.id === "contacts-list-scroll" ? root : document.getElementById("contacts-list-scroll")
+      if (!scroll || scroll._virtualContactsList || typeof VirtualContactsList === "undefined") return
+      var selected = scroll.querySelector(".mail-list-item[data-contact-id] .envelope-active")
+      var selectedRow = selected && selected.closest("[data-contact-id]")
+      virtualContactsList = new VirtualContactsList(scroll, {
+        viewMode: scroll.dataset.viewMode || "cards",
+        selectedContactId: selectedRow ? selectedRow.dataset.contactId : null,
+      })
+      virtualContactsList.hydrateFromDOM()
+      scroll._virtualContactsList = virtualContactsList
+    }
+
+    function currentList() {
+      var scroll = document.getElementById("contacts-list-scroll")
+      if (!scroll) return null
+      return scroll._virtualContactsList || virtualContactsList
+    }
+
+    function readFilters() {
+      var search = document.querySelector("[data-contact-search-input]")
+      var form = document.querySelector("[data-contact-filter-form]")
+      return {
+        query: search ? search.value || "" : "",
+        source: form && form.querySelector('[name="source"]') ? form.querySelector('[name="source"]').value || "" : "",
+        saveTarget: form && form.querySelector('[name="save_target"]') ? form.querySelector('[name="save_target"]').value || "" : "",
+        activity: form && form.querySelector('[name="activity"]') ? form.querySelector('[name="activity"]').value || "" : "",
+      }
+    }
+
+    function syncFilterUI(filters) {
+      var count = (filters.source ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
+      var button = document.querySelector('[aria-label="Filter contacts"]')
+      if (button) {
+        button.dataset.active = count > 0 ? "true" : "false"
+        var badge = button.querySelector("span")
+        if (badge) badge.textContent = String(count)
+      }
+    }
+
+    function applyFilters() {
+      var list = currentList()
+      if (!list) return
+      var filters = readFilters()
+      syncFilterUI(filters)
+      list.applyFilters(filters).catch(function () {})
+    }
+
+    function scheduleSearch() {
+      if (searchTimer) clearTimeout(searchTimer)
+      searchTimer = setTimeout(function () {
+        searchTimer = null
+        applyFilters()
+      }, 250)
+    }
+
+    init(document)
+
     document.addEventListener("click", function (e) {
+      var viewBtn = e.target.closest && e.target.closest("[data-contact-list-view-button]")
+      if (viewBtn) {
+        e.preventDefault()
+        var mode = viewBtn.getAttribute("data-contact-list-view-button") === "table" ? "table" : "cards"
+        if (window.GoferSettings) GoferSettings.set("contacts_list_view", mode)
+        var group = viewBtn.closest("[data-contact-list-view-toggle]")
+        if (group) {
+          var buttons = group.querySelectorAll("[data-contact-list-view-button]")
+          for (var i = 0; i < buttons.length; i++) {
+            var active = buttons[i] === viewBtn
+            buttons[i].classList.toggle("text-foreground", active)
+            buttons[i].classList.toggle("text-muted-foreground", !active)
+            buttons[i].classList.toggle("hover:text-foreground", !active)
+          }
+          var indicator = group.querySelector("[data-contact-list-view-indicator]")
+          if (indicator) indicator.style.transform = mode === "table" ? "translateX(100%)" : "translateX(0)"
+        }
+        var list = currentList()
+        if (list) list.switchViewMode(mode).catch(function () {})
+        return
+      }
+
+      var clear = e.target.closest && e.target.closest("[data-contact-filter-clear]")
+      if (clear) {
+        e.preventDefault()
+        var search = document.querySelector("[data-contact-search-input]")
+        if (search) search.value = ""
+        var form = document.querySelector("[data-contact-filter-form]")
+        if (form) {
+          var inputs = form.querySelectorAll("input")
+          for (var ci = 0; ci < inputs.length; ci++) inputs[ci].value = ""
+          var selectedItems = form.querySelectorAll("[data-tui-selectbox-selected='true']")
+          for (var si = 0; si < selectedItems.length; si++) selectedItems[si].setAttribute("data-tui-selectbox-selected", "false")
+          var placeholders = form.querySelectorAll("[data-tui-selectbox-placeholder]")
+          for (var pi = 0; pi < placeholders.length; pi++) placeholders[pi].textContent = placeholders[pi].getAttribute("data-tui-selectbox-placeholder") || ""
+        }
+        applyFilters()
+        return
+      }
+
       var contactItem = e.target.closest && e.target.closest("[data-contact-list-item]")
       if (!contactItem) return
-      document.querySelectorAll("[data-contact-list-item]").forEach(function (item) {
-        item.dataset.active = item === contactItem ? "true" : "false"
-      })
+      var row = contactItem.closest("[data-contact-id]")
+      var list = currentList()
+      if (list && row && row.dataset.contactId) list.onContactSelected(row.dataset.contactId)
+    }, true)
+
+    document.addEventListener("submit", function (e) {
+      if (!e.target || (!e.target.matches("[data-contact-filter-form]") && !e.target.matches("[data-contact-search-form]"))) return
+      e.preventDefault()
+      applyFilters()
+    })
+
+    document.addEventListener("input", function (e) {
+      if (!e.target || !e.target.matches("[data-contact-search-input]")) return
+      scheduleSearch()
+    })
+
+    document.addEventListener("search", function (e) {
+      if (!e.target || !e.target.matches("[data-contact-search-input]")) return
+      scheduleSearch()
+    })
+
+    document.addEventListener("change", function (e) {
+      if (!e.target || !e.target.closest("[data-contact-filter-form]")) return
+      applyFilters()
+    })
+
+    document.body.addEventListener("htmx:afterSettle", function (evt) {
+      if (!evt.target || !evt.target.querySelector) return
+      if (evt.target.id === "main-content" || evt.target.querySelector("#contacts-list-scroll")) init(evt.target)
     })
   }
 
@@ -1152,7 +1279,37 @@ document.addEventListener("DOMContentLoaded", function () {
     var sidebar = document.querySelector("aside")
     if (!sidebar) return
 
+    function clearFolderActiveState() {
+      var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
+      for (var i = 0; i < sidebarLinks.length; i++) {
+        sidebarLinks[i].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+        sidebarLinks[i].classList.add("text-sidebar-foreground")
+        var badge = sidebarLinks[i].querySelector("[data-folder-unread]")
+        if (badge) {
+          badge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
+          badge.classList.add("bg-sidebar-accent", "text-sidebar-foreground/80")
+        }
+      }
+    }
+
+    function setContactsActive(active) {
+      var contactsLink = sidebar.querySelector("[data-sidebar-contacts-link]")
+      if (!contactsLink) return
+      contactsLink.classList.toggle("bg-sidebar-accent", active)
+      contactsLink.classList.toggle("text-sidebar-primary", active)
+      contactsLink.classList.toggle("font-medium", active)
+      contactsLink.classList.toggle("text-sidebar-foreground", !active)
+    }
+
     sidebar.addEventListener("click", function (e) {
+      var contactsLink = e.target.closest("[data-sidebar-contacts-link]")
+      if (contactsLink) {
+        clearFolderActiveState()
+        setContactsActive(true)
+        virtualMailList = null
+        return
+      }
+
       var link = e.target.closest('a[hx-get^="/folder/"]')
       if (!link) return
 
@@ -1168,20 +1325,8 @@ document.addEventListener("DOMContentLoaded", function () {
         _updateComposeBtn(false)
       }
 
-      var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
-      for (var i = 0; i < sidebarLinks.length; i++) {
-        sidebarLinks[i].classList.remove(
-          "bg-sidebar-accent",
-          "text-sidebar-primary",
-          "font-medium"
-        )
-        sidebarLinks[i].classList.add("text-sidebar-foreground")
-        var badge = sidebarLinks[i].querySelector("[data-folder-unread]")
-        if (badge) {
-          badge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
-          badge.classList.add("bg-sidebar-accent", "text-sidebar-foreground/80")
-        }
-      }
+      clearFolderActiveState()
+      setContactsActive(false)
       link.classList.add(
         "bg-sidebar-accent",
         "text-sidebar-primary",
@@ -1196,8 +1341,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
       var mainContent = document.getElementById("main-content")
       var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
-      if (isOnSettings || !virtualMailList) {
+      var isOnContacts = !!document.getElementById("contacts-list-scroll")
+      var mailListDetached = !virtualMailList || !virtualMailList.container || !document.body.contains(virtualMailList.container)
+      if (isOnSettings || isOnContacts || mailListDetached) {
         if (typeof htmx !== "undefined") {
+          virtualContactsList = null
           history.pushState({ folder: folderID, email: null }, "", "/folder/" + folderID)
           if (mainContent) showMailContentLoading(mainContent, link)
           htmx.ajax("GET", "/folder/" + folderID + "/full", {target: "#main-content", swap: "outerHTML"})
@@ -1290,6 +1438,9 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!btn) return
       e.preventDefault()
 
+      var scroll = document.getElementById("mail-list-scroll")
+      if (scroll && scroll.dataset.viewSwitchPending === "true") return
+
       var mode = btn.dataset.mailListViewButton === "table" ? "table" : "cards"
       if (window.GoferSettings) GoferSettings.set("mail_list_view", mode)
 
@@ -1308,7 +1459,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
 
-      var scroll = document.getElementById("mail-list-scroll")
       var vml = scroll && scroll._virtualMailList
       if (vml && typeof vml.switchViewMode === "function") {
         vml.switchViewMode(mode).catch(function () {})

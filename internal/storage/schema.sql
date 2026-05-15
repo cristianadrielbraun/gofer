@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     provider TEXT NOT NULL DEFAULT 'imap',
+    provider_account_id TEXT NOT NULL DEFAULT '',
     email_address TEXT NOT NULL,
     display_name TEXT NOT NULL DEFAULT '',
     color TEXT NOT NULL DEFAULT '',
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_accounts_provider_identity ON accounts(provider, provider_account_id);
 
 -- Folders
 CREATE TABLE IF NOT EXISTS folders (
@@ -517,4 +519,4 @@ CREATE INDEX IF NOT EXISTS idx_contact_activity_events_type_created
 ON contact_activity_events(event_type, created_at DESC);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (24);
+INSERT OR REPLACE INTO schema_version (version) VALUES (26);

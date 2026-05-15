@@ -79,7 +79,7 @@ func (m *Manager) UpsertOAuthAccount(ctx context.Context, userID, provider, prov
 
 	if existingID != "" {
 		_, err = m.db.Write().ExecContext(ctx,
-			`UPDATE oauth_accounts SET user_id = ?, access_token = ?, refresh_token = ?, token_type = ?, expires_at = ?, scopes = ?, updated_at = ? WHERE id = ?`,
+			`UPDATE oauth_accounts SET user_id = ?, access_token = ?, refresh_token = COALESCE(NULLIF(?, ''), refresh_token), token_type = ?, expires_at = ?, scopes = ?, updated_at = ? WHERE id = ?`,
 			userID, accessToken, refreshToken, tokenType, expiresAt, scopes, now, existingID,
 		)
 		return err

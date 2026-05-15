@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"golang.org/x/oauth2"
 )
 
@@ -117,7 +118,7 @@ func (m *Manager) HandleGoogleCallback(ctx context.Context, code string, userAge
 		return nil, nil, fmt.Errorf("store oauth account: %w", err)
 	}
 
-	if err := m.autoSetupGmail(ctx, user.ID, info.Email, info.Name); err != nil {
+	if err := m.autoSetupGmail(ctx, user.ID, info.Email, info.Name, info.Sub); err != nil {
 		return nil, nil, fmt.Errorf("gmail auto-setup: %w", err)
 	}
 
@@ -129,12 +130,20 @@ func (m *Manager) HandleGoogleCallback(ctx context.Context, code string, userAge
 	return user, session, nil
 }
 
-func (m *Manager) autoSetupGmail(ctx context.Context, userID, email, displayName string) error {
+func (m *Manager) autoSetupGmail(ctx context.Context, userID, email, displayName, providerAccountID string) error {
 	var existing string
 	err := m.db.Read().QueryRowContext(ctx,
-		`SELECT id FROM accounts WHERE user_id = ? AND imap_host = 'imap.gmail.com' LIMIT 1`, userID,
+		`SELECT id FROM accounts
+		 WHERE user_id = ? AND (
+		   (provider = ? AND provider_account_id = ? AND provider_account_id != '')
+		   OR (email_address = ? AND imap_host = 'imap.gmail.com' AND auth_method = 'oauth2')
+		 ) LIMIT 1`, userID, providers.ProviderGmail, providerAccountID, email,
 	).Scan(&existing)
 	if err == nil && existing != "" {
+		_, _ = m.db.Write().ExecContext(ctx,
+			`UPDATE accounts SET provider = ?, provider_account_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			providers.ProviderGmail, providerAccountID, existing,
+		)
 		return nil
 	}
 
@@ -143,12 +152,12 @@ func (m *Manager) autoSetupGmail(ctx context.Context, userID, email, displayName
 	color := generateColor(id)
 
 	_, err = m.db.Write().ExecContext(ctx,
-		`INSERT OR IGNORE INTO accounts (id, user_id, email_address, display_name, color, initials,
+		`INSERT OR IGNORE INTO accounts (id, user_id, provider, provider_account_id, email_address, display_name, color, initials,
 		  imap_host, imap_port, imap_tls_mode,
 		  smtp_host, smtp_port, smtp_tls_mode,
 		  username, auth_method)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, userID, email, displayName, color, initials,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, userID, providers.ProviderGmail, providerAccountID, email, displayName, color, initials,
 		"imap.gmail.com", 993, "tls",
 		"smtp.gmail.com", 465, "tls",
 		email, "oauth2")

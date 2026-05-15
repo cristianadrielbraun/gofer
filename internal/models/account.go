@@ -1,16 +1,18 @@
 package models
 
 type AccountConfig struct {
-	AccountID    string
-	IMAPHost     string
-	IMAPPort     int
-	IMAPTLSMode  string
-	SMTPHost     string
-	SMTPPort     int
-	SMTPTLSMode  string
-	Username     string
-	AuthMethod   string
-	SmtpUsername string
+	AccountID         string
+	Provider          string
+	ProviderAccountID string
+	IMAPHost          string
+	IMAPPort          int
+	IMAPTLSMode       string
+	SMTPHost          string
+	SMTPPort          int
+	SMTPTLSMode       string
+	Username          string
+	AuthMethod        string
+	SmtpUsername      string
 }
 
 type ConnectionTestResult struct {
@@ -22,6 +24,8 @@ type ConnectionTestResult struct {
 
 type EditAccountData struct {
 	AccountID         string
+	Provider          string
+	ProviderAccountID string
 	EmailAddress      string
 	DisplayName       string
 	IMAPHost          string
@@ -39,19 +43,21 @@ type EditAccountData struct {
 }
 
 type CreateAccountRequest struct {
-	EmailAddress string `json:"email_address"`
-	DisplayName  string `json:"display_name"`
-	IMAPHost     string `json:"imap_host"`
-	IMAPPort     int    `json:"imap_port"`
-	IMAPTLSMode  string `json:"imap_tls_mode"`
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPTLSMode  string `json:"smtp_tls_mode"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	AuthMethod   string `json:"auth_method"`
-	SmtpUsername string `json:"smtp_username"`
-	SmtpPassword string `json:"smtp_password"`
+	Provider          string `json:"provider"`
+	ProviderAccountID string `json:"provider_account_id"`
+	EmailAddress      string `json:"email_address"`
+	DisplayName       string `json:"display_name"`
+	IMAPHost          string `json:"imap_host"`
+	IMAPPort          int    `json:"imap_port"`
+	IMAPTLSMode       string `json:"imap_tls_mode"`
+	SMTPHost          string `json:"smtp_host"`
+	SMTPPort          int    `json:"smtp_port"`
+	SMTPTLSMode       string `json:"smtp_tls_mode"`
+	Username          string `json:"username"`
+	Password          string `json:"password"`
+	AuthMethod        string `json:"auth_method"`
+	SmtpUsername      string `json:"smtp_username"`
+	SmtpPassword      string `json:"smtp_password"`
 }
 
 type SyncSettings struct {

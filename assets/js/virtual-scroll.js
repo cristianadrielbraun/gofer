@@ -56,6 +56,27 @@ class VirtualMailList {
     this.bindEvents()
   }
 
+  rowHTML(item, viewMode) {
+    if (!item) return ""
+    return item.html || ""
+  }
+
+  setCachedRow(pos, id, html, viewMode) {
+    var existing = this.cache.get(pos)
+    if (existing && existing.id && existing.id !== id) this.indexById.delete(existing.id)
+    var item = existing && existing.id === id ? existing : { id: id, html: "" }
+    item.id = id
+    item.html = html
+    this.cache.set(pos, item)
+    this.indexById.set(id, pos)
+  }
+
+  itemsURLForView(viewMode, start, limit) {
+    var url = "/mail/folder/" + this.folderID + "/items?start=" + start + "&limit=" + limit + "&view=" + encodeURIComponent(viewMode === "table" ? "table" : "cards")
+    if (this.selectedEmailId) url += "&selected=" + encodeURIComponent(this.selectedEmailId)
+    return this.withFilterParams(url)
+  }
+
   _rebuildOffsets() {
     if (this._offsetCacheLen === this.effectiveCount) return
     this._offsetCache = new Array(this.effectiveCount + 1)
@@ -260,7 +281,7 @@ class VirtualMailList {
       shell.innerHTML = this.createSkeleton().outerHTML
       return
     }
-    shell.innerHTML = item.html
+    shell.innerHTML = this.rowHTML(item, this.viewMode)
     var row = shell.querySelector(".mail-list-item") || shell.firstElementChild
     if (!row) return
     var anchor = row.querySelector("a")
@@ -409,13 +430,20 @@ class VirtualMailList {
         var next = node.getBoundingClientRect()
         var dx = old.rect.left - next.left
         var dy = old.rect.top - next.top
-        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+        var finalHeight = node.style.height || (next.height + "px")
+        var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || heightChanged) {
           var base = node.style.transform || ""
           node.style.transition = "none"
           node.style.transform = base + " translate(" + dx + "px," + dy + "px)"
+          if (heightChanged) {
+            node.style.height = old.rect.height + "px"
+            node.style.overflow = "hidden"
+          }
           node.offsetHeight
-          node.style.transition = "transform " + duration + "ms " + ease
+          node.style.transition = "transform " + duration + "ms " + ease + (heightChanged ? ", height " + duration + "ms " + ease : "")
           node.style.transform = base
+          if (heightChanged) node.style.height = finalHeight
           this.cleanupTransition(node, duration)
         }
       } else {
@@ -487,6 +515,7 @@ class VirtualMailList {
       node.style.transition = ""
       node.style.opacity = ""
       node.style.willChange = ""
+      node.style.overflow = ""
     }, duration + 40)
   }
 
@@ -685,7 +714,7 @@ class VirtualMailList {
   }
 
   async fetchRange(start, end) {
-    var key = "range-" + start + "-" + end
+    var key = "range-" + this.viewMode + "-" + start + "-" + end
     if (this.activeFetches.has(key)) return
     this.activeFetches.add(key)
     try {
@@ -704,7 +733,6 @@ class VirtualMailList {
       url = this.withFilterParams(url)
       var html = await this.fetchHTML(url)
       this.ingestHTML(html)
-      this.addLoadedRange(start, end)
       this.prevFirst = null
       this.prevLast = null
       this.render()
@@ -761,6 +789,7 @@ class VirtualMailList {
     template.innerHTML = html
     var wrapper = template.content.firstElementChild
     if (!wrapper) return
+    var viewMode = wrapper.dataset.viewMode === "table" ? "table" : "cards"
 
     var tc = parseInt(wrapper.dataset.totalCount)
     if (!isNaN(tc)) this.totalCount = tc
@@ -781,16 +810,15 @@ class VirtualMailList {
       var pos = parseInt(el.dataset.position)
       var id = el.dataset.emailId
       if (isNaN(pos) || !id) continue
-      this.cache.set(pos, { id: id, html: el.outerHTML })
-      this.indexById.set(id, pos)
+      this.setCachedRow(pos, id, el.outerHTML, viewMode)
     }
 
     var start = parseInt(wrapper.dataset.windowStart)
     var end = parseInt(wrapper.dataset.windowEnd)
-    if (!isNaN(start) && !isNaN(end)) {
+    if (viewMode === this.viewMode && !isNaN(start) && !isNaN(end)) {
       this.addLoadedRange(start, end)
     }
-    this.updateEffectiveCount()
+    if (viewMode === this.viewMode) this.updateEffectiveCount()
   }
 
   updateEffectiveCount() {
@@ -883,8 +911,7 @@ class VirtualMailList {
       var pos = parseInt(el.dataset.position)
       var id = el.dataset.emailId
       if (isNaN(pos) || !id) continue
-      this.cache.set(pos, { id: id, html: el.outerHTML })
-      this.indexById.set(id, pos)
+      this.setCachedRow(pos, id, el.outerHTML, this.viewMode)
     }
 
     if (this.cache.size > 0) {
@@ -938,8 +965,34 @@ class VirtualMailList {
 
     var header = document.createElement("div")
     header.className = "mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
+    header.style.opacity = "0"
+    header.style.transform = "translateY(-4px)"
+    header.style.transition = "opacity 140ms ease-out, transform 140ms ease-out"
     header.innerHTML = this.tableHeaderHTML()
     this.container.insertBefore(header, this.spacerTop)
+    requestAnimationFrame(function () {
+      header.style.opacity = "1"
+      header.style.transform = "translateY(0)"
+    })
+  }
+
+  setViewSwitchPending(pending) {
+    if (!this.itemsContainer) return
+    this.container.dataset.viewSwitchPending = pending ? "true" : "false"
+    this.itemsContainer.style.transition = "opacity 220ms ease-out, transform 220ms ease-out, filter 220ms ease-out"
+    if (pending) {
+      this.itemsContainer.style.opacity = "0.72"
+      this.itemsContainer.style.transform = "scale(0.998)"
+      this.itemsContainer.style.filter = "saturate(0.96)"
+      return
+    }
+    this.itemsContainer.style.opacity = ""
+    this.itemsContainer.style.transform = ""
+    this.itemsContainer.style.filter = ""
+    var container = this.itemsContainer
+    setTimeout(function () {
+      if (container.style.opacity === "") container.style.transition = ""
+    }, 260)
   }
 
   tableHeaderHTML() {
@@ -1076,6 +1129,9 @@ class VirtualMailList {
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
     if (mailList) mailList.dataset.mailListView = this.viewMode
+    if (this.viewMode === "table" && typeof window.applyMailTableColumnSettings === "function") {
+      window.applyMailTableColumnSettings(this.container)
+    }
     this.renderTableHeader()
     this.invalidateOffsets()
     if (!keepRows) {
@@ -1087,20 +1143,40 @@ class VirtualMailList {
       this.effectiveCount = 0
       this.prevFirst = null
       this.prevLast = null
+      this.rowPool = []
+      this.visibleRows.clear()
+      this.rowByIndex.clear()
+      if (this.itemsContainer) this.itemsContainer.innerHTML = ""
     }
   }
 
   async switchViewMode(viewMode) {
     viewMode = viewMode === "table" ? "table" : "cards"
     if (viewMode === this.viewMode) return
+    var transition = this.captureListTransition()
     var selected = this.selectedEmailId
-    var params = "limit=50&view=" + encodeURIComponent(viewMode)
-    if (selected) params += "&selected=" + encodeURIComponent(selected)
-    var html = await this.fetchHTML(this.withFilterParams("/mail/folder/" + this.folderID + "/items?" + params))
-    this.setViewMode(viewMode, false)
-    this.ingestHTML(html)
-    this.selectedEmailId = selected
-    this.render()
+    var oldItemHeight = this.itemHeight
+    var anchorIndex = this.positionAtOffset(this.container.scrollTop)
+    var anchorOffset = Math.max(0, this.container.scrollTop - this.offsetAtPosition(anchorIndex))
+    var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0
+    var viewportRows = Math.ceil(this.container.clientHeight / Math.max(1, oldItemHeight))
+    var rangeStart = Math.max(0, anchorIndex - 2)
+    var rangeEnd = Math.min(this.totalCount - 1, anchorIndex + viewportRows + 2)
+    var rangeLimit = Math.max(1, rangeEnd - rangeStart + 1)
+    this.setViewSwitchPending(true)
+    try {
+      var html = await this.fetchHTML(this.itemsURLForView(viewMode, rangeStart, rangeLimit))
+      this.setViewMode(viewMode, false)
+      this.ingestHTML(html)
+      this.selectedEmailId = selected
+      this.container.scrollTop = this.offsetAtPosition(anchorIndex) + Math.round(anchorRatio * this.itemHeight)
+      this.render()
+      this.setViewSwitchPending(false)
+      this.animateListTransition(transition, { enterFrom: -8, exitTo: 14, animateHeight: true, animateText: true })
+    } catch (e) {
+      this.setViewSwitchPending(false)
+      throw e
+    }
   }
 
   withFilterParams(url) {
@@ -1330,6 +1406,10 @@ class VirtualMailList {
   invalidateItem(emailId) {
     var pos = this.indexById.get(emailId)
     if (pos === undefined) return
+    var item = this.cache.get(pos)
+    if (item) {
+      item.html = ""
+    }
 
     var url = "/mail/folder/" + this.folderID + "/items?start=" + pos + "&limit=1&view=" + encodeURIComponent(this.viewMode)
     if (this.selectedEmailId) {
@@ -1410,7 +1490,7 @@ class VirtualMailList {
     var item = this.cache.get(pos)
     if (!item) return null
     var tmp = document.createElement("div")
-    tmp.innerHTML = item.html
+    tmp.innerHTML = this.rowHTML(item, this.viewMode)
     var node = tmp.firstElementChild
     return node ? node.dataset.threadId : null
   }
@@ -1447,7 +1527,642 @@ class VirtualMailList {
   }
 }
 
+class VirtualContactsList {
+  constructor(container, options) {
+    this.container = container
+    this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
+    this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.overscan = 10
+    this.chunkSize = 100
+    this.cache = new Map()
+    this.indexById = new Map()
+    this.loadedRanges = []
+    this.totalCount = 0
+    this.effectiveCount = 0
+    this.selectedContactId = options.selectedContactId || null
+    this.filters = this.readFiltersFromContainer()
+    this.activeFetches = new Set()
+    this.spacerTop = null
+    this.spacerBottom = null
+    this.itemsContainer = null
+    this.rowPool = []
+    this.visibleRows = new Map()
+    this.rowByIndex = new Map()
+    this.poolSlack = 6
+    this.prevFirst = null
+    this.prevLast = null
+    this.transitionOverlay = null
+    this.bindEvents()
+  }
+
+  bindEvents() {
+    var self = this
+    var rafId = null
+    this.container.addEventListener("scroll", function () {
+      if (rafId) return
+      rafId = requestAnimationFrame(function () {
+        self.render()
+        rafId = null
+      })
+    })
+  }
+
+  readFiltersFromContainer() {
+    return {
+      query: this.container.dataset.query || "",
+      source: this.container.dataset.source || "",
+      saveTarget: this.container.dataset.saveTarget || "",
+      activity: this.container.dataset.activity || "",
+    }
+  }
+
+  hydrateFromDOM() {
+    this.setViewMode(this.container.dataset.viewMode || this.viewMode, true)
+    var totalCount = parseInt(this.container.dataset.totalCount)
+    if (!isNaN(totalCount)) this.totalCount = totalCount
+    this.ingestRows(this.container, true)
+    var selected = this.container.querySelector(".envelope-active")
+    if (selected) {
+      var selectedRow = selected.closest("[data-contact-id]")
+      if (selectedRow) this.selectedContactId = selectedRow.dataset.contactId
+    }
+    this.container.innerHTML = ""
+    this.spacerTop = document.createElement("div")
+    this.spacerBottom = document.createElement("div")
+    this.itemsContainer = document.createElement("div")
+    this.itemsContainer.style.position = "relative"
+    this.itemsContainer.style.minWidth = "0"
+    this.container.appendChild(this.spacerTop)
+    this.container.appendChild(this.itemsContainer)
+    this.container.appendChild(this.spacerBottom)
+    this.renderTableHeader()
+    this.render()
+  }
+
+  setViewMode(viewMode, keepRows) {
+    this.viewMode = viewMode === "table" ? "table" : "cards"
+    this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.container.dataset.viewMode = this.viewMode
+    var shell = document.querySelector("[data-contact-list-shell]") || document.getElementById("mail-list")
+    if (shell) shell.dataset.viewMode = this.viewMode
+    this.renderTableHeader()
+    if (!keepRows) this.resetRows()
+    this.prevFirst = null
+    this.prevLast = null
+  }
+
+  resetRows() {
+    this.cache.clear()
+    this.indexById.clear()
+    this.loadedRanges = []
+    this.effectiveCount = 0
+    this.rowPool = []
+    this.visibleRows.clear()
+    this.rowByIndex.clear()
+    if (this.itemsContainer) this.itemsContainer.innerHTML = ""
+    this.container.scrollTop = 0
+  }
+
+  renderTableHeader() {
+    var existing = this.container.querySelector(".mail-list-table-header")
+    if (existing) existing.remove()
+    if (this.viewMode !== "table") return
+    var header = document.createElement("div")
+    header.className = "mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
+    header.style.cssText = this.tableGridStyle()
+    header.style.opacity = "0"
+    header.style.transform = "translateY(-4px)"
+    header.style.transition = "opacity 140ms ease-out, transform 140ms ease-out"
+    header.innerHTML = '<div class="mail-list-table-heading">Name</div><div class="mail-list-table-heading">Origin</div><div class="mail-list-table-heading min-w-12 text-right">Msgs</div>'
+    this.container.insertBefore(header, this.spacerTop || this.container.firstChild)
+    requestAnimationFrame(function () {
+      header.style.opacity = "1"
+      header.style.transform = "translateY(0)"
+    })
+  }
+
+  tableGridStyle() {
+    return "--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)"
+  }
+
+  render() {
+    if (!this.itemsContainer) return
+    if (this.totalCount === 0) {
+      var stale = this.captureListTransition()
+      this.spacerTop.style.height = "0px"
+      this.spacerBottom.style.height = "0px"
+      this.itemsContainer.style.height = "auto"
+      this.itemsContainer.innerHTML = this.emptyHTML()
+      this.animateExitingRows(stale ? stale.rows : null, new Set(), 180, "cubic-bezier(0.2, 0, 0, 1)", 14, 18)
+      return
+    }
+
+    var scrollTop = this.container.scrollTop
+    var clientHeight = this.container.clientHeight
+    var first = Math.max(0, Math.floor((scrollTop - this.overscan * this.itemHeight) / this.itemHeight))
+    var last = Math.min(this.totalCount - 1, Math.ceil((scrollTop + clientHeight + this.overscan * this.itemHeight) / this.itemHeight))
+    if (first === this.prevFirst && last === this.prevLast) return
+    this.prevFirst = first
+    this.prevLast = last
+    this.ensureRangeLoaded(first, last)
+    this.spacerTop.style.height = "0px"
+    this.spacerBottom.style.height = "0px"
+    this.itemsContainer.style.height = (this.totalCount * this.itemHeight) + "px"
+    this.renderPooled(first, last)
+    this.syncSelectionClasses(this.itemsContainer)
+    if (typeof htmx !== "undefined") htmx.process(this.itemsContainer)
+  }
+
+  emptyHTML() {
+    return '<div class="flex flex-col items-center justify-center py-20 px-4 text-center">' +
+      '<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-7 text-muted-foreground/40"><path d="M15 18a3 3 0 1 0-6 0"></path><circle cx="12" cy="10" r="2"></circle><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M8 2v4"></path><path d="M16 2v4"></path></svg>' +
+      '</div><h3 class="font-semibold text-sm mb-1">No contacts yet</h3>' +
+      '<p class="text-xs text-muted-foreground">Observed contacts will appear as mail is synced, or you can add one manually.</p></div>'
+  }
+
+  ensureRowPool() {
+    var needed = Math.ceil(this.container.clientHeight / this.itemHeight) + this.overscan * 2 + this.poolSlack
+    while (this.rowPool.length < needed) {
+      var shell = document.createElement("div")
+      shell.style.position = "absolute"
+      shell.style.left = "0"
+      shell.style.right = "0"
+      shell.style.willChange = "transform"
+      shell.hidden = true
+      this.itemsContainer.appendChild(shell)
+      this.rowPool.push(shell)
+    }
+  }
+
+  acquireRow(index) {
+    if (this.rowByIndex.has(index)) return this.rowByIndex.get(index)
+    for (var i = 0; i < this.rowPool.length; i++) {
+      var row = this.rowPool[i]
+      if (!this.visibleRows.has(row)) {
+        this.visibleRows.set(row, index)
+        this.rowByIndex.set(index, row)
+        return row
+      }
+    }
+    return null
+  }
+
+  releaseRow(row) {
+    var idx = this.visibleRows.get(row)
+    if (idx !== undefined) this.rowByIndex.delete(idx)
+    this.visibleRows.delete(row)
+    row.hidden = true
+  }
+
+  renderPooled(first, last) {
+    this.ensureRowPool()
+    var entries = Array.from(this.visibleRows.entries())
+    for (var i = 0; i < entries.length; i++) {
+      var idx = entries[i][1]
+      if (idx < first || idx > last) this.releaseRow(entries[i][0])
+    }
+    for (var pos = first; pos <= last; pos++) {
+      var row = this.rowByIndex.has(pos) ? this.rowByIndex.get(pos) : this.acquireRow(pos)
+      if (!row) continue
+      this.stampRow(row, pos)
+    }
+  }
+
+  stampRow(shell, index) {
+    var item = this.cache.get(index)
+    shell.hidden = false
+    shell.style.transform = "translateY(" + (index * this.itemHeight) + "px)"
+    shell.style.height = this.itemHeight + "px"
+    if (!item) {
+      shell.innerHTML = this.createSkeleton()
+      return
+    }
+    shell.innerHTML = item.html
+    var anchor = shell.querySelector("a")
+    if (!anchor) return
+    if (item.id === this.selectedContactId) {
+      anchor.classList.remove("envelope")
+      anchor.classList.add("envelope-active")
+      anchor.dataset.active = "true"
+    } else {
+      anchor.classList.remove("envelope-active")
+      anchor.classList.add("envelope")
+      anchor.dataset.active = "false"
+    }
+  }
+
+  createSkeleton() {
+    if (this.viewMode === "table") {
+      return '<div class="mail-list-skeleton mail-list-table-skeleton"><div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5" style="' + this.tableGridStyle() + '"><div class="h-3 w-32 rounded bg-muted animate-pulse"></div><div class="h-3 w-24 rounded bg-muted animate-pulse"></div><div class="ml-auto h-3 w-8 rounded bg-muted animate-pulse"></div></div></div>'
+    }
+    return '<div class="mail-list-skeleton"><div class="flex items-start gap-3 px-3.5 py-2.5"><div class="size-6 rounded-full bg-muted animate-pulse"></div><div class="flex-1 min-w-0 space-y-2"><div class="h-3 w-28 rounded bg-muted animate-pulse"></div><div class="h-3 w-40 rounded bg-muted animate-pulse"></div><div class="h-2.5 w-24 rounded bg-muted animate-pulse"></div></div></div></div>'
+  }
+
+  ensureRangeLoaded(first, last) {
+    var gaps = this.findGaps(first, last)
+    for (var i = 0; i < gaps.length; i++) this.fetchRange(gaps[i].start, gaps[i].end)
+  }
+
+  findGaps(first, last) {
+    var gaps = []
+    var pos = first
+    var sorted = this.loadedRanges.slice().sort(function (a, b) { return a.start - b.start })
+    for (var i = 0; i < sorted.length; i++) {
+      var range = sorted[i]
+      if (range.end < pos) continue
+      if (range.start > last) break
+      if (range.start > pos) gaps.push({ start: pos, end: Math.min(range.start - 1, last) })
+      pos = Math.max(pos, range.end + 1)
+    }
+    if (pos <= last) gaps.push({ start: pos, end: last })
+    return gaps
+  }
+
+  fetchRange(start, end) {
+    var key = start + "-" + end + "-" + this.viewMode
+    if (this.activeFetches.has(key)) return
+    this.activeFetches.add(key)
+    var url = this.itemsURL(start, end - start + 1)
+    var self = this
+    this.fetchHTML(url).then(function (html) {
+      self.ingestHTML(html)
+      self.prevFirst = null
+      self.prevLast = null
+      self.render()
+    }).catch(function () {}).finally(function () {
+      self.activeFetches.delete(key)
+    })
+  }
+
+  fetchHTML(url) {
+    return fetch(url, { headers: { Accept: "text/html" } }).then(function (res) {
+      if (!res.ok) throw new Error("Fetch failed: " + res.status)
+      return res.text()
+    })
+  }
+
+  itemsURL(start, limit) {
+    return this.itemsURLFor(this.viewMode, this.filters, start, limit)
+  }
+
+  itemsURLFor(viewMode, filters, start, limit) {
+    var params = new URLSearchParams()
+    params.set("start", String(Math.max(0, start || 0)))
+    params.set("limit", String(Math.max(1, limit || this.chunkSize)))
+    params.set("view", viewMode === "table" ? "table" : "cards")
+    if (this.selectedContactId) params.set("selected", this.selectedContactId)
+    filters = filters || this.filters
+    if (filters.query) params.set("q", filters.query)
+    if (filters.source) params.set("source", filters.source)
+    if (filters.saveTarget) params.set("save_target", filters.saveTarget)
+    if (filters.activity) params.set("activity", filters.activity)
+    return "/contacts/items?" + params.toString()
+  }
+
+  ingestHTML(html) {
+    var template = document.createElement("template")
+    template.innerHTML = html
+    var wrapper = template.content.firstElementChild
+    if (!wrapper) return
+    var total = parseInt(wrapper.dataset.totalCount)
+    if (!isNaN(total)) this.totalCount = total
+    this.ingestRows(wrapper, false)
+    this.updateHeader()
+  }
+
+  ingestRows(root, fromDOM) {
+    var items = root.querySelectorAll(".mail-list-item[data-contact-id]")
+    for (var i = 0; i < items.length; i++) {
+      var el = items[i]
+      var pos = parseInt(el.dataset.position)
+      var id = el.dataset.contactId
+      if (isNaN(pos) || !id) continue
+      this.cache.set(pos, { id: id, html: el.outerHTML })
+      this.indexById.set(id, pos)
+    }
+    var start = parseInt(root.dataset.windowStart)
+    var end = parseInt(root.dataset.windowEnd)
+    if (!isNaN(start) && !isNaN(end) && end >= start) this.addLoadedRange(start, end)
+    if (fromDOM && this.cache.size > 0 && (isNaN(start) || isNaN(end))) {
+      var positions = Array.from(this.cache.keys())
+      this.addLoadedRange(Math.min.apply(null, positions), Math.max.apply(null, positions))
+    }
+    this.effectiveCount = this.totalCount
+  }
+
+  addLoadedRange(start, end) {
+    this.loadedRanges.push({ start: start, end: end })
+    this.loadedRanges.sort(function (a, b) { return a.start - b.start })
+    var merged = []
+    for (var i = 0; i < this.loadedRanges.length; i++) {
+      var current = this.loadedRanges[i]
+      var last = merged[merged.length - 1]
+      if (last && current.start <= last.end + 1) last.end = Math.max(last.end, current.end)
+      else merged.push({ start: current.start, end: current.end })
+    }
+    this.loadedRanges = merged
+  }
+
+  syncSelectionClasses(root) {
+    if (!root) return
+    var active = root.querySelectorAll(".envelope-active")
+    for (var i = 0; i < active.length; i++) {
+      active[i].classList.remove("envelope-active")
+      active[i].classList.add("envelope")
+      active[i].dataset.active = "false"
+    }
+    if (!this.selectedContactId) return
+    var main = root.querySelector('[data-contact-id="' + this.cssEscape(this.selectedContactId) + '"] > a')
+    if (main) {
+      main.classList.remove("envelope")
+      main.classList.add("envelope-active")
+      main.dataset.active = "true"
+    }
+  }
+
+  cssEscape(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value)
+    return String(value).replace(/"/g, '\\"')
+  }
+
+  onContactSelected(contactId) {
+    this.selectedContactId = contactId
+    this.syncSelectionClasses(this.itemsContainer)
+    this.pushUrl()
+  }
+
+  async switchViewMode(viewMode) {
+    viewMode = viewMode === "table" ? "table" : "cards"
+    if (viewMode === this.viewMode) return
+    var transition = this.captureListTransition()
+    var oldItemHeight = this.itemHeight
+    var anchorIndex = Math.max(0, Math.floor(this.container.scrollTop / Math.max(1, oldItemHeight)))
+    var anchorOffset = Math.max(0, this.container.scrollTop - anchorIndex * oldItemHeight)
+    var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0
+    var rangeStart = Math.max(0, anchorIndex - this.overscan)
+    var rangeEnd = Math.min(this.totalCount - 1, rangeStart + this.chunkSize - 1)
+    var html = await this.fetchHTML(this.itemsURLFor(viewMode, this.filters, rangeStart, rangeEnd - rangeStart + 1))
+    this.setViewMode(viewMode, false)
+    this.ingestHTML(html)
+    this.container.scrollTop = anchorIndex * this.itemHeight + Math.round(anchorRatio * this.itemHeight)
+    this.render()
+    this.animateListTransition(transition, { enterFrom: -8, exitTo: 14, animateHeight: true })
+    this.updateURLForState()
+  }
+
+  async applyFilters(filters) {
+    var nextFilters = {
+      query: (filters.query || "").trim(),
+      source: (filters.source || "").trim(),
+      saveTarget: (filters.saveTarget || "").trim(),
+      activity: (filters.activity || "").trim(),
+    }
+    var transition = this.captureListTransition()
+    var previousSelected = this.selectedContactId
+    var html = await this.fetchHTML(this.itemsURLFor(this.viewMode, nextFilters, 0, this.chunkSize))
+    this.filters = nextFilters
+    this.resetRows()
+    this.ingestHTML(html)
+    if (previousSelected && this.indexById.has(previousSelected)) this.selectedContactId = previousSelected
+    else this.selectedContactId = null
+    this.render()
+    this.animateListTransition(transition, { enterFrom: -8, exitTo: 14 })
+    this.updateURLForState()
+    this.updateFilteredSelection(previousSelected)
+  }
+
+  updateFilteredSelection(previousSelected) {
+    if (this.selectedContactId && this.selectedContactId !== previousSelected && typeof htmx !== "undefined") {
+      htmx.ajax("GET", "/contacts?partial=detail&contact=" + encodeURIComponent(this.selectedContactId), "#contacts-detail")
+      return
+    }
+    if (!this.selectedContactId) {
+      var detail = document.getElementById("contacts-detail")
+      if (detail) detail.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center"><div class="space-y-4 animate-fade-in"><div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised"><svg class="size-9 text-muted-foreground/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18a3 3 0 1 0-6 0"></path><circle cx="12" cy="10" r="2"></circle><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M8 2v4"></path><path d="M16 2v4"></path></svg></div><div><h3 class="font-semibold mb-1">Select a contact</h3><p class="text-sm text-muted-foreground">Choose a contact from the list to view or edit it</p></div></div></div>'
+    }
+  }
+
+  updateHeader() {
+    var countEl = document.getElementById("contacts-count")
+    if (countEl) countEl.textContent = String(this.totalCount)
+  }
+
+  updateURLForState() {
+    var params = new URLSearchParams()
+    if (this.filters.query) params.set("q", this.filters.query)
+    if (this.filters.source) params.set("source", this.filters.source)
+    if (this.filters.saveTarget) params.set("save_target", this.filters.saveTarget)
+    if (this.filters.activity) params.set("activity", this.filters.activity)
+    if (this.viewMode !== "cards") params.set("view", this.viewMode)
+    if (this.selectedContactId) params.set("contact", this.selectedContactId)
+    var url = "/contacts" + (params.toString() ? "?" + params.toString() : "")
+    history.replaceState({ contacts: true, contact: this.selectedContactId || null }, "", url)
+  }
+
+  pushUrl() {
+    this.updateURLForState()
+  }
+
+  captureListTransition() {
+    if (this.prefersReducedMotion() || !this.itemsContainer) return null
+    var rows = new Map()
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (!row || !row.dataset.contactId) continue
+      var anchor = row.querySelector("a")
+      var visualRect = anchor ? anchor.getBoundingClientRect() : node.getBoundingClientRect()
+      var shellRect = node.getBoundingClientRect()
+      rows.set(row.dataset.contactId, {
+        rect: shellRect,
+        visualTopOffset: visualRect.top - shellRect.top,
+        html: row.outerHTML,
+        text: this.captureContactTextMetrics(row),
+      })
+    }
+    return { rows: rows }
+  }
+
+  captureContactTextMetrics(row) {
+    var metrics = {}
+    var fields = [
+      { key: "name", selector: "[data-contact-name]" },
+      { key: "email", selector: "[data-contact-email]" },
+    ]
+    for (var i = 0; i < fields.length; i++) {
+      var el = row.querySelector(fields[i].selector)
+      if (!el) continue
+      var style = window.getComputedStyle(el)
+      metrics[fields[i].key] = {
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+      }
+    }
+    return metrics
+  }
+
+  animateContactTextResize(node, oldMetrics, duration, ease) {
+    if (!oldMetrics) return
+    var fields = [
+      { key: "name", selector: "[data-contact-name]" },
+      { key: "email", selector: "[data-contact-email]" },
+    ]
+    for (var i = 0; i < fields.length; i++) {
+      var old = oldMetrics[fields[i].key]
+      if (!old) continue
+      var el = node.querySelector(fields[i].selector)
+      if (!el) continue
+      var next = window.getComputedStyle(el)
+      if (old.fontSize === next.fontSize && old.lineHeight === next.lineHeight) continue
+      el.style.transition = "none"
+      el.style.fontSize = old.fontSize
+      el.style.lineHeight = old.lineHeight
+      el.offsetHeight
+      el.style.transition = "font-size " + duration + "ms " + ease + ", line-height " + duration + "ms " + ease
+      el.style.fontSize = next.fontSize
+      el.style.lineHeight = next.lineHeight
+      this.cleanupTextTransition(el, duration)
+    }
+  }
+
+  cleanupTextTransition(el, duration) {
+    setTimeout(function () {
+      el.style.transition = ""
+      el.style.fontSize = ""
+      el.style.lineHeight = ""
+    }, duration + 40)
+  }
+
+  prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  }
+
+  ensureTransitionOverlay() {
+    var existing = this.container.querySelector("[data-contact-list-transition-overlay]")
+    if (existing) existing.remove()
+    var overlay = document.createElement("div")
+    overlay.setAttribute("data-contact-list-transition-overlay", "")
+    overlay.style.position = "absolute"
+    overlay.style.left = "0"
+    overlay.style.top = "0"
+    overlay.style.right = "0"
+    overlay.style.pointerEvents = "none"
+    overlay.style.zIndex = "30"
+    overlay.style.overflow = "visible"
+    if (window.getComputedStyle(this.container).position === "static") this.container.style.position = "relative"
+    this.container.appendChild(overlay)
+    return overlay
+  }
+
+  animateListTransition(snapshot, options) {
+    if (!snapshot || !snapshot.rows || this.prefersReducedMotion()) return
+    options = options || {}
+    var duration = options.duration || 190
+    var ease = "cubic-bezier(0.2, 0, 0, 1)"
+    var before = snapshot.rows
+    var afterIds = new Set()
+    var entering = []
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (!row || !row.dataset.contactId) continue
+      var id = row.dataset.contactId
+      afterIds.add(id)
+      var old = before.get(id)
+      if (old) {
+        var next = node.getBoundingClientRect()
+        var nextAnchor = node.querySelector(".mail-list-item > a")
+        var nextVisualRect = nextAnchor ? nextAnchor.getBoundingClientRect() : next
+        var nextVisualTopOffset = nextVisualRect.top - next.top
+        var dx = old.rect.left - next.left
+        var dy = (old.rect.top + (old.visualTopOffset || 0)) - (next.top + nextVisualTopOffset)
+        var finalHeight = node.style.height || (next.height + "px")
+        var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || heightChanged) {
+          var base = node.style.transform || ""
+          node.style.transition = "none"
+          node.style.transform = base + " translate(" + dx + "px," + dy + "px)"
+          if (heightChanged) {
+            node.style.height = old.rect.height + "px"
+            node.style.overflow = "hidden"
+          }
+          node.offsetHeight
+          node.style.transition = "transform " + duration + "ms " + ease + (heightChanged ? ", height " + duration + "ms " + ease : "")
+          node.style.transform = base
+          if (heightChanged) node.style.height = finalHeight
+          this.cleanupTransition(node, duration)
+        }
+        if (options.animateText) this.animateContactTextResize(node, old.text, duration, ease)
+      } else {
+        entering.push(node)
+      }
+    }
+    var exitCount = 0
+    before.forEach(function (_, id) { if (!afterIds.has(id)) exitCount++ })
+    this.animateEnteringRows(entering, duration, ease, options.enterFrom || -10, exitCount > 3 ? Math.min(140, exitCount * 12) : 0, entering.length > 3 ? 12 : 0)
+    this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, exitCount > 3 ? 16 : 0)
+  }
+
+  animateEnteringRows(nodes, duration, ease, offsetY, delay, stagger) {
+    delay = delay || 0
+    stagger = stagger || 0
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i]
+      var base = node.style.transform || ""
+      var itemDelay = delay + Math.min(120, i * stagger)
+      node.style.transition = "none"
+      node.style.opacity = "0"
+      node.style.transform = base + " translateY(" + offsetY + "px) scale(0.985)"
+      node.offsetHeight
+      node.style.transition = "transform " + duration + "ms " + ease + " " + itemDelay + "ms, opacity " + duration + "ms ease-out " + itemDelay + "ms"
+      node.style.opacity = "1"
+      node.style.transform = base
+      this.cleanupTransition(node, duration + itemDelay)
+    }
+  }
+
+  animateExitingRows(before, afterIds, duration, ease, offsetY, stagger) {
+    if (!before || before.size === 0) return
+    stagger = stagger || 0
+    var overlay = null
+    var containerRect = this.container.getBoundingClientRect()
+    var exitIndex = 0
+    before.forEach(function (item, id) {
+      if (afterIds.has(id)) return
+      if (!overlay) overlay = this.ensureTransitionOverlay()
+      var delay = Math.min(140, exitIndex * stagger)
+      exitIndex++
+      var clone = document.createElement("div")
+      clone.innerHTML = item.html
+      clone.style.position = "absolute"
+      clone.style.left = (item.rect.left - containerRect.left + this.container.scrollLeft) + "px"
+      clone.style.top = (item.rect.top - containerRect.top + this.container.scrollTop) + "px"
+      clone.style.width = item.rect.width + "px"
+      clone.style.height = item.rect.height + "px"
+      clone.style.transition = "transform " + duration + "ms " + ease + " " + delay + "ms, opacity " + duration + "ms ease-out " + delay + "ms"
+      clone.style.willChange = "transform, opacity"
+      overlay.appendChild(clone)
+      clone.offsetHeight
+      clone.style.opacity = "0"
+      clone.style.transform = "translateY(" + offsetY + "px) scale(0.985)"
+      setTimeout(function () { clone.remove() }, duration + delay + 40)
+    }, this)
+    if (overlay) setTimeout(function () { if (overlay.parentNode) overlay.remove() }, duration + Math.min(140, Math.max(0, exitIndex - 1) * stagger) + 80)
+  }
+
+  cleanupTransition(node, duration) {
+    setTimeout(function () {
+      node.style.transition = ""
+      node.style.opacity = ""
+      node.style.willChange = ""
+      node.style.overflow = ""
+    }, duration + 40)
+  }
+}
+
 window.VirtualMailList = VirtualMailList
+window.VirtualContactsList = VirtualContactsList
 
 window.addEventListener("popstate", function (e) {
   if (!e.state) return
@@ -1455,6 +2170,23 @@ window.addEventListener("popstate", function (e) {
   if (e.state.settingsTab) {
     if (typeof htmx !== "undefined") {
       htmx.ajax("GET", "/settings/" + e.state.settingsTab, {target: "#main-content", swap: "outerHTML"})
+    }
+    return
+  }
+
+  if (e.state.contacts || window.location.pathname === "/contacts") {
+    if (typeof htmx !== "undefined") {
+      htmx.ajax("GET", window.location.pathname + window.location.search, {target: "#main-content", swap: "outerHTML"})
+    }
+    var contactsLink = document.querySelector("[data-sidebar-contacts-link]")
+    var folderLinks = document.querySelectorAll("aside a[hx-get^='/folder/']")
+    for (var c = 0; c < folderLinks.length; c++) {
+      folderLinks[c].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+      folderLinks[c].classList.add("text-sidebar-foreground")
+    }
+    if (contactsLink) {
+      contactsLink.classList.add("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+      contactsLink.classList.remove("text-sidebar-foreground")
     }
     return
   }

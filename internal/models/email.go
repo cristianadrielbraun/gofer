@@ -4,6 +4,7 @@ import "html/template"
 
 type Account struct {
 	ID         string
+	Provider   string
 	Name       string
 	Email      string
 	Color      string
@@ -79,6 +80,7 @@ type ContactFilters struct {
 	Source     string
 	SaveTarget string
 	Activity   string
+	View       string
 }
 
 type Label struct {
