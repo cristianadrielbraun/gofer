@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 27
+	const targetSchemaVersion = 29
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -306,6 +306,18 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 26 {
 		if err := migrateV26ToV27(tx); err != nil {
 			return fmt.Errorf("migrate v26 to v27: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 27 {
+		if err := migrateV27ToV28(tx); err != nil {
+			return fmt.Errorf("migrate v27 to v28: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 28 {
+		if err := migrateV28ToV29(tx); err != nil {
+			return fmt.Errorf("migrate v28 to v29: %w", err)
 		}
 	}
 
@@ -977,6 +989,53 @@ func migrateV26ToV27(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_contact_sources_remote
 		 ON contact_sources(user_id, provider, account_id, remote_id)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (27)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV27ToV28(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE INDEX IF NOT EXISTS idx_folders_role_account
+		 ON folders(role, account_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_account_date_id
+		 ON messages(account_id, date_received DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_folder_state_folder_deleted_msg
+		 ON message_folder_state(folder_id, is_deleted, message_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_folder_state_starred_deleted_msg
+		 ON message_folder_state(is_starred, is_deleted, message_id)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (28)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV28ToV29(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS folder_thread_state (
+			folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+			thread_key TEXT NOT NULL,
+			head_message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			last_message_at DATETIME,
+			thread_count INTEGER NOT NULL DEFAULT 1,
+			thread_is_read INTEGER NOT NULL DEFAULT 1,
+			thread_is_starred INTEGER NOT NULL DEFAULT 0,
+			thread_has_attachments INTEGER NOT NULL DEFAULT 0,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (folder_id, thread_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_folder_thread_state_folder_last
+		 ON folder_thread_state(folder_id, last_message_at DESC, head_message_id DESC)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (29)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {

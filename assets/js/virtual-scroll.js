@@ -74,6 +74,7 @@ class VirtualMailList {
   itemsURLForView(viewMode, start, limit) {
     var url = "/mail/folder/" + this.folderID + "/items?start=" + start + "&limit=" + limit + "&view=" + encodeURIComponent(viewMode === "table" ? "table" : "cards")
     if (this.selectedEmailId) url += "&selected=" + encodeURIComponent(this.selectedEmailId)
+    if (this.totalCount >= 0) url += "&known_total=" + encodeURIComponent(this.totalCount)
     return this.withFilterParams(url)
   }
 
@@ -299,6 +300,8 @@ class VirtualMailList {
       shell.className = "mail-list-thread-slot"
       if (expanded.entering) shell.setAttribute("data-thread-entering", "")
       else shell.removeAttribute("data-thread-entering")
+      if (expanded.collapsing) shell.setAttribute("data-thread-collapsing", "")
+      else shell.removeAttribute("data-thread-collapsing")
       var mainRow = document.createElement("div")
       mainRow.className = "mail-list-thread-main"
       anchor.style.height = this.viewMode === "table" ? "" : "88px"
@@ -534,8 +537,9 @@ class VirtualMailList {
       node.style.transition = "none"
       node.style.transform = baseTransform + " translateY(" + dy + "px)"
       node.offsetHeight
-      node.style.transition = "transform 180ms ease-out"
+      node.style.transition = "transform 120ms ease-out"
       node.style.transform = baseTransform
+      this.cleanupTransition(node, 120)
     }
   }
 
@@ -955,6 +959,11 @@ class VirtualMailList {
     }
     this.renderTableHeader()
 
+    if (this.selectedEmailId) {
+      var selectedPos = this.indexById.get(this.selectedEmailId)
+      if (selectedPos !== undefined) this.container.scrollTop = this.offsetAtPosition(selectedPos)
+    }
+
     this.render()
   }
 
@@ -1163,9 +1172,14 @@ class VirtualMailList {
     var rangeStart = Math.max(0, anchorIndex - 2)
     var rangeEnd = Math.min(this.totalCount - 1, anchorIndex + viewportRows + 2)
     var rangeLimit = Math.max(1, rangeEnd - rangeStart + 1)
+    var pendingStart = performance.now ? performance.now() : Date.now()
     this.setViewSwitchPending(true)
     try {
       var html = await this.fetchHTML(this.itemsURLForView(viewMode, rangeStart, rangeLimit))
+      var elapsed = (performance.now ? performance.now() : Date.now()) - pendingStart
+      if (elapsed < 130) {
+        await new Promise(function (resolve) { setTimeout(resolve, 130 - elapsed) })
+      }
       this.setViewMode(viewMode, false)
       this.ingestHTML(html)
       this.selectedEmailId = selected
@@ -1435,12 +1449,33 @@ class VirtualMailList {
     var previousLayout = this.captureRenderedLayout()
 
     if (this.expandedThreads.has(emailId)) {
-      this.expandedThreads.delete(emailId)
-      this.invalidateOffsets()
+      if (this.viewMode === "table") {
+        this.expandedThreads.delete(emailId)
+        this.invalidateOffsets()
+        this.prevFirst = null
+        this.prevLast = null
+        this.render()
+        this.animateLayoutShift(previousLayout)
+        return
+      }
+
+      var expanded = this.expandedThreads.get(emailId)
+      expanded.entering = false
+      expanded.collapsing = true
       this.prevFirst = null
       this.prevLast = null
       this.render()
-      this.animateLayoutShift(previousLayout)
+      var self = this
+      setTimeout(function () {
+        if (!self.expandedThreads.has(emailId)) return
+        var collapseLayout = self.captureRenderedLayout()
+        self.expandedThreads.delete(emailId)
+        self.invalidateOffsets()
+        self.prevFirst = null
+        self.prevLast = null
+        self.render()
+        self.animateLayoutShift(collapseLayout)
+      }, 110)
       return
     }
 
@@ -1474,9 +1509,14 @@ class VirtualMailList {
       this.prevFirst = null
       this.prevLast = null
       this.render()
-      this.animateLayoutShift(previousLayout)
       var self = this
-      requestAnimationFrame(function () { self.finishThreadEnter(emailId) })
+      if (this.viewMode === "table") {
+        this.animateLayoutShift(previousLayout)
+        requestAnimationFrame(function () { self.finishThreadEnter(emailId) })
+      } else {
+        this.animateLayoutShift(previousLayout)
+        setTimeout(function () { self.finishThreadEnter(emailId) }, 130)
+      }
     } catch (e) {
       console.error("Failed to expand thread:", e)
     }

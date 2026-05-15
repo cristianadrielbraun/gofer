@@ -1076,7 +1076,107 @@ func (db *DB) RefreshFolderUnreadCount(ctx context.Context, folderID string) (in
 	_, err = db.Write().ExecContext(ctx,
 		`UPDATE folders SET unread_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		count, folderID)
+	if err != nil {
+		return 0, err
+	}
+	if err := db.RefreshFolderThreadState(ctx, folderID); err != nil {
+		return count, err
+	}
 	return count, err
+}
+
+func (db *DB) RefreshFolderThreadState(ctx context.Context, folderID string) error {
+	if strings.TrimSpace(folderID) == "" {
+		return nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := db.refreshFolderThreadStateTx(ctx, tx, folderID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (db *DB) refreshFolderThreadStateTx(ctx context.Context, tx *sql.Tx, folderID string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM folder_thread_state WHERE folder_id = ?`, folderID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `WITH base AS (
+			SELECT m.id, m.account_id, m.date_received, m.has_attachments,
+			       mfs.is_read, mfs.is_starred,
+			       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) AS thread_key,
+			       COALESCE(m.date_received, '') || ':' || printf('%020d', m.id) AS row_key
+			FROM message_folder_state mfs
+			JOIN messages m ON mfs.message_id = m.id
+			WHERE mfs.folder_id = ? AND mfs.is_deleted = 0
+		), grouped AS (
+			SELECT thread_key, MAX(row_key) AS row_key, COUNT(*) AS thread_count,
+			       MIN(is_read) AS thread_is_read, MAX(is_starred) AS thread_is_starred,
+			       MAX(has_attachments) AS thread_has_attachments
+			FROM base
+			GROUP BY thread_key
+		)
+		INSERT OR REPLACE INTO folder_thread_state (
+			folder_id, thread_key, head_message_id, account_id, last_message_at,
+			thread_count, thread_is_read, thread_is_starred, thread_has_attachments, updated_at
+		)
+		SELECT ?, b.thread_key, b.id, b.account_id, b.date_received,
+		       g.thread_count, g.thread_is_read, g.thread_is_starred, g.thread_has_attachments, CURRENT_TIMESTAMP
+		FROM grouped g
+		JOIN base b ON b.thread_key = g.thread_key AND b.row_key = g.row_key`, folderID, folderID)
+	return err
+}
+
+func (db *DB) ensureFolderThreadState(ctx context.Context, folderID string) error {
+	if strings.TrimSpace(folderID) == "" {
+		return nil
+	}
+	var existing int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM folder_thread_state WHERE folder_id = ?`, folderID).Scan(&existing); err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+	var hasVisible int
+	if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM message_folder_state WHERE folder_id = ? AND is_deleted = 0)`, folderID).Scan(&hasVisible); err != nil {
+		return err
+	}
+	if hasVisible == 0 {
+		return nil
+	}
+	return db.RefreshFolderThreadState(ctx, folderID)
+}
+
+func (db *DB) ensureFolderThreadStateForUserRole(ctx context.Context, userID, role string) error {
+	rows, err := db.Read().QueryContext(ctx, `SELECT f.id
+		FROM folders f
+		JOIN accounts a ON f.account_id = a.id
+		WHERE a.user_id = ? AND f.role = ?`, userID, role)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var folderIDs []string
+	for rows.Next() {
+		var folderID string
+		if err := rows.Scan(&folderID); err != nil {
+			return err
+		}
+		folderIDs = append(folderIDs, folderID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, folderID := range folderIDs {
+		if err := db.ensureFolderThreadState(ctx, folderID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) GetAllFolderUnreadCounts(ctx context.Context, userID string) (map[string]int, error) {
@@ -1327,6 +1427,47 @@ func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, 
 	return count, err
 }
 
+func (db *DB) GetFolderEmailCountUnfilteredForUser(ctx context.Context, userID, folderID string) (int, error) {
+	if folderID != "starred" {
+		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
+			return 0, err
+		}
+		var count int
+		err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*)
+			FROM folder_thread_state fts
+			JOIN folders f ON fts.folder_id = f.id
+			JOIN accounts a ON f.account_id = a.id
+			WHERE a.user_id = ? AND f.role = ?`, userID, folderID).Scan(&count)
+		return count, err
+	}
+	fromWhere, args := unifiedMailListFromWhere(userID, folderID)
+	return db.countVisibleThreads(ctx, fromWhere, args)
+}
+
+func (db *DB) GetFolderEmailCountUnfiltered(ctx context.Context, folderID string) (int, error) {
+	if !isStarredFolder(folderID) {
+		if err := db.ensureFolderThreadState(ctx, folderID); err != nil {
+			return 0, err
+		}
+		var count int
+		err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM folder_thread_state WHERE folder_id = ?`, folderID).Scan(&count)
+		return count, err
+	}
+	fromWhere, args := accountMailListFromWhere(folderID)
+	return db.countVisibleThreads(ctx, fromWhere, args)
+}
+
+func (db *DB) countVisibleThreads(ctx context.Context, fromWhere string, args []any) (int, error) {
+	query := `SELECT COUNT(*) FROM (
+		SELECT COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) AS thread_key
+		` + fromWhere + `
+		GROUP BY thread_key
+	)`
+	var count int
+	err := db.Read().QueryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
 func (db *DB) GetEmailsRange(ctx context.Context, folderID string, start, limit int) (*models.EmailPage, error) {
 	return db.GetEmailsRangeFiltered(ctx, folderID, start, limit, models.EmailFilters{})
 }
@@ -1336,19 +1477,37 @@ func (db *DB) GetEmailsRangeForUser(ctx context.Context, userID, folderID string
 }
 
 func (db *DB) GetEmailsRangeFilteredForUser(ctx context.Context, userID, folderID string, start, limit int, filters models.EmailFilters) (*models.EmailPage, error) {
+	return db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, start, limit, filters, -1)
+}
+
+func (db *DB) GetEmailsRangeFilteredForUserWithTotal(ctx context.Context, userID, folderID string, start, limit int, filters models.EmailFilters, knownTotal int) (*models.EmailPage, error) {
 	if !isUnifiedFolderID(folderID) {
-		return db.GetEmailsRangeFiltered(ctx, folderID, start, limit, filters)
+		return db.GetEmailsRangeFilteredWithTotal(ctx, folderID, start, limit, filters, knownTotal)
 	}
 
-	totalCount, err := db.GetFolderEmailCountFilteredForUser(ctx, userID, folderID, filters)
-	if err != nil {
-		return nil, err
+	totalCount := knownTotal
+	if totalCount < 0 {
+		var err error
+		if emailFiltersEmpty(filters) {
+			totalCount, err = db.GetFolderEmailCountUnfilteredForUser(ctx, userID, folderID)
+		} else {
+			totalCount, err = db.GetFolderEmailCountFilteredForUser(ctx, userID, folderID, filters)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	if start >= totalCount {
 		return &models.EmailPage{TotalCount: totalCount, WindowStart: start, WindowEnd: start}, nil
 	}
 
-	emails, err := db.listEmailsFilteredForUser(ctx, userID, folderID, start, limit, filters)
+	var emails []models.Email
+	var err error
+	if emailFiltersEmpty(filters) {
+		emails, err = db.listEmailsUnfilteredForUser(ctx, userID, folderID, start, limit)
+	} else {
+		emails, err = db.listEmailsFilteredForUser(ctx, userID, folderID, start, limit, filters)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1370,16 +1529,34 @@ func (db *DB) GetEmailsRangeFilteredForUser(ctx context.Context, userID, folderI
 }
 
 func (db *DB) GetEmailsRangeFiltered(ctx context.Context, folderID string, start, limit int, filters models.EmailFilters) (*models.EmailPage, error) {
-	totalCount, err := db.GetFolderEmailCountFiltered(ctx, folderID, filters)
-	if err != nil {
-		return nil, err
+	return db.GetEmailsRangeFilteredWithTotal(ctx, folderID, start, limit, filters, -1)
+}
+
+func (db *DB) GetEmailsRangeFilteredWithTotal(ctx context.Context, folderID string, start, limit int, filters models.EmailFilters, knownTotal int) (*models.EmailPage, error) {
+	totalCount := knownTotal
+	if totalCount < 0 {
+		var err error
+		if emailFiltersEmpty(filters) {
+			totalCount, err = db.GetFolderEmailCountUnfiltered(ctx, folderID)
+		} else {
+			totalCount, err = db.GetFolderEmailCountFiltered(ctx, folderID, filters)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if start >= totalCount {
 		return &models.EmailPage{TotalCount: totalCount, WindowStart: start, WindowEnd: start}, nil
 	}
 
-	emails, err := db.listEmailsFiltered(ctx, folderID, start, limit, filters)
+	var emails []models.Email
+	var err error
+	if emailFiltersEmpty(filters) {
+		emails, err = db.listEmailsUnfiltered(ctx, folderID, start, limit)
+	} else {
+		emails, err = db.listEmailsFiltered(ctx, folderID, start, limit, filters)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1405,6 +1582,10 @@ type emailFilterParts struct {
 	cteClause   string
 	outerClause string
 	args        []any
+}
+
+func emailFiltersEmpty(filters models.EmailFilters) bool {
+	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasLabels && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Label == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
 }
 
 func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
@@ -1790,6 +1971,111 @@ func (db *DB) listEmails(ctx context.Context, folderID string, offset, limit int
 	return db.listEmailsFiltered(ctx, folderID, offset, limit, models.EmailFilters{})
 }
 
+func unifiedMailListFromWhere(userID, folderID string) (string, []any) {
+	if folderID == "starred" {
+		return `FROM messages m
+			JOIN message_folder_state mfs ON m.id = mfs.message_id
+			JOIN accounts a ON m.account_id = a.id
+			WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0`, []any{userID}
+	}
+	return `FROM messages m
+		JOIN message_folder_state mfs ON m.id = mfs.message_id
+		JOIN folders f ON mfs.folder_id = f.id
+		JOIN accounts a ON f.account_id = a.id
+		WHERE a.user_id = ? AND f.role = ? AND mfs.is_deleted = 0`, []any{userID, folderID}
+}
+
+func accountMailListFromWhere(folderID string) (string, []any) {
+	if isStarredFolder(folderID) {
+		return `FROM messages m
+			JOIN message_folder_state mfs ON m.id = mfs.message_id
+			JOIN folders f ON mfs.folder_id = f.id
+			JOIN accounts a ON m.account_id = a.id
+			WHERE f.account_id = (SELECT account_id FROM folders WHERE id = ?)
+			AND mfs.is_starred = 1 AND mfs.is_deleted = 0`, []any{folderID}
+	}
+	return `FROM messages m
+		JOIN message_folder_state mfs ON m.id = mfs.message_id
+		JOIN accounts a ON m.account_id = a.id
+		WHERE mfs.folder_id = ? AND mfs.is_deleted = 0`, []any{folderID}
+}
+
+func (db *DB) listEmailsUnfilteredForUser(ctx context.Context, userID, folderID string, offset, limit int) ([]models.Email, error) {
+	if folderID != "starred" {
+		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
+			return nil, err
+		}
+		return db.listEmailsFromFolderThreadState(ctx, `JOIN folders f ON fts.folder_id = f.id
+			JOIN accounts owner ON f.account_id = owner.id
+			WHERE owner.user_id = ? AND f.role = ?`, []any{userID, folderID}, offset, limit)
+	}
+	fromWhere, args := unifiedMailListFromWhere(userID, folderID)
+	return db.listEmailsUnfilteredFrom(ctx, fromWhere, args, offset, limit)
+}
+
+func (db *DB) listEmailsUnfiltered(ctx context.Context, folderID string, offset, limit int) ([]models.Email, error) {
+	if !isStarredFolder(folderID) {
+		if err := db.ensureFolderThreadState(ctx, folderID); err != nil {
+			return nil, err
+		}
+		return db.listEmailsFromFolderThreadState(ctx, `WHERE fts.folder_id = ?`, []any{folderID}, offset, limit)
+	}
+	fromWhere, args := accountMailListFromWhere(folderID)
+	return db.listEmailsUnfilteredFrom(ctx, fromWhere, args, offset, limit)
+}
+
+func (db *DB) listEmailsFromFolderThreadState(ctx context.Context, where string, args []any, offset, limit int) ([]models.Email, error) {
+	query := `SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
+		       m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
+		       fts.thread_has_attachments, fts.folder_id, fts.thread_is_read, fts.thread_is_starred,
+		       m.thread_id, fts.thread_count
+		FROM folder_thread_state fts
+		JOIN messages m ON fts.head_message_id = m.id
+		JOIN accounts a ON m.account_id = a.id
+		` + where + `
+		ORDER BY fts.last_message_at DESC, fts.head_message_id DESC
+		LIMIT ? OFFSET ?`
+	args = append(append([]any{}, args...), limit, offset)
+	rows, err := db.Read().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list emails: %w", err)
+	}
+	defer rows.Close()
+	return db.scanEmailRows(ctx, rows)
+}
+
+func (db *DB) listEmailsUnfilteredFrom(ctx context.Context, fromWhere string, args []any, offset, limit int) ([]models.Email, error) {
+	query := `WITH base AS (
+			SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
+			       m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
+			       mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
+			       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) AS thread_key,
+			       COALESCE(m.date_received, '') || ':' || printf('%020d', m.id) || ':' || mfs.folder_id AS row_key
+			` + fromWhere + `
+		), grouped AS (
+			SELECT thread_key, MAX(row_key) AS row_key, COUNT(*) AS thread_count,
+			       MIN(is_read) AS thread_is_read, MAX(is_starred) AS thread_is_starred,
+			       MAX(has_attachments) AS thread_has_attachments
+			FROM base
+			GROUP BY thread_key
+		)
+		SELECT b.id, b.account_id, b.account_color, b.subject, b.from_name, b.from_email,
+		       b.date_received, b.snippet, b.has_attachments, b.body_text_path, b.body_html_path,
+		       g.thread_has_attachments, b.folder_id, g.thread_is_read, g.thread_is_starred,
+		       b.thread_id, g.thread_count
+		FROM grouped g
+		JOIN base b ON b.thread_key = g.thread_key AND b.row_key = g.row_key
+		ORDER BY b.date_received DESC, b.id DESC
+		LIMIT ? OFFSET ?`
+	args = append(append([]any{}, args...), limit, offset)
+	rows, err := db.Read().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list emails: %w", err)
+	}
+	defer rows.Close()
+	return db.scanEmailRows(ctx, rows)
+}
+
 func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
 	filterSQL := emailFilterSQL(filters)
 	var where string
@@ -1821,7 +2107,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY date_received DESC
+			ORDER BY date_received DESC, id DESC
 			LIMIT ? OFFSET ?`
 	args = append(args, filterSQL.args...)
 	args = append(args, limit, offset)
@@ -1853,7 +2139,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY date_received DESC
+			ORDER BY date_received DESC, id DESC
 			LIMIT ? OFFSET ?`
 
 	var args []any
@@ -1877,7 +2163,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY date_received DESC
+			ORDER BY date_received DESC, id DESC
 			LIMIT ? OFFSET ?`
 	}
 	args = append([]any{folderID}, filterSQL.args...)
@@ -2667,6 +2953,7 @@ func (db *DB) ThreadHasUnread(ctx context.Context, accountID, threadID string) (
 }
 
 func (db *DB) SetMessageRead(ctx context.Context, messageID int64, isRead bool) error {
+	folderIDs, _ := db.messageFolderIDs(ctx, messageID)
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE message_folder_state SET is_read = ? WHERE message_id = ?`,
 		isRead, messageID)
@@ -2674,14 +2961,27 @@ func (db *DB) SetMessageRead(ctx context.Context, messageID int64, isRead bool) 
 		return err
 	}
 
-	var folderID string
-	db.Read().QueryRowContext(ctx,
-		`SELECT folder_id FROM message_folder_state WHERE message_id = ? LIMIT 1`, messageID,
-	).Scan(&folderID)
-	if folderID != "" {
+	for _, folderID := range folderIDs {
 		db.RefreshFolderUnreadCount(ctx, folderID)
 	}
 	return nil
+}
+
+func (db *DB) messageFolderIDs(ctx context.Context, messageID int64) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `SELECT DISTINCT folder_id FROM message_folder_state WHERE message_id = ?`, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var folderIDs []string
+	for rows.Next() {
+		var folderID string
+		if err := rows.Scan(&folderID); err != nil {
+			return nil, err
+		}
+		folderIDs = append(folderIDs, folderID)
+	}
+	return folderIDs, rows.Err()
 }
 
 func (db *DB) SetThreadRead(ctx context.Context, accountID, threadID string, isRead bool) error {
@@ -2722,13 +3022,23 @@ func (db *DB) SetThreadRead(ctx context.Context, accountID, threadID string, isR
 }
 
 func (db *DB) SetMessageStarred(ctx context.Context, messageID int64, isStarred bool) error {
+	folderIDs, _ := db.messageFolderIDs(ctx, messageID)
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE message_folder_state SET is_starred = ? WHERE message_id = ?`,
 		isStarred, messageID)
+	if err != nil {
+		return err
+	}
+	for _, folderID := range folderIDs {
+		if err := db.RefreshFolderThreadState(ctx, folderID); err != nil {
+			return err
+		}
+	}
 	return err
 }
 
 func (db *DB) MarkMessageDeleted(ctx context.Context, messageID int64) error {
+	folderIDs, _ := db.messageFolderIDs(ctx, messageID)
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE message_folder_state SET is_deleted = 1 WHERE message_id = ?`,
 		messageID)
@@ -2736,11 +3046,7 @@ func (db *DB) MarkMessageDeleted(ctx context.Context, messageID int64) error {
 		return err
 	}
 
-	var folderID string
-	db.Read().QueryRowContext(ctx,
-		`SELECT folder_id FROM message_folder_state WHERE message_id = ? LIMIT 1`, messageID,
-	).Scan(&folderID)
-	if folderID != "" {
+	for _, folderID := range folderIDs {
 		db.RefreshFolderUnreadCount(ctx, folderID)
 	}
 	return nil
@@ -3210,6 +3516,9 @@ func (db *DB) RemoveExpungedUIDs(ctx context.Context, folderID string, expungedU
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit: %w", err)
 	}
+	if removed > 0 {
+		db.RefreshFolderUnreadCount(ctx, folderID)
+	}
 
 	return int(removed), nil
 }
@@ -3225,6 +3534,12 @@ func (db *DB) ClearFolderMessages(ctx context.Context, folderID string) error {
 		`DELETE FROM message_folder_state WHERE folder_id = ?`, folderID)
 	if err != nil {
 		return fmt.Errorf("delete states: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`DELETE FROM folder_thread_state WHERE folder_id = ?`, folderID)
+	if err != nil {
+		return fmt.Errorf("delete thread states: %w", err)
 	}
 
 	_, err = tx.ExecContext(ctx,
@@ -3298,6 +3613,9 @@ func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []F
 
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit: %w", err)
+	}
+	if changed > 0 {
+		db.RefreshFolderUnreadCount(ctx, folderID)
 	}
 
 	return changed, nil

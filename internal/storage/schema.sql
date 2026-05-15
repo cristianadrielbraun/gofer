@@ -136,6 +136,20 @@ CREATE TABLE IF NOT EXISTS message_folder_state (
     PRIMARY KEY (message_id, folder_id)
 );
 
+CREATE TABLE IF NOT EXISTS folder_thread_state (
+    folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    thread_key TEXT NOT NULL,
+    head_message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    last_message_at DATETIME,
+    thread_count INTEGER NOT NULL DEFAULT 1,
+    thread_is_read INTEGER NOT NULL DEFAULT 1,
+    thread_is_starred INTEGER NOT NULL DEFAULT 0,
+    thread_has_attachments INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (folder_id, thread_key)
+);
+
 -- Recipients (normalized, not JSON)
 CREATE TABLE IF NOT EXISTS message_recipients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,8 +240,14 @@ ON folders(account_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_folders_account_role
 ON folders(account_id, role);
 
+CREATE INDEX IF NOT EXISTS idx_folders_role_account
+ON folders(role, account_id, id);
+
 CREATE INDEX IF NOT EXISTS idx_messages_account_date
 ON messages(account_id, date_received DESC);
+
+CREATE INDEX IF NOT EXISTS idx_messages_account_date_id
+ON messages(account_id, date_received DESC, id DESC);
 
 CREATE INDEX IF NOT EXISTS idx_messages_thread
 ON messages(account_id, thread_id);
@@ -258,6 +278,15 @@ ON messages(account_id, internet_message_id);
 
 CREATE INDEX IF NOT EXISTS idx_folder_state_folder_date
 ON message_folder_state(folder_id, synced_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_folder_state_folder_deleted_msg
+ON message_folder_state(folder_id, is_deleted, message_id);
+
+CREATE INDEX IF NOT EXISTS idx_folder_state_starred_deleted_msg
+ON message_folder_state(is_starred, is_deleted, message_id);
+
+CREATE INDEX IF NOT EXISTS idx_folder_thread_state_folder_last
+ON folder_thread_state(folder_id, last_message_at DESC, head_message_id DESC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_uid
 ON message_folder_state(folder_id, remote_uid);
@@ -525,4 +554,4 @@ CREATE INDEX IF NOT EXISTS idx_contact_activity_events_type_created
 ON contact_activity_events(event_type, created_at DESC);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (27);
+INSERT OR REPLACE INTO schema_version (version) VALUES (29);

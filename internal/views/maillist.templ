@@ -16,13 +16,13 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 )
 
-templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, width string, senderDisplayMode string, viewMode string) {
+templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, windowStart int, width string, senderDisplayMode string, viewMode string) {
 	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + width } data-mail-list-view={ mailListViewMode(viewMode) }>
 		@MailListHeader(activeFolder, totalCount)
 		@MailListToolbar(mailListViewMode(viewMode))
 		@MailFilterAdvancedDialog(accounts)
 		<hr class="divider-etched"/>
-		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, senderDisplayMode, mailListViewMode(viewMode))
+		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, senderDisplayMode, mailListViewMode(viewMode))
 	</div>
 }
 
@@ -410,7 +410,7 @@ templ MailFilterCalendarField(name string, id string, placeholder string) {
 	}
 }
 
-templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, senderDisplayMode string, viewMode string) {
+templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, windowStart int, senderDisplayMode string, viewMode string) {
 	<div
 		id="mail-list-scroll"
 		class="flex-1 overflow-y-auto px-2 py-2"
@@ -433,7 +433,7 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 		}
 		if totalCount >= 0 {
 			for i, email := range emails {
-				@MailListItem(email, i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode))
+				@MailListItem(email, windowStart+i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode))
 			}
 			if len(emails) == 0 {
 				@MailListEmpty()

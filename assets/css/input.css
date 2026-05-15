@@ -1087,6 +1087,7 @@ body.mail-list-column-resizing {
   border-bottom: 2px solid color-mix(in srgb, var(--color-foreground) 12%, transparent);
   border-bottom-left-radius: var(--radius);
   overflow: hidden;
+  transition: opacity 0.14s ease-out;
 }
 
 [data-view-mode="table"] .thread-sub-items {
@@ -1228,11 +1229,11 @@ body.mail-list-column-resizing {
 }
 
 .mail-list-thread-slot[data-thread-entering] .thread-sub-items {
-  animation: threadSlideDown 0.2s ease-out;
+  animation: threadSlideDown 0.13s ease-out;
 }
 
 .mail-list-thread-slot[data-thread-collapsing] .thread-sub-items {
-  animation: threadSlideUp 0.17s ease-in forwards;
+  animation: threadSlideUp 0.11s ease-in forwards;
 }
 
 @keyframes threadSlideDown {

@@ -24,7 +24,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
 
-func MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, width string, senderDisplayMode string, viewMode string) templ.Component {
+func MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, windowStart int, width string, senderDisplayMode string, viewMode string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -91,7 +91,7 @@ func MailList(accounts []models.Account, emails []models.Email, activeFolder str
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, senderDisplayMode, mailListViewMode(viewMode)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, senderDisplayMode, mailListViewMode(viewMode)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1561,7 +1561,7 @@ func MailFilterCalendarField(name string, id string, placeholder string) templ.C
 	})
 }
 
-func MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, senderDisplayMode string, viewMode string) templ.Component {
+func MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, windowStart int, senderDisplayMode string, viewMode string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1667,7 +1667,7 @@ func MailListEmails(accounts []models.Account, emails []models.Email, folderID s
 		}
 		if totalCount >= 0 {
 			for i, email := range emails {
-				templ_7745c5c3_Err = MailListItem(email, i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode)).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = MailListItem(email, windowStart+i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode)).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

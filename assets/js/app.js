@@ -21,6 +21,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var autoMarkReadTimer = null
   var autoMarkReadEmailId = null
   var suppressEmailUrlPushFor = null
+  var preserveMailListSelectionFor = null
 
   initVirtualScroll()
   setupFolderClickInterception()
@@ -1330,6 +1331,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var loadEmailAfterShell = function (evt) {
           if (!evt.target || evt.target.id !== "main-content") return
           document.body.removeEventListener("htmx:afterSettle", loadEmailAfterShell)
+          preserveMailListSelectionFor = initialEmailId
           htmx.ajax("GET", "/email/" + initialEmailId, "#mail-view")
         }
         document.body.addEventListener("htmx:afterSettle", loadEmailAfterShell)
@@ -1519,7 +1521,10 @@ document.addEventListener("DOMContentLoaded", function () {
 	  ) {
 		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
 		if (virtualMailList) {
-		  if (suppressEmailUrlPushFor === emailId) {
+		  if (preserveMailListSelectionFor === emailId) {
+		    preserveMailListSelectionFor = null
+		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+		  } else if (suppressEmailUrlPushFor === emailId) {
 		    suppressEmailUrlPushFor = null
 		    virtualMailList.selectedEmailId = emailId
 		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)

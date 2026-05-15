@@ -178,7 +178,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -398,7 +398,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 	})
 }
 
-func ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) templ.Component {
+func ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -535,7 +535,7 @@ func ContactsLayout(accounts []models.Account, contacts []models.Contact, select
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), accounts).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), accounts, recentActivity).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -815,7 +815,7 @@ func FolderPartial(accounts []models.Account, emails []models.Email, activeFolde
 			templ_7745c5c3_Var25 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -842,7 +842,7 @@ func FolderPartial(accounts []models.Account, emails []models.Email, activeFolde
 	})
 }
 
-func MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string) templ.Component {
+func MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string, windowStart int) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -867,7 +867,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

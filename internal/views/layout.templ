@@ -45,7 +45,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
 				@ResizeHandle("sidebar")
 				<div id="main-content" class="flex flex-1 min-w-0">
-					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
+					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
 					@ResizeHandle("maillist")
 					if initialEmailID != "" && selectedEmail == nil {
 						@MailViewLoading()
@@ -188,7 +188,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 	</html>
 }
 
-templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
+templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -216,7 +216,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			<div class="flex h-screen overflow-hidden">
 				@Sidebar(accounts, "contacts", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
 				@ResizeHandle("sidebar")
-				@ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), accounts)
+				@ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), accounts, recentActivity)
 			</div>
 			@ComposeDialog(accounts)
 			@ChooseAccountTypeDialog()
@@ -310,7 +310,7 @@ templ SavedPanelSizeStyle() {
 }
 
 templ FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string) {
-	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
+	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" hx-swap-oob="true">
 		if selectedEmail != nil {
 			@MailViewContent(selectedEmail, selectedThread)
@@ -320,9 +320,9 @@ templ FolderPartial(accounts []models.Account, emails []models.Email, activeFold
 	</div>
 }
 
-templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string) {
+templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string, windowStart int) {
 	<div id="main-content" class="flex flex-1 min-w-0">
-		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
+		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"))
 		@ResizeHandle("maillist")
 		if initialEmailID != "" {
 			@MailViewLoading()

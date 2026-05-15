@@ -336,11 +336,12 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
 		selected, _ = h.db.GetContact(ctx, userID, id)
 	}
+	recentActivity := h.recentContactActivity(ctx, userID, selected)
 	showNew := selected == nil && r.URL.Query().Get("new") == "1"
 	if r.URL.Query().Get("partial") == "detail" {
 		accounts, _ := h.db.GetAccounts(ctx, userID)
 		w.Header().Set("Content-Type", "text/html")
-		views.ContactsDetail(selected, false, accounts).Render(ctx, w)
+		views.ContactsDetail(selected, false, accounts, recentActivity).Render(ctx, w)
 		return
 	}
 	accounts, _ := h.db.GetAccounts(ctx, userID)
@@ -352,12 +353,24 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 			width = "384px"
 		}
 		w.Header().Set("Content-Type", "text/html")
-		views.ContactsPage(contacts, selected, showNew, filters, totalCount, width, accounts).Render(ctx, w)
+		views.ContactsPage(contacts, selected, showNew, filters, totalCount, width, accounts, recentActivity).Render(ctx, w)
 		return
 	}
 
 	layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
-	views.ContactsLayout(layoutAccounts, contacts, selected, showNew, filters, totalCount, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
+	views.ContactsLayout(layoutAccounts, contacts, selected, showNew, filters, totalCount, h.db.GetUISettings(ctx, userID), recentActivity).Render(ctx, w)
+}
+
+func (h *Handler) recentContactActivity(ctx context.Context, userID string, contact *models.Contact) []models.Email {
+	if contact == nil || strings.TrimSpace(contact.Email) == "" {
+		return nil
+	}
+	recent, err := h.db.RecentContactEmails(ctx, userID, contact.Email, 10)
+	if err != nil {
+		log.Printf("contacts: recent activity failed: %v", err)
+		return nil
+	}
+	return recent
 }
 
 func (h *Handler) handleContactItems(w http.ResponseWriter, r *http.Request) {
@@ -1242,21 +1255,51 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	totalCount, _ := h.db.GetFolderEmailCountForUser(ctx, h.userID(ctx), folderID)
 
-	page, _ := h.db.GetEmailsRangeForUser(ctx, h.userID(ctx), folderID, 0, 50)
-	var emails []models.Email
-	if page != nil {
-		emails = page.Emails
-	}
-
 	var selectedEmail *models.Email
 	var selectedThread []models.ThreadItem
 	selectedEmailID := r.URL.Query().Get("selected")
+
+	var page *models.EmailPage
 	if selectedEmailID != "" {
-		selectedEmail = &models.Email{ID: selectedEmailID}
+		page, _ = h.db.GetEmailsAroundEmailForUser(ctx, h.userID(ctx), folderID, selectedEmailID, 50)
+	}
+	if page == nil {
+		page, _ = h.db.GetEmailsRangeForUser(ctx, h.userID(ctx), folderID, 0, 50)
+	}
+	windowStart := 0
+	var emails []models.Email
+	if page != nil {
+		emails = page.Emails
+		windowStart = page.WindowStart
+	}
+
+	if selectedEmailID != "" {
+		selectedEmail = &models.Email{ID: h.visibleMailListSelectionID(ctx, emails, selectedEmailID)}
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	views.MailContentPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, h.userID(ctx)), selectedEmailID).Render(ctx, w)
+	views.MailContentPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, h.userID(ctx)), selectedEmailID, windowStart).Render(ctx, w)
+}
+
+func (h *Handler) visibleMailListSelectionID(ctx context.Context, emails []models.Email, selectedEmailID string) string {
+	if selectedEmailID == "" {
+		return ""
+	}
+	for _, email := range emails {
+		if email.ID == selectedEmailID {
+			return selectedEmailID
+		}
+	}
+	selectedEmail, err := h.db.GetEmailByID(ctx, selectedEmailID)
+	if err != nil || selectedEmail == nil || selectedEmail.ThreadID == "" {
+		return selectedEmailID
+	}
+	for _, email := range emails {
+		if email.ThreadID != "" && email.ThreadID == selectedEmail.ThreadID {
+			return email.ID
+		}
+	}
+	return selectedEmailID
 }
 
 func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
@@ -1272,6 +1315,10 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	selectedEmailId := r.URL.Query().Get("selected")
+	knownTotal := -1
+	if kt, err := strconv.Atoi(r.URL.Query().Get("known_total")); err == nil && kt >= 0 {
+		knownTotal = kt
+	}
 	ctx := r.Context()
 	filters := parseEmailFilters(r)
 
@@ -1285,7 +1332,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		if err != nil || start < 0 {
 			start = 0
 		}
-		page, pageErr = h.db.GetEmailsRangeFilteredForUser(ctx, h.userID(ctx), folderID, start, limit, filters)
+		page, pageErr = h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, h.userID(ctx), folderID, start, limit, filters, knownTotal)
 	} else if cursor := r.URL.Query().Get("after"); cursor != "" && !emailFiltersActive(filters) {
 		page, pageErr = h.db.GetEmailsAfterCursorForUser(ctx, h.userID(ctx), folderID, cursor, limit)
 	} else {
@@ -1387,7 +1434,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
 		accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
-		views.MailListEmails(accounts, nil, "", nil, 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
+		views.MailListEmails(accounts, nil, "", nil, 0, 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
 		return
 	}
 
@@ -1400,7 +1447,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
 	accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
-	views.MailListEmails(accounts, emails, "", nil, len(emails), uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
+	views.MailListEmails(accounts, emails, "", nil, len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
 }
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {

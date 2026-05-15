@@ -321,6 +321,51 @@ func (db *DB) GetContact(ctx context.Context, userID, contactID string) (*models
 	return &c, nil
 }
 
+func (db *DB) RecentContactEmails(ctx context.Context, userID, email string, limit int) ([]models.Email, error) {
+	normalized := normalizeContactEmail(email)
+	if userID == "" || normalized == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+
+	rows, err := db.Read().QueryContext(ctx, `
+		WITH matches AS (
+			SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
+			       m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
+			       mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
+			       ROW_NUMBER() OVER (
+			         PARTITION BY m.id
+			         ORDER BY CASE f.role WHEN 'inbox' THEN 0 WHEN 'sent' THEN 1 WHEN 'archive' THEN 2 ELSE 3 END, f.sort_order, f.name
+			       ) AS folder_rank
+			FROM messages m
+			JOIN accounts a ON m.account_id = a.id
+			JOIN message_folder_state mfs ON m.id = mfs.message_id
+			JOIN folders f ON mfs.folder_id = f.id
+			WHERE a.user_id = ?
+			  AND mfs.is_deleted = 0
+			  AND (
+			    lower(trim(m.from_email)) = ?
+			    OR EXISTS (
+			      SELECT 1 FROM message_recipients mr
+			      WHERE mr.message_id = m.id AND lower(trim(mr.email)) = ?
+			    )
+			  )
+		)
+		SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
+		       has_attachments AS thread_has_attachments, folder_id, is_read, is_starred, thread_id, 1 AS thread_count
+		FROM matches
+		WHERE folder_rank = 1
+		ORDER BY date_received DESC, id DESC
+		LIMIT ?`, userID, normalized, normalized, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recent contact emails: %w", err)
+	}
+	defer rows.Close()
+	return db.scanEmailRows(ctx, rows)
+}
+
 func (db *DB) GetContactSaveTargets(ctx context.Context, userID, contactID string) ([]string, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT target
