@@ -434,5 +434,87 @@ CREATE TABLE IF NOT EXISTS avatar_provider_states (
 CREATE INDEX IF NOT EXISTS idx_avatar_provider_states_provider_status
 ON avatar_provider_states(provider, status);
 
+CREATE TABLE IF NOT EXISTS contacts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'observed',
+    is_manual INTEGER NOT NULL DEFAULT 0,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    suppress_auto_create INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS contact_emails (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    normalized_email TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    observed_name TEXT NOT NULL DEFAULT '',
+    message_count INTEGER NOT NULL DEFAULT 0,
+    last_seen_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, normalized_email),
+    UNIQUE(contact_id, normalized_email)
+);
+
+CREATE TABLE IF NOT EXISTS contact_sources (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    account_id TEXT NOT NULL DEFAULT '',
+    remote_id TEXT NOT NULL DEFAULT '',
+    etag TEXT NOT NULL DEFAULT '',
+    sync_token TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contacts_user_name
+ON contacts(user_id, is_deleted, display_name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_contact_emails_contact
+ON contact_emails(contact_id);
+
+CREATE INDEX IF NOT EXISTS idx_contact_emails_search
+ON contact_emails(user_id, normalized_email);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sources_contact
+ON contact_sources(contact_id);
+
+CREATE TABLE IF NOT EXISTS contact_save_targets (
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, target)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_save_targets_user
+ON contact_save_targets(user_id, target);
+
+CREATE TABLE IF NOT EXISTS contact_activity_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    email TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    event_count INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_activity_events_user_created
+ON contact_activity_events(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_contact_activity_events_type_created
+ON contact_activity_events(event_type, created_at DESC);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (21);
+INSERT OR REPLACE INTO schema_version (version) VALUES (24);

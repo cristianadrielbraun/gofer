@@ -768,6 +768,7 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
+	db.UpsertObservedContactsForMessage(ctx, draft.AccountID, draft.FromName, draft.FromEmail, draft.ToRecipients, draft.CCRecipients, draft.BCCRecipients, draft.Date)
 	db.RefreshFolderUnreadCount(ctx, draft.FolderID)
 	return msgID, nil
 }
@@ -933,7 +934,13 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, m := range msgs {
+		db.UpsertObservedContactsForMessage(ctx, m.AccountID, m.FromName, m.FromEmail, m.ToRecipients, m.CCRecipients, nil, m.DateSent)
+	}
+	return nil
 }
 
 func (db *DB) GetMessageLocalIDByInternetID(ctx context.Context, accountID, internetMessageID string) (int64, error) {
@@ -2794,8 +2801,7 @@ func (db *DB) GetSetting(ctx context.Context, userID string, key string) (string
 
 func (db *DB) SetSetting(ctx context.Context, userID string, key, value string) error {
 	_, err := db.Write().ExecContext(ctx,
-		`INSERT INTO app_settings (key, user_id, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(key) DO UPDATE SET user_id = excluded.user_id, value = excluded.value, updated_at = CURRENT_TIMESTAMP`, key, userID, value)
+		`INSERT OR REPLACE INTO app_settings (key, user_id, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, key, userID, value)
 	return err
 }
 
@@ -3085,19 +3091,22 @@ func boolInt(v bool) int {
 
 func defaultUISettings() map[string]string {
 	return map[string]string{
-		"theme":                       "dark",
-		"theme_style":                 "classic",
-		"prefetch_on_hover":           "true",
-		"default_compose_view":        "dialog",
-		"compose_autosave_enabled":    "true",
-		"compose_autosave_conditions": "chars,attachment",
-		"compose_autosave_min_chars":  "30",
-		"compose_autosave_debounce":   "5",
-		"sender_display":              "name",
-		"auto_mark_read_after":        "0",
-		"mail_table_columns":          "accountMarker,starred,attachment,thread,from,to,subject,date",
-		"mail_table_column_widths":    "0.8,0.8,0.8,1,3,3,5,2",
-		"sidebar_account_collapsed":   "{}",
+		"theme":                             "dark",
+		"theme_style":                       "classic",
+		"prefetch_on_hover":                 "true",
+		"default_compose_view":              "dialog",
+		"compose_autosave_enabled":          "true",
+		"compose_autosave_conditions":       "chars,attachment",
+		"compose_autosave_min_chars":        "30",
+		"compose_autosave_debounce":         "5",
+		"sender_display":                    "name",
+		"auto_mark_read_after":              "0",
+		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
+		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
+		"sidebar_account_collapsed":         "{}",
+		"contacts_auto_create_observed":     "true",
+		"contacts_prevent_recreate_deleted": "true",
+		"contacts_observed_sources":         "senders,recipients",
 	}
 }
 

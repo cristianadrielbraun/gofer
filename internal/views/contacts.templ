@@ -1,0 +1,533 @@
+package views
+
+import (
+	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+func contactFormAction(contact *models.Contact) string {
+	if contact != nil && contact.ID != "" {
+		return "/api/contacts?id=" + contact.ID
+	}
+	return "/api/contacts"
+}
+
+func contactFormName(contact *models.Contact) string {
+	if contact == nil {
+		return ""
+	}
+	return contact.Name
+}
+
+func contactFormEmail(contact *models.Contact) string {
+	if contact == nil {
+		return ""
+	}
+	return contact.Email
+}
+
+func contactSourceLabel(source string, isManual bool) string {
+	if isManual {
+		return "Manual"
+	}
+	switch source {
+	case "observed":
+		return "Observed"
+	case "manual":
+		return "Manual"
+	default:
+		if source == "" {
+			return "Local"
+		}
+		return strings.Title(source)
+	}
+}
+
+func contactSaveTargetValue(account models.Account) string {
+	return "account:" + account.ID
+}
+
+func contactSaveTargetSelected(contact *models.Contact, target string) bool {
+	if contact == nil || len(contact.SaveTargets) == 0 {
+		return target == "local"
+	}
+	for _, selected := range contact.SaveTargets {
+		if selected == target {
+			return true
+		}
+	}
+	return false
+}
+
+func accountContactSaveLabel(account models.Account) string {
+	name := strings.TrimSpace(account.Name)
+	email := strings.TrimSpace(account.Email)
+	if name == "" {
+		return email
+	}
+	if email == "" || strings.EqualFold(name, email) {
+		return name
+	}
+	return fmt.Sprintf("%s <%s>", name, email)
+}
+
+func contactFiltersActive(filters models.ContactFilters) bool {
+	return filters.Source != "" || filters.SaveTarget != "" || filters.Activity != ""
+}
+
+func contactFilterCount(filters models.ContactFilters) int {
+	count := 0
+	if filters.Source != "" {
+		count++
+	}
+	if filters.SaveTarget != "" {
+		count++
+	}
+	if filters.Activity != "" {
+		count++
+	}
+	return count
+}
+
+func contactFilterValues(filters models.ContactFilters) url.Values {
+	values := url.Values{}
+	if strings.TrimSpace(filters.Query) != "" {
+		values.Set("q", strings.TrimSpace(filters.Query))
+	}
+	if filters.Source != "" {
+		values.Set("source", filters.Source)
+	}
+	if filters.SaveTarget != "" {
+		values.Set("save_target", filters.SaveTarget)
+	}
+	if filters.Activity != "" {
+		values.Set("activity", filters.Activity)
+	}
+	return values
+}
+
+func contactsURL(filters models.ContactFilters, contactID string) string {
+	values := contactFilterValues(filters)
+	if contactID != "" {
+		values.Set("contact", contactID)
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return "/contacts?" + encoded
+	}
+	return "/contacts"
+}
+
+func contactsDetailURL(filters models.ContactFilters, contactID string) string {
+	values := contactFilterValues(filters)
+	values.Set("contact", contactID)
+	values.Set("partial", "detail")
+	return "/contacts?" + values.Encode()
+}
+
+func contactSaveTargetLabel(target string, accounts []models.Account) string {
+	switch target {
+	case "local":
+		return "Gofer local"
+	case "":
+		return "Any sync target"
+	}
+	for _, account := range accounts {
+		if target == contactSaveTargetValue(account) {
+			return accountContactSaveLabel(account)
+		}
+	}
+	return "Any sync target"
+}
+
+templ ContactsPage(contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, width string, accounts []models.Account) {
+	<div id="main-content" class="flex flex-1 min-w-0 bg-background">
+		@ContactsImportDialog(accounts)
+		<section id="mail-list" class="w-full lg:flex flex-col border-r border-border/70 bg-card/35 h-full overflow-hidden" style={ "width:" + width }>
+			<div class="px-6 py-5 border-b border-border/70">
+				<div class="flex items-start justify-between gap-4 mb-4">
+					<div class="min-w-0">
+						<div class="flex items-center gap-2">
+							<h1 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Contacts</h1>
+							<span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+						</div>
+					</div>
+					<div class="inline-flex shrink-0 items-stretch rounded-lg shadow-sm">
+						<a
+							href="/contacts?new=1"
+							hx-get="/contacts?new=1"
+							hx-target="#main-content"
+							hx-swap="outerHTML"
+							hx-push-url="/contacts?new=1"
+							class="inline-flex h-9 items-center justify-center gap-1.5 rounded-l-lg rounded-r-none bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+						>
+							@icon.UserPlus(icon.Props{Class: "size-4"})
+							New
+						</a>
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								<button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-l-none rounded-r-lg border-l border-primary-foreground/25 bg-primary text-primary-foreground hover:bg-primary/90" aria-label="Contact actions">
+									@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+								</button>
+							}
+							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-44 normal-case tracking-normal"}) {
+								@dialog.Trigger(dialog.TriggerProps{For: "contacts-import-dialog"}) {
+									<button type="button" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
+										@icon.Upload(icon.Props{Class: "size-4 text-muted-foreground"})
+										Import vCard
+									</button>
+								}
+								<a href="/api/contacts/export" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground">
+									@icon.Download(icon.Props{Class: "size-4 text-muted-foreground"})
+									Export all
+								</a>
+							}
+						}
+					</div>
+				</div>
+				<div class="space-y-2">
+					<form action="/contacts" method="get" hx-get="/contacts" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" class="relative">
+						<input type="hidden" name="source" value={ filters.Source }/>
+						<input type="hidden" name="save_target" value={ filters.SaveTarget }/>
+						<input type="hidden" name="activity" value={ filters.Activity }/>
+						@icon.Search(icon.Props{Class: "pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"})
+						<input
+							type="search"
+							name="q"
+							value={ filters.Query }
+							placeholder="Search contacts"
+							class="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+						/>
+					</form>
+					<div class="flex items-center gap-2">
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								<button type="button" data-active={ fmt.Sprintf("%t", contactFiltersActive(filters)) } class="relative inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground hover:bg-accent data-[active=true]:bg-accent">
+									@icon.ListFilter(icon.Props{Class: "size-3.5"})
+									Filters
+									if contactFilterCount(filters) > 0 {
+										<span class="min-w-4 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground">{ fmt.Sprintf("%d", contactFilterCount(filters)) }</span>
+									}
+								</button>
+							}
+							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomStart, Class: "w-72 normal-case tracking-normal p-3"}) {
+								<form action="/contacts" method="get" hx-get="/contacts" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" class="space-y-3">
+									<input type="hidden" name="q" value={ filters.Query }/>
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-xs font-semibold text-muted-foreground">Quick filters</div>
+										<a href={ contactsURL(models.ContactFilters{Query: filters.Query}, "") } hx-get={ contactsURL(models.ContactFilters{Query: filters.Query}, "") } hx-target="#main-content" hx-swap="outerHTML" hx-push-url="true" class="text-[11px] font-medium text-muted-foreground hover:text-foreground">Clear</a>
+									</div>
+									<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+										<span>Source</span>
+										@selectbox.SelectBox() {
+											@selectbox.Trigger(selectbox.TriggerProps{Name: "source", Class: "h-8 bg-background text-xs", DisableClear: true}) {
+												@selectbox.Value(selectbox.ValueProps{Placeholder: "Any source"})
+											}
+											@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+												@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.Source == ""}) { Any source }
+												@selectbox.Item(selectbox.ItemProps{Value: "manual", Selected: filters.Source == "manual"}) { Manual }
+												@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: filters.Source == "observed"}) { Observed }
+											}
+										}
+									</div>
+									<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+										<span>Sync target</span>
+										@selectbox.SelectBox() {
+											@selectbox.Trigger(selectbox.TriggerProps{Name: "save_target", Class: "h-8 bg-background text-xs", DisableClear: true}) {
+												@selectbox.Value(selectbox.ValueProps{Placeholder: "Any sync target"})
+											}
+											@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+												@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.SaveTarget == ""}) { Any sync target }
+												@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: filters.SaveTarget == "local"}) { Gofer local }
+												for _, account := range accounts {
+													if !account.IsDeleting {
+														@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: filters.SaveTarget == contactSaveTargetValue(account)}) { { accountContactSaveLabel(account) } }
+													}
+												}
+											}
+										}
+									</div>
+									<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+										<span>Activity</span>
+										@selectbox.SelectBox() {
+											@selectbox.Trigger(selectbox.TriggerProps{Name: "activity", Class: "h-8 bg-background text-xs", DisableClear: true}) {
+												@selectbox.Value(selectbox.ValueProps{Placeholder: "Any activity"})
+											}
+											@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+												@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.Activity == ""}) { Any activity }
+												@selectbox.Item(selectbox.ItemProps{Value: "seen", Selected: filters.Activity == "seen"}) { Seen in mail }
+												@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: filters.Activity == "none"}) { No messages }
+											}
+										}
+									</div>
+									<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Apply filters</button>
+								</form>
+							}
+						}
+						if contactFiltersActive(filters) {
+							<div class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-[11px] text-muted-foreground">
+								if filters.Source != "" {
+									<span class="shrink-0 rounded-full border border-border bg-background px-2 py-0.5">{ contactSourceLabel(filters.Source, filters.Source == "manual") }</span>
+								}
+								if filters.SaveTarget != "" {
+									<span class="truncate rounded-full border border-border bg-background px-2 py-0.5">{ contactSaveTargetLabel(filters.SaveTarget, accounts) }</span>
+								}
+								if filters.Activity != "" {
+									<span class="shrink-0 rounded-full border border-border bg-background px-2 py-0.5">
+										if filters.Activity == "seen" {
+											Seen in mail
+										} else {
+											No messages
+										}
+									</span>
+								}
+							</div>
+						}
+					</div>
+				</div>
+			</div>
+			<div class="flex-1 overflow-y-auto p-3">
+				if len(contacts) == 0 {
+					<div class="rounded-xl border border-dashed border-border bg-background/50 p-8 text-center">
+						<div class="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+							@icon.BookUser(icon.Props{Class: "size-5"})
+						</div>
+						<p class="text-sm font-semibold text-foreground">No contacts yet</p>
+						<p class="mt-1 text-xs text-muted-foreground">Observed contacts will appear as mail is synced, or you can add one manually.</p>
+					</div>
+				} else {
+					<div class="space-y-1">
+						for _, contact := range contacts {
+							{{ contactHref := contactsURL(filters, contact.ID) }}
+							{{ contactDetailHref := contactsDetailURL(filters, contact.ID) }}
+							<a
+								href={ contactHref }
+								hx-get={ templ.URL(contactDetailHref) }
+								hx-target="#contacts-detail"
+								hx-swap="outerHTML"
+								hx-push-url={ contactHref }
+								data-contact-list-item={ contact.ID }
+								data-active={ fmt.Sprintf("%t", selected != nil && selected.ID == contact.ID) }
+								class="contact-list-item group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/70"
+							>
+								@ContactAvatar(contact, "size-10 rounded-full text-xs font-bold shrink-0", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
+								<div class="min-w-0 flex-1">
+									<div class="truncate text-sm font-semibold text-foreground">{ contact.Name }</div>
+									<div class="truncate text-xs text-muted-foreground">{ contact.Email }</div>
+								</div>
+								<span class="hidden rounded-full border border-border/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground group-hover:inline-flex xl:inline-flex">
+									{ contactSourceLabel(contact.Source, contact.IsManual) }
+								</span>
+							</a>
+						}
+					</div>
+				}
+			</div>
+		</section>
+		@ResizeHandle("maillist")
+		<section class="hidden flex-1 min-w-0 xl:flex xl:flex-col">
+			@ContactsDetail(selected, showNew, accounts)
+		</section>
+		<section class="flex flex-1 min-w-0 xl:hidden">
+			if selected != nil || showNew {
+				<div class="flex-1 overflow-y-auto p-6">
+					@ContactEditor(selected, accounts)
+				</div>
+			} else {
+				@ContactsEmptyDetail()
+			}
+		</section>
+	</div>
+}
+
+templ ContactsImportDialog(accounts []models.Account) {
+	@dialog.Dialog(dialog.Props{ID: "contacts-import-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl"}) {
+			@dialog.Header() {
+				@dialog.Title() { Import vCard }
+				@dialog.Description() { Import one or more contacts from a .vcf file. Existing contacts with the same email address will be updated. }
+			}
+			<form action="/api/contacts/import" method="post" enctype="multipart/form-data" class="space-y-4">
+				<div class="space-y-1.5">
+					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">vCard file</label>
+					<input type="file" name="vcard" accept=".vcf,text/vcard,text/x-vcard" required class="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"/>
+					<p class="text-xs text-muted-foreground">Supports vCard 4.0 and common vCard files containing multiple contacts.</p>
+				</div>
+				<div class="space-y-1.5">
+					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sync imported contacts with</label>
+					@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 bg-background", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} sync targets selected"}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Gofer local", Multiple: true, Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) { Gofer local }
+							for _, account := range accounts {
+								if !account.IsDeleting {
+									@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) { { accountContactSaveLabel(account) } }
+								}
+							}
+						}
+					}
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: "contacts-import-dialog"}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Cancel</button>
+					}
+					<button type="submit" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+						@icon.Upload(icon.Props{Class: "size-4"})
+						Import contacts
+					</button>
+				}
+			</form>
+		}
+	}
+}
+
+templ ContactsDetail(contact *models.Contact, showNew bool, accounts []models.Account) {
+	<div id="contacts-detail" class="flex flex-col h-full p-2">
+		if contact != nil || showNew {
+			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
+				@ContactEditor(contact, accounts)
+			</div>
+		} else {
+			@ContactsEmptyDetail()
+		}
+	</div>
+}
+
+templ ContactsEmptyDetail() {
+	<div class="flex flex-col items-center justify-center h-full text-center">
+		<div class="space-y-4 animate-fade-in">
+			<div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised">
+				@icon.BookUser(icon.Props{Class: "size-9 text-muted-foreground/30"})
+			</div>
+			<div>
+				<h3 class="font-semibold mb-1">Select a contact</h3>
+				<p class="text-sm text-muted-foreground">Choose a contact from the list to view or edit it</p>
+			</div>
+		</div>
+	</div>
+}
+
+templ ContactEditor(contact *models.Contact, accounts []models.Account) {
+	<div class="flex items-center justify-between gap-3 px-6 py-2.5">
+		<div class="flex items-center gap-1">
+			<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="size-8 rounded-md flex items-center justify-center text-ink/35 hover:text-ink/65 hover:bg-ink/5 transition-colors" aria-label="New contact">
+				@icon.UserPlus(icon.Props{Class: "size-4"})
+			</a>
+			if contact != nil {
+				<a href={ "mailto:" + contact.Email } class="size-8 rounded-md flex items-center justify-center text-ink/35 hover:text-ink/65 hover:bg-ink/5 transition-colors" aria-label="Email contact">
+					@icon.Mail(icon.Props{Class: "size-4"})
+				</a>
+				<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-8 rounded-md flex items-center justify-center text-ink/35 hover:text-ink/65 hover:bg-ink/5 transition-colors" aria-label="Export vCard">
+					@icon.Download(icon.Props{Class: "size-4"})
+				</a>
+				<button type="submit" form={ "delete-contact-" + contact.ID } class="size-8 rounded-md flex items-center justify-center text-ink/30 hover:text-destructive hover:bg-destructive/10 transition-colors" aria-label="Delete contact">
+					@icon.Trash2(icon.Props{Class: "size-4"})
+				</button>
+			}
+		</div>
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/45">
+			if contact != nil {
+				<span class="rounded bg-ink/[0.05] px-2 py-1">{ contactSourceLabel(contact.Source, contact.IsManual) }</span>
+			} else {
+				<span class="rounded bg-ink/[0.05] px-2 py-1">Local</span>
+			}
+		</div>
+	</div>
+	<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
+	<div class="flex-1 overflow-y-auto">
+		<div class="mx-auto px-8 py-6">
+			<div class="flex items-start gap-4">
+				if contact != nil {
+					@ContactAvatar(*contact, "size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
+				} else {
+					<div class="flex size-11 shrink-0 items-center justify-center rounded-full bg-ink/[0.06] text-ink/40 shadow-[0_2px_6px_rgba(0,0,0,0.12)]">
+						@icon.UserPlus(icon.Props{Class: "size-5"})
+					</div>
+				}
+				<div class="min-w-0 flex-1">
+					<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">
+						if contact != nil {
+							{ contact.Name }
+						} else {
+							New contact
+						}
+					</h1>
+					<div class="text-xs text-ink/40 mt-0.5">
+						if contact != nil {
+							&lt;{ contact.Email }&gt;
+						} else {
+							Add a local contact for compose autocomplete.
+						}
+					</div>
+				</div>
+			</div>
+			<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
+			<form action={ contactFormAction(contact) } method="post" class="space-y-5 max-w-2xl">
+				<div class="grid gap-5 sm:grid-cols-2">
+					<div>
+						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Name</label>
+						<input type="text" name="name" value={ contactFormName(contact) } placeholder="Jane Doe" class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+					</div>
+					<div>
+						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Email</label>
+						<input type="email" name="email" value={ contactFormEmail(contact) } placeholder="jane@example.com" required class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+					</div>
+				</div>
+				<div>
+					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Sync with accounts</label>
+					@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} sync targets selected"}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Gofer local", Multiple: true, Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local")}) { Gofer local }
+							for _, account := range accounts {
+								if !account.IsDeleting {
+									@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: contactSaveTargetSelected(contact, contactSaveTargetValue(account))}) { { accountContactSaveLabel(account) } }
+								}
+							}
+						}
+					}
+					<p class="mt-1.5 text-xs text-ink/40">Choose which accounts this contact should sync with. Keep Gofer local selected for a local copy.</p>
+				</div>
+				if contact != nil {
+					<div class="grid max-w-2xl gap-3 rounded-lg border border-ink/10 bg-ink/[0.025] p-4 text-xs text-ink/45 sm:grid-cols-2 lg:grid-cols-4">
+						<div>
+							<div class="font-semibold uppercase tracking-wider">Messages</div>
+							<div class="mt-1 text-sm text-ink">{ fmt.Sprintf("%d", contact.MessageCount) }</div>
+						</div>
+						<div>
+							<div class="font-semibold uppercase tracking-wider">Created</div>
+							<div class="mt-1 text-sm text-ink">{ contact.CreatedAt }</div>
+						</div>
+						<div>
+							<div class="font-semibold uppercase tracking-wider">Last seen</div>
+							<div class="mt-1 text-sm text-ink">{ contact.LastSeenAt }</div>
+						</div>
+						<div>
+							<div class="font-semibold uppercase tracking-wider">Updated</div>
+							<div class="mt-1 text-sm text-ink">{ contact.UpdatedAt }</div>
+						</div>
+					</div>
+				}
+				<div class="flex items-center justify-end gap-3 pt-2">
+					<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold">
+						@icon.Save(icon.Props{Class: "size-4"})
+						Save contact
+					</button>
+				</div>
+			</form>
+			if contact != nil {
+				<form id={ "delete-contact-" + contact.ID } action={ fmt.Sprintf("/api/contacts/%s/delete", contact.ID) } method="post"></form>
+			}
+		</div>
+	</div>
+}

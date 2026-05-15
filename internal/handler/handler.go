@@ -52,11 +52,14 @@ type Handler struct {
 	avatarBackfillState  models.AvatarBackfillState
 	avatarBackfillCancel context.CancelFunc
 	avatarBackfillRunID  int64
+	contactBackfillMu    sync.RWMutex
+	contactBackfillState models.ContactBackfillState
 }
 
 const (
 	composeAttachmentMaxBytes     int64 = 25 << 20
 	composeMessageMaxBytes        int64 = 35 << 20
+	contactImportMaxBytes         int64 = 5 << 20
 	composeStagedAttachmentMaxAge       = 24 * time.Hour
 )
 
@@ -74,6 +77,19 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		avatarWarmupQueued: make(map[string]struct{}),
 		avatarWarmupForced: make(map[string]time.Time),
 	}
+	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
+		if h.syncer == nil {
+			return
+		}
+		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactActivity, Payload: map[string]any{
+			"user_id":     event.UserID,
+			"event_type":  event.EventType,
+			"email":       event.Email,
+			"message":     event.Message,
+			"event_count": event.Count,
+			"created_at":  event.CreatedAt,
+		}})
+	})
 	h.startAvatarWarmupWorkers()
 	return h
 }
@@ -112,6 +128,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/avatars", h.handleAdminRedirect)
 	mux.HandleFunc("GET /admin/avatars/{$}", h.handleAdmin)
 	mux.HandleFunc("GET /admin/avatars/{tab}", h.handleAdmin)
+	mux.HandleFunc("GET /admin/contacts", h.handleAdminContacts)
+	mux.HandleFunc("GET /admin/contacts/{$}", h.handleAdminContacts)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
 	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
 	mux.HandleFunc("GET /folder/{id}", h.handleFolderPartial)
@@ -119,7 +137,14 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /folder/{id}/{email}", h.handleFolderWithEmail)
 	mux.HandleFunc("GET /mail/folder/{id}/items", h.handleMailItems)
 	mux.HandleFunc("GET /mail/thread/{threadId}/subitems", h.handleThreadSubItems)
+	mux.HandleFunc("GET /contacts", h.handleContacts)
 	mux.HandleFunc("GET /search", h.handleSearch)
+	mux.HandleFunc("GET /api/contacts/export", h.handleExportContacts)
+	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)
+	mux.HandleFunc("GET /api/contacts/search", h.handleContactSearch)
+	mux.HandleFunc("POST /api/contacts", h.handleSaveContact)
+	mux.HandleFunc("POST /api/contacts/import", h.handleImportContacts)
+	mux.HandleFunc("POST /api/contacts/{id}/delete", h.handleDeleteContact)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
 	mux.HandleFunc("GET /api/accounts/{id}/edit", h.handleGetEditAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
@@ -137,6 +162,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
 	mux.HandleFunc("GET /api/settings/ui", h.handleGetUISettings)
 	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
+	mux.HandleFunc("GET /api/settings/contacts/suppressed", h.handleSuppressedContactsSettings)
+	mux.HandleFunc("POST /api/settings/contacts/suppressed/clear", h.handleClearSuppressedContacts)
+	mux.HandleFunc("POST /api/settings/contacts/suppressed/{id}/clear", h.handleClearSuppressedContact)
+	mux.HandleFunc("POST /api/settings/contacts/delete-observed", h.handleDeleteObservedContacts)
 	mux.HandleFunc("GET /api/attachments/{id}/download", h.handleAttachmentDownload)
 	mux.HandleFunc("GET /api/attachments/{id}/preview", h.handleAttachmentPreview)
 	mux.HandleFunc("GET /api/inline-content/{messageID}/{contentID}", h.handleInlineContent)
@@ -165,6 +194,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/remote-content/{id}/allow", h.handleAllowRemoteContent)
 	mux.HandleFunc("GET /api/remote-assets/{messageID}/{filename}", h.handleRemoteAsset)
 	mux.HandleFunc("GET /api/avatars/status", h.handleAvatarStatus)
+	mux.HandleFunc("GET /api/admin/contacts/status", h.handleContactAdminStatus)
 	mux.HandleFunc("GET /api/avatars/{hash}", h.handleAvatarImage)
 	mux.HandleFunc("GET /api/avatars/attempts", h.handleAvatarAttempts)
 	mux.HandleFunc("GET /api/avatars/senders", h.handleAvatarSenders)
@@ -172,6 +202,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/avatars/senders/{hash}/recheck", h.handleRecheckAvatarSender)
 	mux.HandleFunc("POST /admin/avatar-backfill/recheck", h.handleForceAvatarBackfill)
 	mux.HandleFunc("POST /admin/avatar-backfill/cancel", h.handleCancelAvatarBackfill)
+	mux.HandleFunc("POST /admin/contacts/backfill", h.handleForceContactBackfill)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -247,6 +278,245 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 		thread, _ = h.db.GetThreadMessages(ctx, email.AccountID, email.ThreadID)
 	}
 	views.MailViewContent(email, thread).Render(ctx, w)
+}
+
+func (h *Handler) ensureContactsBackfilled(ctx context.Context) {
+	userID := h.userID(ctx)
+	settings := h.db.GetContactSettings(ctx, userID)
+	if !settings.AutoCreateObserved || (!settings.ObserveSenders && !settings.ObserveRecipients) {
+		return
+	}
+	sourceKey := ""
+	if settings.ObserveSenders {
+		sourceKey = "senders"
+	}
+	if settings.ObserveRecipients {
+		if sourceKey != "" {
+			sourceKey += ","
+		}
+		sourceKey += "recipients"
+	}
+	if done, _ := h.db.GetSetting(ctx, userID, "contacts_observed_backfilled_v1"); done == sourceKey {
+		return
+	}
+	if err := h.db.BackfillObservedContacts(ctx, userID); err != nil {
+		log.Printf("contacts: observed backfill failed: %v", err)
+		return
+	}
+	if err := h.db.SetSetting(ctx, userID, "contacts_observed_backfilled_v1", sourceKey); err != nil {
+		log.Printf("contacts: mark observed backfill failed: %v", err)
+	}
+}
+
+func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	h.ensureContactsBackfilled(ctx)
+	userID := h.userID(ctx)
+	filters := h.parseContactFilters(r)
+	contacts, err := h.db.ListContacts(ctx, userID, filters, 200, 0)
+	if err != nil {
+		http.Error(w, "failed to load contacts", http.StatusInternalServerError)
+		return
+	}
+	totalCount, err := h.db.CountContacts(ctx, userID, filters)
+	if err != nil {
+		http.Error(w, "failed to count contacts", http.StatusInternalServerError)
+		return
+	}
+	var selected *models.Contact
+	if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
+		selected, _ = h.db.GetContact(ctx, userID, id)
+	}
+	showNew := selected == nil && r.URL.Query().Get("new") == "1"
+	if r.URL.Query().Get("partial") == "detail" {
+		accounts, _ := h.db.GetAccounts(ctx, userID)
+		w.Header().Set("Content-Type", "text/html")
+		views.ContactsDetail(selected, false, accounts).Render(ctx, w)
+		return
+	}
+	accounts, _ := h.db.GetAccounts(ctx, userID)
+
+	if r.Header.Get("HX-Request") == "true" {
+		uiSettings := h.db.GetUISettings(ctx, userID)
+		width := uiSettings["mail_list_width"]
+		if width == "" {
+			width = "384px"
+		}
+		w.Header().Set("Content-Type", "text/html")
+		views.ContactsPage(contacts, selected, showNew, filters, totalCount, width, accounts).Render(ctx, w)
+		return
+	}
+
+	layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	views.ContactsLayout(layoutAccounts, contacts, selected, showNew, filters, totalCount, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
+}
+
+func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
+	q := r.URL.Query()
+	filters := models.ContactFilters{
+		Query:      strings.TrimSpace(q.Get("q")),
+		Source:     strings.TrimSpace(q.Get("source")),
+		SaveTarget: strings.TrimSpace(q.Get("save_target")),
+		Activity:   strings.TrimSpace(q.Get("activity")),
+	}
+	if filters.Source != "manual" && filters.Source != "observed" {
+		filters.Source = ""
+	}
+	if filters.Activity != "seen" && filters.Activity != "none" {
+		filters.Activity = ""
+	}
+	if filters.SaveTarget != "local" && !strings.HasPrefix(filters.SaveTarget, "account:") {
+		filters.SaveTarget = ""
+	}
+	return filters
+}
+
+func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	contact := models.Contact{
+		ID:          strings.TrimSpace(r.URL.Query().Get("id")),
+		Name:        strings.TrimSpace(r.FormValue("name")),
+		Email:       strings.TrimSpace(r.FormValue("email")),
+		SaveTargets: h.contactSaveTargets(ctx, r.FormValue("save_targets")),
+	}
+	saved, err := h.db.SaveContact(ctx, h.userID(ctx), contact)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/contacts?contact="+saved.ID, http.StatusSeeOther)
+}
+
+func (h *Handler) contactSaveTargets(ctx context.Context, raw string) []string {
+	allowed := map[string]bool{"local": true}
+	if accounts, err := h.db.GetAccounts(ctx, h.userID(ctx)); err == nil {
+		for _, account := range accounts {
+			allowed["account:"+account.ID] = true
+		}
+	}
+
+	var targets []string
+	for _, target := range strings.Split(raw, ",") {
+		target = strings.TrimSpace(target)
+		if allowed[target] {
+			targets = append(targets, target)
+		}
+	}
+	if len(targets) == 0 {
+		targets = []string{"local"}
+	}
+	return targets
+}
+
+func (h *Handler) handleExportContacts(w http.ResponseWriter, r *http.Request) {
+	contacts, err := h.db.ListContactsForExport(r.Context(), h.userID(r.Context()))
+	if err != nil {
+		http.Error(w, "failed to export contacts", http.StatusInternalServerError)
+		return
+	}
+	serveVCard(w, "gofer-contacts.vcf", contacts)
+}
+
+func (h *Handler) handleExportContact(w http.ResponseWriter, r *http.Request) {
+	contact, err := h.db.GetContact(r.Context(), h.userID(r.Context()), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "failed to export contact", http.StatusInternalServerError)
+		return
+	}
+	if contact == nil {
+		http.NotFound(w, r)
+		return
+	}
+	serveVCard(w, contactVCardFilename(*contact), []models.Contact{*contact})
+}
+
+func serveVCard(w http.ResponseWriter, filename string, contacts []models.Contact) {
+	data, err := renderVCard4(contacts)
+	if err != nil {
+		http.Error(w, "failed to render vCard", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := r.ParseMultipartForm(contactImportMaxBytes); err != nil {
+		http.Error(w, "invalid vCard import", http.StatusBadRequest)
+		return
+	}
+	file, _, err := r.FormFile("vcard")
+	if err != nil {
+		http.Error(w, "missing vCard file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, contactImportMaxBytes+1))
+	if err != nil || int64(len(data)) > contactImportMaxBytes {
+		http.Error(w, "vCard file is too large", http.StatusBadRequest)
+		return
+	}
+
+	contacts, err := parseVCardContacts(bytes.NewReader(data), h.contactSaveTargets(ctx, r.FormValue("save_targets")))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	imported := 0
+	for _, contact := range contacts {
+		if _, err := h.db.SaveContact(ctx, h.userID(ctx), contact); err != nil {
+			http.Error(w, "failed to import contacts", http.StatusInternalServerError)
+			return
+		}
+		imported++
+	}
+	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
+}
+
+func (h *Handler) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	settings := h.db.GetContactSettings(ctx, h.userID(ctx))
+	if err := h.db.DeleteContact(ctx, h.userID(ctx), r.PathValue("id"), settings.PreventRecreateDeleted); err != nil {
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/contacts", http.StatusSeeOther)
+}
+
+func (h *Handler) handleContactSearch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	h.ensureContactsBackfilled(ctx)
+	contacts, err := h.db.SearchContacts(ctx, h.userID(ctx), r.URL.Query().Get("q"), 12)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "search failed"})
+		return
+	}
+	type result struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+		Value string `json:"value"`
+	}
+	items := make([]result, 0, len(contacts))
+	for _, c := range contacts {
+		value := c.Email
+		if c.Name != "" && c.Name != c.Email {
+			value = fmt.Sprintf("%s <%s>", c.Name, c.Email)
+		}
+		items = append(items, result{ID: c.ID, Name: c.Name, Email: c.Email, Value: value})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"results": items})
 }
 
 func emailResizeScript(emailID string) []byte {
@@ -1494,7 +1764,7 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 	tab := r.PathValue("tab")
-	if tab != "accounts" && tab != "sync" && tab != "appearance" && tab != "compose-display" && tab != "advanced" {
+	if tab != "accounts" && tab != "sync" && tab != "contacts" && tab != "appearance" && tab != "compose-display" && tab != "advanced" {
 		http.NotFound(w, r)
 		return
 	}
@@ -1684,6 +1954,48 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) handleDeleteObservedContacts(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	settings := h.db.GetContactSettings(ctx, h.userID(ctx))
+	if _, err := h.db.DeleteObservedContacts(ctx, h.userID(ctx), settings.PreventRecreateDeleted); err != nil {
+		http.Error(w, "delete observed contacts failed", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings/contacts", http.StatusSeeOther)
+}
+
+func (h *Handler) handleSuppressedContactsSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	suppressed, err := h.db.ListSuppressedContacts(ctx, h.userID(ctx), 200)
+	if err != nil {
+		http.Error(w, "failed to load suppressed contacts", http.StatusInternalServerError)
+		return
+	}
+	total, err := h.db.CountSuppressedContacts(ctx, h.userID(ctx))
+	if err != nil {
+		http.Error(w, "failed to count suppressed contacts", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	views.SettingsSuppressedContacts(suppressed, total).Render(ctx, w)
+}
+
+func (h *Handler) handleClearSuppressedContacts(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.db.ClearSuppressedContacts(r.Context(), h.userID(r.Context())); err != nil {
+		http.Error(w, "failed to clear suppressed contacts", http.StatusInternalServerError)
+		return
+	}
+	h.handleSuppressedContactsSettings(w, r)
+}
+
+func (h *Handler) handleClearSuppressedContact(w http.ResponseWriter, r *http.Request) {
+	if err := h.db.ClearSuppressedContact(r.Context(), h.userID(r.Context()), r.PathValue("id")); err != nil {
+		http.Error(w, "failed to clear suppressed contact", http.StatusInternalServerError)
+		return
+	}
+	h.handleSuppressedContactsSettings(w, r)
 }
 
 func atoiDefault(s string, def int) int {
@@ -2134,6 +2446,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 			lastProcessingActive = active
 		case event := <-ch:
 			if event.AccountID != "" && !accountSet[event.AccountID] {
+				continue
+			}
+			if eventUser, _ := event.Payload["user_id"].(string); eventUser != "" && eventUser != userID {
 				continue
 			}
 			m := map[string]any{

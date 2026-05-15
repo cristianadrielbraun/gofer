@@ -29,11 +29,22 @@ document.addEventListener("DOMContentLoaded", function () {
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
+  setupContactListSelection()
   setupSidebarAccountCollapse()
   setupProcessingStatus()
   setupBodyPrefetch()
   setupEmailBodyModeTabs()
   refreshSidebarUnread()
+
+  function setupContactListSelection() {
+    document.addEventListener("click", function (e) {
+      var contactItem = e.target.closest && e.target.closest("[data-contact-list-item]")
+      if (!contactItem) return
+      document.querySelectorAll("[data-contact-list-item]").forEach(function (item) {
+        item.dataset.active = item === contactItem ? "true" : "false"
+      })
+    })
+  }
 
   function setupEmailBodyModeTabs() {
     document.addEventListener("click", function (e) {
@@ -1184,7 +1195,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       var mainContent = document.getElementById("main-content")
-      var isOnSettings = mainContent && mainContent.querySelector("[data-tui-tabs]")
+      var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
       if (isOnSettings || !virtualMailList) {
         if (typeof htmx !== "undefined") {
           history.pushState({ folder: folderID, email: null }, "", "/folder/" + folderID)
@@ -1989,6 +2000,133 @@ function _splitComposeRecipients(value) {
     .filter(Boolean)
 }
 
+var _composeRecipientSuggestTimer = null
+var _composeRecipientSuggestSeq = 0
+
+function _composeRecipientInitials(name, email) {
+  var text = String(name || email || "").trim()
+  if (!text) return "?"
+  var parts = text.split(/\s+/).filter(Boolean)
+  if (parts.length > 1) return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase()
+  return text.slice(0, 2).toUpperCase()
+}
+
+function _composeRecipientSuggestionBox(field) {
+  if (!field) return null
+  var box = field.querySelector("[data-compose-recipient-suggestions]")
+  if (box) return box
+  box = document.createElement("div")
+  box.className = "compose-recipient-suggestions"
+  box.dataset.composeRecipientSuggestions = ""
+  box.hidden = true
+  field.appendChild(box)
+  return box
+}
+
+function _hideComposeRecipientSuggestions(field) {
+  var box = field && field.querySelector ? field.querySelector("[data-compose-recipient-suggestions]") : null
+  if (!box) return
+  box.hidden = true
+  box.innerHTML = ""
+  field.dataset.suggestionIndex = "-1"
+}
+
+function _activeComposeRecipientSuggestion(field) {
+  var box = field && field.querySelector ? field.querySelector("[data-compose-recipient-suggestions]") : null
+  if (!box || box.hidden) return null
+  var idx = parseInt(field.dataset.suggestionIndex || "-1", 10)
+  var items = box.querySelectorAll("[data-compose-recipient-suggestion]")
+  if (idx < 0 || idx >= items.length) return null
+  return items[idx]
+}
+
+function _setComposeRecipientSuggestionIndex(field, next) {
+  var box = field && field.querySelector ? field.querySelector("[data-compose-recipient-suggestions]") : null
+  if (!box || box.hidden) return
+  var items = box.querySelectorAll("[data-compose-recipient-suggestion]")
+  if (!items.length) return
+  if (next < 0) next = items.length - 1
+  if (next >= items.length) next = 0
+  field.dataset.suggestionIndex = String(next)
+  for (var i = 0; i < items.length; i++) items[i].dataset.active = i === next ? "true" : "false"
+  items[next].scrollIntoView({ block: "nearest" })
+}
+
+function _selectComposeRecipientSuggestion(input, item) {
+  if (!input || !item) return
+  var field = input.closest("[data-compose-recipient-field]")
+  if (!field) return
+  var value = item.dataset.value || ""
+  if (!value) return
+  renderComposeRecipientField(field, _composeRecipientValues(field).concat([value]).join(", "))
+  _hideComposeRecipientSuggestions(field)
+  _markComposeDirty(_composeFormFrom(field))
+  input.focus()
+}
+
+function _renderComposeRecipientSuggestions(input, results) {
+  var field = input && input.closest ? input.closest("[data-compose-recipient-field]") : null
+  var box = _composeRecipientSuggestionBox(field)
+  if (!field || !box) return
+  box.innerHTML = ""
+  if (!results || !results.length) {
+    _hideComposeRecipientSuggestions(field)
+    return
+  }
+  results.forEach(function (item, idx) {
+    var btn = document.createElement("button")
+    btn.type = "button"
+    btn.className = "compose-recipient-suggestion"
+    btn.dataset.composeRecipientSuggestion = ""
+    btn.dataset.value = item.value || item.email || ""
+    btn.dataset.active = idx === 0 ? "true" : "false"
+    btn.onmousedown = function (event) {
+      event.preventDefault()
+      _selectComposeRecipientSuggestion(input, btn)
+    }
+
+    var avatar = document.createElement("span")
+    avatar.className = "compose-recipient-suggestion-avatar"
+    avatar.textContent = _composeRecipientInitials(item.name, item.email)
+    var main = document.createElement("span")
+    main.className = "compose-recipient-suggestion-main"
+    var name = document.createElement("span")
+    name.className = "compose-recipient-suggestion-name"
+    name.textContent = item.name || item.email || "Contact"
+    var email = document.createElement("span")
+    email.className = "compose-recipient-suggestion-email"
+    email.textContent = item.email || ""
+    main.appendChild(name)
+    main.appendChild(email)
+    btn.appendChild(avatar)
+    btn.appendChild(main)
+    box.appendChild(btn)
+  })
+  field.dataset.suggestionIndex = "0"
+  box.hidden = false
+}
+
+function _scheduleComposeRecipientSuggestions(input) {
+  var text = String((input && input.textContent) || "").trim()
+  var field = input && input.closest ? input.closest("[data-compose-recipient-field]") : null
+  if (!field) return
+  if (_composeRecipientEmail(text).indexOf("@") >= 0 || text.length < 2) {
+    _hideComposeRecipientSuggestions(field)
+    return
+  }
+  if (_composeRecipientSuggestTimer) clearTimeout(_composeRecipientSuggestTimer)
+  var seq = ++_composeRecipientSuggestSeq
+  _composeRecipientSuggestTimer = setTimeout(function () {
+    fetch("/api/contacts/search?q=" + encodeURIComponent(text), { headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : { results: [] } })
+      .then(function (data) {
+        if (seq !== _composeRecipientSuggestSeq) return
+        _renderComposeRecipientSuggestions(input, data.results || [])
+      })
+      .catch(function () { _hideComposeRecipientSuggestions(field) })
+  }, 140)
+}
+
 function focusComposeRecipientField(field) {
   var input = field && field.querySelector ? field.querySelector("[data-compose-recipient-input]") : null
   if (input) input.focus()
@@ -2080,6 +2218,7 @@ function renderComposeRecipientFields(form) {
 function finalizeComposeRecipientInput(input) {
   var field = input && input.closest ? input.closest("[data-compose-recipient-field]") : null
   if (!field) return
+  _hideComposeRecipientSuggestions(field)
   var text = input.textContent || ""
   if (!text.trim()) return
   var merged = _composeRecipientValues(field).concat(_splitComposeRecipients(text)).join(", ")
@@ -2090,6 +2229,25 @@ function finalizeComposeRecipientInput(input) {
 function handleComposeRecipientKeydown(event) {
   var input = event.currentTarget
   var field = input.closest("[data-compose-recipient-field]")
+  var activeSuggestion = _activeComposeRecipientSuggestion(field)
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    var box = field && field.querySelector ? field.querySelector("[data-compose-recipient-suggestions]") : null
+    if (box && !box.hidden) {
+      event.preventDefault()
+      var idx = parseInt(field.dataset.suggestionIndex || "0", 10)
+      _setComposeRecipientSuggestionIndex(field, idx + (event.key === "ArrowDown" ? 1 : -1))
+      return
+    }
+  }
+  if (event.key === "Enter" && activeSuggestion) {
+    event.preventDefault()
+    _selectComposeRecipientSuggestion(input, activeSuggestion)
+    return
+  }
+  if (event.key === "Escape") {
+    _hideComposeRecipientSuggestions(field)
+    return
+  }
   if (event.key === "Enter" || event.key === "Tab" || event.key === "," || event.key === ";") {
     if ((input.textContent || "").trim()) {
       event.preventDefault()
@@ -2108,6 +2266,7 @@ function handleComposeRecipientKeydown(event) {
 function handleComposeRecipientInput(input) {
   var text = input.textContent || ""
   if (/[;,\n]/.test(text)) finalizeComposeRecipientInput(input)
+  else _scheduleComposeRecipientSuggestions(input)
 }
 
 function finalizeComposeRecipients(form) {

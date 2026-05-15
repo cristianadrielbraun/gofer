@@ -131,7 +131,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
 			<div class="flex h-screen overflow-hidden">
-				@Sidebar(accounts, "", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
+				@SettingsSidebar(activeTab, uiSettingGet(uiSettings, "sidebar_width", "256px"))
 				@ResizeHandle("sidebar")
 				<div id="main-content" class="flex flex-1 min-w-0">
 					@SettingsPage(accounts, syncSettings, activeTab, uiSettings, signatureData)
@@ -188,7 +188,51 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 	</html>
 }
 
-templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus, activeTab string) {
+templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
+	<!DOCTYPE html>
+	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Contacts — Gofer</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+			@SavedPanelSizeStyle()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+			@dialog.Script()
+			@dropdown.Script()
+			@checkbox.Script()
+			@calendar.Script()
+			@input.Script()
+			@selectbox.Script()
+			@tabs.Script()
+			@tooltip.Script()
+			@popover.Script()
+			@copybutton.Script()
+			@toast.Script()
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
+			<div class="flex h-screen overflow-hidden">
+				@Sidebar(accounts, "contacts", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
+				@ResizeHandle("sidebar")
+				@ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), accounts)
+			</div>
+			@ComposeDialog(accounts)
+			@ChooseAccountTypeDialog()
+			@GmailAccountDialog()
+			@AddAccountDialog()
+			<div id="edit-account-container"></div>
+			<script src="/assets/js/htmx.min.js"></script>
+			<script src="/assets/js/app.js"></script>
+			<script src="/assets/js/settings.js"></script>
+			<script src="/assets/js/ui-settings.js"></script>
+			<script src="/assets/js/resize.js"></script>
+		</body>
+	</html>
+}
+
+templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, activeSection string, activeTab string) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -214,9 +258,13 @@ templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
 			<div class="flex h-screen overflow-hidden bg-background">
-				@AdminSidebar()
+				@AdminSidebar(activeSection)
 				<div id="main-content" class="flex flex-1 min-w-0">
-					@AdminPage(avatarStatus, activeTab)
+					if activeSection == "contacts" {
+						@AdminContactsPage(contactStatus)
+					} else {
+						@AdminPage(avatarStatus, activeTab)
+					}
 				</div>
 			</div>
 			<script src="/assets/js/ui-settings.js"></script>
@@ -293,8 +341,12 @@ templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSetting
 	<div id="edit-account-container"></div>
 }
 
-templ AdminPartial(avatarStatus models.AvatarStatus, activeTab string) {
+templ AdminPartial(avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, activeSection string, activeTab string) {
 	<div id="main-content" class="flex flex-1 min-w-0">
-		@AdminPage(avatarStatus, activeTab)
+		if activeSection == "contacts" {
+			@AdminContactsPage(contactStatus)
+		} else {
+			@AdminPage(avatarStatus, activeTab)
+		}
 	</div>
 }

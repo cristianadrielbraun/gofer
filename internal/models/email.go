@@ -55,14 +55,30 @@ type Email struct {
 }
 
 type Contact struct {
+	ID            string
 	Name          string
 	Email         string
 	Initials      string
+	Source        string
+	IsManual      bool
+	IsDeleted     bool
+	MessageCount  int
+	CreatedAt     string
+	LastSeenAt    string
+	UpdatedAt     string
+	SaveTargets   []string
 	AvatarHash    string
 	AvatarStatus  string
 	AvatarSource  string
 	AvatarURL     string
 	AvatarDataURL string
+}
+
+type ContactFilters struct {
+	Query      string
+	Source     string
+	SaveTarget string
+	Activity   string
 }
 
 type Label struct {

@@ -15,50 +15,28 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
-	"github.com/cristianadrielbraun/gofer/components/tabs"
 )
 
 templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, activeTab string, uiSettings map[string]string, signatureData []models.AccountSignatureData) {
-	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden" data-settings-page>
 		<div class="flex-1 overflow-y-auto">
-			<div class="max-w-3xl px-8 py-10">
+			<div id="settings-content" class="max-w-3xl px-8 py-10">
 				<div class="mb-6">
 					<h2 class="text-2xl font-bold text-foreground mb-1" style="font-family: var(--font-serif)">Settings</h2>
 					<p class="text-sm text-muted-foreground">Manage your accounts and preferences</p>
 				</div>
-				@tabs.Tabs() {
-					@tabs.List(tabs.ListProps{Class: "bg-card"}) {
-						@tabs.Trigger(tabs.TriggerProps{Value: "accounts", IsActive: activeTab == "accounts"}) {
-							Accounts
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "sync", IsActive: activeTab == "sync"}) {
-							Sync
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "appearance", IsActive: activeTab == "appearance"}) {
-							Appearance
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "compose-display", IsActive: activeTab == "compose-display"}) {
-							Compose and display
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "advanced", IsActive: activeTab == "advanced"}) {
-							Advanced
-						}
-					}
-					@tabs.Content(tabs.ContentProps{Value: "accounts", IsActive: activeTab == "accounts"}) {
-						@SettingsAccountsTab(accounts)
-					}
-					@tabs.Content(tabs.ContentProps{Value: "sync", IsActive: activeTab == "sync"}) {
-						@SettingsSyncTab(syncSettings)
-					}
-						@tabs.Content(tabs.ContentProps{Value: "appearance", IsActive: activeTab == "appearance"}) {
-							@SettingsAppearanceTab(uiSettings)
-						}
-						@tabs.Content(tabs.ContentProps{Value: "compose-display", IsActive: activeTab == "compose-display"}) {
-							@SettingsComposeDisplayTab(uiSettings, signatureData)
-						}
-						@tabs.Content(tabs.ContentProps{Value: "advanced", IsActive: activeTab == "advanced"}) {
-							@SettingsAdvancedTab(uiSettings)
-						}
+				if activeTab == "accounts" {
+					@SettingsAccountsTab(accounts)
+				} else if activeTab == "sync" {
+					@SettingsSyncTab(syncSettings)
+				} else if activeTab == "contacts" {
+					@SettingsContactsTab(uiSettings)
+				} else if activeTab == "appearance" {
+					@SettingsAppearanceTab(uiSettings)
+				} else if activeTab == "compose-display" {
+					@SettingsComposeDisplayTab(uiSettings, signatureData)
+				} else if activeTab == "advanced" {
+					@SettingsAdvancedTab(uiSettings)
 				}
 			</div>
 		</div>
@@ -447,6 +425,230 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 		});
 	})();
 	</script>
+}
+
+templ SettingsContactsTab(uiSettings map[string]string) {
+	<div class="mt-6 space-y-6">
+		<div class="bg-card rounded-lg border p-6 space-y-5">
+			<div>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Local contacts</h3>
+				<p class="text-xs text-muted-foreground">Control how Gofer builds and maintains your local address book from mail you already have.</p>
+			</div>
+			<div class="rounded-lg border border-border/60 bg-background/40 p-4 space-y-5">
+				<div class="flex items-start justify-between gap-6">
+					<div class="min-w-0">
+						<label for="contacts-auto-create-observed" class="text-sm font-medium text-foreground">Auto-create observed contacts</label>
+						<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Create local contacts from selected discovery sources. Disable this if you only want manually saved contacts.</p>
+					</div>
+					@switchcomp.Switch(switchcomp.Props{
+						ID:      "contacts-auto-create-observed",
+						Name:    "contacts_auto_create_observed",
+						Checked: uiSettingGet(uiSettings, "contacts_auto_create_observed", "true") != "false",
+						Attributes: templ.Attributes{"data-ui-setting-switch": "contacts_auto_create_observed", "data-contact-autocreate-switch": ""},
+					})
+				</div>
+				<fieldset
+					data-contact-autocreate-dependent
+					disabled?={ uiSettingGet(uiSettings, "contacts_auto_create_observed", "true") == "false" }
+					class={
+						"space-y-5 border-t border-border/60 pt-5 transition-opacity",
+						templ.KV("opacity-45 pointer-events-none saturate-50", uiSettingGet(uiSettings, "contacts_auto_create_observed", "true") == "false"),
+					}
+				>
+					<div class="space-y-4">
+						<div class="min-w-0">
+							<h4 class="text-sm font-medium text-foreground">Discovery sources</h4>
+							<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Choose which mail participants should be eligible for automatic contact creation.</p>
+						</div>
+						<div class="space-y-3">
+							<div class="flex items-start justify-between gap-6">
+								<div class="min-w-0">
+									<label for="contacts-observed-senders" class="text-sm font-medium text-foreground">Senders</label>
+									<p class="text-xs text-muted-foreground mt-1">Create contacts from message From addresses.</p>
+								</div>
+								@switchcomp.Switch(switchcomp.Props{
+									ID:      "contacts-observed-senders",
+									Name:    "contacts_observed_senders",
+									Checked: uiSettingCSVHas(uiSettings, "contacts_observed_sources", "senders,recipients", "senders"),
+									Attributes: templ.Attributes{"data-contact-source-switch": "senders"},
+								})
+							</div>
+							<div class="flex items-start justify-between gap-6">
+								<div class="min-w-0">
+									<label for="contacts-observed-recipients" class="text-sm font-medium text-foreground">Recipients</label>
+									<p class="text-xs text-muted-foreground mt-1">Create contacts from To, Cc, and Bcc addresses.</p>
+								</div>
+								@switchcomp.Switch(switchcomp.Props{
+									ID:      "contacts-observed-recipients",
+									Name:    "contacts_observed_recipients",
+									Checked: uiSettingCSVHas(uiSettings, "contacts_observed_sources", "senders,recipients", "recipients"),
+									Attributes: templ.Attributes{"data-contact-source-switch": "recipients"},
+								})
+							</div>
+						</div>
+					</div>
+					<div class="flex items-start justify-between gap-6 border-t border-border/60 pt-5">
+						<div class="min-w-0">
+							<label for="contacts-prevent-recreate-deleted" class="text-sm font-medium text-foreground">Do not recreate deleted contacts</label>
+							<p class="text-xs text-muted-foreground mt-1 leading-relaxed">When an observed contact is deleted, keep it suppressed so future mail from the same address does not add it back automatically.</p>
+						</div>
+						@switchcomp.Switch(switchcomp.Props{
+							ID:      "contacts-prevent-recreate-deleted",
+							Name:    "contacts_prevent_recreate_deleted",
+							Checked: uiSettingGet(uiSettings, "contacts_prevent_recreate_deleted", "true") != "false",
+							Attributes: templ.Attributes{"data-ui-setting-switch": "contacts_prevent_recreate_deleted"},
+						})
+					</div>
+					<div class="flex items-start justify-between gap-6 border-t border-border/60 pt-5">
+						<div class="min-w-0">
+							<h4 class="text-sm font-medium text-foreground">Delete discovered contacts</h4>
+							<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Remove contacts that were created by discovery. Manually saved contacts are kept.</p>
+						</div>
+						@dialog.Trigger(dialog.TriggerProps{For: "delete-discovered-contacts-dialog"}) {
+							<button type="button" class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10">
+								@icon.Trash2(icon.Props{Class: "size-3.5"})
+								Delete discovered
+							</button>
+						}
+					</div>
+				</fieldset>
+				@dialog.Dialog(dialog.Props{ID: "delete-discovered-contacts-dialog"}) {
+					@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+						@dialog.Header() {
+							@dialog.Title() { Delete discovered contacts }
+							@dialog.Description() { Remove contacts Gofer created through discovery. Manually saved contacts will be kept. }
+						}
+						<div class="rounded-lg border border-destructive/15 bg-destructive/5 p-3 text-sm text-muted-foreground">
+							This action deletes all discovered contacts. Deleted addresses may be suppressed from automatic recreation depending on your contact settings.
+						</div>
+						@dialog.Footer() {
+							@dialog.Close() {
+								<button type="button" class="inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors">
+									Cancel
+								</button>
+							}
+							<form action="/api/settings/contacts/delete-observed" method="post">
+								<button type="submit" class="inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors">
+									@icon.Trash2(icon.Props{Class: "size-4"})
+									Delete discovered
+								</button>
+							</form>
+						}
+					}
+				}
+				<div id="contacts-suppressed-settings" hx-get="/api/settings/contacts/suppressed" hx-trigger="load" hx-swap="outerHTML" class="border-t border-border/60 pt-5">
+					<div class="flex items-center justify-between gap-4">
+						<div class="min-w-0">
+							<div class="h-4 w-40 rounded bg-muted animate-pulse"></div>
+							<div class="mt-2 h-3 w-64 rounded bg-muted animate-pulse"></div>
+						</div>
+						<div class="h-8 w-20 rounded bg-muted animate-pulse"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="bg-card rounded-lg border p-6 space-y-3">
+			<div>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Provider sync</h3>
+				<p class="text-xs text-muted-foreground">Gmail, Microsoft, and CardDAV sync will live here once provider adapters are added.</p>
+			</div>
+			<div class="rounded-lg border border-dashed border-border bg-background/40 p-4 text-xs text-muted-foreground">Provider-backed contacts are not enabled yet. Local contacts and observed contacts are available now.</div>
+		</div>
+	</div>
+	<script>
+	(function() {
+		function syncContactsAutoCreateDependents() {
+			var master = document.querySelector('[data-contact-autocreate-switch]');
+			var enabled = !master || master.checked;
+			document.querySelectorAll('[data-contact-autocreate-dependent]').forEach(function(section) {
+				section.disabled = !enabled;
+				section.classList.toggle('opacity-45', !enabled);
+				section.classList.toggle('pointer-events-none', !enabled);
+				section.classList.toggle('saturate-50', !enabled);
+			});
+		}
+		syncContactsAutoCreateDependents();
+		document.addEventListener('change', function(e) {
+			var toggle = e.target.closest('[data-ui-setting-switch]');
+			if (toggle && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set(toggle.getAttribute('data-ui-setting-switch'), toggle.checked ? 'true' : 'false');
+				if (toggle.hasAttribute('data-contact-autocreate-switch')) syncContactsAutoCreateDependents();
+			}
+			var source = e.target.closest('[data-contact-source-switch]');
+			if (!source || typeof GoferSettings === 'undefined') return;
+			var selected = [];
+			document.querySelectorAll('[data-contact-source-switch]').forEach(function(el) {
+				if (el.checked) selected.push(el.getAttribute('data-contact-source-switch'));
+			});
+			GoferSettings.set('contacts_observed_sources', selected.join(','));
+		});
+	})();
+	</script>
+}
+
+templ SettingsSuppressedContacts(contacts []models.Contact, totalCount int) {
+	<div id="contacts-suppressed-settings" class="border-t border-border/60 pt-5">
+		<div class="flex items-start justify-between gap-6">
+			<div class="min-w-0">
+				<div class="flex items-center gap-2">
+					<h4 class="text-sm font-medium text-foreground">Suppressed contacts</h4>
+					<span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{ fmt.Sprintf("%d", totalCount) }</span>
+				</div>
+				<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Deleted discovered contacts that should not be recreated automatically.</p>
+			</div>
+			@dialog.Trigger(dialog.TriggerProps{For: "suppressed-contacts-dialog"}) {
+				<button type="button" class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">
+					@icon.List(icon.Props{Class: "size-3.5"})
+					Manage
+				</button>
+			}
+		</div>
+		@dialog.Dialog(dialog.Props{ID: "suppressed-contacts-dialog"}) {
+			@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl"}) {
+				@dialog.Header() {
+					@dialog.Title() { Suppressed contacts }
+					@dialog.Description() { These addresses are allowed to stay deleted and will not be recreated by discovery. }
+				}
+				<div class="space-y-4">
+					<div class="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/40 p-3">
+						<div class="min-w-0">
+							<div class="text-sm font-medium text-foreground">{ fmt.Sprintf("%d", totalCount) } suppressed contacts</div>
+							<p class="text-xs text-muted-foreground mt-0.5">Remove one address or clear the full suppression list.</p>
+						</div>
+						if totalCount > 0 {
+							<form hx-post="/api/settings/contacts/suppressed/clear" hx-target="#contacts-suppressed-settings" hx-swap="outerHTML" onsubmit="return confirm('Clear all suppressed contacts? These addresses may be rediscovered later.')">
+								<button type="submit" class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10">
+									@icon.Trash2(icon.Props{Class: "size-3.5"})
+									Clear all
+								</button>
+							</form>
+						}
+					</div>
+					if totalCount == 0 {
+						<div class="rounded-lg border border-dashed border-border bg-background/40 p-6 text-center text-sm text-muted-foreground">No suppressed contacts.</div>
+					} else {
+						<div class="max-h-80 overflow-y-auto rounded-lg border border-border/60 bg-background/35">
+							for _, contact := range contacts {
+								<div class="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-b-0">
+									@ContactAvatar(contact, "size-8 rounded-full text-[10px] font-bold shrink-0", "bg-muted text-muted-foreground")
+									<div class="min-w-0 flex-1">
+										<div class="truncate text-sm font-medium text-foreground">{ contact.Name }</div>
+										<div class="truncate text-xs text-muted-foreground">{ contact.Email }</div>
+									</div>
+									<form hx-post={ templ.URL(fmt.Sprintf("/api/settings/contacts/suppressed/%s/clear", contact.ID)) } hx-target="#contacts-suppressed-settings" hx-swap="outerHTML">
+										<button type="submit" class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Allow again</button>
+									</form>
+								</div>
+							}
+							if totalCount > len(contacts) {
+								<div class="px-3 py-2 text-xs text-muted-foreground">Showing { fmt.Sprintf("%d", len(contacts)) } of { fmt.Sprintf("%d", totalCount) } suppressed contacts.</div>
+							}
+						</div>
+					}
+				</div>
+			}
+		}
+	</div>
 }
 
 templ SettingsAccountsTab(accounts []models.Account) {

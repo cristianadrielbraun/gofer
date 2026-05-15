@@ -14,6 +14,8 @@ const (
 	EventMutation         EventType = "mutation"
 	EventAvatarUpdated    EventType = "avatar-updated"
 	EventAvatarBackfill   EventType = "avatar-backfill"
+	EventContactActivity  EventType = "contact-activity"
+	EventContactBackfill  EventType = "contact-backfill"
 )
 
 type Event struct {

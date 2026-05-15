@@ -96,3 +96,33 @@ type AvatarInUse struct {
 	ExpiresAt     time.Time `json:"expires_at,omitempty"`
 	NextRetryAt   time.Time `json:"next_retry_at,omitempty"`
 }
+
+type ContactAdminStatus struct {
+	Backfill     ContactBackfillState   `json:"backfill"`
+	Total        int                    `json:"total"`
+	Manual       int                    `json:"manual"`
+	Observed     int                    `json:"observed"`
+	Suppressed   int                    `json:"suppressed"`
+	AddedToday   int                    `json:"added_today"`
+	DeletedToday int                    `json:"deleted_today"`
+	LastBackfill time.Time              `json:"last_backfill,omitempty"`
+	RecentEvents []ContactActivityEvent `json:"recent_events"`
+}
+
+type ContactBackfillState struct {
+	InProgress bool      `json:"in_progress"`
+	Processed  int       `json:"processed"`
+	Total      int       `json:"total"`
+	Added      int       `json:"added"`
+	LastError  string    `json:"last_error,omitempty"`
+	StartedAt  time.Time `json:"started_at,omitempty"`
+	FinishedAt time.Time `json:"finished_at,omitempty"`
+}
+
+type ContactActivityEvent struct {
+	Type      string    `json:"type"`
+	Email     string    `json:"email,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	Count     int       `json:"count,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}

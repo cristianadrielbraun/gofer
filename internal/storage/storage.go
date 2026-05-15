@@ -21,6 +21,17 @@ type DB struct {
 	path           string
 	threadingState ThreadingState
 	threadingMu    sync.RWMutex
+	contactHookMu  sync.RWMutex
+	contactHook    func(ContactActivityNotification)
+}
+
+type ContactActivityNotification struct {
+	UserID    string
+	EventType string
+	Email     string
+	Message   string
+	Count     int
+	CreatedAt string
 }
 
 type ThreadingState struct {
@@ -76,6 +87,21 @@ func (db *DB) GetThreadingState() ThreadingState {
 	return db.threadingState
 }
 
+func (db *DB) SetContactActivityHook(hook func(ContactActivityNotification)) {
+	db.contactHookMu.Lock()
+	db.contactHook = hook
+	db.contactHookMu.Unlock()
+}
+
+func (db *DB) notifyContactActivity(event ContactActivityNotification) {
+	db.contactHookMu.RLock()
+	hook := db.contactHook
+	db.contactHookMu.RUnlock()
+	if hook != nil {
+		hook(event)
+	}
+}
+
 func openDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=temp_store(MEMORY)&_texttotime=true")
 	if err != nil {
@@ -109,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 21
+	const targetSchemaVersion = 24
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -244,6 +270,24 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 20 {
 		if err := migrateV20ToV21(tx); err != nil {
 			return fmt.Errorf("migrate v20 to v21: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 21 {
+		if err := migrateV21ToV22(tx); err != nil {
+			return fmt.Errorf("migrate v21 to v22: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 22 {
+		if err := migrateV22ToV23(tx); err != nil {
+			return fmt.Errorf("migrate v22 to v23: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 23 {
+		if err := migrateV23ToV24(tx); err != nil {
+			return fmt.Errorf("migrate v23 to v24: %w", err)
 		}
 	}
 
@@ -735,6 +779,105 @@ func migrateV20ToV21(tx *sql.Tx) error {
 	migrations := []string{
 		`ALTER TABLE sender_avatars ADD COLUMN storage_path TEXT NOT NULL DEFAULT ''`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (21)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV21ToV22(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS contacts (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			display_name TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT 'observed',
+			is_manual INTEGER NOT NULL DEFAULT 0,
+			is_deleted INTEGER NOT NULL DEFAULT 0,
+			suppress_auto_create INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS contact_emails (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+			email TEXT NOT NULL,
+			normalized_email TEXT NOT NULL,
+			label TEXT NOT NULL DEFAULT '',
+			is_primary INTEGER NOT NULL DEFAULT 0,
+			observed_name TEXT NOT NULL DEFAULT '',
+			message_count INTEGER NOT NULL DEFAULT 0,
+			last_seen_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, normalized_email),
+			UNIQUE(contact_id, normalized_email)
+		)`,
+		`CREATE TABLE IF NOT EXISTS contact_sources (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL,
+			account_id TEXT NOT NULL DEFAULT '',
+			remote_id TEXT NOT NULL DEFAULT '',
+			etag TEXT NOT NULL DEFAULT '',
+			sync_token TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contacts_user_name ON contacts(user_id, is_deleted, display_name COLLATE NOCASE)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_emails_contact ON contact_emails(contact_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_emails_search ON contact_emails(user_id, normalized_email)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sources_contact ON contact_sources(contact_id)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (22)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV22ToV23(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS contact_save_targets (
+			contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			target TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (contact_id, target)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_save_targets_user ON contact_save_targets(user_id, target)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (23)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV23ToV24(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS contact_activity_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			event_type TEXT NOT NULL,
+			email TEXT NOT NULL DEFAULT '',
+			message TEXT NOT NULL DEFAULT '',
+			event_count INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_activity_events_user_created ON contact_activity_events(user_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_activity_events_type_created ON contact_activity_events(event_type, created_at DESC)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (24)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {

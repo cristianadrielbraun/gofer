@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", function () {
   setupTestButtonAnimation()
   setupSettingsHistory()
+  setupSettingsSidebar()
   setupModePickers()
   setupAccountColorPickers()
   setupAccountSignaturesDialog(document)
@@ -712,8 +713,45 @@ function setupSettingsHistory() {
   if (!window.location.pathname.startsWith("/settings")) return
   var parts = window.location.pathname.replace(/\/+$/, "").split("/")
   var tab = parts[2] || "accounts"
-  if (tab !== "accounts" && tab !== "sync" && tab !== "appearance" && tab !== "compose-display" && tab !== "advanced") tab = "accounts"
+  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "compose-display" && tab !== "advanced") tab = "accounts"
   history.replaceState({ settingsTab: tab }, "", window.location.pathname)
+}
+
+function setupSettingsSidebar() {
+  if (setupSettingsSidebar.ready) return
+  setupSettingsSidebar.ready = true
+
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest && e.target.closest("[data-settings-sidebar-link]")
+    if (!link) return
+    setSettingsSidebarActive(link.getAttribute("data-settings-sidebar-value"))
+  })
+
+  window.addEventListener("popstate", function () {
+    setSettingsSidebarActive(settingsTabFromLocation())
+  })
+}
+
+function settingsTabFromLocation() {
+  var parts = window.location.pathname.replace(/\/+$/, "").split("/")
+  var tab = parts[2] || "accounts"
+  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "compose-display" && tab !== "advanced") return "accounts"
+  return tab
+}
+
+function setSettingsSidebarActive(value) {
+  if (!value) return
+  document.querySelectorAll("[data-settings-sidebar-link]").forEach(function (link) {
+    var active = link.getAttribute("data-settings-sidebar-value") === value
+    link.classList.toggle("bg-sidebar-accent", active)
+    link.classList.toggle("text-sidebar-primary", active)
+    link.classList.toggle("font-medium", active)
+    link.classList.toggle("text-sidebar-foreground", !active)
+    link.classList.toggle("hover:bg-sidebar-accent/60", !active)
+    link.classList.toggle("hover:text-sidebar-accent-foreground", !active)
+    if (active) link.setAttribute("aria-current", "true")
+    else link.removeAttribute("aria-current")
+  })
 }
 
 document.body.addEventListener("htmx:afterSettle", function (e) {
@@ -727,8 +765,10 @@ document.body.addEventListener("htmx:afterSettle", function (e) {
       setTimeout(function () { window.tui.dialog.open(dialogID) }, 20)
     }
   }
-  if (!e.target.querySelector("[data-tui-tabs]") && !e.target.querySelector("[data-mode-picker]")) return
+  var settingsContentTarget = e.target.id === "settings-content"
+  if (!settingsContentTarget && !e.target.querySelector("[data-settings-page]") && !e.target.querySelector("[data-mode-picker]")) return
   setupSettingsHistory()
+  setSettingsSidebarActive(settingsTabFromLocation())
   setupModePickers()
   requestAnimationFrame(function () {
     refreshModePickers(false)

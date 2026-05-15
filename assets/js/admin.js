@@ -1,8 +1,10 @@
 (function () {
   "use strict"
 
-	var root = document.querySelector("[data-avatar-admin]")
-	if (!root) return
+	var avatarRoot = document.querySelector("[data-avatar-admin]")
+	var contactRoot = document.querySelector("[data-contact-admin]")
+	if (!avatarRoot && !contactRoot) return
+	var root = avatarRoot || contactRoot
 
 	var statusTimer = null
 	var tableTimer = null
@@ -98,6 +100,139 @@
     root.querySelectorAll('[data-admin-detail="' + key + '"] [data-admin-detail-value]').forEach(function (node) {
       node.textContent = value
     })
+  }
+
+  function contactRunDescription(backfill) {
+    if (backfill && backfill.in_progress) return "Manual observed-contact backfill is scanning stored messages and creating missing discovered contacts."
+    if (backfill && backfill.last_error) return "Last backfill failed. Review the event log and server logs before retrying."
+    return "Backfill scans stored messages for senders and recipients that are not already represented as contacts."
+  }
+
+  function contactRunLabel(backfill) {
+    if (backfill && backfill.in_progress) return "Backfilling"
+    if (backfill && backfill.last_error) return "Error"
+    return "Idle"
+  }
+
+  function contactEventLabel(eventType) {
+    var labels = {
+      backfill_forced: "Backfill requested",
+      backfill_started: "Backfill started",
+      backfill_completed: "Backfill completed",
+      manual_contact_added: "Manual contact added",
+      observed_contact_added: "Observed contact added",
+      contact_deleted: "Contact deleted",
+      observed_contacts_deleted: "Discovered contacts deleted",
+    }
+    return labels[eventType] || String(eventType || "event").replace(/_/g, " ").replace(/\b\w/g, function (ch) { return ch.toUpperCase() })
+  }
+
+  function contactEventClass(eventType) {
+    if (eventType === "backfill_forced" || eventType === "backfill_started") return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+    if (eventType === "backfill_completed" || eventType === "manual_contact_added" || eventType === "observed_contact_added") return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+    if (eventType === "contact_deleted" || eventType === "observed_contacts_deleted") return "bg-red-500/12 text-red-700 dark:text-red-300"
+    return "bg-muted text-muted-foreground"
+  }
+
+  function renderContactEventRow(event) {
+    event = event || {}
+    return '<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_12rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border/70 bg-background/55 px-4 py-3 text-sm odd:bg-background/70 hover:bg-accent/35">' +
+      '<div class="text-xs font-medium text-muted-foreground">' + escapeHTML(fmtTime(event.created_at)) + '</div>' +
+      '<div class="min-w-0 truncate font-medium text-foreground">' + escapeHTML(event.email || "System") + '</div>' +
+      '<div><span class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ' + contactEventClass(event.type) + '">' + escapeHTML(contactEventLabel(event.type)) + '</span></div>' +
+      '<div class="text-sm font-semibold tabular-nums text-foreground">' + escapeHTML(fmtNumber(event.count)) + '</div>' +
+      '<div class="min-w-0 truncate text-sm text-muted-foreground">' + escapeHTML(event.message || "") + '</div>' +
+      '</div>'
+  }
+
+  function renderContactBackfill(backfill) {
+    backfill = backfill || {}
+    var pct = percent(backfill.processed, backfill.total)
+    var progressText = qs("[data-contact-progress-text]", root)
+    var progressPct = qs("[data-contact-progress-percent]", root)
+    var progressBar = qs("[data-contact-progress-bar]", root)
+    if (progressText) progressText.textContent = fmtNumber(backfill.processed) + " of " + fmtNumber(backfill.total) + " processed"
+    if (progressPct) progressPct.textContent = pct + "%"
+    if (progressBar) progressBar.style.width = pct + "%"
+    var state = qs("[data-contact-state]", root)
+    if (state) {
+      state.textContent = contactRunLabel(backfill)
+      state.className = "inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold " + (backfill.in_progress ? "bg-amber-500/12 text-amber-700 dark:text-amber-300" : (backfill.last_error ? "bg-red-500/12 text-red-700 dark:text-red-300" : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"))
+    }
+    var description = qs("[data-contact-run-description]", root)
+    if (description) description.textContent = contactRunDescription(backfill)
+    var button = document.querySelector('form[action="/admin/contacts/backfill"] button')
+    if (button) button.disabled = !!backfill.in_progress
+    setDetail("contacts_started", fmtTime(backfill.started_at))
+    setDetail("contacts_finished", fmtTime(backfill.finished_at))
+    setDetail("contacts_last_error", backfill.last_error || "None")
+  }
+
+  function renderContactStatus(status) {
+    if (!status) return
+    renderContactBackfill(status.backfill || {})
+    setMetric("contacts_total", status.total)
+    setMetric("contacts_observed", status.observed)
+    setMetric("contacts_manual", status.manual)
+    setMetric("contacts_suppressed", status.suppressed)
+    setMetric("contacts_added_today", status.added_today)
+    setMetric("contacts_deleted_today", status.deleted_today)
+    setDetail("contacts_last_backfill", fmtTime(status.last_backfill))
+    var events = status.recent_events || []
+    var count = qs("[data-contact-event-count]", root)
+    if (count) count.textContent = events.length + " recent events"
+    var viewport = qs("[data-contact-event-viewport]", root)
+    if (viewport) {
+      viewport.innerHTML = events.length ? events.map(renderContactEventRow).join("") : '<div class="px-4 py-8 text-center text-sm text-muted-foreground">No contact activity has been recorded yet.</div>'
+    }
+  }
+
+  function refreshContactStatus() {
+    return fetch("/api/admin/contacts/status", { headers: { "Accept": "application/json" } })
+      .then(function (res) { if (!res.ok) throw new Error("status " + res.status); return res.json() })
+      .then(renderContactStatus)
+      .catch(function () {})
+  }
+
+  function bindForceContactBackfill() {
+    var form = document.querySelector('form[action="/admin/contacts/backfill"]')
+    if (!form) return
+    form.addEventListener("submit", function (event) {
+      event.preventDefault()
+      var button = qs("button", form)
+      if (button) button.disabled = true
+      fetch(form.action, { method: "POST", headers: { "Accept": "application/json" } })
+        .then(function () { refreshContactStatus() })
+        .catch(function () { if (button) button.disabled = false })
+    })
+  }
+
+  function setupContactSSE() {
+    if (!window.EventSource) return
+    var source = new EventSource("/api/events")
+    source.addEventListener("contact-backfill", function (event) {
+      var data = parseEventData(event)
+      if (data.backfill) renderContactBackfill(data.backfill)
+      refreshContactStatus()
+    })
+    source.addEventListener("contact-activity", function () {
+      refreshContactStatus()
+    })
+    source.onerror = function () {
+      source.close()
+      setTimeout(setupContactSSE, 5000)
+    }
+  }
+
+  function setupContactAdmin() {
+    bindForceContactBackfill()
+    setupContactSSE()
+    refreshContactStatus()
+  }
+
+  if (contactRoot && !avatarRoot) {
+    setupContactAdmin()
+    return
   }
 
   function setState(backfill) {

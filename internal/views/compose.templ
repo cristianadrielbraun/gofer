@@ -360,7 +360,7 @@ templ ComposeField(label string, name string, placeholder string) {
 	<div class="flex items-center gap-2">
 		<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">{ label }</label>
 		<input type="hidden" name={ name } data-compose-recipient-value/>
-		<div class="compose-recipient-field min-h-9 flex flex-1 items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm" data-compose-recipient-field data-recipient-name={ name } onclick="focusComposeRecipientField(this)">
+		<div class="compose-recipient-field relative min-h-9 flex flex-1 items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm" data-compose-recipient-field data-recipient-name={ name } onclick="focusComposeRecipientField(this)">
 			<span class="min-w-24 flex-1 outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/45" contenteditable="true" role="textbox" data-compose-recipient-input data-placeholder={ placeholder } onkeydown="handleComposeRecipientKeydown(event)" oninput="handleComposeRecipientInput(this)" onblur="finalizeComposeRecipientInput(this)"></span>
 		</div>
 	</div>

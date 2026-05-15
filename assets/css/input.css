@@ -270,6 +270,87 @@
   pointer-events: none;
 }
 
+.compose-recipient-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 70;
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-raised);
+  padding: 0.25rem;
+}
+
+.compose-recipient-suggestions[hidden] {
+  display: none;
+}
+
+.compose-recipient-suggestion {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.625rem;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.625rem;
+  text-align: left;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.compose-recipient-suggestion[data-active="true"],
+.compose-recipient-suggestion:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.compose-recipient-suggestion-avatar {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  color: var(--primary);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.compose-recipient-suggestion-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.compose-recipient-suggestion-name,
+.compose-recipient-suggestion-email {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compose-recipient-suggestion-name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.compose-recipient-suggestion-email {
+  margin-top: 0.05rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.contact-list-item[data-active="true"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
 .compose-attachment-chip {
   display: inline-flex;
   max-width: 100%;
