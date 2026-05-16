@@ -41,10 +41,10 @@ func contactSourceLabel(source string, isManual bool, accounts []models.Account)
 		accountID := strings.TrimPrefix(source, "synced:")
 		for _, account := range accounts {
 			if account.ID == accountID {
-				return "Synced from " + accountContactOriginLabel(account)
+				return "Imported from " + accountContactOriginLabel(account)
 			}
 		}
-		return "Synced from account"
+		return "Imported from account"
 	}
 	switch source {
 	case "observed":
@@ -52,9 +52,9 @@ func contactSourceLabel(source string, isManual bool, accounts []models.Account)
 	case "manual":
 		return "Manual"
 	case "synced":
-		return "Synced from any account"
+		return "Imported from any account"
 	case "provider:gmail":
-		return "Synced from Gmail"
+		return "Imported from Gmail"
 	default:
 		if source == "" {
 			return "Local"
@@ -337,10 +337,10 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, showNew 
 												@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.Source == ""}) { Any origin }
 												@selectbox.Item(selectbox.ItemProps{Value: "manual", Selected: filters.Source == "manual"}) { Manual }
 												@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: filters.Source == "observed"}) { Observed }
-												@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: filters.Source == "synced"}) { Synced from any account }
+											@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: filters.Source == "synced"}) { Imported from any account }
 											for _, account := range accounts {
 												if !account.IsDeleting && accountContactSyncCapable(account) {
-													@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: filters.Source == "synced:" + account.ID}) { Synced from { accountContactSaveLabel(account) } }
+													@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: filters.Source == "synced:" + account.ID}) { Imported from { accountContactSaveLabel(account) } }
 												}
 											}
 											}
@@ -437,6 +437,7 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, showNew 
 			<div
 				id="contacts-list-scroll"
 				class="flex-1 overflow-y-auto px-2 py-2"
+				data-hydrate-dropin
 				data-view-mode={ contactViewMode(filters.View) }
 				data-total-count={ fmt.Sprintf("%d", totalCount) }
 				data-window-start="0"

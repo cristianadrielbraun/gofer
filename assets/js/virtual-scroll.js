@@ -435,6 +435,7 @@ class VirtualMailList {
         var dy = old.rect.top - next.top
         var finalHeight = node.style.height || (next.height + "px")
         var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
+        var animated = false
         if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || heightChanged) {
           var base = node.style.transform || ""
           node.style.transition = "none"
@@ -448,7 +449,9 @@ class VirtualMailList {
           node.style.transform = base
           if (heightChanged) node.style.height = finalHeight
           this.cleanupTransition(node, duration)
+          animated = true
         }
+        if (!animated && options.enterExisting) entering.push(node)
       } else {
         entering.push(node)
       }
@@ -462,6 +465,22 @@ class VirtualMailList {
 
     this.animateEnteringRows(entering, duration, ease, options.enterFrom || -10, enterDelay, enterStagger)
     this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, exitStagger)
+  }
+
+  animateRenderedRows(options) {
+    if (this.prefersReducedMotion() || !this.itemsContainer) return
+    options = options || {}
+    var nodes = []
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (row && row.dataset.emailId) nodes.push(node)
+    }
+    if (nodes.length === 0) return
+    var duration = options.duration || 190
+    var ease = "cubic-bezier(0.2, 0, 0, 1)"
+    var stagger = options.enterStagger !== undefined ? options.enterStagger : (nodes.length > 3 ? 12 : 0)
+    this.animateEnteringRows(nodes, duration, ease, options.enterFrom || -8, options.enterDelay || 0, stagger)
   }
 
   animateEnteringRows(nodes, duration, ease, offsetY, delay, stagger) {
@@ -899,7 +918,8 @@ class VirtualMailList {
     this.updateEffectiveCount()
   }
 
-  hydrateFromDOM() {
+  hydrateFromDOM(options) {
+    options = options || {}
     var scrollEl =
       document.getElementById("mail-list-scroll") || this.container
     this.setViewMode(scrollEl.dataset.viewMode || this.viewMode, true)
@@ -944,6 +964,7 @@ class VirtualMailList {
 
     this.windowedMode = false
 
+    this.container.removeAttribute("data-hydrate-dropin")
     this.container.innerHTML = ""
     this.spacerTop = document.createElement("div")
     this.spacerBottom = document.createElement("div")
@@ -965,6 +986,7 @@ class VirtualMailList {
     }
 
     this.render()
+    if (options.animate !== false) this.animateRenderedRows({ enterFrom: -8 })
   }
 
   renderTableHeader() {
@@ -1020,6 +1042,7 @@ class VirtualMailList {
 
   async switchFolder(folderID, pushState) {
     if (pushState === undefined) pushState = true
+    var transition = this.captureListTransition()
     var previousSelected = this.selectedEmailId
     var params = "limit=50"
     if (previousSelected) {
@@ -1048,6 +1071,8 @@ class VirtualMailList {
     }
 
     this.render()
+    if (transition) this.animateListTransition(transition, { enterFrom: -8, exitTo: 14 })
+    else this.animateRenderedRows({ enterFrom: -8 })
     this.updateHeader()
     this.updateSyncHeader()
     if (pushState) this.pushUrl()
@@ -1616,7 +1641,8 @@ class VirtualContactsList {
     }
   }
 
-  hydrateFromDOM() {
+  hydrateFromDOM(options) {
+    options = options || {}
     this.setViewMode(this.container.dataset.viewMode || this.viewMode, true)
     var totalCount = parseInt(this.container.dataset.totalCount)
     if (!isNaN(totalCount)) this.totalCount = totalCount
@@ -1626,6 +1652,7 @@ class VirtualContactsList {
       var selectedRow = selected.closest("[data-contact-id]")
       if (selectedRow) this.selectedContactId = selectedRow.dataset.contactId
     }
+    this.container.removeAttribute("data-hydrate-dropin")
     this.container.innerHTML = ""
     this.spacerTop = document.createElement("div")
     this.spacerBottom = document.createElement("div")
@@ -1637,6 +1664,7 @@ class VirtualContactsList {
     this.container.appendChild(this.spacerBottom)
     this.renderTableHeader()
     this.render()
+    if (options.animate !== false) this.animateRenderedRows({ enterFrom: -8 })
   }
 
   setViewMode(viewMode, keepRows) {
@@ -2120,6 +2148,7 @@ class VirtualContactsList {
         var dy = (old.rect.top + (old.visualTopOffset || 0)) - (next.top + nextVisualTopOffset)
         var finalHeight = node.style.height || (next.height + "px")
         var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
+        var animated = false
         if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || heightChanged) {
           var base = node.style.transform || ""
           node.style.transition = "none"
@@ -2133,8 +2162,10 @@ class VirtualContactsList {
           node.style.transform = base
           if (heightChanged) node.style.height = finalHeight
           this.cleanupTransition(node, duration)
+          animated = true
         }
         if (options.animateText) this.animateContactTextResize(node, old.text, duration, ease)
+        if (!animated && options.enterExisting) entering.push(node)
       } else {
         entering.push(node)
       }
@@ -2143,6 +2174,22 @@ class VirtualContactsList {
     before.forEach(function (_, id) { if (!afterIds.has(id)) exitCount++ })
     this.animateEnteringRows(entering, duration, ease, options.enterFrom || -10, exitCount > 3 ? Math.min(140, exitCount * 12) : 0, entering.length > 3 ? 12 : 0)
     this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, exitCount > 3 ? 16 : 0)
+  }
+
+  animateRenderedRows(options) {
+    if (this.prefersReducedMotion() || !this.itemsContainer) return
+    options = options || {}
+    var nodes = []
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (row && row.dataset.contactId) nodes.push(node)
+    }
+    if (nodes.length === 0) return
+    var duration = options.duration || 190
+    var ease = "cubic-bezier(0.2, 0, 0, 1)"
+    var stagger = options.enterStagger !== undefined ? options.enterStagger : (nodes.length > 3 ? 12 : 0)
+    this.animateEnteringRows(nodes, duration, ease, options.enterFrom || -8, options.enterDelay || 0, stagger)
   }
 
   animateEnteringRows(nodes, duration, ease, offsetY, delay, stagger) {

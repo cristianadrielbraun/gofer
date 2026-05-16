@@ -414,6 +414,7 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 	<div
 		id="mail-list-scroll"
 		class="flex-1 overflow-y-auto px-2 py-2"
+		data-hydrate-dropin
 		data-total-count={ fmt.Sprintf("%d", totalCount) }
 		data-folder-id={ folderID }
 		data-view-mode={ mailListViewMode(viewMode) }

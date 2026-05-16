@@ -53,7 +53,7 @@ document.addEventListener("DOMContentLoaded", function () {
         viewMode: scroll.dataset.viewMode || "cards",
         selectedContactId: selectedRow ? selectedRow.dataset.contactId : null,
       })
-      virtualContactsList.hydrateFromDOM()
+      virtualContactsList.hydrateFromDOM({ animate: true })
       scroll._virtualContactsList = virtualContactsList
     }
 
@@ -84,11 +84,53 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
+    function contactSidebarTargetFromURL(url) {
+      try {
+        return new URL(url || window.location.href, window.location.origin).searchParams.get("save_target") || ""
+      } catch (_) {
+        return ""
+      }
+    }
+
+    function setContactsSidebarActive(target) {
+      var sidebar = document.querySelector('[data-app-sidebar]')
+      if (!sidebar) return
+
+      var activeLink = null
+      var links = sidebar.querySelectorAll("[data-contact-sidebar-link]")
+      for (var i = 0; i < links.length; i++) {
+        var link = links[i]
+        var active = (link.getAttribute("data-contact-sidebar-target") || "") === (target || "")
+        link.classList.toggle("bg-sidebar-accent", active)
+        link.classList.toggle("text-sidebar-primary", active)
+        link.classList.toggle("font-medium", active)
+        link.classList.toggle("text-sidebar-foreground", !active)
+        link.classList.toggle("hover:bg-sidebar-accent/60", !active)
+        link.classList.toggle("hover:text-sidebar-accent-foreground", !active)
+        if (active) activeLink = link
+      }
+
+      var sections = sidebar.querySelectorAll("[data-sidebar-account]")
+      for (var s = 0; s < sections.length; s++) {
+        var sectionID = sections[s].getAttribute("data-sidebar-account") || ""
+        if (sectionID.indexOf("contacts:") === 0) sections[s].removeAttribute("data-sidebar-account-active")
+      }
+
+      var activeSection = activeLink && activeLink.closest('[data-sidebar-account^="contacts:"]')
+      if (activeSection) {
+        activeSection.setAttribute("data-sidebar-account-active", "")
+        activeSection.setAttribute("data-sidebar-account-collapsed", "false")
+        var toggle = activeSection.querySelector("[data-sidebar-account-toggle]")
+        if (toggle) toggle.setAttribute("aria-expanded", "true")
+      }
+    }
+
     function applyFilters() {
       var list = currentList()
       if (!list) return
       var filters = readFilters()
       syncFilterUI(filters)
+      setContactsSidebarActive(filters.saveTarget)
       list.applyFilters(filters).catch(function () {})
     }
 
@@ -140,6 +182,12 @@ document.addEventListener("DOMContentLoaded", function () {
           for (var pi = 0; pi < placeholders.length; pi++) placeholders[pi].textContent = placeholders[pi].getAttribute("data-tui-selectbox-placeholder") || ""
         }
         applyFilters()
+        return
+      }
+
+      var sidebarLink = e.target.closest && e.target.closest("[data-contact-sidebar-link]")
+      if (sidebarLink) {
+        setContactsSidebarActive(sidebarLink.getAttribute("data-contact-sidebar-target") || "")
         return
       }
 
@@ -245,7 +293,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.body.addEventListener("htmx:afterSettle", function (evt) {
       if (!evt.target || !evt.target.querySelector) return
-      if (evt.target.id === "main-content" || evt.target.querySelector("#contacts-list-scroll")) init(evt.target)
+      if (evt.target.id === "main-content" || evt.target.querySelector("#contacts-list-scroll")) {
+        init(evt.target)
+        setContactsSidebarActive(contactSidebarTargetFromURL(window.location.href))
+      }
+    })
+
+    window.addEventListener("popstate", function () {
+      setContactsSidebarActive(contactSidebarTargetFromURL(window.location.href))
     })
   }
 
@@ -304,7 +359,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function sectionHasActiveFolder(section) {
-      return !!section.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent')
+      return section.hasAttribute("data-sidebar-account-active") || !!section.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent')
     }
 
     function hydrate(root) {
@@ -1305,7 +1360,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (loadInitialFolderContent(container, folderID)) return
 
     virtualMailList = new VirtualMailList(container, { folderID: folderID, viewMode: container.dataset.viewMode || "cards" })
-    virtualMailList.hydrateFromDOM()
+    virtualMailList.hydrateFromDOM({ animate: true })
     container._virtualMailList = virtualMailList
     flushPendingSyncEvents()
     applyActiveFolderSyncState()
@@ -1456,7 +1511,7 @@ document.addEventListener("DOMContentLoaded", function () {
       } else {
         virtualMailList.switchFolder(folderID).then(function () {
           applyActiveFolderSyncState()
-          scheduleSyncRefresh(virtualMailList)
+          scheduleSyncRefresh(virtualMailList, { noAnimation: true })
         }).catch(function () {})
       }
     }, true)
@@ -1889,7 +1944,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     var folderID = scroll.dataset.folderId || "inbox"
     virtualMailList = new VirtualMailList(scroll, { folderID: folderID, viewMode: scroll.dataset.viewMode || "cards" })
-    virtualMailList.hydrateFromDOM()
+    virtualMailList.hydrateFromDOM({ animate: true })
     scroll._virtualMailList = virtualMailList
     flushPendingSyncEvents()
     applyActiveFolderSyncState()

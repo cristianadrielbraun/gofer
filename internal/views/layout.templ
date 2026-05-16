@@ -220,6 +220,10 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 
 templ AppSidebarResponsiveStyle() {
 	<style>
+		html.js [data-hydrate-dropin] .mail-list-item {
+			opacity: 0;
+			transform: translateY(-8px) scale(.985);
+		}
 		[data-app-sidebar] { container-type: inline-size; }
 		.sidebar-app-nav-item { transition: color 200ms ease, padding 200ms ease, gap 200ms ease; }
 		.sidebar-app-nav-label {
@@ -301,6 +305,8 @@ templ ResizeHandle(panel string) {
 templ SavedPanelSizeStyle() {
 	<script>
 		(function() {
+			document.documentElement.classList.add("js");
+
 			var settings = {};
 			try {
 				settings = JSON.parse(localStorage.getItem("gofer:ui_settings") || "{}") || {};
