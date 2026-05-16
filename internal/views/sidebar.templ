@@ -2,20 +2,119 @@ package views
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
+
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
-	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
+	"github.com/cristianadrielbraun/gofer/components/icon"
 )
 
 templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string) {
-	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width }>
-		@SidebarHeader(accounts)
+	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
+		@SidebarHeader(accounts, "mail")
 		<hr class="divider-etched mx-4"/>
 		@SidebarFolderTree(accounts, activeFolder, uiSettings)
 		@SidebarFooter()
 	</aside>
+}
+
+templ ContactsSidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string, filters models.ContactFilters) {
+	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
+		@SidebarHeader(accounts, "contacts")
+		<hr class="divider-etched mx-4"/>
+		<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
+			@ContactsSidebarItem("", "All contacts", filters)
+			@ContactsSidebarItem("local", "Local", filters)
+			for _, account := range accounts {
+				if !account.IsDeleting && account.ContactSyncEnabled && len(account.ContactAddressBooks) > 0 {
+					<div class="mt-3 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">{ contactSidebarAccountName(account) }</div>
+					<div class="mt-1 space-y-px">
+						for _, book := range account.ContactAddressBooks {
+							@ContactsSidebarBookItem(book, filters)
+						}
+					</div>
+				}
+			}
+		</nav>
+		@SidebarFooter()
+	</aside>
+}
+
+templ ContactsSidebarItem(target string, label string, filters models.ContactFilters) {
+	{{ active := filters.SaveTarget == target }}
+	<a
+		href={ templ.URL(contactSidebarURL(filters, target)) }
+		hx-get={ templ.URL(contactSidebarURL(filters, target)) }
+		hx-target="#main-content"
+		hx-swap="outerHTML"
+		hx-push-url={ templ.URL(contactSidebarURL(filters, target)) }
+		class={
+			"flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150 mb-1",
+			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", active),
+			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", !active),
+		}
+	>
+		<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/70">
+			@icon.User(icon.Props{Class: "size-4"})
+		</span>
+		<span class="flex-1 truncate">{ label }</span>
+	</a>
+}
+
+templ ContactsSidebarBookItem(book models.ContactAddressBook, filters models.ContactFilters) {
+	{{ target := "book:" + book.ID }}
+	{{ active := filters.SaveTarget == target }}
+	<a
+		href={ templ.URL(contactSidebarURL(filters, target)) }
+		hx-get={ templ.URL(contactSidebarURL(filters, target)) }
+		hx-target="#main-content"
+		hx-swap="outerHTML"
+		hx-push-url={ templ.URL(contactSidebarURL(filters, target)) }
+		class={
+			"flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150 mb-1 pl-7",
+			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", active),
+			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", !active),
+		}
+	>
+		<span class="flex size-4 shrink-0 items-center justify-center rounded text-sidebar-foreground/60">
+			@icon.BookUser(icon.Props{Class: "size-3.5"})
+		</span>
+		<span class="flex-1 truncate">{ contactSidebarBookName(book) }</span>
+	</a>
+}
+
+func contactSidebarURL(filters models.ContactFilters, saveTarget string) string {
+	values := url.Values{}
+	if strings.TrimSpace(filters.Query) != "" {
+		values.Set("q", strings.TrimSpace(filters.Query))
+	}
+	if saveTarget != "" {
+		values.Set("save_target", saveTarget)
+	}
+	if filters.View == "table" {
+		values.Set("view", "table")
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return "/contacts?" + encoded
+	}
+	return "/contacts"
+}
+
+func contactSidebarAccountName(account models.Account) string {
+	if strings.TrimSpace(account.Name) != "" {
+		return strings.TrimSpace(account.Name)
+	}
+	return strings.TrimSpace(account.Email)
+}
+
+func contactSidebarBookName(book models.ContactAddressBook) string {
+	if strings.TrimSpace(book.Name) != "" {
+		return strings.TrimSpace(book.Name)
+	}
+	return "Address book"
 }
 
 templ SettingsSidebar(activeTab string, width string) {
@@ -86,7 +185,7 @@ templ SettingsSidebarItemIcon(value string) {
 	}
 }
 
-templ SidebarHeader(accounts []models.Account) {
+templ SidebarHeader(accounts []models.Account, activeApp string) {
 	<div class="px-4 pt-5 pb-4">
 		<div class="flex items-center justify-between mb-5">
 			<div class="flex items-center gap-2.5">
@@ -120,43 +219,72 @@ templ SidebarHeader(accounts []models.Account) {
 				}
 			}
 		</div>
-		<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
-			@icon.Pen(icon.Props{Class: "size-4"})
-			Compose
-		</button>
+		<div class="sidebar-app-nav relative grid h-8 w-full grid-cols-3 gap-0.5 rounded-lg border border-sidebar-border bg-sidebar-accent/35 p-0.5 mb-3" data-sidebar-app-nav>
+			<div data-sidebar-app-indicator class="absolute top-0.5 bottom-0.5 left-0.5 rounded-md border border-sidebar-border bg-sidebar-accent shadow-sm transition-transform duration-200 ease-out" style={ sidebarAppIndicatorStyle(activeApp) }></div>
+			<a
+				href="/"
+				data-sidebar-app-button="mail"
+				aria-current?={ activeApp == "mail" }
+				aria-label="Mail"
+				class={
+					"sidebar-app-nav-item relative z-10 inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium transition-colors duration-200",
+					templ.KV("text-sidebar-accent-foreground", activeApp == "mail"),
+					templ.KV("text-sidebar-foreground hover:text-sidebar-accent-foreground", activeApp != "mail"),
+				}
+			>
+				@icon.Mail(icon.Props{Class: "size-3.5"})
+				<span class="sidebar-app-nav-label truncate">Mail</span>
+			</a>
+			<a
+				href="/contacts"
+				data-sidebar-app-button="contacts"
+				aria-current?={ activeApp == "contacts" }
+				aria-label="Contacts"
+				class={
+					"sidebar-app-nav-item relative z-10 inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium transition-colors duration-200",
+					templ.KV("text-sidebar-accent-foreground", activeApp == "contacts"),
+					templ.KV("text-sidebar-foreground hover:text-sidebar-accent-foreground", activeApp != "contacts"),
+				}
+			>
+				@icon.BookUser(icon.Props{Class: "size-3.5"})
+				<span class="sidebar-app-nav-label truncate">Contacts</span>
+			</a>
+			<button type="button" disabled data-sidebar-app-button="calendar" class="sidebar-app-nav-item relative z-10 inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium text-sidebar-foreground/40 transition-colors duration-200 disabled:cursor-not-allowed" title="Calendar is coming later" aria-label="Calendar">
+				@icon.CalendarDays(icon.Props{Class: "size-3.5"})
+				<span class="sidebar-app-nav-label truncate">Calendar</span>
+			</button>
+		</div>
+		if activeApp == "contacts" {
+			<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+				@icon.UserPlus(icon.Props{Class: "size-4"})
+				New contact
+			</a>
+		} else {
+			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+				@icon.Pen(icon.Props{Class: "size-4"})
+				Compose
+			</button>
+		}
 	</div>
+}
+
+func sidebarAppIndicatorStyle(activeApp string) string {
+	transform := "translateX(0)"
+	if activeApp == "contacts" {
+		transform = "translateX(calc(100% + 2px))"
+	} else if activeApp == "calendar" {
+		transform = "translateX(calc(200% + 4px))"
+	}
+	return "width:calc((100% - 8px)/3);transform:" + transform
 }
 
 templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
 	<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
-		@SidebarContactsLink(activeFolder)
-		<hr class="divider-etched my-3 mx-1"/>
 		@SidebarUnifiedSection(accounts, activeFolder, uiSettings)
 		for _, account := range accounts {
 			@SidebarAccountSection(account, activeFolder, uiSettings)
 		}
 	</nav>
-}
-
-templ SidebarContactsLink(activeFolder string) {
-	<a
-		href="/contacts"
-		hx-get="/contacts"
-		hx-target="#main-content"
-		hx-swap="outerHTML"
-		hx-push-url="/contacts"
-		data-sidebar-contacts-link
-		class={
-			"flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150 mb-1",
-			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", activeFolder == "contacts"),
-			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", activeFolder != "contacts"),
-		}
-	>
-		<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/70">
-			@icon.BookUser(icon.Props{Class: "size-4"})
-		</span>
-		<span class="flex-1 truncate">Contacts</span>
-	</a>
 }
 
 templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string) {

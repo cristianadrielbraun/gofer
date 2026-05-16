@@ -1779,6 +1779,7 @@ class VirtualContactsList {
       return
     }
     shell.innerHTML = item.html
+    if (typeof htmx !== "undefined" && htmx.process) htmx.process(shell)
     var anchor = shell.querySelector("a")
     if (!anchor) return
     if (item.id === this.selectedContactId) {

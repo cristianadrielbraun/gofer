@@ -1242,7 +1242,13 @@ func (db *DB) GetFolderHighestUID(ctx context.Context, folderID string) (uint32,
 
 func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, provider, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 ORDER BY id`, userID)
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0),
+		        CASE WHEN a.provider = 'gmail' THEN 1 ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
+		        CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		 FROM accounts a
+		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
+		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+		 ORDER BY a.id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
@@ -1251,11 +1257,12 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		var isDeleting int
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
+		var isDeleting, contactSyncEnabled int
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &contactSyncEnabled, &a.ContactSyncProvider); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.IsDeleting = isDeleting == 1
+		a.ContactSyncEnabled = contactSyncEnabled == 1
 		accounts = append(accounts, a)
 	}
 
@@ -1266,13 +1273,20 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		}
 		accounts[i].Folders = folders
 	}
+	db.attachContactAddressBooks(ctx, userID, accounts)
 
 	return accounts, nil
 }
 
 func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, provider, email_address, display_name, color, initials, COALESCE(is_deleting, 0) FROM accounts WHERE user_id = ? ORDER BY id`, userID)
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0),
+		        CASE WHEN a.provider = 'gmail' THEN 1 ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
+		        CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		 FROM accounts a
+		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
+		 WHERE a.user_id = ?
+		 ORDER BY a.id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
@@ -1281,11 +1295,12 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		var isDeleting int
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting); err != nil {
+		var isDeleting, contactSyncEnabled int
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &contactSyncEnabled, &a.ContactSyncProvider); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.IsDeleting = isDeleting == 1
+		a.ContactSyncEnabled = contactSyncEnabled == 1
 		accounts = append(accounts, a)
 	}
 
@@ -1299,8 +1314,23 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		}
 		accounts[i].Folders = folders
 	}
+	db.attachContactAddressBooks(ctx, userID, accounts)
 
 	return accounts, nil
+}
+
+func (db *DB) attachContactAddressBooks(ctx context.Context, userID string, accounts []models.Account) {
+	books, err := db.ListContactAddressBooks(ctx, userID)
+	if err != nil || len(books) == 0 {
+		return
+	}
+	byAccount := make(map[string][]models.ContactAddressBook)
+	for _, book := range books {
+		byAccount[book.AccountID] = append(byAccount[book.AccountID], book)
+	}
+	for i := range accounts {
+		accounts[i].ContactAddressBooks = byAccount[accounts[i].ID]
+	}
 }
 
 func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder, error) {

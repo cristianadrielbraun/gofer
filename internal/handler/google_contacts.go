@@ -57,16 +57,30 @@ func (e googleAPIError) Error() string {
 	return fmt.Sprintf("people api returned %d: %s", e.Status, strings.TrimSpace(e.Body))
 }
 
-type gmailContactSyncAccount struct {
-	ID    string
-	Email string
+type contactSyncAccount struct {
+	ID       string
+	Email    string
+	Provider string
 }
 
-func (h *Handler) handleSyncGmailContacts(w http.ResponseWriter, r *http.Request) {
-	if h.auth == nil || !h.auth.HasGoogleOAuth() {
-		htmlStatus(w, http.StatusBadRequest, "Google OAuth is not configured.")
-		return
+func builtinAccountContactSync(provider string) bool {
+	switch provider {
+	case providers.ProviderGmail:
+		return true
+	default:
+		return false
 	}
+}
+
+func (h *Handler) accountSupportsContactSync(ctx context.Context, userID string, account contactSyncAccount) bool {
+	if builtinAccountContactSync(account.Provider) {
+		return true
+	}
+	cfg, err := h.accountStore.GetContactSyncConfig(ctx, userID, account.ID)
+	return err == nil && cfg.Enabled && cfg.Provider == providers.ProviderCardDAV
+}
+
+func (h *Handler) handleSyncAccountContacts(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		htmlStatus(w, http.StatusBadRequest, "Invalid sync request.")
 		return
@@ -75,26 +89,20 @@ func (h *Handler) handleSyncGmailContacts(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 	userID := h.userID(ctx)
 	accountID := strings.TrimSpace(r.FormValue("account_id"))
-	accounts, err := h.gmailContactSyncAccounts(ctx, userID, accountID)
+	accounts, err := h.contactSyncAccounts(ctx, userID, accountID)
 	if err != nil {
-		htmlStatus(w, http.StatusInternalServerError, "Could not find Gmail accounts.")
+		htmlStatus(w, http.StatusInternalServerError, "Could not find contact-sync accounts.")
 		return
 	}
 	if len(accounts) == 0 {
-		htmlStatus(w, http.StatusBadRequest, "Connect a Gmail account before syncing Gmail contacts.")
+		htmlStatus(w, http.StatusBadRequest, "Connect an account with contact sync before syncing contacts.")
 		return
 	}
 
 	totalImported := 0
 	failures := make([]string, 0)
 	for _, account := range accounts {
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, account.ID)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: reconnect Gmail to grant contact access", account.Email))
-			continue
-		}
-
-		imported, err := h.syncGooglePeopleConnections(ctx, userID, account.ID, token)
+		imported, err := h.syncContactAccount(ctx, userID, account)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %s", account.Email, err.Error()))
 			continue
@@ -103,57 +111,88 @@ func (h *Handler) handleSyncGmailContacts(w http.ResponseWriter, r *http.Request
 	}
 
 	if len(failures) == len(accounts) {
-		htmlStatus(w, http.StatusBadGateway, "Gmail contact sync failed: "+strings.Join(failures, "; "))
+		htmlStatus(w, http.StatusBadGateway, "Contact sync failed: "+strings.Join(failures, "; "))
 		return
 	}
 
-	_ = h.db.LogContactActivity(ctx, userID, "provider_contacts_synced", "", "Gmail contacts synced", totalImported)
+	_ = h.db.LogContactActivity(ctx, userID, "provider_contacts_synced", "", "Account contacts synced", totalImported)
 	if len(failures) > 0 {
-		htmlStatus(w, http.StatusOK, fmt.Sprintf("Gmail contacts partially synced: %d imported or updated. Failed: %s", totalImported, strings.Join(failures, "; ")))
+		htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts partially synced: %d imported or updated. Failed: %s", totalImported, strings.Join(failures, "; ")))
 		return
 	}
 	if len(accounts) == 1 {
-		htmlStatus(w, http.StatusOK, fmt.Sprintf("Gmail contacts synced for %s: %d imported or updated.", accounts[0].Email, totalImported))
+		htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts synced for %s: %d imported or updated.", accounts[0].Email, totalImported))
 		return
 	}
-	htmlStatus(w, http.StatusOK, fmt.Sprintf("Gmail contacts synced across %d accounts: %d imported or updated.", len(accounts), totalImported))
+	htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts synced across %d accounts: %d imported or updated.", len(accounts), totalImported))
 }
 
-func (h *Handler) gmailContactSyncAccounts(ctx context.Context, userID, accountID string) ([]gmailContactSyncAccount, error) {
+func (h *Handler) handleSyncGmailContacts(w http.ResponseWriter, r *http.Request) {
+	h.handleSyncAccountContacts(w, r)
+}
+
+func (h *Handler) contactSyncAccounts(ctx context.Context, userID, accountID string) ([]contactSyncAccount, error) {
 	if accountID != "" {
-		var account gmailContactSyncAccount
+		var account contactSyncAccount
 		err := h.db.Read().QueryRowContext(ctx, `
-		SELECT id, email_address
-		FROM accounts
-		WHERE id = ? AND user_id = ? AND provider = ? AND COALESCE(is_deleting, 0) = 0`, accountID, userID, providers.ProviderGmail).Scan(&account.ID, &account.Email)
+		SELECT a.id, a.email_address,
+		       CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_provider
+		FROM accounts a
+		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id AND acc.enabled = 1
+		WHERE a.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`, accountID, userID).Scan(&account.ID, &account.Email, &account.Provider)
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		return []gmailContactSyncAccount{account}, nil
+		if !h.accountSupportsContactSync(ctx, userID, account) {
+			return nil, nil
+		}
+		return []contactSyncAccount{account}, nil
 	}
 
 	rows, err := h.db.Read().QueryContext(ctx, `
-		SELECT id, email_address
-		FROM accounts
-		WHERE user_id = ? AND provider = ? AND COALESCE(is_deleting, 0) = 0
-		ORDER BY email_address COLLATE NOCASE`, userID, providers.ProviderGmail)
+		SELECT a.id, a.email_address,
+		       CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_provider
+		FROM accounts a
+		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id AND acc.enabled = 1
+		WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+		ORDER BY a.email_address COLLATE NOCASE`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var accounts []gmailContactSyncAccount
+	var accounts []contactSyncAccount
 	for rows.Next() {
-		var account gmailContactSyncAccount
-		if err := rows.Scan(&account.ID, &account.Email); err != nil {
+		var account contactSyncAccount
+		if err := rows.Scan(&account.ID, &account.Email, &account.Provider); err != nil {
 			return nil, err
 		}
-		accounts = append(accounts, account)
+		if h.accountSupportsContactSync(ctx, userID, account) {
+			accounts = append(accounts, account)
+		}
 	}
 	return accounts, rows.Err()
+}
+
+func (h *Handler) pullContactAccount(ctx context.Context, userID string, account contactSyncAccount) (int, error) {
+	switch account.Provider {
+	case providers.ProviderGmail:
+		if h.auth == nil || !h.auth.HasGoogleOAuth() {
+			return 0, fmt.Errorf("Google OAuth is not configured")
+		}
+		token, err := h.auth.GetOAuthTokenForAccount(ctx, account.ID)
+		if err != nil {
+			return 0, fmt.Errorf("reconnect Gmail to grant contact access")
+		}
+		return h.syncGooglePeopleConnections(ctx, userID, account.ID, token)
+	case providers.ProviderCardDAV:
+		return h.syncCardDAVContacts(ctx, userID, account)
+	default:
+		return 0, fmt.Errorf("contact sync is not configured for this account")
+	}
 }
 
 func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accountID, accessToken string) (int, error) {
@@ -239,68 +278,69 @@ func googlePersonName(person googlePerson) string {
 	return ""
 }
 
-func (h *Handler) syncContactToGmailTargets(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) error {
-	if h.auth == nil || !h.auth.HasGoogleOAuth() || contact.ID == "" || contact.Email == "" {
+func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) error {
+	if contact.ID == "" || contact.Email == "" {
 		return nil
 	}
 
-	desired, err := h.gmailTargetAccountSet(ctx, userID, contact.SaveTargets)
+	desired, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
 	if err != nil {
 		return err
 	}
-	previousTargets := map[string]bool{}
+	previousTargets := map[string]contactSyncAccount{}
 	if previous != nil {
-		previousTargets, err = h.gmailTargetAccountSet(ctx, userID, previous.SaveTargets)
+		previousTargets, err = h.contactTargetAccountSet(ctx, userID, previous.SaveTargets)
 		if err != nil {
 			return err
 		}
 	}
 
-	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderGmail)
-	if err != nil {
+	handledRemoved := make(map[string]bool)
+	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderGmail, desired, handledRemoved); err != nil {
 		return err
 	}
-	handledRemoved := make(map[string]bool)
-	for _, source := range sources {
-		if !desired[source.AccountID] {
-			handledRemoved[source.AccountID] = true
-			if strings.TrimSpace(source.RemoteID) != "" {
-				token, err := h.auth.GetOAuthTokenForAccount(ctx, source.AccountID)
-				if err != nil {
-					return err
-				}
-				if err := h.deleteGoogleContactByResourceAndEmail(ctx, token, source.RemoteID, contact.Email); err != nil {
-					return err
-				}
+	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderCardDAV, desired, handledRemoved); err != nil {
+		return err
+	}
+	for accountID := range previousTargets {
+		if _, ok := desired[accountID]; ok || handledRemoved[accountID] {
+			continue
+		}
+		switch previousTargets[accountID].Provider {
+		case providers.ProviderGmail:
+			token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+			if err != nil {
+				return err
 			}
-			if err := h.db.DeleteContactSource(ctx, userID, contact.ID, providers.ProviderGmail, source.AccountID); err != nil {
+			if err := h.deleteGoogleContactsByEmail(ctx, token, contact.Email); err != nil {
+				return err
+			}
+		case providers.ProviderCardDAV:
+			if err := h.deleteCardDAVContactsByEmail(ctx, userID, accountID, contact.Email); err != nil {
 				return err
 			}
 		}
 	}
-	for accountID := range previousTargets {
-		if desired[accountID] || handledRemoved[accountID] {
-			continue
-		}
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
-		if err != nil {
-			return err
-		}
-		if err := h.deleteGoogleContactsByEmail(ctx, token, contact.Email); err != nil {
-			return err
-		}
-	}
 
-	for accountID := range desired {
-		if err := h.pushContactToGmailAccount(ctx, userID, contact, accountID); err != nil {
-			return err
+	for accountID, account := range desired {
+		switch account.Provider {
+		case providers.ProviderGmail:
+			if err := h.pushContactToGmailAccount(ctx, userID, contact, accountID); err != nil {
+				return err
+			}
+		case providers.ProviderCardDAV:
+			if err := h.pushContactToCardDAVAccount(ctx, userID, contact, accountID); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("contact sync is not configured for this account")
 		}
 	}
 	return nil
 }
 
-func (h *Handler) scheduleContactGmailSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
-	if !h.contactNeedsGmailSync(ctx, userID, contact, previous) {
+func (h *Handler) scheduleContactAccountSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
+	if !h.contactNeedsAccountSync(ctx, userID, contact, previous) {
 		return false
 	}
 	go func() {
@@ -311,81 +351,140 @@ func (h *Handler) scheduleContactGmailSync(ctx context.Context, userID string, c
 			defer logCancel()
 			_ = h.db.LogContactActivity(logCtx, userID, eventType, contact.Email, message, 1)
 		}
-		if err := h.syncContactToGmailTargets(bg, userID, contact, previous); err != nil {
-			logSyncResult("gmail_contact_sync_failed", "Gmail contact sync failed: "+err.Error())
+		if err := h.syncContactToAccountTargets(bg, userID, contact, previous); err != nil {
+			logSyncResult("contact_sync_failed", "Contact sync failed: "+err.Error())
 			return
 		}
-		logSyncResult("gmail_contact_synced", "Gmail contact synced")
+		logSyncResult("contact_synced", "Contact synced")
 	}()
 	return true
 }
 
-func (h *Handler) contactNeedsGmailSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
-	if h.auth == nil || !h.auth.HasGoogleOAuth() || contact.ID == "" || contact.Email == "" {
+func (h *Handler) scheduleContactGmailSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
+	return h.scheduleContactAccountSync(ctx, userID, contact, previous)
+}
+
+func (h *Handler) contactNeedsAccountSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
+	if contact.ID == "" || contact.Email == "" {
 		return false
 	}
-	currentTargets, err := h.gmailTargetAccountSet(ctx, userID, contact.SaveTargets)
+	currentTargets, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
 	if err == nil && len(currentTargets) > 0 {
 		return true
 	}
 	if previous != nil {
-		previousTargets, err := h.gmailTargetAccountSet(ctx, userID, previous.SaveTargets)
+		previousTargets, err := h.contactTargetAccountSet(ctx, userID, previous.SaveTargets)
 		if err == nil && len(previousTargets) > 0 {
 			return true
 		}
 	}
 	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderGmail)
+	if err == nil && len(sources) > 0 {
+		return true
+	}
+	sources, err = h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderCardDAV)
 	return err == nil && len(sources) > 0
 }
 
-func (h *Handler) gmailTargetAccountSet(ctx context.Context, userID string, targets []string) (map[string]bool, error) {
-	out := make(map[string]bool)
+func (h *Handler) contactTargetAccountSet(ctx context.Context, userID string, targets []string) (map[string]contactSyncAccount, error) {
+	out := make(map[string]contactSyncAccount)
 	for _, target := range targets {
-		accountID, ok := strings.CutPrefix(strings.TrimSpace(target), "account:")
+		target = strings.TrimSpace(target)
+		if bookID, ok := strings.CutPrefix(target, "book:"); ok {
+			book, err := h.db.GetContactAddressBook(ctx, userID, bookID)
+			if err != nil || book.AccountID == "" {
+				continue
+			}
+			accounts, err := h.contactSyncAccounts(ctx, userID, book.AccountID)
+			if err != nil {
+				return nil, err
+			}
+			if len(accounts) == 1 {
+				out[book.AccountID] = accounts[0]
+			}
+			continue
+		}
+		accountID, ok := strings.CutPrefix(target, "account:")
 		if !ok || accountID == "" {
 			continue
 		}
-		accounts, err := h.gmailContactSyncAccounts(ctx, userID, accountID)
+		accounts, err := h.contactSyncAccounts(ctx, userID, accountID)
 		if err != nil {
 			return nil, err
 		}
 		if len(accounts) == 1 {
+			out[accountID] = accounts[0]
+		}
+	}
+	return out, nil
+}
+
+func (h *Handler) gmailTargetAccountSet(ctx context.Context, userID string, targets []string) (map[string]bool, error) {
+	accounts, err := h.contactTargetAccountSet(ctx, userID, targets)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool)
+	for accountID, account := range accounts {
+		if account.Provider == providers.ProviderGmail {
 			out[accountID] = true
 		}
 	}
 	return out, nil
 }
 
-func (h *Handler) deleteContactFromGmail(ctx context.Context, userID string, contact models.Contact) error {
-	if h.auth == nil || !h.auth.HasGoogleOAuth() || contact.ID == "" {
+func (h *Handler) deleteContactFromAccounts(ctx context.Context, userID string, contact models.Contact) error {
+	if contact.ID == "" {
 		return nil
 	}
-	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderGmail)
+	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderGmail); err != nil {
+		return err
+	}
+	return h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderCardDAV)
+}
+
+func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID string, contact models.Contact, provider string) error {
+	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, provider)
 	if err != nil {
 		return err
 	}
 	for _, source := range sources {
 		if strings.TrimSpace(source.RemoteID) == "" {
-			if err := h.db.DeleteContactSource(ctx, userID, contact.ID, providers.ProviderGmail, source.AccountID); err != nil {
+			if err := h.db.DeleteContactSource(ctx, userID, contact.ID, provider, source.AccountID); err != nil {
 				return err
 			}
 			continue
 		}
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, source.AccountID)
-		if err != nil {
-			return err
-		}
-		if err := h.deleteGoogleContact(ctx, token, source.RemoteID); err != nil {
-			var apiErr googleAPIError
-			if !isGoogleNotFound(err, &apiErr) {
+		switch provider {
+		case providers.ProviderGmail:
+			token, err := h.auth.GetOAuthTokenForAccount(ctx, source.AccountID)
+			if err != nil {
 				return err
 			}
+			if err := h.deleteGoogleContact(ctx, token, source.RemoteID); err != nil {
+				var apiErr googleAPIError
+				if !isGoogleNotFound(err, &apiErr) {
+					return err
+				}
+			}
+		case providers.ProviderCardDAV:
+			if err := h.deleteCardDAVContact(ctx, userID, source); err != nil {
+				return err
+			}
+			if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, provider, source.AccountID, source.RemoteID); err != nil {
+				return err
+			}
+			continue
 		}
-		if err := h.db.DeleteContactSource(ctx, userID, contact.ID, providers.ProviderGmail, source.AccountID); err != nil {
+		if err := h.db.DeleteContactSource(ctx, userID, contact.ID, provider, source.AccountID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (h *Handler) deleteContactFromGmail(ctx context.Context, userID string, contact models.Contact) error {
+	return h.deleteContactFromAccounts(ctx, userID, contact)
 }
 
 func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, contact models.Contact, accountID string) error {

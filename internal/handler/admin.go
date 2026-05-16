@@ -74,6 +74,10 @@ func (h *Handler) contactAdminStatus(ctx context.Context) (models.ContactAdminSt
 		return status, err
 	}
 	status.Backfill = h.getContactBackfillState()
+	running := h.contactSyncRunningAccounts()
+	for i := range status.AccountSync {
+		status.AccountSync[i].Running = running[status.AccountSync[i].AccountID]
+	}
 	return status, nil
 }
 

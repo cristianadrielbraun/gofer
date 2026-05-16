@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
@@ -55,6 +56,8 @@ type Handler struct {
 	avatarBackfillRunID  int64
 	contactBackfillMu    sync.RWMutex
 	contactBackfillState models.ContactBackfillState
+	contactSyncMu        sync.Mutex
+	contactSyncRunning   map[string]struct{}
 }
 
 const (
@@ -77,6 +80,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		avatarWarmupQueue:  make(chan storage.SenderAvatarCandidate, avatarWarmupQueueSize),
 		avatarWarmupQueued: make(map[string]struct{}),
 		avatarWarmupForced: make(map[string]time.Time),
+		contactSyncRunning: make(map[string]struct{}),
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
@@ -151,6 +155,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/accounts/{id}/edit", h.handleGetEditAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
+	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
+	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/test", h.handleTestAccountContactSync)
+	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/discover", h.handleDiscoverAccountContactSync)
 	mux.HandleFunc("GET /api/accounts/{id}/signatures", h.handleAccountSignatures)
 	mux.HandleFunc("GET /api/accounts/{id}/signatures/manage", h.handleManageAccountSignatures)
 	mux.HandleFunc("POST /api/accounts/{id}/signature-settings", h.handleSaveAccountSignatureSettings)
@@ -165,6 +172,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings/ui", h.handleGetUISettings)
 	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
 	mux.HandleFunc("GET /api/settings/contacts/suppressed", h.handleSuppressedContactsSettings)
+	mux.HandleFunc("POST /api/settings/contacts/accounts/sync", h.handleSyncAccountContacts)
 	mux.HandleFunc("POST /api/settings/contacts/providers/gmail/sync", h.handleSyncGmailContacts)
 	mux.HandleFunc("POST /api/settings/contacts/suppressed/clear", h.handleClearSuppressedContacts)
 	mux.HandleFunc("POST /api/settings/contacts/suppressed/{id}/clear", h.handleClearSuppressedContact)
@@ -353,6 +361,11 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 			width = "384px"
 		}
 		w.Header().Set("Content-Type", "text/html")
+		if r.Header.Get("HX-Target") == "app-shell" {
+			layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+			views.ContactsShell(layoutAccounts, contacts, selected, showNew, filters, totalCount, uiSettings, recentActivity).Render(ctx, w)
+			return
+		}
 		views.ContactsPage(contacts, selected, showNew, filters, totalCount, width, accounts, recentActivity).Render(ctx, w)
 		return
 	}
@@ -423,7 +436,7 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 	if filters.Activity != "seen" && filters.Activity != "none" {
 		filters.Activity = ""
 	}
-	if filters.SaveTarget != "local" && !strings.HasPrefix(filters.SaveTarget, "account:") {
+	if filters.SaveTarget != "local" && !strings.HasPrefix(filters.SaveTarget, "account:") && !strings.HasPrefix(filters.SaveTarget, "book:") {
 		filters.SaveTarget = ""
 	}
 	return filters
@@ -461,14 +474,14 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	syncQueued := h.scheduleContactGmailSync(ctx, userID, saved, previous)
+	syncQueued := h.scheduleContactAccountSync(ctx, userID, saved, previous)
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":                true,
-			"contact_id":        saved.ID,
-			"location":          "/contacts?contact=" + saved.ID,
-			"gmail_sync_queued": syncQueued,
+			"ok":                  true,
+			"contact_id":          saved.ID,
+			"location":            "/contacts?contact=" + saved.ID,
+			"contact_sync_queued": syncQueued,
 		})
 		return
 	}
@@ -479,7 +492,14 @@ func (h *Handler) contactSaveTargets(ctx context.Context, raw string) []string {
 	allowed := map[string]bool{"local": true}
 	if accounts, err := h.db.GetAccounts(ctx, h.userID(ctx)); err == nil {
 		for _, account := range accounts {
-			allowed["account:"+account.ID] = true
+			if account.ContactSyncEnabled {
+				allowed["account:"+account.ID] = true
+				for _, book := range account.ContactAddressBooks {
+					if book.ID != "" {
+						allowed["book:"+book.ID] = true
+					}
+				}
+			}
 		}
 	}
 
@@ -561,7 +581,7 @@ func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to import contacts", http.StatusInternalServerError)
 			return
 		}
-		h.scheduleContactGmailSync(ctx, h.userID(ctx), saved, nil)
+		h.scheduleContactAccountSync(ctx, h.userID(ctx), saved, nil)
 		imported++
 	}
 	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
@@ -576,8 +596,8 @@ func (h *Handler) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if contact != nil {
-		if err := h.deleteContactFromGmail(ctx, userID, *contact); err != nil {
-			http.Error(w, "Gmail delete failed: "+err.Error(), http.StatusBadGateway)
+		if err := h.deleteContactFromAccounts(ctx, userID, *contact); err != nil {
+			http.Error(w, "Contact sync delete failed: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 	}
@@ -1493,9 +1513,16 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.syncer.SyncAccount(r.Context(), account.ID)
+	go func() {
+		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := h.SyncContactAccount(bg, account.ID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+			log.Printf("contacts sync %s after account create: %v", account.ID, err)
+		}
+	}()
 
 	w.Header().Set("Content-Type", "text/html")
-	views.WizardStepSuccess("Account created", account.ID, "add").Render(r.Context(), w)
+	views.AddAccountPostCreateStep(account.ID).Render(r.Context(), w)
 }
 
 func (h *Handler) handleGetEditAccount(w http.ResponseWriter, r *http.Request) {
@@ -4087,6 +4114,13 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	}
 
 	h.syncer.SyncAccount(context.Background(), accountID)
+	go func() {
+		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := h.SyncContactAccount(bg, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+			log.Printf("contacts sync %s after gmail connect: %v", accountID, err)
+		}
+	}()
 
 	http.Redirect(w, r, "/settings/accounts", http.StatusSeeOther)
 }

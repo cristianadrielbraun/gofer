@@ -67,6 +67,14 @@ func contactSaveTargetValue(account models.Account) string {
 	return "account:" + account.ID
 }
 
+func contactBookTargetValue(book models.ContactAddressBook) string {
+	return "book:" + book.ID
+}
+
+func accountContactSyncCapable(account models.Account) bool {
+	return account.ContactSyncEnabled
+}
+
 func contactSaveTargetSelected(contact *models.Contact, target string) bool {
 	if contact == nil || len(contact.SaveTargets) == 0 {
 		return target == "local"
@@ -220,8 +228,20 @@ func contactSaveTargetLabel(target string, accounts []models.Account) string {
 		if target == contactSaveTargetValue(account) {
 			return accountContactSaveLabel(account)
 		}
+		for _, book := range account.ContactAddressBooks {
+			if target == contactBookTargetValue(book) {
+				return accountContactOriginLabel(account) + " / " + contactAddressBookDisplayName(book)
+			}
+		}
 	}
-	return "Any account"
+	return "Unavailable account"
+}
+
+func contactAddressBookDisplayName(book models.ContactAddressBook) string {
+	if strings.TrimSpace(book.Name) != "" {
+		return strings.TrimSpace(book.Name)
+	}
+	return "Address book"
 }
 
 func contactOriginFilterLabel(source string, accounts []models.Account) string {
@@ -318,11 +338,11 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, showNew 
 												@selectbox.Item(selectbox.ItemProps{Value: "manual", Selected: filters.Source == "manual"}) { Manual }
 												@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: filters.Source == "observed"}) { Observed }
 												@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: filters.Source == "synced"}) { Synced from any account }
-												for _, account := range accounts {
-													if !account.IsDeleting {
-														@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: filters.Source == "synced:" + account.ID}) { Synced from { accountContactSaveLabel(account) } }
-													}
+											for _, account := range accounts {
+												if !account.IsDeleting && accountContactSyncCapable(account) {
+													@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: filters.Source == "synced:" + account.ID}) { Synced from { accountContactSaveLabel(account) } }
 												}
+											}
 											}
 										}
 									</div>
@@ -335,11 +355,14 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, showNew 
 											@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 												@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.SaveTarget == ""}) { Any account }
 												@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: filters.SaveTarget == "local"}) { Gofer local }
-												for _, account := range accounts {
-													if !account.IsDeleting {
-														@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: filters.SaveTarget == contactSaveTargetValue(account)}) { { accountContactSaveLabel(account) } }
-													}
-												}
+							for _, account := range accounts {
+								if !account.IsDeleting && accountContactSyncCapable(account) {
+									@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: filters.SaveTarget == contactSaveTargetValue(account)}) { { accountContactSaveLabel(account) } }
+									for _, book := range account.ContactAddressBooks {
+										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: filters.SaveTarget == contactBookTargetValue(book)}) { { accountContactOriginLabel(account) } / { contactAddressBookDisplayName(book) } }
+									}
+								}
+							}
 											}
 										}
 									</div>
@@ -489,11 +512,23 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 					}
 				</div>
 				<p class="truncate text-[13px] font-medium text-foreground/60" data-contact-email>{ contact.Email }</p>
-				<div class="flex items-center gap-2">
-					<p class="text-xs text-muted-foreground truncate flex-1 leading-relaxed">{ contactSourceLabel(contact.Source, contact.IsManual, accounts) }</p>
-				</div>
+				@ContactSourceChips(contact, accounts)
 			</div>
 		</a>
+	</div>
+}
+
+templ ContactSourceChips(contact models.Contact, accounts []models.Account) {
+	<div class="flex min-w-0 flex-wrap items-center gap-1">
+		if len(contact.SourceBooks) > 0 {
+			for _, book := range contact.SourceBooks {
+				<span class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+					{ book.AccountName } / { contactAddressBookDisplayName(book) }
+				</span>
+			}
+		} else {
+			<p class="text-xs text-muted-foreground truncate flex-1 leading-relaxed">{ contactSourceLabel(contact.Source, contact.IsManual, accounts) }</p>
+		}
 	</div>
 }
 
@@ -533,7 +568,13 @@ templ ContactListTableRow(contact models.Contact, filters models.ContactFilters,
 					<div class="truncate text-xs text-muted-foreground" data-contact-email>{ contact.Email }</div>
 				</div>
 			</div>
-			<div class="truncate text-xs text-muted-foreground">{ contactSourceLabel(contact.Source, contact.IsManual, accounts) }</div>
+			<div class="truncate text-xs text-muted-foreground">
+				if len(contact.SourceBooks) > 0 {
+					{ fmt.Sprintf("%d book(s)", len(contact.SourceBooks)) }
+				} else {
+					{ contactSourceLabel(contact.Source, contact.IsManual, accounts) }
+				}
+			</div>
 			<div class="text-right text-xs tabular-nums text-muted-foreground">{ fmt.Sprintf("%d", contact.MessageCount) }</div>
 		</a>
 	</div>
@@ -579,8 +620,13 @@ templ ContactsImportDialog(accounts []models.Account) {
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) { Gofer local }
 							for _, account := range accounts {
-								if !account.IsDeleting {
-									@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) { { accountContactSaveLabel(account) } }
+								if !account.IsDeleting && accountContactSyncCapable(account) {
+									if len(account.ContactAddressBooks) == 0 {
+										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) { { accountContactSaveLabel(account) } }
+									}
+									for _, book := range account.ContactAddressBooks {
+										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) { { accountContactOriginLabel(account) } / { contactAddressBookDisplayName(book) } }
+									}
 								}
 							}
 						}
@@ -646,7 +692,11 @@ templ ContactEditor(contact *models.Contact, accounts []models.Account, recentAc
 		</div>
 		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/45">
 			if contact != nil {
-				<span class="rounded bg-ink/[0.05] px-2 py-1">{ contactSourceLabel(contact.Source, contact.IsManual, accounts) }</span>
+				if len(contact.SourceBooks) > 0 {
+					<span class="rounded bg-ink/[0.05] px-2 py-1">{ fmt.Sprintf("%d address book(s)", len(contact.SourceBooks)) }</span>
+				} else {
+					<span class="rounded bg-ink/[0.05] px-2 py-1">{ contactSourceLabel(contact.Source, contact.IsManual, accounts) }</span>
+				}
 			} else {
 				<span class="rounded bg-ink/[0.05] px-2 py-1">Local</span>
 			}
@@ -693,23 +743,35 @@ templ ContactEditor(contact *models.Contact, accounts []models.Account, recentAc
 					</div>
 				</div>
 				<div>
-					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Sync with accounts</label>
+					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Sync with address books</label>
 					@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} accounts selected"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} targets selected"}) {
 							@selectbox.Value(selectbox.ValueProps{Placeholder: "Gofer local", Multiple: true, Class: "text-left"})
 						}
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local")}) { Gofer local }
 							for _, account := range accounts {
-								if !account.IsDeleting {
-									@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: contactSaveTargetSelected(contact, contactSaveTargetValue(account))}) { { accountContactSaveLabel(account) } }
+								if !account.IsDeleting && accountContactSyncCapable(account) {
+									if len(account.ContactAddressBooks) == 0 {
+										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: contactSaveTargetSelected(contact, contactSaveTargetValue(account))}) { { accountContactSaveLabel(account) } }
+									}
+									for _, book := range account.ContactAddressBooks {
+										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: contactSaveTargetSelected(contact, contactBookTargetValue(book))}) { { accountContactOriginLabel(account) } / { contactAddressBookDisplayName(book) } }
+									}
 								}
 							}
 						}
 					}
-					<p class="mt-1.5 text-xs text-ink/40">Choose which accounts this contact should sync with. Keep Gofer local selected for a local copy.</p>
+					<p class="mt-1.5 text-xs text-ink/40">Choose the address books this contact should sync with. Keep Gofer local selected for a local copy.</p>
 				</div>
 				if contact != nil {
+					if len(contact.SourceBooks) > 0 {
+						<div class="flex flex-wrap gap-1.5">
+							for _, book := range contact.SourceBooks {
+								<span class="rounded-full border border-ink/10 bg-ink/[0.04] px-2 py-1 text-[11px] font-medium text-ink/45">{ book.AccountName } / { contactAddressBookDisplayName(book) }</span>
+							}
+						</div>
+					}
 					<div class="grid max-w-2xl gap-3 rounded-lg border border-ink/10 bg-ink/[0.025] p-4 text-xs text-ink/45 sm:grid-cols-2 lg:grid-cols-4">
 						<div>
 							<div class="font-semibold uppercase tracking-wider">Messages</div>

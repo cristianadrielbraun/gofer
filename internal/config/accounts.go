@@ -12,6 +12,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/google/uuid"
 )
 
 type AccountStore struct {
@@ -120,8 +121,238 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 	if err == nil && userID != "" {
 		data.Signatures, _ = s.db.ListSignatures(ctx, userID)
 		data.SignatureSettings, _ = s.db.GetAccountSignatureSettings(ctx, userID, accountID)
+		data.ContactSync, _ = s.GetContactSyncConfig(ctx, userID, accountID)
 	}
 	return &data, nil
+}
+
+func (s *AccountStore) GetContactSyncConfig(ctx context.Context, userID, accountID string) (models.ContactSyncConfig, error) {
+	cfg := models.ContactSyncConfig{AccountID: accountID, UserID: userID, Provider: "carddav"}
+	var enabled int
+	var hasPassword int
+	var lastSuccess, updatedAt sql.NullString
+	err := s.db.Read().QueryRowContext(ctx, `
+		SELECT account_id, user_id, provider, enabled, base_url, addressbook_url, username,
+		       CASE WHEN encrypted_password IS NULL THEN 0 ELSE 1 END,
+		       last_sync_token, last_error, last_success_at, updated_at
+		FROM account_contact_sync_configs
+		WHERE user_id = ? AND account_id = ?`, userID, accountID).Scan(
+		&cfg.AccountID, &cfg.UserID, &cfg.Provider, &enabled, &cfg.BaseURL, &cfg.AddressBookURL, &cfg.Username,
+		&hasPassword, &cfg.LastSyncToken, &cfg.LastError, &lastSuccess, &updatedAt)
+	if err == sql.ErrNoRows {
+		return cfg, nil
+	}
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Enabled = enabled == 1
+	cfg.HasPassword = hasPassword == 1
+	if lastSuccess.Valid {
+		cfg.LastSuccessAt = lastSuccess.String
+	}
+	if updatedAt.Valid {
+		cfg.UpdatedAt = updatedAt.String
+	}
+	cfg.AddressBooks, _ = s.listContactAddressBooks(ctx, userID, accountID)
+	if len(cfg.AddressBooks) == 0 && strings.TrimSpace(cfg.AddressBookURL) != "" {
+		cfg.AddressBooks = []models.ContactAddressBook{{URL: strings.TrimSpace(cfg.AddressBookURL), Default: true, Selected: true, LastSyncToken: cfg.LastSyncToken}}
+	}
+	return cfg, nil
+}
+
+func (s *AccountStore) listContactAddressBooks(ctx context.Context, userID, accountID string) ([]models.ContactAddressBook, error) {
+	rows, err := s.db.Read().QueryContext(ctx, `
+		SELECT id, name, url, is_default, last_sync_token
+		FROM account_contact_address_books
+		WHERE user_id = ? AND account_id = ?
+		ORDER BY is_default DESC, name COLLATE NOCASE, url`, userID, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var books []models.ContactAddressBook
+	for rows.Next() {
+		var book models.ContactAddressBook
+		var isDefault int
+		if err := rows.Scan(&book.ID, &book.Name, &book.URL, &isDefault, &book.LastSyncToken); err != nil {
+			return nil, err
+		}
+		book.URL = strings.TrimSpace(book.URL)
+		if book.URL == "" {
+			continue
+		}
+		book.Selected = true
+		book.Default = isDefault == 1
+		books = append(books, book)
+	}
+	return books, rows.Err()
+}
+
+func (s *AccountStore) SaveContactSyncConfig(ctx context.Context, userID, accountID string, cfg models.ContactSyncConfig, password string) error {
+	var exists int
+	if err := s.db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0`, accountID, userID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return sql.ErrNoRows
+	}
+
+	provider := strings.TrimSpace(cfg.Provider)
+	if provider == "" {
+		provider = "carddav"
+	}
+	var encrypted []byte
+	if password != "" {
+		var err error
+		encrypted, err = s.encrypt(password)
+		if err != nil {
+			return err
+		}
+	} else {
+		_ = s.db.Read().QueryRowContext(ctx, `SELECT encrypted_password FROM account_contact_sync_configs WHERE user_id = ? AND account_id = ?`, userID, accountID).Scan(&encrypted)
+	}
+
+	books := normalizeContactAddressBooks(cfg.AddressBooks, cfg.AddressBookURL)
+	if len(books) > 0 {
+		cfg.AddressBookURL = books[0].URL
+		for _, book := range books {
+			if book.Default {
+				cfg.AddressBookURL = book.URL
+				break
+			}
+		}
+	}
+	existingBooks, _ := s.listContactAddressBooks(ctx, userID, accountID)
+	existingByURL := make(map[string]string, len(existingBooks))
+	for _, book := range existingBooks {
+		if strings.TrimSpace(book.URL) != "" && strings.TrimSpace(book.ID) != "" {
+			existingByURL[strings.TrimSpace(book.URL)] = strings.TrimSpace(book.ID)
+		}
+	}
+	for i := range books {
+		if books[i].ID == "" {
+			books[i].ID = existingByURL[books[i].URL]
+		}
+	}
+
+	tx, err := s.db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO account_contact_sync_configs (account_id, user_id, provider, enabled, base_url, addressbook_url, username, encrypted_password)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(account_id) DO UPDATE SET
+			user_id = excluded.user_id,
+			provider = excluded.provider,
+			enabled = excluded.enabled,
+			base_url = excluded.base_url,
+			addressbook_url = excluded.addressbook_url,
+			username = excluded.username,
+			encrypted_password = excluded.encrypted_password,
+			last_error = '',
+			updated_at = CURRENT_TIMESTAMP`,
+		accountID, userID, provider, boolInt(cfg.Enabled), strings.TrimSpace(cfg.BaseURL), strings.TrimSpace(cfg.AddressBookURL), strings.TrimSpace(cfg.Username), encrypted)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_contact_address_books WHERE user_id = ? AND account_id = ?`, userID, accountID); err != nil {
+		return err
+	}
+	for _, book := range books {
+		bookID := strings.TrimSpace(book.ID)
+		if bookID == "" {
+			bookID = uuid.NewString()
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO account_contact_address_books (account_id, user_id, id, url, name, is_default)
+			VALUES (?, ?, ?, ?, ?, ?)`, accountID, userID, bookID, book.URL, book.Name, boolInt(book.Default)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func normalizeContactAddressBooks(books []models.ContactAddressBook, fallbackURL string) []models.ContactAddressBook {
+	seen := make(map[string]bool)
+	out := make([]models.ContactAddressBook, 0, len(books)+1)
+	for _, book := range books {
+		url := strings.TrimSpace(book.URL)
+		if url == "" || seen[url] {
+			continue
+		}
+		seen[url] = true
+		book.URL = url
+		book.Name = strings.TrimSpace(book.Name)
+		book.Selected = true
+		out = append(out, book)
+	}
+	if len(out) == 0 {
+		fallbackURL = strings.TrimSpace(fallbackURL)
+		if fallbackURL != "" {
+			out = append(out, models.ContactAddressBook{URL: fallbackURL, Selected: true, Default: true})
+		}
+	}
+	defaultSet := false
+	for i := range out {
+		if out[i].Default {
+			if defaultSet {
+				out[i].Default = false
+				continue
+			}
+			defaultSet = true
+		}
+	}
+	if len(out) > 0 && !defaultSet {
+		out[0].Default = true
+	}
+	return out
+}
+
+func (s *AccountStore) DecryptContactSyncPassword(ctx context.Context, userID, accountID string) (string, error) {
+	var encrypted []byte
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT encrypted_password FROM account_contact_sync_configs WHERE user_id = ? AND account_id = ?`, userID, accountID,
+	).Scan(&encrypted)
+	if err != nil {
+		return "", err
+	}
+	if encrypted == nil {
+		return "", nil
+	}
+	return s.decrypt(encrypted)
+}
+
+func (s *AccountStore) MarkContactSyncSuccess(ctx context.Context, userID, accountID, syncToken string) error {
+	_, err := s.db.Write().ExecContext(ctx, `
+		UPDATE account_contact_sync_configs
+		SET last_sync_token = ?, last_success_at = CURRENT_TIMESTAMP, last_error = '', updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND account_id = ?`, strings.TrimSpace(syncToken), userID, accountID)
+	return err
+}
+
+func (s *AccountStore) MarkContactAddressBookSyncSuccess(ctx context.Context, userID, accountID, addressBookURL, syncToken string) error {
+	_, err := s.db.Write().ExecContext(ctx, `
+		UPDATE account_contact_address_books
+		SET last_sync_token = ?, last_success_at = CURRENT_TIMESTAMP, last_error = '', updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND account_id = ? AND url = ?`, strings.TrimSpace(syncToken), userID, accountID, strings.TrimSpace(addressBookURL))
+	return err
+}
+
+func (s *AccountStore) MarkContactSyncError(ctx context.Context, userID, accountID, message string) error {
+	_, err := s.db.Write().ExecContext(ctx, `
+		UPDATE account_contact_sync_configs
+		SET last_error = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND account_id = ?`, strings.TrimSpace(message), userID, accountID)
+	return err
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *models.CreateAccountRequest) (*models.Account, error) {
@@ -321,15 +552,22 @@ func (s *AccountStore) MarkAccountDeleting(ctx context.Context, accountID string
 
 func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*models.Account, error) {
 	var a models.Account
+	var contactSyncEnabled int
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT id, provider, email_address, display_name, color, initials FROM accounts WHERE id = ?`, accountID,
-	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials)
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials,
+		        CASE WHEN a.provider = 'gmail' THEN 1 ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
+		        CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		 FROM accounts a
+		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
+		 WHERE a.id = ?`, accountID,
+	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &contactSyncEnabled, &a.ContactSyncProvider)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	a.ContactSyncEnabled = contactSyncEnabled == 1
 	return &a, nil
 }
 

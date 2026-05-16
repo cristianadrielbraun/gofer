@@ -20,13 +20,14 @@ type ContactSettings struct {
 }
 
 type ContactSource struct {
-	ContactID string
-	UserID    string
-	Provider  string
-	AccountID string
-	RemoteID  string
-	Etag      string
-	SyncToken string
+	ContactID     string
+	UserID        string
+	Provider      string
+	AccountID     string
+	AddressBookID string
+	RemoteID      string
+	Etag          string
+	SyncToken     string
 }
 
 func normalizeContactEmail(email string) string {
@@ -140,7 +141,135 @@ func (db *DB) GetContactAdminStatus(ctx context.Context, userID string) (models.
 		}
 		status.RecentEvents = append(status.RecentEvents, event)
 	}
-	return status, rows.Err()
+	if err := rows.Err(); err != nil {
+		return status, err
+	}
+
+	accountSync, err := db.ListContactSyncStatuses(ctx, userID)
+	if err != nil {
+		return status, err
+	}
+	status.AccountSync = accountSync
+	return status, nil
+}
+
+func (db *DB) ListContactSyncStatuses(ctx context.Context, userID string) ([]models.ContactSyncStatus, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT a.id,
+		       COALESCE(NULLIF(a.display_name, ''), a.email_address) AS account_name,
+		       a.email_address,
+		       CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_provider,
+		       CASE WHEN a.provider = 'gmail' THEN 1 ELSE COALESCE(acc.enabled, 0) END AS enabled,
+		       CASE WHEN a.provider = 'gmail' OR acc.account_id IS NOT NULL THEN 1 ELSE 0 END AS capable,
+		       acc.last_started_at,
+		       acc.last_success_at,
+		       COALESCE(acc.last_import_count, 0),
+		       COALESCE(acc.last_error, '')
+		FROM accounts a
+		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
+		WHERE a.user_id = ?
+		  AND COALESCE(a.is_deleting, 0) = 0
+		  AND (a.provider = 'gmail' OR acc.account_id IS NOT NULL)
+		ORDER BY a.email_address COLLATE NOCASE`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var statuses []models.ContactSyncStatus
+	for rows.Next() {
+		var status models.ContactSyncStatus
+		var enabled, capable int
+		var lastStarted, lastSuccess sql.NullString
+		if err := rows.Scan(&status.AccountID, &status.AccountName, &status.AccountEmail, &status.Provider, &enabled, &capable, &lastStarted, &lastSuccess, &status.LastImportCount, &status.LastError); err != nil {
+			return nil, err
+		}
+		status.Enabled = enabled == 1
+		status.Capable = capable == 1
+		if lastStarted.Valid {
+			if t, ok := parseSQLiteDateTime(lastStarted.String); ok {
+				status.LastStartedAt = t
+			}
+		}
+		if lastSuccess.Valid {
+			if t, ok := parseSQLiteDateTime(lastSuccess.String); ok {
+				status.LastSuccessAt = t
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses, rows.Err()
+}
+
+func (db *DB) MarkContactSyncStarted(ctx context.Context, userID, accountID, provider string) error {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "carddav"
+	}
+	enabled := 0
+	if provider == "gmail" {
+		enabled = 1
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO account_contact_sync_configs (account_id, user_id, provider, enabled, last_started_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(account_id) DO UPDATE SET
+			user_id = excluded.user_id,
+			provider = excluded.provider,
+			enabled = CASE WHEN excluded.provider = 'gmail' THEN 1 ELSE account_contact_sync_configs.enabled END,
+			last_started_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP`, accountID, userID, provider, enabled)
+	return err
+}
+
+func (db *DB) MarkContactSyncSuccess(ctx context.Context, userID, accountID, provider, syncToken string, importCount int) error {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "carddav"
+	}
+	if importCount < 0 {
+		importCount = 0
+	}
+	enabled := 0
+	if provider == "gmail" {
+		enabled = 1
+	}
+	syncToken = strings.TrimSpace(syncToken)
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO account_contact_sync_configs (account_id, user_id, provider, enabled, last_sync_token, last_success_at, last_import_count, last_error)
+		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, '')
+		ON CONFLICT(account_id) DO UPDATE SET
+			user_id = excluded.user_id,
+			provider = excluded.provider,
+			enabled = CASE WHEN excluded.provider = 'gmail' THEN 1 ELSE account_contact_sync_configs.enabled END,
+			last_sync_token = CASE WHEN excluded.last_sync_token != '' THEN excluded.last_sync_token ELSE account_contact_sync_configs.last_sync_token END,
+			last_success_at = CURRENT_TIMESTAMP,
+			last_import_count = excluded.last_import_count,
+			last_error = '',
+			updated_at = CURRENT_TIMESTAMP`, accountID, userID, provider, enabled, syncToken, importCount)
+	return err
+}
+
+func (db *DB) MarkContactSyncError(ctx context.Context, userID, accountID, provider, message string) error {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "carddav"
+	}
+	enabled := 0
+	if provider == "gmail" {
+		enabled = 1
+	}
+	message = strings.TrimSpace(message)
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO account_contact_sync_configs (account_id, user_id, provider, enabled, last_error)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(account_id) DO UPDATE SET
+			user_id = excluded.user_id,
+			provider = excluded.provider,
+			enabled = CASE WHEN excluded.provider = 'gmail' THEN 1 ELSE account_contact_sync_configs.enabled END,
+			last_error = excluded.last_error,
+			updated_at = CURRENT_TIMESTAMP`, accountID, userID, provider, enabled, message)
+	return err
 }
 
 func uiSettingCSV(value, fallback string) map[string]bool {
@@ -184,6 +313,7 @@ func (db *DB) ListContacts(ctx context.Context, userID string, filters models.Co
 			return nil, err
 		}
 		db.hydrateContactAvatar(ctx, &c)
+		_ = db.hydrateContactAddressBooks(ctx, userID, &c)
 		contacts = append(contacts, c)
 	}
 	return contacts, rows.Err()
@@ -318,7 +448,83 @@ func (db *DB) GetContact(ctx context.Context, userID, contactID string) (*models
 	}
 	db.hydrateContactAvatar(ctx, &c)
 	c.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
+	_ = db.hydrateContactAddressBooks(ctx, userID, &c)
 	return &c, nil
+}
+
+func (db *DB) hydrateContactAddressBooks(ctx context.Context, userID string, contact *models.Contact) error {
+	if contact == nil || strings.TrimSpace(contact.ID) == "" {
+		return nil
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT DISTINCT ab.id, ab.account_id, COALESCE(NULLIF(a.display_name, ''), a.email_address), ab.name, ab.url, ab.is_default
+		FROM contact_sources cs
+		JOIN account_contact_address_books ab ON ab.account_id = cs.account_id
+		JOIN accounts a ON a.id = ab.account_id
+		WHERE cs.user_id = ?
+		  AND cs.contact_id = ?
+		  AND cs.provider = 'carddav'
+		  AND (cs.address_book_id = ab.id OR (cs.address_book_id = '' AND cs.remote_id LIKE ab.url || '%'))
+		ORDER BY a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, userID, contact.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	contact.SourceBooks = nil
+	for rows.Next() {
+		var book models.ContactAddressBook
+		var isDefault int
+		if err := rows.Scan(&book.ID, &book.AccountID, &book.AccountName, &book.Name, &book.URL, &isDefault); err != nil {
+			return err
+		}
+		book.Selected = true
+		book.Default = isDefault == 1
+		contact.SourceBooks = append(contact.SourceBooks, book)
+	}
+	return rows.Err()
+}
+
+func (db *DB) ListContactAddressBooks(ctx context.Context, userID string) ([]models.ContactAddressBook, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT ab.id, ab.account_id, COALESCE(NULLIF(a.display_name, ''), a.email_address), ab.name, ab.url, ab.is_default, ab.last_sync_token
+		FROM account_contact_address_books ab
+		JOIN accounts a ON a.id = ab.account_id
+		JOIN account_contact_sync_configs acc ON acc.account_id = ab.account_id AND acc.user_id = ab.user_id
+		WHERE ab.user_id = ? AND acc.enabled = 1 AND COALESCE(a.is_deleting, 0) = 0
+		ORDER BY a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var books []models.ContactAddressBook
+	for rows.Next() {
+		var book models.ContactAddressBook
+		var isDefault int
+		if err := rows.Scan(&book.ID, &book.AccountID, &book.AccountName, &book.Name, &book.URL, &isDefault, &book.LastSyncToken); err != nil {
+			return nil, err
+		}
+		book.Selected = true
+		book.Default = isDefault == 1
+		books = append(books, book)
+	}
+	return books, rows.Err()
+}
+
+func (db *DB) GetContactAddressBook(ctx context.Context, userID, bookID string) (models.ContactAddressBook, error) {
+	var book models.ContactAddressBook
+	var isDefault int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT ab.id, ab.account_id, COALESCE(NULLIF(a.display_name, ''), a.email_address), ab.name, ab.url, ab.is_default, ab.last_sync_token
+		FROM account_contact_address_books ab
+		JOIN accounts a ON a.id = ab.account_id
+		JOIN account_contact_sync_configs acc ON acc.account_id = ab.account_id AND acc.user_id = ab.user_id
+		WHERE ab.user_id = ? AND ab.id = ? AND acc.enabled = 1 AND COALESCE(a.is_deleting, 0) = 0`, userID, bookID).Scan(&book.ID, &book.AccountID, &book.AccountName, &book.Name, &book.URL, &isDefault, &book.LastSyncToken)
+	if err != nil {
+		return book, err
+	}
+	book.Selected = true
+	book.Default = isDefault == 1
+	return book, nil
 }
 
 func (db *DB) RecentContactEmails(ctx context.Context, userID, email string, limit int) ([]models.Email, error) {
@@ -395,6 +601,17 @@ func (db *DB) GetContactSaveTargets(ctx context.Context, userID, contactID strin
 	return targets, nil
 }
 
+func (db *DB) AddContactSaveTarget(ctx context.Context, userID, contactID, target string) error {
+	target = strings.TrimSpace(target)
+	if userID == "" || contactID == "" || target == "" {
+		return nil
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT OR IGNORE INTO contact_save_targets (contact_id, user_id, target)
+		VALUES (?, ?, ?)`, contactID, userID, target)
+	return err
+}
+
 func normalizeContactSaveTargets(targets []string) []string {
 	seen := make(map[string]bool)
 	out := make([]string, 0, len(targets)+1)
@@ -431,23 +648,26 @@ func (db *DB) UpsertContactSource(ctx context.Context, source ContactSource) err
 		return nil
 	}
 	_, err := db.Write().ExecContext(ctx, `
-		INSERT INTO contact_sources (id, user_id, contact_id, provider, account_id, remote_id, etag, sync_token)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(user_id, contact_id, provider, account_id) DO UPDATE SET
+		INSERT INTO contact_sources (id, user_id, contact_id, provider, account_id, address_book_id, remote_id, etag, sync_token)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id, contact_id, provider, account_id, remote_id) DO UPDATE SET
+			address_book_id = excluded.address_book_id,
 			remote_id = excluded.remote_id,
 			etag = excluded.etag,
 			sync_token = excluded.sync_token,
 			updated_at = CURRENT_TIMESTAMP`,
-		uuid.NewString(), strings.TrimSpace(source.UserID), strings.TrimSpace(source.ContactID), strings.TrimSpace(source.Provider), strings.TrimSpace(source.AccountID), strings.TrimSpace(source.RemoteID), strings.TrimSpace(source.Etag), strings.TrimSpace(source.SyncToken))
+		uuid.NewString(), strings.TrimSpace(source.UserID), strings.TrimSpace(source.ContactID), strings.TrimSpace(source.Provider), strings.TrimSpace(source.AccountID), strings.TrimSpace(source.AddressBookID), strings.TrimSpace(source.RemoteID), strings.TrimSpace(source.Etag), strings.TrimSpace(source.SyncToken))
 	return err
 }
 
 func (db *DB) GetContactSource(ctx context.Context, userID, contactID, provider, accountID string) (*ContactSource, error) {
 	var source ContactSource
 	err := db.Read().QueryRowContext(ctx, `
-		SELECT contact_id, user_id, provider, account_id, remote_id, etag, sync_token
+		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
 		FROM contact_sources
-		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, contactID, provider, accountID).Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.RemoteID, &source.Etag, &source.SyncToken)
+		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?
+		ORDER BY updated_at DESC
+		LIMIT 1`, userID, contactID, provider, accountID).Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.AddressBookID, &source.RemoteID, &source.Etag, &source.SyncToken)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -459,7 +679,7 @@ func (db *DB) GetContactSource(ctx context.Context, userID, contactID, provider,
 
 func (db *DB) GetContactSources(ctx context.Context, userID, contactID, provider string) ([]ContactSource, error) {
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT contact_id, user_id, provider, account_id, remote_id, etag, sync_token
+		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
 		FROM contact_sources
 		WHERE user_id = ? AND contact_id = ? AND provider = ?
 		ORDER BY account_id`, userID, contactID, provider)
@@ -471,7 +691,7 @@ func (db *DB) GetContactSources(ctx context.Context, userID, contactID, provider
 	var sources []ContactSource
 	for rows.Next() {
 		var source ContactSource
-		if err := rows.Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.RemoteID, &source.Etag, &source.SyncToken); err != nil {
+		if err := rows.Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.AddressBookID, &source.RemoteID, &source.Etag, &source.SyncToken); err != nil {
 			return nil, err
 		}
 		sources = append(sources, source)
@@ -479,11 +699,93 @@ func (db *DB) GetContactSources(ctx context.Context, userID, contactID, provider
 	return sources, rows.Err()
 }
 
-func (db *DB) DeleteContactSource(ctx context.Context, userID, contactID, provider, accountID string) error {
-	_, err := db.Write().ExecContext(ctx, `
+func (db *DB) GetContactSourceByRemoteID(ctx context.Context, userID, provider, accountID, remoteID string) (*ContactSource, error) {
+	var source ContactSource
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
+		FROM contact_sources
+		WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ?`, userID, provider, accountID, remoteID).Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.AddressBookID, &source.RemoteID, &source.Etag, &source.SyncToken)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &source, nil
+}
+
+func (db *DB) ListContactSourcesForAccount(ctx context.Context, userID, provider, accountID string) ([]ContactSource, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
+		FROM contact_sources
+		WHERE user_id = ? AND provider = ? AND account_id = ?
+		ORDER BY remote_id`, userID, provider, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sources []ContactSource
+	for rows.Next() {
+		var source ContactSource
+		if err := rows.Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.AddressBookID, &source.RemoteID, &source.Etag, &source.SyncToken); err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, rows.Err()
+}
+
+func (db *DB) DeleteContactSourceByRemoteID(ctx context.Context, userID, provider, accountID, remoteID string) error {
+	source, err := db.GetContactSourceByRemoteID(ctx, userID, provider, accountID, remoteID)
+	if err != nil || source == nil {
+		return err
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM contact_sources
-		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, contactID, provider, accountID)
-	return err
+		WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ?`, userID, provider, accountID, remoteID); err != nil {
+		return err
+	}
+	var remaining int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM contact_sources
+		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, source.ContactID, provider, accountID).Scan(&remaining); err != nil {
+		return err
+	}
+	if remaining > 0 {
+		return tx.Commit()
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM contact_save_targets
+		WHERE user_id = ? AND contact_id = ? AND target = ?`, userID, source.ContactID, "account:"+accountID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (db *DB) DeleteContactSource(ctx context.Context, userID, contactID, provider, accountID string) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM contact_sources
+		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, contactID, provider, accountID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM contact_save_targets
+		WHERE user_id = ? AND contact_id = ? AND target = ?`, userID, contactID, "account:"+accountID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func scanContactRow(scanner interface{ Scan(dest ...any) error }) (models.Contact, error) {

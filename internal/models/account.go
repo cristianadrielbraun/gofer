@@ -40,6 +40,7 @@ type EditAccountData struct {
 	SameSmtpAuth      bool
 	Signatures        []Signature
 	SignatureSettings AccountSignatureSettings
+	ContactSync       ContactSyncConfig
 }
 
 type CreateAccountRequest struct {

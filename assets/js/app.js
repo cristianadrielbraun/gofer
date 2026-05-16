@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupFolderClickInterception()
   setupEmailSelectionTracking()
   setupMailListViewToggle()
+  setupSidebarAppNavToggle()
   setupContactsList()
   setupMailFilters()
   setupMailTableColumnResize()
@@ -1568,6 +1569,40 @@ document.addEventListener("DOMContentLoaded", function () {
       if (vml && typeof vml.switchViewMode === "function") {
         vml.switchViewMode(mode).catch(function () {})
       }
+    })
+  }
+
+  function setupSidebarAppNavToggle() {
+    document.body.addEventListener("click", function (e) {
+      var btn = e.target.closest && e.target.closest("[data-sidebar-app-button]")
+      if (!btn || btn.disabled || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+
+      var href = btn.getAttribute("href")
+      if (!href) return
+      e.preventDefault()
+
+      var mode = btn.getAttribute("data-sidebar-app-button")
+      var group = btn.closest("[data-sidebar-app-nav]")
+      if (group) {
+        var buttons = group.querySelectorAll("[data-sidebar-app-button]")
+        for (var i = 0; i < buttons.length; i++) {
+          var isActive = buttons[i] === btn
+          buttons[i].classList.toggle("text-sidebar-accent-foreground", isActive)
+          buttons[i].classList.toggle("text-sidebar-foreground", !isActive && !buttons[i].disabled)
+          buttons[i].classList.toggle("hover:text-sidebar-accent-foreground", !isActive && !buttons[i].disabled)
+          if (isActive) buttons[i].setAttribute("aria-current", "true")
+          else buttons[i].removeAttribute("aria-current")
+        }
+        var indicator = group.querySelector("[data-sidebar-app-indicator]")
+        if (indicator) {
+          if (mode === "contacts") indicator.style.transform = "translateX(calc(100% + 2px))"
+          else if (mode === "calendar") indicator.style.transform = "translateX(calc(200% + 4px))"
+          else indicator.style.transform = "translateX(0)"
+        }
+      }
+
+      if (btn.getAttribute("aria-current") === "true" && window.location.pathname === href) return
+      window.setTimeout(function () { window.location.href = href }, 140)
     })
   }
 

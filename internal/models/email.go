@@ -3,15 +3,18 @@ package models
 import "html/template"
 
 type Account struct {
-	ID         string
-	Provider   string
-	Name       string
-	Email      string
-	Color      string
-	Initials   string
-	IsActive   bool
-	IsDeleting bool
-	Folders    []Folder
+	ID                  string
+	Provider            string
+	Name                string
+	Email               string
+	Color               string
+	Initials            string
+	IsActive            bool
+	IsDeleting          bool
+	ContactSyncEnabled  bool
+	ContactSyncProvider string
+	ContactAddressBooks []ContactAddressBook
+	Folders             []Folder
 }
 
 type Folder struct {
@@ -73,6 +76,34 @@ type Contact struct {
 	AvatarSource  string
 	AvatarURL     string
 	AvatarDataURL string
+	SourceBooks   []ContactAddressBook
+}
+
+type ContactSyncConfig struct {
+	AccountID      string
+	UserID         string
+	Provider       string
+	Enabled        bool
+	BaseURL        string
+	AddressBookURL string
+	AddressBooks   []ContactAddressBook
+	Username       string
+	HasPassword    bool
+	LastSyncToken  string
+	LastError      string
+	LastSuccessAt  string
+	UpdatedAt      string
+}
+
+type ContactAddressBook struct {
+	ID            string `json:"id,omitempty"`
+	AccountID     string `json:"account_id,omitempty"`
+	AccountName   string `json:"account_name,omitempty"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	Selected      bool   `json:"selected,omitempty"`
+	Default       bool   `json:"default,omitempty"`
+	LastSyncToken string `json:"-"`
 }
 
 type ContactFilters struct {

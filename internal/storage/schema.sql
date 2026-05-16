@@ -500,6 +500,7 @@ CREATE TABLE IF NOT EXISTS contact_sources (
     contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
     provider TEXT NOT NULL,
     account_id TEXT NOT NULL DEFAULT '',
+    address_book_id TEXT NOT NULL DEFAULT '',
     remote_id TEXT NOT NULL DEFAULT '',
     etag TEXT NOT NULL DEFAULT '',
     sync_token TEXT NOT NULL DEFAULT '',
@@ -519,8 +520,8 @@ ON contact_emails(user_id, normalized_email);
 CREATE INDEX IF NOT EXISTS idx_contact_sources_contact
 ON contact_sources(contact_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_sources_contact_provider_account
-ON contact_sources(user_id, contact_id, provider, account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_sources_contact_provider_account_remote
+ON contact_sources(user_id, contact_id, provider, account_id, remote_id);
 
 CREATE INDEX IF NOT EXISTS idx_contact_sources_remote
 ON contact_sources(user_id, provider, account_id, remote_id);
@@ -553,5 +554,47 @@ ON contact_activity_events(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_contact_activity_events_type_created
 ON contact_activity_events(event_type, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS account_contact_sync_configs (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL DEFAULT 'carddav',
+    enabled INTEGER NOT NULL DEFAULT 0,
+    base_url TEXT NOT NULL DEFAULT '',
+    addressbook_url TEXT NOT NULL DEFAULT '',
+    username TEXT NOT NULL DEFAULT '',
+    encrypted_password BLOB,
+    last_sync_token TEXT NOT NULL DEFAULT '',
+    last_started_at DATETIME,
+    last_success_at DATETIME,
+    last_import_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_contact_sync_configs_user
+ON account_contact_sync_configs(user_id, enabled, provider);
+
+CREATE TABLE IF NOT EXISTS account_contact_address_books (
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    is_default INTEGER NOT NULL DEFAULT 0,
+    last_sync_token TEXT NOT NULL DEFAULT '',
+    last_success_at DATETIME,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_id, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_contact_address_books_user
+ON account_contact_address_books(user_id, account_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_contact_address_books_id
+ON account_contact_address_books(id);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (29);
+INSERT OR REPLACE INTO schema_version (version) VALUES (33);

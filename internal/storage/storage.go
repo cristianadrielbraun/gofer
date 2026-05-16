@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 29
+	const targetSchemaVersion = 33
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -318,6 +318,30 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 28 {
 		if err := migrateV28ToV29(tx); err != nil {
 			return fmt.Errorf("migrate v28 to v29: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 29 {
+		if err := migrateV29ToV30(tx); err != nil {
+			return fmt.Errorf("migrate v29 to v30: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 30 {
+		if err := migrateV30ToV31(tx); err != nil {
+			return fmt.Errorf("migrate v30 to v31: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 31 {
+		if err := migrateV31ToV32(tx); err != nil {
+			return fmt.Errorf("migrate v31 to v32: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 32 {
+		if err := migrateV32ToV33(tx); err != nil {
+			return fmt.Errorf("migrate v32 to v33: %w", err)
 		}
 	}
 
@@ -1036,6 +1060,110 @@ func migrateV28ToV29(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_folder_thread_state_folder_last
 		 ON folder_thread_state(folder_id, last_message_at DESC, head_message_id DESC)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (29)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV29ToV30(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS account_contact_sync_configs (
+			account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL DEFAULT 'carddav',
+			enabled INTEGER NOT NULL DEFAULT 0,
+			base_url TEXT NOT NULL DEFAULT '',
+			addressbook_url TEXT NOT NULL DEFAULT '',
+			username TEXT NOT NULL DEFAULT '',
+			encrypted_password BLOB,
+			last_sync_token TEXT NOT NULL DEFAULT '',
+			last_success_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_account_contact_sync_configs_user
+		 ON account_contact_sync_configs(user_id, enabled, provider)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (30)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV30ToV31(tx *sql.Tx) error {
+	migrations := []string{
+		`ALTER TABLE account_contact_sync_configs ADD COLUMN last_started_at DATETIME`,
+		`ALTER TABLE account_contact_sync_configs ADD COLUMN last_import_count INTEGER NOT NULL DEFAULT 0`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (31)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV31ToV32(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS account_contact_address_books (
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			url TEXT NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			is_default INTEGER NOT NULL DEFAULT 0,
+			last_sync_token TEXT NOT NULL DEFAULT '',
+			last_success_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (account_id, url)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_account_contact_address_books_user
+		 ON account_contact_address_books(user_id, account_id)`,
+		`INSERT OR IGNORE INTO account_contact_address_books (account_id, user_id, url, name, is_default, last_sync_token, last_success_at, last_error)
+		 SELECT account_id, user_id, addressbook_url, '', 1, last_sync_token, last_success_at, last_error
+		 FROM account_contact_sync_configs
+		 WHERE TRIM(addressbook_url) != ''`,
+		`DROP INDEX IF EXISTS idx_contact_sources_contact_provider_account`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_sources_contact_provider_account_remote
+		 ON contact_sources(user_id, contact_id, provider, account_id, remote_id)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (32)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV32ToV33(tx *sql.Tx) error {
+	migrations := []string{
+		`ALTER TABLE account_contact_address_books ADD COLUMN id TEXT NOT NULL DEFAULT ''`,
+		`UPDATE account_contact_address_books SET id = lower(hex(randomblob(16))) WHERE id = ''`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_account_contact_address_books_id
+		 ON account_contact_address_books(id)`,
+		`ALTER TABLE contact_sources ADD COLUMN address_book_id TEXT NOT NULL DEFAULT ''`,
+		`UPDATE contact_sources
+		 SET address_book_id = COALESCE((
+			SELECT ab.id
+			FROM account_contact_address_books ab
+			WHERE ab.account_id = contact_sources.account_id
+			  AND contact_sources.remote_id LIKE ab.url || '%'
+			ORDER BY length(ab.url) DESC
+			LIMIT 1
+		 ), '')
+		 WHERE provider = 'carddav' AND remote_id != ''`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (33)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {

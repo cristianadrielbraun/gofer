@@ -107,6 +107,21 @@ type ContactAdminStatus struct {
 	DeletedToday int                    `json:"deleted_today"`
 	LastBackfill time.Time              `json:"last_backfill,omitempty"`
 	RecentEvents []ContactActivityEvent `json:"recent_events"`
+	AccountSync  []ContactSyncStatus    `json:"account_sync"`
+}
+
+type ContactSyncStatus struct {
+	AccountID       string    `json:"account_id"`
+	AccountName     string    `json:"account_name"`
+	AccountEmail    string    `json:"account_email"`
+	Provider        string    `json:"provider"`
+	Enabled         bool      `json:"enabled"`
+	Capable         bool      `json:"capable"`
+	Running         bool      `json:"running"`
+	LastStartedAt   time.Time `json:"last_started_at,omitempty"`
+	LastSuccessAt   time.Time `json:"last_success_at,omitempty"`
+	LastImportCount int       `json:"last_import_count"`
+	LastError       string    `json:"last_error,omitempty"`
 }
 
 type ContactBackfillState struct {

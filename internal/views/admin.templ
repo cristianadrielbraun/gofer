@@ -579,6 +579,48 @@ func adminContactRunLabel(state models.ContactBackfillState) string {
 	return "Idle"
 }
 
+func adminContactSyncProviderLabel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gmail":
+		return "Gmail"
+	case "carddav":
+		return "CardDAV"
+	case "":
+		return "Unknown"
+	default:
+		return strings.Title(strings.ReplaceAll(provider, "_", " "))
+	}
+}
+
+func adminContactSyncLabel(sync models.ContactSyncStatus) string {
+	if sync.Running {
+		return "Syncing"
+	}
+	if sync.LastError != "" {
+		return "Error"
+	}
+	if sync.Enabled {
+		return "Enabled"
+	}
+	if sync.Capable {
+		return "Configured"
+	}
+	return "Disabled"
+}
+
+func adminContactSyncClass(sync models.ContactSyncStatus) string {
+	if sync.Running {
+		return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+	}
+	if sync.LastError != "" {
+		return "bg-red-500/12 text-red-700 dark:text-red-300"
+	}
+	if sync.Enabled {
+		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+	}
+	return "bg-muted text-muted-foreground"
+}
+
 templ AdminContactsPage(status models.ContactAdminStatus) {
 	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
@@ -654,6 +696,24 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 								</div>
 							</div>
 						</div>
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+								<div>
+									<div class={ adminPanelTitleClass() }>Account sync</div>
+									<p class="mt-1 text-sm text-muted-foreground">Accounts that can sync contacts, including Gmail and configured CardDAV address books.</p>
+								</div>
+								<a href="/api/admin/contacts/status" class="w-fit rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Raw JSON</a>
+							</div>
+							if len(status.AccountSync) == 0 {
+								<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">No contact-sync accounts are configured yet.</div>
+							} else {
+								<div class="grid gap-3 xl:grid-cols-2">
+									for _, sync := range status.AccountSync {
+										@AdminContactSyncCard(sync)
+									}
+								</div>
+							}
+						</div>
 					}
 					@tabs.Content(tabs.ContentProps{Value: "events", Class: "mt-6 space-y-4"}) {
 						<div class="rounded-lg border border-border bg-card p-4">
@@ -689,6 +749,27 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 				}
 			</div>
 		</div>
+	</div>
+}
+
+templ AdminContactSyncCard(sync models.ContactSyncStatus) {
+	<div class="rounded-lg border border-border bg-background/45 p-4">
+		<div class="mb-4 flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<div class="truncate text-sm font-bold text-foreground">{ sync.AccountName }</div>
+				<div class="mt-0.5 truncate text-xs font-medium text-muted-foreground">{ sync.AccountEmail }</div>
+			</div>
+			<span class={ "inline-flex shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold", adminContactSyncClass(sync) }>{ adminContactSyncLabel(sync) }</span>
+		</div>
+		<div class="grid gap-2 sm:grid-cols-2">
+			@AdminDetail("contact_sync_provider_" + sync.AccountID, "Provider", adminContactSyncProviderLabel(sync.Provider))
+			@AdminDetail("contact_sync_imported_" + sync.AccountID, "Last import", fmt.Sprintf("%d", sync.LastImportCount))
+			@AdminDetail("contact_sync_started_" + sync.AccountID, "Started", adminTime(sync.LastStartedAt))
+			@AdminDetail("contact_sync_success_" + sync.AccountID, "Last success", adminTime(sync.LastSuccessAt))
+		</div>
+		if sync.LastError != "" {
+			<div class="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">{ sync.LastError }</div>
+		}
 	</div>
 }
 
