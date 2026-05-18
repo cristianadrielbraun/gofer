@@ -3493,6 +3493,7 @@ func defaultUISettings() map[string]string {
 		"compose_autosave_min_chars":        "30",
 		"compose_autosave_debounce":         "5",
 		"sender_display":                    "name",
+		"mail_list_navigation":              "infinite",
 		"auto_mark_read_after":              "0",
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",

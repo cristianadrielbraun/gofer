@@ -1457,7 +1457,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
 		accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
-		views.MailListEmails(accounts, nil, "", nil, 0, 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
+		views.MailListEmails(accounts, nil, "", nil, 0, 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(r.Context(), w)
 		return
 	}
 
@@ -1470,7 +1470,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
 	accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
-	views.MailListEmails(accounts, emails, "", nil, len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"]).Render(r.Context(), w)
+	views.MailListEmails(accounts, emails, "", nil, len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(r.Context(), w)
 }
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {

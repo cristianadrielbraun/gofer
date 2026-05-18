@@ -1,8 +1,10 @@
 class VirtualMailList {
   constructor(container, options) {
     this.container = container
+    this.root = container.closest("#mail-list") || container.parentElement || container
     this.folderID = options.folderID || "inbox"
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
+    this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
     this.itemHeight = this.viewMode === "table" ? 44 : 94
     this.subItemHeight = this.viewMode === "table" ? 32 : 48
     this.expandedThreadGap = 14
@@ -13,6 +15,7 @@ class VirtualMailList {
     this.loadedRanges = []
     this.totalCount = 0
     this.effectiveCount = 0
+    this.windowStart = 0
     this.selectedEmailId = null
     this.nextCursor = null
     this.hasMore = true
@@ -27,7 +30,11 @@ class VirtualMailList {
     this.windowThreshold = 20000
     this.chunkSize = 100
     this.chunkBuffer = 2
+    this.pageSize = parseInt(container.dataset.pageSize) || 50
+    this.pageStart = parseInt(container.dataset.windowStart) || 0
+    this.loadingSkeletonMinDuration = 180
     this.loadingDirection = null
+    this.pendingLoadStart = null
     this.pendingLoadEnd = null
     this.loadError = null
     this.frontierDown = -1
@@ -52,7 +59,9 @@ class VirtualMailList {
     this.expandedThreads = new Map()
     this._offsetCache = null
     this._offsetCacheLen = -1
+    this._offsetCacheStart = -1
 
+    this.container.style.overflowAnchor = "none"
     this.bindEvents()
   }
 
@@ -71,21 +80,25 @@ class VirtualMailList {
     this.indexById.set(id, pos)
   }
 
-  itemsURLForView(viewMode, start, limit) {
+  itemsURLForView(viewMode, start, limit, options) {
+    options = options || {}
+    var selected = options.selected !== undefined ? options.selected : this.selectedEmailId
+    var includeKnownTotal = options.knownTotal !== false
     var url = "/mail/folder/" + this.folderID + "/items?start=" + start + "&limit=" + limit + "&view=" + encodeURIComponent(viewMode === "table" ? "table" : "cards")
-    if (this.selectedEmailId) url += "&selected=" + encodeURIComponent(this.selectedEmailId)
-    if (this.totalCount >= 0) url += "&known_total=" + encodeURIComponent(this.totalCount)
+    if (selected) url += "&selected=" + encodeURIComponent(selected)
+    if (includeKnownTotal && this.totalCount >= 0) url += "&known_total=" + encodeURIComponent(this.totalCount)
     return this.withFilterParams(url)
   }
 
   _rebuildOffsets() {
-    if (this._offsetCacheLen === this.effectiveCount) return
+    if (this._offsetCacheLen === this.effectiveCount && this._offsetCacheStart === this.windowStart) return
     this._offsetCache = new Array(this.effectiveCount + 1)
     this._offsetCache[0] = 0
     for (var i = 0; i < this.effectiveCount; i++) {
-      this._offsetCache[i + 1] = this._offsetCache[i] + this.getHeight(i)
+      this._offsetCache[i + 1] = this._offsetCache[i] + this.getHeight(this.windowStart + i)
     }
     this._offsetCacheLen = this.effectiveCount
+    this._offsetCacheStart = this.windowStart
   }
 
   totalHeight() {
@@ -95,14 +108,16 @@ class VirtualMailList {
   }
 
   offsetAtPosition(pos) {
-    if (pos <= 0) return 0
+    if (pos <= this.windowStart) return 0
     this._rebuildOffsets()
-    if (pos >= this.effectiveCount) return this._offsetCache[this.effectiveCount]
-    return this._offsetCache[pos]
+    var rel = pos - this.windowStart
+    if (rel >= this.effectiveCount) return this._offsetCache[this.effectiveCount]
+    return this._offsetCache[rel]
   }
 
   positionAtOffset(targetOffset) {
-    if (targetOffset <= 0 || this.effectiveCount === 0) return 0
+    if (this.effectiveCount === 0) return this.windowStart
+    if (targetOffset <= 0) return this.windowStart
     this._rebuildOffsets()
     var lo = 0, hi = this.effectiveCount
     while (lo < hi) {
@@ -110,7 +125,7 @@ class VirtualMailList {
       if (this._offsetCache[mid + 1] <= targetOffset) lo = mid + 1
       else hi = mid
     }
-    return Math.min(lo, this.effectiveCount - 1)
+    return this.windowStart + Math.min(lo, this.effectiveCount - 1)
   }
 
   getHeight(pos) {
@@ -126,6 +141,7 @@ class VirtualMailList {
 
   invalidateOffsets() {
     this._offsetCacheLen = -1
+    this._offsetCacheStart = -1
     this._offsetCache = null
   }
 
@@ -140,6 +156,7 @@ class VirtualMailList {
     this.container.appendChild(this.spacerBottom)
     this.itemsContainer.style.position = "relative"
     this.itemsContainer.style.minWidth = "0"
+    this.itemsContainer.style.overflowAnchor = "none"
   }
 
   bindEvents() {
@@ -152,6 +169,18 @@ class VirtualMailList {
         rafId = null
       })
     })
+    if (this.root) {
+      this.root.addEventListener("click", function (e) {
+        if (self.navigationMode !== "pagination") return
+        var prev = e.target.closest && e.target.closest("[data-mail-page-prev]")
+        var next = e.target.closest && e.target.closest("[data-mail-page-next]")
+        if (!prev && !next) return
+        e.preventDefault()
+        if (self.isLoading || (prev && prev.disabled) || (next && next.disabled)) return
+        var targetStart = prev ? self.pageStart - self.pageSize : self.pageStart + self.pageSize
+        self.loadPage(targetStart, { preserveSelection: true }).catch(function () {})
+      })
+    }
   }
 
   render() {
@@ -189,7 +218,7 @@ class VirtualMailList {
 
     var first = this.positionAtOffset(Math.max(0, scrollTop - this.overscan * this.itemHeight))
     var last = this.positionAtOffset(Math.min(this.totalHeight(), scrollTop + clientHeight + this.overscan * this.itemHeight))
-    last = Math.min(last, this.effectiveCount - 1)
+    last = Math.min(last, this.windowStart + this.effectiveCount - 1)
 
     if (first === this.prevFirst && last === this.prevLast) {
       this.maybeLoadAtEdges(first, last)
@@ -200,7 +229,15 @@ class VirtualMailList {
 
     this.ensureRangeLoaded(first, last)
     this.maybeLoadAtEdges(first, last)
-    // Keep chunks resident for now; eviction can be re-enabled after stability pass.
+    if (this.evictFarChunks(first, last)) {
+      scrollTop = this.container.scrollTop
+      this._rebuildOffsets()
+      first = this.positionAtOffset(Math.max(0, scrollTop - this.overscan * this.itemHeight))
+      last = this.positionAtOffset(Math.min(this.totalHeight(), scrollTop + clientHeight + this.overscan * this.itemHeight))
+      last = Math.min(last, this.windowStart + this.effectiveCount - 1)
+      this.prevFirst = first
+      this.prevLast = last
+    }
 
     this.spacerTop.style.height = "0px"
     this.spacerBottom.style.height = "0px"
@@ -208,7 +245,6 @@ class VirtualMailList {
 
     this.renderPooled(first, last)
     this.syncSelectionClasses(this.itemsContainer)
-    this.evictFarChunks(first, last)
 
     if (typeof htmx !== "undefined") {
       htmx.process(this.itemsContainer)
@@ -658,6 +694,7 @@ class VirtualMailList {
   }
 
   maybeLoadAtEdges(first, last) {
+    if (this.navigationMode === "pagination") return
     if (this.activeChunkFetches.size > 0) return
     if (this.effectiveCount >= this.totalCount) return
 
@@ -674,14 +711,17 @@ class VirtualMailList {
   async loadChunk(chunkIndex, direction) {
     var start = direction === "down" ? this.frontierDown + 1 : chunkIndex * this.chunkSize
     if (chunkIndex < 0 || start >= this.totalCount) return
-    var end = Math.min(this.totalCount - 1, start + this.chunkSize - 1)
+    var end = direction === "up" ? this.frontierUp - 1 : Math.min(this.totalCount - 1, start + this.chunkSize - 1)
+    if (end < start) return
     var chunkKey = "chunk-" + chunkIndex
     if (this.activeChunkFetches.has(chunkKey)) return
     if (this.findGaps(start, end).length === 0) return
     this.activeChunkFetches.add(chunkKey)
     this.loadingDirection = direction
+    this.pendingLoadStart = direction === "up" ? end : null
     this.pendingLoadEnd = direction === "down" ? start : null
     this.loadError = null
+    var revealStartedAt = this.now()
     var revealPendingDownRow = direction === "down"
     this.updateEffectiveCount()
     if (revealPendingDownRow) {
@@ -690,20 +730,78 @@ class VirtualMailList {
     this.prevFirst = null
     this.prevLast = null
     this.render()
+    this.pinPendingSkeleton(direction)
+    var skeletonRevealed = this.waitForSkeletonReveal(revealStartedAt, direction)
     try {
       if (window.__debugWindowedMail) {
         console.debug("[mail-chunk] load", direction, chunkIndex, start, end)
       }
-      await this.fetchRange(start, end)
+      var html = await this.fetchHTML(this.itemsURLForView(this.viewMode, start, end - start + 1))
+      await skeletonRevealed
+      this.ingestHTML(html)
+      this.prevFirst = null
+      this.prevLast = null
+      this.render()
       this.frontierDown = Math.max(this.frontierDown, end)
       this.frontierUp = Math.min(this.frontierUp, start)
     } catch (_) {
+      await skeletonRevealed
       this.loadError = "Failed to load emails. Scroll again to retry."
     } finally {
       this.loadingDirection = null
+      this.pendingLoadStart = null
       this.pendingLoadEnd = null
       this.activeChunkFetches.delete(chunkKey)
       this.updateEffectiveCount()
+    }
+  }
+
+  now() {
+    return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()
+  }
+
+  waitForViewSwitchPending(startedAt) {
+    var elapsed = this.now() - startedAt
+    var remaining = 130 - elapsed
+    if (remaining <= 0) return Promise.resolve()
+    return new Promise(function (resolve) { setTimeout(resolve, remaining) })
+  }
+
+  waitForSkeletonReveal(startedAt, direction) {
+    var self = this
+    return new Promise(function (resolve) {
+      var afterPaint = function () {
+        self.pinPendingSkeleton(direction)
+        var elapsed = self.now() - startedAt
+        var remaining = self.loadingSkeletonMinDuration - elapsed
+        if (remaining > 0) {
+          setTimeout(function () {
+            self.pinPendingSkeleton(direction)
+            resolve()
+          }, remaining)
+        } else resolve()
+      }
+      self.pinPendingSkeleton(direction)
+      if (typeof requestAnimationFrame !== "function") {
+        setTimeout(afterPaint, 16)
+        return
+      }
+      requestAnimationFrame(function () {
+        self.pinPendingSkeleton(direction)
+        requestAnimationFrame(afterPaint)
+      })
+    })
+  }
+
+  pinPendingSkeleton(direction) {
+    if (!this.container) return
+    if (direction === "up") {
+      this.container.scrollTop = 0
+      return
+    }
+    if (direction === "down") {
+      var maxScroll = Math.max(0, this.container.scrollHeight - this.container.clientHeight)
+      if (this.container.scrollTop < maxScroll) this.container.scrollTop = maxScroll
     }
   }
 
@@ -717,7 +815,37 @@ class VirtualMailList {
     return this.loadedRanges[this.loadedRanges.length - 1].end
   }
 
+  updateFrontiers() {
+    var range = this.currentLoadedRange()
+    if (!range) {
+      this.frontierUp = 0
+      this.frontierDown = -1
+      return
+    }
+    this.frontierUp = range.start
+    this.frontierDown = range.end
+  }
+
+  currentLoadedRange() {
+    if (this.loadedRanges.length === 0) return null
+    var anchor = this.windowStart
+    if (this.effectiveCount > 0 && this.container) {
+      anchor = this.positionAtOffset(this.container.scrollTop)
+    }
+    for (var i = 0; i < this.loadedRanges.length; i++) {
+      var range = this.loadedRanges[i]
+      if (anchor >= range.start && anchor <= range.end) return range
+    }
+    var windowEnd = this.windowStart + Math.max(0, this.effectiveCount - 1)
+    for (var j = 0; j < this.loadedRanges.length; j++) {
+      var current = this.loadedRanges[j]
+      if ((this.windowStart >= current.start && this.windowStart <= current.end) || (windowEnd >= current.start && windowEnd <= current.end)) return current
+    }
+    return this.loadedRanges[0]
+  }
+
   evictFarChunks(first, last) {
+    if (this.navigationMode === "pagination") return false
     var firstChunk = Math.floor(first / this.chunkSize)
     var lastChunk = Math.floor(last / this.chunkSize)
     var keepMin = Math.max(0, (firstChunk - this.chunkBuffer) * this.chunkSize)
@@ -733,7 +861,8 @@ class VirtualMailList {
         evicted = true
       }
     }
-    if (evicted) this.invalidateLoadedRanges()
+    if (evicted) this.invalidateLoadedRanges({ preserveScroll: true })
+    return evicted
   }
 
   async fetchRange(start, end) {
@@ -766,6 +895,7 @@ class VirtualMailList {
   }
 
   async prefetchSequential(last) {
+    if (this.navigationMode === "pagination") return
     if (this.cache.size === 0) return
     if (last < this.cache.size - 30) return
     if (!this.hasMore || this.isLoading) return
@@ -827,6 +957,11 @@ class VirtualMailList {
       this.hasMore = wrapper.dataset.hasMore === "true"
     }
 
+    if (this.navigationMode === "pagination") {
+      this.ingestPaginationHTML(wrapper, viewMode)
+      return
+    }
+
     var items = wrapper.querySelectorAll(".mail-list-item[data-email-id]")
     for (var i = 0; i < items.length; i++) {
       var el = items[i]
@@ -838,26 +973,50 @@ class VirtualMailList {
 
     var start = parseInt(wrapper.dataset.windowStart)
     var end = parseInt(wrapper.dataset.windowEnd)
-    if (viewMode === this.viewMode && !isNaN(start) && !isNaN(end)) {
+    if (viewMode === this.viewMode && !isNaN(start) && !isNaN(end) && end >= start) {
       this.addLoadedRange(start, end)
     }
-    if (viewMode === this.viewMode) this.updateEffectiveCount()
+    if (viewMode === this.viewMode) {
+      this.updateFrontiers()
+      this.updateEffectiveCount({ preserveScroll: this.loadingDirection === "up" })
+    }
   }
 
-  updateEffectiveCount() {
-    var maxLoaded = this.getLoadedMax()
-    if (maxLoaded < 0) {
+  updateEffectiveCount(options) {
+    options = options || {}
+    var anchorPos = null
+    var anchorOffset = 0
+    if (options.preserveScroll && this.effectiveCount > 0 && this.container) {
+      anchorPos = this.positionAtOffset(this.container.scrollTop)
+      anchorOffset = Math.max(0, this.container.scrollTop - this.offsetAtPosition(anchorPos))
+    }
+    var activeRange = this.currentLoadedRange()
+    if (!activeRange) {
+      this.windowStart = 0
       this.effectiveCount = 0
+      this.frontierUp = 0
+      this.frontierDown = -1
       this.invalidateOffsets()
       return
     }
-    var next = Math.min(this.totalCount, maxLoaded + 1)
-    if (this.loadingDirection === "down" && this.pendingLoadEnd !== null) {
-      next = Math.min(this.totalCount, Math.max(next, this.pendingLoadEnd + 1))
+    this.frontierUp = activeRange.start
+    this.frontierDown = activeRange.end
+    var nextStart = Math.max(0, activeRange.start)
+    var nextEnd = Math.min(this.totalCount - 1, activeRange.end)
+    if (this.loadingDirection === "up" && this.pendingLoadStart !== null) {
+      nextStart = Math.max(0, Math.min(nextStart, this.pendingLoadStart))
     }
-    if (next !== this.effectiveCount) {
+    if (this.loadingDirection === "down" && this.pendingLoadEnd !== null) {
+      nextEnd = Math.min(this.totalCount - 1, Math.max(nextEnd, this.pendingLoadEnd))
+    }
+    var next = nextEnd >= nextStart ? nextEnd - nextStart + 1 : 0
+    if (next !== this.effectiveCount || nextStart !== this.windowStart) {
+      this.windowStart = nextStart
       this.effectiveCount = next
       this.invalidateOffsets()
+      if (anchorPos !== null) {
+        this.container.scrollTop = this.offsetAtPosition(anchorPos) + anchorOffset
+      }
     }
   }
 
@@ -908,20 +1067,190 @@ class VirtualMailList {
     this.loadedRanges = merged
   }
 
-  invalidateLoadedRanges() {
+  invalidateLoadedRanges(options) {
     this.loadedRanges = []
     var entries = Array.from(this.cache.entries())
     for (var i = 0; i < entries.length; i++) {
       this.loadedRanges.push({ start: entries[i][0], end: entries[i][0] })
     }
     this.mergeRanges()
-    this.updateEffectiveCount()
+    this.updateFrontiers()
+    this.updateEffectiveCount(options)
+  }
+
+  ingestPaginationHTML(wrapper, viewMode) {
+    if (viewMode !== this.viewMode) {
+      this.setViewMode(viewMode, false)
+    } else {
+      this.cache.clear()
+      this.indexById.clear()
+      this.loadedRanges = []
+      this.expandedThreads.clear()
+      this.rowPool = []
+      this.visibleRows.clear()
+      this.rowByIndex.clear()
+      if (this.itemsContainer) this.itemsContainer.innerHTML = ""
+      this.invalidateOffsets()
+    }
+
+    var start = parseInt(wrapper.dataset.windowStart)
+    this.pageStart = isNaN(start) ? 0 : start
+    this.windowStart = this.pageStart
+    this.container.dataset.windowStart = String(this.pageStart)
+    this.container.dataset.totalCount = String(this.totalCount)
+    this.container.dataset.viewMode = this.viewMode
+    this.container.dataset.navigationMode = "pagination"
+    if (this.root) this.root.dataset.mailListView = this.viewMode
+
+    var items = wrapper.querySelectorAll(".mail-list-item[data-email-id]")
+    for (var i = 0; i < items.length; i++) {
+      var el = items[i]
+      var pos = parseInt(el.dataset.position)
+      var id = el.dataset.emailId
+      if (isNaN(pos) || !id) continue
+      this.setCachedRow(pos, id, el.outerHTML, viewMode)
+    }
+
+    this.effectiveCount = items.length
+    if (items.length > 0) {
+      this.frontierUp = this.pageStart
+      this.frontierDown = this.pageStart + items.length - 1
+      this.addLoadedRange(this.frontierUp, this.frontierDown)
+    } else {
+      this.frontierUp = this.pageStart
+      this.frontierDown = this.pageStart - 1
+    }
+    this.invalidateOffsets()
+    this.prevFirst = null
+    this.prevLast = null
+    this.updateHeader()
+    this.updatePaginationControls()
+  }
+
+  clampPageStart(start) {
+    start = parseInt(start)
+    if (isNaN(start) || start < 0) start = 0
+    if (this.totalCount <= 0) return 0
+    var maxStart = Math.floor((this.totalCount - 1) / this.pageSize) * this.pageSize
+    return Math.max(0, Math.min(start, maxStart))
+  }
+
+  firstEmailId() {
+    for (var pos = this.windowStart; pos < this.windowStart + this.effectiveCount; pos++) {
+      var item = this.cache.get(pos)
+      if (item && item.id) return item.id
+    }
+    return null
+  }
+
+  updatePaginationControls() {
+    if (this.navigationMode !== "pagination") return
+    var pagination = this.root && this.root.querySelector("[data-mail-pagination]")
+    if (!pagination) return
+    var pageSize = parseInt(pagination.dataset.pageSize)
+    if (!isNaN(pageSize) && pageSize > 0) this.pageSize = pageSize
+    var itemCount = this.effectiveCount
+    var totalPages = Math.max(1, Math.ceil(this.totalCount / this.pageSize))
+    var currentPage = this.totalCount > 0 ? Math.floor(this.pageStart / this.pageSize) + 1 : 1
+    var summary = pagination.querySelector("[data-mail-pagination-summary]")
+    var page = pagination.querySelector("[data-mail-pagination-page]")
+    var prev = pagination.querySelector("[data-mail-page-prev]")
+    var next = pagination.querySelector("[data-mail-page-next]")
+    if (summary) summary.textContent = itemCount > 0 ? ((this.pageStart + 1) + "-" + Math.min(this.totalCount, this.pageStart + itemCount) + " of " + this.totalCount) : "No messages"
+    if (page) page.textContent = currentPage + " / " + totalPages
+    if (prev) prev.disabled = this.isLoading || this.pageStart <= 0
+    if (next) next.disabled = this.isLoading || itemCount === 0 || this.pageStart + itemCount >= this.totalCount
+  }
+
+  setPaginationLoading(loading) {
+    this.isLoading = !!loading
+    this.container.dataset.pageLoading = loading ? "true" : "false"
+    this.updatePaginationControls()
+  }
+
+  captureScrollAnchor() {
+    if (!this.container || !this.itemsContainer) return null
+    var containerRect = this.container.getBoundingClientRect()
+    var rows = this.itemsContainer.querySelectorAll(".mail-list-item[data-email-id]")
+    for (var i = 0; i < rows.length; i++) {
+      var rect = rows[i].getBoundingClientRect()
+      if (rect.bottom <= containerRect.top) continue
+      return {
+        id: rows[i].dataset.emailId,
+        offset: rect.top - containerRect.top,
+        scrollTop: this.container.scrollTop,
+      }
+    }
+    return { id: "", offset: 0, scrollTop: this.container.scrollTop }
+  }
+
+  restoreScrollAnchor(anchor) {
+    if (!anchor || !this.container || !this.itemsContainer) return
+    if (!anchor.id) {
+      this.container.scrollTop = anchor.scrollTop || 0
+      return
+    }
+    var row = this.itemsContainer.querySelector('[data-email-id="' + this.cssEscape(anchor.id) + '"]')
+    if (!row) {
+      this.container.scrollTop = anchor.scrollTop || 0
+      return
+    }
+    var containerRect = this.container.getBoundingClientRect()
+    var rect = row.getBoundingClientRect()
+    this.container.scrollTop += rect.top - containerRect.top - anchor.offset
+  }
+
+  cssEscape(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value)
+    return String(value).replace(/"/g, '\\"')
+  }
+
+  async loadPage(start, options) {
+    if (this.navigationMode !== "pagination") return
+    options = options || {}
+    start = this.clampPageStart(start)
+    var targetViewMode = options.viewMode === "table" ? "table" : (options.viewMode === "cards" ? "cards" : this.viewMode)
+    var transition = options.noAnimation ? null : this.captureListTransition()
+    var scrollAnchor = options.preserveScroll ? this.captureScrollAnchor() : null
+    var selected = options.preserveSelection ? this.selectedEmailId : null
+    this.setPaginationLoading(true)
+    try {
+      var html = await this.fetchHTML(this.itemsURLForView(targetViewMode, start, this.pageSize, { selected: selected, knownTotal: options.knownTotal !== false }))
+      if (options.pendingStartedAt !== undefined) await this.waitForViewSwitchPending(options.pendingStartedAt)
+      this.ingestHTML(html)
+      if (options.preserveScroll) this.restoreScrollAnchor(scrollAnchor)
+      else this.container.scrollTop = 0
+      if (selected && this.indexById.has(selected)) this.selectedEmailId = selected
+      else if (!options.keepSelection) this.selectedEmailId = this.firstEmailId()
+      this.prevFirst = null
+      this.prevLast = null
+      this.render()
+      this.syncSelectionClasses(this.itemsContainer)
+      if (typeof htmx !== "undefined") htmx.process(this.itemsContainer)
+      if (typeof window.applyMailTableColumnSettings === "function") window.applyMailTableColumnSettings(this.container)
+      this.setPaginationLoading(false)
+      if (options.clearViewSwitchPending) this.setViewSwitchPending(false)
+      if (transition) this.animateListTransition(transition, options.animation || {})
+      else if (options.animateInitial) this.animateRenderedRows({ enterFrom: -8 })
+      if (options.loadSelected !== false && this.selectedEmailId && this.selectedEmailId !== selected && typeof htmx !== "undefined") {
+        if (typeof showMailViewLoading === "function") showMailViewLoading()
+        htmx.ajax("GET", "/email/" + this.selectedEmailId, "#mail-view")
+      }
+    } finally {
+      this.setPaginationLoading(false)
+    }
   }
 
   hydrateFromDOM(options) {
     options = options || {}
     var scrollEl =
       document.getElementById("mail-list-scroll") || this.container
+    this.navigationMode = scrollEl.dataset.navigationMode === "pagination" ? "pagination" : "infinite"
+    this.container.dataset.navigationMode = this.navigationMode
+    var pageSize = parseInt(scrollEl.dataset.pageSize)
+    if (!isNaN(pageSize) && pageSize > 0) this.pageSize = pageSize
+    var pageStart = parseInt(scrollEl.dataset.windowStart)
+    this.pageStart = isNaN(pageStart) ? 0 : pageStart
     this.setViewMode(scrollEl.dataset.viewMode || this.viewMode, true)
     var totalCount = parseInt(scrollEl.dataset.totalCount)
     if (!isNaN(totalCount)) this.totalCount = totalCount
@@ -942,12 +1271,32 @@ class VirtualMailList {
       var positions = Array.from(this.cache.keys())
       this.frontierUp = Math.min.apply(null, positions)
       this.frontierDown = Math.max.apply(null, positions)
-      this.addLoadedRange(
-        this.frontierUp,
-        this.frontierDown
-      )
+      if (this.navigationMode === "pagination") {
+        this.pageStart = isNaN(pageStart) ? this.frontierUp : pageStart
+        this.windowStart = this.pageStart
+        this.effectiveCount = this.cache.size
+        this.loadedRanges = [{ start: this.windowStart, end: this.windowStart + this.effectiveCount - 1 }]
+        this.frontierUp = this.windowStart
+        this.frontierDown = this.windowStart + this.effectiveCount - 1
+        this.invalidateOffsets()
+      } else {
+        this.addLoadedRange(
+          this.frontierUp,
+          this.frontierDown
+        )
+      }
     }
-    this.updateEffectiveCount()
+    if (this.navigationMode === "pagination") {
+      if (this.cache.size === 0) {
+        this.windowStart = this.pageStart
+        this.effectiveCount = 0
+        this.frontierUp = this.pageStart
+        this.frontierDown = this.pageStart - 1
+        this.invalidateOffsets()
+      }
+    } else {
+      this.updateEffectiveCount()
+    }
 
     this.hasMore = this.totalCount > this.cache.size
     if (this.hasMore && this.cache.size > 0) {
@@ -971,6 +1320,7 @@ class VirtualMailList {
     this.itemsContainer = document.createElement("div")
     this.itemsContainer.style.position = "relative"
     this.itemsContainer.style.minWidth = "0"
+    this.itemsContainer.style.overflowAnchor = "none"
     this.container.appendChild(this.spacerTop)
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
@@ -986,6 +1336,7 @@ class VirtualMailList {
     }
 
     this.render()
+    this.updatePaginationControls()
     if (options.animate !== false) this.animateRenderedRows({ enterFrom: -8 })
   }
 
@@ -1042,6 +1393,30 @@ class VirtualMailList {
 
   async switchFolder(folderID, pushState) {
     if (pushState === undefined) pushState = true
+    if (this.navigationMode === "pagination") {
+      this.folderID = folderID
+      this.selectedEmailId = null
+      this.pageStart = 0
+      await this.loadPage(0, { loadSelected: false, knownTotal: false, animation: { enterFrom: -8, exitTo: 14 } })
+      var first = this.firstEmailId()
+      if (first) {
+        this.selectedEmailId = first
+        this.prevFirst = null
+        this.prevLast = null
+        this.render()
+        this.syncSelectionClasses(this.itemsContainer)
+        if (typeof htmx !== "undefined") {
+          if (typeof showMailViewLoading === "function") showMailViewLoading()
+          htmx.ajax("GET", "/email/" + first, "#mail-view")
+        }
+      } else if (typeof setMailViewEmpty === "function") {
+        setMailViewEmpty()
+      }
+      this.updateHeader()
+      this.updateSyncHeader()
+      if (pushState) this.pushUrl()
+      return
+    }
     var transition = this.captureListTransition()
     var previousSelected = this.selectedEmailId
     var params = "limit=50"
@@ -1087,6 +1462,12 @@ class VirtualMailList {
 
     var self = this
     this.refreshInFlight = (async function () {
+      if (self.navigationMode === "pagination") {
+        await self.loadPage(self.pageStart, { preserveSelection: true, loadSelected: false, preserveScroll: true, knownTotal: false, noAnimation: !!options.noAnimation, animation: { enterFrom: -12, exitTo: 12 } })
+        self.updateHeader()
+        self.updateSyncHeader()
+        return
+      }
       var transition = options.noAnimation ? null : self.captureListTransition()
       var params = "limit=50"
       if (self.selectedEmailId) {
@@ -1128,6 +1509,7 @@ class VirtualMailList {
     this.loadedRanges = []
     this.totalCount = 0
     this.effectiveCount = 0
+    this.windowStart = 0
     this.selectedEmailId = null
     this.nextCursor = null
     this.hasMore = true
@@ -1136,8 +1518,10 @@ class VirtualMailList {
     this.syncState = { active: false, current: 0, total: 0 }
     this.activeFetches.clear()
     this.activeChunkFetches.clear()
+    this.pendingLoadStart = null
     this.pendingLoadEnd = null
     this.loadingDirection = null
+    this.loadError = null
     this.windowedMode = false
     this.anchorAbsoluteIndex = null
     this.suppressWindowShift = false
@@ -1175,6 +1559,11 @@ class VirtualMailList {
       this.frontierDown = -1
       this.frontierUp = 0
       this.effectiveCount = 0
+      this.windowStart = 0
+      this.pendingLoadStart = null
+      this.pendingLoadEnd = null
+      this.loadingDirection = null
+      this.loadError = null
       this.prevFirst = null
       this.prevLast = null
       this.rowPool = []
@@ -1187,6 +1576,24 @@ class VirtualMailList {
   async switchViewMode(viewMode) {
     viewMode = viewMode === "table" ? "table" : "cards"
     if (viewMode === this.viewMode) return
+    if (this.navigationMode === "pagination") {
+      var pendingStartedAt = this.now()
+      this.setViewSwitchPending(true)
+      try {
+        await this.loadPage(this.pageStart, {
+          viewMode: viewMode,
+          preserveSelection: true,
+          loadSelected: false,
+          preserveScroll: true,
+          pendingStartedAt: pendingStartedAt,
+          clearViewSwitchPending: true,
+          animation: { enterFrom: -8, exitTo: 14, animateHeight: true, enterExisting: true },
+        })
+      } finally {
+        if (this.container.dataset.viewSwitchPending === "true") this.setViewSwitchPending(false)
+      }
+      return
+    }
     var transition = this.captureListTransition()
     var selected = this.selectedEmailId
     var oldItemHeight = this.itemHeight
@@ -1290,6 +1697,18 @@ class VirtualMailList {
       else next[key] = (filters[key] || "").trim()
     }
     this.filters = next
+    if (this.navigationMode === "pagination") {
+      var previousSelectedPaginated = this.selectedEmailId
+      await this.loadPage(0, { preserveSelection: true, loadSelected: false, knownTotal: false, animation: { enterFrom: -8, exitTo: 14 } })
+      if (previousSelectedPaginated && this.indexById.has(previousSelectedPaginated)) this.selectedEmailId = previousSelectedPaginated
+      else this.selectedEmailId = this.firstEmailId()
+      this.prevFirst = null
+      this.prevLast = null
+      this.render()
+      this.syncSelectionClasses(this.itemsContainer)
+      this.updateFilteredSelection(previousSelectedPaginated)
+      return
+    }
     var transition = this.captureListTransition()
     var previousSelected = this.selectedEmailId
     var params = "limit=50&view=" + encodeURIComponent(this.viewMode)
@@ -1433,6 +1852,10 @@ class VirtualMailList {
   }
 
   onNewEmail() {
+    if (this.navigationMode === "pagination") {
+      this.loadPage(0, { preserveSelection: true, loadSelected: false, knownTotal: false, animation: { enterFrom: -12, exitTo: 12 } }).catch(function () {})
+      return
+    }
     if (this.container.scrollTop < this.itemHeight * 2) {
       this.removeBanner()
       this.switchFolder(this.folderID)
@@ -1443,6 +1866,10 @@ class VirtualMailList {
   }
 
   invalidateItem(emailId) {
+    if (this.navigationMode === "pagination") {
+      this.loadPage(this.pageStart, { preserveSelection: true, loadSelected: false, preserveScroll: true, animation: { enterFrom: -8, exitTo: 12 } }).catch(function () {})
+      return
+    }
     var pos = this.indexById.get(emailId)
     if (pos === undefined) return
     var item = this.cache.get(pos)
@@ -1599,14 +2026,22 @@ class VirtualContactsList {
     this.itemHeight = this.viewMode === "table" ? 44 : 94
     this.overscan = 10
     this.chunkSize = 100
+    this.loadingSkeletonMinDuration = 180
     this.cache = new Map()
     this.indexById = new Map()
     this.loadedRanges = []
     this.totalCount = 0
     this.effectiveCount = 0
+    this.hasMore = true
     this.selectedContactId = options.selectedContactId || null
     this.filters = this.readFiltersFromContainer()
     this.activeFetches = new Set()
+    this.activeChunkFetches = new Set()
+    this.loadingDirection = null
+    this.pendingLoadEnd = null
+    this.loadError = null
+    this.frontierDown = -1
+    this.frontierUp = 0
     this.spacerTop = null
     this.spacerBottom = null
     this.itemsContainer = null
@@ -1617,6 +2052,7 @@ class VirtualContactsList {
     this.prevFirst = null
     this.prevLast = null
     this.transitionOverlay = null
+    this.container.style.overflowAnchor = "none"
     this.bindEvents()
   }
 
@@ -1659,6 +2095,7 @@ class VirtualContactsList {
     this.itemsContainer = document.createElement("div")
     this.itemsContainer.style.position = "relative"
     this.itemsContainer.style.minWidth = "0"
+    this.itemsContainer.style.overflowAnchor = "none"
     this.container.appendChild(this.spacerTop)
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
@@ -1684,6 +2121,13 @@ class VirtualContactsList {
     this.indexById.clear()
     this.loadedRanges = []
     this.effectiveCount = 0
+    this.hasMore = true
+    this.activeChunkFetches.clear()
+    this.loadingDirection = null
+    this.pendingLoadEnd = null
+    this.loadError = null
+    this.frontierDown = -1
+    this.frontierUp = 0
     this.rowPool = []
     this.visibleRows.clear()
     this.rowByIndex.clear()
@@ -1715,7 +2159,7 @@ class VirtualContactsList {
 
   render() {
     if (!this.itemsContainer) return
-    if (this.totalCount === 0) {
+    if (this.effectiveCount === 0) {
       var stale = this.captureListTransition()
       this.spacerTop.style.height = "0px"
       this.spacerBottom.style.height = "0px"
@@ -1728,17 +2172,25 @@ class VirtualContactsList {
     var scrollTop = this.container.scrollTop
     var clientHeight = this.container.clientHeight
     var first = Math.max(0, Math.floor((scrollTop - this.overscan * this.itemHeight) / this.itemHeight))
-    var last = Math.min(this.totalCount - 1, Math.ceil((scrollTop + clientHeight + this.overscan * this.itemHeight) / this.itemHeight))
-    if (first === this.prevFirst && last === this.prevLast) return
+    var last = Math.min(this.effectiveCount - 1, Math.ceil((scrollTop + clientHeight + this.overscan * this.itemHeight) / this.itemHeight))
+    if (first === this.prevFirst && last === this.prevLast) {
+      this.maybeLoadAtEdges(first, last)
+      return
+    }
     this.prevFirst = first
     this.prevLast = last
     this.ensureRangeLoaded(first, last)
+    this.maybeLoadAtEdges(first, last)
     this.spacerTop.style.height = "0px"
     this.spacerBottom.style.height = "0px"
-    this.itemsContainer.style.height = (this.totalCount * this.itemHeight) + "px"
+    this.itemsContainer.style.height = this.totalHeight() + "px"
     this.renderPooled(first, last)
     this.syncSelectionClasses(this.itemsContainer)
     if (typeof htmx !== "undefined") htmx.process(this.itemsContainer)
+  }
+
+  totalHeight() {
+    return this.effectiveCount * this.itemHeight
   }
 
   emptyHTML() {
@@ -1828,9 +2280,111 @@ class VirtualContactsList {
     return '<div class="mail-list-skeleton"><div class="flex items-start gap-3 px-3.5 py-2.5"><div class="size-6 rounded-full bg-muted animate-pulse"></div><div class="flex-1 min-w-0 space-y-2"><div class="h-3 w-28 rounded bg-muted animate-pulse"></div><div class="h-3 w-40 rounded bg-muted animate-pulse"></div><div class="h-2.5 w-24 rounded bg-muted animate-pulse"></div></div></div></div>'
   }
 
-  ensureRangeLoaded(first, last) {
+  async ensureRangeLoaded(first, last) {
+    if (first > last) return
+    if (this.activeChunkFetches.size > 0) return
     var gaps = this.findGaps(first, last)
-    for (var i = 0; i < gaps.length; i++) this.fetchRange(gaps[i].start, gaps[i].end)
+    for (var i = 0; i < gaps.length; i++) {
+      try {
+        await this.fetchRange(gaps[i].start, gaps[i].end)
+      } catch (_) {}
+    }
+  }
+
+  maybeLoadAtEdges(first, last) {
+    if (this.activeChunkFetches.size > 0) return
+    if (this.effectiveCount >= this.totalCount) return
+
+    var viewportBottom = this.container.scrollTop + this.container.clientHeight
+    if (this.frontierDown < this.totalCount - 1 && viewportBottom >= this.totalHeight() - 1) {
+      this.loadChunk(Math.floor((this.frontierDown + 1) / this.chunkSize), "down")
+      return
+    }
+    if (this.frontierUp > 0 && this.container.scrollTop <= 1) {
+      this.loadChunk(Math.floor((this.frontierUp - 1) / this.chunkSize), "up")
+    }
+  }
+
+  async loadChunk(chunkIndex, direction) {
+    var start = direction === "down" ? this.frontierDown + 1 : chunkIndex * this.chunkSize
+    if (chunkIndex < 0 || start >= this.totalCount) return
+    var end = Math.min(this.totalCount - 1, start + this.chunkSize - 1)
+    var chunkKey = "chunk-" + chunkIndex + "-" + this.viewMode
+    if (this.activeChunkFetches.has(chunkKey)) return
+    if (this.findGaps(start, end).length === 0) return
+    this.activeChunkFetches.add(chunkKey)
+    this.loadingDirection = direction
+    this.pendingLoadEnd = direction === "down" ? start : null
+    this.loadError = null
+    var revealStartedAt = this.now()
+    var revealPendingDownRow = direction === "down"
+    this.updateEffectiveCount()
+    if (revealPendingDownRow) this.container.scrollTop = this.container.scrollTop + this.itemHeight
+    this.prevFirst = null
+    this.prevLast = null
+    this.render()
+    this.pinPendingSkeleton(direction)
+    var skeletonRevealed = this.waitForSkeletonReveal(revealStartedAt, direction)
+    try {
+      var html = await this.fetchHTML(this.itemsURL(start, end - start + 1))
+      await skeletonRevealed
+      this.ingestHTML(html)
+      this.prevFirst = null
+      this.prevLast = null
+      this.render()
+      this.frontierDown = Math.max(this.frontierDown, end)
+      this.frontierUp = Math.min(this.frontierUp, start)
+    } catch (_) {
+      await skeletonRevealed
+      this.loadError = "Failed to load contacts. Scroll again to retry."
+    } finally {
+      this.loadingDirection = null
+      this.pendingLoadEnd = null
+      this.activeChunkFetches.delete(chunkKey)
+      this.updateEffectiveCount()
+    }
+  }
+
+  now() {
+    return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()
+  }
+
+  waitForSkeletonReveal(startedAt, direction) {
+    var self = this
+    return new Promise(function (resolve) {
+      var afterPaint = function () {
+        self.pinPendingSkeleton(direction)
+        var elapsed = self.now() - startedAt
+        var remaining = self.loadingSkeletonMinDuration - elapsed
+        if (remaining > 0) {
+          setTimeout(function () {
+            self.pinPendingSkeleton(direction)
+            resolve()
+          }, remaining)
+        } else resolve()
+      }
+      self.pinPendingSkeleton(direction)
+      if (typeof requestAnimationFrame !== "function") {
+        setTimeout(afterPaint, 16)
+        return
+      }
+      requestAnimationFrame(function () {
+        self.pinPendingSkeleton(direction)
+        requestAnimationFrame(afterPaint)
+      })
+    })
+  }
+
+  pinPendingSkeleton(direction) {
+    if (!this.container) return
+    if (direction === "up") {
+      this.container.scrollTop = 0
+      return
+    }
+    if (direction === "down") {
+      var maxScroll = Math.max(0, this.container.scrollHeight - this.container.clientHeight)
+      if (this.container.scrollTop < maxScroll) this.container.scrollTop = maxScroll
+    }
   }
 
   findGaps(first, last) {
@@ -1848,20 +2402,20 @@ class VirtualContactsList {
     return gaps
   }
 
-  fetchRange(start, end) {
+  async fetchRange(start, end) {
     var key = start + "-" + end + "-" + this.viewMode
     if (this.activeFetches.has(key)) return
     this.activeFetches.add(key)
     var url = this.itemsURL(start, end - start + 1)
-    var self = this
-    this.fetchHTML(url).then(function (html) {
-      self.ingestHTML(html)
-      self.prevFirst = null
-      self.prevLast = null
-      self.render()
-    }).catch(function () {}).finally(function () {
-      self.activeFetches.delete(key)
-    })
+    try {
+      var html = await this.fetchHTML(url)
+      this.ingestHTML(html)
+      this.prevFirst = null
+      this.prevLast = null
+      this.render()
+    } finally {
+      this.activeFetches.delete(key)
+    }
   }
 
   fetchHTML(url) {
@@ -1896,6 +2450,7 @@ class VirtualContactsList {
     if (!wrapper) return
     var total = parseInt(wrapper.dataset.totalCount)
     if (!isNaN(total)) this.totalCount = total
+    if (wrapper.dataset.hasMore !== undefined) this.hasMore = wrapper.dataset.hasMore === "true"
     this.ingestRows(wrapper, false)
     this.updateHeader()
   }
@@ -1917,7 +2472,36 @@ class VirtualContactsList {
       var positions = Array.from(this.cache.keys())
       this.addLoadedRange(Math.min.apply(null, positions), Math.max.apply(null, positions))
     }
-    this.effectiveCount = this.totalCount
+    this.updateFrontiers()
+    this.updateEffectiveCount()
+  }
+
+  updateFrontiers() {
+    if (this.loadedRanges.length === 0) {
+      this.frontierUp = 0
+      this.frontierDown = -1
+      return
+    }
+    this.frontierUp = this.loadedRanges[0].start
+    this.frontierDown = this.loadedRanges[this.loadedRanges.length - 1].end
+  }
+
+  getLoadedMax() {
+    if (this.loadedRanges.length === 0) return -1
+    return this.loadedRanges[this.loadedRanges.length - 1].end
+  }
+
+  updateEffectiveCount() {
+    var maxLoaded = this.getLoadedMax()
+    if (maxLoaded < 0) {
+      this.effectiveCount = 0
+      return
+    }
+    var next = Math.min(this.totalCount, maxLoaded + 1)
+    if (this.loadingDirection === "down" && this.pendingLoadEnd !== null) {
+      next = Math.min(this.totalCount, Math.max(next, this.pendingLoadEnd + 1))
+    }
+    this.effectiveCount = next
   }
 
   addLoadedRange(start, end) {

@@ -16,13 +16,16 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 )
 
-templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, windowStart int, width string, senderDisplayMode string, viewMode string) {
-	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + width } data-mail-list-view={ mailListViewMode(viewMode) }>
+templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, windowStart int, width string, senderDisplayMode string, viewMode string, navigationMode string) {
+	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + width } data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) }>
 		@MailListHeader(activeFolder, totalCount)
 		@MailListToolbar(mailListViewMode(viewMode))
 		@MailFilterAdvancedDialog(accounts)
 		<hr class="divider-etched"/>
-		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, senderDisplayMode, mailListViewMode(viewMode))
+		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, senderDisplayMode, mailListViewMode(viewMode), mailListNavigationMode(navigationMode))
+		if mailListNavigationMode(navigationMode) == "pagination" && totalCount >= 0 {
+			@MailListPagination(totalCount, windowStart, len(emails), mailListPaginationPageSize())
+		}
 	</div>
 }
 
@@ -412,7 +415,7 @@ templ MailFilterCalendarField(name string, id string, placeholder string) {
 	}
 }
 
-templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, windowStart int, senderDisplayMode string, viewMode string) {
+templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, windowStart int, senderDisplayMode string, viewMode string, navigationMode string) {
 	<div
 		id="mail-list-scroll"
 		class="flex-1 overflow-y-auto px-2 py-2"
@@ -420,6 +423,9 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 		data-total-count={ fmt.Sprintf("%d", totalCount) }
 		data-folder-id={ folderID }
 		data-view-mode={ mailListViewMode(viewMode) }
+		data-navigation-mode={ mailListNavigationMode(navigationMode) }
+		data-window-start={ fmt.Sprintf("%d", windowStart) }
+		data-page-size={ fmt.Sprintf("%d", mailListPaginationPageSize()) }
 		data-account-marker-style={ accountMarkerStyle(accounts) }
 		data-autoload-first-email?={ selectedEmail == nil && len(emails) > 0 }
 		data-load-folder?={ totalCount < 0 }
@@ -442,6 +448,25 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 				@MailListEmpty()
 			}
 		}
+	</div>
+}
+
+templ MailListPagination(totalCount int, windowStart int, itemCount int, pageSize int) {
+	<div class="border-t border-border/70 bg-card/95 px-3 py-2" data-mail-pagination data-page-size={ fmt.Sprintf("%d", pageSize) }>
+		<div class="flex items-center justify-between gap-2">
+			<div class="min-w-0 text-[11px] font-medium text-muted-foreground" data-mail-pagination-summary>{ mailListPaginationRangeLabel(windowStart, itemCount, totalCount) }</div>
+			<div class="flex items-center gap-1.5">
+				<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-semibold text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45" data-mail-page-prev disabled?={ windowStart <= 0 }>
+					@icon.ChevronLeft(icon.Props{Class: "size-3"})
+					Prev
+				</button>
+				<span class="min-w-16 text-center text-[11px] font-medium text-muted-foreground" data-mail-pagination-page>{ fmt.Sprintf("%d / %d", mailListPaginationPage(windowStart, pageSize), mailListPaginationTotalPages(totalCount, pageSize)) }</span>
+				<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-semibold text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45" data-mail-page-next disabled?={ windowStart+itemCount >= totalCount || itemCount == 0 }>
+					Next
+					@icon.ChevronRight(icon.Props{Class: "size-3"})
+				</button>
+			</div>
+		</div>
 	</div>
 }
 

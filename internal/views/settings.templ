@@ -141,6 +141,25 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			</div>
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">List navigation</h4>
+					<p class="text-xs text-muted-foreground mt-1">Choose infinite scroll with edge loading, or page through messages with previous and next controls.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0" data-mail-list-navigation-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "mail_list_navigation", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Infinite scroll"}) {
+								{ mailListNavigationSettingLabel(uiSettingGet(uiSettings, "mail_list_navigation", "infinite")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "infinite", Selected: uiSettingGet(uiSettings, "mail_list_navigation", "infinite") != "pagination"}) { Infinite scroll }
+							@selectbox.Item(selectbox.ItemProps{Value: "pagination", Selected: uiSettingGet(uiSettings, "mail_list_navigation", "infinite") == "pagination"}) { Pagination }
+						}
+					}
+				</div>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">Sender display</h4>
 					<p class="text-xs text-muted-foreground mt-1">Choose what appears in the From row. Messages without a sender name will still fall back to the email address.</p>
 				</div>
@@ -251,6 +270,10 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			var senderDisplay = e.target.closest('input[name="sender_display"]');
 			if (senderDisplay && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('sender_display', senderDisplay.value);
+			}
+			var mailListNavigation = e.target.closest('input[name="mail_list_navigation"]');
+			if (mailListNavigation && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('mail_list_navigation', mailListNavigation.value);
 			}
 			var autoMarkRead = e.target.closest('input[name="auto_mark_read_after"]');
 			if (autoMarkRead && typeof GoferSettings !== 'undefined') {

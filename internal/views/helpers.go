@@ -318,6 +318,50 @@ func mailListViewIndicatorStyle(mode string) string {
 	return "transform: translateX(0);"
 }
 
+func mailListNavigationMode(mode string) string {
+	if mode == "pagination" {
+		return "pagination"
+	}
+	return "infinite"
+}
+
+func mailListNavigationSettingLabel(value string) string {
+	if mailListNavigationMode(value) == "pagination" {
+		return "Pagination"
+	}
+	return "Infinite scroll"
+}
+
+func mailListPaginationPageSize() int {
+	return 50
+}
+
+func mailListPaginationTotalPages(totalCount int, pageSize int) int {
+	if totalCount <= 0 || pageSize <= 0 {
+		return 1
+	}
+	return (totalCount + pageSize - 1) / pageSize
+}
+
+func mailListPaginationPage(windowStart int, pageSize int) int {
+	if windowStart < 0 || pageSize <= 0 {
+		return 1
+	}
+	return (windowStart / pageSize) + 1
+}
+
+func mailListPaginationRangeLabel(windowStart int, itemCount int, totalCount int) string {
+	if totalCount <= 0 || itemCount <= 0 {
+		return "No messages"
+	}
+	start := windowStart + 1
+	end := windowStart + itemCount
+	if end > totalCount {
+		end = totalCount
+	}
+	return fmt.Sprintf("%d-%d of %d", start, end, totalCount)
+}
+
 func autoMarkReadSettingLabel(value string) string {
 	switch value {
 	case "0":

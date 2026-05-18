@@ -1379,7 +1379,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var folderID = container.dataset.folderId || "inbox"
     if (loadInitialFolderContent(container, folderID)) return
 
-    virtualMailList = new VirtualMailList(container, { folderID: folderID, viewMode: container.dataset.viewMode || "cards" })
+    virtualMailList = createMailListController(container, folderID)
     virtualMailList.hydrateFromDOM({ animate: true })
     container._virtualMailList = virtualMailList
     flushPendingSyncEvents()
@@ -1391,6 +1391,11 @@ document.addEventListener("DOMContentLoaded", function () {
     var path = "/folder/" + folderID
     if (selectedId) path += "/" + selectedId
     history.replaceState({ folder: folderID, email: selectedId || null }, "", path)
+  }
+
+  function createMailListController(container, folderID) {
+    var options = { folderID: folderID, viewMode: container.dataset.viewMode || "cards", navigationMode: container.dataset.navigationMode || "infinite" }
+    return new VirtualMailList(container, options)
   }
 
   function loadInitialFolderContent(container, folderID) {
@@ -1963,7 +1968,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!evt.target.querySelector("#mail-list-scroll")) return
 
     var folderID = scroll.dataset.folderId || "inbox"
-    virtualMailList = new VirtualMailList(scroll, { folderID: folderID, viewMode: scroll.dataset.viewMode || "cards" })
+    virtualMailList = createMailListController(scroll, folderID)
     virtualMailList.hydrateFromDOM({ animate: true })
     scroll._virtualMailList = virtualMailList
     flushPendingSyncEvents()
