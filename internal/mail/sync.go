@@ -822,6 +822,10 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) er
 
 	var folderInputs []storage.UpsertFolderInput
 	sortOrder := map[string]int{"inbox": 0, "starred": 1, "sent": 2, "drafts": 3, "archive": 4, "junk": 5, "trash": 6}
+	knownFolders := make(map[string]bool, len(folders))
+	for _, f := range folders {
+		knownFolders[f.Name] = true
+	}
 
 	for i, f := range folders {
 		role := f.Role
@@ -833,18 +837,21 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) er
 		parentID := ""
 		if f.Delimiter != 0 && containsDelimiter(f.Name, f.Delimiter) {
 			parts := splitDelimiter(f.Name, f.Delimiter)
-			parentID = folderIDFromRemote(accountID, parts[0])
+			if knownFolders[parts[0]] {
+				parentID = folderIDFromRemote(accountID, parts[0])
+			}
 		}
 
 		folderInputs = append(folderInputs, storage.UpsertFolderInput{
-			ID:        folderIDFromRemote(accountID, f.Name),
-			AccountID: accountID,
-			ParentID:  parentID,
-			RemoteID:  f.Name,
-			Name:      displayName(f.Name, role),
-			Icon:      imap.RoleIcon(role),
-			Role:      role,
-			SortOrder: order,
+			ID:         folderIDFromRemote(accountID, f.Name),
+			AccountID:  accountID,
+			ParentID:   parentID,
+			RemoteID:   f.Name,
+			Name:       displayName(f.Name, role),
+			Icon:       imap.RoleIcon(role),
+			Role:       role,
+			Selectable: f.Selectable,
+			SortOrder:  order,
 		})
 	}
 
@@ -863,7 +870,14 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) er
 		folderInfoByRemote[folder.RemoteID] = folder
 	}
 
-	for i, f := range folders {
+	var syncFolders []imap.FolderInfo
+	for _, f := range folders {
+		if f.Selectable {
+			syncFolders = append(syncFolders, f)
+		}
+	}
+
+	for i, f := range syncFolders {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -875,7 +889,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) er
 		if !ok {
 			folderInfo = storage.FolderSyncInfo{ID: folderDBID, AccountID: accountID, RemoteID: f.Name, Role: f.Role}
 		}
-		if err := o.fullFolderSync(ctx, client, accountID, folderInfo, i+1, len(folders)); err != nil {
+		if err := o.fullFolderSync(ctx, client, accountID, folderInfo, i+1, len(syncFolders)); err != nil {
 			log.Printf("sync folder %s/%s: %v", accountID, f.Name, err)
 		}
 	}

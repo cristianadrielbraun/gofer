@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS folders (
     name TEXT NOT NULL,
     icon TEXT NOT NULL DEFAULT 'folder',
     role TEXT NOT NULL DEFAULT 'custom',
+    selectable INTEGER NOT NULL DEFAULT 1,
     sort_order INTEGER NOT NULL DEFAULT 0,
     uid_validity INTEGER,
     uid_next INTEGER,
@@ -598,4 +599,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_account_contact_address_books_id
 ON account_contact_address_books(id);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (34);
+INSERT OR REPLACE INTO schema_version (version) VALUES (35);

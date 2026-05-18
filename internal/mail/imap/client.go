@@ -20,6 +20,7 @@ type FolderInfo struct {
 	Delimiter  rune
 	Attributes []imap.MailboxAttr
 	Role       string
+	Selectable bool
 }
 
 type Client struct {
@@ -123,7 +124,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 		if data == nil {
 			break
 		}
-		if data.Mailbox == "" || !isSelectableMailbox(data.Attrs) {
+		if data.Mailbox == "" || !isExistingMailbox(data.Attrs) {
 			continue
 		}
 		role := detectFolderRole(data.Mailbox, data.Attrs)
@@ -132,6 +133,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 			Delimiter:  data.Delim,
 			Attributes: data.Attrs,
 			Role:       role,
+			Selectable: isSelectableMailbox(data.Attrs),
 		})
 	}
 
@@ -153,7 +155,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 		if data == nil {
 			break
 		}
-		if data.Mailbox == "" || seen[strings.ToUpper(data.Mailbox)] || !isSelectableMailbox(data.Attrs) {
+		if data.Mailbox == "" || seen[strings.ToUpper(data.Mailbox)] || !isExistingMailbox(data.Attrs) {
 			continue
 		}
 		seen[strings.ToUpper(data.Mailbox)] = true
@@ -163,6 +165,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 			Delimiter:  data.Delim,
 			Attributes: data.Attrs,
 			Role:       role,
+			Selectable: isSelectableMailbox(data.Attrs),
 		})
 	}
 
@@ -173,6 +176,15 @@ func isSelectableMailbox(attrs []imap.MailboxAttr) bool {
 	for _, attr := range attrs {
 		switch attr {
 		case imap.MailboxAttrNoSelect, imap.MailboxAttrNonExistent:
+			return false
+		}
+	}
+	return true
+}
+
+func isExistingMailbox(attrs []imap.MailboxAttr) bool {
+	for _, attr := range attrs {
+		if attr == imap.MailboxAttrNonExistent {
 			return false
 		}
 	}

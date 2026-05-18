@@ -136,14 +136,15 @@ type folderRow struct {
 }
 
 type UpsertFolderInput struct {
-	ID        string
-	AccountID string
-	ParentID  string
-	RemoteID  string
-	Name      string
-	Icon      string
-	Role      string
-	SortOrder int
+	ID         string
+	AccountID  string
+	ParentID   string
+	RemoteID   string
+	Name       string
+	Icon       string
+	Role       string
+	Selectable bool
+	SortOrder  int
 }
 
 func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) error {
@@ -154,14 +155,15 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO folders (id, account_id, parent_id, remote_id, name, icon, role, sort_order)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO folders (id, account_id, parent_id, remote_id, name, icon, role, selectable, sort_order)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			parent_id = excluded.parent_id,
+			parent_id = NULL,
 			remote_id = excluded.remote_id,
 			name = excluded.name,
 			icon = excluded.icon,
 			role = excluded.role,
+			selectable = excluded.selectable,
 			sort_order = excluded.sort_order,
 			updated_at = CURRENT_TIMESTAMP`)
 	if err != nil {
@@ -170,12 +172,23 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	defer stmt.Close()
 
 	for _, f := range folders {
-		var parentID interface{}
-		if f.ParentID != "" {
-			parentID = f.ParentID
-		}
-		if _, err := stmt.ExecContext(ctx, f.ID, f.AccountID, parentID, f.RemoteID, f.Name, f.Icon, f.Role, f.SortOrder); err != nil {
+		if _, err := stmt.ExecContext(ctx, f.ID, f.AccountID, f.RemoteID, f.Name, f.Icon, f.Role, boolInt(f.Selectable), f.SortOrder); err != nil {
 			return fmt.Errorf("upsert folder %s: %w", f.ID, err)
+		}
+	}
+
+	parentStmt, err := tx.PrepareContext(ctx, `UPDATE folders SET parent_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare folder parent update: %w", err)
+	}
+	defer parentStmt.Close()
+
+	for _, f := range folders {
+		if f.ParentID == "" {
+			continue
+		}
+		if _, err := parentStmt.ExecContext(ctx, f.ParentID, f.ID); err != nil {
+			return fmt.Errorf("update folder parent %s: %w", f.ID, err)
 		}
 	}
 
@@ -3496,7 +3509,7 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		        COALESCE(uid_validity, 0), COALESCE(highest_seen_uid, 0),
 		        last_full_sync_at, last_incremental_sync_at,
 		        COALESCE(total_count, 0)
-		 FROM folders WHERE account_id = ? ORDER BY sort_order`, accountID)
+		 FROM folders WHERE account_id = ? AND COALESCE(selectable, 1) = 1 ORDER BY sort_order`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query folders: %w", err)
 	}

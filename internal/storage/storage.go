@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 34
+	const targetSchemaVersion = 35
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -348,6 +348,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 33 {
 		if err := migrateV33ToV34(tx); err != nil {
 			return fmt.Errorf("migrate v33 to v34: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 34 {
+		if err := migrateV34ToV35(tx); err != nil {
+			return fmt.Errorf("migrate v34 to v35: %w", err)
 		}
 	}
 
@@ -1183,6 +1189,25 @@ func migrateV33ToV34(tx *sql.Tx) error {
 	migrations := []string{
 		`ALTER TABLE accounts ADD COLUMN email_sync_enabled INTEGER NOT NULL DEFAULT 1`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (34)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV34ToV35(tx *sql.Tx) error {
+	migrations := []string{
+		`ALTER TABLE folders ADD COLUMN selectable INTEGER NOT NULL DEFAULT 1`,
+		`UPDATE folders
+		 SET selectable = 0
+		 WHERE lower(COALESCE(remote_id, '')) IN ('[gmail]', '[google mail]')
+		   AND account_id IN (
+			SELECT id FROM accounts WHERE lower(COALESCE(imap_host, '')) IN ('imap.gmail.com', 'imap.googlemail.com')
+		   )`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (35)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {
