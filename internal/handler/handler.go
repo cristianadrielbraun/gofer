@@ -185,6 +185,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /compose/attachments/{id}/preview", h.handleComposeAttachmentPreview)
 	mux.HandleFunc("DELETE /compose/attachments/{id}", h.handleComposeAttachmentDelete)
 	mux.HandleFunc("GET /api/events", h.handleSSE)
+	mux.HandleFunc("POST /api/mail/sync", h.handleSyncMail)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
 	mux.HandleFunc("GET /api/system/processing", h.handleProcessingStatus)
 	mux.HandleFunc("POST /api/messages/{id}/prefetch-body", h.handlePrefetchBody)
@@ -2717,6 +2718,35 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(counts)
+}
+
+func (h *Handler) handleSyncMail(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	accountIDs, err := h.db.GetEmailSyncAccountIDs(ctx, userID)
+	if err != nil {
+		htmlStatus(w, http.StatusInternalServerError, "Could not find email-sync accounts.")
+		return
+	}
+	if len(accountIDs) == 0 {
+		htmlStatus(w, http.StatusBadRequest, "Connect an email account before syncing mail.")
+		return
+	}
+
+	runID, started := h.syncer.SyncAccounts(context.Background(), userID, accountIDs)
+	if !started {
+		w.Header().Set("X-Gofer-Mail-Sync-Running", "true")
+		htmlStatus(w, http.StatusOK, "Mail sync is already running.")
+		return
+	}
+
+	w.Header().Set("X-Gofer-Mail-Sync-Run-ID", runID)
+	w.Header().Set("X-Gofer-Mail-Sync-Accounts", strconv.Itoa(len(accountIDs)))
+	if len(accountIDs) == 1 {
+		htmlStatus(w, http.StatusOK, "Mail sync started for 1 account.")
+		return
+	}
+	htmlStatus(w, http.StatusOK, fmt.Sprintf("Mail sync started for %d accounts.", len(accountIDs)))
 }
 
 func (h *Handler) handleProcessingStatus(w http.ResponseWriter, r *http.Request) {

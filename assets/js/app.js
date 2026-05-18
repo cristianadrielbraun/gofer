@@ -1021,6 +1021,24 @@ document.addEventListener("DOMContentLoaded", function () {
       handleContactActivityEvent(data)
     })
 
+    source.addEventListener("manual-sync-started", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      handleMailManualSyncEvent("started", data)
+    })
+
+    source.addEventListener("manual-sync-progress", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      handleMailManualSyncEvent("progress", data)
+    })
+
+    source.addEventListener("manual-sync-complete", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      handleMailManualSyncEvent("complete", data)
+    })
+
     source.addEventListener("sync-started", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
@@ -2082,6 +2100,168 @@ function showGoferToast(opts) {
     toast._goferToastTimer = setTimeout(function () { dismissGoferToast(toast) }, duration)
   }
   return toast
+}
+
+var _mailSyncRunID = ""
+var _mailSyncActive = false
+
+function _goferResponseText(xhr, fallback) {
+  if (xhr && xhr.responseText) {
+    var div = document.createElement("div")
+    div.innerHTML = xhr.responseText
+    return (div.textContent || "").trim() || fallback
+  }
+  return fallback
+}
+
+function _mailSyncCount(value) {
+  var n = Number(value || 0)
+  return isFinite(n) && n > 0 ? n : 0
+}
+
+function _mailSyncAccountsLabel(count) {
+  return count === 1 ? "1 account" : count + " accounts"
+}
+
+function _setMailSyncButtonBusy(busy) {
+  var buttons = document.querySelectorAll("[data-mail-sidebar-sync-button]")
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].dataset.syncing = busy ? "true" : "false"
+    var icon = buttons[i].querySelector("svg")
+    if (icon) icon.classList.toggle("animate-spin", !!busy)
+  }
+}
+
+function handleMailSidebarSyncStart() {
+  _mailSyncRunID = ""
+  _mailSyncActive = true
+  _setMailSyncButtonBusy(true)
+  showGoferToast({
+    id: "mail-sync-toast",
+    title: "Syncing mail",
+    description: "Checking connected mailboxes...",
+    variant: "info",
+    icon: "spinner",
+    position: "bottom-right",
+    duration: 0,
+    dismissible: false,
+  })
+}
+
+function handleMailSidebarSyncResult(event) {
+  var xhr = event && event.detail ? event.detail.xhr : null
+  var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
+  var message = _goferResponseText(xhr, "Mail sync started.")
+  if (!ok) {
+    _mailSyncActive = false
+    _mailSyncRunID = ""
+    _setMailSyncButtonBusy(false)
+    showGoferToast({
+      id: "mail-sync-toast",
+      title: "Mail sync failed",
+      description: message,
+      variant: "error",
+      icon: "error",
+      position: "bottom-right",
+      duration: 8000,
+      dismissible: true,
+    })
+    return
+  }
+
+  if (xhr && xhr.getResponseHeader("X-Gofer-Mail-Sync-Running") === "true") {
+    _mailSyncActive = false
+    _mailSyncRunID = ""
+    _setMailSyncButtonBusy(false)
+    showGoferToast({
+      id: "mail-sync-toast",
+      title: "Mail sync already running",
+      description: message,
+      variant: "info",
+      icon: "info",
+      position: "bottom-right",
+      duration: 4500,
+      dismissible: true,
+    })
+    return
+  }
+
+  _mailSyncRunID = xhr ? (xhr.getResponseHeader("X-Gofer-Mail-Sync-Run-ID") || "") : ""
+  showGoferToast({
+    id: "mail-sync-toast",
+    title: "Syncing mail",
+    description: message,
+    variant: "info",
+    icon: "spinner",
+    position: "bottom-right",
+    duration: 0,
+    dismissible: false,
+  })
+}
+
+function handleMailManualSyncEvent(phase, data) {
+  if (!data) return
+  var runID = data.run_id || ""
+  if (!_mailSyncActive && phase !== "started") return
+  if (_mailSyncRunID && runID && _mailSyncRunID !== runID) return
+  if (!_mailSyncRunID && runID) _mailSyncRunID = runID
+  _mailSyncActive = true
+  _setMailSyncButtonBusy(true)
+
+  var total = _mailSyncCount(data.accounts_total)
+  var done = _mailSyncCount(data.accounts_done)
+  var index = _mailSyncCount(data.account_index)
+  var parallelism = _mailSyncCount(data.parallelism)
+  var failures = _mailSyncCount(data.failures)
+  var skipped = _mailSyncCount(data.skipped)
+  var notDone = _mailSyncCount(data.not_done)
+
+  if (phase === "complete") {
+    var status = data.status || "ok"
+    var title = status === "error" ? "Mail sync failed" : (status === "partial" ? "Mail sync partly finished" : "Mail synced")
+    var variant = status === "error" ? "error" : (status === "partial" ? "warning" : "success")
+    var icon = status === "error" ? "error" : (status === "partial" ? "warning" : "success")
+    var description = "Checked " + _mailSyncAccountsLabel(total || done) + "."
+    if (failures > 0 && skipped > 0) description += " " + failures + " failed, " + skipped + " already running."
+    else if (failures > 0) description += " " + failures + " failed."
+    else if (skipped > 0) description += " " + skipped + " already running."
+    if (notDone > 0) description += " " + notDone + " did not finish."
+    _mailSyncActive = false
+    _mailSyncRunID = ""
+    _setMailSyncButtonBusy(false)
+    showGoferToast({
+      id: "mail-sync-toast",
+      title: title,
+      description: description,
+      variant: variant,
+      icon: icon,
+      position: "bottom-right",
+      duration: status === "ok" ? 4500 : 8000,
+      dismissible: true,
+    })
+    return
+  }
+
+  var message = "Checking " + _mailSyncAccountsLabel(total || 1) + "..."
+  if (phase === "started" && parallelism > 1 && total > 1) {
+    message = "Checking " + _mailSyncAccountsLabel(total) + ", up to " + parallelism + " at a time..."
+  }
+  if (phase === "progress") {
+    if (data.status === "syncing" && index && total) message = "Checking account " + index + " of " + total + "..."
+    else if (data.status === "skipped") message = "Account already syncing (" + done + " / " + total + ")."
+    else if (data.status === "error") message = "Account failed (" + done + " / " + total + ")."
+    else if (done && total) message = "Checked " + done + " of " + total + " accounts."
+  }
+  showGoferToast({
+    id: "mail-sync-toast",
+    title: "Syncing mail",
+    description: message,
+    variant: "info",
+    icon: "spinner",
+    position: "bottom-right",
+    duration: 0,
+    dismissible: false,
+  })
 }
 
 function handleContactSidebarSyncStart() {

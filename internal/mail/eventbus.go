@@ -5,17 +5,20 @@ import "sync"
 type EventType string
 
 const (
-	EventNewMail          EventType = "new-mail"
-	EventSyncStarted      EventType = "sync-started"
-	EventSyncProgress     EventType = "sync-progress"
-	EventSyncComplete     EventType = "sync-complete"
-	EventProcessingStatus EventType = "processing-status"
-	EventSendResult       EventType = "send-result"
-	EventMutation         EventType = "mutation"
-	EventAvatarUpdated    EventType = "avatar-updated"
-	EventAvatarBackfill   EventType = "avatar-backfill"
-	EventContactActivity  EventType = "contact-activity"
-	EventContactBackfill  EventType = "contact-backfill"
+	EventNewMail            EventType = "new-mail"
+	EventSyncStarted        EventType = "sync-started"
+	EventSyncProgress       EventType = "sync-progress"
+	EventSyncComplete       EventType = "sync-complete"
+	EventManualSyncStarted  EventType = "manual-sync-started"
+	EventManualSyncProgress EventType = "manual-sync-progress"
+	EventManualSyncComplete EventType = "manual-sync-complete"
+	EventProcessingStatus   EventType = "processing-status"
+	EventSendResult         EventType = "send-result"
+	EventMutation           EventType = "mutation"
+	EventAvatarUpdated      EventType = "avatar-updated"
+	EventAvatarBackfill     EventType = "avatar-backfill"
+	EventContactActivity    EventType = "contact-activity"
+	EventContactBackfill    EventType = "contact-backfill"
 )
 
 type Event struct {

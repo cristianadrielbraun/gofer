@@ -7,8 +7,6 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
-	"github.com/cristianadrielbraun/gofer/components/button"
-	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 )
 
@@ -286,32 +284,19 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 					@icon.RefreshCw(icon.Props{Class: "size-4"})
 				</button>
 			} else {
-				@dropdown.Dropdown() {
-					@dropdown.Trigger() {
-						@button.Button(button.Props{
-							Variant: button.VariantGhost,
-							Size:    button.SizeIcon,
-							Class:   "h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-						}) {
-							@icon.Plus(icon.Props{Class: "size-4"})
-						}
-					}
-					@dropdown.Content() {
-						@dropdown.Item() {
-							<a href="/" class="flex items-center gap-2 w-full">
-								@icon.MailPlus(icon.Props{Class: "size-4"})
-								Compose Email
-							</a>
-						}
-						@dropdown.Separator()
-						@dropdown.Item() {
-							<a href="/" class="flex items-center gap-2 w-full">
-								@icon.FolderPlus(icon.Props{Class: "size-4"})
-								New Folder
-							</a>
-						}
-					}
-				}
+				<button
+					type="button"
+					hx-post="/api/mail/sync"
+					hx-swap="none"
+					hx-on::before-request="handleMailSidebarSyncStart()"
+					hx-on::after-request="handleMailSidebarSyncResult(event)"
+					data-mail-sidebar-sync-button
+					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+					aria-label="Sync mail now"
+					title="Sync mail now"
+				>
+					@icon.RefreshCw(icon.Props{Class: "size-4"})
+				</button>
 			}
 		</div>
 		<div class="sidebar-app-nav relative grid h-8 w-full grid-cols-3 gap-0.5 rounded-lg border border-sidebar-border bg-sidebar-accent/35 p-0.5 mb-3" data-sidebar-app-nav>

@@ -1146,6 +1146,12 @@ body.mail-list-column-resizing {
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"] {
   position: relative;
+  align-self: stretch;
+  height: 100%;
+}
+
+[data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"] > [data-contact-avatar] {
+  display: none;
 }
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"]::before {
@@ -1187,13 +1193,8 @@ body.mail-list-column-resizing {
   background: color-mix(in srgb, var(--color-foreground) 6%, var(--color-muted) 24%);
 }
 
-[data-view-mode="table"] .thread-sub-item a > .size-5[data-mail-table-cell="thread"] {
-  visibility: visible;
-  width: 100%;
-  height: 100%;
-  margin-top: 0;
-  background: transparent;
-  color: transparent;
+[data-view-mode="cards"] .thread-sub-item [data-mail-table-cell="accountMarker"] {
+  display: none;
 }
 
 [data-view-mode="table"] .thread-sub-item a > .flex-1 {
