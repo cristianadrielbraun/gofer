@@ -1252,9 +1252,10 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	totalCount, _ := h.db.GetFolderEmailCountForUser(ctx, h.userID(ctx), folderID)
+	filters := parseEmailFilters(r)
+	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, h.userID(ctx), folderID, filters)
 
-	page, _ := h.db.GetEmailsRangeForUser(ctx, h.userID(ctx), folderID, 0, 50)
+	page, _ := h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, h.userID(ctx), folderID, 0, 50, filters, totalCount)
 	var emails []models.Email
 	if page != nil {
 		emails = page.Emails
@@ -1276,18 +1277,19 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
-	totalCount, _ := h.db.GetFolderEmailCountForUser(ctx, h.userID(ctx), folderID)
+	filters := parseEmailFilters(r)
+	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, h.userID(ctx), folderID, filters)
 
 	var selectedEmail *models.Email
 	var selectedThread []models.ThreadItem
 	selectedEmailID := r.URL.Query().Get("selected")
 
 	var page *models.EmailPage
-	if selectedEmailID != "" {
+	if selectedEmailID != "" && !emailFiltersActive(filters) {
 		page, _ = h.db.GetEmailsAroundEmailForUser(ctx, h.userID(ctx), folderID, selectedEmailID, 50)
 	}
 	if page == nil {
-		page, _ = h.db.GetEmailsRangeForUser(ctx, h.userID(ctx), folderID, 0, 50)
+		page, _ = h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, h.userID(ctx), folderID, 0, 50, filters, totalCount)
 	}
 	windowStart := 0
 	var emails []models.Email

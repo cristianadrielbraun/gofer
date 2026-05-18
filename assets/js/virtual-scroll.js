@@ -23,7 +23,7 @@ class VirtualMailList {
     this.activeFetches = new Set()
     this.newEmailCount = 0
     this.syncState = { active: false, current: 0, total: 0 }
-    this.filters = this.emptyFilters()
+    this.filters = this.readFiltersFromURL()
     this.refreshInFlight = null
     this.refreshQueued = false
     this.windowedMode = false
@@ -1257,6 +1257,7 @@ class VirtualMailList {
     if (scrollEl.dataset.folderId) {
       this.folderID = scrollEl.dataset.folderId
     }
+    this.syncFilterInputs()
 
     var items = scrollEl.querySelectorAll(".mail-list-item[data-email-id]")
     for (var i = 0; i < items.length; i++) {
@@ -1679,6 +1680,59 @@ class VirtualMailList {
     }
   }
 
+  readFiltersFromURL() {
+    var filters = this.emptyFilters()
+    var params = new URLSearchParams(window.location.search)
+    filters.unread = params.get("unread") === "1"
+    filters.starred = params.get("starred") === "1"
+    filters.attachments = params.get("attachments") === "1"
+    filters.read = params.get("read") === "1"
+    filters.noAttachments = params.get("no_attachments") === "1"
+    filters.hasLabels = params.get("has_labels") === "1"
+    filters.threadsOnly = params.get("threads_only") === "1"
+    filters.from = (params.get("from") || "").trim()
+    filters.to = (params.get("to") || "").trim()
+    filters.subject = (params.get("subject") || "").trim()
+    filters.body = (params.get("body") || "").trim()
+    filters.fromDomain = (params.get("from_domain") || "").trim()
+    filters.attachment = (params.get("attachment") || "").trim()
+    filters.label = (params.get("label") || "").trim()
+    filters.accountId = (params.get("account_id") || "").trim()
+    filters.query = (params.get("q") || "").trim()
+    filters.afterDate = (params.get("after_date") || "").trim()
+    filters.beforeDate = (params.get("before_date") || "").trim()
+    return filters
+  }
+
+  syncFilterInputs() {
+    var search = document.querySelector("[data-mail-search-input]")
+    if (search) search.value = this.filters.query || ""
+  }
+
+  filterQueryString() {
+    var params = new URLSearchParams()
+    var filters = this.filters || this.emptyFilters()
+    if (filters.unread) params.set("unread", "1")
+    if (filters.starred) params.set("starred", "1")
+    if (filters.attachments) params.set("attachments", "1")
+    if (filters.read) params.set("read", "1")
+    if (filters.noAttachments) params.set("no_attachments", "1")
+    if (filters.hasLabels) params.set("has_labels", "1")
+    if (filters.threadsOnly) params.set("threads_only", "1")
+    if (filters.from) params.set("from", filters.from)
+    if (filters.to) params.set("to", filters.to)
+    if (filters.subject) params.set("subject", filters.subject)
+    if (filters.body) params.set("body", filters.body)
+    if (filters.fromDomain) params.set("from_domain", filters.fromDomain)
+    if (filters.attachment) params.set("attachment", filters.attachment)
+    if (filters.label) params.set("label", filters.label)
+    if (filters.accountId) params.set("account_id", filters.accountId)
+    if (filters.query) params.set("q", filters.query)
+    if (filters.afterDate) params.set("after_date", filters.afterDate)
+    if (filters.beforeDate) params.set("before_date", filters.beforeDate)
+    return params.toString()
+  }
+
   filterCount() {
     var filters = this.filters || this.emptyFilters()
     return (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
@@ -1706,6 +1760,7 @@ class VirtualMailList {
       this.prevLast = null
       this.render()
       this.syncSelectionClasses(this.itemsContainer)
+      this.replaceUrl()
       this.updateFilteredSelection(previousSelectedPaginated)
       return
     }
@@ -1727,6 +1782,7 @@ class VirtualMailList {
     this.render()
     this.animateListTransition(transition, { enterFrom: -8, exitTo: 14 })
     this.updateHeader()
+    this.replaceUrl()
     this.updateFilteredSelection(previousSelected)
   }
 
@@ -1754,9 +1810,19 @@ class VirtualMailList {
     if (this.selectedEmailId) {
       path += "/" + this.selectedEmailId
     }
-    if (window.location.pathname !== path) {
+    var query = this.filterQueryString()
+    if (query) path += "?" + query
+    if (window.location.pathname + window.location.search !== path) {
       history.pushState({ folder: this.folderID, email: this.selectedEmailId }, "", path)
     }
+  }
+
+  replaceUrl() {
+    var path = "/folder/" + this.folderID
+    if (this.selectedEmailId) path += "/" + this.selectedEmailId
+    var query = this.filterQueryString()
+    if (query) path += "?" + query
+    history.replaceState({ folder: this.folderID, email: this.selectedEmailId || null }, "", path)
   }
 
   showNewEmailBanner() {

@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 35
+	const targetSchemaVersion = 36
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -354,6 +354,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 34 {
 		if err := migrateV34ToV35(tx); err != nil {
 			return fmt.Errorf("migrate v34 to v35: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 35 {
+		if err := migrateV35ToV36(tx); err != nil {
+			return fmt.Errorf("migrate v35 to v36: %w", err)
 		}
 	}
 
@@ -1215,6 +1221,60 @@ func migrateV34ToV35(tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+func migrateV35ToV36(tx *sql.Tx) error {
+	migrations := []string{
+		`DROP TRIGGER IF EXISTS trg_messages_after_insert`,
+		`DROP TABLE IF EXISTS message_search_docs`,
+		`DROP TABLE IF EXISTS message_fts`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(
+			account_id UNINDEXED,
+			thread_key UNINDEXED,
+			subject,
+			sender,
+			recipients,
+			snippet,
+			body,
+			attachment_names,
+			tokenize='unicode61 remove_diacritics 2'
+		)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	if ok, err := tableExistsTx(tx, "messages"); err != nil {
+		return err
+	} else if ok {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO message_search(rowid, account_id, thread_key, subject, sender, recipients, snippet, body, attachment_names)
+			SELECT m.id,
+			       m.account_id,
+			       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)),
+			       COALESCE(m.subject, ''),
+			       trim(COALESCE(m.from_name, '') || ' ' || COALESCE(m.from_email, '')),
+			       COALESCE((SELECT group_concat(trim(COALESCE(mr.name, '') || ' ' || COALESCE(mr.email, '')), ' ') FROM message_recipients mr WHERE mr.message_id = m.id), ''),
+			       COALESCE(m.snippet, ''),
+			       COALESCE(m.preview_text, m.snippet, ''),
+			       COALESCE((SELECT group_concat(att.filename, ' ') FROM attachments att WHERE att.message_id = m.id), '')
+			FROM messages m`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (36)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func tableExistsTx(tx *sql.Tx, table string) (bool, error) {
+	var name string
+	err := tx.QueryRow(`SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?`, table).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func columnExistsTx(tx *sql.Tx, table, column string) (bool, error) {

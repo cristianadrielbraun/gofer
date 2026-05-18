@@ -200,39 +200,18 @@ CREATE TABLE IF NOT EXISTS sync_state (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Search documents (denormalized for FTS)
-CREATE TABLE IF NOT EXISTS message_search_docs (
-    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
-    account_id TEXT NOT NULL,
-    subject TEXT NOT NULL DEFAULT '',
-    sender TEXT NOT NULL DEFAULT '',
-    recipients TEXT NOT NULL DEFAULT '',
-    body_text TEXT NOT NULL DEFAULT '',
-    attachment_names TEXT NOT NULL DEFAULT '',
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- FTS5 full-text search index (standalone, auto-populated via trigger)
-CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+-- Canonical maintained search index used by the mail list filters.
+CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(
+    account_id UNINDEXED,
+    thread_key UNINDEXED,
     subject,
     sender,
     recipients,
-    body
+    snippet,
+    body,
+    attachment_names,
+    tokenize='unicode61 remove_diacritics 2'
 );
-
--- Trigger: auto-populate FTS when a message is inserted
-CREATE TRIGGER IF NOT EXISTS trg_messages_after_insert
-AFTER INSERT ON messages
-BEGIN
-    INSERT INTO message_fts(rowid, subject, sender, recipients, body)
-    VALUES (
-        NEW.id,
-        NEW.subject,
-        NEW.from_name || ' <' || NEW.from_email || '>',
-        '',
-        COALESCE(NEW.preview_text, '')
-    );
-END;
 
 -- Indexes
 
@@ -310,9 +289,6 @@ ON message_labels(message_id);
 
 CREATE INDEX IF NOT EXISTS idx_message_labels_label
 ON message_labels(label_id);
-
-CREATE INDEX IF NOT EXISTS idx_message_search_docs_account
-ON message_search_docs(account_id);
 
 -- Application settings
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -599,4 +575,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_account_contact_address_books_id
 ON account_contact_address_books(id);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (35);
+INSERT OR REPLACE INTO schema_version (version) VALUES (36);

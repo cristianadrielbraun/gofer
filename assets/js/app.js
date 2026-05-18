@@ -432,6 +432,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function setupMailFilters() {
     var searchTimer = null
+    var committedQuery = ""
 
     function emptyFilters() {
       return {
@@ -489,9 +490,12 @@ document.addEventListener("DOMContentLoaded", function () {
         filters.afterDate = (advanced.querySelector('input[name="after_date"]') || {}).value || ""
         filters.beforeDate = (advanced.querySelector('input[name="before_date"]') || {}).value || ""
       }
-      var search = document.querySelector("[data-mail-search-input]")
-      if (search) filters.query = search.value || ""
+      filters.query = committedQuery || ""
       return filters
+    }
+
+    function escapeHTML(value) {
+      return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
     }
 
     function syncFilterButton(filters) {
@@ -552,10 +556,82 @@ document.addEventListener("DOMContentLoaded", function () {
         var value = filters[def.key]
         if (!value) continue
         var text = typeof value === "boolean" ? def.label : (def.label + ": " + displayValueForAdvanced(def.name, value))
-        html += '<button type="button" data-mail-filter-chip-remove="' + def.name + '" class="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent">' + text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '<span class="text-muted-foreground">x</span></button>'
+        html += '<button type="button" data-mail-filter-chip-remove="' + def.name + '" class="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent">' + escapeHTML(text) + '<span class="text-muted-foreground">x</span></button>'
       }
       summary.innerHTML = html || '<span class="px-1 py-0.5 text-xs text-muted-foreground">No advanced filters applied</span>'
       summary.classList.toggle("hidden", false)
+    }
+
+    function ensureSearchTokenboxStyle() {
+      if (document.getElementById("mail-search-tokenbox-style")) return
+      var style = document.createElement("style")
+      style.id = "mail-search-tokenbox-style"
+      style.textContent =
+        '[data-mail-search-tokenbox]{min-height:2.25rem;display:flex;align-items:center;flex-wrap:wrap;gap:.25rem;padding:.25rem .5rem .25rem 2rem;border:1px solid color-mix(in srgb,var(--border) 50%,transparent);background:var(--background);border-radius:var(--radius);}' +
+        '[data-mail-search-tokenbox]:focus-within{box-shadow:0 0 0 2px var(--ring);}' +
+        '[data-mail-search-tokenbox] [data-mail-search-input]{height:1.65rem!important;min-width:7rem!important;flex:1 1 8rem!important;width:auto!important;border:0!important;background:transparent!important;padding:0!important;box-shadow:none!important;outline:0!important;}' +
+        '[data-mail-search-tokenbox] [data-mail-active-filter-pills]{display:contents;}' +
+        '[data-mail-search-tokenbox] [data-mail-active-filter-pills].hidden{display:none;}'
+      document.head.appendChild(style)
+    }
+
+    function ensureActivePillBar() {
+      var input = document.querySelector("[data-mail-search-input]")
+      if (!input) return null
+      ensureSearchTokenboxStyle()
+      var box = input.closest(".groove") || input.parentElement
+      if (!box) return null
+      box.setAttribute("data-mail-search-tokenbox", "")
+      var existing = box.querySelector("[data-mail-active-filter-pills]")
+      if (existing) return existing
+      var bar = document.createElement("div")
+      bar.setAttribute("data-mail-active-filter-pills", "")
+      bar.className = "hidden"
+      box.insertBefore(bar, input)
+      return bar
+    }
+
+    function activePillDefs(filters) {
+      var pills = []
+      if (filters.query) pills.push({ name: "q", label: "Search", value: filters.query })
+      if (filters.unread) pills.push({ name: "unread", label: "Status", value: "Unread" })
+      if (filters.read) pills.push({ name: "read", label: "Status", value: "Read" })
+      if (filters.starred) pills.push({ name: "starred", label: "Starred" })
+      if (filters.attachments) pills.push({ name: "attachments", label: "Attachments", value: "Yes" })
+      if (filters.noAttachments) pills.push({ name: "no_attachments", label: "Attachments", value: "No" })
+      if (filters.hasLabels) pills.push({ name: "has_labels", label: "Has labels" })
+      if (filters.threadsOnly) pills.push({ name: "threads_only", label: "Threads only" })
+      if (filters.accountId) pills.push({ name: "account_id", label: "Account", value: displayValueForAdvanced("account_id", filters.accountId) })
+      if (filters.afterDate) pills.push({ name: "after_date", label: "After", value: filters.afterDate })
+      if (filters.beforeDate) pills.push({ name: "before_date", label: "Before", value: filters.beforeDate })
+      if (filters.from) pills.push({ name: "from", label: "From", value: filters.from })
+      if (filters.fromDomain) pills.push({ name: "from_domain", label: "From domain", value: filters.fromDomain })
+      if (filters.to) pills.push({ name: "to", label: "To / Cc", value: filters.to })
+      if (filters.subject) pills.push({ name: "subject", label: "Subject", value: filters.subject })
+      if (filters.body) pills.push({ name: "body", label: "Body", value: filters.body })
+      if (filters.attachment) pills.push({ name: "attachment", label: "Attachment", value: filters.attachment })
+      if (filters.label) pills.push({ name: "label", label: "Label", value: filters.label })
+      return pills
+    }
+
+    function renderActivePills() {
+      var bar = ensureActivePillBar()
+      if (!bar) return
+      var pills = activePillDefs(readFilters())
+      if (!pills.length) {
+        bar.innerHTML = ""
+        bar.classList.add("hidden")
+        return
+      }
+      var html = ""
+      for (var i = 0; i < pills.length; i++) {
+        var pill = pills[i]
+        var text = pill.value ? (pill.label + ": " + pill.value) : pill.label
+        html += '<button type="button" data-mail-active-filter-remove="' + escapeHTML(pill.name) + '" class="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground shadow-sm hover:bg-accent">' +
+          '<span class="truncate">' + escapeHTML(text) + '</span><span class="text-muted-foreground">x</span></button>'
+      }
+      bar.innerHTML = html
+      bar.classList.remove("hidden")
     }
 
     function clearInputs(selector) {
@@ -586,6 +662,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var tristates = form.querySelectorAll("[data-mail-tristate]")
       for (var t = 0; t < tristates.length; t++) setTriState(tristates[t], "")
       renderAdvancedSummary()
+      renderActivePills()
     }
 
     function clearAdvancedFilter(name) {
@@ -608,6 +685,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
       renderAdvancedSummary()
+      renderActivePills()
     }
 
     function setTriState(control, value) {
@@ -624,15 +702,148 @@ document.addEventListener("DOMContentLoaded", function () {
     function applyCurrentFilters() {
       var filters = readFilters()
       syncFilterButton(filters)
+      renderActivePills()
       if (virtualMailList) virtualMailList.applyFilters(filters).catch(function () {})
     }
 
-    function scheduleSearchFilter() {
-      if (searchTimer) clearTimeout(searchTimer)
-      searchTimer = setTimeout(function () {
-        searchTimer = null
-        applyCurrentFilters()
-      }, 300)
+    function splitSearchTokens(text) {
+      var tokens = []
+      var buf = ""
+      var quote = ""
+      for (var i = 0; i < text.length; i++) {
+        var ch = text.charAt(i)
+        if (quote) {
+          if (ch === quote) quote = ""
+          else buf += ch
+          continue
+        }
+        if (ch === '"' || ch === "'") {
+          quote = ch
+          continue
+        }
+        if (/\s/.test(ch)) {
+          if (buf) {
+            tokens.push(buf)
+            buf = ""
+          }
+          continue
+        }
+        buf += ch
+      }
+      if (buf) tokens.push(buf)
+      return tokens
+    }
+
+    function setInputValue(name, value) {
+      var form = document.querySelector("[data-mail-advanced-filter-form]")
+      var input = form && form.querySelector('[name="' + name + '"]')
+      if (!input) return false
+      if (input.type === "checkbox") input.checked = value === true || value === "1" || value === "true"
+      else input.value = value
+      var dateDisplay = form.querySelector('[data-mail-date-display="' + name + '"]')
+      if (dateDisplay) dateDisplay.textContent = value || "Any date"
+      return true
+    }
+
+    function setQuickBoolean(name, value) {
+      var quick = document.querySelector("[data-mail-filter-form]")
+      var advanced = document.querySelector("[data-mail-advanced-filter-form]")
+      var input = quick && quick.querySelector('[name="' + name + '"]')
+      if (input) input.checked = !!value
+      var advInput = advanced && advanced.querySelector('[name="' + name + '"]')
+      if (advInput && advInput.type === "checkbox") advInput.checked = !!value
+    }
+
+    function applyKeywordToken(key, value) {
+      key = (key || "").toLowerCase().replace(/_/g, "-")
+      value = (value || "").trim()
+      if (!key) return false
+      if (key === "q" || key === "query" || key === "text") {
+        if (value) committedQuery = committedQuery ? (committedQuery + " " + value) : value
+        return true
+      }
+      if (key === "from") return setInputValue("from", value)
+      if (key === "to" || key === "cc" || key === "recipient") return setInputValue("to", value)
+      if (key === "subject" || key === "subj") return setInputValue("subject", value)
+      if (key === "body") return setInputValue("body", value)
+      if (key === "attachment" || key === "attach" || key === "filename") return setInputValue("attachment", value)
+      if (key === "label") return setInputValue("label", value)
+      if (key === "account" || key === "account-id") return setInputValue("account_id", value)
+      if (key === "after") return setInputValue("after_date", value)
+      if (key === "before") return setInputValue("before_date", value)
+      if (key === "from-domain" || key === "fromdomain" || key === "domain") return setInputValue("from_domain", value)
+      if (key === "is") {
+        if (value === "unread") setTriState(document.querySelector('[data-mail-tristate="status"]'), "unread")
+        else if (value === "read") setTriState(document.querySelector('[data-mail-tristate="status"]'), "read")
+        else if (value === "starred") setQuickBoolean("starred", true)
+        else return false
+        return true
+      }
+      if (key === "has") {
+        if (value === "attachment" || value === "attachments") setTriState(document.querySelector('[data-mail-tristate="attachments"]'), "yes")
+        else if (value === "label" || value === "labels") setQuickBoolean("has_labels", true)
+        else if (value === "thread" || value === "threads") setQuickBoolean("threads_only", true)
+        else return false
+        return true
+      }
+      return false
+    }
+
+    function commitSearchInput(input) {
+      var raw = (input && input.value ? input.value : "").trim()
+      if (!raw) return false
+      var tokens = splitSearchTokens(raw)
+      var plain = []
+      for (var i = 0; i < tokens.length; i++) {
+        var token = tokens[i]
+        var idx = token.indexOf(":")
+        if (idx > 0) {
+          var key = token.slice(0, idx)
+          var value = token.slice(idx + 1)
+          if (value && applyKeywordToken(key, value)) continue
+        } else {
+          var lower = token.toLowerCase()
+          if (lower === "unread") { setTriState(document.querySelector('[data-mail-tristate="status"]'), "unread"); continue }
+          if (lower === "read") { setTriState(document.querySelector('[data-mail-tristate="status"]'), "read"); continue }
+          if (lower === "starred") { setQuickBoolean("starred", true); continue }
+          if (lower === "attachments") { setTriState(document.querySelector('[data-mail-tristate="attachments"]'), "yes"); continue }
+          if (lower === "threads") { setQuickBoolean("threads_only", true); continue }
+        }
+        plain.push(token)
+      }
+      if (plain.length) committedQuery = committedQuery ? (committedQuery + " " + plain.join(" ")) : plain.join(" ")
+      input.value = ""
+      renderAdvancedSummary()
+      applyCurrentFilters()
+      return true
+    }
+
+    function clearActiveFilter(name) {
+      if (name === "q") committedQuery = ""
+      else if (name === "unread" || name === "read") {
+        setTriState(document.querySelector('[data-mail-tristate="status"]'), "")
+        setQuickBoolean("read", false)
+      } else if (name === "attachments" || name === "no_attachments") {
+        setTriState(document.querySelector('[data-mail-tristate="attachments"]'), "")
+        setQuickBoolean("no_attachments", false)
+      }
+      else if (name === "starred") setQuickBoolean("starred", false)
+      else if (name === "has_labels") setQuickBoolean("has_labels", false)
+      else if (name === "threads_only") setQuickBoolean("threads_only", false)
+      else clearAdvancedFilter(name)
+      renderAdvancedSummary()
+      applyCurrentFilters()
+    }
+
+    function initSearchStateFromInput() {
+      var search = document.querySelector("[data-mail-search-input]")
+      committedQuery = search ? (search.value || "").trim() : ""
+      if (search) {
+        search.value = ""
+        search.placeholder = "Search, or use from: subject: body: then Enter"
+      }
+      renderActivePills()
+      syncFilterButton(readFilters())
     }
 
     document.addEventListener("submit", function (e) {
@@ -693,9 +904,17 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault()
       clearInputs("[data-mail-filter-form]")
       clearInputs("[data-mail-advanced-filter-form]")
+      committedQuery = ""
       var search = document.querySelector("[data-mail-search-input]")
       if (search) search.value = ""
       applyCurrentFilters()
+    })
+
+    document.addEventListener("click", function (e) {
+      var remove = e.target && e.target.closest && e.target.closest("[data-mail-active-filter-remove]")
+      if (!remove) return
+      e.preventDefault()
+      clearActiveFilter(remove.getAttribute("data-mail-active-filter-remove"))
     })
 
     document.addEventListener("submit", function (e) {
@@ -713,18 +932,22 @@ document.addEventListener("DOMContentLoaded", function () {
       clearInputs("[data-mail-advanced-filter-form]")
     })
 
+    document.addEventListener("keydown", function (e) {
+      if (!e.target || !e.target.matches || !e.target.matches("[data-mail-search-input]")) return
+      if (e.key !== "Enter") return
+      e.preventDefault()
+      commitSearchInput(e.target)
+    })
+
     document.addEventListener("input", function (e) {
-      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) {
-        scheduleSearchFilter()
-        return
-      }
+      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) return
       if (!e.target || !e.target.closest || !e.target.closest("[data-mail-advanced-filter-form]")) return
       renderAdvancedSummary()
     })
 
     document.addEventListener("search", function (e) {
       if (!e.target || !e.target.matches || !e.target.matches("[data-mail-search-input]")) return
-      scheduleSearchFilter()
+      if (!e.target.value) clearActiveFilter("q")
     })
 
     document.addEventListener("change", function (e) {
@@ -741,6 +964,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (display) display.textContent = hidden.value || "Any date"
       renderAdvancedSummary()
     })
+
+    document.body.addEventListener("htmx:afterSettle", function (evt) {
+      if (!evt.target || !evt.target.querySelector) return
+      if (evt.target.id === "mail-list" || evt.target.querySelector("#mail-list")) initSearchStateFromInput()
+    })
+
+    initSearchStateFromInput()
   }
 
   function setupBodyPrefetch() {
@@ -1052,8 +1282,7 @@ document.addEventListener("DOMContentLoaded", function () {
         folderRole: data.folder_role || "",
       }
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
-        vml.setSyncState(true, data.current || 0, data.total || 0)
-        scheduleSyncRefresh(vml, { noAnimation: true })
+        vml.setSyncState(false, 0, data.total || 0)
       }, false)
     })
 
@@ -1069,8 +1298,9 @@ document.addEventListener("DOMContentLoaded", function () {
         folderRole: data.folder_role || "",
       }
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
-        vml.setSyncState(true, data.current || 0, data.total || 0)
-        scheduleSyncRefresh(vml, { noAnimation: true })
+        var current = data.current || 0
+        vml.setSyncState(current > 0, current, data.total || 0)
+        if (current > 0) scheduleSyncRefresh(vml, { noAnimation: true })
       }, false)
     })
 
@@ -1322,7 +1552,8 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!virtualMailList) return
     var state = syncStatesByFolder[virtualMailList.folderID]
     if (state && state.active) {
-      virtualMailList.setSyncState(true, state.current || 0, state.total || 0)
+      var current = state.current || 0
+      virtualMailList.setSyncState(current > 0, current, state.total || 0)
       return
     }
     virtualMailList.setSyncState(false, 0, 0)
@@ -1387,10 +1618,7 @@ document.addEventListener("DOMContentLoaded", function () {
     autoloadFirstEmail(container)
     bindThreadToggle(container)
 
-    var selectedId = virtualMailList.selectedEmailId
-    var path = "/folder/" + folderID
-    if (selectedId) path += "/" + selectedId
-    history.replaceState({ folder: folderID, email: selectedId || null }, "", path)
+    virtualMailList.replaceUrl()
   }
 
   function createMailListController(container, folderID) {
@@ -1976,10 +2204,7 @@ document.addEventListener("DOMContentLoaded", function () {
     autoloadFirstEmail(scroll)
     bindThreadToggle(scroll)
 
-    var selectedId = virtualMailList.selectedEmailId
-    var path = "/folder/" + folderID
-    if (selectedId) path += "/" + selectedId
-    history.replaceState({ folder: folderID, email: selectedId || null }, "", path)
+    virtualMailList.replaceUrl()
     if (typeof initResizeHandles === "function") initResizeHandles()
   })
 

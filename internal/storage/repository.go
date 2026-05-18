@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
@@ -694,6 +695,66 @@ type DraftMessageInput struct {
 	Date              time.Time
 }
 
+func (db *DB) ReindexMessageSearch(ctx context.Context, messageID int64) error {
+	type searchDoc struct {
+		accountID       string
+		threadKey       string
+		subject         string
+		sender          string
+		recipients      string
+		snippet         string
+		body            string
+		attachmentNames string
+		bodyTextPath    sql.NullString
+	}
+
+	var doc searchDoc
+	err := db.Write().QueryRowContext(ctx, `
+		SELECT m.account_id,
+		       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)),
+		       COALESCE(m.subject, ''),
+		       trim(COALESCE(m.from_name, '') || ' ' || COALESCE(m.from_email, '')),
+		       COALESCE((SELECT group_concat(trim(COALESCE(mr.name, '') || ' ' || COALESCE(mr.email, '')), ' ') FROM message_recipients mr WHERE mr.message_id = m.id), ''),
+		       COALESCE(m.snippet, ''),
+		       COALESCE(m.preview_text, m.snippet, ''),
+		       COALESCE((SELECT group_concat(att.filename, ' ') FROM attachments att WHERE att.message_id = m.id), ''),
+		       m.body_text_path
+		FROM messages m
+		WHERE m.id = ?`, messageID).Scan(
+		&doc.accountID, &doc.threadKey, &doc.subject, &doc.sender, &doc.recipients,
+		&doc.snippet, &doc.body, &doc.attachmentNames, &doc.bodyTextPath,
+	)
+	if err == sql.ErrNoRows {
+		_, deleteErr := db.Write().ExecContext(ctx, `DELETE FROM message_search WHERE rowid = ?`, messageID)
+		return deleteErr
+	}
+	if err != nil {
+		return fmt.Errorf("load message search doc: %w", err)
+	}
+	if doc.bodyTextPath.Valid && doc.bodyTextPath.String != "" {
+		if body, readErr := os.ReadFile(doc.bodyTextPath.String); readErr == nil {
+			doc.body = string(body)
+		}
+	}
+
+	if _, err := db.Write().ExecContext(ctx, `DELETE FROM message_search WHERE rowid = ?`, messageID); err != nil {
+		return fmt.Errorf("delete message search doc: %w", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO message_search(rowid, account_id, thread_key, subject, sender, recipients, snippet, body, attachment_names)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		messageID, doc.accountID, doc.threadKey, doc.subject, doc.sender, doc.recipients, doc.snippet, doc.body, doc.attachmentNames,
+	); err != nil {
+		return fmt.Errorf("insert message search doc: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) deleteMessageSearch(ctx context.Context, messageID int64) error {
+	_, err := db.Write().ExecContext(ctx, `DELETE FROM message_search WHERE rowid = ?`, messageID)
+	return err
+}
+
 func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (int64, error) {
 	if draft.AccountID == "" || draft.FolderID == "" || draft.InternetMessageID == "" {
 		return 0, fmt.Errorf("missing draft identity")
@@ -781,6 +842,9 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
+	if err := db.ReindexMessageSearch(ctx, msgID); err != nil {
+		return 0, err
+	}
 	db.UpsertObservedContactsForMessage(ctx, draft.AccountID, draft.FromName, draft.FromEmail, draft.ToRecipients, draft.CCRecipients, draft.BCCRecipients, draft.Date)
 	db.RefreshFolderUnreadCount(ctx, draft.FolderID)
 	return msgID, nil
@@ -827,6 +891,9 @@ func (db *DB) DeleteDraftMessage(ctx context.Context, accountID, internetMessage
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	if err := db.deleteMessageSearch(ctx, msgID); err != nil {
 		return "", err
 	}
 	db.RefreshFolderUnreadCount(ctx, folderID)
@@ -896,6 +963,7 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 	}
 	defer delRecipStmt.Close()
 
+	msgIDs := make([]int64, 0, len(msgs))
 	for _, m := range msgs {
 		messageIDNorm := mailmessage.NormalizeMessageID(m.MessageID)
 		if messageIDNorm == "" {
@@ -945,6 +1013,7 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		if err := db.reconcileMessageThreadTx(ctx, tx, msgID, m.AccountID, messageIDNorm, inReplyTo, m.References, m.Subject, m.DateSent); err != nil {
 			return fmt.Errorf("reconcile thread: %w", err)
 		}
+		msgIDs = append(msgIDs, msgID)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -952,6 +1021,11 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 	}
 	for _, m := range msgs {
 		db.UpsertObservedContactsForMessage(ctx, m.AccountID, m.FromName, m.FromEmail, m.ToRecipients, m.CCRecipients, nil, m.DateSent)
+	}
+	for _, msgID := range msgIDs {
+		if err := db.ReindexMessageSearch(ctx, msgID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1460,11 +1534,12 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 			 WHERE a.user_id = ? AND f.role = ? AND mfs.is_deleted = 0`
 		args = []any{userID, folderID}
 	}
+	args = append(append([]any{}, filterSQL.withArgs...), args...)
 	args = append(args, filterSQL.args...)
 
 	var count int
 	err := db.Read().QueryRowContext(ctx,
-		`WITH visible AS (
+		`WITH `+filterSQL.withClause+`visible AS (
 		 SELECT ROW_NUMBER() OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) ORDER BY m.date_received DESC, m.id DESC) AS rn,
 		        MIN(mfs.is_read) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_read,
 		        MAX(mfs.is_starred) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_starred,
@@ -1472,6 +1547,7 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 		        COUNT(*) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_count
 		 FROM message_folder_state mfs
 		 JOIN messages m ON mfs.message_id = m.id
+		 `+filterSQL.joinClause+`
 		 `+where+filterSQL.cteClause+`
 	)
 	SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, args...).Scan(&count)
@@ -1483,7 +1559,7 @@ func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, 
 	if isStarredFolder(folderID) {
 		var count int
 		err := db.Read().QueryRowContext(ctx,
-			`WITH visible AS (
+			`WITH `+filterSQL.withClause+`visible AS (
 			 SELECT ROW_NUMBER() OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) ORDER BY m.date_received DESC, m.id DESC) AS rn,
 			        MIN(mfs.is_read) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_read,
 			        MAX(mfs.is_starred) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_starred,
@@ -1492,25 +1568,27 @@ func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, 
 			 FROM messages m
 			 JOIN message_folder_state mfs ON m.id = mfs.message_id
 			 JOIN folders f ON mfs.folder_id = f.id
+			 `+filterSQL.joinClause+`
 			 WHERE f.account_id = (SELECT account_id FROM folders WHERE id = ?)
 			 AND mfs.is_starred = 1 AND mfs.is_deleted = 0`+filterSQL.cteClause+`
 			)
-			SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, append([]any{folderID}, filterSQL.args...)...).Scan(&count)
+			SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, append(append(append([]any{}, filterSQL.withArgs...), folderID), filterSQL.args...)...).Scan(&count)
 		return count, err
 	}
 
 	var count int
 	err := db.Read().QueryRowContext(ctx,
-		`WITH visible AS (
+		`WITH `+filterSQL.withClause+`visible AS (
 		 SELECT ROW_NUMBER() OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) ORDER BY m.date_received DESC, m.id DESC) AS rn,
 		        MIN(mfs.is_read) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_read,
 		        MAX(mfs.is_starred) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_is_starred,
 		        MAX(m.has_attachments) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_has_attachments,
 		        COUNT(*) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_count
 		 FROM message_folder_state mfs JOIN messages m ON mfs.message_id = m.id
+		 `+filterSQL.joinClause+`
 		 WHERE mfs.folder_id = ? AND mfs.is_deleted = 0`+filterSQL.cteClause+`
 		)
-		SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, append([]any{folderID}, filterSQL.args...)...).Scan(&count)
+		SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, append(append(append([]any{}, filterSQL.withArgs...), folderID), filterSQL.args...)...).Scan(&count)
 	return count, err
 }
 
@@ -1666,8 +1744,11 @@ func (db *DB) GetEmailsRangeFilteredWithTotal(ctx context.Context, folderID stri
 }
 
 type emailFilterParts struct {
+	withClause  string
+	joinClause  string
 	cteClause   string
 	outerClause string
+	withArgs    []any
 	args        []any
 }
 
@@ -1675,9 +1756,25 @@ func emailFiltersEmpty(filters models.EmailFilters) bool {
 	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasLabels && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Label == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
 }
 
+func ftsQuery(input string) string {
+	fields := strings.FieldsFunc(strings.ToLower(input), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	terms := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field == "" {
+			continue
+		}
+		terms = append(terms, field+"*")
+	}
+	return strings.Join(terms, " ")
+}
+
 func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	var cteParts []string
 	var outerParts []string
+	var matchParts []string
+	var withArgs []any
 	var args []any
 	if filters.Unread {
 		outerParts = append(outerParts, "thread_is_read = 0")
@@ -1705,13 +1802,9 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		args = append(args, filters.AccountID)
 	}
 	if filters.Query != "" {
-		cteParts = append(cteParts, `EXISTS (
-			SELECT 1 FROM message_search_docs msd
-			WHERE msd.message_id = m.id
-			AND (msd.subject LIKE ? OR msd.sender LIKE ? OR msd.recipients LIKE ? OR msd.body_text LIKE ? OR msd.attachment_names LIKE ?)
-		)`)
-		like := "%" + filters.Query + "%"
-		args = append(args, like, like, like, like, like)
+		if query := ftsQuery(filters.Query); query != "" {
+			matchParts = append(matchParts, query)
+		}
 	}
 	if filters.From != "" {
 		cteParts = append(cteParts, "(m.from_name LIKE ? OR m.from_email LIKE ?)")
@@ -1733,8 +1826,9 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		args = append(args, "%"+filters.Subject+"%")
 	}
 	if filters.Body != "" {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_search_docs msd WHERE msd.message_id = m.id AND msd.body_text LIKE ?)")
-		args = append(args, "%"+filters.Body+"%")
+		if query := ftsQuery(filters.Body); query != "" {
+			matchParts = append(matchParts, "body:("+query+")")
+		}
 	}
 	if filters.Attachment != "" {
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND att.filename LIKE ?)")
@@ -1753,7 +1847,17 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		args = append(args, filters.Before)
 	}
 
-	parts := emailFilterParts{args: args}
+	parts := emailFilterParts{withArgs: withArgs, args: args}
+	if len(matchParts) > 0 {
+		parts.withClause = `matched_threads AS (
+			SELECT account_id, thread_key
+			FROM message_search
+			WHERE message_search MATCH ?
+			GROUP BY account_id, thread_key
+		), `
+		parts.joinClause = ` JOIN matched_threads mt ON mt.account_id = m.account_id AND mt.thread_key = COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) `
+		parts.withArgs = append(parts.withArgs, strings.Join(matchParts, " "))
+	}
 	if len(cteParts) > 0 {
 		parts.cteClause = " AND " + strings.Join(cteParts, " AND ")
 	}
@@ -2178,7 +2282,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 		args = []any{userID, folderID}
 	}
 
-	query := `WITH visible AS (
+	query := `WITH ` + filterSQL.withClause + `visible AS (
 			  SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			         m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 			         mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
@@ -2189,6 +2293,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			         MAX(m.has_attachments) OVER (PARTITION BY COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))) AS thread_has_attachments
 			  FROM messages m
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
+			  ` + filterSQL.joinClause + `
 			  ` + where + filterSQL.cteClause + `
 			)
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
@@ -2196,6 +2301,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
 			ORDER BY date_received DESC, id DESC
 			LIMIT ? OFFSET ?`
+	args = append(append([]any{}, filterSQL.withArgs...), args...)
 	args = append(args, filterSQL.args...)
 	args = append(args, limit, offset)
 
@@ -2209,7 +2315,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 
 func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
 	filterSQL := emailFilterSQL(filters)
-	query := `WITH visible AS (
+	query := `WITH ` + filterSQL.withClause + `visible AS (
 			  SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			         m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 			         mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
@@ -2221,6 +2327,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			  FROM messages m
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
 			  JOIN accounts a ON m.account_id = a.id
+			  ` + filterSQL.joinClause + `
 			  WHERE mfs.folder_id = ? AND mfs.is_deleted = 0` + filterSQL.cteClause + `
 			)
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
@@ -2231,7 +2338,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 
 	var args []any
 	if isStarredFolder(folderID) {
-		query = `WITH visible AS (
+		query = `WITH ` + filterSQL.withClause + `visible AS (
 			 SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			        m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 				        mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
@@ -2244,6 +2351,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			 JOIN message_folder_state mfs ON m.id = mfs.message_id
 			 JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON m.account_id = a.id
+			 ` + filterSQL.joinClause + `
 					 WHERE f.account_id = (SELECT account_id FROM folders WHERE id = ?)
 					 AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + filterSQL.cteClause + `
 			)
@@ -2253,7 +2361,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			ORDER BY date_received DESC, id DESC
 			LIMIT ? OFFSET ?`
 	}
-	args = append([]any{folderID}, filterSQL.args...)
+	args = append(append(append([]any{}, filterSQL.withArgs...), folderID), filterSQL.args...)
 	args = append(args, limit, offset)
 
 	rows, err := db.Read().QueryContext(ctx, query, args...)
@@ -2529,20 +2637,21 @@ func (db *DB) batchGetLabels(ctx context.Context, msgIDs []int64) (map[int64][]m
 }
 
 func (db *DB) SearchMessages(ctx context.Context, userID string, query string, limit int) ([]models.Email, error) {
+	query = ftsQuery(query)
 	if query == "" {
 		return nil, nil
 	}
 
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email,
+		`SELECT DISTINCT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email,
 		        m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 		        mfs.folder_id, mfs.is_read, mfs.is_starred
-		 FROM message_fts fts
-		 JOIN messages m ON fts.rowid = m.id
+		 FROM message_search
+		 JOIN messages m ON message_search.rowid = m.id
 		 JOIN message_folder_state mfs ON m.id = mfs.message_id
 		 JOIN accounts a ON m.account_id = a.id
-		 WHERE a.user_id = ? AND message_fts MATCH ?
-		 ORDER BY rank
+		 WHERE a.user_id = ? AND mfs.is_deleted = 0 AND message_search MATCH ?
+		 ORDER BY bm25(message_search), m.date_received DESC, m.id DESC
 		 LIMIT ?`, userID, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search messages: %w", err)
@@ -2722,7 +2831,10 @@ func (db *DB) UpdateMessageBody(ctx context.Context, messageID int64, textPath, 
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE messages SET body_text_path = ?, body_html_path = ?, raw_path = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, textPath, htmlPath, rawPath, snippet, snippet, messageID)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 func (db *DB) UpdateMessageOriginalHTMLPath(ctx context.Context, messageID int64, htmlPath string) error {
@@ -2734,7 +2846,10 @@ func (db *DB) UpdateMessageOriginalHTMLPath(ctx context.Context, messageID int64
 func (db *DB) ClearEmailBody(ctx context.Context, messageID int64) error {
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE messages SET body_text_path = NULL, body_html_path = NULL, body_html_original_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, messageID)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 func (db *DB) ClearEmailData(ctx context.Context, messageID int64) error {
@@ -2755,14 +2870,20 @@ func (db *DB) ClearEmailData(ctx context.Context, messageID int64) error {
 		return fmt.Errorf("clear body: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 func (db *DB) UpdateMessageHeaders(ctx context.Context, messageID int64, subject, fromName, fromEmail, snippet string) error {
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE messages SET subject = ?, from_name = ?, from_email = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		subject, fromName, fromEmail, snippet, snippet, messageID)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 func (db *DB) UpdateMessageThreadHeaders(ctx context.Context, messageID int64, accountID, inReplyTo, refs, subject string) error {
@@ -2793,7 +2914,10 @@ func (db *DB) UpdateMessageThreadHeaders(ctx context.Context, messageID int64, a
 	if err := db.reconcileMessageThreadTx(ctx, tx, messageID, accountID, messageIDNorm, inReplyTo, refs, subject, date); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 func (db *DB) UpsertRecipients(ctx context.Context, messageID int64, to, cc []Recipient) error {
@@ -2814,7 +2938,7 @@ func (db *DB) UpsertRecipients(ctx context.Context, messageID int64, to, cc []Re
 			return err
 		}
 	}
-	return nil
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 func (db *DB) InsertAttachments(ctx context.Context, messageID int64, atts []AttachmentRow) error {
@@ -2854,7 +2978,10 @@ func (db *DB) InsertAttachments(ctx context.Context, messageID int64, atts []Att
 		return fmt.Errorf("update has_attachments: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 func (db *DB) ReplaceAttachments(ctx context.Context, messageID int64, atts []AttachmentRow) error {
@@ -2891,7 +3018,10 @@ func (db *DB) ReplaceAttachments(ctx context.Context, messageID int64, atts []At
 	if _, err := tx.ExecContext(ctx, `UPDATE messages SET has_attachments = ? WHERE id = ?`, hasAttach, messageID); err != nil {
 		return fmt.Errorf("update has_attachments: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }
 
 type AttachmentRow struct {
