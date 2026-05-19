@@ -411,8 +411,12 @@ class VirtualMailList {
       var node = this.itemsContainer.children[i]
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.emailId) continue
+      var anchor = row.querySelector("a")
+      var visualRect = anchor ? anchor.getBoundingClientRect() : node.getBoundingClientRect()
+      var shellRect = node.getBoundingClientRect()
       rows.set(row.dataset.emailId, {
-        rect: node.getBoundingClientRect(),
+        rect: shellRect,
+        visualTopOffset: visualRect.top - shellRect.top,
         html: row.outerHTML,
       })
     }
@@ -467,8 +471,11 @@ class VirtualMailList {
       var old = before.get(id)
       if (old) {
         var next = node.getBoundingClientRect()
+        var nextAnchor = node.querySelector(".mail-list-item > a")
+        var nextVisualRect = nextAnchor ? nextAnchor.getBoundingClientRect() : next
+        var nextVisualTopOffset = nextVisualRect.top - next.top
         var dx = old.rect.left - next.left
-        var dy = old.rect.top - next.top
+        var dy = (old.rect.top + (old.visualTopOffset || 0)) - (next.top + nextVisualTopOffset)
         var finalHeight = node.style.height || (next.height + "px")
         var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
         var animated = false
@@ -1598,12 +1605,13 @@ class VirtualMailList {
     var transition = this.captureListTransition()
     var selected = this.selectedEmailId
     var oldItemHeight = this.itemHeight
+    var targetItemHeight = viewMode === "table" ? 44 : 94
     var anchorIndex = this.positionAtOffset(this.container.scrollTop)
     var anchorOffset = Math.max(0, this.container.scrollTop - this.offsetAtPosition(anchorIndex))
     var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0
-    var viewportRows = Math.ceil(this.container.clientHeight / Math.max(1, oldItemHeight))
-    var rangeStart = Math.max(0, anchorIndex - 2)
-    var rangeEnd = Math.min(this.totalCount - 1, anchorIndex + viewportRows + 2)
+    var viewportRows = Math.ceil(this.container.clientHeight / Math.max(1, targetItemHeight))
+    var rangeStart = Math.max(0, anchorIndex - this.overscan)
+    var rangeEnd = Math.min(this.totalCount - 1, rangeStart + Math.max(this.chunkSize, viewportRows + this.overscan * 2 + this.poolSlack) - 1)
     var rangeLimit = Math.max(1, rangeEnd - rangeStart + 1)
     var pendingStart = performance.now ? performance.now() : Date.now()
     this.setViewSwitchPending(true)

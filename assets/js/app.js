@@ -40,6 +40,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupBodyPrefetch()
   setupEmailBodyModeTabs()
   setupMailSyncCancelControls()
+  setupDesktopNotifications()
   refreshSidebarUnread()
 
   function setupContactsList() {
@@ -1207,6 +1208,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!data || !data.folder_id) return
 
       refreshSidebarUnread()
+      showBrowserTabNewMailNotification(data)
       withMailListForFolder(data.folder_id, data.folder_role || "", function (vml) { vml.onNewEmail() })
     })
 
@@ -1327,6 +1329,255 @@ document.addEventListener("DOMContentLoaded", function () {
       if (appEventSource === source) appEventSource = null
       setTimeout(setupSSE, 5000)
     }
+  }
+
+  function updateDesktopNotificationControls() {
+    var supported = webPushSupported()
+    var permission = "Notification" in window ? Notification.permission : "unsupported"
+    var enabled = notificationsEnabled()
+    var mode = notificationMode()
+    var toggles = document.querySelectorAll("[data-desktop-notifications-switch]")
+    for (var i = 0; i < toggles.length; i++) {
+      toggles[i].disabled = mode === "web_push" && (!supported || permission === "denied")
+    }
+    var labels = document.querySelectorAll("[data-desktop-notifications-status]")
+    for (var j = 0; j < labels.length; j++) {
+      if (!enabled || mode === "off") labels[j].textContent = "Notifications are off."
+      else if (permission === "denied") labels[j].textContent = "Notifications are blocked in this browser."
+      else if (supported) labels[j].textContent = "Web Push is available in this browser."
+      else if (browserNotificationsSupported()) labels[j].textContent = "Browser-tab notifications are available while Gofer is open."
+      else labels[j].textContent = "No notification method is available for this browser/origin."
+    }
+  }
+
+  function setupDesktopNotifications() {
+    updateDesktopNotificationControls()
+    if (notificationsEnabled()) {
+      configureNotificationMethod({ prompt: false }).catch(function () { setNotificationActiveMethod("none") })
+    } else {
+      setNotificationActiveMethod("off")
+    }
+    document.addEventListener("change", function (e) {
+      var toggle = e.target && e.target.closest ? e.target.closest("[data-desktop-notifications-switch]") : null
+      var modeInput = e.target && e.target.closest ? e.target.closest('input[name="notification_mode"]') : null
+      if (!toggle && !modeInput) return
+
+      if (modeInput && window.GoferSettings) GoferSettings.set("notification_mode", modeInput.value)
+      if (modeInput && modeInput.value === "off") {
+        var switches = document.querySelectorAll("[data-desktop-notifications-switch]")
+        for (var i = 0; i < switches.length; i++) switches[i].checked = false
+        if (window.GoferSettings) GoferSettings.set("desktop_notifications", "false")
+      }
+      if (toggle && window.GoferSettings) GoferSettings.set("desktop_notifications", toggle.checked ? "true" : "false")
+
+      if (!notificationsEnabled() || notificationMode() === "off") {
+        disableClientNotifications().finally(function () {
+          setNotificationActiveMethod("off")
+          updateDesktopNotificationControls()
+        })
+        return
+      }
+
+      configureNotificationMethod({ prompt: true }).then(function () {
+        updateDesktopNotificationControls()
+      }).catch(function (err) {
+        var switches = document.querySelectorAll("[data-desktop-notifications-switch]")
+        for (var i = 0; i < switches.length; i++) switches[i].checked = false
+        if (window.GoferSettings) GoferSettings.set("desktop_notifications", "false")
+        disableClientNotifications().catch(function () {})
+        setNotificationActiveMethod("none")
+        showGoferToast({
+          id: "desktop-notifications-toast",
+          title: "Notifications unavailable",
+          description: err && err.message ? err.message : "Could not enable Web Push notifications.",
+          variant: "warning",
+          icon: "warning",
+          position: "bottom-right",
+          duration: 7000,
+          dismissible: true,
+        })
+        updateDesktopNotificationControls()
+      })
+    })
+    document.addEventListener("htmx:afterSwap", function () {
+      updateDesktopNotificationControls()
+      setNotificationActiveMethod(_notificationActiveMethod)
+    })
+  }
+
+  var _notificationActiveMethod = "off"
+
+  function notificationsEnabled() {
+    return window.GoferSettings && GoferSettings.get("desktop_notifications") === "true"
+  }
+
+  function notificationMode() {
+    var mode = window.GoferSettings ? GoferSettings.get("notification_mode") : "auto"
+    if (mode === "web_push" || mode === "browser_tab" || mode === "off") return mode
+    return "auto"
+  }
+
+  function isLoopbackHost() {
+    return location.hostname === "localhost" || location.hostname === "127.0.0.1" || location.hostname === "[::1]"
+  }
+
+  function browserNotificationsSupported() {
+    return "Notification" in window && (window.isSecureContext || isLoopbackHost())
+  }
+
+  function setNotificationActiveMethod(method) {
+    _notificationActiveMethod = method || "none"
+    var label = "None"
+    if (_notificationActiveMethod === "off") label = "Off"
+    else if (_notificationActiveMethod === "web_push") label = "Web Push"
+    else if (_notificationActiveMethod === "browser_tab") label = "Browser tab"
+    var nodes = document.querySelectorAll("[data-notification-active-method]")
+    for (var i = 0; i < nodes.length; i++) nodes[i].textContent = "Active method: " + label
+  }
+
+  function requestNotificationPermission(prompt) {
+    if (!browserNotificationsSupported()) return Promise.resolve("unsupported")
+    if (Notification.permission === "granted" || Notification.permission === "denied" || !prompt) return Promise.resolve(Notification.permission)
+    try {
+      if (Notification.requestPermission.length > 0) {
+        return new Promise(function (resolve) { Notification.requestPermission(resolve) })
+      }
+      var result = Notification.requestPermission()
+      if (result && typeof result.then === "function") return result
+    } catch (_) {
+      return Promise.resolve("denied")
+    }
+    return Promise.resolve(Notification.permission)
+  }
+
+  function configureNotificationMethod(opts) {
+    opts = opts || {}
+    var mode = notificationMode()
+    if (!notificationsEnabled() || mode === "off") {
+      return disableClientNotifications().then(function () { setNotificationActiveMethod("off") })
+    }
+    if (mode === "web_push") return activateWebPushNotifications(opts.prompt)
+    if (mode === "browser_tab") return activateBrowserTabNotifications(opts.prompt)
+
+    return activateWebPushNotifications(opts.prompt).catch(function () {
+      return activateBrowserTabNotifications(opts.prompt)
+    })
+  }
+
+  function activateWebPushNotifications(prompt) {
+    return ensureWebPushSubscription(prompt).then(function () {
+      setNotificationActiveMethod("web_push")
+    })
+  }
+
+  function activateBrowserTabNotifications(prompt) {
+    return requestNotificationPermission(prompt).then(function (permission) {
+      if (permission !== "granted") throw new Error("Notification permission was not granted.")
+      return deleteWebPushSubscription().catch(function () {})
+    }).then(function () {
+      setNotificationActiveMethod("browser_tab")
+    })
+  }
+
+  function disableClientNotifications() {
+    return deleteWebPushSubscription()
+  }
+
+  function webPushSupported() {
+    return window.isSecureContext && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window
+  }
+
+  function base64URLToUint8Array(value) {
+    var padding = "=".repeat((4 - value.length % 4) % 4)
+    var base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/")
+    var raw = window.atob(base64)
+    var output = new Uint8Array(raw.length)
+    for (var i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i)
+    return output
+  }
+
+  function ensureWebPushSubscription(prompt) {
+    if (!webPushSupported()) return Promise.reject(new Error("Web Push requires HTTPS or localhost in a supported browser."))
+    return requestNotificationPermission(prompt).then(function (permission) {
+      if (permission !== "granted") throw new Error("Notification permission was not granted.")
+      return fetch("/api/push/vapid-public-key")
+    }).then(function (res) {
+      if (!res.ok) throw new Error("Could not load push configuration.")
+      return res.json()
+    }).then(function (data) {
+      if (!data.public_key) throw new Error("Web Push is not configured on this server.")
+      return navigator.serviceWorker.register("/sw.js").then(function (registration) {
+        return registration.pushManager.getSubscription().then(function (existing) {
+          if (existing) return existing
+          return registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: base64URLToUint8Array(data.public_key),
+          })
+        })
+      })
+    }).then(function (subscription) {
+      return fetch("/api/push/subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subscription),
+      }).then(function (res) {
+        if (!res.ok) throw new Error("Could not save push subscription.")
+        return subscription
+      })
+    })
+  }
+
+  function deleteWebPushSubscription() {
+    if (!("serviceWorker" in navigator)) return Promise.resolve()
+    return navigator.serviceWorker.getRegistration("/sw.js").then(function (registration) {
+      if (!registration) return null
+      return registration.pushManager.getSubscription()
+    }).then(function (subscription) {
+      if (!subscription) return null
+      var endpoint = subscription.endpoint
+      return subscription.unsubscribe().catch(function () {}).then(function () {
+        return fetch("/api/push/subscription", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: endpoint }),
+        }).catch(function () {})
+      })
+    })
+  }
+
+  function showBrowserTabNewMailNotification(data) {
+    if (!notificationsEnabled()) return
+    if (_notificationActiveMethod !== "browser_tab") return
+    if (!browserNotificationsSupported() || Notification.permission !== "granted") return
+    if (!document.hidden && document.hasFocus && document.hasFocus()) return
+
+    var role = String(data.folder_role || "")
+    if (role === "sent" || role === "drafts" || role === "trash" || role === "junk" || role === "archive") return
+
+    var unreadCount = Number(data.unread_count || 0)
+    if (unreadCount <= 0) return
+
+    var sender = String(data.from_name || data.from_email || "New mail")
+    var subject = String(data.subject || "(no subject)")
+    var folderName = String(data.folder_name || "Inbox")
+    var title = unreadCount === 1 ? sender : unreadCount + " new messages"
+    var body = unreadCount === 1 ? subject : sender + ": " + subject
+
+    var notification = new Notification(title, {
+      body: body,
+      tag: "gofer-new-mail-" + (data.account_id || "") + "-" + (data.folder_id || folderName),
+      icon: "/assets/logo.png",
+      badge: "/assets/logo.png",
+      data: { folderID: data.folder_id || "" },
+    })
+    notification.onclick = function () {
+      window.focus()
+      if (notification.data && notification.data.folderID) {
+        window.location.href = "/folder/" + encodeURIComponent(notification.data.folderID)
+      }
+      notification.close()
+    }
+    setTimeout(function () { notification.close() }, 12000)
   }
 
   function handleContactActivityEvent(data) {

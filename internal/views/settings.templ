@@ -439,6 +439,38 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 					Attributes: templ.Attributes{"data-ui-setting-switch": "prefetch_on_hover"},
 				})
 			</div>
+			<div class="flex items-start justify-between gap-6 rounded-lg border border-border/60 bg-background/40 p-4">
+				<div class="min-w-0">
+					<label for="desktop-notifications" class="text-sm font-medium text-foreground">Desktop notifications</label>
+					<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Show notifications for new unread mail. Auto uses Web Push when possible, then browser-tab notifications while Gofer is open.</p>
+					<p class="text-xs text-muted-foreground mt-2" data-desktop-notifications-status>Browser permission will be requested when enabled.</p>
+					<p class="text-xs font-medium text-muted-foreground mt-1" data-notification-active-method>Active method: Off</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0 space-y-3">
+					<div class="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/40 px-3 py-2">
+						<span class="text-xs font-medium text-muted-foreground">Enable</span>
+						@switchcomp.Switch(switchcomp.Props{
+							ID:      "desktop-notifications",
+							Name:    "desktop_notifications",
+							Checked: uiSettingGet(uiSettings, "desktop_notifications", "false") == "true",
+							Attributes: templ.Attributes{"data-ui-setting-switch": "desktop_notifications", "data-desktop-notifications-switch": ""},
+						})
+					</div>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "notification_mode", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Auto"}) {
+								{ notificationModeSettingLabel(uiSettingGet(uiSettings, "notification_mode", "auto")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "auto", Selected: uiSettingGet(uiSettings, "notification_mode", "auto") == "auto"}) { Auto }
+							@selectbox.Item(selectbox.ItemProps{Value: "web_push", Selected: uiSettingGet(uiSettings, "notification_mode", "auto") == "web_push"}) { Web Push }
+							@selectbox.Item(selectbox.ItemProps{Value: "browser_tab", Selected: uiSettingGet(uiSettings, "notification_mode", "auto") == "browser_tab"}) { Browser tab }
+							@selectbox.Item(selectbox.ItemProps{Value: "off", Selected: uiSettingGet(uiSettings, "notification_mode", "auto") == "off"}) { Off }
+						}
+					}
+				</div>
+			</div>
 		</div>
 	</div>
 	<script>

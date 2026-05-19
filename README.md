@@ -58,6 +58,9 @@ Useful env vars:
 GO_ENV=development
 GOFER_DB_PATH=data/gofer.db
 GOFER_SECRET_KEY=64_hex_chars_if_you_want_to_provide_your_own_key
+GOFER_VAPID_PUBLIC_KEY=optional_web_push_public_key
+GOFER_VAPID_PRIVATE_KEY=optional_web_push_private_key
+GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 ```
 
 ## warning

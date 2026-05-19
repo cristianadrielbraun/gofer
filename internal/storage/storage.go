@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 36
+	const targetSchemaVersion = 37
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -360,6 +360,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 35 {
 		if err := migrateV35ToV36(tx); err != nil {
 			return fmt.Errorf("migrate v35 to v36: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 36 {
+		if err := migrateV36ToV37(tx); err != nil {
+			return fmt.Errorf("migrate v36 to v37: %w", err)
 		}
 	}
 
@@ -1264,6 +1270,30 @@ func migrateV35ToV36(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (36)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateV36ToV37(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+			endpoint TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			p256dh TEXT NOT NULL,
+			auth TEXT NOT NULL,
+			user_agent TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user
+		 ON web_push_subscriptions(user_id)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (37)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
 	}
 	return nil
 }

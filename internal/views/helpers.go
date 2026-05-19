@@ -240,6 +240,19 @@ func defaultComposeViewSettingLabel(view string) string {
 	}
 }
 
+func notificationModeSettingLabel(mode string) string {
+	switch mode {
+	case "web_push":
+		return "Web Push"
+	case "browser_tab":
+		return "Browser tab"
+	case "off":
+		return "Off"
+	default:
+		return "Auto"
+	}
+}
+
 func composeAutosaveDebounceLabel(value string) string {
 	switch value {
 	case "3":

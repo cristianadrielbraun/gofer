@@ -44,6 +44,13 @@ type accountWorker struct {
 	cancel context.CancelFunc
 }
 
+type newMailSummary struct {
+	Count       int
+	UnreadCount int
+	Latest      storage.SyncMessage
+	LatestSet   bool
+}
+
 type TokenProvider interface {
 	GetOAuthTokenForAccount(ctx context.Context, accountID string) (string, error)
 }
@@ -336,6 +343,48 @@ func (o *SyncOrchestrator) periodicSync(ctx context.Context, accountID string) {
 	}
 }
 
+func (s *newMailSummary) Add(msgs []storage.SyncMessage) {
+	for _, msg := range msgs {
+		s.Count++
+		if !msg.IsRead {
+			s.UnreadCount++
+		}
+		if !s.LatestSet || msg.DateSent.After(s.Latest.DateSent) {
+			s.Latest = msg
+			s.LatestSet = true
+		}
+	}
+}
+
+func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folderID, remoteName string, summary newMailSummary) {
+	if summary.Count <= 0 {
+		return
+	}
+
+	folderRole, _ := o.db.GetFolderRole(ctx, folderID)
+	payload := map[string]any{
+		"count":        summary.Count,
+		"unread_count": summary.UnreadCount,
+		"folder_name":  displayName(remoteName, folderRole),
+	}
+	if summary.LatestSet {
+		payload["subject"] = summary.Latest.Subject
+		payload["from_name"] = summary.Latest.FromName
+		payload["from_email"] = summary.Latest.FromEmail
+		if summary.Latest.RemoteUID > 0 {
+			payload["remote_uid"] = summary.Latest.RemoteUID
+		}
+	}
+
+	o.events.Publish(Event{
+		Type:       EventNewMail,
+		AccountID:  accountID,
+		FolderID:   folderID,
+		FolderRole: folderRole,
+		Payload:    payload,
+	})
+}
+
 func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, folderIndex, folderTotal int) error {
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folder.ID)
 	o.events.Publish(Event{
@@ -393,7 +442,9 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 	}
 
 	if highestUID > 0 {
+		var summary newMailSummary
 		result, err := client.SyncFolderIncremental(ctx, folder.ID, folder.RemoteID, highestUID, func(msgs []storage.SyncMessage) error {
+			summary.Add(msgs)
 			return o.db.UpsertSyncMessages(ctx, msgs)
 		})
 		if err != nil {
@@ -402,6 +453,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 			o.db.UpdateFolderIncrementalSync(ctx, folder.ID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
 			if result.TotalFetched > 0 {
 				log.Printf("periodic incremental %s/%s: %d new", accountID, folder.RemoteID, result.TotalFetched)
+				o.publishNewMail(ctx, accountID, folder.ID, folder.RemoteID, summary)
 			}
 		}
 	} else {
@@ -961,7 +1013,9 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 
 	o.reconcileAndRefresh(syncCtx, client, accountID, folderID, remoteName)
 
+	var summary newMailSummary
 	result, err := client.SyncFolderIncremental(syncCtx, folderID, remoteName, highestUID, func(msgs []storage.SyncMessage) error {
+		summary.Add(msgs)
 		return o.db.UpsertSyncMessages(syncCtx, msgs)
 	})
 	if err != nil {
@@ -979,11 +1033,7 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 
 	unread, _ := o.db.RefreshFolderUnreadCount(syncCtx, folderID)
 
-	o.events.Publish(Event{
-		Type:      EventNewMail,
-		AccountID: accountID,
-		FolderID:  folderID,
-	})
+	o.publishNewMail(syncCtx, accountID, folderID, remoteName, summary)
 	_ = unread
 }
 

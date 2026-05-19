@@ -3625,6 +3625,8 @@ func defaultUISettings() map[string]string {
 		"sender_display":                    "name",
 		"mail_list_navigation":              "infinite",
 		"auto_mark_read_after":              "0",
+		"desktop_notifications":             "false",
+		"notification_mode":                 "auto",
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
 		"sidebar_account_collapsed":         "{}",

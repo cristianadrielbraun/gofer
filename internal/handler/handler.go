@@ -58,6 +58,7 @@ type Handler struct {
 	contactBackfillState models.ContactBackfillState
 	contactSyncMu        sync.Mutex
 	contactSyncRunning   map[string]struct{}
+	vapidPublicKey       string
 }
 
 const (
@@ -67,7 +68,7 @@ const (
 	composeStagedAttachmentMaxAge       = 24 * time.Hour
 )
 
-func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore, authManager *auth.Manager) *Handler {
+func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore, authManager *auth.Manager, vapidPublicKey string) *Handler {
 	h := &Handler{
 		db:                 db,
 		accountStore:       accountStore,
@@ -81,6 +82,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		avatarWarmupQueued: make(map[string]struct{}),
 		avatarWarmupForced: make(map[string]time.Time),
 		contactSyncRunning: make(map[string]struct{}),
+		vapidPublicKey:     vapidPublicKey,
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
@@ -172,6 +174,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
 	mux.HandleFunc("GET /api/settings/ui", h.handleGetUISettings)
 	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
+	mux.HandleFunc("GET /api/push/vapid-public-key", h.handlePushVAPIDPublicKey)
+	mux.HandleFunc("POST /api/push/subscription", h.handleSavePushSubscription)
+	mux.HandleFunc("DELETE /api/push/subscription", h.handleDeletePushSubscription)
 	mux.HandleFunc("GET /api/settings/contacts/suppressed", h.handleSuppressedContactsSettings)
 	mux.HandleFunc("POST /api/settings/contacts/accounts/sync", h.handleSyncAccountContacts)
 	mux.HandleFunc("POST /api/settings/contacts/providers/gmail/sync", h.handleSyncGmailContacts)
@@ -232,6 +237,15 @@ func setupAssetsRoutes(mux *http.ServeMux) {
 	})
 
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", assetHandler))
+	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, r *http.Request) {
+		if isDevelopment {
+			w.Header().Set("Cache-Control", "no-store")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		http.ServeFile(w, r, "./assets/js/sw.js")
+	})
 }
 
 func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -2172,6 +2186,67 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.SetUISettings(r.Context(), h.userID(r.Context()), current); err != nil {
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+type pushSubscriptionRequest struct {
+	Endpoint string `json:"endpoint"`
+	Keys     struct {
+		P256DH string `json:"p256dh"`
+		Auth   string `json:"auth"`
+	} `json:"keys"`
+}
+
+type pushSubscriptionDeleteRequest struct {
+	Endpoint string `json:"endpoint"`
+}
+
+func (h *Handler) handlePushVAPIDPublicKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"public_key": h.vapidPublicKey})
+}
+
+func (h *Handler) handleSavePushSubscription(w http.ResponseWriter, r *http.Request) {
+	var req pushSubscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	req.Endpoint = strings.TrimSpace(req.Endpoint)
+	req.Keys.P256DH = strings.TrimSpace(req.Keys.P256DH)
+	req.Keys.Auth = strings.TrimSpace(req.Keys.Auth)
+	if req.Endpoint == "" || req.Keys.P256DH == "" || req.Keys.Auth == "" {
+		http.Error(w, "invalid subscription", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.db.SaveWebPushSubscription(r.Context(), storage.WebPushSubscription{
+		Endpoint:  req.Endpoint,
+		UserID:    h.userID(r.Context()),
+		P256DH:    req.Keys.P256DH,
+		Auth:      req.Keys.Auth,
+		UserAgent: r.UserAgent(),
+	}); err != nil {
+		http.Error(w, "save subscription failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) handleDeletePushSubscription(w http.ResponseWriter, r *http.Request) {
+	var req pushSubscriptionDeleteRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	req.Endpoint = strings.TrimSpace(req.Endpoint)
+	if req.Endpoint != "" {
+		if err := h.db.DeleteWebPushSubscription(r.Context(), h.userID(r.Context()), req.Endpoint); err != nil {
+			http.Error(w, "delete subscription failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

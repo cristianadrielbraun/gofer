@@ -9,6 +9,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/handler"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/notifications"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/joho/godotenv"
 )
 
@@ -69,6 +71,15 @@ func main() {
 
 	syncer := mail.NewSyncOrchestrator(db, accountStore, blobStore, authManager)
 	log.Printf("boot: sync orchestrator initialized")
+	vapidPublicKey, vapidPrivateKey := loadOrGenerateVAPIDKeys(filepath.Join(dataDir, "vapid_private.key"), filepath.Join(dataDir, "vapid_public.key"))
+	vapidSubject := os.Getenv("GOFER_VAPID_SUBJECT")
+	if vapidSubject == "" {
+		vapidSubject = "mailto:gofer@gofer.email"
+	}
+	log.Printf("boot: web push VAPID keys loaded")
+	notificationService := notifications.New(db, syncer.Events(), vapidPublicKey, vapidPrivateKey, vapidSubject)
+	notificationService.Start(ctx)
+	log.Printf("boot: notification worker started")
 
 	go func() {
 		log.Printf("boot: background threading worker started")
@@ -85,7 +96,7 @@ func main() {
 	}()
 
 	mux := http.NewServeMux()
-	h := handler.New(db, accountStore, syncer, blobStore, authManager)
+	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey)
 	h.StartAvatarBackfill(ctx)
 	h.StartContactSync(ctx)
 	h.RegisterRoutes(mux)
@@ -103,6 +114,32 @@ func main() {
 		fmt.Printf("auth: disabled (local mode)\n")
 	}
 	log.Fatal(http.ListenAndServe(addr, handler))
+}
+
+func loadOrGenerateVAPIDKeys(privatePath, publicPath string) (string, string) {
+	if envPrivate, envPublic := os.Getenv("GOFER_VAPID_PRIVATE_KEY"), os.Getenv("GOFER_VAPID_PUBLIC_KEY"); envPrivate != "" && envPublic != "" {
+		return envPublic, envPrivate
+	}
+
+	privateBytes, privateErr := os.ReadFile(privatePath)
+	publicBytes, publicErr := os.ReadFile(publicPath)
+	if privateErr == nil && publicErr == nil && len(privateBytes) > 0 && len(publicBytes) > 0 {
+		return string(publicBytes), string(privateBytes)
+	}
+
+	privateKey, publicKey, err := webpush.GenerateVAPIDKeys()
+	if err != nil {
+		log.Fatalf("generate VAPID keys: %v", err)
+	}
+	os.MkdirAll(filepath.Dir(privatePath), 0755)
+	if err := os.WriteFile(privatePath, []byte(privateKey), 0600); err != nil {
+		log.Fatalf("write VAPID private key: %v", err)
+	}
+	if err := os.WriteFile(publicPath, []byte(publicKey), 0644); err != nil {
+		log.Fatalf("write VAPID public key: %v", err)
+	}
+	log.Printf("generated new VAPID key pair in %s", filepath.Dir(privatePath))
+	return publicKey, privateKey
 }
 
 func loadOrGenerateSecretKey(path string) []byte {

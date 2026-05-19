@@ -574,5 +574,19 @@ ON account_contact_address_books(user_id, account_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_contact_address_books_id
 ON account_contact_address_books(id);
 
+CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user
+ON web_push_subscriptions(user_id);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (36);
+INSERT OR REPLACE INTO schema_version (version) VALUES (37);
