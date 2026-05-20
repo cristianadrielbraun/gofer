@@ -51,25 +51,45 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 	<div class="mt-6 space-y-6">
 		<div class="bg-card rounded-lg border p-6 space-y-5">
 			<div>
-				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">New emails</h3>
-				<p class="text-xs text-muted-foreground">Choose how a new compose window opens when you start an email.</p>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Compose windows</h3>
+				<p class="text-xs text-muted-foreground">Choose where compose opens for new messages, replies, and forwards.</p>
 			</div>
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
-					<h4 class="text-sm font-medium text-foreground">Default compose view</h4>
+					<h4 class="text-sm font-medium text-foreground">New messages</h4>
 					<p class="text-xs text-muted-foreground mt-1">Pick whether new messages start in a dialog, the reading pane, or the full-width composer.</p>
 				</div>
 				<div class="w-full sm:w-44 shrink-0" data-compose-view-picker>
 					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "default_compose_view", Class: "bg-background", DisableClear: true}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "default_new_compose_view", Class: "bg-background", DisableClear: true}) {
 							@selectbox.Value(selectbox.ValueProps{Placeholder: "Dialog"}) {
-								{ defaultComposeViewSettingLabel(uiSettingGet(uiSettings, "default_compose_view", "dialog")) }
+								{ defaultComposeViewSettingLabel(uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog"))) }
 							}
 						}
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-							@selectbox.Item(selectbox.ItemProps{Value: "dialog", Selected: uiSettingGet(uiSettings, "default_compose_view", "dialog") == "dialog"}) { Dialog }
-							@selectbox.Item(selectbox.ItemProps{Value: "pane", Selected: uiSettingGet(uiSettings, "default_compose_view", "dialog") == "pane"}) { Right pane }
-							@selectbox.Item(selectbox.ItemProps{Value: "full", Selected: uiSettingGet(uiSettings, "default_compose_view", "dialog") == "full"}) { Full width }
+							@selectbox.Item(selectbox.ItemProps{Value: "dialog", Selected: uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "dialog"}) { Dialog }
+							@selectbox.Item(selectbox.ItemProps{Value: "pane", Selected: uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "pane"}) { Inline, one pane }
+							@selectbox.Item(selectbox.ItemProps{Value: "full", Selected: uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "full"}) { Inline, expanded }
+						}
+					}
+				</div>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Replies and forwards</h4>
+					<p class="text-xs text-muted-foreground mt-1">Choose where replies, reply-all messages, and forwards open.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0" data-compose-view-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "default_reply_compose_view", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Dialog"}) {
+								{ defaultComposeViewSettingLabel(uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog"))) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "dialog", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "dialog"}) { Dialog }
+							@selectbox.Item(selectbox.ItemProps{Value: "pane", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "pane"}) { Inline, one pane }
+							@selectbox.Item(selectbox.ItemProps{Value: "full", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "full"}) { Inline, expanded }
 						}
 					}
 				</div>
@@ -269,9 +289,9 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			syncComposeAutosaveControls();
 		});
 		document.addEventListener('change', function(e) {
-			var defaultComposeView = e.target.closest('input[name="default_compose_view"]');
+			var defaultComposeView = e.target.closest('input[name="default_new_compose_view"], input[name="default_reply_compose_view"]');
 			if (defaultComposeView && typeof GoferSettings !== 'undefined') {
-				GoferSettings.set('default_compose_view', defaultComposeView.value);
+				GoferSettings.set(defaultComposeView.name, defaultComposeView.value);
 			}
 			var mailPaneLayout = e.target.closest('input[name="mail_pane_layout"]');
 			if (mailPaneLayout && typeof GoferSettings !== 'undefined') {

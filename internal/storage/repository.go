@@ -3430,6 +3430,14 @@ func (db *DB) GetUISettings(ctx context.Context, userID string) map[string]strin
 	if err := json.Unmarshal([]byte(val), &settings); err != nil {
 		return defaultUISettings()
 	}
+	if settings["default_compose_view"] != "" {
+		if settings["default_new_compose_view"] == "" {
+			settings["default_new_compose_view"] = settings["default_compose_view"]
+		}
+		if settings["default_reply_compose_view"] == "" {
+			settings["default_reply_compose_view"] = settings["default_compose_view"]
+		}
+	}
 	for k, v := range defaultUISettings() {
 		if settings[k] == "" {
 			settings[k] = v
@@ -3654,6 +3662,8 @@ func defaultUISettings() map[string]string {
 		"theme_style":                       "classic",
 		"prefetch_on_hover":                 "true",
 		"default_compose_view":              "dialog",
+		"default_new_compose_view":          "dialog",
+		"default_reply_compose_view":        "dialog",
 		"compose_autosave_enabled":          "true",
 		"compose_autosave_conditions":       "chars,attachment",
 		"compose_autosave_min_chars":        "30",

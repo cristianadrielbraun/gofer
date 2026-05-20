@@ -484,7 +484,7 @@ templ ComposePane(accounts []models.Account) {
 					}
 					<span id="pane-btns-normal" class="flex items-center gap-1">
 						<button type="button" onclick="expandComposeFullWidth()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Full width">
-							@icon.UnfoldHorizontal(icon.Props{Class: "size-4"})
+							@icon.UnfoldHorizontal(icon.Props{Class: "size-4 compose-pane-size-icon transition-transform"})
 						</button>
 						<button type="button" onclick="collapseToDialog()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Compose in dialog">
 							@icon.SquareArrowOutUpLeft(icon.Props{Class: "size-4"})
@@ -492,7 +492,7 @@ templ ComposePane(accounts []models.Account) {
 					</span>
 					<span id="pane-btns-full" class="flex items-center gap-1" style="display:none">
 						<button type="button" onclick="collapseComposeFullWidth()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Normal width">
-							@icon.FoldHorizontal(icon.Props{Class: "size-4"})
+							@icon.FoldHorizontal(icon.Props{Class: "size-4 compose-pane-size-icon transition-transform"})
 						</button>
 						<button type="button" onclick="collapseToDialog()" class="flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors" title="Compose in dialog">
 							@icon.SquareArrowOutUpLeft(icon.Props{Class: "size-4"})

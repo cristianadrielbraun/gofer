@@ -21,6 +21,7 @@ var initResizeHandles;
   }
 
   function clamp(v, min, max) {
+    if (max === null || max === undefined) return Math.max(min, v);
     return Math.max(min, Math.min(max, v));
   }
 
@@ -34,8 +35,7 @@ var initResizeHandles;
     var vw = window.innerWidth;
 
     if (isStackedMailList(panelName)) {
-      var vh = window.innerHeight || 800;
-      return { min: 180, max: Math.min(760, vh * 0.65) };
+      return { min: 180, max: null };
     }
 
     if (panelName === "sidebar") {
@@ -44,7 +44,7 @@ var initResizeHandles;
 
     return {
       min: 300,
-      max: Math.min(1200, vw * 0.55),
+      max: null,
     };
   }
 

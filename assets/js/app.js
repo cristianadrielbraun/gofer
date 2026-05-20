@@ -5451,6 +5451,13 @@ function _activeComposeCanBeReplaced() {
   return window.confirm("Replace the current unsaved draft?")
 }
 
+function composeViewPreference(kind) {
+  var key = kind === "reply" ? "default_reply_compose_view" : "default_new_compose_view"
+  var view = window.GoferSettings ? GoferSettings.get(key) : null
+  if (!view && window.GoferSettings) view = GoferSettings.get("default_compose_view")
+  return view === "pane" || view === "full" ? view : "dialog"
+}
+
 function continueEditingDraft(emailId) {
   if (!_activeComposeCanBeReplaced()) return
   fetch("/api/drafts/" + encodeURIComponent(emailId))
@@ -5458,10 +5465,10 @@ function continueEditingDraft(emailId) {
       if (!r.ok) throw new Error("Failed to load draft")
       return r.json()
     })
-    .then(function (draft) {
-      var vals = _composeValsFromDraft(draft)
-      var view = window.GoferSettings ? GoferSettings.get("default_compose_view") : null
-      var fullWidth = view === "full"
+	.then(function (draft) {
+	  var vals = _composeValsFromDraft(draft)
+	  var view = composeViewPreference(vals.compose_mode === "reply" || vals.compose_mode === "forward" ? "reply" : "new")
+	  var fullWidth = view === "full"
 
       if (view === "pane" || view === "full") {
         if (document.getElementById("mail-list") && document.getElementById("mail-view")) {
@@ -6194,7 +6201,7 @@ function openComposePrefill(vals, mode) {
     writeComposePrefill(document.getElementById("compose-pane-form"), vals, "compose-pane-", mode)
     return
   }
-  var view = window.GoferSettings ? GoferSettings.get("default_compose_view") : null
+  var view = composeViewPreference("reply")
   if ((view === "pane" || view === "full") && document.getElementById("mail-list") && document.getElementById("mail-view")) {
     fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
       writeComposePane(html, vals, view === "full", view === "full")
@@ -6226,7 +6233,7 @@ function handleReply(el, mode) {
 
 function openNewCompose() {
   resetComposeForm(false)
-  var view = window.GoferSettings ? GoferSettings.get("default_compose_view") : null
+  var view = composeViewPreference("new")
   if (view === "pane" || view === "full") {
     openComposeInMain(view === "full", view === "full")
     return
@@ -6254,8 +6261,7 @@ function savedMailListWidth() {
   }
   var width = parseInt(value || "384", 10)
   if (isNaN(width) || width <= 0) width = 384
-  var max = Math.min(1200, (window.innerWidth || 1024) * 0.55)
-  width = Math.max(300, Math.min(max, width))
+  width = Math.max(300, width)
   return Math.round(width) + "px"
 }
 
@@ -6980,9 +6986,13 @@ function applyComposeFullWidthInstant() {
   var resizeHandles = document.querySelectorAll('[data-panel="maillist"]')
   if (!mailList || mailList._savedWidth !== undefined) return
 
-  mailList._savedWidth = mailList.style.width
+  var axis = isStackedComposeLayout() ? "height" : "width"
+  mailList._composeFullWidthAxis = axis
+  mailList._savedWidth = axis === "height" ? mailList.style.height : mailList.style.width
+  if (axis === "height") mailList._savedMinHeight = mailList.style.minHeight
   mailList.style.display = "none"
-  mailList.style.width = "0px"
+  mailList.style[axis] = "0px"
+  if (axis === "height") mailList.style.minHeight = "0px"
   mailList.style.opacity = "0"
   mailList.style.overflow = "hidden"
   mailList.style.borderWidth = "0"
@@ -7002,13 +7012,24 @@ function applyComposeFullWidthInstant() {
   if (bodyField) bodyField.focus()
 }
 
+function isStackedComposeLayout() {
+  var main = document.getElementById("main-content")
+  return !!(main && main.dataset.mailPaneLayout === "stacked")
+}
+
 function expandComposeFullWidth() {
   var mailList = document.querySelector("#main-content > #mail-list")
   var resizeHandles = document.querySelectorAll('[data-panel="maillist"]')
   if (!mailList || mailList._animating) return
 
+  var axis = isStackedComposeLayout() ? "height" : "width"
   mailList._animating = true
-  mailList._savedWidth = mailList.style.width
+  mailList._composeFullWidthAxis = axis
+  mailList._savedWidth = axis === "height" ? mailList.style.height : mailList.style.width
+  if (axis === "height") {
+    mailList._savedMinHeight = mailList.style.minHeight
+    mailList.style.minHeight = "0px"
+  }
 
   for (var i = 0; i < resizeHandles.length; i++) {
     resizeHandles[i]._savedDisplay = resizeHandles[i].style.display
@@ -7016,23 +7037,24 @@ function expandComposeFullWidth() {
     resizeHandles[i].style.opacity = "0"
   }
 
-  mailList.style.transition = "width 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
+  mailList.style.transition = axis + " 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
   mailList.style.overflow = "hidden"
   mailList.style.borderWidth = "0"
 
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
-      mailList.style.width = "0px"
+      mailList.style[axis] = "0px"
       mailList.style.opacity = "0"
     })
   })
 
   var composePane = document.querySelector("[data-compose-pane]")
   if (composePane) {
-    composePane.style.animation = "pane-slide-in 0.3s ease-out"
+    composePane.style.animation = (axis === "height" ? "pane-slide-up-in" : "pane-slide-in") + " 0.3s ease-out"
   }
 
-  function onEnd() {
+  function onEnd(ev) {
+    if (ev.target !== mailList || ev.propertyName !== axis) return
     mailList.removeEventListener("transitionend", onEnd)
     mailList.style.display = "none"
     mailList.style.transition = ""
@@ -7060,11 +7082,13 @@ function collapseComposeFullWidth() {
   var resizeHandles = document.querySelectorAll('[data-panel="maillist"]')
   if (!mailList || mailList._savedWidth === undefined) return false
 
+  var axis = mailList._composeFullWidthAxis || (isStackedComposeLayout() ? "height" : "width")
   mailList.style.display = ""
-  mailList.style.width = "0px"
+  mailList.style[axis] = "0px"
+  if (axis === "height") mailList.style.minHeight = "0px"
   mailList.style.opacity = "0"
   mailList.style.overflow = "hidden"
-  mailList.style.transition = "width 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
+  mailList.style.transition = axis + " 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
 
   for (var i = 0; i < resizeHandles.length; i++) {
     resizeHandles[i].style.display = resizeHandles[i]._savedDisplay || ""
@@ -7076,20 +7100,26 @@ function collapseComposeFullWidth() {
   void mailList.offsetHeight
 
   requestAnimationFrame(function () {
-    mailList.style.width = mailList._savedWidth
+    mailList.style[axis] = mailList._savedWidth
     mailList.style.opacity = "1"
     for (var i = 0; i < resizeHandles.length; i++) {
       resizeHandles[i].style.opacity = "1"
     }
   })
 
-  function onEnd() {
+  function onEnd(ev) {
+    if (ev.target !== mailList || ev.propertyName !== axis) return
     mailList.removeEventListener("transitionend", onEnd)
     mailList.style.transition = ""
     mailList.style.opacity = ""
     mailList.style.overflow = ""
     mailList.style.borderWidth = ""
+    if (axis === "height") {
+      mailList.style.minHeight = mailList._savedMinHeight || ""
+      delete mailList._savedMinHeight
+    }
     delete mailList._savedWidth
+    delete mailList._composeFullWidthAxis
     for (var i = 0; i < resizeHandles.length; i++) {
       resizeHandles[i].style.transition = ""
       resizeHandles[i].style.opacity = ""

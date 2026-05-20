@@ -108,14 +108,14 @@ templ MailViewLoading() {
 }
 
 templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
-	<div class="flex flex-col h-full p-2">
+	<div class="mail-view-frame flex flex-col h-full p-2">
 		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 			@MailViewHeader(email)
 			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 			<div class="flex-1 overflow-y-auto">
-				<div class="mx-auto px-8 py-6">
+				<div class="mail-view-content mx-auto px-8 py-6">
 					if thread != nil && len(thread) > 1 {
-						<div class="flex items-start justify-between gap-4 mb-1">
+						<div class="mail-view-subject-row flex items-start justify-between gap-4 mb-1">
 							<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
 							@EmailBodyStyleTabs(email.ID, true, "h-8", "h-7")
 						</div>
@@ -171,8 +171,8 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 }
 
 templ MailViewThreadItemSender(email *models.Email, item *models.ThreadItem) {
-	<div class="flex items-start gap-4">
-		@ContactAvatar(item.From, "size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", contactAvatarThreadFallback(item.ID == email.ID))
+	<div class="mail-view-thread-sender flex items-start gap-4">
+		@ContactAvatar(item.From, "mail-view-avatar size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", contactAvatarThreadFallback(item.ID == email.ID))
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2 flex-wrap">
 				<span class="font-semibold text-ink">{ item.From.Name }</span>
@@ -272,7 +272,7 @@ templ MailViewThreadItemAttachments(item *models.ThreadItem) {
 	<div class="mt-5 space-y-2">
 		for _, att := range item.Attachments {
 			if shouldShowAttachment(att) {
-				<div class="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+				<div class="mail-view-attachment flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
 					<div class="flex items-center justify-center size-9 rounded-md bg-ink/[0.03] shadow-[0_1px_2px_rgba(0,0,0,0.06)_inset]">
 						@icon.File(icon.Props{Class: "size-4 text-ink/30"})
 					</div>
@@ -404,7 +404,7 @@ templ MailViewThreadItemActions(item *models.ThreadItem) {
 		data-to={ formatContacts(item.To) }
 		data-cc={ formatContacts(item.CC) }
 		data-body={ item.TextBody }>
-		<div class="flex items-center gap-2">
+		<div class="mail-view-reply-actions flex items-center gap-2">
 			@button.Button(button.Props{
 				Variant:    button.VariantOutline,
 				Class:      "flex-1 h-8 border-ink/10 text-ink/50 hover:text-ink hover:border-ink/20",
@@ -440,8 +440,8 @@ templ MailViewThreadItemActions(item *models.ThreadItem) {
 }
 
 templ MailViewHeader(email *models.Email) {
-	<div class="flex items-center justify-between px-6 py-2.5">
-		<div class="flex items-center gap-1 min-w-0">
+	<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">
+		<div class="mail-view-actions flex items-center gap-1 min-w-0">
 			@tooltip.Tooltip() {
 				@tooltip.Trigger() {
 					@button.Button(button.Props{
@@ -527,7 +527,7 @@ templ MailViewHeader(email *models.Email) {
 				}
 			}
 		</div>
-		<div class="flex items-center gap-2">
+		<div class="mail-view-meta flex items-center gap-2">
 			if len(email.Labels) > 0 {
 				for _, label := range email.Labels {
 					<span class={ "text-[11px] px-2 py-0.5 rounded font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]", label.Color }>
@@ -614,8 +614,8 @@ templ MailViewHeader(email *models.Email) {
 }
 
 templ MailViewSender(email *models.Email) {
-	<div class="flex items-start gap-4">
-		@ContactAvatar(email.From, "size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
+	<div class="mail-view-sender flex items-start gap-4">
+		@ContactAvatar(email.From, "mail-view-avatar size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2 flex-wrap">
 				<span class="font-semibold text-ink">{ email.From.Name }</span>
@@ -699,7 +699,7 @@ templ MailViewSender(email *models.Email) {
 			}
 		}
 	</div>
-	<div class="flex items-start justify-between gap-4 mt-5">
+	<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">
 		<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
 		@EmailBodyStyleTabs(email.ID, true, "h-8", "h-7")
 	</div>
@@ -711,7 +711,7 @@ templ MailViewAttachments(email *models.Email) {
 		<div class="mt-5 space-y-2">
 			for _, att := range email.Attachments {
 				if shouldShowAttachment(att) {
-					<div class="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+					<div class="mail-view-attachment flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
 						<div class="flex items-center justify-center size-9 rounded-md bg-ink/[0.03] shadow-[0_1px_2px_rgba(0,0,0,0.06)_inset]">
 							@icon.File(icon.Props{Class: "size-4 text-ink/30"})
 						</div>
@@ -797,7 +797,7 @@ templ MailViewBodyByID(emailID string) {
 
 templ MailViewReplyBar(email *models.Email) {
 	<div class="px-6 py-3 border-t border-ink/6" id="reply-bar" data-message-id={ email.InternetMessageID } data-references={ email.References } data-subject={ email.Subject } data-from-email={ email.From.Email } data-from-name={ email.From.Name } data-account-id={ email.AccountID } data-date={ email.DateFull } data-to={ formatContacts(email.To) } data-cc={ formatContacts(email.CC) } data-body={ email.TextBody }>
-		<div class="flex items-center gap-2">
+		<div class="mail-view-reply-actions flex items-center gap-2">
 			@button.Button(button.Props{
 				Variant:    button.VariantOutline,
 				Class:      "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",
@@ -834,7 +834,7 @@ templ MailViewReplyBar(email *models.Email) {
 
 templ MailViewDraftBar(email *models.Email) {
 	<div class="px-6 py-3 border-t border-ink/6" id="reply-bar">
-		<div class="flex items-center gap-2">
+		<div class="mail-view-reply-actions flex items-center gap-2">
 			@button.Button(button.Props{
 				Variant:    button.VariantOutline,
 				Class:      "flex-1 h-9 border-ink/10 text-ink/60 hover:text-ink hover:border-ink/20",

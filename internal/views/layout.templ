@@ -344,14 +344,14 @@ templ SavedPanelSizeStyle() {
 			function px(value, min, max) {
 				var n = parseInt(value, 10);
 				if (isNaN(n) || n <= 0) return null;
+				if (max === null || max === undefined) return Math.max(min, n);
 				return Math.max(min, Math.min(max, n));
 			}
 
 			var vw = window.innerWidth || 1024;
-			var vh = window.innerHeight || 800;
 			var stacked = settings.mail_pane_layout === "stacked";
 			var sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));
-			var mailList = stacked ? px(settings.mail_list_height, 180, Math.min(760, vh * 0.65)) : px(settings.mail_list_width, 300, Math.min(1200, vw * 0.55));
+			var mailList = stacked ? px(settings.mail_list_height, 180) : px(settings.mail_list_width, 300);
 			if (!sidebar && !mailList && !stacked) return;
 
 			var style = document.createElement("style");

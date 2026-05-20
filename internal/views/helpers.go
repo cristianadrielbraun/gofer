@@ -237,9 +237,9 @@ func senderDisplaySettingLabel(mode string) string {
 func defaultComposeViewSettingLabel(view string) string {
 	switch view {
 	case "pane":
-		return "Right pane"
+		return "Inline, one pane"
 	case "full":
-		return "Full width"
+		return "Inline, expanded"
 	default:
 		return "Dialog"
 	}
