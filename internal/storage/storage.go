@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 37
+	const targetSchemaVersion = 38
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -366,6 +366,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 36 {
 		if err := migrateV36ToV37(tx); err != nil {
 			return fmt.Errorf("migrate v36 to v37: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 37 {
+		if err := migrateV37ToV38(tx); err != nil {
+			return fmt.Errorf("migrate v37 to v38: %w", err)
 		}
 	}
 
@@ -1289,6 +1295,36 @@ func migrateV36ToV37(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user
 		 ON web_push_subscriptions(user_id)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (37)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV37ToV38(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS scheduled_sends (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+			scheduled_for DATETIME NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			sent_message_id TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(message_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_sends_due
+		 ON scheduled_sends(status, scheduled_for)`,
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
+		 ON scheduled_sends(account_id, status, scheduled_for)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (38)`,
 	}
 	for _, m := range migrations {
 		if _, err := tx.Exec(m); err != nil {

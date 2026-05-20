@@ -198,6 +198,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/compose/source", h.handleComposeSource)
 	mux.HandleFunc("GET /compose/pane", h.handleComposePane)
 	mux.HandleFunc("POST /compose", h.handleCompose)
+	mux.HandleFunc("POST /compose/schedule", h.handleComposeSchedule)
 	mux.HandleFunc("POST /compose/draft", h.handleComposeDraft)
 	mux.HandleFunc("POST /compose/draft/discard", h.handleDiscardComposeDraft)
 	mux.HandleFunc("GET /api/drafts/{id}", h.handleGetDraft)
@@ -2849,38 +2850,56 @@ func (h *Handler) handleComposePane(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
+		writeComposeJSONError(w, http.StatusBadRequest, "invalid form data")
 		return
 	}
 
 	ctx := r.Context()
+	saved, composeErr := h.saveComposeDraftFromForm(ctx, r)
+	if composeErr != nil {
+		writeComposeJSONError(w, composeErr.status, composeErr.message)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "draft_id": saved.DraftID})
+}
+
+type composeRequestError struct {
+	status  int
+	message string
+}
+
+type composeDraftSaveResult struct {
+	AccountID     string
+	DraftID       string
+	MessageID     int64
+	DraftFolderID string
+}
+
+func writeComposeJSONError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request) (composeDraftSaveResult, *composeRequestError) {
 	accountID := r.FormValue("account_id")
 	if accountID == "" {
 		accountID = h.accountStore.GetFirstAccountID(ctx, h.userID(ctx))
 	}
 	if accountID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "no account configured"})
-		return
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: "no account configured"}
 	}
 
 	account, err := h.accountStore.GetAccountByID(ctx, accountID)
 	if err != nil || account == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "account not found"})
-		return
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "account not found"}
 	}
 
 	draftFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
 	if err != nil || draftFolderID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "drafts folder not available"})
-		return
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: "drafts folder not available"}
 	}
 
 	draftID := strings.TrimSpace(r.FormValue("draft_id"))
@@ -2896,10 +2915,7 @@ func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 	snippet := sentSnippet(body, subject)
 	outgoingAttachments, attachmentRows := h.collectComposeAttachments(r)
 	if err := validateComposeMessageSize(outgoingAttachments, body, htmlBody); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: err.Error()}
 	}
 
 	msgID, err := h.db.SaveDraftMessage(ctx, storage.DraftMessageInput{
@@ -2918,10 +2934,7 @@ func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 		Date:              time.Now().UTC(),
 	})
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save draft"})
-		return
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save draft"}
 	}
 
 	var textPath, htmlPath string
@@ -2939,8 +2952,7 @@ func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 	_ = h.db.ReplaceAttachments(ctx, msgID, attachmentRows)
 	h.publishMutation(accountID, draftFolderID)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "draft_id": draftID})
+	return composeDraftSaveResult{AccountID: accountID, DraftID: draftID, MessageID: msgID, DraftFolderID: draftFolderID}, nil
 }
 
 func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Request) {
@@ -3249,9 +3261,7 @@ func contactsToAddressList(contacts []models.Contact) string {
 
 func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
+		writeComposeJSONError(w, http.StatusBadRequest, "invalid form data")
 		return
 	}
 
@@ -3261,58 +3271,26 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 		accountID = h.accountStore.GetFirstAccountID(ctx, h.userID(ctx))
 	}
 	if accountID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "no account configured"})
+		writeComposeJSONError(w, http.StatusBadRequest, "no account configured")
 		return
-	}
-
-	cfg, err := h.accountStore.GetConfig(ctx, accountID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "account not found"})
-		return
-	}
-
-	password, err := h.resolvePassword(ctx, cfg, accountID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get credentials"})
-		return
-	}
-
-	smtpPassword := password
-	if cfg.SmtpUsername != "" {
-		smtpPw, err := h.accountStore.DecryptSmtpPassword(ctx, accountID)
-		if err == nil && smtpPw != "" {
-			smtpPassword = smtpPw
-		}
 	}
 
 	account, err := h.accountStore.GetAccountByID(ctx, accountID)
 	if err != nil || account == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "account not found"})
+		writeComposeJSONError(w, http.StatusNotFound, "account not found")
 		return
 	}
 
 	toAddrs, err := message.ParseAddressList(r.FormValue("to"))
 	if err != nil || len(toAddrs) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Please enter at least one recipient."})
+		writeComposeJSONError(w, http.StatusBadRequest, "Please enter at least one recipient.")
 		return
 	}
 	ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
 	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
 	attachments, _ := h.collectComposeAttachments(r)
 	if err := validateComposeMessageSize(attachments, r.FormValue("body"), r.FormValue("html_body")); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeComposeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -3346,34 +3324,16 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	draftID := strings.TrimSpace(r.FormValue("draft_id"))
 
 	go func() {
-		result, sendErr := smtpclient.SendMessage(context.Background(), cfg, smtpPassword, msg)
+		status, sendErr := h.sendOutgoingMessage(context.Background(), accountID, msg, draftID)
 
 		evt := mail.Event{
 			Type:      mail.EventSendResult,
 			AccountID: accountID,
 		}
 
-		if sendErr != nil {
-			evt.Status = "failed"
-			evt.Error = sendErr.Error()
-		} else {
-			switch result {
-			case models.SendSuccess:
-				h.saveSentMessage(context.Background(), accountID, msg)
-				h.deleteComposeAttachmentPaths(outgoingAttachmentPaths(msg.Attachments))
-				if draftID != "" {
-					if folderID, err := h.db.DeleteDraftMessage(context.Background(), accountID, draftID); err == nil && folderID != "" {
-						h.publishMutation(accountID, folderID)
-					}
-				}
-				evt.Status = "sent"
-			case models.SendAmbiguous:
-				evt.Status = "ambiguous"
-				evt.Error = "Send status unknown. The message may have been sent."
-			default:
-				evt.Status = "failed"
-				evt.Error = "Failed to send message."
-			}
+		evt.Status = status
+		if sendErr != "" {
+			evt.Error = sendErr
 		}
 
 		h.syncer.Events().Publish(evt)
@@ -3382,6 +3342,226 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "sending"})
+}
+
+func (h *Handler) sendOutgoingMessage(ctx context.Context, accountID string, msg *message.OutgoingMessage, draftID string) (string, string) {
+	cfg, err := h.accountStore.GetConfig(ctx, accountID)
+	if err != nil {
+		return "failed", "account not found"
+	}
+
+	password, err := h.resolvePassword(ctx, cfg, accountID)
+	if err != nil {
+		return "failed", "failed to get credentials"
+	}
+
+	smtpPassword := password
+	if cfg.SmtpUsername != "" {
+		smtpPw, err := h.accountStore.DecryptSmtpPassword(ctx, accountID)
+		if err == nil && smtpPw != "" {
+			smtpPassword = smtpPw
+		}
+	}
+
+	result, err := smtpclient.SendMessage(ctx, cfg, smtpPassword, msg)
+	if err != nil {
+		return "failed", err.Error()
+	}
+
+	switch result {
+	case models.SendSuccess:
+		h.saveSentMessage(ctx, accountID, msg)
+		if draftID != "" {
+			if folderID, err := h.db.DeleteDraftMessage(ctx, accountID, draftID); err == nil && folderID != "" {
+				h.publishMutation(accountID, folderID)
+			}
+		}
+		return "sent", ""
+	case models.SendAmbiguous:
+		return "ambiguous", "Send status unknown. The message may have been sent."
+	default:
+		return "failed", "Failed to send message."
+	}
+}
+
+func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeComposeJSONError(w, http.StatusBadRequest, "invalid form data")
+		return
+	}
+
+	scheduledFor, err := parseScheduledSendTime(r.FormValue("scheduled_for"))
+	if err != nil {
+		writeComposeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !scheduledFor.After(time.Now().Add(30 * time.Second)) {
+		writeComposeJSONError(w, http.StatusBadRequest, "Choose a time at least 1 minute in the future.")
+		return
+	}
+
+	if toAddrs, err := message.ParseAddressList(r.FormValue("to")); err != nil || len(toAddrs) == 0 {
+		writeComposeJSONError(w, http.StatusBadRequest, "Please enter at least one recipient.")
+		return
+	}
+
+	saved, composeErr := h.saveComposeDraftFromForm(r.Context(), r)
+	if composeErr != nil {
+		writeComposeJSONError(w, composeErr.status, composeErr.message)
+		return
+	}
+
+	scheduled, err := h.db.UpsertScheduledSend(r.Context(), saved.AccountID, saved.MessageID, scheduledFor)
+	if err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to schedule message")
+		return
+	}
+	h.publishMutation(saved.AccountID, "scheduled")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":        "scheduled",
+		"draft_id":      saved.DraftID,
+		"scheduled_for": scheduled.ScheduledFor.Format(time.RFC3339),
+	})
+}
+
+func parseScheduledSendTime(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, fmt.Errorf("Choose when to send this message.")
+	}
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t.UTC(), nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.UTC(), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04", raw, time.Local); err == nil {
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("Use a valid schedule time.")
+}
+
+func (h *Handler) StartScheduledSendWorker(ctx context.Context) {
+	go func() {
+		if err := h.db.ResetStaleScheduledSends(ctx, time.Now().Add(-15*time.Minute)); err != nil {
+			log.Printf("scheduled-send: reset stale sends: %v", err)
+		}
+		h.runDueScheduledSends(ctx)
+
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				h.runDueScheduledSends(ctx)
+			}
+		}
+	}()
+}
+
+func (h *Handler) runDueScheduledSends(ctx context.Context) {
+	sends, err := h.db.ClaimDueScheduledSends(ctx, time.Now(), 5)
+	if err != nil {
+		log.Printf("scheduled-send: claim due sends: %v", err)
+		return
+	}
+	for _, scheduled := range sends {
+		if err := h.sendScheduledMessage(ctx, scheduled); err != nil {
+			log.Printf("scheduled-send: send %s: %v", scheduled.ID, err)
+		}
+	}
+}
+
+func (h *Handler) sendScheduledMessage(ctx context.Context, scheduled storage.ScheduledSend) error {
+	email, err := h.db.GetEmailByID(ctx, strconv.FormatInt(scheduled.MessageID, 10))
+	if err != nil {
+		_ = h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storage.ScheduledSendFailed, err.Error())
+		return err
+	}
+	if email == nil || !email.IsDraft {
+		msg := "scheduled draft no longer exists"
+		_ = h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storage.ScheduledSendFailed, msg)
+		return errors.New(msg)
+	}
+
+	toAddrs, err := message.ParseAddressList(contactsToAddressList(email.To))
+	if err != nil || len(toAddrs) == 0 {
+		msg := "scheduled draft has no valid recipients"
+		_ = h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storage.ScheduledSendFailed, msg)
+		return errors.New(msg)
+	}
+	ccAddrs, _ := message.ParseAddressList(contactsToAddressList(email.CC))
+	bccAddrs, _ := message.ParseAddressList(contactsToAddressList(email.BCC))
+	body := email.TextBody
+	htmlBody := strings.TrimSpace(email.HTMLBody)
+	if htmlBody != "" {
+		if !strings.Contains(strings.ToLower(htmlBody), "<html") {
+			htmlBody = "<html><body>" + htmlBody + "</body></html>"
+		}
+	} else if body != "" {
+		htmlBody = "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(body) + "</pre></body></html>"
+	}
+	inReplyTo, references := h.validComposeThreadHeaders(ctx, email.AccountID, email.Subject, email.InReplyTo, email.References)
+	fromName := email.From.Name
+	fromEmail := email.From.Email
+	if account, err := h.accountStore.GetAccountByID(ctx, email.AccountID); err == nil && account != nil {
+		fromName = account.Name
+		fromEmail = account.Email
+	}
+
+	msg := &message.OutgoingMessage{
+		FromName:    fromName,
+		FromEmail:   fromEmail,
+		To:          toAddrs,
+		CC:          ccAddrs,
+		Bcc:         bccAddrs,
+		Subject:     email.Subject,
+		TextBody:    body,
+		HTMLBody:    htmlBody,
+		InReplyTo:   inReplyTo,
+		References:  references,
+		MessageID:   message.NewMessageID(),
+		Date:        time.Now().UTC(),
+		Attachments: outgoingAttachmentsFromStored(email.Attachments),
+	}
+
+	status, errText := h.sendOutgoingMessage(ctx, email.AccountID, msg, email.InternetMessageID)
+	if status == "sent" {
+		if err := h.db.CompleteScheduledSend(ctx, scheduled.ID, msg.MessageID); err != nil {
+			return err
+		}
+	} else {
+		storageStatus := storage.ScheduledSendFailed
+		if status == "ambiguous" {
+			storageStatus = storage.ScheduledSendAmbiguous
+		}
+		if err := h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storageStatus, errText); err != nil {
+			return err
+		}
+	}
+
+	h.publishMutation(email.AccountID, "scheduled")
+	h.syncer.Events().Publish(mail.Event{Type: mail.EventSendResult, AccountID: email.AccountID, Status: status, Error: errText})
+	return nil
+}
+
+func outgoingAttachmentsFromStored(atts []models.Attachment) []message.OutgoingAttachment {
+	out := make([]message.OutgoingAttachment, 0, len(atts))
+	for _, att := range atts {
+		out = append(out, message.OutgoingAttachment{
+			Filename:    att.Filename,
+			ContentType: att.ContentType,
+			Path:        att.StoragePath,
+			Size:        att.SizeBytes,
+			ContentID:   att.ContentID,
+			Inline:      att.Inline,
+		})
+	}
+	return out
 }
 
 func (h *Handler) saveSentMessage(ctx context.Context, accountID string, msg *message.OutgoingMessage) {

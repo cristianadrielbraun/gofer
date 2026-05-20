@@ -9,11 +9,15 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"fmt"
+
+	"github.com/cristianadrielbraun/gofer/components/calendar"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -225,7 +229,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultAccountID(accounts))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 51, Col: 108}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 55, Col: 108}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -266,7 +270,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 						var templ_7745c5c3_Var13 string
 						templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultName(accounts))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 62, Col: 71}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 66, Col: 71}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 						if templ_7745c5c3_Err != nil {
@@ -279,7 +283,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 						var templ_7745c5c3_Var14 string
 						templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultEmail(accounts))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 62, Col: 109}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 66, Col: 109}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 						if templ_7745c5c3_Err != nil {
@@ -339,7 +343,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 								var templ_7745c5c3_Var17 string
 								templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(acc.Name)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 76, Col: 42}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 80, Col: 42}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 								if templ_7745c5c3_Err != nil {
@@ -352,7 +356,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 								var templ_7745c5c3_Var18 string
 								templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(acc.Email)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 76, Col: 60}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 80, Col: 60}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 								if templ_7745c5c3_Err != nil {
@@ -464,7 +468,15 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</span> <span data-compose-draft-label>Save Draft</span></button></div><button type=\"button\" class=\"btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg\" id=\"compose-send-btn\" onclick=\"sendCompose()\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</span> <span data-compose-draft-label>Save Draft</span></button></div><div class=\"flex items-center gap-2\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = ComposeSchedulePopover(false, "inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors").Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<button type=\"button\" class=\"btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg\" id=\"compose-send-btn\" onclick=\"sendCompose()\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -472,7 +484,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "Send</button></div>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "Send</button></div></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -524,7 +536,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<span></span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<span></span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -534,7 +546,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -574,7 +586,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "Close compose? ")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "Close compose? ")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -584,7 +596,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, " ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, " ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -600,7 +612,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "Keep this message as a draft, discard it permanently, or continue editing. ")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "Keep this message as a draft, discard it permanently, or continue editing. ")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -616,7 +628,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -632,7 +644,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<button type=\"button\" data-compose-close-action=\"cancel\" class=\"rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground\">Cancel</button> <button type=\"button\" data-compose-close-action=\"discard\" class=\"rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground\">Exit and discard</button> <button type=\"button\" data-compose-close-action=\"keep\" class=\"rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90\">Exit and keep draft</button>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<button type=\"button\" data-compose-close-action=\"cancel\" class=\"rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground\">Cancel</button> <button type=\"button\" data-compose-close-action=\"discard\" class=\"rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground\">Exit and discard</button> <button type=\"button\" data-compose-close-action=\"keep\" class=\"rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90\">Exit and keep draft</button>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -679,7 +691,7 @@ func ComposeToolbar() templ.Component {
 			templ_7745c5c3_Var27 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<div class=\"flex items-center gap-0.5 border-t border-b py-1 -mx-1\" data-compose-toolbar>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<div class=\"flex items-center gap-0.5 border-t border-b py-1 -mx-1\" data-compose-toolbar>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -707,7 +719,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"bold\" onclick=\"composeExec(this, 'bold')\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"bold\" onclick=\"composeExec(this, 'bold')\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -715,7 +727,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -725,7 +737,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -741,7 +753,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "Bold")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "Bold")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -784,7 +796,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"italic\" onclick=\"composeExec(this, 'italic')\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"italic\" onclick=\"composeExec(this, 'italic')\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -792,7 +804,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -802,7 +814,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -818,7 +830,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "Italic")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "Italic")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -861,7 +873,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"underline\" onclick=\"composeExec(this, 'underline')\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"underline\" onclick=\"composeExec(this, 'underline')\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -869,7 +881,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -879,7 +891,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -895,7 +907,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "Underline")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "Underline")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -938,7 +950,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"strikeThrough\" onclick=\"composeExec(this, 'strikeThrough')\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"strikeThrough\" onclick=\"composeExec(this, 'strikeThrough')\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -946,7 +958,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -956,7 +968,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -972,7 +984,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "Strikethrough")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "Strikethrough")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -991,7 +1003,7 @@ func ComposeToolbar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<div class=\"w-px h-4 bg-border mx-0.5\"></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "<div class=\"w-px h-4 bg-border mx-0.5\"></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1019,7 +1031,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"insertUnorderedList\" onclick=\"composeExec(this, 'insertUnorderedList')\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"insertUnorderedList\" onclick=\"composeExec(this, 'insertUnorderedList')\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1027,7 +1039,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1037,7 +1049,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1053,7 +1065,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "Bullet list")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "Bullet list")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1096,7 +1108,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"insertOrderedList\" onclick=\"composeExec(this, 'insertOrderedList')\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" data-compose-command=\"insertOrderedList\" onclick=\"composeExec(this, 'insertOrderedList')\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1104,7 +1116,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1114,7 +1126,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1130,7 +1142,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "Numbered list")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "Numbered list")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1149,7 +1161,7 @@ func ComposeToolbar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "<div class=\"w-px h-4 bg-border mx-0.5\"></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<div class=\"w-px h-4 bg-border mx-0.5\"></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1177,7 +1189,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"triggerComposeAttachmentUpload(this)\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"triggerComposeAttachmentUpload(this)\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1185,7 +1197,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1195,7 +1207,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1211,7 +1223,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "Attach file (max 25 MB each, 35 MB total)")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "Attach file (max 25 MB each, 35 MB total)")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1254,7 +1266,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"triggerComposeInlineImageUpload(this)\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"triggerComposeInlineImageUpload(this)\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1262,7 +1274,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1272,7 +1284,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1288,7 +1300,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "Insert image")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "Insert image")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1331,7 +1343,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"composeCreateLink(this)\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"composeCreateLink(this)\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1339,7 +1351,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1349,7 +1361,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1365,7 +1377,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "Insert link")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "Insert link")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1408,7 +1420,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"showComposeSignaturePicker(this)\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\" onclick=\"showComposeSignaturePicker(this)\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1416,7 +1428,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1426,7 +1438,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1442,7 +1454,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "Insert signature")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "Insert signature")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1461,7 +1473,7 @@ func ComposeToolbar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<div class=\"w-px h-4 bg-border mx-0.5\"></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<div class=\"w-px h-4 bg-border mx-0.5\"></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1489,7 +1501,7 @@ func ComposeToolbar() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "<button type=\"button\" class=\"flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1497,7 +1509,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1507,7 +1519,7 @@ func ComposeToolbar() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1535,7 +1547,7 @@ func ComposeToolbar() templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<span class=\"flex items-center gap-2\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<span class=\"flex items-center gap-2\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1543,7 +1555,7 @@ func ComposeToolbar() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "Schedule send</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "Schedule send</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1553,7 +1565,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1569,7 +1581,7 @@ func ComposeToolbar() templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "<span class=\"flex items-center gap-2\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "<span class=\"flex items-center gap-2\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1577,7 +1589,7 @@ func ComposeToolbar() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "Insert quote</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "Insert quote</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1587,7 +1599,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1603,7 +1615,7 @@ func ComposeToolbar() templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "<span class=\"flex items-center gap-2\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "<span class=\"flex items-center gap-2\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1611,7 +1623,7 @@ func ComposeToolbar() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "Insert code</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "Insert code</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1621,7 +1633,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1629,7 +1641,7 @@ func ComposeToolbar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1645,7 +1657,7 @@ func ComposeToolbar() templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "<span class=\"flex items-center gap-2\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "<span class=\"flex items-center gap-2\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1653,7 +1665,7 @@ func ComposeToolbar() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "Save as draft</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 95, "Save as draft</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1675,7 +1687,7 @@ func ComposeToolbar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 95, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1704,7 +1716,7 @@ func ComposeRichEditor() templ.Component {
 			templ_7745c5c3_Var65 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<div class=\"flex-1 min-h-0 overflow-y-auto rounded-md border border-border/60 bg-background/40\"><textarea name=\"body\" class=\"hidden\" data-compose-plain></textarea> <textarea name=\"html_body\" class=\"hidden\" data-compose-html></textarea><div class=\"compose-rich-editor min-h-[190px] h-full px-3 py-2 text-sm leading-6 outline-none\" contenteditable=\"true\" role=\"textbox\" aria-label=\"Message body\" data-compose-editor data-placeholder=\"Write your message...\" oninput=\"composeChanged(this)\" onkeyup=\"updateComposeToolbar(this)\" onmouseup=\"updateComposeToolbar(this)\" onfocus=\"setActiveComposeEditor(this)\" onpaste=\"handleComposePaste(event)\"></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 97, "<div class=\"flex-1 min-h-0 overflow-y-auto rounded-md border border-border/60 bg-background/40\"><textarea name=\"body\" class=\"hidden\" data-compose-plain></textarea> <textarea name=\"html_body\" class=\"hidden\" data-compose-html></textarea><div class=\"compose-rich-editor min-h-[190px] h-full px-3 py-2 text-sm leading-6 outline-none\" contenteditable=\"true\" role=\"textbox\" aria-label=\"Message body\" data-compose-editor data-placeholder=\"Write your message...\" oninput=\"composeChanged(this)\" onkeyup=\"updateComposeToolbar(this)\" onmouseup=\"updateComposeToolbar(this)\" onfocus=\"setActiveComposeEditor(this)\" onpaste=\"handleComposePaste(event)\"></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1733,7 +1745,443 @@ func ComposeAttachments() templ.Component {
 			templ_7745c5c3_Var66 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 97, "<div class=\"hidden rounded-md border border-border/60 bg-background/40 p-2\" data-compose-attachments><input type=\"file\" multiple class=\"hidden\" data-compose-attachment-input onchange=\"uploadComposeAttachments(this.files, this)\"> <input type=\"file\" accept=\"image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/bmp,image/x-icon\" class=\"hidden\" data-compose-inline-input onchange=\"uploadComposeInlineImages(this.files, this)\"><div class=\"mb-2 flex items-center justify-between gap-2 text-[11px] font-medium text-muted-foreground/70\" data-compose-attachment-header><span data-compose-attachment-summary>Max 25 MB per file, 35 MB total</span> <button type=\"button\" class=\"rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground\" onclick=\"toggleComposeAttachments(this)\" data-compose-attachment-toggle>Hide</button></div><div class=\"flex flex-wrap gap-2\" data-compose-attachment-list></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<div class=\"hidden rounded-md border border-border/60 bg-background/40 p-2\" data-compose-attachments><input type=\"file\" multiple class=\"hidden\" data-compose-attachment-input onchange=\"uploadComposeAttachments(this.files, this)\"> <input type=\"file\" accept=\"image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/bmp,image/x-icon\" class=\"hidden\" data-compose-inline-input onchange=\"uploadComposeInlineImages(this.files, this)\"><div class=\"mb-2 flex items-center justify-between gap-2 text-[11px] font-medium text-muted-foreground/70\" data-compose-attachment-header><span data-compose-attachment-summary>Max 25 MB per file, 35 MB total</span> <button type=\"button\" class=\"rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground\" onclick=\"toggleComposeAttachments(this)\" data-compose-attachment-toggle>Hide</button></div><div class=\"flex flex-wrap gap-2\" data-compose-attachment-list></div></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+func ComposeSchedulePopover(fromPane bool, buttonClass string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var67 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var67 == nil {
+			templ_7745c5c3_Var67 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		suffix := ""
+		if fromPane {
+			suffix = "pane-"
+		}
+		templ_7745c5c3_Var68 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Var69 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				if fromPane {
+					var templ_7745c5c3_Var70 = []any{buttonClass}
+					templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var70...)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "<button type=\"button\" onclick=\"return prepareComposeSchedule(this, true)\" class=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var71 string
+					templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var70).String())
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 1, Col: 0}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "\" title=\"Schedule send\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = icon.CalendarClock(icon.Props{Class: "size-3.5"}).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "Send later</button>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					var templ_7745c5c3_Var72 = []any{buttonClass}
+					templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var72...)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "<button type=\"button\" onclick=\"return prepareComposeSchedule(this, false)\" class=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var73 string
+					templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var72).String())
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 1, Col: 0}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 103, "\" title=\"Schedule send\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = icon.CalendarClock(icon.Props{Class: "size-3.5"}).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "Send later</button>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = popover.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var69), templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, " ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Var74 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "<div data-compose-schedule-panel")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if fromPane {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, " data-compose-schedule-pane")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "><div class=\"mb-2 flex items-center justify-between gap-3\"><div><div class=\"text-sm font-semibold text-popover-foreground\">Schedule send</div><p class=\"text-[11px] text-muted-foreground\">Pick a date and local time.</p></div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = icon.CalendarClock(icon.Props{Class: "size-4 text-muted-foreground"}).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "</div><div class=\"inline-flex rounded-lg border border-border/70 bg-background/35 p-2\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = calendar.Calendar(calendar.Props{ID: "compose-" + suffix + "schedule-calendar", Name: "compose_" + suffix + "schedule_date", Class: "[--cell-size:1.75rem]", HideHiddenInput: false}).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "</div><label class=\"mt-3 block text-xs font-medium text-muted-foreground\" for=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var75 string
+				templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs("compose-" + suffix + "schedule-hour")
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 397, Col: 115}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "\">Send time</label><div class=\"mt-1 flex items-center gap-2\"><div class=\"flex shrink-0 items-center gap-1.5\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Var76 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Var77 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Err = selectbox.Value(selectbox.ValueProps{Placeholder: "HH", Class: "font-mono text-sm tabular-nums"}).Render(ctx, templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = selectbox.Trigger(selectbox.TriggerProps{DisableClear: true, Class: "h-9 px-2 font-mono text-sm tabular-nums"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var77), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Var78 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Var79 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+							if !templ_7745c5c3_IsBuffer {
+								defer func() {
+									templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+									if templ_7745c5c3_Err == nil {
+										templ_7745c5c3_Err = templ_7745c5c3_BufErr
+									}
+								}()
+							}
+							ctx = templ.InitializeContext(ctx)
+							for hour := 0; hour < 24; hour++ {
+								value := fmt.Sprintf("%02d", hour)
+								templ_7745c5c3_Var80 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+									templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+									templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+									if !templ_7745c5c3_IsBuffer {
+										defer func() {
+											templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+											if templ_7745c5c3_Err == nil {
+												templ_7745c5c3_Err = templ_7745c5c3_BufErr
+											}
+										}()
+									}
+									ctx = templ.InitializeContext(ctx)
+									var templ_7745c5c3_Var81 string
+									templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(value)
+									if templ_7745c5c3_Err != nil {
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 409, Col: 18}
+									}
+									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
+									if templ_7745c5c3_Err != nil {
+										return templ_7745c5c3_Err
+									}
+									return nil
+								})
+								templ_7745c5c3_Err = selectbox.Item(selectbox.ItemProps{Value: value, Class: "font-mono text-sm tabular-nums"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var80), templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err != nil {
+									return templ_7745c5c3_Err
+								}
+							}
+							return nil
+						})
+						templ_7745c5c3_Err = selectbox.Group().Render(templ.WithChildren(ctx, templ_7745c5c3_Var79), templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "[&>div>div]:max-h-52"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var78), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = selectbox.SelectBox(selectbox.Props{ID: "compose-" + suffix + "schedule-hour", Class: "w-[4.25rem]", Attributes: templ.Attributes{"data-compose-schedule-hour": ""}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var76), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "<span class=\"text-sm font-semibold text-muted-foreground\">:</span>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Var82 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Var83 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Err = selectbox.Value(selectbox.ValueProps{Placeholder: "MM", Class: "font-mono text-sm tabular-nums"}).Render(ctx, templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = selectbox.Trigger(selectbox.TriggerProps{DisableClear: true, Class: "h-9 px-2 font-mono text-sm tabular-nums"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var83), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 114, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Var84 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Var85 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+							if !templ_7745c5c3_IsBuffer {
+								defer func() {
+									templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+									if templ_7745c5c3_Err == nil {
+										templ_7745c5c3_Err = templ_7745c5c3_BufErr
+									}
+								}()
+							}
+							ctx = templ.InitializeContext(ctx)
+							for minute := 0; minute < 60; minute += 5 {
+								value := fmt.Sprintf("%02d", minute)
+								templ_7745c5c3_Var86 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+									templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+									templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+									if !templ_7745c5c3_IsBuffer {
+										defer func() {
+											templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+											if templ_7745c5c3_Err == nil {
+												templ_7745c5c3_Err = templ_7745c5c3_BufErr
+											}
+										}()
+									}
+									ctx = templ.InitializeContext(ctx)
+									var templ_7745c5c3_Var87 string
+									templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(value)
+									if templ_7745c5c3_Err != nil {
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 425, Col: 18}
+									}
+									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
+									if templ_7745c5c3_Err != nil {
+										return templ_7745c5c3_Err
+									}
+									return nil
+								})
+								templ_7745c5c3_Err = selectbox.Item(selectbox.ItemProps{Value: value, Class: "font-mono text-sm tabular-nums"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var86), templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err != nil {
+									return templ_7745c5c3_Err
+								}
+							}
+							return nil
+						})
+						templ_7745c5c3_Err = selectbox.Group().Render(templ.WithChildren(ctx, templ_7745c5c3_Var85), templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "[&>div>div]:max-h-52"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var84), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = selectbox.SelectBox(selectbox.Props{ID: "compose-" + suffix + "schedule-minute", Class: "w-[4.25rem]", Attributes: templ.Attributes{"data-compose-schedule-minute": ""}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var82), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "</div><div class=\"flex h-9 min-w-0 flex-1 items-center justify-end text-xs font-medium text-muted-foreground\" title=\"Local timezone\"><span class=\"truncate\" data-compose-schedule-timezone>UTC</span></div></div><div class=\"mt-3 flex items-center justify-end gap-2\"><button type=\"button\" class=\"rounded-md px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground\" onclick=\"closeComposeSchedulePopover(this)\">Cancel</button> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if fromPane {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "<button type=\"button\" class=\"btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold\" onclick=\"scheduleCompose(true, this)\">Schedule</button>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<button type=\"button\" class=\"btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold\" onclick=\"scheduleCompose(false, this)\">Schedule</button>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "</div></div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementTopEnd, Offset: 10, Class: "w-[16.5rem] max-w-[calc(100vw-1.5rem)] p-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var74), templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = popover.Root(popover.RootProps{Class: "inline-flex"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var68), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1757,64 +2205,64 @@ func ComposeField(label string, name string, placeholder string) templ.Component
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var67 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var67 == nil {
-			templ_7745c5c3_Var67 = templ.NopComponent
+		templ_7745c5c3_Var88 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var88 == nil {
+			templ_7745c5c3_Var88 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<div class=\"flex items-center gap-2\"><label class=\"text-xs text-muted-foreground font-medium w-8 shrink-0\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "<div class=\"flex items-center gap-2\"><label class=\"text-xs text-muted-foreground font-medium w-8 shrink-0\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var68 string
-		templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+		var templ_7745c5c3_Var89 string
+		templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 361, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 451, Col: 79}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</label> <input type=\"hidden\" name=\"")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var69 string
-		templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(name)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 362, Col: 34}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</label> <input type=\"hidden\" name=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "\" data-compose-recipient-value><div class=\"compose-recipient-field relative min-h-9 flex flex-1 items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm\" data-compose-recipient-field data-recipient-name=\"")
+		var templ_7745c5c3_Var90 string
+		templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(name)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 452, Col: 34}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var70 string
-		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(name)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 363, Col: 182}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 121, "\" data-compose-recipient-value><div class=\"compose-recipient-field relative min-h-9 flex flex-1 items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm\" data-compose-recipient-field data-recipient-name=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "\" onclick=\"focusComposeRecipientField(this)\"><span class=\"min-w-24 flex-1 outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/45\" contenteditable=\"true\" role=\"textbox\" data-compose-recipient-input data-placeholder=\"")
+		var templ_7745c5c3_Var91 string
+		templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(name)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 453, Col: 182}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var71 string
-		templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(placeholder)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 364, Col: 227}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "\" onclick=\"focusComposeRecipientField(this)\"><span class=\"min-w-24 flex-1 outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/45\" contenteditable=\"true\" role=\"textbox\" data-compose-recipient-input data-placeholder=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "\" onkeydown=\"handleComposeRecipientKeydown(event)\" oninput=\"handleComposeRecipientInput(this)\" onblur=\"finalizeComposeRecipientInput(this)\"></span></div></div>")
+		var templ_7745c5c3_Var92 string
+		templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(placeholder)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 454, Col: 227}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "\" onkeydown=\"handleComposeRecipientKeydown(event)\" oninput=\"handleComposeRecipientInput(this)\" onblur=\"finalizeComposeRecipientInput(this)\"></span></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1838,16 +2286,16 @@ func ComposePane(accounts []models.Account) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var72 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var72 == nil {
-			templ_7745c5c3_Var72 = templ.NopComponent
+		templ_7745c5c3_Var93 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var93 == nil {
+			templ_7745c5c3_Var93 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 103, "<div class=\"flex flex-col h-full p-2\" data-compose-pane><div class=\"surface-paper rounded-md flex flex-col h-full overflow-hidden\"><div class=\"flex items-center justify-between px-6 py-2.5\"><div class=\"flex items-center gap-2\"><h2 class=\"font-semibold text-sm\">New Message</h2></div><div class=\"flex items-center gap-1\" id=\"compose-pane-size-buttons\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 124, "<div class=\"flex flex-col h-full p-2\" data-compose-pane><div class=\"surface-paper rounded-md flex flex-col h-full overflow-hidden\"><div class=\"flex items-center justify-between px-6 py-2.5\"><div class=\"flex items-center gap-2\"><h2 class=\"font-semibold text-sm\">New Message</h2></div><div class=\"flex items-center gap-1\" id=\"compose-pane-size-buttons\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var73 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var94 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1859,7 +2307,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var74 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var95 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -1871,7 +2319,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "<button type=\"button\" onclick=\"discardComposePane(this)\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-destructive hover:bg-destructive/5 transition-colors\" aria-label=\"Discard draft\" title=\"Discard draft\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 125, "<button type=\"button\" onclick=\"discardComposePane(this)\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-destructive hover:bg-destructive/5 transition-colors\" aria-label=\"Discard draft\" title=\"Discard draft\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1879,21 +2327,21 @@ func ComposePane(accounts []models.Account) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 126, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = popover.Trigger(popover.TriggerProps{TriggerType: popover.TriggerTypeManual}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var74), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = popover.Trigger(popover.TriggerProps{TriggerType: popover.TriggerTypeManual}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var95), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 127, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var75 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var96 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -1905,23 +2353,23 @@ func ComposePane(accounts []models.Account) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "<div class=\"compose-close-choice\" data-compose-close-choice><h2>Close compose?</h2><p>Keep this message as a draft, discard it permanently, or continue editing.</p><div class=\"compose-close-choice-actions compose-close-choice-actions-nowrap\"><button type=\"button\" class=\"compose-close-choice-primary\" data-compose-close-action=\"keep\">Exit and keep draft</button> <button type=\"button\" data-compose-close-action=\"discard\">Exit and discard</button> <button type=\"button\" data-compose-close-action=\"cancel\">Cancel</button></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 128, "<div class=\"compose-close-choice\" data-compose-close-choice><h2>Close compose?</h2><p>Keep this message as a draft, discard it permanently, or continue editing.</p><div class=\"compose-close-choice-actions compose-close-choice-actions-nowrap\"><button type=\"button\" class=\"compose-close-choice-primary\" data-compose-close-action=\"keep\">Exit and keep draft</button> <button type=\"button\" data-compose-close-action=\"discard\">Exit and discard</button> <button type=\"button\" data-compose-close-action=\"cancel\">Cancel</button></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-[28rem] p-4"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var75), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-[28rem] p-4"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var96), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: "compose-pane-close-choice-popover"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var73), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: "compose-pane-close-choice-popover"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var94), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "<span id=\"pane-btns-normal\" class=\"flex items-center gap-1\"><button type=\"button\" onclick=\"expandComposeFullWidth()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Full width\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 129, "<span id=\"pane-btns-normal\" class=\"flex items-center gap-1\"><button type=\"button\" onclick=\"expandComposeFullWidth()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Full width\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1929,7 +2377,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "</button> <button type=\"button\" onclick=\"collapseToDialog()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Compose in dialog\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "</button> <button type=\"button\" onclick=\"collapseToDialog()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Compose in dialog\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1937,7 +2385,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "</button></span> <span id=\"pane-btns-full\" class=\"flex items-center gap-1\" style=\"display:none\"><button type=\"button\" onclick=\"collapseComposeFullWidth()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Normal width\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 131, "</button></span> <span id=\"pane-btns-full\" class=\"flex items-center gap-1\" style=\"display:none\"><button type=\"button\" onclick=\"collapseComposeFullWidth()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Normal width\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1945,7 +2393,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "</button> <button type=\"button\" onclick=\"collapseToDialog()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Compose in dialog\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 132, "</button> <button type=\"button\" onclick=\"collapseToDialog()\" class=\"flex items-center justify-center size-8 rounded text-ink/40 hover:text-ink/70 hover:bg-ink/5 transition-colors\" title=\"Compose in dialog\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1953,24 +2401,24 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, "</button></span></div></div><div class=\"h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent\"></div><div class=\"flex-1 overflow-y-auto\"><div id=\"compose-pane-content\" class=\"mx-auto flex h-full flex-col px-8 py-4\"><div id=\"compose-pane-form\" class=\"flex flex-1 min-h-0 flex-col gap-3\"><input type=\"hidden\" name=\"account_id\" id=\"compose-pane-account-id\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 133, "</button></span></div></div><div class=\"h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent\"></div><div class=\"flex-1 overflow-y-auto\"><div id=\"compose-pane-content\" class=\"mx-auto flex h-full flex-col px-8 py-4\"><div id=\"compose-pane-form\" class=\"flex flex-1 min-h-0 flex-col gap-3\"><input type=\"hidden\" name=\"account_id\" id=\"compose-pane-account-id\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var76 string
-		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultAccountID(accounts))
+		var templ_7745c5c3_Var97 string
+		templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultAccountID(accounts))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 417, Col: 115}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 507, Col: 115}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "\"> <input type=\"hidden\" name=\"draft_id\" id=\"compose-pane-draft-id\" value=\"\"> <input type=\"hidden\" name=\"compose_mode\" id=\"compose-pane-mode\" value=\"new\"> <input type=\"hidden\" name=\"in_reply_to\" id=\"compose-pane-in-reply-to\" value=\"\"> <input type=\"hidden\" name=\"references\" id=\"compose-pane-references\" value=\"\"><div class=\"space-y-1\"><div class=\"flex items-center gap-2\"><label class=\"text-xs text-muted-foreground font-medium w-8 shrink-0\">From</label>")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var97))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var77 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 134, "\"> <input type=\"hidden\" name=\"draft_id\" id=\"compose-pane-draft-id\" value=\"\"> <input type=\"hidden\" name=\"compose_mode\" id=\"compose-pane-mode\" value=\"new\"> <input type=\"hidden\" name=\"in_reply_to\" id=\"compose-pane-in-reply-to\" value=\"\"> <input type=\"hidden\" name=\"references\" id=\"compose-pane-references\" value=\"\"><div class=\"space-y-1\"><div class=\"flex items-center gap-2\"><label class=\"text-xs text-muted-foreground font-medium w-8 shrink-0\">From</label>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var98 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1982,7 +2430,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var78 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var99 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -1994,33 +2442,33 @@ func ComposePane(accounts []models.Account) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 114, "<button type=\"button\" id=\"compose-pane-from-trigger\" class=\"flex items-center gap-1 text-sm text-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent\"><span id=\"compose-pane-from-display\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 135, "<button type=\"button\" id=\"compose-pane-from-trigger\" class=\"flex items-center gap-1 text-sm text-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent\"><span id=\"compose-pane-from-display\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var79 string
-				templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultName(accounts))
+				var templ_7745c5c3_Var100 string
+				templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultName(accounts))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 428, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 518, Col: 77}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, " &lt;")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var80 string
-				templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultEmail(accounts))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 428, Col: 115}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 136, " &lt;")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "&gt;</span>")
+				var templ_7745c5c3_Var101 string
+				templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(composeDefaultEmail(accounts))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 518, Col: 115}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 137, "&gt;</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2028,21 +2476,21 @@ func ComposePane(accounts []models.Account) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 138, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = dropdown.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var78), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = dropdown.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var99), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 139, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var81 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var102 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -2055,7 +2503,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 				}
 				ctx = templ.InitializeContext(ctx)
 				for _, acc := range accounts {
-					templ_7745c5c3_Var82 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_Var103 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 						if !templ_7745c5c3_IsBuffer {
@@ -2067,33 +2515,33 @@ func ComposePane(accounts []models.Account) templ.Component {
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "<span class=\"text-sm\">")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 140, "<span class=\"text-sm\">")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						var templ_7745c5c3_Var83 string
-						templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(acc.Name)
+						var templ_7745c5c3_Var104 string
+						templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.JoinStringErrs(acc.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 442, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 532, Col: 43}
 						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, " &lt;")
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var104))
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						var templ_7745c5c3_Var84 string
-						templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(acc.Email)
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 442, Col: 61}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 141, " &lt;")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 121, "&gt;</span>")
+						var templ_7745c5c3_Var105 string
+						templ_7745c5c3_Var105, templ_7745c5c3_Err = templ.JoinStringErrs(acc.Email)
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/compose.templ`, Line: 532, Col: 61}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var105))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 142, "&gt;</span>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -2106,24 +2554,24 @@ func ComposePane(accounts []models.Account) templ.Component {
 							"data-account-name":  acc.Name,
 							"onclick":            "selectComposeAccount(this, true)",
 						},
-					}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var82), templ_7745c5c3_Buffer)
+					}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var103), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = dropdown.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var81), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = dropdown.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var102), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dropdown.Dropdown().Render(templ.WithChildren(ctx, templ_7745c5c3_Var77), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dropdown.Dropdown().Render(templ.WithChildren(ctx, templ_7745c5c3_Var98), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 143, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2131,7 +2579,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<div id=\"pane-cc-field\" class=\"hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, "<div id=\"pane-cc-field\" class=\"hidden\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2139,7 +2587,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 124, "</div><div id=\"pane-bcc-field\" class=\"hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, "</div><div id=\"pane-bcc-field\" class=\"hidden\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2147,7 +2595,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 125, "</div><div id=\"pane-cc-bcc-buttons\" class=\"flex items-center gap-2 pt-1\"><button id=\"pane-cc-btn\" type=\"button\" class=\"text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent\" onclick=\"document.getElementById('pane-cc-field').classList.remove('hidden'); document.getElementById('pane-cc-btn').classList.add('hidden')\">Cc</button> <button id=\"pane-bcc-btn\" type=\"button\" class=\"text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent\" onclick=\"document.getElementById('pane-bcc-field').classList.remove('hidden'); document.getElementById('pane-bcc-btn').classList.add('hidden')\">Bcc</button></div></div><div class=\"border-t pt-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "</div><div id=\"pane-cc-bcc-buttons\" class=\"flex items-center gap-2 pt-1\"><button id=\"pane-cc-btn\" type=\"button\" class=\"text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent\" onclick=\"document.getElementById('pane-cc-field').classList.remove('hidden'); document.getElementById('pane-cc-btn').classList.add('hidden')\">Cc</button> <button id=\"pane-bcc-btn\" type=\"button\" class=\"text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent\" onclick=\"document.getElementById('pane-bcc-field').classList.remove('hidden'); document.getElementById('pane-bcc-btn').classList.add('hidden')\">Bcc</button></div></div><div class=\"border-t pt-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2159,7 +2607,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 126, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2175,7 +2623,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 127, "</div></div></div><div class=\"px-6 py-3 border-t border-ink/6\"><div class=\"flex items-center justify-between\"><div class=\"flex items-center gap-2 min-w-0\"><button type=\"button\" onclick=\"saveComposeDraft(true, false)\" class=\"inline-flex min-w-28 items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent\" data-compose-draft-button data-compose-draft-state=\"default\"><span class=\"inline-flex transition-transform duration-200\" data-compose-draft-icon>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 148, "</div></div></div><div class=\"px-6 py-3 border-t border-ink/6\"><div class=\"flex items-center justify-between\"><div class=\"flex items-center gap-2 min-w-0\"><button type=\"button\" onclick=\"saveComposeDraft(true, false)\" class=\"inline-flex min-w-28 items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent\" data-compose-draft-button data-compose-draft-state=\"default\"><span class=\"inline-flex transition-transform duration-200\" data-compose-draft-icon>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2183,7 +2631,15 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 128, "</span> <span data-compose-draft-label>Save Draft</span></button></div><button type=\"button\" class=\"btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg\" id=\"compose-pane-send-btn\" onclick=\"sendCompose(true)\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "</span> <span data-compose-draft-label>Save Draft</span></button></div><div class=\"flex items-center gap-2\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = ComposeSchedulePopover(true, "inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border border-border text-ink/50 hover:text-ink/80 hover:bg-ink/5 transition-colors").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 150, "<button type=\"button\" class=\"btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg\" id=\"compose-pane-send-btn\" onclick=\"sendCompose(true)\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2191,7 +2647,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 129, "Send</button></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, "Send</button></div></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

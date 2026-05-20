@@ -99,6 +99,7 @@ func main() {
 	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey)
 	h.StartAvatarBackfill(ctx)
 	h.StartContactSync(ctx)
+	h.StartScheduledSendWorker(ctx)
 	h.RegisterRoutes(mux)
 	log.Printf("boot: HTTP routes registered")
 

@@ -84,7 +84,16 @@
     toast.style.transform = "translateY(1rem)";
 
     // Remove after animation
-    setTimeout(() => toast.remove(), 300);
+    setTimeout(() => {
+      if (toast.matches?.(":popover-open") && toast.hidePopover) {
+        try {
+          toast.hidePopover();
+        } catch {
+          // ignore
+        }
+      }
+      toast.remove();
+    }, 300);
   }
 
   // Handle dismiss button clicks

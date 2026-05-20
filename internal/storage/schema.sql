@@ -588,5 +588,26 @@ CREATE TABLE IF NOT EXISTS web_push_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user
 ON web_push_subscriptions(user_id);
 
+CREATE TABLE IF NOT EXISTS scheduled_sends (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    scheduled_for DATETIME NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    locked_at DATETIME,
+    sent_message_id TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_sends_due
+ON scheduled_sends(status, scheduled_for);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
+ON scheduled_sends(account_id, status, scheduled_for);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (37);
+INSERT OR REPLACE INTO schema_version (version) VALUES (38);

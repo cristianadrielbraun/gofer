@@ -1,11 +1,15 @@
 package views
 
 import (
+	"fmt"
+
+	"github.com/cristianadrielbraun/gofer/components/calendar"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -122,14 +126,17 @@ templ ComposeDialog(accounts []models.Account) {
 						<span data-compose-draft-label>Save Draft</span>
 					</button>
 					</div>
-					<button type="button"
-						class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg"
-						id="compose-send-btn"
-						onclick="sendCompose()"
-					>
-						@icon.Send(icon.Props{Class: "size-3.5"})
-						Send
-					</button>
+					<div class="flex items-center gap-2">
+						@ComposeSchedulePopover(false, "inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors")
+						<button type="button"
+							class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg"
+							id="compose-send-btn"
+							onclick="sendCompose()"
+						>
+							@icon.Send(icon.Props{Class: "size-3.5"})
+							Send
+						</button>
+					</div>
 				</div>
 			}
 		}
@@ -356,6 +363,89 @@ templ ComposeAttachments() {
 	</div>
 }
 
+templ ComposeSchedulePopover(fromPane bool, buttonClass string) {
+	{{ suffix := "" }}
+	if fromPane {
+		{{ suffix = "pane-" }}
+	}
+	@popover.Root(popover.RootProps{Class: "inline-flex"}) {
+		@popover.Trigger() {
+			if fromPane {
+				<button type="button" onclick="return prepareComposeSchedule(this, true)" class={ buttonClass } title="Schedule send">
+					@icon.CalendarClock(icon.Props{Class: "size-3.5"})
+					Send later
+				</button>
+			} else {
+				<button type="button" onclick="return prepareComposeSchedule(this, false)" class={ buttonClass } title="Schedule send">
+					@icon.CalendarClock(icon.Props{Class: "size-3.5"})
+					Send later
+				</button>
+			}
+		}
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementTopEnd, Offset: 10, Class: "w-[16.5rem] max-w-[calc(100vw-1.5rem)] p-3"}) {
+			<div data-compose-schedule-panel data-compose-schedule-pane?={ fromPane }>
+				<div class="mb-2 flex items-center justify-between gap-3">
+					<div>
+						<div class="text-sm font-semibold text-popover-foreground">Schedule send</div>
+						<p class="text-[11px] text-muted-foreground">Pick a date and local time.</p>
+					</div>
+					@icon.CalendarClock(icon.Props{Class: "size-4 text-muted-foreground"})
+				</div>
+				<div class="inline-flex rounded-lg border border-border/70 bg-background/35 p-2">
+					@calendar.Calendar(calendar.Props{ID: "compose-" + suffix + "schedule-calendar", Name: "compose_" + suffix + "schedule_date", Class: "[--cell-size:1.75rem]", HideHiddenInput: false})
+				</div>
+				<label class="mt-3 block text-xs font-medium text-muted-foreground" for={ "compose-" + suffix + "schedule-hour" }>Send time</label>
+				<div class="mt-1 flex items-center gap-2">
+					<div class="flex shrink-0 items-center gap-1.5">
+						@selectbox.SelectBox(selectbox.Props{ID: "compose-" + suffix + "schedule-hour", Class: "w-[4.25rem]", Attributes: templ.Attributes{"data-compose-schedule-hour": ""}}) {
+							@selectbox.Trigger(selectbox.TriggerProps{DisableClear: true, Class: "h-9 px-2 font-mono text-sm tabular-nums"}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "HH", Class: "font-mono text-sm tabular-nums"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "[&>div>div]:max-h-52"}) {
+								@selectbox.Group() {
+									for hour := 0; hour < 24; hour++ {
+										{{ value := fmt.Sprintf("%02d", hour) }}
+										@selectbox.Item(selectbox.ItemProps{Value: value, Class: "font-mono text-sm tabular-nums"}) {
+											{ value }
+										}
+									}
+								}
+							}
+						}
+						<span class="text-sm font-semibold text-muted-foreground">:</span>
+						@selectbox.SelectBox(selectbox.Props{ID: "compose-" + suffix + "schedule-minute", Class: "w-[4.25rem]", Attributes: templ.Attributes{"data-compose-schedule-minute": ""}}) {
+							@selectbox.Trigger(selectbox.TriggerProps{DisableClear: true, Class: "h-9 px-2 font-mono text-sm tabular-nums"}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "MM", Class: "font-mono text-sm tabular-nums"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "[&>div>div]:max-h-52"}) {
+								@selectbox.Group() {
+									for minute := 0; minute < 60; minute += 5 {
+										{{ value := fmt.Sprintf("%02d", minute) }}
+										@selectbox.Item(selectbox.ItemProps{Value: value, Class: "font-mono text-sm tabular-nums"}) {
+											{ value }
+										}
+									}
+								}
+							}
+						}
+					</div>
+					<div class="flex h-9 min-w-0 flex-1 items-center justify-end text-xs font-medium text-muted-foreground" title="Local timezone">
+						<span class="truncate" data-compose-schedule-timezone>UTC</span>
+					</div>
+				</div>
+				<div class="mt-3 flex items-center justify-end gap-2">
+					<button type="button" class="rounded-md px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground" onclick="closeComposeSchedulePopover(this)">Cancel</button>
+					if fromPane {
+						<button type="button" class="btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold" onclick="scheduleCompose(true, this)">Schedule</button>
+					} else {
+						<button type="button" class="btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold" onclick="scheduleCompose(false, this)">Schedule</button>
+					}
+				</div>
+			</div>
+		}
+	}
+}
+
 templ ComposeField(label string, name string, placeholder string) {
 	<div class="flex items-center gap-2">
 		<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">{ label }</label>
@@ -490,14 +580,17 @@ templ ComposePane(accounts []models.Account) {
 							<span data-compose-draft-label>Save Draft</span>
 						</button>
 					</div>
-						<button type="button"
-							class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg"
-							id="compose-pane-send-btn"
-							onclick="sendCompose(true)"
-						>
-							@icon.Send(icon.Props{Class: "size-3.5"})
-							Send
-						</button>
+						<div class="flex items-center gap-2">
+							@ComposeSchedulePopover(true, "inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border border-border text-ink/50 hover:text-ink/80 hover:bg-ink/5 transition-colors")
+							<button type="button"
+								class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-lg"
+								id="compose-pane-send-btn"
+								onclick="sendCompose(true)"
+							>
+								@icon.Send(icon.Props{Class: "size-3.5"})
+								Send
+							</button>
+						</div>
 				</div>
 			</div>
 		</div>

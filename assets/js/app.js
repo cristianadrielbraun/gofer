@@ -2526,6 +2526,7 @@ function hideSendStatus() {
 
 function _composeToastConfig(status) {
   if (status === "sent") return { title: "Message sent", variant: "success", icon: "success" }
+  if (status === "scheduled") return { title: "Message scheduled", variant: "success", icon: "success" }
   if (status === "sending") return { title: "Working...", variant: "info", icon: "spinner" }
   if (status === "ambiguous") return { title: "Needs review", variant: "warning", icon: "warning" }
   return { title: "Action failed", variant: "error", icon: "error" }
@@ -2547,12 +2548,21 @@ function dismissGoferToast(toast) {
   toast.style.transition = "opacity 300ms, transform 300ms"
   toast.style.opacity = "0"
   toast.style.transform = "translateY(1rem)"
-  setTimeout(function () { if (toast.isConnected) toast.remove() }, 300)
+  setTimeout(function () {
+    if (!toast.isConnected) return
+    if (toast.matches && toast.matches(":popover-open") && toast.hidePopover) {
+      try { toast.hidePopover() } catch (_) {}
+    }
+    toast.remove()
+  }, 300)
 }
 
 function removeGoferToastNow(toast) {
   if (!toast || !toast.isConnected) return
   if (toast._goferToastTimer) clearTimeout(toast._goferToastTimer)
+  if (toast.matches && toast.matches(":popover-open") && toast.hidePopover) {
+    try { toast.hidePopover() } catch (_) {}
+  }
   toast.remove()
 }
 
@@ -2574,11 +2584,12 @@ function showGoferToast(opts) {
   }
   var toast = document.createElement("div")
   toast.id = id
+  toast.setAttribute("popover", "manual")
   toast.dataset.tuiToast = ""
   toast.dataset.tuiToastDuration = String(duration)
   toast.dataset.position = opts.position || "top-center"
   toast.dataset.variant = opts.variant || "default"
-  toast.className = "z-50 fixed pointer-events-auto p-4 w-fit max-w-[calc(100vw-2rem)] md:max-w-[680px] animate-in fade-in slide-in-from-bottom-4 duration-300 data-[position=top-right]:top-0 data-[position=top-right]:right-0 data-[position=top-left]:top-0 data-[position=top-left]:left-0 data-[position=top-center]:top-0 data-[position=top-center]:left-1/2 data-[position=top-center]:-translate-x-1/2 data-[position=bottom-right]:bottom-0 data-[position=bottom-right]:right-0 data-[position=bottom-left]:bottom-0 data-[position=bottom-left]:left-0 data-[position=bottom-center]:bottom-0 data-[position=bottom-center]:left-1/2 data-[position=bottom-center]:-translate-x-1/2 data-[position*=top]:slide-in-from-top-4 data-[position*=bottom]:slide-in-from-bottom-4"
+  toast.className = "z-50 fixed m-0 border-0 bg-transparent overflow-visible pointer-events-auto p-4 w-fit max-w-[calc(100vw-2rem)] md:max-w-[680px] animate-in fade-in slide-in-from-bottom-4 duration-300 data-[position=top-right]:top-0 data-[position=top-right]:right-0 data-[position=top-left]:top-0 data-[position=top-left]:left-0 data-[position=top-center]:top-0 data-[position=top-center]:left-1/2 data-[position=top-center]:-translate-x-1/2 data-[position=bottom-right]:bottom-0 data-[position=bottom-right]:right-0 data-[position=bottom-left]:bottom-0 data-[position=bottom-left]:left-0 data-[position=bottom-center]:bottom-0 data-[position=bottom-center]:left-1/2 data-[position=bottom-center]:-translate-x-1/2 data-[position*=top]:slide-in-from-top-4 data-[position*=bottom]:slide-in-from-bottom-4"
   if (opts.width) toast.style.width = opts.width
   toast.innerHTML =
     '<div class="gofer-toast-card" data-variant="' + _escapeComposeHTML(opts.variant || "default") + '">' +
@@ -2621,6 +2632,9 @@ function showGoferToast(opts) {
     }
   }
   document.body.appendChild(toast)
+  if (toast.showPopover) {
+    try { toast.showPopover() } catch (_) {}
+  }
   if (duration > 0) {
     var progress = toast.querySelector(".gofer-toast-progress")
     if (progress) {
@@ -5689,6 +5703,185 @@ function sendCompose(fromPane) {
     _composeSendState = null
     form.dataset.composeDirty = "true"
     showSendStatus("failed", err && err.message ? err.message : "Failed to connect to server")
+  })
+}
+
+function prepareComposeSchedule(button, fromPane) {
+  var form = document.getElementById(fromPane ? "compose-pane-form" : "compose-form")
+  if (!form) return false
+  var root = button && button.closest ? button.closest("[data-tui-popover-root]") : null
+  var panel = root && root.querySelector("[data-compose-schedule-panel]")
+  if (!panel) return true
+  var dateInput = panel.querySelector("[data-tui-calendar-hidden-input]")
+  var timeInputs = getComposeScheduleTimeInputs(panel)
+  var date = new Date(Date.now() + 60 * 60 * 1000)
+  date.setMinutes(Math.ceil(date.getMinutes() / 5) * 5, 0, 0)
+  if (timeInputs.hour && !timeInputs.hour.value) timeInputs.hour.value = pad2(date.getHours())
+  if (timeInputs.minute && !timeInputs.minute.value) timeInputs.minute.value = pad2(date.getMinutes())
+  updateComposeScheduleTimezone(panel)
+  if (dateInput && !dateInput.value) {
+    var todayButton = panel.querySelector("[data-tui-calendar-today]")
+    if (todayButton) todayButton.click()
+    else dateInput.value = formatDateLocal(date)
+  }
+  disableComposeSchedulePastDates(panel)
+  return true
+}
+
+document.addEventListener("click", function (event) {
+  var button = event.target && event.target.closest ? event.target.closest("[data-tui-calendar-prev], [data-tui-calendar-next], [data-tui-calendar-day]") : null
+  if (!button) return
+  var panel = button.closest("[data-compose-schedule-panel]")
+  if (!panel) return
+  requestAnimationFrame(function () { disableComposeSchedulePastDates(panel) })
+})
+
+function closeComposeSchedulePopover(el) {
+  var content = el && el.closest && el.closest("[data-tui-popover-content]")
+  if (content && content.hidePopover) content.hidePopover()
+  if (content) content.setAttribute("data-tui-popover-open", "false")
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0")
+}
+
+function formatDateLocal(date) {
+  return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate())
+}
+
+function disableComposeSchedulePastDates(panel) {
+  var calendar = panel && panel.querySelector("[data-tui-calendar-container]")
+  if (!calendar) return
+  var month = parseInt(calendar.dataset.tuiCalendarCurrentMonth, 10)
+  var year = parseInt(calendar.dataset.tuiCalendarCurrentYear, 10)
+  if (isNaN(month) || isNaN(year)) return
+
+  var today = new Date()
+  var todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  var days = calendar.querySelectorAll("[data-tui-calendar-day]")
+  for (var i = 0; i < days.length; i++) {
+    var day = parseInt(days[i].dataset.tuiCalendarDay, 10)
+    if (isNaN(day)) continue
+    var dayStart = new Date(year, month, day).getTime()
+    var disabled = dayStart < todayStart
+    days[i].disabled = disabled
+    days[i].setAttribute("aria-disabled", disabled ? "true" : "false")
+    days[i].classList.toggle("pointer-events-none", disabled)
+    days[i].classList.toggle("text-muted-foreground/35", disabled)
+    if (disabled) {
+      days[i].classList.remove("hover:bg-accent", "hover:text-accent-foreground")
+    }
+  }
+}
+
+function getComposeScheduleTimeInputs(panel) {
+  return {
+    hour: panel && panel.querySelector('[data-compose-schedule-hour] input[type="hidden"]'),
+    minute: panel && panel.querySelector('[data-compose-schedule-minute] input[type="hidden"]')
+  }
+}
+
+function updateComposeScheduleTimezone(panel) {
+  var timezoneEl = panel && panel.querySelector("[data-compose-schedule-timezone]")
+  if (!timezoneEl) return
+  var offset = -new Date().getTimezoneOffset()
+  var sign = offset >= 0 ? "+" : "-"
+  var absolute = Math.abs(offset)
+  var hours = Math.floor(absolute / 60)
+  var minutes = absolute % 60
+  var label = "UTC" + sign + hours + (minutes ? ":" + pad2(minutes) : "")
+  timezoneEl.textContent = label
+  timezoneEl.parentElement.title = "Local timezone: " + label
+}
+
+function scheduleCompose(fromPane, trigger) {
+  var formId = fromPane ? "compose-pane-form" : "compose-form"
+  var form = document.getElementById(formId)
+  if (!form) return
+  if (_composePendingUploads(form) > 0) {
+    showSendStatus("failed", "Wait for uploads to finish before scheduling")
+    return
+  }
+  if (form.dataset.composeSending === "true") return
+  if (!finalizeComposeRecipients(form)) {
+    showSendStatus("failed", "Fix invalid recipient addresses before scheduling")
+    return
+  }
+  _syncComposeFormEditor(form)
+  if (!validateComposeMessageSize(form)) return
+
+  var toField = form.querySelector('input[name="to"]')
+  if (!toField || !toField.value.trim()) {
+    showSendStatus("failed", "Please enter at least one recipient.")
+    return
+  }
+
+  var panel = trigger && trigger.closest ? trigger.closest("[data-compose-schedule-panel]") : null
+  var dateInput = panel && panel.querySelector("[data-tui-calendar-hidden-input]")
+  var timeInputs = getComposeScheduleTimeInputs(panel)
+  var dateValue = dateInput && dateInput.value
+  var hourValue = timeInputs.hour && timeInputs.hour.value
+  var minuteValue = timeInputs.minute && timeInputs.minute.value
+  var timeValue = hourValue && minuteValue ? hourValue + ":" + minuteValue : ""
+  if (!dateValue) {
+    showSendStatus("failed", "Choose a send date")
+    return
+  }
+  if (!timeValue) {
+    showSendStatus("failed", "Choose a send time")
+    return
+  }
+  var scheduledAt = new Date(dateValue + "T" + timeValue)
+  if (isNaN(scheduledAt.getTime())) {
+    showSendStatus("failed", "Choose a valid schedule time")
+    return
+  }
+  if (scheduledAt.getTime() <= Date.now() + 30000) {
+    showSendStatus("failed", "Choose a time at least 1 minute in the future.")
+    return
+  }
+  var params = new URLSearchParams()
+  var inputs = form.querySelectorAll("input, textarea")
+  for (var i = 0; inputs && i < inputs.length; i++) {
+    if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
+  }
+  params.set("scheduled_for", scheduledAt.toISOString())
+
+  closeComposeSchedulePopover(trigger)
+  showSendStatus("sending", "Scheduling...")
+  _setComposeSending(form, true)
+
+  fetch("/compose/schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  }).then(function (r) {
+    if (!r.ok) {
+      return r.json().catch(function () { return {} }).then(function (data) {
+        throw new Error(data.error || "Failed to schedule message")
+      })
+    }
+    return r.json().catch(function () { return {} })
+  }).then(function (data) {
+    _setComposeSending(form, false)
+    form.dataset.composeDirty = "false"
+    var labelDate = data && data.scheduled_for ? new Date(data.scheduled_for) : scheduledAt
+    showSendStatus("scheduled", "Will send " + labelDate.toLocaleString())
+    setTimeout(function () {
+      if (fromPane) {
+        setMailViewEmpty()
+        _updateComposeBtn(false)
+      } else {
+        resetComposeForm(false)
+        if (window.tui && window.tui.dialog) window.tui.dialog.close("compose-dialog")
+        _updateComposeBtn(false)
+      }
+    }, 250)
+  }).catch(function (err) {
+    _setComposeSending(form, false)
+    form.dataset.composeDirty = "true"
+    showSendStatus("failed", err && err.message ? err.message : "Failed to schedule message")
   })
 }
 

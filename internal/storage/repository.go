@@ -120,7 +120,7 @@ func isStarredFolder(folderID string) bool {
 
 func isUnifiedFolderID(folderID string) bool {
 	switch folderID {
-	case "inbox", "starred", "sent", "drafts", "archive", "spam", "trash":
+	case "inbox", "starred", "sent", "drafts", "scheduled", "archive", "spam", "trash":
 		return true
 	default:
 		return false
@@ -1528,6 +1528,11 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 		where = `JOIN accounts a ON m.account_id = a.id
 			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0`
 		args = []any{userID}
+	} else if folderID == "scheduled" {
+		where = `JOIN scheduled_sends ss ON ss.message_id = m.id
+			 JOIN accounts a ON m.account_id = a.id
+			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
+		args = []any{userID, ScheduledSendPending}
 	} else {
 		where = `JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON f.account_id = a.id
@@ -1593,7 +1598,7 @@ func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, 
 }
 
 func (db *DB) GetFolderEmailCountUnfilteredForUser(ctx context.Context, userID, folderID string) (int, error) {
-	if folderID != "starred" {
+	if folderID != "starred" && folderID != "scheduled" {
 		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
 			return 0, err
 		}
@@ -2169,6 +2174,13 @@ func unifiedMailListFromWhere(userID, folderID string) (string, []any) {
 			JOIN accounts a ON m.account_id = a.id
 			WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0`, []any{userID}
 	}
+	if folderID == "scheduled" {
+		return `FROM messages m
+			JOIN message_folder_state mfs ON m.id = mfs.message_id
+			JOIN scheduled_sends ss ON ss.message_id = m.id
+			JOIN accounts a ON m.account_id = a.id
+			WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`, []any{userID, ScheduledSendPending}
+	}
 	return `FROM messages m
 		JOIN message_folder_state mfs ON m.id = mfs.message_id
 		JOIN folders f ON mfs.folder_id = f.id
@@ -2192,7 +2204,7 @@ func accountMailListFromWhere(folderID string) (string, []any) {
 }
 
 func (db *DB) listEmailsUnfilteredForUser(ctx context.Context, userID, folderID string, offset, limit int) ([]models.Email, error) {
-	if folderID != "starred" {
+	if folderID != "starred" && folderID != "scheduled" {
 		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
 			return nil, err
 		}
@@ -2275,6 +2287,11 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 		where = `JOIN accounts a ON m.account_id = a.id
 			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0`
 		args = []any{userID}
+	} else if folderID == "scheduled" {
+		where = `JOIN scheduled_sends ss ON ss.message_id = m.id
+			 JOIN accounts a ON m.account_id = a.id
+			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
+		args = []any{userID, ScheduledSendPending}
 	} else {
 		where = `JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON f.account_id = a.id
@@ -2500,6 +2517,11 @@ func (db *DB) findEmailPositionForUser(ctx context.Context, userID, folderID, em
 		where = `JOIN accounts a ON m.account_id = a.id
 			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0`
 		args = []any{msgID, userID}
+	} else if folderID == "scheduled" {
+		where = `JOIN scheduled_sends ss ON ss.message_id = m.id
+			 JOIN accounts a ON m.account_id = a.id
+			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
+		args = []any{msgID, userID, ScheduledSendPending}
 	} else {
 		where = `JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON f.account_id = a.id

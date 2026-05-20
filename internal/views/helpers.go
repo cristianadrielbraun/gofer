@@ -12,13 +12,14 @@ import (
 
 func folderDisplayName(folderID string) string {
 	names := map[string]string{
-		"inbox":   "Inbox",
-		"starred": "Starred",
-		"sent":    "Sent",
-		"drafts":  "Drafts",
-		"archive": "Archive",
-		"spam":    "Spam",
-		"trash":   "Trash",
+		"inbox":     "Inbox",
+		"starred":   "Starred",
+		"sent":      "Sent",
+		"drafts":    "Drafts",
+		"scheduled": "Scheduled",
+		"archive":   "Archive",
+		"spam":      "Spam",
+		"trash":     "Trash",
 	}
 	if name, ok := names[folderID]; ok {
 		return name
@@ -102,7 +103,7 @@ func folderHasActiveID(folder models.Folder, activeFolder string) bool {
 
 func unifiedHasActiveFolder(activeFolder string) bool {
 	switch activeFolder {
-	case "inbox", "starred", "sent", "drafts", "archive", "spam", "trash":
+	case "inbox", "starred", "sent", "drafts", "scheduled", "archive", "spam", "trash":
 		return true
 	default:
 		return false
@@ -119,6 +120,7 @@ func unifiedFolders(accounts []models.Account) []models.Folder {
 		{"starred", "Starred", "starred"},
 		{"sent", "Sent", "send"},
 		{"drafts", "Drafts", "file"},
+		{"scheduled", "Scheduled", "calendar-clock"},
 		{"archive", "Archive", "archive"},
 		{"spam", "Spam", "alert-circle"},
 		{"trash", "Trash", "trash"},
@@ -135,7 +137,10 @@ func unifiedFolders(accounts []models.Account) []models.Folder {
 
 	folders := make([]models.Folder, 0, len(roles))
 	for _, role := range roles {
-		if role.id != "starred" && !seenRole[role.id] {
+		if role.id == "scheduled" && len(accounts) == 0 {
+			continue
+		}
+		if role.id != "starred" && role.id != "scheduled" && !seenRole[role.id] {
 			continue
 		}
 		folders = append(folders, models.Folder{

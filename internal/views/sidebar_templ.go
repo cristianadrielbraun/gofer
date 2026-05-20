@@ -1799,6 +1799,11 @@ func SidebarFolderIcon(iconName string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+		case "calendar-clock":
+			templ_7745c5c3_Err = icon.CalendarClock(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		case "archive":
 			templ_7745c5c3_Err = icon.Archive(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
