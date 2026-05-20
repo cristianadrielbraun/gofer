@@ -2,6 +2,8 @@ tmp/
 .env
 internal_notes/
 *.png
+!screenshots/
+!screenshots/*.png
 .air.toml
 data/
 

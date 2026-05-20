@@ -3,7 +3,11 @@
   Gofer
 </h1>
 
-<img width="2417" height="1499" alt="gofer-screenshot" src="https://github.com/user-attachments/assets/709e6ce1-1bf8-4cae-b679-5bd8891385b5" />
+| Minimal light | Classic dark |
+| --- | --- |
+| <img alt="Gofer email card view in the minimal light theme" src="./screenshots/emails-card-minimal-light.png" /> | <img alt="Gofer email card view in the classic dark theme" src="./screenshots/emails-card-classic-dark.png" /> |
+
+[View all screenshots](./screenshots/README.md)
 
 <br>
 
