@@ -17,7 +17,7 @@ import (
 )
 
 templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, windowStart int, width string, senderDisplayMode string, viewMode string, navigationMode string) {
-	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + width } data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) }>
+	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) }>
 		@MailListHeader(activeFolder, totalCount)
 		@MailListToolbar(mailListViewMode(viewMode))
 		@MailFilterAdvancedDialog(accounts)

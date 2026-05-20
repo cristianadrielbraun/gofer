@@ -6259,10 +6259,14 @@ function savedMailListWidth() {
       value = settings.mail_list_width
     } catch (_) {}
   }
-  var width = parseInt(value || "384", 10)
-  if (isNaN(width) || width <= 0) width = 384
-  width = Math.max(300, width)
-  return Math.round(width) + "px"
+  var raw = String(value || "50%").trim()
+  if (raw.charAt(raw.length - 1) === "%") {
+    var percent = parseFloat(raw)
+    if (!isNaN(percent) && percent > 0) return "clamp(300px," + percent + "%,calc(100% - 300px))"
+  }
+  var width = parseFloat(raw)
+  if (isNaN(width) || width <= 0) return "clamp(300px,50%,calc(100% - 300px))"
+  return Math.max(300, width) + "px"
 }
 
 function composeOpeningShellHTML() {

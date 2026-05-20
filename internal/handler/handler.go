@@ -378,7 +378,7 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 		uiSettings := h.db.GetUISettings(ctx, userID)
 		width := uiSettings["mail_list_width"]
 		if width == "" {
-			width = "384px"
+			width = "50%"
 		}
 		w.Header().Set("Content-Type", "text/html")
 		if r.Header.Get("HX-Target") == "app-shell" {

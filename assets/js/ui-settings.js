@@ -4,6 +4,7 @@ var GoferSettings;
   var LS_KEY = "gofer:ui_settings";
   var _cache = {};
   var _saveTimer = null;
+  var _migratedPanelSize = false;
 
   function readCache() {
     try {
@@ -143,7 +144,7 @@ var GoferSettings;
         if (_cache.mail_list_height) list.style.height = parseInt(_cache.mail_list_height, 10) + "px";
       } else {
         list.style.height = "";
-        if (_cache.mail_list_width) list.style.width = parseInt(_cache.mail_list_width, 10) + "px";
+        list.style.width = mailListWidthCSS(_cache.mail_list_width, list);
       }
     }
 
@@ -157,6 +158,38 @@ var GoferSettings;
     if (!list) return;
     if (typeof list.applyPaneLayoutDensity === "function") list.applyPaneLayoutDensity();
     if (typeof list.render === "function") list.render();
+  }
+
+  function trimPercent(value) {
+    return value.toFixed(4).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1") + "%";
+  }
+
+  function mailListPercentFromPixels(panel, pixels) {
+    var parent = panel && panel.parentElement;
+    var parentWidth = parent ? parent.getBoundingClientRect().width : 0;
+    if (!parentWidth) return null;
+    return trimPercent(Math.max(1, Math.min(99, (pixels / parentWidth) * 100)));
+  }
+
+  function mailListWidthCSS(value, panel) {
+    var raw = String(value || "").trim();
+    if (raw.charAt(raw.length - 1) === "%") {
+      var percent = parseFloat(raw);
+      if (!isNaN(percent) && percent > 0) return "clamp(300px," + percent + "%,calc(100% - 300px))";
+    }
+
+    var px = parseFloat(raw);
+    if (!isNaN(px) && px > 0) {
+      var converted = mailListPercentFromPixels(panel, Math.max(300, px));
+      if (converted) {
+        _cache.mail_list_width = converted;
+        _migratedPanelSize = true;
+        return mailListWidthCSS(converted, panel);
+      }
+      return Math.max(300, px) + "px";
+    }
+
+    return "clamp(300px,50%,calc(100% - 300px))";
   }
 
   window.applyMailTableColumnWidths = function (value, root) {
@@ -194,8 +227,7 @@ var GoferSettings;
     if (key === "mail_list_width") {
       var panel = document.getElementById("mail-list");
       if (panel && value && mailPaneLayout(_cache.mail_pane_layout) !== "stacked") {
-        var w = parseInt(value, 10);
-        if (!isNaN(w) && w > 0) panel.style.width = w + "px";
+        panel.style.width = mailListWidthCSS(value, panel);
       }
     }
     if (key === "mail_list_height") {
@@ -265,6 +297,7 @@ var GoferSettings;
       var initialSizeStyle = document.querySelector("[data-saved-panel-size-style]");
       if (initialSizeStyle) initialSizeStyle.remove();
       writeCache();
+      if (_migratedPanelSize) persistSettingsNow();
     },
 
     get: function (key) {

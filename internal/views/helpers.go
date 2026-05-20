@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"math/rand"
+	"strconv"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -58,6 +59,34 @@ func uiSettingGet(settings map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func mailListWidthCSS(width string) string {
+	v := strings.TrimSpace(width)
+	if v == "" {
+		return "clamp(300px,50%,calc(100% - 300px))"
+	}
+
+	if strings.HasSuffix(v, "%") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v, "%")), 64)
+		if err == nil && n > 0 {
+			return fmt.Sprintf("clamp(300px,%s%%,calc(100%% - 300px))", strconv.FormatFloat(n, 'f', -1, 64))
+		}
+	}
+
+	if strings.HasSuffix(v, "px") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v, "px")), 64)
+		if err == nil && n > 0 {
+			return strconv.FormatFloat(n, 'f', -1, 64) + "px"
+		}
+	}
+
+	n, err := strconv.ParseFloat(v, 64)
+	if err == nil && n > 0 {
+		return strconv.FormatFloat(n, 'f', -1, 64) + "px"
+	}
+
+	return "clamp(300px,50%,calc(100% - 300px))"
 }
 
 func uiSettingCSVHas(settings map[string]string, key, fallback, value string) bool {

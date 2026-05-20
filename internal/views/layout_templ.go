@@ -213,7 +213,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -795,7 +795,7 @@ func ContactsShell(accounts []models.Account, contacts []models.Contact, selecte
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), accounts, recentActivity).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts, recentActivity).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1026,7 +1026,7 @@ func SavedPanelSizeStyle() templ.Component {
 			templ_7745c5c3_Var35 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<script>\n\t\t(function() {\n\t\t\tdocument.documentElement.classList.add(\"js\");\n\n\t\t\tvar settings = {};\n\t\t\ttry {\n\t\t\t\tsettings = JSON.parse(localStorage.getItem(\"gofer:ui_settings\") || \"{}\") || {};\n\t\t\t} catch (_) {}\n\n\t\t\tfunction px(value, min, max) {\n\t\t\t\tvar n = parseInt(value, 10);\n\t\t\t\tif (isNaN(n) || n <= 0) return null;\n\t\t\t\tif (max === null || max === undefined) return Math.max(min, n);\n\t\t\t\treturn Math.max(min, Math.min(max, n));\n\t\t\t}\n\n\t\t\tvar vw = window.innerWidth || 1024;\n\t\t\tvar stacked = settings.mail_pane_layout === \"stacked\";\n\t\t\tvar sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));\n\t\t\tvar mailList = stacked ? px(settings.mail_list_height, 180) : px(settings.mail_list_width, 300);\n\t\t\tif (!sidebar && !mailList && !stacked) return;\n\n\t\t\tvar style = document.createElement(\"style\");\n\t\t\tstyle.setAttribute(\"data-saved-panel-size-style\", \"\");\n\t\t\tstyle.textContent = (sidebar ? \"aside{width:\" + sidebar + \"px!important}\" : \"\") + (stacked ? \"#main-content{flex-direction:column}#mail-list{width:100%!important\" + (mailList ? \";height:\" + mailList + \"px!important\" : \"\") + \"}\" : (mailList ? \"#mail-list{width:\" + mailList + \"px!important}\" : \"\"));\n\t\t\tdocument.head.appendChild(style);\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<script>\n\t\t(function() {\n\t\t\tdocument.documentElement.classList.add(\"js\");\n\n\t\t\tvar settings = {};\n\t\t\ttry {\n\t\t\t\tsettings = JSON.parse(localStorage.getItem(\"gofer:ui_settings\") || \"{}\") || {};\n\t\t\t} catch (_) {}\n\n\t\t\tfunction px(value, min, max) {\n\t\t\t\tvar n = parseInt(value, 10);\n\t\t\t\tif (isNaN(n) || n <= 0) return null;\n\t\t\t\tif (max === null || max === undefined) return Math.max(min, n);\n\t\t\t\treturn Math.max(min, Math.min(max, n));\n\t\t\t}\n\n\t\t\tfunction mailListWidth(value) {\n\t\t\t\tvar raw = String(value || \"\").trim();\n\t\t\t\tif (raw.slice(-1) === \"%\") {\n\t\t\t\t\tvar percent = parseFloat(raw);\n\t\t\t\t\tif (!isNaN(percent) && percent > 0) return \"clamp(300px,\" + percent + \"%,calc(100% - 300px))\";\n\t\t\t\t}\n\t\t\t\tvar n = px(raw, 300);\n\t\t\t\treturn n ? n + \"px\" : null;\n\t\t\t}\n\n\t\t\tvar vw = window.innerWidth || 1024;\n\t\t\tvar stacked = settings.mail_pane_layout === \"stacked\";\n\t\t\tvar sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));\n\t\t\tvar mailList = stacked ? px(settings.mail_list_height, 180) : mailListWidth(settings.mail_list_width);\n\t\t\tif (!sidebar && !mailList && !stacked) return;\n\n\t\t\tvar style = document.createElement(\"style\");\n\t\t\tstyle.setAttribute(\"data-saved-panel-size-style\", \"\");\n\t\t\tstyle.textContent = (sidebar ? \"aside{width:\" + sidebar + \"px!important}\" : \"\") + (stacked ? \"#main-content{flex-direction:column}#mail-list{width:100%!important\" + (mailList ? \";height:\" + mailList + \"px!important\" : \"\") + \"}\" : (mailList ? \"#mail-list{width:\" + mailList + \"!important}\" : \"\"));\n\t\t\tdocument.head.appendChild(style);\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1055,7 +1055,7 @@ func FolderPartial(accounts []models.Account, emails []models.Email, activeFolde
 			templ_7745c5c3_Var36 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1128,7 +1128,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 377, Col: 200}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 387, Col: 200}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 		if templ_7745c5c3_Err != nil {
@@ -1138,7 +1138,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite")).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

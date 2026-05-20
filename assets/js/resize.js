@@ -17,7 +17,33 @@ var initResizeHandles;
 
   function setSize(el, size, axis) {
     if (axis === "y") el.style.height = size + "px";
-    else el.style.width = size + "px";
+    else el.style.width = typeof size === "string" ? size : size + "px";
+  }
+
+  function isSideMailList(panelName) {
+    return panelName === "maillist" && !isStackedMailList(panelName);
+  }
+
+  function mailListWidthCSS(value) {
+    var raw = String(value || "").trim();
+    if (raw.charAt(raw.length - 1) === "%") {
+      var percent = parseFloat(raw);
+      if (!isNaN(percent) && percent > 0) {
+        return "clamp(300px," + percent + "%,calc(100% - 300px))";
+      }
+    }
+
+    var px = parseFloat(raw);
+    if (!isNaN(px) && px > 0) return Math.max(300, px) + "px";
+    return "clamp(300px,50%,calc(100% - 300px))";
+  }
+
+  function percentSize(panel, size) {
+    var parent = panel && panel.parentElement;
+    var parentSize = parent ? parent.getBoundingClientRect().width : 0;
+    if (!parentSize) return null;
+    var percent = (size / parentSize) * 100;
+    return Math.max(1, Math.min(99, percent)).toFixed(4).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1") + "%";
   }
 
   function clamp(v, min, max) {
@@ -42,10 +68,17 @@ var initResizeHandles;
       return { min: 180, max: Math.min(400, vw * 0.25) };
     }
 
-    return {
-      min: 300,
-      max: null,
-    };
+    if (panelName === "maillist") {
+      var list = document.getElementById("mail-list");
+      var parent = list && list.parentElement;
+      var parentWidth = parent ? parent.getBoundingClientRect().width : 0;
+      return {
+        min: 300,
+        max: parentWidth ? Math.max(300, parentWidth - 300) : null,
+      };
+    }
+
+    return { min: 300, max: null };
   }
 
   function onStart(e) {
@@ -76,9 +109,15 @@ var initResizeHandles;
       handle.classList.remove("active");
       var b = getBounds(panelName);
       var finalSize = Math.round(clamp(getSize(panel, axis), b.min, b.max));
-      setSize(panel, finalSize, axis);
+      var settingValue = String(finalSize);
+      if (axis === "x" && isSideMailList(panelName)) {
+        settingValue = percentSize(panel, finalSize) || settingValue;
+        setSize(panel, mailListWidthCSS(settingValue), axis);
+      } else {
+        setSize(panel, finalSize, axis);
+      }
       if (typeof GoferSettings !== "undefined") {
-        GoferSettings.set(settingKey(panelName), String(finalSize));
+        GoferSettings.set(settingKey(panelName), settingValue);
       }
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
@@ -99,7 +138,12 @@ var initResizeHandles;
         var saved = GoferSettings.get(settingKey(name));
         if (saved) {
           var b = getBounds(name);
-          setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max), isStackedMailList(name) ? "y" : "x");
+          var panel = getPanel(h);
+          if (isSideMailList(name)) {
+            setSize(panel, mailListWidthCSS(saved), "x");
+          } else {
+            setSize(panel, clamp(parseInt(saved, 10), b.min, b.max), isStackedMailList(name) ? "y" : "x");
+          }
         }
       }
       if (h._resizeBound) return;

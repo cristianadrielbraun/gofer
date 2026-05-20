@@ -46,7 +46,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
 				@ResizeHandle("sidebar")
 				<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
-					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
+					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
 					@ResizeHandle("maillist")
 					if initialEmailID != "" && selectedEmail == nil {
 						@MailViewLoading()
@@ -278,7 +278,7 @@ templ ContactsShell(accounts []models.Account, contacts []models.Contact, select
 	<div id="app-shell" class="flex h-screen overflow-hidden">
 		@ContactsSidebar(accounts, "contacts", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, filters)
 		@ResizeHandle("sidebar")
-		@ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "384px"), accounts, recentActivity)
+		@ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts, recentActivity)
 	</div>
 }
 
@@ -348,22 +348,32 @@ templ SavedPanelSizeStyle() {
 				return Math.max(min, Math.min(max, n));
 			}
 
+			function mailListWidth(value) {
+				var raw = String(value || "").trim();
+				if (raw.slice(-1) === "%") {
+					var percent = parseFloat(raw);
+					if (!isNaN(percent) && percent > 0) return "clamp(300px," + percent + "%,calc(100% - 300px))";
+				}
+				var n = px(raw, 300);
+				return n ? n + "px" : null;
+			}
+
 			var vw = window.innerWidth || 1024;
 			var stacked = settings.mail_pane_layout === "stacked";
 			var sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));
-			var mailList = stacked ? px(settings.mail_list_height, 180) : px(settings.mail_list_width, 300);
+			var mailList = stacked ? px(settings.mail_list_height, 180) : mailListWidth(settings.mail_list_width);
 			if (!sidebar && !mailList && !stacked) return;
 
 			var style = document.createElement("style");
 			style.setAttribute("data-saved-panel-size-style", "");
-			style.textContent = (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (stacked ? "#main-content{flex-direction:column}#mail-list{width:100%!important" + (mailList ? ";height:" + mailList + "px!important" : "") + "}" : (mailList ? "#mail-list{width:" + mailList + "px!important}" : ""));
+			style.textContent = (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (stacked ? "#main-content{flex-direction:column}#mail-list{width:100%!important" + (mailList ? ";height:" + mailList + "px!important" : "") + "}" : (mailList ? "#mail-list{width:" + mailList + "!important}" : ""));
 			document.head.appendChild(style);
 		})();
 	</script>
 }
 
 templ FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string) {
-	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
+	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" hx-swap-oob="true">
 		if selectedEmail != nil {
 			@MailViewContent(selectedEmail, selectedThread)
@@ -375,7 +385,7 @@ templ FolderPartial(accounts []models.Account, emails []models.Email, activeFold
 
 templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string, windowStart int) {
 	<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
-		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
+		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
 		@ResizeHandle("maillist")
 		if initialEmailID != "" {
 			@MailViewLoading()
