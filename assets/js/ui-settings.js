@@ -34,6 +34,22 @@ var GoferSettings;
     html.setAttribute("data-theme", style || "classic");
   }
 
+  function browserTimezone() {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch (_) {
+      return "UTC";
+    }
+  }
+
+  function persistSettingsNow() {
+    return fetch("/api/settings/ui", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(_cache),
+    }).catch(function () {});
+  }
+
   var MAIL_TABLE_COLUMNS = [
     { id: "accountMarker", fixed: 24 },
     { id: "starred", fixed: 24 },
@@ -155,6 +171,9 @@ var GoferSettings;
       _cache.mail_table_columns = normalizeMailTableColumnIds(value).join(",");
       applyMailTableColumnSettings();
     }
+    if (key === "timezone") {
+      document.documentElement.setAttribute("data-timezone", value || browserTimezone());
+    }
   }
 
   GoferSettings = {
@@ -167,6 +186,10 @@ var GoferSettings;
         } catch (_) {}
         readCache();
         _cache = Object.assign({}, _cache, serverSettings);
+        if (!_cache.timezone || _cache.timezone === "local") {
+          _cache.timezone = browserTimezone();
+          persistSettingsNow();
+        }
         for (var k in _cache) {
           applySetting(k, _cache[k]);
         }
@@ -181,6 +204,10 @@ var GoferSettings;
           })
           .then(function (serverSettings) {
             _cache = serverSettings;
+            if (!_cache.timezone || _cache.timezone === "local") {
+              _cache.timezone = browserTimezone();
+              persistSettingsNow();
+            }
             writeCache();
             for (var k in _cache) {
               applySetting(k, _cache[k]);
@@ -198,9 +225,18 @@ var GoferSettings;
     },
 
     set: function (key, value) {
+      var oldValue = _cache[key] || null;
       _cache[key] = value;
       writeCache();
       applySetting(key, value);
+
+      if (key === "timezone" && oldValue !== value) {
+        if (_saveTimer) clearTimeout(_saveTimer);
+        persistSettingsNow().finally(function () {
+          window.location.reload();
+        });
+        return;
+      }
 
       if (_saveTimer) clearTimeout(_saveTimer);
       _saveTimer = setTimeout(function () {

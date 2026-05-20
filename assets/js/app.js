@@ -5714,15 +5714,16 @@ function prepareComposeSchedule(button, fromPane) {
   if (!panel) return true
   var dateInput = panel.querySelector("[data-tui-calendar-hidden-input]")
   var timeInputs = getComposeScheduleTimeInputs(panel)
+  var timezone = getGoferTimezone()
   var date = new Date(Date.now() + 60 * 60 * 1000)
-  date.setMinutes(Math.ceil(date.getMinutes() / 5) * 5, 0, 0)
-  if (timeInputs.hour && !timeInputs.hour.value) timeInputs.hour.value = pad2(date.getHours())
-  if (timeInputs.minute && !timeInputs.minute.value) timeInputs.minute.value = pad2(date.getMinutes())
+  date = new Date(Math.ceil(date.getTime() / (5 * 60 * 1000)) * 5 * 60 * 1000)
+  var zoned = datePartsInTimezone(date, timezone)
+  if (timeInputs.hour && !timeInputs.hour.value) timeInputs.hour.value = pad2(zoned.hour)
+  if (timeInputs.minute && !timeInputs.minute.value) timeInputs.minute.value = pad2(zoned.minute)
   updateComposeScheduleTimezone(panel)
   if (dateInput && !dateInput.value) {
-    var todayButton = panel.querySelector("[data-tui-calendar-today]")
-    if (todayButton) todayButton.click()
-    else dateInput.value = formatDateLocal(date)
+    var desiredDate = formatDateFromParts(zoned)
+    selectComposeScheduleDate(panel, desiredDate)
   }
   disableComposeSchedulePastDates(panel)
   return true
@@ -5746,8 +5747,127 @@ function pad2(n) {
   return String(n).padStart(2, "0")
 }
 
-function formatDateLocal(date) {
-  return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate())
+function getGoferTimezone() {
+  var timezone = window.GoferSettings ? GoferSettings.get("timezone") : null
+  if (!timezone || timezone === "local") {
+    try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone } catch (_) {}
+  }
+  return timezone || "UTC"
+}
+
+function datePartsInTimezone(date, timezone) {
+  var parts = {}
+  try {
+    var formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    })
+    formatter.formatToParts(date).forEach(function (part) {
+      if (part.type !== "literal") parts[part.type] = parseInt(part.value, 10)
+    })
+  } catch (_) {}
+  if (!parts.year) {
+    parts = {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1,
+      day: date.getDate(),
+      hour: date.getHours(),
+      minute: date.getMinutes(),
+      second: date.getSeconds()
+    }
+  }
+  return parts
+}
+
+function formatDateFromParts(parts) {
+  return parts.year + "-" + pad2(parts.month) + "-" + pad2(parts.day)
+}
+
+function selectComposeScheduleDate(panel, dateValue) {
+  var dateInput = panel && panel.querySelector("[data-tui-calendar-hidden-input]")
+  if (dateInput) dateInput.value = dateValue
+
+  var calendar = panel && panel.querySelector("[data-tui-calendar-container]")
+  if (!calendar) return
+
+  var parts = String(dateValue || "").split("-")
+  if (parts.length !== 3) return
+  var year = parseInt(parts[0], 10)
+  var month = parseInt(parts[1], 10) - 1
+  var day = parseInt(parts[2], 10)
+  if ([year, month, day].some(function (value) { return isNaN(value) })) return
+
+  var monthSelect = calendar.querySelector("[data-tui-calendar-month-select]")
+  var yearSelect = calendar.querySelector("[data-tui-calendar-year-select]")
+  if (monthSelect && monthSelect.value !== String(month)) {
+    monthSelect.value = String(month)
+    monthSelect.dispatchEvent(new Event("change", { bubbles: true }))
+  }
+  if (yearSelect && yearSelect.value !== String(year)) {
+    yearSelect.value = String(year)
+    yearSelect.dispatchEvent(new Event("change", { bubbles: true }))
+  }
+
+  var dayButton = calendar.querySelector('[data-tui-calendar-day="' + day + '"]')
+  if (dayButton && !dayButton.disabled) {
+    dayButton.click()
+    return
+  }
+
+  calendar.setAttribute("data-tui-calendar-selected-date", dateValue)
+}
+
+function timezoneOffsetMillis(date, timezone) {
+  var parts = datePartsInTimezone(date, timezone)
+  var asUTC = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour || 0, parts.minute || 0, parts.second || 0)
+  return asUTC - date.getTime()
+}
+
+function zonedDateTimeToDate(dateValue, hourValue, minuteValue, timezone) {
+  var dateParts = String(dateValue || "").split("-")
+  if (dateParts.length !== 3) return new Date(NaN)
+  var year = parseInt(dateParts[0], 10)
+  var month = parseInt(dateParts[1], 10)
+  var day = parseInt(dateParts[2], 10)
+  var hour = parseInt(hourValue, 10)
+  var minute = parseInt(minuteValue, 10)
+  if ([year, month, day, hour, minute].some(function (value) { return isNaN(value) })) return new Date(NaN)
+  var wallUTC = Date.UTC(year, month - 1, day, hour, minute, 0)
+  var offset = timezoneOffsetMillis(new Date(wallUTC), timezone)
+  var scheduled = new Date(wallUTC - offset)
+  var corrected = timezoneOffsetMillis(scheduled, timezone)
+  if (corrected !== offset) scheduled = new Date(wallUTC - corrected)
+  return scheduled
+}
+
+function timezoneOffsetLabel(timezone, date) {
+  var offset = Math.round(timezoneOffsetMillis(date || new Date(), timezone) / 60000)
+  var sign = offset >= 0 ? "+" : "-"
+  var absolute = Math.abs(offset)
+  var hours = Math.floor(absolute / 60)
+  var minutes = absolute % 60
+  return "UTC" + sign + hours + (minutes ? ":" + pad2(minutes) : "")
+}
+
+function formatGoferDateTime(date, options) {
+  options = options || {}
+  try {
+    return new Intl.DateTimeFormat(undefined, Object.assign({
+      timeZone: getGoferTimezone(),
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    }, options)).format(date)
+  } catch (_) {
+    return date.toLocaleString()
+  }
 }
 
 function disableComposeSchedulePastDates(panel) {
@@ -5757,14 +5877,14 @@ function disableComposeSchedulePastDates(panel) {
   var year = parseInt(calendar.dataset.tuiCalendarCurrentYear, 10)
   if (isNaN(month) || isNaN(year)) return
 
-  var today = new Date()
-  var todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  var today = datePartsInTimezone(new Date(), getGoferTimezone())
+  var todayKey = today.year * 10000 + today.month * 100 + today.day
   var days = calendar.querySelectorAll("[data-tui-calendar-day]")
   for (var i = 0; i < days.length; i++) {
     var day = parseInt(days[i].dataset.tuiCalendarDay, 10)
     if (isNaN(day)) continue
-    var dayStart = new Date(year, month, day).getTime()
-    var disabled = dayStart < todayStart
+    var dayKey = year * 10000 + (month + 1) * 100 + day
+    var disabled = dayKey < todayKey
     days[i].disabled = disabled
     days[i].setAttribute("aria-disabled", disabled ? "true" : "false")
     days[i].classList.toggle("pointer-events-none", disabled)
@@ -5785,14 +5905,9 @@ function getComposeScheduleTimeInputs(panel) {
 function updateComposeScheduleTimezone(panel) {
   var timezoneEl = panel && panel.querySelector("[data-compose-schedule-timezone]")
   if (!timezoneEl) return
-  var offset = -new Date().getTimezoneOffset()
-  var sign = offset >= 0 ? "+" : "-"
-  var absolute = Math.abs(offset)
-  var hours = Math.floor(absolute / 60)
-  var minutes = absolute % 60
-  var label = "UTC" + sign + hours + (minutes ? ":" + pad2(minutes) : "")
+  var label = timezoneOffsetLabel(getGoferTimezone(), new Date())
   timezoneEl.textContent = label
-  timezoneEl.parentElement.title = "Local timezone: " + label
+  timezoneEl.parentElement.title = "Timezone: " + getGoferTimezone() + " (" + label + ")"
 }
 
 function scheduleCompose(fromPane, trigger) {
@@ -5832,7 +5947,7 @@ function scheduleCompose(fromPane, trigger) {
     showSendStatus("failed", "Choose a send time")
     return
   }
-  var scheduledAt = new Date(dateValue + "T" + timeValue)
+  var scheduledAt = zonedDateTimeToDate(dateValue, hourValue, minuteValue, getGoferTimezone())
   if (isNaN(scheduledAt.getTime())) {
     showSendStatus("failed", "Choose a valid schedule time")
     return
@@ -5846,7 +5961,10 @@ function scheduleCompose(fromPane, trigger) {
   for (var i = 0; inputs && i < inputs.length; i++) {
     if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
   }
-  params.set("scheduled_for", scheduledAt.toISOString())
+  params.set("schedule_date", dateValue)
+  params.set("schedule_hour", hourValue)
+  params.set("schedule_minute", minuteValue)
+  params.set("schedule_timezone", getGoferTimezone())
 
   closeComposeSchedulePopover(trigger)
   showSendStatus("sending", "Scheduling...")
@@ -5867,7 +5985,7 @@ function scheduleCompose(fromPane, trigger) {
     _setComposeSending(form, false)
     form.dataset.composeDirty = "false"
     var labelDate = data && data.scheduled_for ? new Date(data.scheduled_for) : scheduledAt
-    showSendStatus("scheduled", "Will send " + labelDate.toLocaleString())
+    showSendStatus("scheduled", "Will send " + formatGoferDateTime(labelDate))
     setTimeout(function () {
       if (fromPane) {
         setMailViewEmpty()

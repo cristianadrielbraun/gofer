@@ -294,6 +294,7 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
 
 	email, err := h.db.GetEmailByID(ctx, emailID)
 	if err != nil || email == nil {
@@ -341,6 +342,7 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.ensureContactsBackfilled(ctx)
 	userID := h.userID(ctx)
+	ctx = h.contextWithUserTimezone(ctx, userID)
 	filters := h.parseContactFilters(r)
 	if filters.View == "" {
 		filters.View = contactViewMode(h.db.GetUISettings(ctx, userID)["contacts_list_view"])
@@ -408,6 +410,7 @@ func (h *Handler) handleContactItems(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.ensureContactsBackfilled(ctx)
 	userID := h.userID(ctx)
+	ctx = h.contextWithUserTimezone(ctx, userID)
 	filters := h.parseContactFilters(r)
 	if filters.View == "" {
 		filters.View = "cards"
@@ -1261,6 +1264,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	folderID = h.resolveFolderID(folderID)
 
 	ctx := r.Context()
+	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	if r.Header.Get("HX-Request") != "true" {
 		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, h.userID(ctx)), nil, "").Render(ctx, w)
@@ -1291,6 +1295,7 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	folderID = h.resolveFolderID(folderID)
 
 	ctx := r.Context()
+	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	filters := parseEmailFilters(r)
 	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, h.userID(ctx), folderID, filters)
@@ -1360,6 +1365,8 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		knownTotal = kt
 	}
 	ctx := r.Context()
+	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	ctx = storage.WithTimezone(ctx, uiSettings["timezone"])
 	filters := parseEmailFilters(r)
 
 	var page *models.EmailPage
@@ -1390,7 +1397,6 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	viewMode := r.URL.Query().Get("view")
 	if viewMode == "" {
 		viewMode = uiSettings["mail_list_view"]
@@ -1448,6 +1454,7 @@ func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
 
 	var accountID string
 	row := h.db.Read().QueryRowContext(ctx,
@@ -1470,24 +1477,25 @@ func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
+	ctx := h.contextWithUserTimezone(r.Context(), h.userID(r.Context()))
 	if q == "" {
 		w.Header().Set("Content-Type", "text/html")
-		uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-		accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
-		views.MailListEmails(accounts, nil, "", nil, 0, 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(r.Context(), w)
+		uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+		accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+		views.MailListEmails(accounts, nil, "", nil, 0, 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(ctx, w)
 		return
 	}
 
-	emails, err := h.db.SearchMessages(r.Context(), h.userID(r.Context()), q, 50)
+	emails, err := h.db.SearchMessages(ctx, h.userID(ctx), q, 50)
 	if err != nil {
 		http.Error(w, "search failed", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-	accounts, _ := h.db.GetAccounts(r.Context(), h.userID(r.Context()))
-	views.MailListEmails(accounts, emails, "", nil, len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(r.Context(), w)
+	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	views.MailListEmails(accounts, emails, "", nil, len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(ctx, w)
 }
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
@@ -1998,7 +2006,7 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 	tab := r.PathValue("tab")
-	if tab != "accounts" && tab != "sync" && tab != "contacts" && tab != "appearance" && tab != "compose-display" && tab != "advanced" {
+	if tab != "accounts" && tab != "sync" && tab != "contacts" && tab != "appearance" && tab != "regional" && tab != "compose-display" && tab != "advanced" {
 		http.NotFound(w, r)
 		return
 	}
@@ -2191,6 +2199,11 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) contextWithUserTimezone(ctx context.Context, userID string) context.Context {
+	settings := h.db.GetUISettings(ctx, userID)
+	return storage.WithTimezone(ctx, settings["timezone"])
 }
 
 type pushSubscriptionRequest struct {
@@ -3390,7 +3403,13 @@ func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	scheduledFor, err := parseScheduledSendTime(r.FormValue("scheduled_for"))
+	userID := h.userID(r.Context())
+	loc, err := h.scheduleLocation(r.Context(), userID, r.FormValue("schedule_timezone"))
+	if err != nil {
+		writeComposeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	scheduledFor, err := parseScheduledSendWallTime(r.FormValue("schedule_date"), r.FormValue("schedule_hour"), r.FormValue("schedule_minute"), loc)
 	if err != nil {
 		writeComposeJSONError(w, http.StatusBadRequest, err.Error())
 		return
@@ -3426,21 +3445,50 @@ func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func parseScheduledSendTime(raw string) (time.Time, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+func (h *Handler) scheduleLocation(ctx context.Context, userID, submittedTimezone string) (*time.Location, error) {
+	settings := h.db.GetUISettings(ctx, userID)
+	timezone := strings.TrimSpace(settings["timezone"])
+	if timezone == "" || timezone == "local" {
+		timezone = strings.TrimSpace(submittedTimezone)
+	}
+	if timezone == "" || timezone == "local" {
+		return time.Local, nil
+	}
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, fmt.Errorf("Use a valid timezone.")
+	}
+	return loc, nil
+}
+
+func parseScheduledSendWallTime(dateValue, hourValue, minuteValue string, loc *time.Location) (time.Time, error) {
+	dateValue = strings.TrimSpace(dateValue)
+	hourValue = strings.TrimSpace(hourValue)
+	minuteValue = strings.TrimSpace(minuteValue)
+	if dateValue == "" || hourValue == "" || minuteValue == "" {
 		return time.Time{}, fmt.Errorf("Choose when to send this message.")
 	}
-	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-		return t.UTC(), nil
+	dateParts := strings.Split(dateValue, "-")
+	if len(dateParts) != 3 {
+		return time.Time{}, fmt.Errorf("Use a valid schedule date.")
 	}
-	if t, err := time.Parse(time.RFC3339, raw); err == nil {
-		return t.UTC(), nil
+	year, errYear := strconv.Atoi(dateParts[0])
+	month, errMonth := strconv.Atoi(dateParts[1])
+	day, errDay := strconv.Atoi(dateParts[2])
+	hour, errHour := strconv.Atoi(hourValue)
+	minute, errMinute := strconv.Atoi(minuteValue)
+	if errYear != nil || errMonth != nil || errDay != nil || errHour != nil || errMinute != nil || hour < 0 || hour > 23 || minute < 0 || minute > 59 || minute%5 != 0 {
+		return time.Time{}, fmt.Errorf("Use a valid schedule time.")
 	}
-	if t, err := time.ParseInLocation("2006-01-02T15:04", raw, time.Local); err == nil {
-		return t.UTC(), nil
+	if loc == nil {
+		loc = time.Local
 	}
-	return time.Time{}, fmt.Errorf("Use a valid schedule time.")
+	scheduled := time.Date(year, time.Month(month), day, hour, minute, 0, 0, loc)
+	local := scheduled.In(loc)
+	if local.Year() != year || local.Month() != time.Month(month) || local.Day() != day || local.Hour() != hour || local.Minute() != minute {
+		return time.Time{}, fmt.Errorf("Use a valid schedule time.")
+	}
+	return scheduled.UTC(), nil
 }
 
 func (h *Handler) StartScheduledSendWorker(ctx context.Context) {

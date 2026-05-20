@@ -95,9 +95,12 @@ func firstRune(s string) string {
 	return ""
 }
 
-func formatRelativeDate(t, now time.Time) string {
-	t = t.Local()
-	now = now.Local()
+func formatRelativeDate(t, now time.Time, loc *time.Location) string {
+	if loc == nil {
+		loc = time.Local
+	}
+	t = t.In(loc)
+	now = now.In(loc)
 	tDay := t.Format("2006-01-02")
 	nowDay := now.Format("2006-01-02")
 	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
@@ -112,6 +115,13 @@ func formatRelativeDate(t, now time.Time) string {
 		return t.Format("Jan 2")
 	}
 	return t.Format("Jan 2, 2006")
+}
+
+func formatFullDateTime(t time.Time, loc *time.Location) string {
+	if loc == nil {
+		loc = time.Local
+	}
+	return t.In(loc).Format("Mon, Jan 2, 2006 at 3:04 PM")
 }
 
 func isStarredFolder(folderID string) bool {
@@ -1878,6 +1888,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 	}
 
 	now := time.Now()
+	loc := timezoneLocationFromContext(ctx)
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email, m.snippet,
 		        m.date_received, m.has_attachments,
@@ -1936,8 +1947,8 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 			item.TextBody = item.Preview
 		}
 		if dateReceived.Valid {
-			item.Date = formatRelativeDate(dateReceived.Time, now)
-			item.DateFull = dateReceived.Time.Local().Format("Mon, Jan 2, 2006 at 3:04 PM")
+			item.Date = formatRelativeDate(dateReceived.Time, now, loc)
+			item.DateFull = formatFullDateTime(dateReceived.Time, loc)
 		}
 		items = append(items, item)
 	}
@@ -2015,6 +2026,7 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	}
 
 	now := time.Now()
+	loc := timezoneLocationFromContext(ctx)
 	email.ID = strconv.FormatInt(msgID, 10)
 	email.AccountID = accountID
 	email.AccountColor = accountColor
@@ -2064,8 +2076,8 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 		email.Body = template.HTML(fmt.Sprintf("<p>%s</p>", snippet))
 	}
 	if dateReceived.Valid {
-		email.Date = formatRelativeDate(dateReceived.Time, now)
-		email.DateFull = dateReceived.Time.Local().Format("Mon, Jan 2, 2006 at 3:04 PM")
+		email.Date = formatRelativeDate(dateReceived.Time, now, loc)
+		email.DateFull = formatFullDateTime(dateReceived.Time, loc)
 	}
 
 	if threadID.Valid {
@@ -2397,6 +2409,7 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 
 	var items []emailRow
 	now := time.Now()
+	loc := timezoneLocationFromContext(ctx)
 
 	for rows.Next() {
 		var r emailRow
@@ -2436,7 +2449,7 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 			r.email.ThreadID = threadID.String
 		}
 		if dateReceived.Valid {
-			r.email.Date = formatRelativeDate(dateReceived.Time, now)
+			r.email.Date = formatRelativeDate(dateReceived.Time, now, loc)
 		}
 		items = append(items, r)
 	}
@@ -2687,6 +2700,7 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 
 	var items []emailRow
 	now := time.Now()
+	loc := timezoneLocationFromContext(ctx)
 
 	for rows.Next() {
 		var r emailRow
@@ -2717,7 +2731,7 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 		r.email.IsStarred = isStarred == 1
 		r.email.HasAttachment = hasAttach == 1
 		if dateReceived.Valid {
-			r.email.Date = formatRelativeDate(dateReceived.Time, now)
+			r.email.Date = formatRelativeDate(dateReceived.Time, now, loc)
 		}
 		items = append(items, r)
 	}
@@ -3655,6 +3669,7 @@ func defaultUISettings() map[string]string {
 		"contacts_auto_create_observed":     "true",
 		"contacts_prevent_recreate_deleted": "true",
 		"contacts_observed_sources":         "senders,recipients",
+		"timezone":                          "local",
 	}
 }
 

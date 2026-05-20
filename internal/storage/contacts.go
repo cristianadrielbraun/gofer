@@ -310,8 +310,9 @@ func (db *DB) ListContacts(ctx context.Context, userID string, filters models.Co
 	defer rows.Close()
 
 	var contacts []models.Contact
+	loc := timezoneLocationFromContext(ctx)
 	for rows.Next() {
-		c, err := scanContactRow(rows)
+		c, err := scanContactRow(rows, loc)
 		if err != nil {
 			return nil, err
 		}
@@ -347,8 +348,9 @@ func (db *DB) ListContactsForExport(ctx context.Context, userID string) ([]model
 	defer rows.Close()
 
 	var contacts []models.Contact
+	loc := timezoneLocationFromContext(ctx)
 	for rows.Next() {
-		c, err := scanContactRow(rows)
+		c, err := scanContactRow(rows, loc)
 		if err != nil {
 			return nil, err
 		}
@@ -421,8 +423,9 @@ func (db *DB) SearchContacts(ctx context.Context, userID, query string, limit in
 	defer rows.Close()
 
 	var contacts []models.Contact
+	loc := timezoneLocationFromContext(ctx)
 	for rows.Next() {
-		c, err := scanContactRow(rows)
+		c, err := scanContactRow(rows, loc)
 		if err != nil {
 			return nil, err
 		}
@@ -442,7 +445,7 @@ func (db *DB) GetContact(ctx context.Context, userID, contactID string) (*models
 		FROM contacts c
 		JOIN contact_emails ce ON ce.contact_id = c.id AND ce.is_primary = 1
 		WHERE c.user_id = ? AND c.id = ? AND c.is_deleted = 0`, userID, contactID)
-	c, err := scanContactRow(row)
+	c, err := scanContactRow(row, timezoneLocationFromContext(ctx))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -791,7 +794,7 @@ func (db *DB) DeleteContactSource(ctx context.Context, userID, contactID, provid
 	return tx.Commit()
 }
 
-func scanContactRow(scanner interface{ Scan(dest ...any) error }) (models.Contact, error) {
+func scanContactRow(scanner interface{ Scan(dest ...any) error }, loc *time.Location) (models.Contact, error) {
 	var c models.Contact
 	var isManual, isDeleted int
 	var lastSeen, createdAt, updatedAt sql.NullString
@@ -803,20 +806,23 @@ func scanContactRow(scanner interface{ Scan(dest ...any) error }) (models.Contac
 	c.Initials = initials(contactDisplayName(c.Name, c.Email))
 	c.AvatarHash = avatarresolver.GravatarHash(c.Email)
 	if lastSeen.Valid {
-		c.LastSeenAt = formatContactTime(lastSeen.String)
+		c.LastSeenAt = formatContactTime(lastSeen.String, loc)
 	}
 	if createdAt.Valid {
-		c.CreatedAt = formatContactTime(createdAt.String)
+		c.CreatedAt = formatContactTime(createdAt.String, loc)
 	}
 	if updatedAt.Valid {
-		c.UpdatedAt = formatContactTime(updatedAt.String)
+		c.UpdatedAt = formatContactTime(updatedAt.String, loc)
 	}
 	return c, nil
 }
 
-func formatContactTime(raw string) string {
+func formatContactTime(raw string, loc *time.Location) string {
 	if t, ok := parseSQLiteDateTime(raw); ok {
-		return t.Local().Format("Jan 2, 2006")
+		if loc == nil {
+			loc = time.Local
+		}
+		return t.In(loc).Format("Jan 2, 2006")
 	}
 	return raw
 }
@@ -1046,8 +1052,9 @@ func (db *DB) ListSuppressedContacts(ctx context.Context, userID string, limit i
 	defer rows.Close()
 
 	var contacts []models.Contact
+	loc := timezoneLocationFromContext(ctx)
 	for rows.Next() {
-		c, err := scanContactRow(rows)
+		c, err := scanContactRow(rows, loc)
 		if err != nil {
 			return nil, err
 		}

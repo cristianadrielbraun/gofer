@@ -235,6 +235,20 @@
   background: var(--background);
 }
 
+[data-theme="minimal"]:not(.dark) .settings-select .select-content > .sticky {
+  background: var(--background);
+}
+
+[data-theme="minimal"]:not(.dark) [data-compose-autosave-conditions-menu] {
+  background: var(--background);
+}
+
+[data-theme="minimal"]:not(.dark) [data-compose-autosave-conditions-menu] [data-compose-autosave-condition-item]:hover,
+[data-theme="minimal"]:not(.dark) [data-compose-autosave-conditions-menu] [data-compose-autosave-condition-item]:focus-visible {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
 [data-theme="minimal"]:not(.dark) [data-avatar-admin] .select-content {
   background: var(--background);
 }

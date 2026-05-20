@@ -214,6 +214,7 @@ templ SettingsSidebar(activeTab string, width string) {
 			@SettingsSidebarItem(activeTab, "sync", "Email Sync")
 			@SettingsSidebarItem(activeTab, "contacts", "Contacts")
 			@SettingsSidebarItem(activeTab, "appearance", "Appearance")
+			@SettingsSidebarItem(activeTab, "regional", "Regional")
 			@SettingsSidebarItem(activeTab, "compose-display", "Compose and display")
 			@SettingsSidebarItem(activeTab, "advanced", "Advanced")
 		</nav>
@@ -254,6 +255,8 @@ templ SettingsSidebarItemIcon(value string) {
 			@icon.BookUser(icon.Props{Class: "size-4"})
 		case "appearance":
 			@icon.Palette(icon.Props{Class: "size-4"})
+		case "regional":
+			@icon.Globe(icon.Props{Class: "size-4"})
 		case "compose-display":
 			@icon.Pen(icon.Props{Class: "size-4"})
 		case "advanced":

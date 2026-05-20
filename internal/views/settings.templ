@@ -35,6 +35,8 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 					@SettingsContactsTab(accounts, uiSettings)
 				} else if activeTab == "appearance" {
 					@SettingsAppearanceTab(uiSettings)
+				} else if activeTab == "regional" {
+					@SettingsRegionalTab(uiSettings)
 				} else if activeTab == "compose-display" {
 					@SettingsComposeDisplayTab(uiSettings, signatureData)
 				} else if activeTab == "advanced" {
@@ -98,16 +100,16 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 							}
 							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-64 normal-case tracking-normal", Attributes: templ.Attributes{"data-compose-autosave-conditions-menu": ""}}) {
 								@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { Autosave when }
-								<div class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" data-compose-autosave-condition-item="chars">
+								<div class="flex items-center gap-2 rounded-sm px-2 py-0.5 text-sm transition-colors duration-150 hover:bg-accent hover:text-accent-foreground" data-compose-autosave-condition-item="chars">
 									<span class={ "w-4 shrink-0 text-primary", templ.KV("opacity-0", !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "chars")) } data-compose-autosave-condition-check="chars">@icon.Check(icon.Props{Class: "size-4"})</span>
 									<span class="flex-1 text-left">Min characters</span>
-									<input type="text" inputmode="numeric" pattern="[0-9]*" value={ uiSettingGet(uiSettings, "compose_autosave_min_chars", "30") } class="h-7 w-14 rounded-md border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50" data-compose-autosave-min-chars disabled?={ uiSettingGet(uiSettings, "compose_autosave_enabled", "true") == "false" || !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "chars") }/>
+									<input type="text" inputmode="numeric" pattern="[0-9]*" value={ uiSettingGet(uiSettings, "compose_autosave_min_chars", "30") } class="h-7 w-14 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25 disabled:opacity-50" data-compose-autosave-min-chars disabled?={ uiSettingGet(uiSettings, "compose_autosave_enabled", "true") == "false" || !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "chars") }/>
 								</div>
-								@dropdown.Item(dropdown.ItemProps{PreventClose: true, Class: "gap-2", Attributes: templ.Attributes{"data-compose-autosave-condition-item": "attachment"}}) {
+								@dropdown.Item(dropdown.ItemProps{PreventClose: true, Class: "gap-2 transition-colors duration-150", Attributes: templ.Attributes{"data-compose-autosave-condition-item": "attachment"}}) {
 									<span class={ "w-4 shrink-0 text-primary", templ.KV("opacity-0", !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "attachment")) } data-compose-autosave-condition-check="attachment">@icon.Check(icon.Props{Class: "size-4"})</span>
 									<span class="flex-1 text-left">Has attachment</span>
 								}
-								@dropdown.Item(dropdown.ItemProps{PreventClose: true, Class: "gap-2", Attributes: templ.Attributes{"data-compose-autosave-condition-item": "to"}}) {
+								@dropdown.Item(dropdown.ItemProps{PreventClose: true, Class: "gap-2 transition-colors duration-150", Attributes: templ.Attributes{"data-compose-autosave-condition-item": "to"}}) {
 									<span class={ "w-4 shrink-0 text-primary", templ.KV("opacity-0", !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "to")) } data-compose-autosave-condition-check="to">@icon.Check(icon.Props{Class: "size-4"})</span>
 									<span class="flex-1 text-left">Has recipient</span>
 								}
@@ -414,6 +416,104 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 			var themeStyle = e.target.closest('input[name="theme_style"]');
 			if (themeStyle && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('theme_style', themeStyle.value);
+			}
+		});
+	})();
+	</script>
+}
+
+templ SettingsRegionalTab(uiSettings map[string]string) {
+	<div class="mt-6 space-y-6">
+		<div class="bg-card rounded-lg border p-6 space-y-5">
+			<div>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Regional</h3>
+				<p class="text-xs text-muted-foreground">Set locale preferences for dates, times, and future language options.</p>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Timezone</h4>
+					<p class="text-xs text-muted-foreground mt-1">Used for email timestamps, scheduled sends, and date labels across Gofer.</p>
+				</div>
+				<div class="w-full shrink-0 sm:w-64" data-timezone-picker data-current-timezone={ uiSettingGet(uiSettings, "timezone", "local") }>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "timezone", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-timezone-input": ""}}) {
+							@selectbox.Value() {
+								{ uiSettingGet(uiSettings, "timezone", "Detecting...") }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search timezones...", Class: "w-72", Attributes: templ.Attributes{"data-timezone-options": ""}}) {
+							@selectbox.Group() {
+								@selectbox.Item(selectbox.ItemProps{Value: uiSettingGet(uiSettings, "timezone", "local"), Disabled: true}) { Loading timezones... }
+							}
+						}
+					}
+				</div>
+			</div>
+		</div>
+	</div>
+	<script>
+	(function() {
+		function timezoneLabel(timezone) {
+			if (!timezone || timezone === 'local') return 'Browser timezone';
+			try {
+				var now = new Date();
+				var parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'shortOffset' }).formatToParts(now);
+				var offset = '';
+				for (var i = 0; i < parts.length; i++) {
+					if (parts[i].type === 'timeZoneName') offset = parts[i].value.replace('GMT', 'UTC');
+				}
+				return timezone.replace(/_/g, ' ') + (offset ? ' (' + offset + ')' : '');
+			} catch (_) {
+				return timezone;
+			}
+		}
+		function browserTimezone() {
+			try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (_) { return 'UTC'; }
+		}
+		function timezoneOptions() {
+			if (Intl.supportedValuesOf) {
+				try { return Intl.supportedValuesOf('timeZone'); } catch (_) {}
+			}
+			return ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Bucharest', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Tokyo', 'Australia/Sydney'];
+		}
+		function populateTimezonePicker() {
+			var root = document.querySelector('[data-timezone-picker]');
+			if (!root) return;
+			var content = root.querySelector('[data-timezone-options]');
+			var group = content && content.querySelector('[role="group"]');
+			var input = root.querySelector('[data-timezone-input]');
+			if (!content || !group || !input) return;
+			var current = root.getAttribute('data-current-timezone') || '';
+			if (typeof GoferSettings !== 'undefined') current = GoferSettings.get('timezone') || current;
+			if (!current || current === 'local') current = browserTimezone();
+			var options = timezoneOptions();
+			group.innerHTML = '';
+			if (options.indexOf(current) === -1) options = [current].concat(options);
+			for (var i = 0; i < options.length; i++) {
+				var item = document.createElement('div');
+				item.setAttribute('role', 'option');
+				item.setAttribute('tabindex', '0');
+				item.setAttribute('data-tui-selectbox-value', options[i]);
+				item.setAttribute('data-tui-selectbox-selected', options[i] === current ? 'true' : 'false');
+				item.setAttribute('data-tui-selectbox-disabled', 'false');
+				item.className = 'select-item group relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 px-2 text-sm font-light outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-[tui-selectbox-selected=true]:bg-accent data-[tui-selectbox-selected=true]:text-accent-foreground';
+				var text = document.createElement('span');
+				text.className = 'truncate select-item-text';
+				text.textContent = timezoneLabel(options[i]);
+				item.appendChild(text);
+				group.appendChild(item);
+			}
+			input.value = current;
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+		}
+		populateTimezonePicker();
+		document.addEventListener('DOMContentLoaded', populateTimezonePicker);
+		document.addEventListener('change', function(e) {
+			var timezone = e.target.closest('[data-timezone-input]');
+			if (timezone && typeof GoferSettings !== 'undefined') {
+				var valueEl = timezone.closest('.select-trigger') && timezone.closest('.select-trigger').querySelector('.select-value');
+				if (valueEl) valueEl.textContent = timezoneLabel(timezone.value);
+				GoferSettings.set('timezone', timezone.value);
 			}
 		});
 	})();
