@@ -1104,6 +1104,32 @@ html[data-theme="minimal"] input[role="switch"] + div::after {
   background: var(--color-accent);
 }
 
+.mail-list-item[data-mail-selected] > a,
+.mail-list-item > a[data-mail-selected] {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+[data-theme="minimal"]:not(.dark) .mail-list-item[data-mail-selected] > a,
+[data-theme="minimal"]:not(.dark) .mail-list-item > a[data-mail-selected] {
+  box-shadow: inset 3px 0 0 #000000, inset 0 0 0 1px #000000;
+}
+
+[data-view-mode="table"] .mail-list-item[data-mail-selected] > a,
+[data-view-mode="table"] .mail-list-item > a[data-mail-selected] {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.mail-list-item[data-mail-read-optimistic] .font-semibold,
+.mail-list-item > a[data-mail-read-optimistic] .font-semibold {
+  font-weight: 500;
+}
+
+.mail-list-item[data-mail-read-optimistic] .text-primary,
+.mail-list-item > a[data-mail-read-optimistic] .text-primary {
+  color: var(--color-muted-foreground);
+}
+
 [data-view-mode="table"] {
   padding-top: 0;
 }

@@ -312,6 +312,7 @@ class VirtualMailList {
 
     this.renderPooled(first, last)
     this.syncSelectionClasses(this.itemsContainer)
+    if (typeof window.syncMailSelectionControls === "function") window.syncMailSelectionControls()
 
     if (typeof htmx !== "undefined") {
       htmx.process(this.itemsContainer)
@@ -417,6 +418,7 @@ class VirtualMailList {
 
       shell.replaceChildren(mainRow, subContainer)
       this.syncSelectionClasses(shell)
+      if (typeof window.syncMailSelectionControls === "function") window.syncMailSelectionControls()
       return
     }
     if (toggle) toggle.removeAttribute("data-expanded")

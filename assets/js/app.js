@@ -22,6 +22,9 @@ document.addEventListener("DOMContentLoaded", function () {
   var autoMarkReadEmailId = null
   var suppressEmailUrlPushFor = null
   var preserveMailListSelectionFor = null
+  var selectedMailIds = new Set()
+  var lastSelectedMailId = null
+  var mailSelectionBusy = false
 
   initVirtualScroll()
   setupFolderClickInterception()
@@ -198,7 +201,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var row = contactItem.closest("[data-contact-id]")
       var list = currentList()
       if (list && row && row.dataset.contactId) list.onContactSelected(row.dataset.contactId)
-    }, true)
+    })
 
     document.addEventListener("submit", function (e) {
       if (e.target && e.target.matches("[data-contact-editor-form]")) {
@@ -209,7 +212,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!e.target || (!e.target.matches("[data-contact-filter-form]") && !e.target.matches("[data-contact-search-form]"))) return
       e.preventDefault()
       applyFilters()
-    })
+    }, true)
 
     function saveContactEditor(form) {
       if (!form || form.dataset.saving === "true") return
@@ -404,12 +407,51 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupMailListActions() {
+    window.syncMailSelectionControls = syncMailSelectionControls
+    window.clearMailSelection = clearMailSelection
+
     document.addEventListener("click", function (e) {
+      var rowLink = e.target.closest && e.target.closest(".mail-list-item[data-email-id] > a")
+      var rowClickIgnored = e.target.closest && (e.target.closest(".star-btn") || e.target.closest("[data-thread-toggle]"))
+      if (rowLink && !rowClickIgnored) {
+        var linkRow = rowLink.closest(".mail-list-item[data-email-id]")
+        if (linkRow && linkRow.dataset.emailId) {
+          if (e.shiftKey || e.metaKey || e.ctrlKey) {
+            e.preventDefault()
+            e.stopPropagation()
+            var linkNext = e.shiftKey && lastSelectedMailId ? true : !selectedMailIds.has(linkRow.dataset.emailId)
+            if (e.shiftKey && lastSelectedMailId) selectMailRange(lastSelectedMailId, linkRow.dataset.emailId, linkNext)
+            else setMailSelected(linkRow.dataset.emailId, linkNext)
+          } else {
+            selectedMailIds.clear()
+            setMailSelected(linkRow.dataset.emailId, true)
+          }
+          lastSelectedMailId = linkRow.dataset.emailId
+          syncMailSelectionControls()
+          setTimeout(syncMailSelectionControls, 0)
+          return
+        }
+      }
+
+      var clearSelection = e.target.closest && e.target.closest("[data-mail-selection-clear]")
+      if (clearSelection) {
+        e.preventDefault()
+        clearMailSelection()
+        return
+      }
+
+      var selectionAction = e.target.closest && e.target.closest("[data-mail-selection-action]")
+      if (selectionAction) {
+        e.preventDefault()
+        if (!selectionAction.disabled) performMailSelectionAction(selectionAction.getAttribute("data-mail-selection-action"))
+        return
+      }
+
       var starBtn = e.target.closest(".star-btn")
       if (starBtn) {
-      e.preventDefault()
-      e.stopPropagation()
-      e.stopImmediatePropagation()
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
         var emailId = starBtn.dataset.emailId
         if (emailId) toggleStar(emailId)
       }
@@ -421,7 +463,7 @@ document.addEventListener("DOMContentLoaded", function () {
           window.tui.dialog.close("delete-account-" + accountId)
         }
       }
-    })
+    }, true)
 
     document.body.addEventListener("htmx:afterRequest", function (evt) {
       var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
@@ -429,6 +471,209 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!match || !evt.detail.xhr || evt.detail.xhr.status !== 202) return
       markAccountDeleting(match[1])
     })
+
+    document.body.addEventListener("htmx:beforeRequest", function (evt) {
+      var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
+      if (path && path.match(/^\/folder\//)) clearMailSelection()
+    })
+
+    document.body.addEventListener("htmx:afterSettle", function () {
+      seedMailSelectionFromActive()
+      syncMailSelectionControls()
+    })
+
+    seedMailSelectionFromActive()
+    syncMailSelectionControls()
+
+    function renderedMailRows() {
+      return Array.prototype.slice.call(document.querySelectorAll("#mail-list-scroll .mail-list-item[data-email-id]"))
+    }
+
+    function setMailSelected(emailId, selected) {
+      if (!emailId) return
+      if (selected) selectedMailIds.add(emailId)
+      else selectedMailIds.delete(emailId)
+    }
+
+    function seedMailSelectionFromActive() {
+      if (selectedMailIds.size > 0) return
+      var active = document.querySelector("#mail-list-scroll .mail-list-item[data-email-id] > a.envelope-active")
+      var row = active && active.closest(".mail-list-item[data-email-id]")
+      if (!row || !row.dataset.emailId) return
+      setMailSelected(row.dataset.emailId, true)
+      lastSelectedMailId = row.dataset.emailId
+    }
+
+    function selectMailRange(fromId, toId, selected) {
+      var rows = renderedMailRows().filter(function (row) { return row.dataset.emailId })
+      var fromIndex = -1
+      var toIndex = -1
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.emailId === fromId) fromIndex = i
+        if (rows[i].dataset.emailId === toId) toIndex = i
+      }
+      if (fromIndex === -1 || toIndex === -1) {
+        setMailSelected(toId, selected)
+        return
+      }
+      var start = Math.min(fromIndex, toIndex)
+      var end = Math.max(fromIndex, toIndex)
+      for (var j = start; j <= end; j++) setMailSelected(rows[j].dataset.emailId, selected)
+    }
+
+    function clearMailSelection() {
+      selectedMailIds.clear()
+      lastSelectedMailId = null
+      syncMailSelectionControls()
+    }
+
+    function syncMailSelectionControls() {
+      var rows = renderedMailRows()
+      var visibleSelected = 0
+      for (var i = 0; i < rows.length; i++) {
+        var selected = selectedMailIds.has(rows[i].dataset.emailId)
+        if (selected) visibleSelected++
+        rows[i].toggleAttribute("data-mail-selected", selected)
+        var anchor = rows[i].querySelector(":scope > a")
+        if (anchor) anchor.toggleAttribute("data-mail-selected", selected)
+      }
+
+      var count = selectedMailIds.size
+      var summary = document.querySelector("[data-mail-selection-summary]")
+      if (summary) summary.textContent = count === 1 ? "1 selected" : count + " selected"
+
+      var clear = document.querySelector("[data-mail-selection-clear]")
+      if (clear) {
+        clear.classList.toggle("hidden", count === 0)
+        clear.classList.toggle("inline-flex", count > 0)
+      }
+
+      var actions = document.querySelectorAll("[data-mail-selection-action]")
+      for (var a = 0; a < actions.length; a++) actions[a].disabled = count === 0 || mailSelectionBusy
+    }
+
+    function updateCachedRenderedRow(row) {
+      if (!row || !virtualMailList || !virtualMailList.cache) return
+      var pos = parseInt(row.dataset.position, 10)
+      if (isNaN(pos)) return
+      var cached = virtualMailList.cache.get(pos)
+      if (cached) cached.html = row.outerHTML
+    }
+
+    function cssEscape(value) {
+      if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value)
+      return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&")
+    }
+
+    function applyOptimisticRead(emailId) {
+      var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
+      if (!row) return
+      row.setAttribute("data-mail-read-optimistic", "")
+      row.removeAttribute("data-mail-selected")
+      var anchor = row.querySelector(":scope > a")
+      if (anchor) {
+        anchor.setAttribute("data-mail-read-optimistic", "")
+        anchor.removeAttribute("data-mail-selected")
+        var unreadDots = anchor.querySelectorAll(".bg-primary")
+        for (var i = 0; i < unreadDots.length; i++) {
+          if (unreadDots[i].className.indexOf("rounded-full") !== -1) unreadDots[i].remove()
+        }
+      }
+      updateCachedRenderedRow(row)
+    }
+
+    function selectedMailTargets(ids) {
+      return ids.map(function (emailId) {
+        var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
+        return {
+          id: emailId,
+          thread: !!(row && row.dataset.hasThread === "true"),
+        }
+      })
+    }
+
+    function markSelectedReadInBackground(ids) {
+      var targets = selectedMailTargets(ids)
+      for (var i = 0; i < ids.length; i++) applyOptimisticRead(ids[i])
+      clearMailSelection()
+
+      sendBulkMessageAction("/api/messages/read", targets).then(function () {
+        if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
+          virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+        }
+        refreshSidebarUnread()
+      })
+    }
+
+    function sendBulkMessageAction(path, targets, extra) {
+      var body = { targets: targets }
+      if (extra) {
+        for (var key in extra) body[key] = extra[key]
+      }
+      return fetch(path, {
+        method: "POST",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    }
+
+    function applyOptimisticRemove(ids) {
+      for (var i = 0; i < ids.length; i++) {
+        var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(ids[i]) + '"]')
+        if (!row) continue
+        row.style.opacity = "0.45"
+        row.style.pointerEvents = "none"
+      }
+    }
+
+    function performMailSelectionAction(action) {
+      if (mailSelectionBusy || selectedMailIds.size === 0) return
+      var ids = Array.from(selectedMailIds)
+      if (action === "read") {
+        markSelectedReadInBackground(ids)
+        return
+      }
+
+      if (action === "archive" || action === "delete" || action === "star") {
+        var targets = selectedMailTargets(ids)
+        var current = virtualMailList && virtualMailList.selectedEmailId
+        if ((action === "archive" || action === "delete") && current && ids.indexOf(current) !== -1) setMailViewEmpty()
+        if (action === "archive" || action === "delete") applyOptimisticRemove(ids)
+        clearMailSelection()
+        var path = action === "archive" ? "/api/messages/archive" : (action === "delete" ? "/api/messages/delete" : "/api/messages/star")
+        var extra = action === "star" ? { state: "starred" } : null
+        sendBulkMessageAction(path, targets, extra).then(function () {
+          if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
+            virtualMailList.refreshCurrentFolder({ noAnimation: action === "star" }).catch(function () {})
+          }
+          refreshSidebarUnread()
+        })
+        return
+      }
+
+      mailSelectionBusy = true
+      syncMailSelectionControls()
+
+      Promise.allSettled(ids.map(function (emailId) {
+        if (action === "archive") return fetch("/api/messages/" + encodeURIComponent(emailId) + "/thread/archive", { method: "POST" })
+        if (action === "delete") return fetch("/api/messages/" + encodeURIComponent(emailId), { method: "DELETE" })
+        return Promise.resolve()
+      })).then(function () {
+        var mailView = document.getElementById("mail-view")
+        var current = virtualMailList && virtualMailList.selectedEmailId
+        if ((action === "archive" || action === "delete") && current && ids.indexOf(current) !== -1 && mailView) setMailViewEmpty()
+        clearMailSelection()
+        for (var i = 0; i < ids.length; i++) invalidateMailListItem(ids[i])
+        if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
+          virtualMailList.refreshCurrentFolder({ noAnimation: action === "read" }).catch(function () {})
+        }
+        refreshSidebarUnread()
+      }).finally(function () {
+        mailSelectionBusy = false
+        syncMailSelectionControls()
+      })
+    }
   }
 
   function setupMailFilters() {

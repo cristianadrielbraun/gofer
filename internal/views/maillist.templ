@@ -157,12 +157,18 @@ templ MailListToolbar(viewMode string) {
 			</button>
 		</div>
 		<div class="mail-list-toolbar-spacer flex-1"></div>
+		<button type="button" data-mail-selection-clear class="hidden h-7 items-center rounded-md px-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">
+			<span data-mail-selection-summary>0 selected</span>
+			<span class="ml-1 text-[10px]">Clear</span>
+		</button>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
 					Size:    button.SizeIcon,
 					Class:   "h-7 w-7",
+					Disabled: true,
+					Attributes: templ.Attributes{"data-mail-selection-action": "archive", "aria-label": "Archive selected messages"},
 				}) {
 					@icon.Archive(icon.Props{Class: "size-3.5"})
 				}
@@ -180,6 +186,8 @@ templ MailListToolbar(viewMode string) {
 					Variant: button.VariantGhost,
 					Size:    button.SizeIcon,
 					Class:   "h-7 w-7",
+					Disabled: true,
+					Attributes: templ.Attributes{"data-mail-selection-action": "delete", "aria-label": "Delete selected messages"},
 				}) {
 					@icon.Trash2(icon.Props{Class: "size-3.5"})
 				}
@@ -197,6 +205,8 @@ templ MailListToolbar(viewMode string) {
 					Variant: button.VariantGhost,
 					Size:    button.SizeIcon,
 					Class:   "h-7 w-7",
+					Disabled: true,
+					Attributes: templ.Attributes{"data-mail-selection-action": "read", "aria-label": "Mark selected messages as read"},
 				}) {
 					@icon.MailOpen(icon.Props{Class: "size-3.5"})
 				}
@@ -227,7 +237,7 @@ templ MailListToolbar(viewMode string) {
 						Add label
 					</span>
 				}
-				@dropdown.Item() {
+				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "star"}}) {
 					<span class="flex items-center gap-2">
 						@icon.Star(icon.Props{Class: "size-4"})
 						Star selected
@@ -510,7 +520,7 @@ templ MailListColumnOption(value string, label string) {
 }
 
 templ MailListCardItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID }>
+	<div class="mail-list-item" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) }>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
