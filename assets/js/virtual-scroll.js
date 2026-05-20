@@ -50,6 +50,7 @@ class VirtualMailList {
     this.bannerEl = null
     this.loaderEl = null
     this.transitionOverlay = null
+    this.edgeSkeletonEl = null
 
     this.rowPool = []
     this.visibleRows = new Map()
@@ -62,7 +63,49 @@ class VirtualMailList {
     this._offsetCacheStart = -1
 
     this.container.style.overflowAnchor = "none"
+    this.applyPaneLayoutDensity()
     this.bindEvents()
+  }
+
+  isStackedPaneLayout() {
+    var main = this.root && this.root.closest ? this.root.closest("#main-content") : null
+    if (!main) main = document.getElementById("main-content")
+    return !!(main && main.dataset.mailPaneLayout === "stacked")
+  }
+
+  mailListFetchLimit() {
+    return this.isStackedPaneLayout() ? 32 : 50
+  }
+
+  selectedFetchLimit() {
+    return this.isStackedPaneLayout() ? 52 : 80
+  }
+
+  applyPaneLayoutDensity() {
+    var stacked = this.isStackedPaneLayout()
+    var overscan = stacked ? 6 : 10
+    var chunkSize = stacked ? 60 : 100
+    var poolSlack = stacked ? 4 : 6
+    var changed = this.overscan !== overscan || this.chunkSize !== chunkSize || this.poolSlack !== poolSlack
+    this.overscan = overscan
+    this.chunkSize = chunkSize
+    this.poolSlack = poolSlack
+    if (changed) {
+      this.prevFirst = null
+      this.prevLast = null
+      this.trimRowPool()
+    }
+  }
+
+  trimRowPool() {
+    if (!this.itemsContainer || this.rowPool.length === 0) return
+    var needed = Math.ceil(this.container.clientHeight / this.itemHeight) + this.overscan * 2 + this.poolSlack
+    for (var i = this.rowPool.length - 1; i >= 0 && this.rowPool.length > needed; i--) {
+      var row = this.rowPool[i]
+      if (this.visibleRows.has(row)) continue
+      row.remove()
+      this.rowPool.splice(i, 1)
+    }
   }
 
   rowHTML(item, viewMode) {
@@ -159,6 +202,28 @@ class VirtualMailList {
     this.itemsContainer.style.overflowAnchor = "none"
   }
 
+  showEdgeSkeleton(direction) {
+    if (direction !== "up" || !this.itemsContainer) return
+    if (!this.edgeSkeletonEl) {
+      this.edgeSkeletonEl = document.createElement("div")
+      this.edgeSkeletonEl.style.position = "absolute"
+      this.edgeSkeletonEl.style.left = "0"
+      this.edgeSkeletonEl.style.right = "0"
+      this.edgeSkeletonEl.style.top = "0"
+      this.edgeSkeletonEl.style.zIndex = "30"
+      this.edgeSkeletonEl.style.pointerEvents = "none"
+      this.itemsContainer.appendChild(this.edgeSkeletonEl)
+    }
+    this.edgeSkeletonEl.style.height = this.itemHeight + "px"
+    this.edgeSkeletonEl.innerHTML = this.createSkeleton().outerHTML
+  }
+
+  hideEdgeSkeleton() {
+    if (!this.edgeSkeletonEl) return
+    this.edgeSkeletonEl.remove()
+    this.edgeSkeletonEl = null
+  }
+
   bindEvents() {
     var self = this
     var rafId = null
@@ -184,10 +249,12 @@ class VirtualMailList {
   }
 
   render() {
+    this.applyPaneLayoutDensity()
     var scrollTop = this.container.scrollTop
     var clientHeight = this.container.clientHeight
     if (this.effectiveCount === 0) {
       var stale = this.captureListTransition()
+      this.hideEdgeSkeleton()
       this.spacerTop.style.height = "0px"
       this.spacerBottom.style.height = "0px"
       this.rowPool = []
@@ -666,21 +733,22 @@ class VirtualMailList {
       return row
     }
     row.innerHTML =
-      '<div class="flex items-center gap-1.5 pt-0.5 shrink-0">' +
-      '<div class="h-3.5 w-3.5 rounded bg-muted animate-pulse"></div>' +
-      '<div class="h-3.5 w-3.5 rounded bg-muted animate-pulse"></div>' +
+      '<div class="w-7 flex flex-col items-center justify-between self-stretch py-1 shrink-0">' +
+      '<div class="size-6 rounded-full bg-muted animate-pulse shadow-[0_1px_3px_rgba(0,0,0,0.12)]"></div>' +
       "</div>" +
-      '<div class="flex-1 min-w-0 space-y-2">' +
-      '<div class="flex items-center justify-between">' +
+      '<div class="flex-1 min-w-0 space-y-1">' +
+      '<div class="flex items-center justify-between gap-2">' +
+      '<div class="h-3.5 w-32 max-w-[42%] rounded bg-muted animate-pulse"></div>' +
+      '<div class="flex items-center gap-1.5 shrink-0">' +
+      '<div class="h-3 w-16 rounded bg-muted animate-pulse"></div>' +
+      "</div>" +
+      "</div>" +
+      '<div class="h-3.5 w-56 max-w-[58%] rounded bg-muted animate-pulse"></div>' +
       '<div class="flex items-center gap-2">' +
-      '<div class="size-6 rounded-full bg-muted animate-pulse"></div>' +
-      '<div class="h-3 w-24 rounded bg-muted animate-pulse"></div>' +
+      '<div class="h-3 w-72 max-w-[70%] rounded bg-muted animate-pulse"></div>' +
       "</div>" +
-      '<div class="h-3 w-12 rounded bg-muted animate-pulse"></div>' +
       "</div>" +
-      '<div class="h-3 w-3/4 rounded bg-muted animate-pulse"></div>' +
-      '<div class="h-2.5 w-1/2 rounded bg-muted animate-pulse"></div>' +
-      "</div>"
+      '<div class="w-2 h-2 rounded-full bg-muted animate-pulse shrink-0 mt-2"></div>'
     return row
   }
 
@@ -737,14 +805,17 @@ class VirtualMailList {
     this.prevFirst = null
     this.prevLast = null
     this.render()
+    this.showEdgeSkeleton(direction)
     this.pinPendingSkeleton(direction)
     var skeletonRevealed = this.waitForSkeletonReveal(revealStartedAt, direction)
     try {
       if (window.__debugWindowedMail) {
         console.debug("[mail-chunk] load", direction, chunkIndex, start, end)
       }
-      var html = await this.fetchHTML(this.itemsURLForView(this.viewMode, start, end - start + 1))
-      await skeletonRevealed
+      var htmlPromise = this.fetchHTML(this.itemsURLForView(this.viewMode, start, end - start + 1))
+      if (direction === "up") await skeletonRevealed
+      var html = await htmlPromise
+      if (direction !== "up") await skeletonRevealed
       this.ingestHTML(html)
       this.prevFirst = null
       this.prevLast = null
@@ -759,6 +830,7 @@ class VirtualMailList {
       this.pendingLoadStart = null
       this.pendingLoadEnd = null
       this.activeChunkFetches.delete(chunkKey)
+      this.hideEdgeSkeleton()
       this.updateEffectiveCount()
     }
   }
@@ -908,7 +980,7 @@ class VirtualMailList {
     if (!this.hasMore || this.isLoading) return
     this.isLoading = true
     try {
-      var params = "limit=50"
+      var params = "limit=" + this.mailListFetchLimit()
       if (this.nextCursor) {
         params += "&after=" + encodeURIComponent(this.nextCursor)
       }
@@ -1392,7 +1464,7 @@ class VirtualMailList {
     return '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="Account Marker"><span class="account-color-marker size-2.5" style="' + accountMarkerStyle + '"></span><span class="mail-list-column-separator"></span></div>' +
       '<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 mx-auto"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.751a.53.53 0 0 1 .294.904l-3.736 3.643a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.75a2.12 2.12 0 0 0 1.596-1.16z"/></svg><span class="mail-list-column-separator"></span></div>' +
       '<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 mx-auto"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg><span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading flex items-center justify-start" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"></path><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"></path></svg><span class="mail-list-column-resize" data-mail-table-resize="3"></span></div>' +
+      '<div class="mail-list-table-heading flex items-center justify-start" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"></path><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"></path></svg><span class="mail-list-column-separator"></span></div>' +
       '<div class="mail-list-table-heading" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>' +
       '<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">To<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>' +
       '<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>' +
@@ -1427,7 +1499,7 @@ class VirtualMailList {
     }
     var transition = this.captureListTransition()
     var previousSelected = this.selectedEmailId
-    var params = "limit=50"
+    var params = "limit=" + this.mailListFetchLimit()
     if (previousSelected) {
       params += "&selected=" + encodeURIComponent(previousSelected)
     }
@@ -1477,7 +1549,7 @@ class VirtualMailList {
         return
       }
       var transition = options.noAnimation ? null : self.captureListTransition()
-      var params = "limit=50"
+      var params = "limit=" + self.mailListFetchLimit()
       if (self.selectedEmailId) {
         params += "&selected=" + encodeURIComponent(self.selectedEmailId)
       }
@@ -1537,6 +1609,7 @@ class VirtualMailList {
     this.prevLast = null
     this.expandedThreads.clear()
     this.rowPool = []
+    this.hideEdgeSkeleton()
     this.visibleRows.clear()
     this.rowByIndex.clear()
     if (this.itemsContainer) this.itemsContainer.innerHTML = ""
@@ -1575,6 +1648,7 @@ class VirtualMailList {
       this.prevFirst = null
       this.prevLast = null
       this.rowPool = []
+      this.hideEdgeSkeleton()
       this.visibleRows.clear()
       this.rowByIndex.clear()
       if (this.itemsContainer) this.itemsContainer.innerHTML = ""
@@ -1774,7 +1848,7 @@ class VirtualMailList {
     }
     var transition = this.captureListTransition()
     var previousSelected = this.selectedEmailId
-    var params = "limit=50&view=" + encodeURIComponent(this.viewMode)
+    var params = "limit=" + this.mailListFetchLimit() + "&view=" + encodeURIComponent(this.viewMode)
     if (previousSelected) params += "&selected=" + encodeURIComponent(previousSelected)
     var html = await this.fetchHTML(this.withFilterParams("/mail/folder/" + this.folderID + "/items?" + params))
     var syncState = this.syncState
@@ -2077,7 +2151,9 @@ class VirtualMailList {
       this.folderID +
       "/items?around=" +
       encodeURIComponent(selectedId) +
-      "&limit=80&selected=" +
+      "&limit=" +
+      this.selectedFetchLimit() +
+      "&selected=" +
       encodeURIComponent(selectedId) +
       "&view=" +
       encodeURIComponent(this.viewMode)

@@ -3659,6 +3659,8 @@ func defaultUISettings() map[string]string {
 		"compose_autosave_min_chars":        "30",
 		"compose_autosave_debounce":         "5",
 		"sender_display":                    "name",
+		"mail_pane_layout":                  "side",
+		"mail_list_height":                  "360",
 		"mail_list_navigation":              "infinite",
 		"auto_mark_read_after":              "0",
 		"desktop_notifications":             "false",

@@ -5,12 +5,19 @@ var initResizeHandles;
     return el.previousElementSibling;
   }
 
-  function getSize(el) {
-    return el.getBoundingClientRect().width;
+  function isStackedMailList(panelName) {
+    var main = document.getElementById("main-content");
+    return panelName === "maillist" && main && main.dataset.mailPaneLayout === "stacked";
   }
 
-  function setSize(el, w) {
-    el.style.width = w + "px";
+  function getSize(el, axis) {
+    var rect = el.getBoundingClientRect();
+    return axis === "y" ? rect.height : rect.width;
+  }
+
+  function setSize(el, size, axis) {
+    if (axis === "y") el.style.height = size + "px";
+    else el.style.width = size + "px";
   }
 
   function clamp(v, min, max) {
@@ -19,12 +26,17 @@ var initResizeHandles;
 
   function settingKey(panelName) {
     if (panelName === "sidebar") return "sidebar_width";
-    if (panelName === "maillist") return "mail_list_width";
+    if (panelName === "maillist") return isStackedMailList(panelName) ? "mail_list_height" : "mail_list_width";
     return panelName + "_width";
   }
 
   function getBounds(panelName) {
     var vw = window.innerWidth;
+
+    if (isStackedMailList(panelName)) {
+      var vh = window.innerHeight || 800;
+      return { min: 180, max: Math.min(760, vh * 0.65) };
+    }
 
     if (panelName === "sidebar") {
       return { min: 180, max: Math.min(400, vw * 0.25) };
@@ -41,18 +53,21 @@ var initResizeHandles;
     var handle = e.currentTarget;
     var panel = getPanel(handle);
     var panelName = handle.dataset.panel;
+    var axis = isStackedMailList(panelName) ? "y" : "x";
     var startX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
-    var startW = getSize(panel);
+    var startY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+    var startSize = getSize(panel, axis);
 
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = axis === "y" ? "row-resize" : "col-resize";
     document.body.style.userSelect = "none";
     handle.classList.add("active");
 
     function onMove(ev) {
       var cx = ev.clientX || (ev.touches && ev.touches[0].clientX) || 0;
-      var delta = cx - startX;
+      var cy = ev.clientY || (ev.touches && ev.touches[0].clientY) || 0;
+      var delta = axis === "y" ? cy - startY : cx - startX;
       var b = getBounds(panelName);
-      setSize(panel, clamp(startW + delta, b.min, b.max));
+      setSize(panel, clamp(startSize + delta, b.min, b.max), axis);
     }
 
     function onUp() {
@@ -60,10 +75,10 @@ var initResizeHandles;
       document.body.style.userSelect = "";
       handle.classList.remove("active");
       var b = getBounds(panelName);
-      var finalW = Math.round(clamp(getSize(panel), b.min, b.max));
-      setSize(panel, finalW);
+      var finalSize = Math.round(clamp(getSize(panel, axis), b.min, b.max));
+      setSize(panel, finalSize, axis);
       if (typeof GoferSettings !== "undefined") {
-        GoferSettings.set(settingKey(panelName), String(finalW));
+        GoferSettings.set(settingKey(panelName), String(finalSize));
       }
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
@@ -84,7 +99,7 @@ var initResizeHandles;
         var saved = GoferSettings.get(settingKey(name));
         if (saved) {
           var b = getBounds(name);
-          setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max));
+          setSize(getPanel(h), clamp(parseInt(saved, 10), b.min, b.max), isStackedMailList(name) ? "y" : "x");
         }
       }
       if (h._resizeBound) return;

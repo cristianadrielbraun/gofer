@@ -45,7 +45,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<div id="app-shell" class="flex h-screen overflow-hidden">
 				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
 				@ResizeHandle("sidebar")
-				<div id="main-content" class="flex flex-1 min-w-0">
+				<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
 					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
 					@ResizeHandle("maillist")
 					if initialEmailID != "" && selectedEmail == nil {
@@ -348,13 +348,15 @@ templ SavedPanelSizeStyle() {
 			}
 
 			var vw = window.innerWidth || 1024;
+			var vh = window.innerHeight || 800;
+			var stacked = settings.mail_pane_layout === "stacked";
 			var sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));
-			var mailList = px(settings.mail_list_width, 300, Math.min(1200, vw * 0.55));
-			if (!sidebar && !mailList) return;
+			var mailList = stacked ? px(settings.mail_list_height, 180, Math.min(760, vh * 0.65)) : px(settings.mail_list_width, 300, Math.min(1200, vw * 0.55));
+			if (!sidebar && !mailList && !stacked) return;
 
 			var style = document.createElement("style");
 			style.setAttribute("data-saved-panel-size-style", "");
-			style.textContent = (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (mailList ? "#mail-list{width:" + mailList + "px!important}" : "");
+			style.textContent = (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (stacked ? "#main-content{flex-direction:column}#mail-list{width:100%!important" + (mailList ? ";height:" + mailList + "px!important" : "") + "}" : (mailList ? "#mail-list{width:" + mailList + "px!important}" : ""));
 			document.head.appendChild(style);
 		})();
 	</script>
@@ -372,7 +374,7 @@ templ FolderPartial(accounts []models.Account, emails []models.Email, activeFold
 }
 
 templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string, windowStart int) {
-	<div id="main-content" class="flex flex-1 min-w-0">
+	<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
 		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "384px"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
 		@ResizeHandle("maillist")
 		if initialEmailID != "" {

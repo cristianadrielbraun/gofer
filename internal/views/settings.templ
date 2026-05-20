@@ -143,6 +143,25 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			</div>
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Email pane layout</h4>
+					<p class="text-xs text-muted-foreground mt-1">Choose whether the message list and reading pane sit beside each other or stack vertically.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0" data-mail-pane-layout-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "mail_pane_layout", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Side by side"}) {
+								{ mailPaneLayoutSettingLabel(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "side", Selected: mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) == "side"}) { Side by side }
+							@selectbox.Item(selectbox.ItemProps{Value: "stacked", Selected: mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) == "stacked"}) { Stacked }
+						}
+					}
+				</div>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">List navigation</h4>
 					<p class="text-xs text-muted-foreground mt-1">Choose infinite scroll with edge loading, or page through messages with previous and next controls.</p>
 				</div>
@@ -253,6 +272,10 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			var defaultComposeView = e.target.closest('input[name="default_compose_view"]');
 			if (defaultComposeView && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('default_compose_view', defaultComposeView.value);
+			}
+			var mailPaneLayout = e.target.closest('input[name="mail_pane_layout"]');
+			if (mailPaneLayout && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('mail_pane_layout', mailPaneLayout.value);
 			}
 			var autosaveToggle = e.target.closest('[data-compose-autosave-setting="enabled"]');
 			if (autosaveToggle && typeof GoferSettings !== 'undefined') {

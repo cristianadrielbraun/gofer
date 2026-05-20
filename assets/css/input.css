@@ -1321,9 +1321,6 @@ body.mail-list-column-resizing {
 }
 
 .mail-list-skeleton {
-  height: 94px;
-  min-height: 94px;
-  max-height: 94px;
   overflow: hidden;
   display: flex;
   align-items: flex-start;
@@ -1332,10 +1329,10 @@ body.mail-list-column-resizing {
   height: 88px;
   min-height: 88px;
   max-height: 88px;
-  padding: 3px 0.875rem;
-  border: 1px solid color-mix(in srgb, var(--color-foreground) 14%, transparent);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--color-foreground) 4%, var(--color-card));
+  padding: 0.625rem 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-card);
 }
 
 .mail-list-table-skeleton {
@@ -1500,6 +1497,41 @@ body.mail-list-column-resizing {
   width: 3px;
   background: var(--primary);
   border-radius: 2px;
+}
+
+#main-content[data-mail-pane-layout="stacked"] #mail-list {
+  width: 100% !important;
+  max-width: none;
+  height: min(42vh, 30rem);
+  min-height: 12rem;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+#main-content[data-mail-pane-layout="stacked"] #mail-view {
+  min-height: 0;
+}
+
+#main-content[data-mail-pane-layout="stacked"] > .resize-handle[data-panel="maillist"] {
+  width: 100%;
+  height: 5px;
+  cursor: row-resize;
+}
+
+#main-content[data-mail-pane-layout="stacked"] > .resize-handle[data-panel="maillist"]::after {
+  top: 50%;
+  bottom: auto;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+#main-content[data-mail-pane-layout="stacked"] > .resize-handle[data-panel="maillist"]:hover::after,
+#main-content[data-mail-pane-layout="stacked"] > .resize-handle[data-panel="maillist"].active::after {
+  width: 100%;
+  height: 3px;
 }
 
 /* === COMPOSE DIALOG === */

@@ -245,6 +245,27 @@ func defaultComposeViewSettingLabel(view string) string {
 	}
 }
 
+func mailPaneLayout(value string) string {
+	if value == "stacked" {
+		return "stacked"
+	}
+	return "side"
+}
+
+func mailPaneLayoutClass(value string) string {
+	if mailPaneLayout(value) == "stacked" {
+		return "flex flex-1 min-w-0 flex-col"
+	}
+	return "flex flex-1 min-w-0"
+}
+
+func mailPaneLayoutSettingLabel(value string) string {
+	if mailPaneLayout(value) == "stacked" {
+		return "Stacked"
+	}
+	return "Side by side"
+}
+
 func notificationModeSettingLabel(mode string) string {
 	switch mode {
 	case "web_push":

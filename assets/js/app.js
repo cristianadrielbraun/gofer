@@ -2168,7 +2168,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function setupMailTableColumnResize() {
     var columnIds = ["accountMarker", "starred", "attachment", "thread", "from", "to", "subject", "date"]
     var minWidths = [24, 32, 32, 28, 90, 90, 140, 64]
-    var fixedWidths = { accountMarker: 24, starred: 24, attachment: 24 }
+    var fixedWidths = { accountMarker: 24, starred: 24, attachment: 24, thread: 28 }
     var defaultRatios = [0.8, 0.8, 0.8, 1, 3, 3, 5, 2]
 
     function clamp(value, index) {
