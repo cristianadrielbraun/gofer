@@ -666,6 +666,10 @@ func parseSQLiteDateTime(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func formatDBTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05.999999999")
+}
+
 type SyncMessage struct {
 	AccountID    string
 	FolderID     string
@@ -772,6 +776,8 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 	if draft.Date.IsZero() {
 		draft.Date = time.Now().UTC()
 	}
+	draft.Date = draft.Date.UTC()
+	draftDBDate := formatDBTime(draft.Date)
 
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -806,7 +812,7 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 			snippet = excluded.snippet,
 			preview_text = excluded.preview_text,
 			updated_at = CURRENT_TIMESTAMP`, draft.AccountID, draft.InternetMessageID, messageIDNorm, inReplyTo, draft.References, normalizedSubject, draft.Subject,
-		draft.FromName, draft.FromEmail, draft.Date, draft.Date, draft.Snippet, draft.Snippet); err != nil {
+		draft.FromName, draft.FromEmail, draftDBDate, draftDBDate, draft.Snippet, draft.Snippet); err != nil {
 		return 0, fmt.Errorf("upsert draft message: %w", err)
 	}
 
@@ -928,6 +934,7 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			from_name = excluded.from_name,
 			from_email = excluded.from_email,
 			date_sent = excluded.date_sent,
+			date_received = excluded.date_received,
 			in_reply_to = excluded.in_reply_to,
 			"references" = excluded."references",
 			snippet = excluded.snippet,
@@ -985,10 +992,12 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			inReplyTo = ids[0]
 		}
 		normalizedSubject := normalizeSubject(m.Subject)
+		m.DateSent = m.DateSent.UTC()
+		messageDBDate := formatDBTime(m.DateSent)
 
 		var msgID int64
 		if _, err := msgStmt.ExecContext(ctx, m.AccountID, m.MessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
-			m.FromName, m.FromEmail, m.DateSent, m.DateSent, m.Snippet, m.Snippet); err != nil {
+			m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet); err != nil {
 			return fmt.Errorf("upsert message: %w", err)
 		}
 		if err := tx.QueryRow(`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`,

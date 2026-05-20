@@ -99,6 +99,104 @@ func TestEmailQueryFilterUsesExistingMessageFields(t *testing.T) {
 	}
 }
 
+func TestEmailsRangeSortsMixedTimezoneDatesByInstant(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	earlierUTC := time.Date(2026, 5, 20, 12, 6, 0, 0, time.UTC)
+	laterOffset := time.Date(2026, 5, 20, 12, 3, 0, 0, time.FixedZone("-0400", -4*60*60))
+	if !laterOffset.After(earlierUTC) {
+		t.Fatalf("test setup invalid: laterOffset must be after earlierUTC")
+	}
+
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{
+		{
+			AccountID: "acc",
+			FolderID:  "inbox",
+			RemoteUID: 1,
+			MessageID: "<earlier@example.com>",
+			Subject:   "Earlier UTC",
+			FromName:  "Earlier",
+			FromEmail: "earlier@example.com",
+			DateSent:  earlierUTC,
+			Snippet:   "earlier",
+			IsRead:    true,
+		},
+		{
+			AccountID: "acc",
+			FolderID:  "inbox",
+			RemoteUID: 2,
+			MessageID: "<later@example.com>",
+			Subject:   "Later offset",
+			FromName:  "Later",
+			FromEmail: "later@example.com",
+			DateSent:  laterOffset,
+			Snippet:   "later",
+			IsRead:    true,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
+	}
+	if len(page.Emails) != 2 {
+		t.Fatalf("len(page.Emails) = %d, want 2", len(page.Emails))
+	}
+	if page.Emails[0].Subject != "Later offset" {
+		t.Fatalf("first subject = %q, want Later offset", page.Emails[0].Subject)
+	}
+
+	var storedReceived string
+	if err := db.Read().QueryRowContext(ctx, `SELECT date_received FROM messages WHERE internet_message_id = '<later@example.com>'`).Scan(&storedReceived); err != nil {
+		t.Fatalf("query stored date_received: %v", err)
+	}
+	if storedReceived != "2026-05-20T16:03:00Z" {
+		t.Fatalf("stored date_received = %q, want UTC sortable text", storedReceived)
+	}
+}
+
+func TestSaveDraftMessageStoresUTCDateText(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "drafts", AccountID: "acc", Name: "Drafts", Role: "drafts", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	draftDate := time.Date(2026, 5, 20, 9, 45, 0, 0, time.FixedZone("-0700", -7*60*60))
+	if _, err := db.SaveDraftMessage(ctx, DraftMessageInput{
+		AccountID:         "acc",
+		FolderID:          "drafts",
+		InternetMessageID: "<draft-date@example.com>",
+		Subject:           "Draft date",
+		FromEmail:         "user@example.com",
+		Date:              draftDate,
+	}); err != nil {
+		t.Fatalf("SaveDraftMessage() error = %v", err)
+	}
+
+	var dateSent, dateReceived string
+	if err := db.Read().QueryRowContext(ctx, `SELECT date_sent, date_received FROM messages WHERE internet_message_id = '<draft-date@example.com>'`).Scan(&dateSent, &dateReceived); err != nil {
+		t.Fatalf("query stored dates: %v", err)
+	}
+	if dateSent != "2026-05-20T16:45:00Z" || dateReceived != "2026-05-20T16:45:00Z" {
+		t.Fatalf("stored dates = %q/%q, want UTC sortable text", dateSent, dateReceived)
+	}
+}
+
 func TestEmailQueryFilterMatchesThreadWhenOlderMessageMatches(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
