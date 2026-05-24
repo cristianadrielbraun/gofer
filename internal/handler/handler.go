@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -58,6 +59,7 @@ type Handler struct {
 	contactBackfillState models.ContactBackfillState
 	contactSyncMu        sync.Mutex
 	contactSyncRunning   map[string]struct{}
+	contactSyncQueue     chan struct{}
 	vapidPublicKey       string
 }
 
@@ -82,6 +84,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		avatarWarmupQueued: make(map[string]struct{}),
 		avatarWarmupForced: make(map[string]time.Time),
 		contactSyncRunning: make(map[string]struct{}),
+		contactSyncQueue:   make(chan struct{}, 1),
 		vapidPublicKey:     vapidPublicKey,
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
@@ -152,6 +155,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/contacts/search", h.handleContactSearch)
 	mux.HandleFunc("POST /api/contacts", h.handleSaveContact)
 	mux.HandleFunc("POST /api/contacts/import", h.handleImportContacts)
+	mux.HandleFunc("POST /api/contacts/{id}/fields/{fieldID}/prefer", h.handlePreferContactField)
 	mux.HandleFunc("POST /api/contacts/{id}/delete", h.handleDeleteContact)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
 	mux.HandleFunc("GET /api/accounts/{id}/edit", h.handleGetEditAccount)
@@ -190,7 +194,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /compose/attachments/{id}/preview", h.handleComposeAttachmentPreview)
 	mux.HandleFunc("DELETE /compose/attachments/{id}", h.handleComposeAttachmentDelete)
 	mux.HandleFunc("GET /api/events", h.handleSSE)
+	mux.HandleFunc("GET /api/sidebar/accounts/{id}", h.handleSidebarAccount)
 	mux.HandleFunc("POST /api/mail/sync", h.handleSyncMail)
+	mux.HandleFunc("POST /api/mail/sync/accounts/{id}", h.handleSyncMailAccount)
 	mux.HandleFunc("POST /api/mail/sync/cancel", h.handleCancelSyncMail)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
 	mux.HandleFunc("GET /api/system/processing", h.handleProcessingStatus)
@@ -366,15 +372,18 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var selected *models.Contact
+	var selectedProfile *models.ContactProfile
 	if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
 		selected, _ = h.db.GetContact(ctx, userID, id)
+		selectedProfile, _ = h.db.GetContactProfile(ctx, userID, id)
 	}
 	recentActivity := h.recentContactActivity(ctx, userID, selected)
 	showNew := selected == nil && r.URL.Query().Get("new") == "1"
+	syncQueued := selected != nil && r.URL.Query().Get("sync") == "queued"
 	if r.URL.Query().Get("partial") == "detail" {
 		accounts, _ := h.db.GetAccounts(ctx, userID)
 		w.Header().Set("Content-Type", "text/html")
-		views.ContactsDetail(selected, false, accounts, recentActivity).Render(ctx, w)
+		views.ContactsDetail(selected, selectedProfile, false, syncQueued, accounts, recentActivity).Render(ctx, w)
 		return
 	}
 	accounts, _ := h.db.GetAccounts(ctx, userID)
@@ -388,15 +397,15 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		if r.Header.Get("HX-Target") == "app-shell" {
 			layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
-			views.ContactsShell(layoutAccounts, contacts, selected, showNew, filters, totalCount, uiSettings, recentActivity).Render(ctx, w)
+			views.ContactsShell(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings, recentActivity).Render(ctx, w)
 			return
 		}
-		views.ContactsPage(contacts, selected, showNew, filters, totalCount, width, accounts, recentActivity).Render(ctx, w)
+		views.ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, width, accounts, recentActivity).Render(ctx, w)
 		return
 	}
 
 	layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
-	views.ContactsLayout(layoutAccounts, contacts, selected, showNew, filters, totalCount, h.db.GetUISettings(ctx, userID), recentActivity).Render(ctx, w)
+	views.ContactsLayout(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, h.db.GetUISettings(ctx, userID), recentActivity).Render(ctx, w)
 }
 
 func (h *Handler) recentContactActivity(ctx context.Context, userID string, contact *models.Contact) []models.Email {
@@ -485,11 +494,23 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := h.userID(ctx)
+	additionalEmails, additionalEmailLabels := contactListFields(r.Form["additional_emails"], r.Form["additional_email_labels"])
+	additionalPhones, additionalPhoneLabels := contactListFields(r.Form["additional_phones"], r.Form["additional_phone_labels"])
 	contact := models.Contact{
-		ID:          strings.TrimSpace(r.URL.Query().Get("id")),
-		Name:        strings.TrimSpace(r.FormValue("name")),
-		Email:       strings.TrimSpace(r.FormValue("email")),
-		SaveTargets: h.contactSaveTargets(ctx, r.FormValue("save_targets")),
+		ID:                    strings.TrimSpace(r.URL.Query().Get("id")),
+		Name:                  strings.TrimSpace(r.FormValue("name")),
+		Email:                 strings.TrimSpace(r.FormValue("email")),
+		EmailLabel:            contactFieldLabel(r.FormValue("email_label"), "primary"),
+		AdditionalEmails:      additionalEmails,
+		AdditionalEmailLabels: additionalEmailLabels,
+		Phone:                 strings.TrimSpace(r.FormValue("phone")),
+		PhoneLabel:            contactFieldLabel(r.FormValue("phone_label"), "primary"),
+		AdditionalPhones:      additionalPhones,
+		AdditionalPhoneLabels: additionalPhoneLabels,
+		Organization:          strings.TrimSpace(r.FormValue("organization")),
+		Title:                 strings.TrimSpace(r.FormValue("title")),
+		Notes:                 strings.TrimSpace(r.FormValue("notes")),
+		SaveTargets:           h.contactSaveTargets(ctx, r.FormValue("save_targets")),
 	}
 	var previous *models.Contact
 	if contact.ID != "" {
@@ -512,6 +533,66 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/contacts?contact="+saved.ID, http.StatusSeeOther)
+}
+
+func contactListValues(rawValues ...string) []string {
+	values := make([]string, 0, len(rawValues))
+	seen := map[string]bool{}
+	for _, raw := range rawValues {
+		fields := strings.FieldsFunc(raw, func(r rune) bool {
+			return r == '\n' || r == '\r' || r == ','
+		})
+		for _, field := range fields {
+			value := strings.TrimSpace(field)
+			if value == "" {
+				continue
+			}
+			key := strings.ToLower(value)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func contactFieldLabel(value, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func contactListFields(rawValues, rawLabels []string) ([]string, []string) {
+	values := make([]string, 0, len(rawValues))
+	labels := make([]string, 0, len(rawValues))
+	seen := map[string]bool{}
+	for i, raw := range rawValues {
+		fields := strings.FieldsFunc(raw, func(r rune) bool {
+			return r == '\n' || r == '\r' || r == ','
+		})
+		for _, field := range fields {
+			value := strings.TrimSpace(field)
+			if value == "" {
+				continue
+			}
+			key := strings.ToLower(value)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			label := ""
+			if i < len(rawLabels) {
+				label = rawLabels[i]
+			}
+			values = append(values, value)
+			labels = append(labels, contactFieldLabel(label, "alternate"))
+		}
+	}
+	return values, labels
 }
 
 func (h *Handler) contactSaveTargets(ctx context.Context, raw string) []string {
@@ -611,6 +692,37 @@ func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
 		imported++
 	}
 	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
+}
+
+func (h *Handler) handlePreferContactField(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	contactID := strings.TrimSpace(r.PathValue("id"))
+	fieldID := strings.TrimSpace(r.PathValue("fieldID"))
+	previous, _ := h.db.GetContact(ctx, userID, contactID)
+	profile, err := h.db.PreferContactField(ctx, userID, contactID, fieldID)
+	if err != nil {
+		http.Error(w, "failed to prefer contact field", http.StatusBadRequest)
+		return
+	}
+	if profile == nil {
+		http.NotFound(w, r)
+		return
+	}
+	syncQueued := false
+	if updated, err := h.db.GetContact(ctx, userID, contactID); err == nil && updated != nil {
+		syncQueued = h.scheduleContactAccountSync(ctx, userID, *updated, previous)
+	}
+	location := "/contacts?contact=" + url.QueryEscape(contactID)
+	if syncQueued {
+		location += "&sync=queued"
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", location)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
 }
 
 func (h *Handler) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
@@ -2817,6 +2929,34 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(counts)
 }
 
+func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
+	accountID := strings.TrimSpace(r.PathValue("id"))
+	if accountID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	accounts, err := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	if err != nil {
+		http.Error(w, "failed to load account", http.StatusInternalServerError)
+		return
+	}
+
+	for _, account := range accounts {
+		if account.ID != accountID || account.IsDeleting || !account.EmailSyncEnabled {
+			continue
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		activeFolder := strings.TrimSpace(r.URL.Query().Get("active_folder"))
+		views.SidebarAccountSection(account, activeFolder, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
+		return
+	}
+
+	http.NotFound(w, r)
+}
+
 func (h *Handler) handleSyncMail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := h.userID(ctx)
@@ -2844,6 +2984,44 @@ func (h *Handler) handleSyncMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	htmlStatus(w, http.StatusOK, fmt.Sprintf("Mail sync started for %d accounts.", len(accountIDs)))
+}
+
+func (h *Handler) handleSyncMailAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	accountID := strings.TrimSpace(r.PathValue("id"))
+	if accountID == "" {
+		htmlStatus(w, http.StatusBadRequest, "Choose an account before syncing mail.")
+		return
+	}
+
+	accountIDs, err := h.db.GetEmailSyncAccountIDs(ctx, userID)
+	if err != nil {
+		htmlStatus(w, http.StatusInternalServerError, "Could not find email-sync accounts.")
+		return
+	}
+	found := false
+	for _, id := range accountIDs {
+		if id == accountID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		htmlStatus(w, http.StatusNotFound, "That account is not available for mail sync.")
+		return
+	}
+
+	runID, started := h.syncer.SyncAccounts(context.Background(), userID, []string{accountID})
+	if !started {
+		w.Header().Set("X-Gofer-Mail-Sync-Running", "true")
+		htmlStatus(w, http.StatusOK, "Mail sync is already running.")
+		return
+	}
+
+	w.Header().Set("X-Gofer-Mail-Sync-Run-ID", runID)
+	w.Header().Set("X-Gofer-Mail-Sync-Accounts", "1")
+	htmlStatus(w, http.StatusOK, "Mail sync started for 1 account.")
 }
 
 func (h *Handler) handleCancelSyncMail(w http.ResponseWriter, r *http.Request) {

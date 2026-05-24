@@ -12,6 +12,8 @@ type Account struct {
 	IsActive            bool
 	IsDeleting          bool
 	EmailSyncEnabled    bool
+	EmailSyncError      string
+	EmailSyncErrorAt    string
 	ContactSyncEnabled  bool
 	ContactSyncProvider string
 	ContactAddressBooks []ContactAddressBook
@@ -60,24 +62,37 @@ type Email struct {
 }
 
 type Contact struct {
-	ID            string
-	Name          string
-	Email         string
-	Initials      string
-	Source        string
-	IsManual      bool
-	IsDeleted     bool
-	MessageCount  int
-	CreatedAt     string
-	LastSeenAt    string
-	UpdatedAt     string
-	SaveTargets   []string
-	AvatarHash    string
-	AvatarStatus  string
-	AvatarSource  string
-	AvatarURL     string
-	AvatarDataURL string
-	SourceBooks   []ContactAddressBook
+	ID                    string
+	Name                  string
+	Email                 string
+	EmailLabel            string
+	AdditionalEmails      []string
+	AdditionalEmailLabels []string
+	Phone                 string
+	PhoneLabel            string
+	AdditionalPhones      []string
+	AdditionalPhoneLabels []string
+	Organization          string
+	Title                 string
+	Notes                 string
+	Initials              string
+	Source                string
+	IsManual              bool
+	IsDeleted             bool
+	MessageCount          int
+	CreatedAt             string
+	LastSeenAt            string
+	UpdatedAt             string
+	SaveTargets           []string
+	AvatarHash            string
+	AvatarStatus          string
+	AvatarSource          string
+	AvatarURL             string
+	AvatarDataURL         string
+	SourceBooks           []ContactAddressBook
+	SyncStatus            string
+	SyncError             string
+	SyncUpdatedAt         string
 }
 
 type ContactSyncConfig struct {

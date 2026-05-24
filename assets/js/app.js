@@ -42,8 +42,10 @@ document.addEventListener("DOMContentLoaded", function () {
   setupProcessingStatus()
   setupBodyPrefetch()
   setupEmailBodyModeTabs()
+  setupMailSyncSidebarControls()
   setupMailSyncCancelControls()
   setupDesktopNotifications()
+  setupSidebarSyncErrorTimes()
   refreshSidebarUnread()
 
   function setupContactsList() {
@@ -187,6 +189,30 @@ document.addEventListener("DOMContentLoaded", function () {
           for (var pi = 0; pi < placeholders.length; pi++) placeholders[pi].textContent = placeholders[pi].getAttribute("data-tui-selectbox-placeholder") || ""
         }
         applyFilters()
+        return
+      }
+
+      var addContactValue = e.target.closest && e.target.closest("[data-contact-add-value]")
+      if (addContactValue) {
+        e.preventDefault()
+        var valueName = addContactValue.getAttribute("data-contact-add-value") || ""
+        var form = addContactValue.closest("[data-contact-editor-form]")
+        var list = form && form.querySelector('[data-contact-value-list="' + valueName + '"]')
+        var template = form && form.querySelector('template[data-contact-value-template="' + valueName + '"]')
+        if (list && template && template.content) {
+          var node = template.content.firstElementChild.cloneNode(true)
+          list.appendChild(node)
+          var input = node.querySelector("input")
+          if (input) input.focus()
+        }
+        return
+      }
+
+      var removeContactValue = e.target.closest && e.target.closest("[data-contact-remove-value]")
+      if (removeContactValue) {
+        e.preventDefault()
+        var valueRow = removeContactValue.closest("[data-contact-value-row]")
+        if (valueRow) valueRow.remove()
         return
       }
 
@@ -484,6 +510,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     seedMailSelectionFromActive()
     syncMailSelectionControls()
+    setupMailKeyboardShortcuts()
 
     function renderedMailRows() {
       return Array.prototype.slice.call(document.querySelectorAll("#mail-list-scroll .mail-list-item[data-email-id]"))
@@ -673,6 +700,293 @@ document.addEventListener("DOMContentLoaded", function () {
         mailSelectionBusy = false
         syncMailSelectionControls()
       })
+    }
+
+    function setupMailKeyboardShortcuts() {
+      if (document.body && document.body._goferMailKeyboardShortcutsBound) return
+      if (document.body) document.body._goferMailKeyboardShortcutsBound = true
+
+      document.addEventListener("keydown", function (e) {
+        if (isShortcutIgnored(e)) return
+
+        if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+          e.preventDefault()
+          toggleShortcutHelp()
+          return
+        }
+
+        if (e.key === "Escape" && closeShortcutHelp()) {
+          e.preventDefault()
+          return
+        }
+
+        if (e.key === "Escape" && selectedMailIds.size > 0) {
+          e.preventDefault()
+          clearKeyboardMailSelection()
+          return
+        }
+
+        var key = String(e.key || "").toLowerCase()
+        if (key === "j" || key === "arrowdown") {
+          e.preventDefault()
+          moveKeyboardMailSelection(1)
+          return
+        }
+        if (key === "k" || key === "arrowup") {
+          e.preventDefault()
+          moveKeyboardMailSelection(-1)
+          return
+        }
+        if (key === "enter" || key === "o") {
+          e.preventDefault()
+          openKeyboardSelectedMail()
+          return
+        }
+        if (key === "/") {
+          e.preventDefault()
+          focusMailSearch()
+          return
+        }
+        if (key === "c") {
+          e.preventDefault()
+          if (typeof openNewCompose === "function") openNewCompose()
+          return
+        }
+        if (key === "r") {
+          e.preventDefault()
+          if (typeof handleReply === "function") handleReply(null, "reply")
+          return
+        }
+        if (key === "a") {
+          e.preventDefault()
+          if (typeof handleReply === "function") handleReply(null, "reply-all")
+          return
+        }
+        if (key === "f") {
+          e.preventDefault()
+          if (typeof handleReply === "function") handleReply(null, "forward")
+          return
+        }
+        if (key === "e") {
+          e.preventDefault()
+          ensureKeyboardMailSelection()
+          performMailSelectionAction("archive")
+          return
+        }
+        if (key === "delete" || key === "#") {
+          e.preventDefault()
+          ensureKeyboardMailSelection()
+          performMailSelectionAction("delete")
+          return
+        }
+        if (key === "s") {
+          e.preventDefault()
+          ensureKeyboardMailSelection()
+          performMailSelectionAction("star")
+          return
+        }
+        if (key === "u") {
+          e.preventDefault()
+          toggleKeyboardSelectedRead()
+        }
+      })
+    }
+
+    function isShortcutIgnored(e) {
+      if (!e || e.defaultPrevented) return true
+      if (e.metaKey || e.ctrlKey || e.altKey) return true
+      var target = e.target
+      if (!target || !target.closest) return false
+
+      var help = document.getElementById("mail-shortcut-help")
+      if (help && help.contains(target)) return false
+      if (target.closest("input, textarea, select, [contenteditable='true'], [data-compose-editor], [data-compose-pane]")) return true
+
+      var openDialog = document.querySelector("dialog[open]")
+      if (openDialog && (!help || !help.contains(openDialog))) return true
+      return false
+    }
+
+    function currentMailListController() {
+      var scroll = document.getElementById("mail-list-scroll")
+      return (scroll && scroll._virtualMailList) || virtualMailList
+    }
+
+    function sortedRenderedMailRows() {
+      return renderedMailRows().sort(function (a, b) {
+        return (parseInt(a.dataset.position, 10) || 0) - (parseInt(b.dataset.position, 10) || 0)
+      })
+    }
+
+    function selectedMailIdForKeyboard() {
+      if (lastSelectedMailId && selectedMailIds.has(lastSelectedMailId)) return lastSelectedMailId
+      if (selectedMailIds.size === 1) return Array.from(selectedMailIds)[0]
+      var vml = currentMailListController()
+      if (vml && vml.selectedEmailId) return vml.selectedEmailId
+      var active = document.querySelector("#mail-list-scroll .mail-list-item[data-email-id] > a.envelope-active")
+      var row = active && active.closest(".mail-list-item[data-email-id]")
+      return row && row.dataset.emailId ? row.dataset.emailId : null
+    }
+
+    function mailRowById(emailId) {
+      if (!emailId) return null
+      return document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
+    }
+
+    function selectKeyboardMailRow(row) {
+      if (!row || !row.dataset.emailId) return false
+      selectedMailIds.clear()
+      setMailSelected(row.dataset.emailId, true)
+      lastSelectedMailId = row.dataset.emailId
+      syncMailSelectionControls()
+      row.scrollIntoView({ block: "nearest" })
+      var anchor = row.querySelector(":scope > a")
+      if (anchor && typeof anchor.focus === "function") anchor.focus({ preventScroll: true })
+      return true
+    }
+
+    function ensureKeyboardMailSelection() {
+      if (selectedMailIds.size > 0) return true
+      var row = mailRowById(selectedMailIdForKeyboard()) || sortedRenderedMailRows()[0]
+      return selectKeyboardMailRow(row)
+    }
+
+    function clearKeyboardMailSelection() {
+      clearMailSelection()
+      var active = document.activeElement
+      if (active && active.closest && active.closest("#mail-list-scroll")) active.blur()
+    }
+
+    function moveKeyboardMailSelection(delta) {
+      var rows = sortedRenderedMailRows()
+      if (!rows.length) return
+
+      var currentId = selectedMailIdForKeyboard()
+      var currentIndex = -1
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.emailId === currentId) {
+          currentIndex = i
+          break
+        }
+      }
+
+      if (currentIndex === -1) {
+        selectKeyboardMailRow(delta < 0 ? rows[rows.length - 1] : rows[0])
+        return
+      }
+
+      var targetIndex = currentIndex + delta
+      if (targetIndex >= 0 && targetIndex < rows.length) {
+        selectKeyboardMailRow(rows[targetIndex])
+        return
+      }
+
+      moveKeyboardMailSelectionPastRenderedEdge(rows[currentIndex], delta)
+    }
+
+    function moveKeyboardMailSelectionPastRenderedEdge(currentRow, delta) {
+      var vml = currentMailListController()
+      var currentPos = currentRow ? parseInt(currentRow.dataset.position, 10) : NaN
+      if (!vml || isNaN(currentPos)) return
+
+      if (vml.navigationMode === "pagination") {
+        var nextStart = vml.pageStart + (delta > 0 ? vml.pageSize : -vml.pageSize)
+        if (typeof vml.loadPage !== "function" || nextStart < 0 || (delta > 0 && vml.pageStart + vml.pageSize >= vml.totalCount)) return
+        vml.loadPage(nextStart, { preserveSelection: false, loadSelected: false }).then(function () {
+          var rows = sortedRenderedMailRows()
+          selectKeyboardMailRow(delta > 0 ? rows[0] : rows[rows.length - 1])
+        }).catch(function () {})
+        return
+      }
+
+      vml.container.scrollTop += delta * vml.itemHeight
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          var rows = sortedRenderedMailRows()
+          for (var i = 0; i < rows.length; i++) {
+            var pos = parseInt(rows[i].dataset.position, 10)
+            if ((delta > 0 && pos > currentPos) || (delta < 0 && pos < currentPos)) {
+              selectKeyboardMailRow(rows[i])
+              return
+            }
+          }
+        })
+      })
+    }
+
+    function openKeyboardSelectedMail() {
+      ensureKeyboardMailSelection()
+      var row = mailRowById(selectedMailIdForKeyboard())
+      var anchor = row && row.querySelector(":scope > a")
+      if (anchor) anchor.click()
+    }
+
+    function focusMailSearch() {
+      var input = document.querySelector("[data-mail-search-input]")
+      if (!input) return
+      input.focus()
+      if (typeof input.select === "function") input.select()
+    }
+
+    function toggleKeyboardSelectedRead() {
+      ensureKeyboardMailSelection()
+      var id = selectedMailIdForKeyboard()
+      if (!id) return
+      var row = mailRowById(id)
+      if (row && row.dataset.hasThread === "true" && typeof toggleThreadRead === "function") toggleThreadRead(id)
+      else if (typeof toggleRead === "function") toggleRead(id)
+    }
+
+    function shortcutHelpRow(keys, label) {
+      return '<div class="flex items-center justify-between gap-5 rounded-md border border-border/60 bg-background/45 px-3 py-2">' +
+        '<span class="text-sm text-foreground">' + label + '</span>' +
+        '<span class="flex shrink-0 gap-1">' + keys.map(function (key) {
+          return '<kbd class="min-w-6 rounded border border-border bg-card px-1.5 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm">' + key + '</kbd>'
+        }).join('') + '</span>' +
+      '</div>'
+    }
+
+    function shortcutHelpHTML() {
+      return '<div id="mail-shortcut-help" class="fixed inset-0 z-[1000] flex items-center justify-center bg-background/70 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">' +
+        '<div class="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-raised animate-fade-in">' +
+          '<div class="mb-4 flex items-start justify-between gap-3">' +
+            '<div><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Keyboard shortcuts</h2><p class="mt-1 text-xs text-muted-foreground">Shortcuts are disabled while typing or composing.</p></div>' +
+            '<button type="button" class="rounded-md border border-border px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground" data-mail-shortcut-help-close>Esc</button>' +
+          '</div>' +
+          '<div class="grid gap-2 sm:grid-cols-2">' +
+            shortcutHelpRow(['j', 'Down'], 'Next email') +
+            shortcutHelpRow(['k', 'Up'], 'Previous email') +
+            shortcutHelpRow(['Enter', 'o'], 'Open email') +
+            shortcutHelpRow(['/'], 'Focus search') +
+            shortcutHelpRow(['c'], 'Compose') +
+            shortcutHelpRow(['r'], 'Reply') +
+            shortcutHelpRow(['a'], 'Reply all') +
+            shortcutHelpRow(['f'], 'Forward') +
+            shortcutHelpRow(['e'], 'Archive selected') +
+            shortcutHelpRow(['Del', '#'], 'Delete selected') +
+            shortcutHelpRow(['s'], 'Star selected') +
+            shortcutHelpRow(['u'], 'Toggle read') +
+            shortcutHelpRow(['Esc'], 'Clear selection') +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    }
+
+    function toggleShortcutHelp() {
+      if (closeShortcutHelp()) return
+      document.body.insertAdjacentHTML("beforeend", shortcutHelpHTML())
+      var overlay = document.getElementById("mail-shortcut-help")
+      if (!overlay) return
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay || (e.target.closest && e.target.closest("[data-mail-shortcut-help-close]"))) closeShortcutHelp()
+      })
+    }
+
+    function closeShortcutHelp() {
+      var help = document.getElementById("mail-shortcut-help")
+      if (!help) return false
+      help.remove()
+      return true
     }
   }
 
@@ -1517,6 +1831,12 @@ document.addEventListener("DOMContentLoaded", function () {
       handleMailManualSyncEvent("complete", data)
     })
 
+    source.addEventListener("account-sync-status", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      handleAccountSyncStatus(data)
+    })
+
     source.addEventListener("sync-started", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
@@ -1574,6 +1894,64 @@ document.addEventListener("DOMContentLoaded", function () {
       if (appEventSource === source) appEventSource = null
       setTimeout(setupSSE, 5000)
     }
+  }
+
+  function currentSidebarActiveFolder() {
+    if (virtualMailList && virtualMailList.folderID) return virtualMailList.folderID
+    var active = document.querySelector('aside a[hx-get^="/folder/"].bg-sidebar-accent')
+    if (!active) return ""
+    return (active.getAttribute("hx-get") || "").replace("/folder/", "")
+  }
+
+  function refreshSidebarAccount(accountID) {
+    if (!accountID) return
+    var target = document.getElementById("sidebar-account-" + accountID)
+    if (!target) return
+    var url = "/api/sidebar/accounts/" + encodeURIComponent(accountID) + "?active_folder=" + encodeURIComponent(currentSidebarActiveFolder())
+    if (window.htmx && typeof window.htmx.ajax === "function") {
+      window.htmx.ajax("GET", url, { target: "#" + cssEscape(target.id), swap: "outerHTML" })
+      return
+    }
+    fetch(url).then(function (resp) {
+      if (!resp.ok) throw new Error("sidebar account refresh failed")
+      return resp.text()
+    }).then(function (html) {
+      target.outerHTML = html
+      updateMailSyncErrorIndicator()
+    }).catch(function () {})
+  }
+
+  function setupSidebarSyncErrorTimes() {
+    function hydrate(root) {
+      var scope = root && root.querySelectorAll ? root : document
+      var nodes = []
+      if (scope.matches && scope.matches("[data-account-sync-error-at]")) nodes.push(scope)
+      var descendants = scope.querySelectorAll("[data-account-sync-error-at]")
+      for (var n = 0; n < descendants.length; n++) nodes.push(descendants[n])
+      for (var i = 0; i < nodes.length; i++) {
+        var date = parseMailSyncUTCInstant(nodes[i].getAttribute("data-account-sync-error-at"))
+        if (!date) continue
+        nodes[i].textContent = formatGoferDateTime(date, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          timeZoneName: "short",
+        })
+      }
+    }
+
+    hydrate(document)
+    document.addEventListener("htmx:afterSwap", function (event) { hydrate(event.target) })
+    new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        for (var j = 0; j < mutations[i].addedNodes.length; j++) {
+          var node = mutations[i].addedNodes[j]
+          if (node && node.nodeType === 1) hydrate(node)
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true })
   }
 
   function updateDesktopNotificationControls() {
@@ -2836,6 +3214,7 @@ function showGoferToast(opts) {
   toast.dataset.variant = opts.variant || "default"
   toast.className = "z-50 fixed m-0 border-0 bg-transparent overflow-visible pointer-events-auto p-4 w-fit max-w-[calc(100vw-2rem)] md:max-w-[680px] animate-in fade-in slide-in-from-bottom-4 duration-300 data-[position=top-right]:top-0 data-[position=top-right]:right-0 data-[position=top-left]:top-0 data-[position=top-left]:left-0 data-[position=top-center]:top-0 data-[position=top-center]:left-1/2 data-[position=top-center]:-translate-x-1/2 data-[position=bottom-right]:bottom-0 data-[position=bottom-right]:right-0 data-[position=bottom-left]:bottom-0 data-[position=bottom-left]:left-0 data-[position=bottom-center]:bottom-0 data-[position=bottom-center]:left-1/2 data-[position=bottom-center]:-translate-x-1/2 data-[position*=top]:slide-in-from-top-4 data-[position*=bottom]:slide-in-from-bottom-4"
   if (opts.width) toast.style.width = opts.width
+  positionGoferToast(toast, toast.dataset.position)
   toast.innerHTML =
     '<div class="gofer-toast-card" data-variant="' + _escapeComposeHTML(opts.variant || "default") + '">' +
       (duration > 0 ? '<div class="gofer-toast-progress-wrap"><div class="toast-progress gofer-toast-progress" data-variant="' + _escapeComposeHTML(opts.variant || "default") + '"></div></div>' : '') +
@@ -2893,6 +3272,38 @@ function showGoferToast(opts) {
   return toast
 }
 
+function positionGoferToast(toast, position) {
+  toast.style.position = "fixed"
+  toast.style.inset = "auto"
+  toast.style.top = "auto"
+  toast.style.right = "auto"
+  toast.style.bottom = "auto"
+  toast.style.left = "auto"
+  toast.style.transform = ""
+
+  if (position === "top-left") {
+    toast.style.top = "0"
+    toast.style.left = "0"
+  } else if (position === "top-right") {
+    toast.style.top = "0"
+    toast.style.right = "0"
+  } else if (position === "bottom-left") {
+    toast.style.bottom = "0"
+    toast.style.left = "0"
+  } else if (position === "bottom-right") {
+    toast.style.bottom = "0"
+    toast.style.right = "0"
+  } else if (position === "bottom-center") {
+    toast.style.bottom = "0"
+    toast.style.left = "50%"
+    toast.style.transform = "translateX(-50%)"
+  } else {
+    toast.style.top = "0"
+    toast.style.left = "50%"
+    toast.style.transform = "translateX(-50%)"
+  }
+}
+
 var _mailSyncRunID = ""
 var _mailSyncActive = false
 var _mailSyncCancelRequested = false
@@ -2931,6 +3342,18 @@ function stopMailSyncProgressState(status) {
   _mailSyncState.status = status || _mailSyncState.status || "idle"
   _mailSyncState.completedAt = Date.now()
   renderMailSyncProgressDialog()
+}
+
+function setupMailSyncSidebarControls() {
+  document.addEventListener("click", function (e) {
+    var button = e.target && e.target.closest ? e.target.closest("[data-mail-sidebar-sync-button], [data-mail-account-sync-button]") : null
+    if (!button || button.dataset.syncing !== "true") return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    openMailSyncProgressDialog()
+  }, true)
+  document.addEventListener("htmx:afterSwap", updateMailSyncErrorIndicator)
+  updateMailSyncErrorIndicator()
 }
 
 function setupMailSyncCancelControls() {
@@ -3081,6 +3504,67 @@ function _mailSyncAccountFolderMeta(account) {
   return "Synced " + done + " / " + total + " folders"
 }
 
+function mailSyncHasActiveAccounts() {
+  var ids = _mailSyncState.accountOrder || []
+  for (var i = 0; i < ids.length; i++) {
+    var account = _mailSyncState.accounts[ids[i]]
+    if (account && (account.status === "syncing" || account.status === "queued")) return true
+  }
+  return false
+}
+
+function parseMailSyncUTCInstant(raw) {
+  raw = String(raw || "").trim()
+  if (!raw) return null
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(raw)) {
+    raw = raw.replace(" ", "T") + "Z"
+  }
+  var date = new Date(raw)
+  return isNaN(date.getTime()) ? null : date
+}
+
+function mailSyncErrorSummaryHTML(errorNodes) {
+  if (!errorNodes.length) {
+    return '<div class="text-xs text-sidebar-foreground/70">No current mail sync issues.</div>'
+  }
+  var html = '<div class="font-semibold">Mail sync issues</div><div class="space-y-2">'
+  for (var i = 0; i < errorNodes.length; i++) {
+    var node = errorNodes[i]
+    var name = node.getAttribute("data-account-sync-error-name") || "Account"
+    var email = node.getAttribute("data-account-sync-error-email") || ""
+    var message = node.getAttribute("data-account-sync-error-message") || "Sync failed"
+    var failedAt = node.getAttribute("data-account-sync-error-failed-at") || ""
+    var date = parseMailSyncUTCInstant(failedAt)
+    var formattedAt = date ? formatGoferDateTime(date, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }) : ""
+    html += '<div class="rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-1.5">' +
+      '<div class="truncate font-semibold">' + _escapeComposeHTML(name) + '</div>' +
+      (email ? '<div class="truncate text-[11px] opacity-70">' + _escapeComposeHTML(email) + '</div>' : '') +
+      (formattedAt ? '<div class="mt-1 opacity-85">Last failure: ' + _escapeComposeHTML(formattedAt) + '</div>' : '') +
+      '<div class="mt-1 break-words opacity-90">' + _escapeComposeHTML(message) + '</div>' +
+    '</div>'
+  }
+  return html + '</div>'
+}
+
+function updateMailSyncErrorIndicator() {
+  var indicator = document.querySelector("[data-mail-sync-error-indicator]")
+  if (!indicator) return
+  var errorNodes = Array.prototype.slice.call(document.querySelectorAll("[data-account-sync-error][data-account-sync-error-message]"))
+  var count = errorNodes.length
+  indicator.classList.toggle("hidden", count === 0)
+  indicator.setAttribute("aria-label", count + " mail sync issue" + (count === 1 ? "" : "s"))
+  indicator.removeAttribute("title")
+  var summary = document.querySelector("[data-mail-sync-error-summary]")
+  if (summary) summary.innerHTML = mailSyncErrorSummaryHTML(errorNodes)
+}
+
 function ensureMailSyncAccount(accountID, index) {
   accountID = accountID || "__unknown__"
   var account = _mailSyncState.accounts[accountID]
@@ -3137,8 +3621,12 @@ function updateMailSyncStateFromManual(phase, data) {
 }
 
 function updateMailSyncFolderProgress(phase, data) {
-  if (!_mailSyncActive && !_mailSyncState.active) return
   if (!data || !data.account_id || !data.folder_id) return
+  if (!_mailSyncState.active) {
+    _mailSyncActive = true
+    resetMailSyncProgressState("")
+    _setMailSyncButtonBusy(true)
+  }
   var account = ensureMailSyncAccount(data.account_id, 0)
   if (account.status === "queued") account.status = "syncing"
   if (data.account_folders_total) account.totalFolders = _mailSyncCount(data.account_folders_total)
@@ -3165,7 +3653,75 @@ function updateMailSyncFolderProgress(phase, data) {
   account.currentFolderLabel = folder.label
   if (data.account_folders_done) account.syncedFolders = _mailSyncCount(data.account_folders_done)
   else account.syncedFolders = _mailSyncCompletedFolderCount(account)
+  if (phase === "complete" && account.totalFolders > 0 && account.syncedFolders >= account.totalFolders) {
+    account.status = "synced"
+    account.currentFolderLabel = ""
+  }
+  if (phase === "complete" && !_mailSyncRunID && !mailSyncHasActiveAccounts()) {
+    _mailSyncActive = false
+    _mailSyncState.active = false
+    _mailSyncState.status = "ok"
+    _mailSyncState.done = _mailSyncState.accountOrder.length
+    _mailSyncState.total = _mailSyncState.accountOrder.length
+    _mailSyncState.completedAt = Date.now()
+    _setMailSyncButtonBusy(false)
+  }
   renderMailSyncProgressDialog()
+}
+
+function handleAccountSyncStatus(data) {
+  if (!data || !data.account_id) return
+  var status = data.status || ""
+  if (status === "syncing") {
+    if (!_mailSyncState.active) {
+      _mailSyncActive = true
+      resetMailSyncProgressState("")
+    }
+    var syncingAccount = ensureMailSyncAccount(data.account_id, 0)
+    syncingAccount.status = "syncing"
+    syncingAccount.error = ""
+    _setMailSyncButtonBusy(true)
+    renderMailSyncProgressDialog()
+    return
+  }
+
+  refreshSidebarAccount(data.account_id)
+  if (!_mailSyncState.active && !_mailSyncState.accounts[data.account_id]) {
+    setTimeout(updateMailSyncErrorIndicator, 100)
+    return
+  }
+
+  var account = ensureMailSyncAccount(data.account_id, 0)
+  if (status === "error") {
+    account.status = "error"
+    account.error = data.error || account.error || "Sync failed"
+    _mailSyncState.failures = Math.max(_mailSyncState.failures || 0, 1)
+    var indicator = document.querySelector("[data-mail-sync-error-indicator]")
+    if (indicator) indicator.classList.remove("hidden")
+  } else if (status === "ok") {
+    account.status = "synced"
+    account.error = ""
+    if (account.totalFolders) account.syncedFolders = account.totalFolders
+    account.currentFolderLabel = ""
+  }
+
+  if (_mailSyncRunID) {
+    renderMailSyncProgressDialog()
+    setTimeout(updateMailSyncErrorIndicator, 100)
+    return
+  }
+
+  if (!mailSyncHasActiveAccounts()) {
+    _mailSyncActive = false
+    _mailSyncState.active = false
+    _mailSyncState.status = _mailSyncState.failures > 0 ? "partial" : "ok"
+    _mailSyncState.done = _mailSyncState.accountOrder.length
+    _mailSyncState.total = _mailSyncState.accountOrder.length
+    _mailSyncState.completedAt = Date.now()
+    if (!_mailSyncRunID) _setMailSyncButtonBusy(false)
+  }
+  renderMailSyncProgressDialog()
+  setTimeout(updateMailSyncErrorIndicator, 100)
 }
 
 function openMailSyncProgressDialog() {
@@ -3256,7 +3812,7 @@ function renderMailSyncProgressDialog() {
 }
 
 function _setMailSyncButtonBusy(busy) {
-  var buttons = document.querySelectorAll("[data-mail-sidebar-sync-button]")
+  var buttons = document.querySelectorAll("[data-mail-sidebar-sync-button], [data-mail-account-sync-button]")
   for (var i = 0; i < buttons.length; i++) {
     buttons[i].dataset.syncing = busy ? "true" : "false"
     var icon = buttons[i].querySelector("svg")

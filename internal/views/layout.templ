@@ -205,7 +205,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 	</html>
 }
 
-templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) {
+templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -231,7 +231,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@AppSidebarResponsiveStyle()
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
-			@ContactsShell(accounts, contacts, selected, showNew, filters, totalCount, uiSettings, recentActivity)
+			@ContactsShell(accounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings, recentActivity)
 			@ComposeDialog(accounts)
 			@ChooseAccountTypeDialog()
 			@GmailAccountDialog()
@@ -274,11 +274,11 @@ templ AppSidebarResponsiveStyle() {
 	</style>
 }
 
-templ ContactsShell(accounts []models.Account, contacts []models.Contact, selected *models.Contact, showNew bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) {
+templ ContactsShell(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) {
 	<div id="app-shell" class="flex h-screen overflow-hidden">
 		@ContactsSidebar(accounts, "contacts", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, filters)
 		@ResizeHandle("sidebar")
-		@ContactsPage(contacts, selected, showNew, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts, recentActivity)
+		@ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts, recentActivity)
 	</div>
 }
 

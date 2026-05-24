@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 38
+	const targetSchemaVersion = 42
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -372,6 +372,30 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 37 {
 		if err := migrateV37ToV38(tx); err != nil {
 			return fmt.Errorf("migrate v37 to v38: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 38 {
+		if err := migrateV38ToV39(tx); err != nil {
+			return fmt.Errorf("migrate v38 to v39: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 39 {
+		if err := migrateV39ToV40(tx); err != nil {
+			return fmt.Errorf("migrate v39 to v40: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 40 {
+		if err := migrateV40ToV41(tx); err != nil {
+			return fmt.Errorf("migrate v40 to v41: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 41 {
+		if err := migrateV41ToV42(tx); err != nil {
+			return fmt.Errorf("migrate v41 to v42: %w", err)
 		}
 	}
 
@@ -1330,6 +1354,260 @@ func migrateV37ToV38(tx *sql.Tx) error {
 		if _, err := tx.Exec(m); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateV38ToV39(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS contact_sync_operations (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+			email TEXT NOT NULL DEFAULT '',
+			payload_json TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sync_operations_due
+		 ON contact_sync_operations(status, next_attempt_at, locked_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sync_operations_contact
+		 ON contact_sync_operations(user_id, contact_id, created_at DESC)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (39)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV39ToV40(tx *sql.Tx) error {
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS contact_sync_operations`); err != nil {
+		return err
+	}
+	for _, table := range []string{"contact_sources", "contact_save_targets", "contact_emails", "contacts"} {
+		ok, err := tableExistsTx(tx, table)
+		if err != nil {
+			return err
+		}
+		if ok {
+			if _, err := tx.Exec(`DELETE FROM ` + table); err != nil {
+				return err
+			}
+		}
+	}
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS contact_sync_operations (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			contact_id TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL DEFAULT '',
+			payload_json TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sync_operations_due
+		 ON contact_sync_operations(status, next_attempt_at, locked_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sync_operations_contact
+		 ON contact_sync_operations(user_id, contact_id, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS contact_profiles (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			display_name TEXT NOT NULL DEFAULT '',
+			sort_name TEXT NOT NULL DEFAULT '',
+			primary_email TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
+			notes TEXT NOT NULL DEFAULT '',
+			is_deleted INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_name
+		 ON contact_profiles(user_id, is_deleted, sort_name COLLATE NOCASE, display_name COLLATE NOCASE)`,
+		`CREATE TABLE IF NOT EXISTS contact_cards (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL DEFAULT 'local',
+			provider TEXT NOT NULL DEFAULT '',
+			account_id TEXT NOT NULL DEFAULT '',
+			address_book_id TEXT NOT NULL DEFAULT '',
+			remote_id TEXT NOT NULL DEFAULT '',
+			etag TEXT NOT NULL DEFAULT '',
+			raw_payload TEXT NOT NULL DEFAULT '',
+			raw_payload_type TEXT NOT NULL DEFAULT '',
+			sync_status TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			is_deleted INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_cards_profile
+		 ON contact_cards(user_id, profile_id, is_deleted)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_cards_remote
+		 ON contact_cards(user_id, provider, account_id, address_book_id, remote_id)`,
+		`CREATE TABLE IF NOT EXISTS contact_fields (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+			card_id TEXT REFERENCES contact_cards(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL,
+			label TEXT NOT NULL DEFAULT '',
+			value TEXT NOT NULL DEFAULT '',
+			normalized_value TEXT NOT NULL DEFAULT '',
+			is_primary INTEGER NOT NULL DEFAULT 0,
+			ordinal INTEGER NOT NULL DEFAULT 0,
+			source TEXT NOT NULL DEFAULT '',
+			confidence REAL NOT NULL DEFAULT 1.0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_fields_profile
+		 ON contact_fields(user_id, profile_id, kind, ordinal)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_fields_lookup
+		 ON contact_fields(user_id, kind, normalized_value)`,
+		`CREATE TABLE IF NOT EXISTS contact_identities (
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL,
+			normalized_value TEXT NOT NULL,
+			confidence REAL NOT NULL DEFAULT 1.0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, kind, normalized_value)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_identities_profile
+		 ON contact_identities(user_id, profile_id)`,
+		`CREATE TABLE IF NOT EXISTS contact_observations (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL DEFAULT '',
+			normalized_email TEXT NOT NULL,
+			observed_name TEXT NOT NULL DEFAULT '',
+			message_count INTEGER NOT NULL DEFAULT 0,
+			last_seen_at DATETIME,
+			is_suppressed INTEGER NOT NULL DEFAULT 0,
+			suppress_auto_create INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, normalized_email)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_observations_profile
+		 ON contact_observations(user_id, profile_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_observations_suppressed
+		 ON contact_observations(user_id, is_suppressed, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS contact_groups (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL DEFAULT '',
+			account_id TEXT NOT NULL DEFAULT '',
+			remote_id TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
+			color TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_groups_user_name
+		 ON contact_groups(user_id, name COLLATE NOCASE)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_groups_remote
+		 ON contact_groups(user_id, provider, account_id, remote_id)`,
+		`CREATE TABLE IF NOT EXISTS contact_card_groups (
+			card_id TEXT NOT NULL REFERENCES contact_cards(id) ON DELETE CASCADE,
+			group_id TEXT NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (card_id, group_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_card_groups_user
+		 ON contact_card_groups(user_id, group_id)`,
+		`CREATE TABLE IF NOT EXISTS contact_conflicts (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+			field_kind TEXT NOT NULL DEFAULT '',
+			local_value TEXT NOT NULL DEFAULT '',
+			remote_value TEXT NOT NULL DEFAULT '',
+			provider TEXT NOT NULL DEFAULT '',
+			account_id TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'open',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_conflicts_profile
+		 ON contact_conflicts(user_id, profile_id, status)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (40)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV40ToV41(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS contact_observations (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL DEFAULT '',
+			normalized_email TEXT NOT NULL,
+			observed_name TEXT NOT NULL DEFAULT '',
+			message_count INTEGER NOT NULL DEFAULT 0,
+			last_seen_at DATETIME,
+			is_suppressed INTEGER NOT NULL DEFAULT 0,
+			suppress_auto_create INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, normalized_email)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_observations_profile
+		 ON contact_observations(user_id, profile_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_observations_suppressed
+		 ON contact_observations(user_id, is_suppressed, updated_at DESC)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (41)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV41ToV42(tx *sql.Tx) error {
+	if ok, err := columnExistsTx(tx, "accounts", "email_sync_error"); err != nil {
+		return err
+	} else if !ok {
+		if _, err := tx.Exec(`ALTER TABLE accounts ADD COLUMN email_sync_error TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if ok, err := columnExistsTx(tx, "accounts", "email_sync_error_at"); err != nil {
+		return err
+	} else if !ok {
+		if _, err := tx.Exec(`ALTER TABLE accounts ADD COLUMN email_sync_error_at DATETIME`); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (42)`); err != nil {
+		return err
 	}
 	return nil
 }

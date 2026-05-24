@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     smtp_username TEXT NOT NULL DEFAULT '',
     encrypted_smtp_password BLOB,
     email_sync_enabled INTEGER NOT NULL DEFAULT 1,
+    email_sync_error TEXT NOT NULL DEFAULT '',
+    email_sync_error_at DATETIME,
     is_deleting INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -574,6 +576,173 @@ ON account_contact_address_books(user_id, account_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_account_contact_address_books_id
 ON account_contact_address_books(id);
 
+CREATE TABLE IF NOT EXISTS contact_sync_operations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    locked_at DATETIME,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sync_operations_due
+ON contact_sync_operations(status, next_attempt_at, locked_at);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sync_operations_contact
+ON contact_sync_operations(user_id, contact_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS contact_profiles (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL DEFAULT '',
+    sort_name TEXT NOT NULL DEFAULT '',
+    primary_email TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_name
+ON contact_profiles(user_id, is_deleted, sort_name COLLATE NOCASE, display_name COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS contact_cards (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'local',
+    provider TEXT NOT NULL DEFAULT '',
+    account_id TEXT NOT NULL DEFAULT '',
+    address_book_id TEXT NOT NULL DEFAULT '',
+    remote_id TEXT NOT NULL DEFAULT '',
+    etag TEXT NOT NULL DEFAULT '',
+    raw_payload TEXT NOT NULL DEFAULT '',
+    raw_payload_type TEXT NOT NULL DEFAULT '',
+    sync_status TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_cards_profile
+ON contact_cards(user_id, profile_id, is_deleted);
+
+CREATE INDEX IF NOT EXISTS idx_contact_cards_remote
+ON contact_cards(user_id, provider, account_id, address_book_id, remote_id);
+
+CREATE TABLE IF NOT EXISTS contact_fields (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+    card_id TEXT REFERENCES contact_cards(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    value TEXT NOT NULL DEFAULT '',
+    normalized_value TEXT NOT NULL DEFAULT '',
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_fields_profile
+ON contact_fields(user_id, profile_id, kind, ordinal);
+
+CREATE INDEX IF NOT EXISTS idx_contact_fields_lookup
+ON contact_fields(user_id, kind, normalized_value);
+
+CREATE TABLE IF NOT EXISTS contact_identities (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    normalized_value TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, kind, normalized_value)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_identities_profile
+ON contact_identities(user_id, profile_id);
+
+CREATE TABLE IF NOT EXISTS contact_observations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    normalized_email TEXT NOT NULL,
+    observed_name TEXT NOT NULL DEFAULT '',
+    message_count INTEGER NOT NULL DEFAULT 0,
+    last_seen_at DATETIME,
+    is_suppressed INTEGER NOT NULL DEFAULT 0,
+    suppress_auto_create INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, normalized_email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_observations_profile
+ON contact_observations(user_id, profile_id);
+
+CREATE INDEX IF NOT EXISTS idx_contact_observations_suppressed
+ON contact_observations(user_id, is_suppressed, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS contact_groups (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL DEFAULT '',
+    account_id TEXT NOT NULL DEFAULT '',
+    remote_id TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_groups_user_name
+ON contact_groups(user_id, name COLLATE NOCASE);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_groups_remote
+ON contact_groups(user_id, provider, account_id, remote_id);
+
+CREATE TABLE IF NOT EXISTS contact_card_groups (
+    card_id TEXT NOT NULL REFERENCES contact_cards(id) ON DELETE CASCADE,
+    group_id TEXT NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (card_id, group_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_card_groups_user
+ON contact_card_groups(user_id, group_id);
+
+CREATE TABLE IF NOT EXISTS contact_conflicts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+    field_kind TEXT NOT NULL DEFAULT '',
+    local_value TEXT NOT NULL DEFAULT '',
+    remote_value TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT '',
+    account_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_conflicts_profile
+ON contact_conflicts(user_id, profile_id, status);
+
 CREATE TABLE IF NOT EXISTS web_push_subscriptions (
     endpoint TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -610,4 +779,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (38);
+INSERT OR REPLACE INTO schema_version (version) VALUES (42);

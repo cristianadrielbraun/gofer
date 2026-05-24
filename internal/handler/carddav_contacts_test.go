@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -311,4 +312,145 @@ func TestCardDAVDeleteNotFoundIsSuccess(t *testing.T) {
 	if err := cardDAVDelete(context.Background(), models.ContactSyncConfig{}, "", server.URL+"/missing.vcf", `"old"`); err != nil {
 		t.Fatalf("cardDAVDelete() error = %v, want nil", err)
 	}
+}
+
+func TestDeleteCardDAVContactsByEmailDeletesTrackedSource(t *testing.T) {
+	ctx := context.Background()
+	var deletedPath, ifMatch string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Fatalf("method = %s, want DELETE", r.Method)
+		}
+		deletedPath = r.URL.Path
+		ifMatch = r.Header.Get("If-Match")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	db, store := newCardDAVDeleteTestStore(t)
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, email_address, display_name) VALUES ('acc', 'default', 'me@example.com', 'Me')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := store.SaveContactSyncConfig(ctx, "default", "acc", models.ContactSyncConfig{
+		AccountID:      "acc",
+		UserID:         "default",
+		Provider:       providers.ProviderCardDAV,
+		Enabled:        true,
+		AddressBookURL: server.URL + "/book/",
+		AddressBooks:   []models.ContactAddressBook{{Name: "Personal", URL: server.URL + "/book/", Default: true}},
+		Username:       "user",
+	}, "pass"); err != nil {
+		t.Fatalf("SaveContactSyncConfig() error = %v", err)
+	}
+	cfg, err := store.GetContactSyncConfig(ctx, "default", "acc")
+	if err != nil {
+		t.Fatalf("GetContactSyncConfig() error = %v", err)
+	}
+	contactID, _, err := db.UpsertSyncedContact(ctx, "default", "acc", "Alice", "alice@example.com")
+	if err != nil {
+		t.Fatalf("UpsertSyncedContact() error = %v", err)
+	}
+	if err := db.UpsertContactSource(ctx, storage.ContactSource{
+		ContactID:     contactID,
+		UserID:        "default",
+		Provider:      providers.ProviderCardDAV,
+		AccountID:     "acc",
+		AddressBookID: cfg.AddressBooks[0].ID,
+		RemoteID:      server.URL + "/book/alice.vcf",
+		Etag:          `"old"`,
+	}); err != nil {
+		t.Fatalf("UpsertContactSource() error = %v", err)
+	}
+
+	h := &Handler{db: db, accountStore: store}
+	if err := h.deleteCardDAVContactsByEmail(ctx, "default", "acc", "alice@example.com"); err != nil {
+		t.Fatalf("deleteCardDAVContactsByEmail() error = %v", err)
+	}
+	if deletedPath != "/book/alice.vcf" || ifMatch != `"old"` {
+		t.Fatalf("DELETE path=%q If-Match=%q, want alice href and etag", deletedPath, ifMatch)
+	}
+	source, err := db.GetContactSourceByRemoteID(ctx, "default", providers.ProviderCardDAV, "acc", server.URL+"/book/alice.vcf")
+	if err != nil {
+		t.Fatalf("GetContactSourceByRemoteID() error = %v", err)
+	}
+	if source != nil {
+		t.Fatalf("tracked source still exists: %#v", source)
+	}
+}
+
+func TestDeleteCardDAVContactsByEmailSearchFallbackExactMatch(t *testing.T) {
+	ctx := context.Background()
+	deleted := make(map[string]bool)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "REPORT":
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), "alice@example.com") {
+				t.Fatalf("REPORT body missing email filter: %s", string(body))
+			}
+			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+			w.WriteHeader(http.StatusMultiStatus)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>/book/alice.vcf</d:href>
+    <d:propstat><d:prop><d:getetag>"a1"</d:getetag><card:address-data>BEGIN:VCARD&#x0A;VERSION:4.0&#x0A;FN:Alice&#x0A;EMAIL:alice@example.com&#x0A;END:VCARD&#x0A;</card:address-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/book/bob.vcf</d:href>
+    <d:propstat><d:prop><d:getetag>"b1"</d:getetag><card:address-data>BEGIN:VCARD&#x0A;VERSION:4.0&#x0A;FN:Bob&#x0A;EMAIL:bob@example.com&#x0A;END:VCARD&#x0A;</card:address-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`))
+		case http.MethodDelete:
+			deleted[r.URL.Path] = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	db, store := newCardDAVDeleteTestStore(t)
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, email_address, display_name) VALUES ('acc', 'default', 'me@example.com', 'Me')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := store.SaveContactSyncConfig(ctx, "default", "acc", models.ContactSyncConfig{
+		AccountID:      "acc",
+		UserID:         "default",
+		Provider:       providers.ProviderCardDAV,
+		Enabled:        true,
+		AddressBookURL: server.URL + "/book/",
+		AddressBooks:   []models.ContactAddressBook{{Name: "Personal", URL: server.URL + "/book/", Default: true}},
+		Username:       "user",
+	}, "pass"); err != nil {
+		t.Fatalf("SaveContactSyncConfig() error = %v", err)
+	}
+
+	h := &Handler{db: db, accountStore: store}
+	if err := h.deleteCardDAVContactsByEmail(ctx, "default", "acc", "alice@example.com"); err != nil {
+		t.Fatalf("deleteCardDAVContactsByEmail() error = %v", err)
+	}
+	if !deleted["/book/alice.vcf"] {
+		t.Fatalf("alice.vcf was not deleted")
+	}
+	if deleted["/book/bob.vcf"] {
+		t.Fatalf("bob.vcf was deleted despite non-matching email")
+	}
+}
+
+func newCardDAVDeleteTestStore(t *testing.T) (*storage.DB, *config.AccountStore) {
+	t.Helper()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	store, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("NewAccountStore() error = %v", err)
+	}
+	return db, store
 }

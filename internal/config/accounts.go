@@ -620,12 +620,13 @@ func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*m
 	var emailSyncEnabled, contactSyncEnabled int
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.email_sync_enabled, 1),
+		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
 		        CASE WHEN a.provider = 'gmail' THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.id = ?`, accountID,
-	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &emailSyncEnabled, &contactSyncEnabled, &a.ContactSyncProvider)
+	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

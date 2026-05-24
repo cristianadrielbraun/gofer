@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -32,10 +33,13 @@ type googleSearchContactResult struct {
 }
 
 type googlePerson struct {
-	ResourceName   string        `json:"resourceName,omitempty"`
-	Etag           string        `json:"etag,omitempty"`
-	Names          []googleName  `json:"names,omitempty"`
-	EmailAddresses []googleEmail `json:"emailAddresses"`
+	ResourceName   string               `json:"resourceName,omitempty"`
+	Etag           string               `json:"etag,omitempty"`
+	Names          []googleName         `json:"names,omitempty"`
+	EmailAddresses []googleEmail        `json:"emailAddresses"`
+	PhoneNumbers   []googlePhoneNumber  `json:"phoneNumbers,omitempty"`
+	Organizations  []googleOrganization `json:"organizations,omitempty"`
+	Biographies    []googleBiography    `json:"biographies,omitempty"`
 }
 
 type googleName struct {
@@ -45,6 +49,21 @@ type googleName struct {
 }
 
 type googleEmail struct {
+	Value string `json:"value,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
+
+type googlePhoneNumber struct {
+	Value string `json:"value,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
+
+type googleOrganization struct {
+	Name  string `json:"name,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
+type googleBiography struct {
 	Value string `json:"value,omitempty"`
 }
 
@@ -204,7 +223,7 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 
 	for {
 		values := url.Values{}
-		values.Set("personFields", "names,emailAddresses,metadata")
+		values.Set("personFields", googleContactPersonFields())
 		values.Set("pageSize", "1000")
 		if pageToken != "" {
 			values.Set("pageToken", pageToken)
@@ -233,30 +252,27 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 		}
 
 		for _, person := range people.Connections {
-			name := googlePersonName(person)
-			for _, email := range person.EmailAddresses {
-				value := strings.TrimSpace(email.Value)
-				if value == "" {
-					continue
-				}
-				contactID, _, err := h.db.UpsertSyncedContact(ctx, userID, accountID, name, value)
-				if err != nil {
+			contact := googleContactFromPerson(person)
+			if strings.TrimSpace(contact.Email) == "" {
+				continue
+			}
+			contactID, _, err := h.db.UpsertSyncedContactFromContact(ctx, userID, accountID, contact)
+			if err != nil {
+				return imported, err
+			}
+			if contactID != "" && strings.TrimSpace(person.ResourceName) != "" {
+				if err := h.db.UpsertContactSource(ctx, storage.ContactSource{
+					ContactID: contactID,
+					UserID:    userID,
+					Provider:  providers.ProviderGmail,
+					AccountID: accountID,
+					RemoteID:  person.ResourceName,
+					Etag:      person.Etag,
+				}); err != nil {
 					return imported, err
 				}
-				if contactID != "" && strings.TrimSpace(person.ResourceName) != "" {
-					if err := h.db.UpsertContactSource(ctx, storage.ContactSource{
-						ContactID: contactID,
-						UserID:    userID,
-						Provider:  providers.ProviderGmail,
-						AccountID: accountID,
-						RemoteID:  person.ResourceName,
-						Etag:      person.Etag,
-					}); err != nil {
-						return imported, err
-					}
-				}
-				imported++
 			}
+			imported++
 		}
 
 		pageToken = people.NextPageToken
@@ -278,6 +294,104 @@ func googlePersonName(person googlePerson) string {
 		}
 	}
 	return ""
+}
+
+func googleContactPersonFields() string {
+	return "names,emailAddresses,phoneNumbers,organizations,biographies,metadata"
+}
+
+func googleContactFromPerson(person googlePerson) models.Contact {
+	contact := models.Contact{Name: googlePersonName(person)}
+	for _, email := range normalizedGoogleEmailValues(person.EmailAddresses) {
+		if contact.Email == "" {
+			contact.Email = email.Value
+			contact.EmailLabel = googleContactLabel(email.Type, "primary")
+		} else {
+			contact.AdditionalEmails = append(contact.AdditionalEmails, email.Value)
+			contact.AdditionalEmailLabels = append(contact.AdditionalEmailLabels, googleContactLabel(email.Type, "alternate"))
+		}
+	}
+	for _, phone := range normalizedGooglePhoneValues(person.PhoneNumbers) {
+		if contact.Phone == "" {
+			contact.Phone = phone.Value
+			contact.PhoneLabel = googleContactLabel(phone.Type, "primary")
+		} else {
+			contact.AdditionalPhones = append(contact.AdditionalPhones, phone.Value)
+			contact.AdditionalPhoneLabels = append(contact.AdditionalPhoneLabels, googleContactLabel(phone.Type, "alternate"))
+		}
+	}
+	for _, org := range person.Organizations {
+		if value := strings.TrimSpace(org.Name); value != "" && contact.Organization == "" {
+			contact.Organization = value
+		}
+		if value := strings.TrimSpace(org.Title); value != "" && contact.Title == "" {
+			contact.Title = value
+		}
+		if contact.Organization != "" && contact.Title != "" {
+			break
+		}
+	}
+	for _, bio := range person.Biographies {
+		if value := strings.TrimSpace(bio.Value); value != "" {
+			contact.Notes = value
+			break
+		}
+	}
+	return contact
+}
+
+func normalizedGoogleEmailValues(values []googleEmail) []googleEmail {
+	out := make([]googleEmail, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		out = appendGoogleEmailValue(out, value, seen)
+	}
+	return out
+}
+
+func normalizedGooglePhoneValues(values []googlePhoneNumber) []googlePhoneNumber {
+	out := make([]googlePhoneNumber, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		out = appendGooglePhoneValue(out, value, seen)
+	}
+	return out
+}
+
+func appendGoogleEmailValue(values []googleEmail, value googleEmail, seen map[string]bool) []googleEmail {
+	value.Value = strings.TrimSpace(value.Value)
+	value.Type = googleContactLabel(value.Type, "")
+	if value.Value == "" {
+		return values
+	}
+	key := strings.ToLower(value.Value)
+	if seen[key] {
+		return values
+	}
+	seen[key] = true
+	return append(values, value)
+}
+
+func appendGooglePhoneValue(values []googlePhoneNumber, value googlePhoneNumber, seen map[string]bool) []googlePhoneNumber {
+	value.Value = strings.TrimSpace(value.Value)
+	value.Type = googleContactLabel(value.Type, "")
+	if value.Value == "" {
+		return values
+	}
+	key := strings.ToLower(value.Value)
+	if seen[key] {
+		return values
+	}
+	seen[key] = true
+	return append(values, value)
+}
+
+func googleContactLabel(value, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) error {
@@ -345,25 +459,91 @@ func (h *Handler) scheduleContactAccountSync(ctx context.Context, userID string,
 	if !h.contactNeedsAccountSync(ctx, userID, contact, previous) {
 		return false
 	}
-	go func() {
-		bg, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-		defer cancel()
-		logSyncResult := func(eventType, message string) {
-			logCtx, logCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer logCancel()
-			_ = h.db.LogContactActivity(logCtx, userID, eventType, contact.Email, message, 1)
-		}
-		if err := h.syncContactToAccountTargets(bg, userID, contact, previous); err != nil {
-			logSyncResult("contact_sync_failed", "Contact sync failed: "+err.Error())
-			return
-		}
-		logSyncResult("contact_synced", "Contact synced")
-	}()
+	if _, err := h.db.EnqueueContactSyncOperation(ctx, userID, contact, previous); err != nil {
+		log.Printf("contacts sync: enqueue %s: %v", contact.ID, err)
+		return false
+	}
+	h.signalContactSyncOperationWorker()
 	return true
 }
 
 func (h *Handler) scheduleContactGmailSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
 	return h.scheduleContactAccountSync(ctx, userID, contact, previous)
+}
+
+func (h *Handler) signalContactSyncOperationWorker() {
+	if h == nil || h.contactSyncQueue == nil {
+		return
+	}
+	select {
+	case h.contactSyncQueue <- struct{}{}:
+	default:
+	}
+}
+
+func (h *Handler) startContactSyncOperationWorker(ctx context.Context) {
+	if h == nil || h.contactSyncQueue == nil {
+		return
+	}
+	h.signalContactSyncOperationWorker()
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-h.contactSyncQueue:
+				h.processContactSyncOperations(ctx)
+			case <-ticker.C:
+				h.processContactSyncOperations(ctx)
+			}
+		}
+	}()
+}
+
+func (h *Handler) processContactSyncOperations(ctx context.Context) {
+	for {
+		ops, err := h.db.ClaimContactSyncOperations(ctx, 5, 5*time.Minute)
+		if err != nil {
+			log.Printf("contacts sync operations: claim failed: %v", err)
+			return
+		}
+		if len(ops) == 0 {
+			return
+		}
+		for _, op := range ops {
+			h.processContactSyncOperation(ctx, op)
+		}
+	}
+}
+
+func (h *Handler) processContactSyncOperation(parent context.Context, op storage.ContactSyncOperation) {
+	ctx, cancel := context.WithTimeout(parent, 45*time.Second)
+	defer cancel()
+
+	contact := op.Payload.Contact
+	previous := op.Payload.Previous
+	logSyncResult := func(eventType, message string) {
+		logCtx, logCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer logCancel()
+		_ = h.db.LogContactActivity(logCtx, op.UserID, eventType, contact.Email, message, 1)
+	}
+	if err := h.syncContactToAccountTargets(ctx, op.UserID, contact, previous); err != nil {
+		retry := op.AttemptCount < 3
+		if markErr := h.db.MarkContactSyncOperationError(context.Background(), op.ID, err.Error(), retry); markErr != nil {
+			log.Printf("contacts sync operation %s: mark error: %v", op.ID, markErr)
+		}
+		logSyncResult("contact_sync_failed", "Contact sync failed: "+err.Error())
+		if retry {
+			h.signalContactSyncOperationWorker()
+		}
+		return
+	}
+	if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
+		log.Printf("contacts sync operation %s: mark success: %v", op.ID, err)
+	}
+	logSyncResult("contact_synced", "Contact synced")
 }
 
 func (h *Handler) contactNeedsAccountSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
@@ -561,17 +741,18 @@ func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, 
 }
 
 func (h *Handler) createGoogleContact(ctx context.Context, accessToken string, contact models.Contact) (googlePerson, error) {
-	endpoint := "https://people.googleapis.com/v1/people:createContact?personFields=names,emailAddresses,metadata"
+	endpoint := "https://people.googleapis.com/v1/people:createContact?personFields=" + url.QueryEscape(googleContactPersonFields())
 	return h.writeGoogleContact(ctx, http.MethodPost, endpoint, accessToken, googlePersonFromContact(contact, "", ""))
 }
 
 func (h *Handler) updateGoogleContact(ctx context.Context, accessToken, remoteID, etag string, contact models.Contact) (googlePerson, error) {
-	endpoint := "https://people.googleapis.com/v1/" + strings.TrimSpace(remoteID) + ":updateContact?updatePersonFields=names,emailAddresses&personFields=names,emailAddresses,metadata"
+	updateFields := "names,emailAddresses,phoneNumbers,organizations,biographies"
+	endpoint := "https://people.googleapis.com/v1/" + strings.TrimSpace(remoteID) + ":updateContact?updatePersonFields=" + url.QueryEscape(updateFields) + "&personFields=" + url.QueryEscape(googleContactPersonFields())
 	return h.writeGoogleContact(ctx, http.MethodPatch, endpoint, accessToken, googlePersonFromContact(contact, remoteID, etag))
 }
 
 func (h *Handler) getGoogleContact(ctx context.Context, accessToken, remoteID string) (googlePerson, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://people.googleapis.com/v1/"+strings.TrimSpace(remoteID)+"?personFields=names,emailAddresses,metadata", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://people.googleapis.com/v1/"+strings.TrimSpace(remoteID)+"?personFields="+url.QueryEscape(googleContactPersonFields()), nil)
 	if err != nil {
 		return googlePerson{}, err
 	}
@@ -648,7 +829,7 @@ func (h *Handler) deleteGoogleContactsByEmail(ctx context.Context, accessToken, 
 func (h *Handler) searchGoogleContactsByEmail(ctx context.Context, accessToken, email string) ([]googlePerson, error) {
 	values := url.Values{}
 	values.Set("query", email)
-	values.Set("readMask", "names,emailAddresses,metadata")
+	values.Set("readMask", googleContactPersonFields())
 	values.Set("pageSize", "10")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://people.googleapis.com/v1/people:searchContacts?"+values.Encode(), nil)
 	if err != nil {
@@ -708,10 +889,39 @@ func (h *Handler) writeGoogleContact(ctx context.Context, method, endpoint, acce
 }
 
 func googlePersonFromContact(contact models.Contact, remoteID, etag string) googlePerson {
-	person := googlePerson{ResourceName: strings.TrimSpace(remoteID), Etag: strings.TrimSpace(etag), EmailAddresses: []googleEmail{{Value: strings.TrimSpace(contact.Email)}}}
+	person := googlePerson{ResourceName: strings.TrimSpace(remoteID), Etag: strings.TrimSpace(etag)}
+	for _, email := range append([]string{contact.Email}, contact.AdditionalEmails...) {
+		i := len(person.EmailAddresses) - 1
+		email = strings.TrimSpace(email)
+		if email != "" {
+			label := contact.EmailLabel
+			if i >= 0 && i < len(contact.AdditionalEmailLabels) {
+				label = contact.AdditionalEmailLabels[i]
+			}
+			person.EmailAddresses = append(person.EmailAddresses, googleEmail{Value: email, Type: googleContactLabel(label, "")})
+		}
+	}
 	name := strings.TrimSpace(contact.Name)
 	if name != "" && !strings.EqualFold(name, strings.TrimSpace(contact.Email)) {
 		person.Names = []googleName{{GivenName: name}}
+	}
+	for _, phone := range append([]string{contact.Phone}, contact.AdditionalPhones...) {
+		i := len(person.PhoneNumbers) - 1
+		phone = strings.TrimSpace(phone)
+		if phone != "" {
+			label := contact.PhoneLabel
+			if i >= 0 && i < len(contact.AdditionalPhoneLabels) {
+				label = contact.AdditionalPhoneLabels[i]
+			}
+			person.PhoneNumbers = append(person.PhoneNumbers, googlePhoneNumber{Value: phone, Type: googleContactLabel(label, "")})
+		}
+	}
+	org := googleOrganization{Name: strings.TrimSpace(contact.Organization), Title: strings.TrimSpace(contact.Title)}
+	if org.Name != "" || org.Title != "" {
+		person.Organizations = []googleOrganization{org}
+	}
+	if notes := strings.TrimSpace(contact.Notes); notes != "" {
+		person.Biographies = []googleBiography{{Value: notes}}
 	}
 	return person
 }

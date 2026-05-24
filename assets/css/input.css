@@ -989,6 +989,38 @@ html[data-theme="minimal"] input[role="switch"] + div::after {
   transform: rotate(-90deg);
 }
 
+.sidebar-shortcuts-popover[data-tui-popover-placement^="top"] [data-tui-popover-arrow],
+.sidebar-account-error-tooltip[data-tui-popover-placement^="top"] [data-tui-popover-arrow],
+.sidebar-shortcuts-popover [data-tui-popover-arrow][data-tui-popover-placement^="top"],
+.sidebar-account-error-tooltip [data-tui-popover-arrow][data-tui-popover-placement^="top"] {
+  border-width: 0 !important;
+  box-shadow: 1px 1px 0 color-mix(in srgb, var(--sidebar-border) 72%, var(--sidebar)) !important;
+}
+
+.sidebar-shortcuts-popover[data-tui-popover-placement^="bottom"] [data-tui-popover-arrow],
+.sidebar-account-error-tooltip[data-tui-popover-placement^="bottom"] [data-tui-popover-arrow],
+.sidebar-shortcuts-popover [data-tui-popover-arrow][data-tui-popover-placement^="bottom"],
+.sidebar-account-error-tooltip [data-tui-popover-arrow][data-tui-popover-placement^="bottom"] {
+  border-width: 0 !important;
+  box-shadow: -1px -1px 0 color-mix(in srgb, var(--sidebar-border) 72%, var(--sidebar)) !important;
+}
+
+.sidebar-shortcuts-popover[data-tui-popover-placement^="right"] [data-tui-popover-arrow],
+.sidebar-account-error-tooltip[data-tui-popover-placement^="right"] [data-tui-popover-arrow],
+.sidebar-shortcuts-popover [data-tui-popover-arrow][data-tui-popover-placement^="right"],
+.sidebar-account-error-tooltip [data-tui-popover-arrow][data-tui-popover-placement^="right"] {
+  border-width: 0 !important;
+  box-shadow: -1px 1px 0 color-mix(in srgb, var(--sidebar-border) 72%, var(--sidebar)) !important;
+}
+
+.sidebar-shortcuts-popover[data-tui-popover-placement^="left"] [data-tui-popover-arrow],
+.sidebar-account-error-tooltip[data-tui-popover-placement^="left"] [data-tui-popover-arrow],
+.sidebar-shortcuts-popover [data-tui-popover-arrow][data-tui-popover-placement^="left"],
+.sidebar-account-error-tooltip [data-tui-popover-arrow][data-tui-popover-placement^="left"] {
+  border-width: 0 !important;
+  box-shadow: 1px -1px 0 color-mix(in srgb, var(--sidebar-border) 72%, var(--sidebar)) !important;
+}
+
 /* === MAIL LIST ITEM (VIRTUAL SCROLL) === */
 
 #mail-list {
@@ -1108,6 +1140,14 @@ html[data-theme="minimal"] input[role="switch"] + div::after {
 .mail-list-item > a[data-mail-selected] {
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.mail-list-item > a:focus {
+  outline: none;
+}
+
+.mail-list-item > a:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-ring) 55%, transparent);
 }
 
 [data-theme="minimal"]:not(.dark) .mail-list-item[data-mail-selected] > a,

@@ -9,6 +9,7 @@ const (
 	EventSyncStarted        EventType = "sync-started"
 	EventSyncProgress       EventType = "sync-progress"
 	EventSyncComplete       EventType = "sync-complete"
+	EventAccountSyncStatus  EventType = "account-sync-status"
 	EventManualSyncStarted  EventType = "manual-sync-started"
 	EventManualSyncProgress EventType = "manual-sync-progress"
 	EventManualSyncComplete EventType = "manual-sync-complete"

@@ -3,10 +3,12 @@ package views
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/cristianadrielbraun/gofer/internal/models"
 	"math/rand"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/a-h/templ"
 )
@@ -59,6 +61,44 @@ func uiSettingGet(settings map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func uiSettingsLocation(settings map[string]string) *time.Location {
+	timezone := strings.TrimSpace(uiSettingGet(settings, "timezone", "local"))
+	if timezone != "" && timezone != "local" {
+		if loc, err := time.LoadLocation(timezone); err == nil {
+			return loc
+		}
+	}
+	return time.Local
+}
+
+func formatAccountSyncErrorAt(raw string, settings map[string]string) string {
+	t, ok := parseAccountSyncErrorAt(raw)
+	if !ok {
+		return strings.TrimSpace(raw)
+	}
+	return t.In(uiSettingsLocation(settings)).Format("Jan 2, 2006 15:04 MST")
+}
+
+func parseAccountSyncErrorAt(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t, true
+	}
+	for _, layout := range []string{
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+	} {
+		if t, err := time.ParseInLocation(layout, raw, time.UTC); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func mailListWidthCSS(width string) string {

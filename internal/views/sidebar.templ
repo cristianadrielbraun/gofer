@@ -8,6 +8,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
 
 templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string) {
@@ -287,19 +289,60 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 					@icon.RefreshCw(icon.Props{Class: "size-4"})
 				</button>
 			} else {
-				<button
-					type="button"
-					hx-post="/api/mail/sync"
-					hx-swap="none"
-					hx-on::before-request="handleMailSidebarSyncStart()"
-					hx-on::after-request="handleMailSidebarSyncResult(event)"
-					data-mail-sidebar-sync-button
-					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-					aria-label="Sync mail now"
-					title="Sync mail now"
-				>
-					@icon.RefreshCw(icon.Props{Class: "size-4"})
-				</button>
+				<div class="flex items-center gap-1">
+					<div class="flex items-center overflow-hidden rounded-md border border-sidebar-border/70 bg-sidebar-accent/20">
+						@SidebarMailSyncErrorSummaryTooltip(accounts)
+						<button
+							type="button"
+							hx-post="/api/mail/sync"
+							hx-swap="none"
+							hx-on::before-request="handleMailSidebarSyncStart()"
+							hx-on::after-request="handleMailSidebarSyncResult(event)"
+							data-mail-sidebar-sync-button
+							class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
+							aria-label="Sync all mail now"
+							title="Sync all mail now"
+						>
+							@icon.RefreshCw(icon.Props{Class: "size-4"})
+						</button>
+						@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+							@popover.Trigger() {
+								<button
+									type="button"
+									class="inline-flex h-8 w-7 items-center justify-center rounded-r-md border-l border-sidebar-border/70 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[tui-popover-open=true]:bg-sidebar-accent data-[tui-popover-open=true]:text-sidebar-accent-foreground"
+									aria-label="Choose account to sync"
+									title="Choose account to sync"
+								>
+									@icon.ChevronDown(icon.Props{Class: "size-3.5"})
+								</button>
+							}
+							@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-72 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+								<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Sync account</div>
+								<div class="space-y-1">
+									for _, account := range accounts {
+										if account.EmailSyncEnabled && !account.IsDeleting {
+											<button
+												type="button"
+												hx-post={ "/api/mail/sync/accounts/" + account.ID }
+												hx-swap="none"
+												hx-on::before-request="handleMailSidebarSyncStart()"
+												hx-on::after-request="handleMailSidebarSyncResult(event)"
+												data-mail-account-sync-button={ account.ID }
+												class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+											>
+												@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
+												<span class="min-w-0 flex-1">
+													<span class="block truncate font-medium">{ account.Name }</span>
+													<span class="block truncate text-[11px] text-sidebar-foreground/60">{ account.Email }</span>
+												</span>
+											</button>
+										}
+									}
+								</div>
+							}
+						}
+					</div>
+				</div>
 			}
 		</div>
 		<div class="sidebar-app-nav relative grid h-8 w-full grid-cols-3 gap-0.5 rounded-lg border border-sidebar-border bg-sidebar-accent/35 p-0.5 mb-3" data-sidebar-app-nav>
@@ -361,6 +404,50 @@ func sidebarAppIndicatorStyle(activeApp string) string {
 	return "width:calc((100% - 8px)/3);transform:" + transform
 }
 
+func mailSyncErrorCount(accounts []models.Account) int {
+	count := 0
+	for _, account := range accounts {
+		if account.EmailSyncEnabled && !account.IsDeleting && strings.TrimSpace(account.EmailSyncError) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
+			<button
+				type="button"
+				data-mail-sync-error-indicator
+				class={
+					"inline-flex h-8 w-8 items-center justify-center border-r border-sidebar-border/70 text-destructive transition-colors hover:bg-sidebar-accent",
+					templ.KV("hidden", mailSyncErrorCount(accounts) == 0),
+				}
+				aria-label={ fmt.Sprintf("%d mail sync issue(s)", mailSyncErrorCount(accounts)) }
+			>
+				@icon.CircleAlert(icon.Props{Class: "size-4"})
+			</button>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-80 border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+			<div class="space-y-2" data-mail-sync-error-summary>
+				for _, account := range accounts {
+					if account.EmailSyncEnabled && !account.IsDeleting && strings.TrimSpace(account.EmailSyncError) != "" {
+						<div class="rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-1.5">
+							<div class="truncate font-semibold">{ account.Name }</div>
+							<div class="truncate text-[11px] opacity-70">{ account.Email }</div>
+							if strings.TrimSpace(account.EmailSyncErrorAt) != "" {
+								<div class="mt-1 opacity-85">Last failure: { formatAccountSyncErrorAt(account.EmailSyncErrorAt, nil) }</div>
+							}
+							<div class="mt-1 break-words opacity-90">{ strings.TrimSpace(account.EmailSyncError) }</div>
+						</div>
+					}
+				}
+			</div>
+		}
+	}
+}
+
 templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
 	<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
 		@SidebarUnifiedSection(accounts, activeFolder, uiSettings)
@@ -401,7 +488,7 @@ templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSe
 templ SidebarAccountSection(account models.Account, activeFolder string, uiSettings map[string]string) {
 	{{ active := accountHasActiveFolder(account, activeFolder) }}
 	{{ collapsed := sidebarAccountCollapsed(uiSettings, account.ID, active) }}
-	<div class="mb-1.5" data-sidebar-account={ account.ID } data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
+	<div id={ "sidebar-account-" + account.ID } class="mb-1.5" data-sidebar-account={ account.ID } data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
 		<button
 			type="button"
 			class="sidebar-account-toggle flex w-full items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
@@ -410,6 +497,9 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 		>
 			<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
 			<span class="flex-1 truncate text-left">{ account.Name }</span>
+			if account.EmailSyncError != "" {
+				@SidebarAccountSyncErrorTooltip(account, uiSettings)
+			}
 			@icon.ChevronDown(icon.Props{Class: "sidebar-account-chevron size-3.5 shrink-0 text-sidebar-foreground/60 transition-transform duration-200"})
 		</button>
 		<div class="sidebar-account-folders" data-sidebar-account-folders={ account.ID }>
@@ -467,6 +557,38 @@ templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID str
 	</a>
 }
 
+templ SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[string]string) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
+			<span
+				data-account-sync-error={ account.ID }
+				data-account-sync-error-name={ account.Name }
+				data-account-sync-error-email={ account.Email }
+				data-account-sync-error-message={ strings.TrimSpace(account.EmailSyncError) }
+				data-account-sync-error-failed-at={ strings.TrimSpace(account.EmailSyncErrorAt) }
+				class="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-destructive"
+				aria-label="Mail sync failed"
+			>
+				@icon.CircleAlert(icon.Props{Class: "size-4"})
+			</span>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true, Class: "sidebar-account-error-tooltip w-72 border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+			<div class="space-y-1">
+				<div class="font-semibold">Mail sync failed</div>
+				if strings.TrimSpace(account.EmailSyncErrorAt) != "" {
+					<div class="opacity-85">
+						Last failure:
+						<span data-account-sync-error-at={ strings.TrimSpace(account.EmailSyncErrorAt) }>
+							{ formatAccountSyncErrorAt(account.EmailSyncErrorAt, uiSettings) }
+						</span>
+					</div>
+				}
+				<div class="break-words opacity-90">Details: { strings.TrimSpace(account.EmailSyncError) }</div>
+			</div>
+		}
+	}
+}
+
 templ SidebarFolderIcon(iconName string) {
 	switch iconName {
 		case "inbox":
@@ -494,14 +616,55 @@ templ SidebarFolderIcon(iconName string) {
 
 templ SidebarFooter() {
 	<div class="px-4 py-3 border-t border-sidebar-border">
-		<a
-			href="/settings/accounts"
-			class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground/60 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/60 transition-colors text-[13px]"
-		>
-			<span class="flex size-4 shrink-0 items-center justify-center">
-				@icon.Settings(icon.Props{Class: "size-4"})
-			</span>
-			Settings
-		</a>
+		<div class="flex items-center gap-1.5">
+			<a
+				href="/settings/accounts"
+				class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground/60 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/60 transition-colors text-[13px]"
+			>
+				<span class="flex size-4 shrink-0 items-center justify-center">
+					@icon.Settings(icon.Props{Class: "size-4"})
+				</span>
+				<span class="truncate">Settings</span>
+			</a>
+			@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+				@popover.Trigger() {
+					<button
+						type="button"
+						class="inline-flex size-7 items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground data-[tui-popover-open=true]:bg-sidebar-accent data-[tui-popover-open=true]:text-sidebar-accent-foreground"
+						aria-label="Show keyboard navigation hints"
+					>
+						@icon.CircleQuestionMark(icon.Props{Class: "size-4"})
+					</button>
+				}
+				@popover.Content(popover.ContentProps{Placement: popover.PlacementTopStart, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-72 border-sidebar-border bg-sidebar p-3 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+					<div class="mb-2">
+						<h3 class="text-sm font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Keyboard navigation</h3>
+						<p class="mt-0.5 text-[11px] leading-relaxed text-sidebar-foreground/60">Shortcuts for moving through mail.</p>
+					</div>
+					<div class="space-y-1 text-[12px] leading-relaxed">
+						@SidebarShortcutHint("Next email", "j / Down")
+						@SidebarShortcutHint("Previous email", "k / Up")
+						@SidebarShortcutHint("Open email", "Enter / o")
+						@SidebarShortcutHint("Search", "/")
+						@SidebarShortcutHint("Compose", "c")
+						@SidebarShortcutHint("Reply", "r")
+						@SidebarShortcutHint("Reply all", "a")
+						@SidebarShortcutHint("Forward", "f")
+						@SidebarShortcutHint("Archive", "e")
+						@SidebarShortcutHint("Delete", "Del / #")
+						@SidebarShortcutHint("Star", "s")
+						@SidebarShortcutHint("Toggle read", "u")
+						@SidebarShortcutHint("Clear selection", "Esc")
+					</div>
+				}
+			}
+		</div>
+	</div>
+}
+
+templ SidebarShortcutHint(label string, keys string) {
+	<div class="flex items-center justify-between gap-3 rounded-md px-1.5 py-1 transition-colors hover:bg-sidebar-accent/25">
+		<span class="min-w-0 truncate text-sidebar-foreground/72">{ label }</span>
+		<kbd class="shrink-0 rounded-md border border-sidebar-border bg-sidebar px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sidebar-accent-foreground shadow-[0_1px_0_rgba(0,0,0,0.18)]">{ keys }</kbd>
 	</div>
 }

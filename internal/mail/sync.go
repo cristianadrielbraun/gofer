@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -162,12 +163,14 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 	cfg, err := o.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
 		log.Printf("idle %s: config: %v", accountID, err)
+		o.markAccountSyncError(ctx, accountID, err)
 		return
 	}
 
 	password, err := o.resolvePassword(ctx, cfg, accountID)
 	if err != nil {
 		log.Printf("idle %s: password: %v", accountID, err)
+		o.markAccountSyncError(ctx, accountID, err)
 		return
 	}
 
@@ -204,6 +207,37 @@ func (o *SyncOrchestrator) resolvePassword(ctx context.Context, cfg *models.Acco
 		return o.tokenProvider.GetOAuthTokenForAccount(ctx, accountID)
 	}
 	return o.accountStore.DecryptPassword(ctx, accountID)
+}
+
+func (o *SyncOrchestrator) markAccountSyncError(ctx context.Context, accountID string, err error) {
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return
+	}
+	failedAt := time.Now().UTC()
+	if storeErr := o.db.MarkEmailSyncError(context.Background(), accountID, message, failedAt); storeErr != nil {
+		log.Printf("sync %s: store account error: %v", accountID, storeErr)
+	}
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+		"status":    "error",
+		"error":     message,
+		"failed_at": failedAt.Format(time.RFC3339),
+	}})
+}
+
+func (o *SyncOrchestrator) clearAccountSyncError(ctx context.Context, accountID string) {
+	if ctx.Err() != nil {
+		return
+	}
+	if err := o.db.ClearEmailSyncError(context.Background(), accountID); err != nil {
+		log.Printf("sync %s: clear account error: %v", accountID, err)
+	}
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+		"status": "ok",
+	}})
 }
 
 func (o *SyncOrchestrator) getIdleFoldersForAccount(ctx context.Context, accountID string) map[string]bool {
@@ -262,7 +296,9 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 	} else {
 		if err := o.syncAccount(syncCtx, accountID); err != nil {
 			log.Printf("sync account %s: %v", accountID, err)
+			o.markAccountSyncError(syncCtx, accountID, err)
 		} else {
+			o.clearAccountSyncError(syncCtx, accountID)
 			log.Printf("sync: account %s initial sync finished", accountID)
 		}
 		finish()
@@ -308,24 +344,28 @@ func (o *SyncOrchestrator) periodicSync(ctx context.Context, accountID string) {
 	folders, err := o.db.GetFoldersForAccount(syncCtx, accountID)
 	if err != nil {
 		log.Printf("periodic %s: get folders: %v", accountID, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 
 	cfg, err := o.accountStore.GetConfig(syncCtx, accountID)
 	if err != nil {
 		log.Printf("periodic %s: config: %v", accountID, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 
 	password, err := o.resolvePassword(syncCtx, cfg, accountID)
 	if err != nil {
 		log.Printf("periodic %s: password: %v", accountID, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 
 	client, err := imap.NewClient(syncCtx, cfg, password)
 	if err != nil {
 		log.Printf("periodic %s: connect: %v", accountID, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 	defer client.Close()
@@ -341,6 +381,7 @@ func (o *SyncOrchestrator) periodicSync(ctx context.Context, accountID string) {
 			log.Printf("periodic %s/%s: %v", accountID, folder.RemoteID, err)
 		}
 	}
+	o.clearAccountSyncError(syncCtx, accountID)
 }
 
 func (s *newMailSummary) Add(msgs []storage.SyncMessage) {
@@ -550,6 +591,11 @@ func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID strin
 	o.running[accountID] = run
 	o.mu.Unlock()
 
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+		"status": "syncing",
+		"kind":   string(kind),
+	}})
+
 	finish := func() {
 		run.once.Do(func() {
 			o.mu.Lock()
@@ -722,7 +768,6 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 						}
 					} else {
 						err := o.syncAccount(accountCtx, job.accountID)
-						finish()
 						if err != nil {
 							if syncCtx.Err() != nil {
 								status = "cancelled"
@@ -731,7 +776,11 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 							}
 							errorText = err.Error()
 							log.Printf("manual sync account %s: %v", job.accountID, err)
+							o.markAccountSyncError(accountCtx, job.accountID, err)
+						} else {
+							o.clearAccountSyncError(accountCtx, job.accountID)
 						}
+						finish()
 					}
 
 					progressMu.Lock()
@@ -843,6 +892,9 @@ func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) {
 
 		if err := o.syncAccount(syncCtx, accountID); err != nil {
 			log.Printf("sync account %s: %v", accountID, err)
+			o.markAccountSyncError(syncCtx, accountID, err)
+		} else {
+			o.clearAccountSyncError(syncCtx, accountID)
 		}
 	}()
 }
@@ -989,24 +1041,28 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 	highestUID, err := o.db.GetHighestSeenUID(syncCtx, folderID)
 	if err != nil {
 		log.Printf("incremental %s/%s: get uid: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 
 	cfg, err := o.accountStore.GetConfig(syncCtx, accountID)
 	if err != nil {
 		log.Printf("incremental %s/%s: config: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 
 	password, err := o.resolvePassword(syncCtx, cfg, accountID)
 	if err != nil {
 		log.Printf("incremental %s/%s: password: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 
 	client, err := imap.NewClient(syncCtx, cfg, password)
 	if err != nil {
 		log.Printf("incremental %s/%s: connect: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
 	defer client.Close()
@@ -1022,6 +1078,7 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 		log.Printf("incremental %s/%s: %v", accountID, remoteName, err)
 		return
 	}
+	o.clearAccountSyncError(syncCtx, accountID)
 
 	if result.TotalFetched > 0 {
 		log.Printf("incremental %s/%s: %d new messages", accountID, remoteName, result.TotalFetched)

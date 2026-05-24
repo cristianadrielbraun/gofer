@@ -10,6 +10,7 @@ import (
 var errContactSyncAlreadyRunning = errors.New("contact sync already running for this account")
 
 func (h *Handler) StartContactSync(ctx context.Context) {
+	h.startContactSyncOperationWorker(ctx)
 	go func() {
 		log.Printf("contacts sync: startup sync started")
 		h.SyncContactsForAllAccounts(ctx)

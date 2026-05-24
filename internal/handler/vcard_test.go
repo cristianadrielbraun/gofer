@@ -49,6 +49,32 @@ func TestRenderVCard4EscapesText(t *testing.T) {
 	}
 }
 
+func TestRenderVCard4AdditionalFields(t *testing.T) {
+	dataBytes, err := renderVCard4([]models.Contact{{
+		Name:                  "Jane Doe",
+		Email:                 "jane@example.com",
+		EmailLabel:            "work",
+		AdditionalEmails:      []string{"jane@work.example"},
+		AdditionalEmailLabels: []string{"assistant"},
+		Phone:                 "+1 555 0100",
+		PhoneLabel:            "mobile",
+		AdditionalPhones:      []string{"+1 555 0101"},
+		AdditionalPhoneLabels: []string{"home"},
+		Organization:          "Example Inc.",
+		Title:                 "Product Lead",
+		Notes:                 "Important contact",
+	}})
+	if err != nil {
+		t.Fatalf("renderVCard4() error = %v", err)
+	}
+	data := string(dataBytes)
+	for _, want := range []string{"EMAIL;TYPE=INTERNET;TYPE=work:jane@example.com", "EMAIL;TYPE=INTERNET;TYPE=assistant:jane@work.example", "TEL;TYPE=mobile:+1 555 0100", "TEL;TYPE=home:+1 555 0101", "ORG:Example Inc.", "TITLE:Product Lead", "NOTE:Important contact"} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("renderVCard4() missing %q in %q", want, data)
+		}
+	}
+}
+
 func TestWriteFoldedVCardLineFoldsLongLines(t *testing.T) {
 	var b strings.Builder
 	writeFoldedVCardLine(&b, "FN:"+strings.Repeat("a", 90))
@@ -64,7 +90,13 @@ func TestParseVCardContacts(t *testing.T) {
 		"VERSION:4.0",
 		"FN:Jane Doe",
 		"N:Doe;Jane;;;",
-		"EMAIL;TYPE=INTERNET:jane@example.com",
+		"EMAIL;TYPE=INTERNET;TYPE=work:jane@example.com",
+		"EMAIL;TYPE=INTERNET;TYPE=assistant:jane@work.example",
+		"TEL;TYPE=mobile:+1 555 0100",
+		"TEL;TYPE=home:+1 555 0101",
+		"ORG:Example Inc.",
+		"TITLE:Product Lead",
+		"NOTE:Important contact",
 		"END:VCARD",
 		"BEGIN:VCARD",
 		"VERSION:4.0",
@@ -80,8 +112,20 @@ func TestParseVCardContacts(t *testing.T) {
 	if len(contacts) != 1 {
 		t.Fatalf("parseVCardContacts() len = %d, want 1", len(contacts))
 	}
-	if contacts[0].Name != "Jane Doe" || contacts[0].Email != "jane@example.com" {
-		t.Fatalf("parseVCardContacts() contact = %#v, want Jane Doe", contacts[0])
+	if contacts[0].Name != "Jane Doe" || contacts[0].Email != "jane@example.com" || contacts[0].Phone != "+1 555 0100" || contacts[0].Organization != "Example Inc." || contacts[0].Title != "Product Lead" || contacts[0].Notes != "Important contact" {
+		t.Fatalf("parseVCardContacts() contact = %#v, want extra fields", contacts[0])
+	}
+	if len(contacts[0].AdditionalEmails) != 1 || contacts[0].AdditionalEmails[0] != "jane@work.example" {
+		t.Fatalf("AdditionalEmails = %#v, want work email", contacts[0].AdditionalEmails)
+	}
+	if contacts[0].EmailLabel != "work" || len(contacts[0].AdditionalEmailLabels) != 1 || contacts[0].AdditionalEmailLabels[0] != "assistant" {
+		t.Fatalf("email labels = %q %#v, want work/assistant", contacts[0].EmailLabel, contacts[0].AdditionalEmailLabels)
+	}
+	if len(contacts[0].AdditionalPhones) != 1 || contacts[0].AdditionalPhones[0] != "+1 555 0101" {
+		t.Fatalf("AdditionalPhones = %#v, want second phone", contacts[0].AdditionalPhones)
+	}
+	if contacts[0].PhoneLabel != "mobile" || len(contacts[0].AdditionalPhoneLabels) != 1 || contacts[0].AdditionalPhoneLabels[0] != "home" {
+		t.Fatalf("phone labels = %q %#v, want mobile/home", contacts[0].PhoneLabel, contacts[0].AdditionalPhoneLabels)
 	}
 	if got := strings.Join(contacts[0].SaveTargets, ","); got != "local,account:acc" {
 		t.Fatalf("SaveTargets = %q, want local,account:acc", got)

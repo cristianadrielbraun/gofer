@@ -519,7 +519,7 @@ func (h *Handler) syncCardDAVContacts(ctx context.Context, userID string, accoun
 				return imported, err
 			}
 			for _, contact := range contacts {
-				contactID, _, err := h.db.UpsertSyncedContact(ctx, userID, account.ID, contact.Name, contact.Email)
+				contactID, _, err := h.db.UpsertSyncedContactFromContact(ctx, userID, account.ID, contact)
 				if err != nil {
 					return imported, err
 				}
@@ -751,7 +751,81 @@ func cardDAVConfigForSource(cfg models.ContactSyncConfig, source *storage.Contac
 }
 
 func (h *Handler) deleteCardDAVContactsByEmail(ctx context.Context, userID, accountID, email string) error {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return nil
+	}
+	sources, err := h.db.ListContactSourcesForEmail(ctx, userID, providers.ProviderCardDAV, accountID, email)
+	if err != nil {
+		return err
+	}
+	deletedTracked := false
+	for _, source := range sources {
+		if strings.TrimSpace(source.RemoteID) != "" {
+			if err := h.deleteCardDAVContact(ctx, userID, source); err != nil {
+				return err
+			}
+			if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, providers.ProviderCardDAV, accountID, source.RemoteID); err != nil {
+				return err
+			}
+			deletedTracked = true
+			continue
+		}
+		if err := h.db.DeleteContactSource(ctx, userID, source.ContactID, providers.ProviderCardDAV, accountID); err != nil {
+			return err
+		}
+		deletedTracked = true
+	}
+	if deletedTracked {
+		return nil
+	}
+
+	cfg, password, err := h.cardDAVConfig(ctx, userID, accountID)
+	if err != nil {
+		return err
+	}
+	for _, book := range cfg.AddressBooks {
+		bookCfg := cfg
+		bookCfg.AddressBookURL = book.URL
+		responses, err := cardDAVAddressBookEmailQuery(ctx, bookCfg, password, email)
+		if err != nil {
+			return err
+		}
+		for _, response := range responses {
+			remoteID := absoluteDAVHref(bookCfg.AddressBookURL, response.Href)
+			if remoteID == "" || response.deleted() {
+				continue
+			}
+			if !cardDAVResponseHasExactEmail(response, email) {
+				continue
+			}
+			if err := cardDAVDelete(ctx, bookCfg, password, remoteID, response.etag()); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func cardDAVResponseHasExactEmail(response davResponse, email string) bool {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return false
+	}
+	addressData := strings.TrimSpace(response.addressData())
+	if addressData == "" {
+		return false
+	}
+	contacts, err := parseVCardContacts(strings.NewReader(addressData), nil)
+	if err != nil {
+		return false
+	}
+	for _, contact := range contacts {
+		if strings.EqualFold(strings.TrimSpace(contact.Email), email) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) deleteCardDAVContact(ctx context.Context, userID string, source storage.ContactSource) error {
@@ -858,6 +932,38 @@ func cardDAVAddressBookQuery(ctx context.Context, cfg models.ContactSyncConfig, 
 		return nil, "", err
 	}
 	return multi.Responses, strings.TrimSpace(multi.SyncToken), nil
+}
+
+func cardDAVAddressBookEmailQuery(ctx context.Context, cfg models.ContactSyncConfig, password, email string) ([]davResponse, error) {
+	body := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+<card:addressbook-query xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <d:prop><d:getetag/><card:address-data/></d:prop>
+  <card:filter>
+    <card:prop-filter name="EMAIL">
+      <card:text-match collation="i;unicode-casemap" match-type="equals">%s</card:text-match>
+    </card:prop-filter>
+  </card:filter>
+</card:addressbook-query>`, xmlEscapeText(strings.TrimSpace(email)))
+	req, err := newCardDAVRequest(ctx, "REPORT", cfg.AddressBookURL, cfg.Username, password, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Depth", "1")
+	req.Header.Set("Content-Type", `application/xml; charset="utf-8"`)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, cardDAVHTTPError{Status: resp.StatusCode, Body: string(body)}
+	}
+	multi, err := decodeDAVMultiStatus(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return multi.Responses, nil
 }
 
 func cardDAVSyncCollection(ctx context.Context, cfg models.ContactSyncConfig, password string) (cardDAVSyncResult, error) {

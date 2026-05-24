@@ -38,10 +38,39 @@ func contactVCard(contact models.Contact) emersionvcard.Card {
 	card.SetValue(emersionvcard.FieldFormattedName, name)
 	card.SetName(vCardName(name))
 	if email != "" {
-		card.Set(emersionvcard.FieldEmail, &emersionvcard.Field{
+		card.Add(emersionvcard.FieldEmail, &emersionvcard.Field{
 			Value:  email,
-			Params: emersionvcard.Params{emersionvcard.ParamType: {"INTERNET"}},
+			Params: contactVCardTypeParams("INTERNET", contact.EmailLabel),
 		})
+	}
+	for i, additionalEmail := range contact.AdditionalEmails {
+		additionalEmail = strings.TrimSpace(additionalEmail)
+		if additionalEmail == "" || strings.EqualFold(additionalEmail, email) {
+			continue
+		}
+		card.Add(emersionvcard.FieldEmail, &emersionvcard.Field{
+			Value:  additionalEmail,
+			Params: contactVCardTypeParams("INTERNET", contactAdditionalLabel(contact.AdditionalEmailLabels, i)),
+		})
+	}
+	if phone := strings.TrimSpace(contact.Phone); phone != "" {
+		card.Add(emersionvcard.FieldTelephone, &emersionvcard.Field{Value: phone, Params: contactVCardTypeParams(contact.PhoneLabel)})
+	}
+	for i, additionalPhone := range contact.AdditionalPhones {
+		additionalPhone = strings.TrimSpace(additionalPhone)
+		if additionalPhone == "" || strings.EqualFold(additionalPhone, strings.TrimSpace(contact.Phone)) {
+			continue
+		}
+		card.Add(emersionvcard.FieldTelephone, &emersionvcard.Field{Value: additionalPhone, Params: contactVCardTypeParams(contactAdditionalLabel(contact.AdditionalPhoneLabels, i))})
+	}
+	if organization := strings.TrimSpace(contact.Organization); organization != "" {
+		card.SetValue(emersionvcard.FieldOrganization, organization)
+	}
+	if title := strings.TrimSpace(contact.Title); title != "" {
+		card.SetValue(emersionvcard.FieldTitle, title)
+	}
+	if notes := strings.TrimSpace(contact.Notes); notes != "" {
+		card.SetValue(emersionvcard.FieldNote, notes)
 	}
 	return card
 }
@@ -58,6 +87,26 @@ func vCardName(name string) *emersionvcard.Name {
 		FamilyName: parts[len(parts)-1],
 		GivenName:  strings.Join(parts[:len(parts)-1], " "),
 	}
+}
+
+func contactVCardTypeParams(types ...string) emersionvcard.Params {
+	params := emersionvcard.Params{}
+	for _, typ := range types {
+		typ = strings.TrimSpace(typ)
+		normalized := strings.ToLower(typ)
+		if normalized == "" || normalized == "primary" || normalized == "alternate" {
+			continue
+		}
+		params.Add(emersionvcard.ParamType, typ)
+	}
+	return params
+}
+
+func contactAdditionalLabel(labels []string, index int) string {
+	if index >= 0 && index < len(labels) {
+		return labels[index]
+	}
+	return ""
 }
 
 func foldVCardOutput(raw string) []byte {
@@ -119,6 +168,8 @@ func contactFromVCard(card emersionvcard.Card, saveTargets []string) (models.Con
 	if email == "" {
 		return models.Contact{}, false
 	}
+	emails, emailLabels := cleanVCardFields(card[emersionvcard.FieldEmail], email)
+	phones, phoneLabels := cleanVCardFields(card[emersionvcard.FieldTelephone], card.PreferredValue(emersionvcard.FieldTelephone))
 	name := strings.TrimSpace(card.PreferredValue(emersionvcard.FieldFormattedName))
 	if name == "" {
 		name = formattedVCardName(card.Name())
@@ -126,7 +177,61 @@ func contactFromVCard(card emersionvcard.Card, saveTargets []string) (models.Con
 	if name == "" {
 		name = email
 	}
-	return models.Contact{Name: cleanVCardText(name), Email: cleanVCardText(email), SaveTargets: saveTargets}, true
+	return models.Contact{
+		Name:                  cleanVCardText(name),
+		Email:                 cleanVCardText(email),
+		EmailLabel:            contactVCardFieldLabel(card.Preferred(emersionvcard.FieldEmail), "primary"),
+		AdditionalEmails:      emails,
+		AdditionalEmailLabels: emailLabels,
+		Phone:                 cleanVCardText(card.PreferredValue(emersionvcard.FieldTelephone)),
+		PhoneLabel:            contactVCardFieldLabel(card.Preferred(emersionvcard.FieldTelephone), "primary"),
+		AdditionalPhones:      phones,
+		AdditionalPhoneLabels: phoneLabels,
+		Organization:          cleanVCardText(card.PreferredValue(emersionvcard.FieldOrganization)),
+		Title:                 cleanVCardText(card.PreferredValue(emersionvcard.FieldTitle)),
+		Notes:                 cleanVCardText(card.PreferredValue(emersionvcard.FieldNote)),
+		SaveTargets:           saveTargets,
+	}, true
+}
+
+func cleanVCardFields(fields []*emersionvcard.Field, primary string) ([]string, []string) {
+	primary = cleanVCardText(primary)
+	out := make([]string, 0, len(fields))
+	labels := make([]string, 0, len(fields))
+	seen := map[string]bool{}
+	if primary != "" {
+		seen[strings.ToLower(primary)] = true
+	}
+	for _, field := range fields {
+		if field == nil {
+			continue
+		}
+		value := cleanVCardText(field.Value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+		labels = append(labels, contactVCardFieldLabel(field, "alternate"))
+	}
+	return out, labels
+}
+
+func contactVCardFieldLabel(field *emersionvcard.Field, fallback string) string {
+	if field == nil {
+		return fallback
+	}
+	for _, typ := range field.Params.Types() {
+		typ = strings.ToLower(strings.TrimSpace(typ))
+		if typ != "" && typ != "internet" && typ != "pref" {
+			return typ
+		}
+	}
+	return fallback
 }
 
 func formattedVCardName(name *emersionvcard.Name) string {
