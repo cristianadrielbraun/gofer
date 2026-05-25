@@ -1,6 +1,5 @@
 tmp/
 .env
-.orchestration/
 internal_notes/
 *.png
 !screenshots/

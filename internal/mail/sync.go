@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -412,6 +413,9 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 		payload["subject"] = summary.Latest.Subject
 		payload["from_name"] = summary.Latest.FromName
 		payload["from_email"] = summary.Latest.FromEmail
+		if avatarURL := o.senderAvatarURL(ctx, summary.Latest.FromEmail); avatarURL != "" {
+			payload["avatar_url"] = avatarURL
+		}
 		if summary.Latest.RemoteUID > 0 {
 			payload["remote_uid"] = summary.Latest.RemoteUID
 		}
@@ -424,6 +428,27 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 		FolderRole: folderRole,
 		Payload:    payload,
 	})
+}
+
+func (o *SyncOrchestrator) senderAvatarURL(ctx context.Context, email string) string {
+	if o == nil || o.db == nil {
+		return ""
+	}
+	hash := avatarresolver.GravatarHash(email)
+	if hash == "" {
+		return ""
+	}
+	rec, err := o.db.GetSenderAvatarByHash(ctx, hash)
+	if err != nil || rec == nil || rec.Status != "found" {
+		return ""
+	}
+	if rec.ExpiresAtValid && time.Now().After(rec.ExpiresAt) {
+		return ""
+	}
+	if rec.StoragePath == "" && len(rec.ImageData) == 0 {
+		return ""
+	}
+	return storage.SenderAvatarURL(rec.EmailHash, rec.ExpiresAt)
 }
 
 func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, folderIndex, folderTotal int) error {

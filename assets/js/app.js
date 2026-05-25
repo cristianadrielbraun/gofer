@@ -2185,11 +2185,12 @@ document.addEventListener("DOMContentLoaded", function () {
     var folderName = String(data.folder_name || "Inbox")
     var title = unreadCount === 1 ? sender : unreadCount + " new messages"
     var body = unreadCount === 1 ? subject : sender + ": " + subject
+    var icon = data.avatar_url || data.icon || "/assets/logo.png"
 
     var notification = new Notification(title, {
       body: body,
       tag: "gofer-new-mail-" + (data.account_id || "") + "-" + (data.folder_id || folderName),
-      icon: "/assets/logo.png",
+      icon: icon,
       badge: "/assets/logo.png",
       data: { folderID: data.folder_id || "" },
     })

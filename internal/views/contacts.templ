@@ -478,6 +478,237 @@ func contactProfileValueFields(fields []models.ContactField) []models.ContactFie
 	return values
 }
 
+func contactProfileResolverFields(fields []models.ContactField) []models.ContactField {
+	valueFields := contactProfileValueFields(fields)
+	valuesByKind := map[string]map[string]bool{}
+	for _, field := range valueFields {
+		kind := strings.ToLower(strings.TrimSpace(field.Kind))
+		value := strings.ToLower(strings.TrimSpace(field.NormalizedValue))
+		if value == "" {
+			value = strings.ToLower(strings.TrimSpace(field.Value))
+		}
+		if value == "" {
+			continue
+		}
+		if valuesByKind[kind] == nil {
+			valuesByKind[kind] = map[string]bool{}
+		}
+		valuesByKind[kind][value] = true
+	}
+	needsChoice := map[string]bool{}
+	for kind, values := range valuesByKind {
+		if len(values) > 1 {
+			needsChoice[kind] = true
+		}
+	}
+	if len(needsChoice) == 0 {
+		return nil
+	}
+	out := make([]models.ContactField, 0, len(valueFields))
+	for _, field := range valueFields {
+		if needsChoice[strings.ToLower(strings.TrimSpace(field.Kind))] {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func contactProfileManualFieldCount(fields []models.ContactField) int {
+	count := 0
+	for _, field := range fields {
+		if field.Source == "manual" && strings.TrimSpace(field.Value) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func contactProfileIsUnified(profile models.ContactProfile) bool {
+	return contactProfileManualFieldCount(profile.Fields) > 0
+}
+
+func contactProfileSyncTargets(cards []models.ContactCard) []models.ContactCard {
+	targets := make([]models.ContactCard, 0, len(cards))
+	seen := map[string]bool{}
+	for _, card := range cards {
+		if card.IsDeleted || card.Kind != "target" {
+			continue
+		}
+		key := strings.Join([]string{card.AccountID, card.AddressBookID}, ":")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		targets = append(targets, card)
+	}
+	return targets
+}
+
+func contactProfileExistingCopies(cards []models.ContactCard) []models.ContactCard {
+	copies := make([]models.ContactCard, 0, len(cards))
+	for _, card := range cards {
+		if card.IsDeleted {
+			continue
+		}
+		if card.Kind == "provider" || card.Kind == "observed" {
+			copies = append(copies, card)
+		}
+	}
+	return copies
+}
+
+func contactProfileSourceLabels(cards []models.ContactCard, accounts []models.Account) []string {
+	labels := make([]string, 0, len(cards))
+	seen := map[string]bool{}
+	for _, card := range contactProfileExistingCopies(cards) {
+		label := ""
+		switch card.Kind {
+		case "observed":
+			label = "Mail history"
+		case "provider":
+			label = contactCardAccountLabel(card, accounts)
+		default:
+			label = contactCardKindLabel(card)
+		}
+		label = strings.TrimSpace(label)
+		if label == "" || seen[strings.ToLower(label)] {
+			continue
+		}
+		seen[strings.ToLower(label)] = true
+		labels = append(labels, label)
+	}
+	return labels
+}
+
+func contactUnifiedStatusLabel(profile models.ContactProfile) string {
+	manualCount := contactProfileManualFieldCount(profile.Fields)
+	if manualCount > 0 {
+		return "Gofer source of truth"
+	}
+	if len(contactProfileExistingCopies(profile.Cards)) > 0 {
+		return "Not unified yet"
+	}
+	return "Empty profile"
+}
+
+func contactUnifiedStatusMessage(profile models.ContactProfile) string {
+	manualCount := contactProfileManualFieldCount(profile.Fields)
+	targets := contactProfileSyncTargets(profile.Cards)
+	copies := contactProfileExistingCopies(profile.Cards)
+	if manualCount > 0 && len(targets) > 0 {
+		return "Gofer is the editable version of this contact. Changes saved here will be queued to the selected address books."
+	}
+	if manualCount > 0 {
+		return "Gofer is the editable version of this contact. It is not currently mirroring changes to an external address book."
+	}
+	if len(copies) > 0 {
+		return "Gofer is showing data found elsewhere. Unify it to make Gofer the editable source of truth."
+	}
+	return "Add contact values to create a unified profile."
+}
+
+func contactProfileUserInsights(insights []models.ContactInsight) []models.ContactInsight {
+	out := make([]models.ContactInsight, 0, len(insights))
+	observedOnly := false
+	for _, insight := range insights {
+		if insight.Kind == "observed_only" {
+			observedOnly = true
+			break
+		}
+	}
+	for _, insight := range insights {
+		if observedOnly && insight.Kind == "provider_only_field" {
+			continue
+		}
+		out = append(out, insight)
+	}
+	return out
+}
+
+func contactInsightDisplayTitle(insight models.ContactInsight) string {
+	switch insight.Kind {
+	case "observed_only":
+		return "Found in email only"
+	case "provider_only_field":
+		return "Remote data is being shown"
+	case "field_conflict":
+		if insight.Field != "" {
+			return strings.Title(insight.Field) + " has multiple values"
+		}
+		return "Multiple values found"
+	case "manual_override":
+		if insight.Field != "" {
+			return "Manual " + insight.Field + " differs from synced data"
+		}
+		return "Manual value differs from synced data"
+	default:
+		return insight.Title
+	}
+}
+
+func contactInsightDisplayMessage(insight models.ContactInsight) string {
+	switch insight.Kind {
+	case "observed_only":
+		return "Save this contact to let Gofer manage it and optionally sync it to address books."
+	case "provider_only_field":
+		return "Save changes here if you want Gofer to become the version that syncs back out."
+	case "field_conflict":
+		return "Gofer found more than one possible value. Choose a primary value if one should be preferred."
+	case "manual_override":
+		return "Gofer is keeping your manual value while preserving synced data for review."
+	default:
+		return insight.Message
+	}
+}
+
+func contactFieldDisplayLabel(field models.ContactField) string {
+	label := strings.ToLower(strings.TrimSpace(field.Label))
+	if label == "" || label == "primary" || label == "alternate" {
+		return ""
+	}
+	if label == "observed" && field.Source == "observed" {
+		return ""
+	}
+	return label
+}
+
+func contactFieldSourceDisplay(source string, accounts []models.Account) string {
+	source = strings.TrimSpace(source)
+	switch {
+	case source == "manual":
+		return ""
+	case source == "observed":
+		return "Found in mail"
+	case strings.HasPrefix(source, "synced:"):
+		accountID := strings.TrimPrefix(source, "synced:")
+		for _, account := range accounts {
+			if account.ID == accountID {
+				return "From " + accountContactSaveLabel(account)
+			}
+		}
+		return "From synced account"
+	case source == "":
+		return ""
+	default:
+		return strings.Title(source)
+	}
+}
+
+func contactSourceDescription(card models.ContactCard, accounts []models.Account) string {
+	switch card.Kind {
+	case "observed":
+		return "Gofer found this person while indexing email."
+	case "local":
+		return "Editable values stored by Gofer."
+	case "provider":
+		return "A remote copy exists in " + contactCardAccountLabel(card, accounts) + "."
+	case "target":
+		return contactCardAccountLabel(card, accounts)
+	default:
+		return contactCardAccountLabel(card, accounts)
+	}
+}
+
 func contactInsightSeverityClass(severity string) string {
 	switch severity {
 	case "warning":
@@ -946,7 +1177,7 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 	</div>
 	<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 	<div class="flex-1 overflow-y-auto">
-		<div class="mx-auto px-8 py-6">
+		<div class="w-full px-8 py-6">
 			<div class="flex items-start gap-4">
 				if contact != nil {
 					@ContactAvatar(*contact, "size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
@@ -973,7 +1204,7 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 				</div>
 			</div>
 			<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
-			<form action={ contactFormAction(contact) } method="post" class="space-y-5 max-w-2xl" data-contact-editor-form>
+			<form action={ contactFormAction(contact) } method="post" class="space-y-5 w-full" data-contact-editor-form>
 				<div class="grid gap-5 sm:grid-cols-2">
 					<div>
 						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Name</label>
@@ -1060,28 +1291,9 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Notes</label>
 					<textarea name="notes" rows="3" placeholder="Context, preferences, relationship notes" class="w-full resize-y rounded-lg border border-ink/10 bg-ink/[0.04] px-3 py-2 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10">{ contactFormNotes(contact) }</textarea>
 				</div>
-				<div>
-					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Sync with address books</label>
-					@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} targets selected"}) {
-							@selectbox.Value(selectbox.ValueProps{Placeholder: "Gofer local", Multiple: true, Class: "text-left"})
-						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local")}) { Gofer local }
-							for _, account := range accounts {
-								if !account.IsDeleting && accountContactSyncCapable(account) {
-									if len(account.ContactAddressBooks) == 0 {
-										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: contactSaveTargetSelected(contact, contactSaveTargetValue(account))}) { { accountContactSaveLabel(account) } }
-									}
-									for _, book := range account.ContactAddressBooks {
-										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: contactSaveTargetSelected(contact, contactBookTargetValue(book))}) { { accountContactOriginLabel(account) } / { contactAddressBookDisplayName(book) } }
-									}
-								}
-							}
-						}
-					}
-					<p class="mt-1.5 text-xs text-ink/40">Choose the address books this contact should sync with. Keep Gofer local selected for a local copy.</p>
-				</div>
+				if profile == nil {
+					@ContactSyncTargetsSelect(contact, accounts)
+				}
 				if contact != nil {
 					if syncQueued {
 						@ContactSyncQueuedNotice()
@@ -1106,7 +1318,7 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 							}
 						</div>
 					}
-					<div class="grid max-w-2xl gap-3 rounded-lg border border-ink/10 bg-ink/[0.025] p-4 text-xs text-ink/45 sm:grid-cols-2 lg:grid-cols-4">
+					<div class="grid w-full gap-3 rounded-lg border border-ink/10 bg-ink/[0.025] p-4 text-xs text-ink/45 sm:grid-cols-2 lg:grid-cols-4">
 						<div>
 							<div class="font-semibold uppercase tracking-wider">Messages</div>
 							<div class="mt-1 text-sm text-ink">{ fmt.Sprintf("%d", contact.MessageCount) }</div>
@@ -1126,7 +1338,7 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 					</div>
 				}
 				if profile != nil {
-					@ContactProfileInsight(*profile, accounts)
+					@ContactProfileInsight(*profile, contact, accounts)
 				}
 				<div class="flex items-center justify-end gap-3 pt-2">
 					<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold">
@@ -1145,58 +1357,79 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 	</div>
 }
 
-templ ContactProfileInsight(profile models.ContactProfile, accounts []models.Account) {
-	<div class="max-w-2xl space-y-4 rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
+templ ContactProfileInsight(profile models.ContactProfile, contact *models.Contact, accounts []models.Account) {
+	{{ resolverFields := contactProfileResolverFields(profile.Fields) }}
+	{{ sourceLabels := contactProfileSourceLabels(profile.Cards, accounts) }}
+	<div class="w-full space-y-4 rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
 		<div class="flex items-center justify-between gap-3">
 			<div>
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Unified profile</h2>
-				<p class="mt-1 text-xs text-ink/35">Account copies and field provenance</p>
+				<p class="mt-1 text-xs text-ink/35">Gofer can become the editable source of truth for this person.</p>
 			</div>
 			<div class="flex shrink-0 items-center gap-1.5">
-				if len(profile.Insights) > 0 {
-					<span class="rounded border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-800">{ fmt.Sprintf("%d insights", len(profile.Insights)) }</span>
-				}
-				<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">{ fmt.Sprintf("%d cards", len(profile.Cards)) }</span>
+				<span class="rounded border border-ink/10 bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/45">{ contactUnifiedStatusLabel(profile) }</span>
 			</div>
 		</div>
-		if len(profile.Insights) > 0 {
-			@ContactProfileInsights(profile.Insights)
+		<div class="rounded-md border border-ink/10 bg-paper/45 px-3 py-2.5">
+			<div class="flex items-center gap-2 text-sm font-semibold text-ink">
+				@icon.Route(icon.Props{Class: "size-3.5 text-ink/40"})
+				Source of truth
+			</div>
+			<p class="mt-1 text-xs leading-relaxed text-ink/45">{ contactUnifiedStatusMessage(profile) }</p>
+			if len(sourceLabels) > 0 {
+				<div class="mt-2 flex flex-wrap items-center gap-1.5">
+					<span class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">Found in</span>
+					for _, label := range sourceLabels {
+						<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink/45">{ label }</span>
+					}
+				</div>
+			}
+			if contactProfileIsUnified(profile) {
+				<div class="mt-3">
+					@ContactSyncTargetsSelect(contact, accounts)
+				</div>
+			} else {
+				<div class="mt-3 flex flex-wrap items-center gap-2">
+					<button
+						type="submit"
+						formmethod="post"
+						formaction={ fmt.Sprintf("/api/contacts/%s/unify", profile.ID) }
+						class="btn-skeuo inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold"
+					>
+						@icon.Route(icon.Props{Class: "size-4"})
+						Unify in Gofer
+					</button>
+					<p class="text-xs leading-relaxed text-ink/40">This creates a Gofer-managed editable version from the best data currently available.</p>
+				</div>
+			}
+		</div>
+		if len(resolverFields) > 0 {
+			@ContactProfileConflictResolver(resolverFields, accounts)
 		}
-		@ContactProfileValueSummary(contactProfileValueFields(profile.Fields))
-		<div class="grid gap-3 lg:grid-cols-2">
-			<div class="space-y-2">
-				<div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink/45">
-					@icon.Layers(icon.Props{Class: "size-3.5"})
-					Cards
-				</div>
-				if len(profile.Cards) == 0 {
-					<div class="rounded-md border border-dashed border-ink/10 px-3 py-4 text-sm text-ink/40">No cards attached to this profile.</div>
-				} else {
-					<div class="space-y-2">
-						for _, card := range profile.Cards {
-							if !card.IsDeleted {
-								@ContactProfileCardRow(card, accounts)
-							}
+	</div>
+}
+
+templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account) {
+	<div>
+		<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Mirror to address books</label>
+		@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} address books selected"}) {
+				@selectbox.Value(selectbox.ValueProps{Placeholder: "No external sync", Multiple: true, Class: "text-left"})
+			}
+			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+				for _, account := range accounts {
+					if !account.IsDeleting && accountContactSyncCapable(account) {
+						if len(account.ContactAddressBooks) == 0 {
+							@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: contactSaveTargetSelected(contact, contactSaveTargetValue(account))}) { { accountContactSaveLabel(account) } }
 						}
-					</div>
-				}
-			</div>
-			<div class="space-y-2">
-				<div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink/45">
-					@icon.TableProperties(icon.Props{Class: "size-3.5"})
-					Fields
-				</div>
-				if len(profile.Fields) == 0 {
-					<div class="rounded-md border border-dashed border-ink/10 px-3 py-4 text-sm text-ink/40">No fields attached to this profile.</div>
-				} else {
-					<div class="space-y-2">
-						for _, field := range profile.Fields {
-							@ContactProfileFieldRow(field)
+						for _, book := range account.ContactAddressBooks {
+							@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: contactSaveTargetSelected(contact, contactBookTargetValue(book))}) { { accountContactOriginLabel(account) } / { contactAddressBookDisplayName(book) } }
 						}
-					</div>
+					}
 				}
-			</div>
-		</div>
+			}
+		}
+		<p class="mt-1.5 text-xs leading-relaxed text-ink/40">Gofer keeps its local unified profile automatically. Select external address books only if changes should be mirrored out.</p>
 	</div>
 }
 
@@ -1228,17 +1461,17 @@ templ ContactLabelSelect(name string, value string, options []string, ariaLabel 
 templ ContactProfileInsights(insights []models.ContactInsight) {
 	<div class="space-y-2">
 		<div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink/45">
-			@icon.GitMergeConflict(icon.Props{Class: "size-3.5"})
-			Insights
+			@icon.Lightbulb(icon.Props{Class: "size-3.5"})
+			Suggestions
 		</div>
 		<div class="grid gap-2">
 			for _, insight := range insights {
 				<div class={ "rounded-md border px-3 py-2.5 " + contactInsightSeverityClass(insight.Severity) }>
 					<div class="flex items-start justify-between gap-3">
 						<div class="min-w-0">
-							<div class="text-sm font-semibold">{ insight.Title }</div>
-							if insight.Message != "" {
-								<p class="mt-0.5 text-xs leading-relaxed opacity-80">{ insight.Message }</p>
+							<div class="text-sm font-semibold">{ contactInsightDisplayTitle(insight) }</div>
+							if contactInsightDisplayMessage(insight) != "" {
+								<p class="mt-0.5 text-xs leading-relaxed opacity-80">{ contactInsightDisplayMessage(insight) }</p>
 							}
 						</div>
 						if insight.Count > 0 {
@@ -1251,12 +1484,12 @@ templ ContactProfileInsights(insights []models.ContactInsight) {
 	</div>
 }
 
-templ ContactProfileValueSummary(fields []models.ContactField) {
+templ ContactProfileConflictResolver(fields []models.ContactField, accounts []models.Account) {
 	if len(fields) > 0 {
 		<div class="space-y-2">
 			<div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink/45">
-				@icon.Contact(icon.Props{Class: "size-3.5"})
-				Contact values
+				@icon.GitMergeConflict(icon.Props{Class: "size-3.5"})
+				Choose default contact info
 			</div>
 			<div class="grid gap-2 sm:grid-cols-2">
 				for _, field := range fields {
@@ -1270,19 +1503,64 @@ templ ContactProfileValueSummary(fields []models.ContactField) {
 							<div class="truncate text-sm font-semibold text-ink">{ field.Value }</div>
 						</div>
 						<div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/40">
-							if field.Label != "" {
-								<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ field.Label }</span>
+							if contactFieldDisplayLabel(field) != "" {
+								<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldDisplayLabel(field) }</span>
 							}
 							if field.IsPrimary {
-								<span class="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-700">Primary</span>
+								<span class="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-700">Default</span>
+							} else {
+								<button
+									type="submit"
+									formmethod="post"
+									formaction={ fmt.Sprintf("/api/contacts/%s/fields/%s/prefer", field.ProfileID, field.ID) }
+									class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5 text-ink/45 hover:bg-ink/[0.08] hover:text-ink/70"
+								>
+									Use as default
+								</button>
 							}
-							<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldSourceLabel(field.Source) }</span>
+							if contactFieldSourceDisplay(field.Source, accounts) != "" {
+								<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldSourceDisplay(field.Source, accounts) }</span>
+							}
 						</div>
 					</div>
 				}
 			</div>
 		</div>
 	}
+}
+
+templ ContactProfileSyncTargetRow(card models.ContactCard, accounts []models.Account) {
+	<div class="rounded-md border border-ink/10 bg-paper/45 px-3 py-2.5">
+		<div class="flex min-w-0 items-center gap-2">
+			@icon.CloudUpload(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
+			<div class="truncate text-sm font-semibold text-ink">{ contactCardAccountLabel(card, accounts) }</div>
+		</div>
+		<div class="mt-1 text-xs leading-relaxed text-ink/45">Changes saved in Gofer will be queued here.</div>
+	</div>
+}
+
+templ ContactProfileSourceRow(card models.ContactCard, accounts []models.Account) {
+	<div class="rounded-md border border-ink/10 bg-paper/45 px-3 py-2.5">
+		<div class="flex min-w-0 items-center gap-2">
+			if card.Kind == "provider" {
+				@icon.CloudSync(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
+			} else if card.Kind == "target" {
+				@icon.Route(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
+			} else if card.Kind == "observed" {
+				@icon.MailSearch(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
+			} else {
+				@icon.IdCard(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
+			}
+			<div class="truncate text-sm font-semibold text-ink">
+				if card.Kind == "provider" {
+					{ contactCardAccountLabel(card, accounts) }
+				} else {
+					{ contactCardKindLabel(card) }
+				}
+			</div>
+		</div>
+		<div class="mt-1 text-xs leading-relaxed text-ink/45">{ contactSourceDescription(card, accounts) }</div>
+	</div>
 }
 
 templ ContactProfileCardRow(card models.ContactCard, accounts []models.Account) {
@@ -1311,7 +1589,7 @@ templ ContactProfileCardRow(card models.ContactCard, accounts []models.Account) 
 	</div>
 }
 
-templ ContactProfileFieldRow(field models.ContactField) {
+templ ContactProfileFieldRow(field models.ContactField, accounts []models.Account) {
 	<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 		<div class="flex items-start justify-between gap-3">
 			<div class="min-w-0">
@@ -1327,13 +1605,13 @@ templ ContactProfileFieldRow(field models.ContactField) {
 				</div>
 				<div class="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/35">
 					<span>{ contactFieldKindLabel(field.Kind) }</span>
-					if field.Label != "" {
-						<span>{ field.Label }</span>
+					if contactFieldDisplayLabel(field) != "" {
+						<span>{ contactFieldDisplayLabel(field) }</span>
 					}
 					if field.IsPrimary {
 						<span class="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-700">Primary</span>
 					}
-					<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldSourceLabel(field.Source) }</span>
+					<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldSourceDisplay(field.Source, accounts) }</span>
 				</div>
 			</div>
 			<div class="flex shrink-0 items-center gap-1.5">
@@ -1354,7 +1632,7 @@ templ ContactProfileFieldRow(field models.ContactField) {
 }
 
 templ ContactRecentActivity(contact models.Contact, emails []models.Email) {
-	<div class="mt-6 max-w-2xl rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
+	<div class="mt-6 w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
 		<div class="mb-3 flex items-center justify-between gap-3">
 			<div>
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Recent activity</h2>

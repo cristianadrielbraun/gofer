@@ -155,6 +155,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/contacts/search", h.handleContactSearch)
 	mux.HandleFunc("POST /api/contacts", h.handleSaveContact)
 	mux.HandleFunc("POST /api/contacts/import", h.handleImportContacts)
+	mux.HandleFunc("POST /api/contacts/{id}/unify", h.handleUnifyContact)
 	mux.HandleFunc("POST /api/contacts/{id}/fields/{fieldID}/prefer", h.handlePreferContactField)
 	mux.HandleFunc("POST /api/contacts/{id}/delete", h.handleDeleteContact)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
@@ -692,6 +693,42 @@ func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
 		imported++
 	}
 	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
+}
+
+func (h *Handler) handleUnifyContact(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	contactID := strings.TrimSpace(r.PathValue("id"))
+	if contactID == "" {
+		http.NotFound(w, r)
+		return
+	}
+	previous, _ := h.db.GetContact(ctx, userID, contactID)
+	if previous == nil {
+		http.NotFound(w, r)
+		return
+	}
+	contact := *previous
+	contact.ID = contactID
+	if len(contact.SaveTargets) == 0 {
+		contact.SaveTargets = []string{"local"}
+	}
+	saved, err := h.db.SaveContact(ctx, userID, contact)
+	if err != nil {
+		http.Error(w, "failed to unify contact", http.StatusBadRequest)
+		return
+	}
+	syncQueued := h.scheduleContactAccountSync(ctx, userID, saved, previous)
+	location := "/contacts?contact=" + url.QueryEscape(saved.ID)
+	if syncQueued {
+		location += "&sync=queued"
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", location)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
 }
 
 func (h *Handler) handlePreferContactField(w http.ResponseWriter, r *http.Request) {

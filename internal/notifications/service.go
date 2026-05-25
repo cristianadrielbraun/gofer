@@ -106,13 +106,18 @@ func (s *Service) sendWebPush(ctx context.Context, userID string, event mail.Eve
 		return
 	}
 
-	payload, err := json.Marshal(map[string]any{
+	payloadData := map[string]any{
 		"title":     title,
 		"body":      message,
 		"tag":       "gofer-new-mail-" + event.AccountID + "-" + event.FolderID,
 		"folder_id": event.FolderID,
 		"url":       "/folder/" + event.FolderID,
-	})
+	}
+	if icon := newMailNotificationIcon(event.Payload); icon != "" {
+		payloadData["icon"] = icon
+	}
+
+	payload, err := json.Marshal(payloadData)
 	if err != nil {
 		return
 	}
@@ -183,6 +188,13 @@ func newMailNotificationText(payload map[string]any, unreadCount int) (string, s
 		return sender, subject
 	}
 	return strconv.Itoa(unreadCount) + " new messages", sender + ": " + subject + " - " + folder
+}
+
+func newMailNotificationIcon(payload map[string]any) string {
+	if icon := strings.TrimSpace(stringPayload(payload, "avatar_url")); icon != "" {
+		return icon
+	}
+	return strings.TrimSpace(stringPayload(payload, "icon"))
 }
 
 func stringPayload(payload map[string]any, key string) string {

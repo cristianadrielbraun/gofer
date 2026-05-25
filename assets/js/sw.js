@@ -5,9 +5,10 @@ self.addEventListener("push", function (event) {
   }
 
   var title = data.title || "Gofer"
+  var icon = data.icon || data.avatar_url || "/assets/logo.png"
   var options = {
     body: data.body || "New notification",
-    icon: "/assets/logo.png",
+    icon: icon,
     badge: "/assets/logo.png",
     tag: data.tag || "gofer-notification",
     data: {
