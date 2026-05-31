@@ -19,6 +19,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
+	"github.com/cristianadrielbraun/gofer/internal/translation"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 	"html"
 	"html/template"
@@ -60,6 +61,7 @@ type Handler struct {
 	contactSyncMu        sync.Mutex
 	contactSyncRunning   map[string]struct{}
 	contactSyncQueue     chan struct{}
+	googleTranslator     *translation.GoogleWebConnector
 	vapidPublicKey       string
 }
 
@@ -85,6 +87,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		avatarWarmupForced: make(map[string]time.Time),
 		contactSyncRunning: make(map[string]struct{}),
 		contactSyncQueue:   make(chan struct{}, 1),
+		googleTranslator:   translation.NewGoogleWebConnector(nil),
 		vapidPublicKey:     vapidPublicKey,
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
@@ -143,6 +146,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/contacts/{$}", h.handleAdminContacts)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
 	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
+	mux.HandleFunc("GET /email/{id}/body/translated", h.handleTranslatedEmailBody)
 	mux.HandleFunc("GET /folder/{id}", h.handleFolderPartial)
 	mux.HandleFunc("GET /folder/{id}/full", h.handleFolderFull)
 	mux.HandleFunc("GET /folder/{id}/{email}", h.handleFolderWithEmail)
@@ -224,6 +228,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/messages/{id}", h.handleDeleteMessage)
 	mux.HandleFunc("POST /api/messages/{id}/move", h.handleMoveMessage)
 	mux.HandleFunc("POST /api/messages/{id}/refetch", h.handleRefetchBody)
+	mux.HandleFunc("POST /api/messages/{id}/translate", h.handleTranslateMessage)
 	mux.HandleFunc("POST /api/remote-content/{id}/allow", h.handleAllowRemoteContent)
 	mux.HandleFunc("GET /api/remote-assets/{messageID}/{filename}", h.handleRemoteAsset)
 	mux.HandleFunc("GET /api/avatars/status", h.handleAvatarStatus)

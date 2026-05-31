@@ -335,6 +335,64 @@ func mailPaneLayoutSettingLabel(value string) string {
 	return "Side by side"
 }
 
+func translationProviderSettingLabel(value string) string {
+	switch translationProviderSettingValue(value) {
+	case "google_web_basic":
+		return "Google Web Translate (Basic)"
+	default:
+		if strings.TrimSpace(value) == "" {
+			return "Google Web Translate (Basic)"
+		}
+		return strings.TrimSpace(value)
+	}
+}
+
+func translationProviderSettingValue(value string) string {
+	switch strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_") {
+	case "", "google", "google_web", "google_web_basic", "google_translate":
+		return "google_web_basic"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func translationLanguageSettingLabel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "ar":
+		return "Arabic"
+	case "cs":
+		return "Czech"
+	case "de":
+		return "German"
+	case "en", "":
+		return "English"
+	case "es":
+		return "Spanish"
+	case "fr":
+		return "French"
+	case "it":
+		return "Italian"
+	case "ja":
+		return "Japanese"
+	case "ko":
+		return "Korean"
+	case "nl":
+		return "Dutch"
+	case "pl":
+		return "Polish"
+	case "pt":
+		return "Portuguese"
+	case "ru":
+		return "Russian"
+	case "uk":
+		return "Ukrainian"
+	case "zh-cn", "zh":
+		return "Chinese"
+	default:
+		return value
+	}
+}
+
 func notificationModeSettingLabel(mode string) string {
 	switch mode {
 	case "web_push":

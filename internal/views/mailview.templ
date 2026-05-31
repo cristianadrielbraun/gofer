@@ -781,6 +781,14 @@ templ MailViewBodyByID(emailID string) {
 			}
 		</div>
 	</div>
+	<div data-email-translation-shell={ emailID } class="mb-3">
+		<div class="flex items-center justify-end gap-2">
+			<button type="button" data-translate-email={ emailID } data-translated="false" aria-pressed="false" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.02] px-2.5 text-xs font-medium text-ink/50 transition-colors hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/70 data-[translated=true]:border-copper/40 data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper data-[translated=true]:hover:border-copper/50 data-[translated=true]:hover:bg-copper/15">
+				@icon.Languages(icon.Props{Class: "size-3.5"})
+				<span data-translate-email-label={ emailID }>Translate</span>
+			</button>
+		</div>
+	</div>
 	<div data-email-body-loading={ emailID } class="space-y-3 py-2" aria-label="Loading email body">
 		<div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div>
 		<div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div>

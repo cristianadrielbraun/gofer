@@ -106,7 +106,10 @@ func main() {
 	var handler http.Handler = mux
 	handler = authManager.Middleware(handler)
 
-	addr := ":8090"
+	addr := os.Getenv("GOFER_ADDR")
+	if addr == "" {
+		addr = ":8090"
+	}
 	fmt.Printf("Gofer running on http://localhost%s\n", addr)
 	fmt.Printf("database: %s\n", db.Path())
 	if authConfig.Enabled {

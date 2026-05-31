@@ -42,6 +42,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupProcessingStatus()
   setupBodyPrefetch()
   setupEmailBodyModeTabs()
+  setupEmailTranslation()
   setupMailSyncSidebarControls()
   setupMailSyncCancelControls()
   setupDesktopNotifications()
@@ -367,6 +368,188 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     for (var i = 0; i < frames.length; i++) setEmailBodyModeOnFrame(frames[i], mode)
     for (var j = 0; j < frames.length; j++) applyEmailBodyTheme(frames[j])
+  }
+
+  function setupEmailTranslation() {
+    function setting(key, fallback) {
+      if (window.GoferSettings && GoferSettings.get(key)) return GoferSettings.get(key)
+      return fallback
+    }
+
+    function provider() {
+      return setting("translation_provider", "google_web_basic") || "google_web_basic"
+    }
+
+    function targetLanguage() {
+      return setting("translation_target_language", "en") || "en"
+    }
+
+    function languageLabel(code) {
+      switch (String(code || "").toLowerCase()) {
+        case "ar": return "Arabic"
+        case "cs": return "Czech"
+        case "de": return "German"
+        case "en": return "English"
+        case "es": return "Spanish"
+        case "fr": return "French"
+        case "it": return "Italian"
+        case "ja": return "Japanese"
+        case "ko": return "Korean"
+        case "nl": return "Dutch"
+        case "pl": return "Polish"
+        case "pt": return "Portuguese"
+        case "ru": return "Russian"
+        case "uk": return "Ukrainian"
+        case "zh":
+        case "zh-cn": return "Chinese"
+        default: return code || "selected language"
+      }
+    }
+
+    function translationEnabled() {
+      return setting("translation_button_enabled", "true") !== "false"
+    }
+
+    function emailSelector(attr, emailId) {
+      return "[" + attr + '="' + String(emailId).replace(/"/g, '\\"') + '"]'
+    }
+
+    function frameForEmail(emailId) {
+      return document.querySelector('[data-email-body-frame][data-email-id="' + String(emailId).replace(/"/g, '\\"') + '"]')
+    }
+
+    function buttonForEmail(emailId) {
+      return document.querySelector(emailSelector("data-translate-email", emailId))
+    }
+
+    function idleButtonLabel() {
+      var target = targetLanguage()
+      return target ? "Translate to " + languageLabel(target) : "Translate"
+    }
+
+    function setButtonState(emailId, state, data) {
+      var button = buttonForEmail(emailId)
+      if (!button) return
+      var label = button.querySelector("[data-translate-email-label]")
+      var text = idleButtonLabel()
+      var translated = state === "translated"
+      if (state === "loading") text = "Translating..."
+      if (state === "error") text = "Translation failed"
+      if (translated) text = "Show original"
+      if (label && label.textContent !== text) label.textContent = text
+      button.disabled = state === "loading"
+      button.dataset.translationState = state
+      button.dataset.translated = translated ? "true" : "false"
+      button.setAttribute("aria-pressed", translated ? "true" : "false")
+      button.setAttribute("aria-label", translated ? "Show original email" : idleButtonLabel())
+      button.classList.toggle("opacity-60", state === "loading")
+      if (translated && data) {
+        button.title = "Translated to " + languageLabel(targetLanguage())
+      } else {
+        button.removeAttribute("title")
+      }
+    }
+
+    function syncTranslationButton(button) {
+      if (!button || !button.dataset) return
+      var frame = frameForEmail(button.dataset.translateEmail)
+      if (frame && frame.dataset.translationActive === "true") {
+        setButtonState(button.dataset.translateEmail, button.dataset.translationState === "loading" ? "loading" : "translated", true)
+        return
+      }
+      if (!button.disabled) setButtonState(button.dataset.translateEmail, "idle")
+    }
+
+    function syncTranslationControls(root) {
+      var enabled = translationEnabled()
+      var scope = root || document
+      if (!scope.querySelectorAll) scope = document
+      if (scope.matches && scope.matches("[data-email-translation-shell]")) {
+        scope.classList.toggle("hidden", !enabled)
+      }
+      var shells = scope.querySelectorAll("[data-email-translation-shell]")
+      for (var i = 0; i < shells.length; i++) shells[i].classList.toggle("hidden", !enabled)
+
+      if (scope.matches && scope.matches("[data-translate-email]")) {
+        syncTranslationButton(scope)
+      }
+      var buttons = scope.querySelectorAll("[data-translate-email]")
+      for (var j = 0; j < buttons.length; j++) syncTranslationButton(buttons[j])
+    }
+
+    function showOriginal(emailId) {
+      var frame = frameForEmail(emailId)
+      if (frame) {
+        delete frame.dataset.translationActive
+        delete frame.dataset.translationProvider
+        delete frame.dataset.translationTargetLanguage
+        delete frame.dataset.translationCacheKey
+        if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme(frame)
+      }
+      setButtonState(emailId, "idle")
+    }
+
+    function setTranslationLoading(emailId) {
+      setButtonState(emailId, "loading")
+    }
+
+    function setTranslationError(emailId, message) {
+      setButtonState(emailId, "error")
+      window.setTimeout(function () {
+        var button = buttonForEmail(emailId)
+        if (button && button.dataset.translationState === "error") syncTranslationButton(button)
+      }, message ? 3000 : 1800)
+    }
+
+    function translateEmail(emailId, button) {
+      var frame = frameForEmail(emailId)
+      if (!frame) {
+        setTranslationError(emailId)
+        return
+      }
+      if (frame && frame.dataset.translationActive === "true") {
+        showOriginal(emailId)
+        return
+      }
+
+      var currentProvider = provider()
+      var target = targetLanguage()
+      var cacheKey = currentProvider + "|" + target
+      frame.dataset.translationActive = "true"
+      frame.dataset.translationProvider = currentProvider
+      frame.dataset.translationTargetLanguage = target
+      frame.dataset.translationCacheKey = cacheKey
+      setTranslationLoading(emailId)
+      if (button) button.classList.add("opacity-60")
+      if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme(frame)
+    }
+
+    window.goferEmailTranslationFrameLoaded = function (emailId) {
+      var frame = frameForEmail(emailId)
+      if (frame && frame.dataset.translationActive === "true") setButtonState(emailId, "translated", true)
+    }
+
+    syncTranslationControls(document)
+
+    document.body.addEventListener("htmx:afterSwap", function (event) {
+      syncTranslationControls(event.target || document)
+    })
+    document.body.addEventListener("htmx:oobAfterSwap", function (event) {
+      syncTranslationControls(event.target || document)
+    })
+    document.body.addEventListener("gofer:settings-changed", function () {
+      syncTranslationControls(document)
+    })
+
+    document.addEventListener("click", function (e) {
+      var translate = e.target.closest("[data-translate-email]")
+      if (translate) {
+        e.preventDefault()
+        if (!translationEnabled()) return
+        translateEmail(translate.dataset.translateEmail, translate)
+        return
+      }
+    })
   }
 
   function setupSidebarAccountCollapse() {
@@ -7353,6 +7536,9 @@ window.addEventListener("message", function (e) {
       iframe.classList.remove("opacity-0")
       var loader = e.data.emailId ? document.querySelector('[data-email-body-loading="' + e.data.emailId + '"]') : null
       if (loader) loader.remove()
+      if (iframe.dataset.translationActive === "true" && typeof window.goferEmailTranslationFrameLoaded === "function") {
+        window.goferEmailTranslationFrameLoaded(e.data.emailId)
+      }
     }
   }
   if (e.data.type === "remoteContentBlocked" && e.data.emailId) {
@@ -7360,6 +7546,19 @@ window.addEventListener("message", function (e) {
     if (banner) banner.classList.remove("hidden")
   }
 })
+
+function translatedEmailBodyURL(iframe, theme, bg, fg, link, original) {
+  var params = new URLSearchParams()
+  params.set("theme", theme)
+  if (original) params.set("mode", "original")
+  if (!original && bg) params.set("bg", bg)
+  if (!original && fg) params.set("fg", fg)
+  if (!original && link) params.set("link", link)
+  if (iframe.dataset.remoteLoaded === "true") params.set("remote", "true")
+  params.set("provider", iframe.dataset.translationProvider || "google_web_basic")
+  params.set("target_language", iframe.dataset.translationTargetLanguage || "en")
+  return "/email/" + iframe.dataset.emailId + "/body/translated?" + params.toString()
+}
 
 function applyEmailBodyTheme(targetFrame) {
   if (!targetFrame) {
@@ -7396,7 +7595,9 @@ function applyEmailBodyTheme(targetFrame) {
   if (!original && fg) params.set("fg", fg)
   if (!original && link) params.set("link", link)
   if (iframe.dataset.remoteLoaded === "true") params.set("remote", "true")
-  iframe.src = "/email/" + iframe.dataset.emailId + "/body?" + params.toString()
+  iframe.src = iframe.dataset.translationActive === "true" ?
+    translatedEmailBodyURL(iframe, theme, bg, fg, link, original) :
+    "/email/" + iframe.dataset.emailId + "/body?" + params.toString()
   updateEmailBodySchemeButton(iframe, baseTheme, theme, bodyMode)
 }
 

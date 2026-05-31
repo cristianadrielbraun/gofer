@@ -242,6 +242,82 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 				</div>
 			</div>
 		</div>
+		<div class="bg-card rounded-lg border p-6 space-y-5">
+			<div>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Translation</h3>
+				<p class="text-xs text-muted-foreground">Choose the read-pane translation service and default target language.</p>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<label for="translation-button-enabled" class="text-sm font-medium text-foreground">Read-pane translate button</label>
+					<p class="text-xs text-muted-foreground mt-1">Show a translate action beside message bodies.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					<div class="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/40 px-3 py-2">
+						<span class="text-xs font-medium text-muted-foreground">Enabled</span>
+						@switchcomp.Switch(switchcomp.Props{
+							ID:      "translation-button-enabled",
+							Name:    "translation_button_enabled",
+							Checked: uiSettingGet(uiSettings, "translation_button_enabled", "true") != "false",
+							Attributes: templ.Attributes{"data-translation-setting": "enabled"},
+						})
+					</div>
+				</div>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Translation service</h4>
+					<p class="text-xs text-muted-foreground mt-1">Choose which service translates messages when you click Translate.</p>
+				</div>
+				<div class="w-full sm:w-64 shrink-0" data-translation-provider-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "translation_provider", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Google Web Translate (Basic)"}) {
+								{ translationProviderSettingLabel(uiSettingGet(uiSettings, "translation_provider", "google_web_basic")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "google_web_basic", Selected: translationProviderSettingValue(uiSettingGet(uiSettings, "translation_provider", "google_web_basic")) == "google_web_basic", Class: "items-start py-2 pr-8"}) {
+								<span class="flex min-w-0 flex-col whitespace-normal">
+									<span class="font-medium leading-tight">Google Web Translate (Basic)</span>
+									<span class="mt-0.5 text-[11px] leading-snug text-muted-foreground group-hover:text-accent-foreground/75">Best-effort translation using Google's web translation endpoint.</span>
+								</span>
+							}
+						}
+					}
+				</div>
+			</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Translate to</h4>
+					<p class="text-xs text-muted-foreground mt-1">The default target language for the read-pane button.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0" data-translation-language-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "translation_target_language", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "English"}) {
+								{ translationLanguageSettingLabel(uiSettingGet(uiSettings, "translation_target_language", "en")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search languages..."}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "en", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "en"}) { English }
+							@selectbox.Item(selectbox.ItemProps{Value: "cs", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "cs"}) { Czech }
+							@selectbox.Item(selectbox.ItemProps{Value: "de", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "de"}) { German }
+							@selectbox.Item(selectbox.ItemProps{Value: "es", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "es"}) { Spanish }
+							@selectbox.Item(selectbox.ItemProps{Value: "fr", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "fr"}) { French }
+							@selectbox.Item(selectbox.ItemProps{Value: "it", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "it"}) { Italian }
+							@selectbox.Item(selectbox.ItemProps{Value: "nl", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "nl"}) { Dutch }
+							@selectbox.Item(selectbox.ItemProps{Value: "pl", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "pl"}) { Polish }
+							@selectbox.Item(selectbox.ItemProps{Value: "pt", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "pt"}) { Portuguese }
+							@selectbox.Item(selectbox.ItemProps{Value: "uk", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "uk"}) { Ukrainian }
+							@selectbox.Item(selectbox.ItemProps{Value: "zh-CN", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "zh-CN"}) { Chinese }
+							@selectbox.Item(selectbox.ItemProps{Value: "ja", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "ja"}) { Japanese }
+							@selectbox.Item(selectbox.ItemProps{Value: "ko", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "ko"}) { Korean }
+						}
+					}
+				</div>
+			</div>
+		</div>
 	</div>
 	<script>
 	(function() {
@@ -323,6 +399,18 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			var autoMarkRead = e.target.closest('input[name="auto_mark_read_after"]');
 			if (autoMarkRead && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('auto_mark_read_after', autoMarkRead.value);
+			}
+			var translationEnabled = e.target.closest('[data-translation-setting="enabled"]');
+			if (translationEnabled && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('translation_button_enabled', translationEnabled.checked ? 'true' : 'false');
+			}
+			var translationProvider = e.target.closest('input[name="translation_provider"]');
+			if (translationProvider && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('translation_provider', translationProvider.value);
+			}
+			var translationLanguage = e.target.closest('input[name="translation_target_language"]');
+			if (translationLanguage && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('translation_target_language', translationLanguage.value);
 			}
 		});
 		document.addEventListener('input', function(e) {

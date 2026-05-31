@@ -309,6 +309,9 @@ var GoferSettings;
       _cache[key] = value;
       writeCache();
       applySetting(key, value);
+      document.body.dispatchEvent(new CustomEvent("gofer:settings-changed", {
+        detail: { key: key, value: value, oldValue: oldValue },
+      }));
 
       if (key === "timezone" && oldValue !== value) {
         if (_saveTimer) clearTimeout(_saveTimer);
