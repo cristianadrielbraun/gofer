@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -65,9 +66,10 @@ func ContextWithUser(ctx context.Context, u *User) context.Context {
 }
 
 type Config struct {
-	Enabled      bool
-	GoogleClient *oauth2.Config
-	BaseURL      string
+	Enabled         bool
+	GoogleClient    *oauth2.Config
+	MicrosoftClient *oauth2.Config
+	BaseURL         string
 }
 
 func LoadConfig() *Config {
@@ -104,7 +106,42 @@ func LoadConfig() *Config {
 		cfg.Enabled = false
 	}
 
+	microsoftClientID := os.Getenv("MICROSOFT_OAUTH_CLIENT_ID")
+	microsoftClientSecret := os.Getenv("MICROSOFT_OAUTH_CLIENT_SECRET")
+	if microsoftClientID != "" && microsoftClientSecret != "" {
+		tenant := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_TENANT"))
+		if tenant == "" {
+			tenant = "common"
+		}
+		cfg.MicrosoftClient = &oauth2.Config{
+			ClientID:     microsoftClientID,
+			ClientSecret: microsoftClientSecret,
+			RedirectURL:  baseURL + "/auth/microsoft/account/callback",
+			Scopes: []string{
+				"openid",
+				"email",
+				"profile",
+				"offline_access",
+				"https://outlook.office.com/IMAP.AccessAsUser.All",
+				"https://outlook.office.com/SMTP.Send",
+			},
+			Endpoint: microsoftEndpoint(tenant),
+		}
+	}
+
 	return cfg
+}
+
+func microsoftEndpoint(tenant string) oauth2.Endpoint {
+	tenant = strings.Trim(strings.TrimSpace(tenant), "/")
+	if tenant == "" {
+		tenant = "common"
+	}
+	base := "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0"
+	return oauth2.Endpoint{
+		AuthURL:  base + "/authorize",
+		TokenURL: base + "/token",
+	}
 }
 
 type Manager struct {
@@ -126,6 +163,10 @@ func (m *Manager) IsEnabled() bool {
 
 func (m *Manager) HasGoogleOAuth() bool {
 	return m.config.GoogleClient != nil
+}
+
+func (m *Manager) HasMicrosoftOAuth() bool {
+	return m.config.MicrosoftClient != nil
 }
 
 func (m *Manager) DB() *storage.DB {

@@ -58,6 +58,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@ComposeDialog(accounts)
 			@ChooseAccountTypeDialog()
 			@GmailAccountDialog()
+			@OutlookAccountDialog()
 			@AddAccountDialog()
 			@MailSyncProgressDialog()
 			<div id="edit-account-container"></div>
@@ -164,6 +165,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			@ComposeDialog(accounts)
 			@ChooseAccountTypeDialog()
 			@GmailAccountDialog()
+			@OutlookAccountDialog()
 			@AddAccountDialog()
 			<div id="edit-account-container"></div>
 			<script src="/assets/js/htmx.min.js"></script>
@@ -235,6 +237,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@ComposeDialog(accounts)
 			@ChooseAccountTypeDialog()
 			@GmailAccountDialog()
+			@OutlookAccountDialog()
 			@AddAccountDialog()
 			<div id="edit-account-container"></div>
 			<script src="/assets/js/htmx.min.js"></script>
@@ -401,6 +404,7 @@ templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSetting
 	</div>
 	@ChooseAccountTypeDialog()
 	@GmailAccountDialog()
+	@OutlookAccountDialog()
 	@AddAccountDialog()
 	<div id="edit-account-container"></div>
 }

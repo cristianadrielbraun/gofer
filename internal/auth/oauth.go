@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,38 @@ type GoogleUserInfo struct {
 	Picture       string `json:"picture"`
 }
 
+type MicrosoftUserInfo struct {
+	Sub               string `json:"sub"`
+	ObjectID          string `json:"oid"`
+	TenantID          string `json:"tid"`
+	Email             string `json:"email"`
+	PreferredUsername string `json:"preferred_username"`
+	UPN               string `json:"upn"`
+	Name              string `json:"name"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+}
+
+func (i MicrosoftUserInfo) EmailAddress() string {
+	for _, value := range []string{i.Email, i.PreferredUsername, i.UPN} {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (i MicrosoftUserInfo) ProviderAccountID() string {
+	if strings.TrimSpace(i.Sub) != "" {
+		return strings.TrimSpace(i.Sub)
+	}
+	if strings.TrimSpace(i.TenantID) != "" && strings.TrimSpace(i.ObjectID) != "" {
+		return strings.TrimSpace(i.TenantID) + ":" + strings.TrimSpace(i.ObjectID)
+	}
+	return strings.TrimSpace(i.ObjectID)
+}
+
 func (m *Manager) GoogleOAuthURL(state string) string {
 	return m.config.GoogleClient.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 }
@@ -33,8 +66,20 @@ func (m *Manager) GoogleAccountOAuthURL(state string) string {
 	return m.accountOAuthConfig().AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 }
 
+func (m *Manager) MicrosoftAccountOAuthURL(state string) string {
+	return m.microsoftAccountOAuthConfig().AuthCodeURL(state, oauth2.SetAuthURLParam("prompt", "select_account"))
+}
+
 func (m *Manager) ExchangeAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
 	token, err := m.accountOAuthConfig().Exchange(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("oauth exchange: %w", err)
+	}
+	return token, nil
+}
+
+func (m *Manager) ExchangeMicrosoftAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
+	token, err := m.microsoftAccountOAuthConfig().Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("oauth exchange: %w", err)
 	}
@@ -47,6 +92,17 @@ func (m *Manager) accountOAuthConfig() *oauth2.Config {
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		RedirectURL:  m.config.BaseURL + "/auth/google/account/callback",
+		Scopes:       cfg.Scopes,
+		Endpoint:     cfg.Endpoint,
+	}
+}
+
+func (m *Manager) microsoftAccountOAuthConfig() *oauth2.Config {
+	cfg := m.config.MicrosoftClient
+	return &oauth2.Config{
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		RedirectURL:  m.config.BaseURL + "/auth/microsoft/account/callback",
 		Scopes:       cfg.Scopes,
 		Endpoint:     cfg.Endpoint,
 	}
@@ -85,6 +141,65 @@ func (m *Manager) GetGoogleUserInfo(ctx context.Context, token *oauth2.Token) (*
 	}
 
 	return &info, nil
+}
+
+func (m *Manager) GetMicrosoftUserInfo(ctx context.Context, token *oauth2.Token) (*MicrosoftUserInfo, error) {
+	_ = ctx
+	idToken, ok := token.Extra("id_token").(string)
+	if !ok || strings.TrimSpace(idToken) == "" {
+		return nil, fmt.Errorf("microsoft id token not returned")
+	}
+	return microsoftUserInfoFromIDToken(idToken, m.config.MicrosoftClient.ClientID, time.Now())
+}
+
+func microsoftUserInfoFromIDToken(idToken, clientID string, now time.Time) (*MicrosoftUserInfo, error) {
+	parts := strings.Split(idToken, ".")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid microsoft id token")
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("decode microsoft id token: %w", err)
+	}
+
+	var claims struct {
+		MicrosoftUserInfo
+		Audience any   `json:"aud"`
+		Expires  int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("parse microsoft id token: %w", err)
+	}
+	if clientID != "" && !microsoftAudienceMatches(claims.Audience, clientID) {
+		return nil, fmt.Errorf("microsoft id token audience mismatch")
+	}
+	if claims.Expires > 0 && !now.IsZero() && time.Unix(claims.Expires, 0).Before(now.Add(-1*time.Minute)) {
+		return nil, fmt.Errorf("microsoft id token expired")
+	}
+
+	info := claims.MicrosoftUserInfo
+	if info.ProviderAccountID() == "" {
+		return nil, fmt.Errorf("microsoft id token missing subject")
+	}
+	if info.EmailAddress() == "" {
+		return nil, fmt.Errorf("microsoft id token missing email")
+	}
+	return &info, nil
+}
+
+func microsoftAudienceMatches(audience any, clientID string) bool {
+	switch v := audience.(type) {
+	case string:
+		return v == clientID
+	case []any:
+		for _, item := range v {
+			if value, ok := item.(string); ok && value == clientID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m *Manager) HandleGoogleCallback(ctx context.Context, code string, userAgent string) (*User, *Session, error) {

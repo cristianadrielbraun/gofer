@@ -515,10 +515,14 @@ func (s *AccountStore) FindProviderAccountID(ctx context.Context, userID, provid
 		 WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0
 		   AND (
 		     (provider = ? AND provider_account_id = ? AND provider_account_id != '')
-		     OR (email_address = ? AND imap_host = 'imap.gmail.com' AND auth_method = 'oauth2')
+		     OR (provider = ? AND email_address = ? AND auth_method = 'oauth2')
+		     OR (email_address = ? AND auth_method = 'oauth2' AND (
+		       (? = 'gmail' AND imap_host = 'imap.gmail.com')
+		       OR (? = 'outlook' AND imap_host = 'outlook.office365.com')
+		     ))
 		   )
 		 LIMIT 1`,
-		userID, provider, providerAccountID, email,
+		userID, provider, providerAccountID, provider, email, email, provider, provider,
 	).Scan(&id)
 	if err == sql.ErrNoRows {
 		return "", nil

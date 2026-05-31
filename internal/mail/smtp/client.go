@@ -11,6 +11,7 @@ import (
 	smtp "github.com/emersion/go-smtp"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/mail/oauth2sasl"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -78,10 +79,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 		saslClient := sasl.NewPlainClient("", smtpUsername, password)
 		err = client.Auth(saslClient)
 	case "oauth2":
-		saslClient := sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
-			Username: smtpUsername,
-			Token:    password,
-		})
+		saslClient := oauth2sasl.NewClient(smtpUsername, password)
 		err = client.Auth(saslClient)
 	default:
 		saslClient := sasl.NewPlainClient("", smtpUsername, password)

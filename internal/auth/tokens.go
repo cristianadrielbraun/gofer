@@ -11,15 +11,32 @@ import (
 )
 
 func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
-	var providerAccountID string
-	_ = m.db.Read().QueryRowContext(ctx, `SELECT provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&providerAccountID)
-	if providerAccountID != "" {
-		return m.getOAuthTokenForAccount(ctx, accountID, true)
+	var accountProvider, providerAccountID string
+	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider, provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider, &providerAccountID); err != nil {
+		return "", fmt.Errorf("query account oauth identity: %w", err)
 	}
-	return m.getOAuthTokenForAccount(ctx, accountID, false)
+	oauthProvider, err := oauthProviderForAccountProvider(accountProvider)
+	if err != nil {
+		return "", err
+	}
+	if providerAccountID != "" {
+		return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider, true)
+	}
+	return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider, false)
 }
 
-func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID string, useProviderIdentity bool) (string, error) {
+func oauthProviderForAccountProvider(provider string) (string, error) {
+	switch provider {
+	case providers.ProviderGmail:
+		return providers.OAuthGoogle, nil
+	case providers.ProviderOutlook:
+		return providers.OAuthMicrosoft, nil
+	default:
+		return "", fmt.Errorf("unsupported oauth account provider %q", provider)
+	}
+}
+
+func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID, oauthProvider string, useProviderIdentity bool) (string, error) {
 	var oauthAccountID string
 	var accessToken, refreshToken, tokenType string
 	var expiresAt sql.NullTime
@@ -34,13 +51,13 @@ func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID string,
 			  AND oa.provider = ?
 			  AND oa.provider_account_id = a.provider_account_id
 			 WHERE a.id = ? AND a.provider_account_id != ''`,
-			providers.OAuthGoogle, accountID,
+			oauthProvider, accountID,
 		).Scan(&oauthAccountID, &accessToken, &refreshToken, &tokenType, &expiresAt, &scopes)
 	} else {
 		err = m.db.Read().QueryRowContext(ctx,
 			`SELECT id, access_token, refresh_token, token_type, expires_at, scopes
 			 FROM oauth_accounts WHERE user_id = (SELECT user_id FROM accounts WHERE id = ?) AND provider = ?`,
-			accountID, providers.OAuthGoogle,
+			accountID, oauthProvider,
 		).Scan(&oauthAccountID, &accessToken, &refreshToken, &tokenType, &expiresAt, &scopes)
 	}
 	if err == sql.ErrNoRows {
@@ -58,15 +75,33 @@ func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID string,
 		return "", fmt.Errorf("no refresh token available for account %s", accountID)
 	}
 
-	return m.refreshToken(ctx, oauthAccountID, refreshToken)
+	return m.refreshToken(ctx, oauthProvider, oauthAccountID, refreshToken)
 }
 
-func (m *Manager) refreshToken(ctx context.Context, oauthAccountID, refreshToken string) (string, error) {
-	if m.config.GoogleClient == nil {
-		return "", fmt.Errorf("google oauth not configured")
+func (m *Manager) oauthConfigForProvider(provider string) (*oauth2.Config, error) {
+	switch provider {
+	case providers.OAuthGoogle:
+		if m.config.GoogleClient == nil {
+			return nil, fmt.Errorf("google oauth not configured")
+		}
+		return m.config.GoogleClient, nil
+	case providers.OAuthMicrosoft:
+		if m.config.MicrosoftClient == nil {
+			return nil, fmt.Errorf("microsoft oauth not configured")
+		}
+		return m.config.MicrosoftClient, nil
+	default:
+		return nil, fmt.Errorf("unsupported oauth provider %q", provider)
+	}
+}
+
+func (m *Manager) refreshToken(ctx context.Context, oauthProvider, oauthAccountID, refreshToken string) (string, error) {
+	cfg, err := m.oauthConfigForProvider(oauthProvider)
+	if err != nil {
+		return "", err
 	}
 
-	ts := m.config.GoogleClient.TokenSource(ctx, &oauth2.Token{
+	ts := cfg.TokenSource(ctx, &oauth2.Token{
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
 	})

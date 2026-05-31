@@ -118,12 +118,15 @@ GOFER_AUTH_ENABLED=false
 GOFER_BASE_URL=http://local.localhost:8090
 GOOGLE_OAUTH_CLIENT_ID=optional_for_google_login_gmail_contacts
 GOOGLE_OAUTH_CLIENT_SECRET=optional_for_google_login_gmail_contacts
+MICROSOFT_OAUTH_CLIENT_ID=optional_for_outlook_oauth_mail
+MICROSOFT_OAUTH_CLIENT_SECRET=optional_for_outlook_oauth_mail
+MICROSOFT_OAUTH_TENANT=common
 GOFER_VAPID_PUBLIC_KEY=optional_web_push_public_key
 GOFER_VAPID_PRIVATE_KEY=optional_web_push_private_key
 GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 ```
 
-Google OAuth is only needed for Google login, Gmail OAuth accounts, and Google Contacts sync. Plain IMAP/SMTP accounts do not need it.
+Google OAuth is only needed for Google login, Gmail OAuth accounts, and Google Contacts sync. Microsoft OAuth is only needed for Outlook accounts. Plain IMAP/SMTP accounts do not need it.
 
 ## warning
 

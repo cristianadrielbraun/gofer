@@ -12,6 +12,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-sasl"
 
+	"github.com/cristianadrielbraun/gofer/internal/mail/oauth2sasl"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -79,10 +80,7 @@ func ConnectWithConfig(cfg *models.AccountConfig, password string, options *imap
 		saslClient := sasl.NewPlainClient("", cfg.Username, password)
 		err = c.Authenticate(saslClient)
 	case "oauth2":
-		saslClient := sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
-			Username: cfg.Username,
-			Token:    password,
-		})
+		saslClient := oauth2sasl.NewClient(cfg.Username, password)
 		err = c.Authenticate(saslClient)
 	default:
 		saslClient := sasl.NewPlainClient("", cfg.Username, password)
