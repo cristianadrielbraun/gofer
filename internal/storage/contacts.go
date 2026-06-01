@@ -180,9 +180,9 @@ func (db *DB) ListContactSyncStatuses(ctx context.Context, userID string) ([]mod
 		SELECT a.id,
 		       COALESCE(NULLIF(a.display_name, ''), a.email_address) AS account_name,
 		       a.email_address,
-		       CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_provider,
-		       CASE WHEN a.provider = 'gmail' THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS enabled,
-		       CASE WHEN a.provider = 'gmail' OR acc.account_id IS NOT NULL THEN 1 ELSE 0 END AS capable,
+		       CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_provider,
+		       CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS enabled,
+		       CASE WHEN a.provider IN ('gmail', 'outlook') OR acc.account_id IS NOT NULL THEN 1 ELSE 0 END AS capable,
 		       acc.last_started_at,
 		       acc.last_success_at,
 		       COALESCE(acc.last_import_count, 0),
@@ -191,7 +191,7 @@ func (db *DB) ListContactSyncStatuses(ctx context.Context, userID string) ([]mod
 		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		WHERE a.user_id = ?
 		  AND COALESCE(a.is_deleting, 0) = 0
-		  AND (a.provider = 'gmail' OR acc.account_id IS NOT NULL)
+		  AND (a.provider IN ('gmail', 'outlook') OR acc.account_id IS NOT NULL)
 		ORDER BY a.email_address COLLATE NOCASE`, userID)
 	if err != nil {
 		return nil, err
@@ -229,7 +229,7 @@ func (db *DB) MarkContactSyncStarted(ctx context.Context, userID, accountID, pro
 		provider = "carddav"
 	}
 	enabled := 0
-	if provider == "gmail" {
+	if isBuiltinContactSyncProvider(provider) {
 		enabled = 1
 		_ = db.Read().QueryRowContext(ctx, `SELECT COALESCE(enabled, 1) FROM account_contact_sync_configs WHERE account_id = ? AND user_id = ?`, accountID, userID).Scan(&enabled)
 	}
@@ -254,7 +254,7 @@ func (db *DB) MarkContactSyncSuccess(ctx context.Context, userID, accountID, pro
 		importCount = 0
 	}
 	enabled := 0
-	if provider == "gmail" {
+	if isBuiltinContactSyncProvider(provider) {
 		enabled = 1
 		_ = db.Read().QueryRowContext(ctx, `SELECT COALESCE(enabled, 1) FROM account_contact_sync_configs WHERE account_id = ? AND user_id = ?`, accountID, userID).Scan(&enabled)
 	}
@@ -280,7 +280,7 @@ func (db *DB) MarkContactSyncError(ctx context.Context, userID, accountID, provi
 		provider = "carddav"
 	}
 	enabled := 0
-	if provider == "gmail" {
+	if isBuiltinContactSyncProvider(provider) {
 		enabled = 1
 		_ = db.Read().QueryRowContext(ctx, `SELECT COALESCE(enabled, 1) FROM account_contact_sync_configs WHERE account_id = ? AND user_id = ?`, accountID, userID).Scan(&enabled)
 	}
@@ -295,6 +295,15 @@ func (db *DB) MarkContactSyncError(ctx context.Context, userID, accountID, provi
 			last_error = excluded.last_error,
 			updated_at = CURRENT_TIMESTAMP`, accountID, userID, provider, enabled, message)
 	return err
+}
+
+func isBuiltinContactSyncProvider(provider string) bool {
+	switch strings.TrimSpace(provider) {
+	case "gmail", "outlook":
+		return true
+	default:
+		return false
+	}
 }
 
 func uiSettingCSV(value, fallback string) map[string]bool {

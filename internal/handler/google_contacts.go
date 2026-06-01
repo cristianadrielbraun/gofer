@@ -84,7 +84,7 @@ type contactSyncAccount struct {
 
 func builtinAccountContactSync(provider string) bool {
 	switch provider {
-	case providers.ProviderGmail:
+	case providers.ProviderGmail, providers.ProviderOutlook:
 		return true
 	default:
 		return false
@@ -157,7 +157,7 @@ func (h *Handler) contactSyncAccounts(ctx context.Context, userID, accountID str
 		var account contactSyncAccount
 		err := h.db.Read().QueryRowContext(ctx, `
 		SELECT a.id, a.email_address,
-		       CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_provider
+		       CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_provider
 		FROM accounts a
 		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		WHERE a.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`, accountID, userID).Scan(&account.ID, &account.Email, &account.Provider)
@@ -175,7 +175,7 @@ func (h *Handler) contactSyncAccounts(ctx context.Context, userID, accountID str
 
 	rows, err := h.db.Read().QueryContext(ctx, `
 		SELECT a.id, a.email_address,
-		       CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_provider
+		       CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_provider
 		FROM accounts a
 		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
@@ -206,9 +206,18 @@ func (h *Handler) pullContactAccount(ctx context.Context, userID string, account
 		}
 		token, err := h.auth.GetOAuthTokenForAccount(ctx, account.ID)
 		if err != nil {
-			return 0, fmt.Errorf("reconnect Gmail to grant contact access")
+			return 0, fmt.Errorf("reconnect Gmail to grant contact access: %w", err)
 		}
 		return h.syncGooglePeopleConnections(ctx, userID, account.ID, token)
+	case providers.ProviderOutlook:
+		if h.auth == nil || !h.auth.HasMicrosoftOAuth() {
+			return 0, fmt.Errorf("Microsoft OAuth is not configured")
+		}
+		token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, account.ID)
+		if err != nil {
+			return 0, fmt.Errorf("reconnect Outlook to grant contact access: %w", err)
+		}
+		return h.syncOutlookContacts(ctx, userID, account.ID, token)
 	case providers.ProviderCardDAV:
 		return h.syncCardDAVContacts(ctx, userID, account)
 	default:
@@ -415,6 +424,9 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderGmail, desired, handledRemoved); err != nil {
 		return err
 	}
+	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderOutlook, desired, handledRemoved); err != nil {
+		return err
+	}
 	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderCardDAV, desired, handledRemoved); err != nil {
 		return err
 	}
@@ -431,6 +443,14 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 			if err := h.deleteGoogleContactsByEmail(ctx, token, contact.Email); err != nil {
 				return err
 			}
+		case providers.ProviderOutlook:
+			token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, accountID)
+			if err != nil {
+				return err
+			}
+			if err := h.deleteOutlookContactsByEmail(ctx, token, contact.Email); err != nil {
+				return err
+			}
 		case providers.ProviderCardDAV:
 			if err := h.deleteCardDAVContactsByEmail(ctx, userID, accountID, contact.Email); err != nil {
 				return err
@@ -442,6 +462,10 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 		switch account.Provider {
 		case providers.ProviderGmail:
 			if err := h.pushContactToGmailAccount(ctx, userID, contact, accountID); err != nil {
+				return err
+			}
+		case providers.ProviderOutlook:
+			if err := h.pushContactToOutlookAccount(ctx, userID, contact, accountID); err != nil {
 				return err
 			}
 		case providers.ProviderCardDAV:
@@ -564,6 +588,10 @@ func (h *Handler) contactNeedsAccountSync(ctx context.Context, userID string, co
 	if err == nil && len(sources) > 0 {
 		return true
 	}
+	sources, err = h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderOutlook)
+	if err == nil && len(sources) > 0 {
+		return true
+	}
 	sources, err = h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderCardDAV)
 	return err == nil && len(sources) > 0
 }
@@ -622,6 +650,9 @@ func (h *Handler) deleteContactFromAccounts(ctx context.Context, userID string, 
 	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderGmail); err != nil {
 		return err
 	}
+	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderOutlook); err != nil {
+		return err
+	}
 	return h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderCardDAV)
 }
 
@@ -646,6 +677,17 @@ func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID s
 			if err := h.deleteGoogleContact(ctx, token, source.RemoteID); err != nil {
 				var apiErr googleAPIError
 				if !isGoogleNotFound(err, &apiErr) {
+					return err
+				}
+			}
+		case providers.ProviderOutlook:
+			token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, source.AccountID)
+			if err != nil {
+				return err
+			}
+			if err := h.deleteOutlookContact(ctx, token, source.RemoteID); err != nil {
+				var apiErr outlookAPIError
+				if !isOutlookNotFound(err, &apiErr) {
 					return err
 				}
 			}

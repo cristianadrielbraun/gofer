@@ -5240,7 +5240,8 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		expiresAt = &t
 	}
 
-	err = h.auth.UpsertOAuthAccount(r.Context(), userID, providers.OAuthGoogle, info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, "")
+	scopes, _ := token.Extra("scope").(string)
+	err = h.auth.UpsertOAuthAccount(r.Context(), userID, providers.OAuthGoogle, info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
 	if err != nil {
 		log.Printf("warning: failed to store oauth tokens for account %s: %v", accountID, err)
 	}
@@ -5317,12 +5318,20 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 		expiresAt = &t
 	}
 
-	err = h.auth.UpsertOAuthAccount(r.Context(), userID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, "")
+	scopes, _ := token.Extra("scope").(string)
+	err = h.auth.UpsertOAuthAccount(r.Context(), userID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
 	if err != nil {
 		log.Printf("warning: failed to store microsoft oauth tokens for account %s: %v", accountID, err)
 	}
 
 	h.syncer.SyncAccount(context.Background(), accountID)
+	go func() {
+		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := h.SyncContactAccount(bg, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+			log.Printf("contacts sync %s after outlook connect: %v", accountID, err)
+		}
+	}()
 	http.Redirect(w, r, "/settings/accounts", http.StatusSeeOther)
 }
 

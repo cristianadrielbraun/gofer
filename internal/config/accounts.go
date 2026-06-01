@@ -124,8 +124,8 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 		data.Signatures, _ = s.db.ListSignatures(ctx, userID)
 		data.SignatureSettings, _ = s.db.GetAccountSignatureSettings(ctx, userID, accountID)
 		data.ContactSync, _ = s.GetContactSyncConfig(ctx, userID, accountID)
-		if data.Provider == "gmail" && data.ContactSync.Provider != "gmail" {
-			data.ContactSync.Provider = "gmail"
+		if isBuiltinContactProvider(data.Provider) && data.ContactSync.Provider != data.Provider {
+			data.ContactSync.Provider = data.Provider
 			data.ContactSync.Enabled = true
 		}
 	}
@@ -361,6 +361,15 @@ func boolInt(value bool) int {
 	return 0
 }
 
+func isBuiltinContactProvider(provider string) bool {
+	switch strings.TrimSpace(provider) {
+	case "gmail", "outlook":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *models.CreateAccountRequest) (*models.Account, error) {
 	encrypted, err := s.encrypt(req.Password)
 	if err != nil {
@@ -582,15 +591,15 @@ func (s *AccountStore) SetContactSyncEnabled(ctx context.Context, userID, accoun
 		accountID, userID).Scan(&provider); err != nil {
 		return err
 	}
-	if provider == "gmail" {
+	if isBuiltinContactProvider(provider) {
 		_, err := s.db.Write().ExecContext(ctx, `
 			INSERT INTO account_contact_sync_configs (account_id, user_id, provider, enabled)
-			VALUES (?, ?, 'gmail', ?)
+			VALUES (?, ?, ?, ?)
 			ON CONFLICT(account_id) DO UPDATE SET
 				user_id = excluded.user_id,
-				provider = 'gmail',
+				provider = excluded.provider,
 				enabled = excluded.enabled,
-				updated_at = CURRENT_TIMESTAMP`, accountID, userID, value)
+				updated_at = CURRENT_TIMESTAMP`, accountID, userID, provider, value)
 		return err
 	}
 	res, err := s.db.Write().ExecContext(ctx,
@@ -625,8 +634,8 @@ func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*m
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
-		        CASE WHEN a.provider = 'gmail' THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
-		        CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.id = ?`, accountID,

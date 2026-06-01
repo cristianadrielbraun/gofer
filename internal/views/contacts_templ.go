@@ -173,6 +173,8 @@ func contactSourceLabel(source string, isManual bool, accounts []models.Account)
 		return "Imported from any account"
 	case "provider:gmail":
 		return "Imported from Gmail"
+	case "provider:outlook":
+		return "Imported from Outlook"
 	default:
 		if source == "" {
 			return "Local"
@@ -764,7 +766,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("width:" + mailListWidthCSS(width))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 726, Col: 154}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 728, Col: 154}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -777,7 +779,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(contactViewMode(filters.View))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 726, Col: 203}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 728, Col: 203}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -790,7 +792,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 731, Col: 183}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 733, Col: 183}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -927,7 +929,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(filters.Source)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 768, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 770, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -940,7 +942,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(filters.SaveTarget)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 769, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 771, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -953,7 +955,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(filters.Activity)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 770, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 772, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -966,7 +968,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(contactViewMode(filters.View))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 771, Col: 76}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 773, Col: 76}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -987,7 +989,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(filters.Query)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 776, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 778, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -1028,7 +1030,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", contactFiltersActive(filters)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 787, Col: 90}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 789, Col: 90}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -1050,7 +1052,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 					var templ_7745c5c3_Var17 string
 					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", contactFilterCount(filters)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 790, Col: 196}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 792, Col: 196}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 					if templ_7745c5c3_Err != nil {
@@ -1094,7 +1096,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(filters.Query)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 796, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 798, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
@@ -1107,7 +1109,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 				var templ_7745c5c3_Var20 string
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(contactViewMode(filters.View))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 797, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 799, Col: 79}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 				if templ_7745c5c3_Err != nil {
@@ -1120,7 +1122,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 				var templ_7745c5c3_Var21 templ.SafeURL
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(contactsURL(models.ContactFilters{Query: filters.Query}, ""))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 800, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 802, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -1301,7 +1303,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 									var templ_7745c5c3_Var30 string
 									templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(accountContactSaveLabel(account))
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 815, Col: 183}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 817, Col: 183}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 									if templ_7745c5c3_Err != nil {
@@ -1446,7 +1448,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 									var templ_7745c5c3_Var37 string
 									templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(accountContactSaveLabel(account))
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 832, Col: 187}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 834, Col: 187}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 									if templ_7745c5c3_Err != nil {
@@ -1474,7 +1476,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 										var templ_7745c5c3_Var39 string
 										templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(accountContactOriginLabel(account))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 834, Col: 184}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 836, Col: 184}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 										if templ_7745c5c3_Err != nil {
@@ -1487,7 +1489,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 										var templ_7745c5c3_Var40 string
 										templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(contactAddressBookDisplayName(book))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 834, Col: 226}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 836, Col: 226}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 										if templ_7745c5c3_Err != nil {
@@ -1683,7 +1685,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 				var templ_7745c5c3_Var47 string
 				templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(contactOriginFilterLabel(filters.Source, accounts))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 861, Col: 144}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 863, Col: 144}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 				if templ_7745c5c3_Err != nil {
@@ -1702,7 +1704,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 				var templ_7745c5c3_Var48 string
 				templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(contactSaveTargetLabel(filters.SaveTarget, accounts))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 864, Col: 146}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 866, Col: 146}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 				if templ_7745c5c3_Err != nil {
@@ -1746,7 +1748,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(contactViewIndicatorStyle(filters.View))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 879, Col: 213}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 881, Col: 213}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 		if templ_7745c5c3_Err != nil {
@@ -1825,7 +1827,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var54 string
 		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(contactViewMode(filters.View))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 913, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 915, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 		if templ_7745c5c3_Err != nil {
@@ -1838,7 +1840,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var55 string
 		templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 914, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 916, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 		if templ_7745c5c3_Err != nil {
@@ -1851,7 +1853,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var56 string
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", contactWindowEnd(0, len(contacts))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 916, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 918, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 		if templ_7745c5c3_Err != nil {
@@ -1864,7 +1866,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var57 string
 		templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", len(contacts) < totalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 917, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 919, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 		if templ_7745c5c3_Err != nil {
@@ -1877,7 +1879,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var58 string
 		templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(filters.Query)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 918, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 920, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 		if templ_7745c5c3_Err != nil {
@@ -1890,7 +1892,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var59 string
 		templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(filters.Source)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 919, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 921, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 		if templ_7745c5c3_Err != nil {
@@ -1903,7 +1905,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var60 string
 		templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(filters.SaveTarget)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 920, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 922, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 		if templ_7745c5c3_Err != nil {
@@ -1916,7 +1918,7 @@ func ContactsPage(contacts []models.Contact, selected *models.Contact, selectedP
 		var templ_7745c5c3_Var61 string
 		templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(filters.Activity)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 921, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 923, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 		if templ_7745c5c3_Err != nil {
@@ -2035,7 +2037,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var63 string
 		templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(contact.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 962, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 964, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 		if templ_7745c5c3_Err != nil {
@@ -2048,7 +2050,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var64 string
 		templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", position))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 962, Col: 103}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 964, Col: 103}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 		if templ_7745c5c3_Err != nil {
@@ -2073,7 +2075,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var66 templ.SafeURL
 		templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinURLErrs(contactHref)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 964, Col: 21}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 966, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 		if templ_7745c5c3_Err != nil {
@@ -2086,7 +2088,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var67 string
 		templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactDetailHref))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 965, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 967, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 		if templ_7745c5c3_Err != nil {
@@ -2099,7 +2101,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var68 string
 		templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(contactHref)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 968, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 970, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 		if templ_7745c5c3_Err != nil {
@@ -2112,7 +2114,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var69 string
 		templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(contact.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 969, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 971, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 		if templ_7745c5c3_Err != nil {
@@ -2125,7 +2127,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var70 string
 		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", selected != nil && selected.ID == contact.ID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 970, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 972, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 		if templ_7745c5c3_Err != nil {
@@ -2159,7 +2161,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var72 string
 		templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 982, Col: 98}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 984, Col: 98}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 		if templ_7745c5c3_Err != nil {
@@ -2177,7 +2179,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 			var templ_7745c5c3_Var73 string
 			templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(contact.CreatedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 984, Col: 103}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 986, Col: 103}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 			if templ_7745c5c3_Err != nil {
@@ -2195,7 +2197,7 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 		var templ_7745c5c3_Var74 string
 		templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Email)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 987, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 989, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 		if templ_7745c5c3_Err != nil {
@@ -2251,7 +2253,7 @@ func ContactSourceChips(contact models.Contact, accounts []models.Account) templ
 				var templ_7745c5c3_Var76 string
 				templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(book.AccountName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 999, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1001, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 				if templ_7745c5c3_Err != nil {
@@ -2264,7 +2266,7 @@ func ContactSourceChips(contact models.Contact, accounts []models.Account) templ
 				var templ_7745c5c3_Var77 string
 				templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(contactAddressBookDisplayName(book))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 999, Col: 65}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1001, Col: 65}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 				if templ_7745c5c3_Err != nil {
@@ -2283,7 +2285,7 @@ func ContactSourceChips(contact models.Contact, accounts []models.Account) templ
 			var templ_7745c5c3_Var78 string
 			templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(contactSourceLabel(contact.Source, contact.IsManual, accounts))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1003, Col: 140}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1005, Col: 140}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 			if templ_7745c5c3_Err != nil {
@@ -2330,7 +2332,7 @@ func ContactListTableHeader() templ.Component {
 		var templ_7745c5c3_Var80 string
 		templ_7745c5c3_Var80, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(contactListTableGridStyle())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1009, Col: 274}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1011, Col: 274}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 		if templ_7745c5c3_Err != nil {
@@ -2374,7 +2376,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var82 string
 		templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(contact.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1019, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1021, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 		if templ_7745c5c3_Err != nil {
@@ -2387,7 +2389,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var83 string
 		templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", position))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1019, Col: 123}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1021, Col: 123}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 		if templ_7745c5c3_Err != nil {
@@ -2412,7 +2414,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var85 templ.SafeURL
 		templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinURLErrs(contactHref)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1021, Col: 21}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1023, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 		if templ_7745c5c3_Err != nil {
@@ -2425,7 +2427,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var86 string
 		templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactDetailHref))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1022, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1024, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 		if templ_7745c5c3_Err != nil {
@@ -2438,7 +2440,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var87 string
 		templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(contactHref)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1025, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1027, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 		if templ_7745c5c3_Err != nil {
@@ -2451,7 +2453,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var88 string
 		templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(contact.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1026, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1028, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 		if templ_7745c5c3_Err != nil {
@@ -2464,7 +2466,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var89 string
 		templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", selected != nil && selected.ID == contact.ID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1027, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1029, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 		if templ_7745c5c3_Err != nil {
@@ -2490,7 +2492,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var91 string
 		templ_7745c5c3_Var91, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(contactListTableGridStyle())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1033, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1035, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 		if templ_7745c5c3_Err != nil {
@@ -2511,7 +2513,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var92 string
 		templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1040, Col: 89}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1042, Col: 89}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 		if templ_7745c5c3_Err != nil {
@@ -2524,7 +2526,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var93 string
 		templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Email)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1041, Col: 91}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1043, Col: 91}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 		if templ_7745c5c3_Err != nil {
@@ -2538,7 +2540,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 			var templ_7745c5c3_Var94 string
 			templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d book(s)", len(contact.SourceBooks)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1046, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1048, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 			if templ_7745c5c3_Err != nil {
@@ -2548,7 +2550,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 			var templ_7745c5c3_Var95 string
 			templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(contactSourceLabel(contact.Source, contact.IsManual, accounts))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1048, Col: 69}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1050, Col: 69}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 			if templ_7745c5c3_Err != nil {
@@ -2562,7 +2564,7 @@ func ContactListTableRow(contact models.Contact, filters models.ContactFilters, 
 		var templ_7745c5c3_Var96 string
 		templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", contact.MessageCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1051, Col: 111}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1053, Col: 111}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var96))
 		if templ_7745c5c3_Err != nil {
@@ -2604,7 +2606,7 @@ func ContactsItemsFragment(contacts []models.Contact, selected *models.Contact, 
 		var templ_7745c5c3_Var98 string
 		templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1058, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1060, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 		if templ_7745c5c3_Err != nil {
@@ -2617,7 +2619,7 @@ func ContactsItemsFragment(contacts []models.Contact, selected *models.Contact, 
 		var templ_7745c5c3_Var99 string
 		templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", windowStart))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1059, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1061, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 		if templ_7745c5c3_Err != nil {
@@ -2630,7 +2632,7 @@ func ContactsItemsFragment(contacts []models.Contact, selected *models.Contact, 
 		var templ_7745c5c3_Var100 string
 		templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", contactWindowEnd(windowStart, len(contacts))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1060, Col: 83}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1062, Col: 83}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 		if templ_7745c5c3_Err != nil {
@@ -2643,7 +2645,7 @@ func ContactsItemsFragment(contacts []models.Contact, selected *models.Contact, 
 		var templ_7745c5c3_Var101 string
 		templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", windowStart+len(contacts) < totalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1061, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1063, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 		if templ_7745c5c3_Err != nil {
@@ -2656,7 +2658,7 @@ func ContactsItemsFragment(contacts []models.Contact, selected *models.Contact, 
 		var templ_7745c5c3_Var102 string
 		templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(contactViewMode(filters.View))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1062, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1064, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 		if templ_7745c5c3_Err != nil {
@@ -2892,7 +2894,7 @@ func ContactsImportDialog(accounts []models.Account) templ.Component {
 										var templ_7745c5c3_Var114 string
 										templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(accountContactSaveLabel(account))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1098, Col: 123}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1100, Col: 123}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 										if templ_7745c5c3_Err != nil {
@@ -2921,7 +2923,7 @@ func ContactsImportDialog(accounts []models.Account) templ.Component {
 										var templ_7745c5c3_Var116 string
 										templ_7745c5c3_Var116, templ_7745c5c3_Err = templ.JoinStringErrs(accountContactOriginLabel(account))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1101, Col: 122}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1103, Col: 122}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var116))
 										if templ_7745c5c3_Err != nil {
@@ -2934,7 +2936,7 @@ func ContactsImportDialog(accounts []models.Account) templ.Component {
 										var templ_7745c5c3_Var117 string
 										templ_7745c5c3_Var117, templ_7745c5c3_Err = templ.JoinStringErrs(contactAddressBookDisplayName(book))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1101, Col: 164}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1103, Col: 164}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var117))
 										if templ_7745c5c3_Err != nil {
@@ -3167,7 +3169,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var123 templ.SafeURL
 			templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.JoinURLErrs("mailto:" + contact.Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1155, Col: 39}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1157, Col: 39}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var123))
 			if templ_7745c5c3_Err != nil {
@@ -3188,7 +3190,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var124 templ.SafeURL
 			templ_7745c5c3_Var124, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/contacts/%s/export", contact.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1158, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1160, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var124))
 			if templ_7745c5c3_Err != nil {
@@ -3209,7 +3211,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var125 string
 			templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.JoinStringErrs("delete-contact-" + contact.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1161, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1163, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var125))
 			if templ_7745c5c3_Err != nil {
@@ -3241,7 +3243,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 				var templ_7745c5c3_Var126 string
 				templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d address book(s)", len(contact.SourceBooks)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1169, Col: 112}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1171, Col: 112}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 				if templ_7745c5c3_Err != nil {
@@ -3259,7 +3261,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 				var templ_7745c5c3_Var127 string
 				templ_7745c5c3_Var127, templ_7745c5c3_Err = templ.JoinStringErrs(contactSourceLabel(contact.Source, contact.IsManual, accounts))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1171, Col: 115}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1173, Col: 115}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var127))
 				if templ_7745c5c3_Err != nil {
@@ -3307,7 +3309,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var128 string
 			templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1192, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1194, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 			if templ_7745c5c3_Err != nil {
@@ -3331,7 +3333,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var129 string
 			templ_7745c5c3_Var129, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1199, Col: 26}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1201, Col: 26}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var129))
 			if templ_7745c5c3_Err != nil {
@@ -3354,7 +3356,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 		var templ_7745c5c3_Var130 templ.SafeURL
 		templ_7745c5c3_Var130, templ_7745c5c3_Err = templ.JoinURLErrs(contactFormAction(contact))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1207, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1209, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var130))
 		if templ_7745c5c3_Err != nil {
@@ -3367,7 +3369,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 		var templ_7745c5c3_Var131 string
 		templ_7745c5c3_Var131, templ_7745c5c3_Err = templ.JoinStringErrs(contactFormName(contact))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1211, Col: 69}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1213, Col: 69}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var131))
 		if templ_7745c5c3_Err != nil {
@@ -3388,7 +3390,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 		var templ_7745c5c3_Var132 string
 		templ_7745c5c3_Var132, templ_7745c5c3_Err = templ.JoinStringErrs(contactFormEmail(contact))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1223, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1225, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var132))
 		if templ_7745c5c3_Err != nil {
@@ -3414,7 +3416,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var133 string
 			templ_7745c5c3_Var133, templ_7745c5c3_Err = templ.JoinStringErrs(email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1228, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1230, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var133))
 			if templ_7745c5c3_Err != nil {
@@ -3472,7 +3474,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 		var templ_7745c5c3_Var134 string
 		templ_7745c5c3_Var134, templ_7745c5c3_Err = templ.JoinStringErrs(contactFormPhone(contact))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1258, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1260, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var134))
 		if templ_7745c5c3_Err != nil {
@@ -3498,7 +3500,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var135 string
 			templ_7745c5c3_Var135, templ_7745c5c3_Err = templ.JoinStringErrs(phone)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1263, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1265, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var135))
 			if templ_7745c5c3_Err != nil {
@@ -3548,7 +3550,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 		var templ_7745c5c3_Var136 string
 		templ_7745c5c3_Var136, templ_7745c5c3_Err = templ.JoinStringErrs(contactFormTitle(contact))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1283, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1285, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var136))
 		if templ_7745c5c3_Err != nil {
@@ -3561,7 +3563,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 		var templ_7745c5c3_Var137 string
 		templ_7745c5c3_Var137, templ_7745c5c3_Err = templ.JoinStringErrs(contactFormOrganization(contact))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1288, Col: 84}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1290, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var137))
 		if templ_7745c5c3_Err != nil {
@@ -3574,7 +3576,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 		var templ_7745c5c3_Var138 string
 		templ_7745c5c3_Var138, templ_7745c5c3_Err = templ.JoinStringErrs(contactFormNotes(contact))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1292, Col: 290}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1294, Col: 290}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var138))
 		if templ_7745c5c3_Err != nil {
@@ -3614,7 +3616,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 					var templ_7745c5c3_Var139 string
 					templ_7745c5c3_Var139, templ_7745c5c3_Err = templ.JoinStringErrs(book.AccountName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1304, Col: 134}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1306, Col: 134}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var139))
 					if templ_7745c5c3_Err != nil {
@@ -3627,7 +3629,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 					var templ_7745c5c3_Var140 string
 					templ_7745c5c3_Var140, templ_7745c5c3_Err = templ.JoinStringErrs(contactAddressBookDisplayName(book))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1304, Col: 176}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1306, Col: 176}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var140))
 					if templ_7745c5c3_Err != nil {
@@ -3673,7 +3675,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 				var templ_7745c5c3_Var143 string
 				templ_7745c5c3_Var143, templ_7745c5c3_Err = templ.JoinStringErrs(contactSyncStatusLabel(contact.SyncStatus))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1311, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1313, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var143))
 				if templ_7745c5c3_Err != nil {
@@ -3691,7 +3693,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 					var templ_7745c5c3_Var144 string
 					templ_7745c5c3_Var144, templ_7745c5c3_Err = templ.JoinStringErrs(contact.SyncUpdatedAt)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1313, Col: 69}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1315, Col: 69}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var144))
 					if templ_7745c5c3_Err != nil {
@@ -3714,7 +3716,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 					var templ_7745c5c3_Var145 string
 					templ_7745c5c3_Var145, templ_7745c5c3_Err = templ.JoinStringErrs(contact.SyncError)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1317, Col: 65}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1319, Col: 65}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var145))
 					if templ_7745c5c3_Err != nil {
@@ -3737,7 +3739,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var146 string
 			templ_7745c5c3_Var146, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", contact.MessageCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1324, Col: 83}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1326, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var146))
 			if templ_7745c5c3_Err != nil {
@@ -3750,7 +3752,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var147 string
 			templ_7745c5c3_Var147, templ_7745c5c3_Err = templ.JoinStringErrs(contact.CreatedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1328, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1330, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var147))
 			if templ_7745c5c3_Err != nil {
@@ -3763,7 +3765,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var148 string
 			templ_7745c5c3_Var148, templ_7745c5c3_Err = templ.JoinStringErrs(contact.LastSeenAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1332, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1334, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var148))
 			if templ_7745c5c3_Err != nil {
@@ -3776,7 +3778,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var149 string
 			templ_7745c5c3_Var149, templ_7745c5c3_Err = templ.JoinStringErrs(contact.UpdatedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1336, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1338, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var149))
 			if templ_7745c5c3_Err != nil {
@@ -3819,7 +3821,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var150 string
 			templ_7745c5c3_Var150, templ_7745c5c3_Err = templ.JoinStringErrs("delete-contact-" + contact.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1354, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1356, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var150))
 			if templ_7745c5c3_Err != nil {
@@ -3832,7 +3834,7 @@ func ContactEditor(contact *models.Contact, profile *models.ContactProfile, sync
 			var templ_7745c5c3_Var151 templ.SafeURL
 			templ_7745c5c3_Var151, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/contacts/%s/delete", contact.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1354, Col: 107}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1356, Col: 107}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var151))
 			if templ_7745c5c3_Err != nil {
@@ -3881,7 +3883,7 @@ func ContactProfileInsight(profile models.ContactProfile, contact *models.Contac
 		var templ_7745c5c3_Var153 string
 		templ_7745c5c3_Var153, templ_7745c5c3_Err = templ.JoinStringErrs(contactUnifiedStatusLabel(profile))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1370, Col: 170}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1372, Col: 170}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var153))
 		if templ_7745c5c3_Err != nil {
@@ -3902,7 +3904,7 @@ func ContactProfileInsight(profile models.ContactProfile, contact *models.Contac
 		var templ_7745c5c3_Var154 string
 		templ_7745c5c3_Var154, templ_7745c5c3_Err = templ.JoinStringErrs(contactUnifiedStatusMessage(profile))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1378, Col: 93}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1380, Col: 93}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var154))
 		if templ_7745c5c3_Err != nil {
@@ -3925,7 +3927,7 @@ func ContactProfileInsight(profile models.ContactProfile, contact *models.Contac
 				var templ_7745c5c3_Var155 string
 				templ_7745c5c3_Var155, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1383, Col: 147}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1385, Col: 147}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var155))
 				if templ_7745c5c3_Err != nil {
@@ -3962,7 +3964,7 @@ func ContactProfileInsight(profile models.ContactProfile, contact *models.Contac
 			var templ_7745c5c3_Var156 string
 			templ_7745c5c3_Var156, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/contacts/%s/unify", profile.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1396, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1398, Col: 68}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var156))
 			if templ_7745c5c3_Err != nil {
@@ -4092,7 +4094,7 @@ func ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account
 								var templ_7745c5c3_Var162 string
 								templ_7745c5c3_Var162, templ_7745c5c3_Err = templ.JoinStringErrs(accountContactSaveLabel(account))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1423, Col: 199}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1425, Col: 199}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var162))
 								if templ_7745c5c3_Err != nil {
@@ -4121,7 +4123,7 @@ func ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account
 								var templ_7745c5c3_Var164 string
 								templ_7745c5c3_Var164, templ_7745c5c3_Err = templ.JoinStringErrs(accountContactOriginLabel(account))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1426, Col: 195}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1428, Col: 195}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var164))
 								if templ_7745c5c3_Err != nil {
@@ -4134,7 +4136,7 @@ func ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account
 								var templ_7745c5c3_Var165 string
 								templ_7745c5c3_Var165, templ_7745c5c3_Err = templ.JoinStringErrs(contactAddressBookDisplayName(book))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1426, Col: 237}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1428, Col: 237}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var165))
 								if templ_7745c5c3_Err != nil {
@@ -4234,7 +4236,7 @@ func ContactLabelSelect(name string, value string, options []string, ariaLabel s
 		var templ_7745c5c3_Var168 string
 		templ_7745c5c3_Var168, templ_7745c5c3_Err = templ.JoinStringErrs(ariaLabel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1447, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1449, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var168))
 		if templ_7745c5c3_Err != nil {
@@ -4310,7 +4312,7 @@ func ContactLabelSelect(name string, value string, options []string, ariaLabel s
 						var templ_7745c5c3_Var173 string
 						templ_7745c5c3_Var173, templ_7745c5c3_Err = templ.JoinStringErrs(option)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1454, Col: 136}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1456, Col: 136}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var173))
 						if templ_7745c5c3_Err != nil {
@@ -4402,7 +4404,7 @@ func ContactProfileInsights(insights []models.ContactInsight) templ.Component {
 			var templ_7745c5c3_Var177 string
 			templ_7745c5c3_Var177, templ_7745c5c3_Err = templ.JoinStringErrs(contactInsightDisplayTitle(insight))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1472, Col: 79}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1474, Col: 79}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var177))
 			if templ_7745c5c3_Err != nil {
@@ -4420,7 +4422,7 @@ func ContactProfileInsights(insights []models.ContactInsight) templ.Component {
 				var templ_7745c5c3_Var178 string
 				templ_7745c5c3_Var178, templ_7745c5c3_Err = templ.JoinStringErrs(contactInsightDisplayMessage(insight))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1474, Col: 100}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1476, Col: 100}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var178))
 				if templ_7745c5c3_Err != nil {
@@ -4443,7 +4445,7 @@ func ContactProfileInsights(insights []models.ContactInsight) templ.Component {
 				var templ_7745c5c3_Var179 string
 				templ_7745c5c3_Var179, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", insight.Count))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1478, Col: 161}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1480, Col: 161}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var179))
 				if templ_7745c5c3_Err != nil {
@@ -4524,7 +4526,7 @@ func ContactProfileConflictResolver(fields []models.ContactField, accounts []mod
 				var templ_7745c5c3_Var181 string
 				templ_7745c5c3_Var181, templ_7745c5c3_Err = templ.JoinStringErrs(field.Value)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1503, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1505, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var181))
 				if templ_7745c5c3_Err != nil {
@@ -4542,7 +4544,7 @@ func ContactProfileConflictResolver(fields []models.ContactField, accounts []mod
 					var templ_7745c5c3_Var182 string
 					templ_7745c5c3_Var182, templ_7745c5c3_Err = templ.JoinStringErrs(contactFieldDisplayLabel(field))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1507, Col: 112}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1509, Col: 112}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var182))
 					if templ_7745c5c3_Err != nil {
@@ -4566,7 +4568,7 @@ func ContactProfileConflictResolver(fields []models.ContactField, accounts []mod
 					var templ_7745c5c3_Var183 string
 					templ_7745c5c3_Var183, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/contacts/%s/fields/%s/prefer", field.ProfileID, field.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1515, Col: 97}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1517, Col: 97}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var183))
 					if templ_7745c5c3_Err != nil {
@@ -4585,7 +4587,7 @@ func ContactProfileConflictResolver(fields []models.ContactField, accounts []mod
 					var templ_7745c5c3_Var184 string
 					templ_7745c5c3_Var184, templ_7745c5c3_Err = templ.JoinStringErrs(contactFieldSourceDisplay(field.Source, accounts))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1522, Col: 130}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1524, Col: 130}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var184))
 					if templ_7745c5c3_Err != nil {
@@ -4646,7 +4648,7 @@ func ContactProfileSyncTargetRow(card models.ContactCard, accounts []models.Acco
 		var templ_7745c5c3_Var186 string
 		templ_7745c5c3_Var186, templ_7745c5c3_Err = templ.JoinStringErrs(contactCardAccountLabel(card, accounts))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1536, Col: 97}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1538, Col: 97}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var186))
 		if templ_7745c5c3_Err != nil {
@@ -4714,7 +4716,7 @@ func ContactProfileSourceRow(card models.ContactCard, accounts []models.Account)
 			var templ_7745c5c3_Var188 string
 			templ_7745c5c3_Var188, templ_7745c5c3_Err = templ.JoinStringErrs(contactCardAccountLabel(card, accounts))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1556, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1558, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var188))
 			if templ_7745c5c3_Err != nil {
@@ -4724,7 +4726,7 @@ func ContactProfileSourceRow(card models.ContactCard, accounts []models.Account)
 			var templ_7745c5c3_Var189 string
 			templ_7745c5c3_Var189, templ_7745c5c3_Err = templ.JoinStringErrs(contactCardKindLabel(card))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1558, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1560, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var189))
 			if templ_7745c5c3_Err != nil {
@@ -4738,7 +4740,7 @@ func ContactProfileSourceRow(card models.ContactCard, accounts []models.Account)
 		var templ_7745c5c3_Var190 string
 		templ_7745c5c3_Var190, templ_7745c5c3_Err = templ.JoinStringErrs(contactSourceDescription(card, accounts))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1562, Col: 98}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1564, Col: 98}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var190))
 		if templ_7745c5c3_Err != nil {
@@ -4800,7 +4802,7 @@ func ContactProfileCardRow(card models.ContactCard, accounts []models.Account) t
 		var templ_7745c5c3_Var192 string
 		templ_7745c5c3_Var192, templ_7745c5c3_Err = templ.JoinStringErrs(contactCardKindLabel(card))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1578, Col: 86}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1580, Col: 86}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var192))
 		if templ_7745c5c3_Err != nil {
@@ -4813,7 +4815,7 @@ func ContactProfileCardRow(card models.ContactCard, accounts []models.Account) t
 		var templ_7745c5c3_Var193 string
 		templ_7745c5c3_Var193, templ_7745c5c3_Err = templ.JoinStringErrs(contactCardAccountLabel(card, accounts))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1580, Col: 92}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1582, Col: 92}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var193))
 		if templ_7745c5c3_Err != nil {
@@ -4841,7 +4843,7 @@ func ContactProfileCardRow(card models.ContactCard, accounts []models.Account) t
 			var templ_7745c5c3_Var194 string
 			templ_7745c5c3_Var194, templ_7745c5c3_Err = templ.JoinStringErrs(card.RemoteID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1587, Col: 133}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1589, Col: 133}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var194))
 			if templ_7745c5c3_Err != nil {
@@ -4908,7 +4910,7 @@ func ContactProfileFieldRow(field models.ContactField, accounts []models.Account
 		var templ_7745c5c3_Var196 string
 		templ_7745c5c3_Var196, templ_7745c5c3_Err = templ.JoinStringErrs(field.Value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1604, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1606, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var196))
 		if templ_7745c5c3_Err != nil {
@@ -4921,7 +4923,7 @@ func ContactProfileFieldRow(field models.ContactField, accounts []models.Account
 		var templ_7745c5c3_Var197 string
 		templ_7745c5c3_Var197, templ_7745c5c3_Err = templ.JoinStringErrs(contactFieldKindLabel(field.Kind))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1607, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1609, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var197))
 		if templ_7745c5c3_Err != nil {
@@ -4939,7 +4941,7 @@ func ContactProfileFieldRow(field models.ContactField, accounts []models.Account
 			var templ_7745c5c3_Var198 string
 			templ_7745c5c3_Var198, templ_7745c5c3_Err = templ.JoinStringErrs(contactFieldDisplayLabel(field))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1609, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1611, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var198))
 			if templ_7745c5c3_Err != nil {
@@ -4963,7 +4965,7 @@ func ContactProfileFieldRow(field models.ContactField, accounts []models.Account
 		var templ_7745c5c3_Var199 string
 		templ_7745c5c3_Var199, templ_7745c5c3_Err = templ.JoinStringErrs(contactFieldSourceDisplay(field.Source, accounts))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1614, Col: 127}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1616, Col: 127}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var199))
 		if templ_7745c5c3_Err != nil {
@@ -4981,7 +4983,7 @@ func ContactProfileFieldRow(field models.ContactField, accounts []models.Account
 			var templ_7745c5c3_Var200 string
 			templ_7745c5c3_Var200, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/contacts/%s/fields/%s/prefer", field.ProfileID, field.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1622, Col: 94}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1624, Col: 94}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var200))
 			if templ_7745c5c3_Err != nil {
@@ -4999,7 +5001,7 @@ func ContactProfileFieldRow(field models.ContactField, accounts []models.Account
 		var templ_7745c5c3_Var201 string
 		templ_7745c5c3_Var201, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%.0f%%", field.Confidence*100))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1628, Col: 100}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1630, Col: 100}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var201))
 		if templ_7745c5c3_Err != nil {
@@ -5056,7 +5058,7 @@ func ContactRecentActivity(contact models.Contact, emails []models.Email) templ.
 				var templ_7745c5c3_Var203 templ.SafeURL
 				templ_7745c5c3_Var203, templ_7745c5c3_Err = templ.JoinURLErrs(contactActivityHref(email))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1648, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1650, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var203))
 				if templ_7745c5c3_Err != nil {
@@ -5069,7 +5071,7 @@ func ContactRecentActivity(contact models.Contact, emails []models.Email) templ.
 				var templ_7745c5c3_Var204 string
 				templ_7745c5c3_Var204, templ_7745c5c3_Err = templ.JoinStringErrs(contactActivityDirection(contact, email))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1652, Col: 190}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1654, Col: 190}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var204))
 				if templ_7745c5c3_Err != nil {
@@ -5082,7 +5084,7 @@ func ContactRecentActivity(contact models.Contact, emails []models.Email) templ.
 				var templ_7745c5c3_Var205 string
 				templ_7745c5c3_Var205, templ_7745c5c3_Err = templ.JoinStringErrs(contactActivitySubject(email))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1653, Col: 115}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1655, Col: 115}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var205))
 				if templ_7745c5c3_Err != nil {
@@ -5095,7 +5097,7 @@ func ContactRecentActivity(contact models.Contact, emails []models.Email) templ.
 				var templ_7745c5c3_Var206 string
 				templ_7745c5c3_Var206, templ_7745c5c3_Err = templ.JoinStringErrs(email.Date)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1655, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1657, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var206))
 				if templ_7745c5c3_Err != nil {
@@ -5113,7 +5115,7 @@ func ContactRecentActivity(contact models.Contact, emails []models.Email) templ.
 					var templ_7745c5c3_Var207 string
 					templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinStringErrs(email.Preview)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1658, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1660, Col: 90}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var207))
 					if templ_7745c5c3_Err != nil {

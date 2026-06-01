@@ -583,6 +583,8 @@ func adminContactSyncProviderLabel(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "gmail":
 		return "Gmail"
+	case "outlook":
+		return "Outlook"
 	case "carddav":
 		return "CardDAV"
 	case "":

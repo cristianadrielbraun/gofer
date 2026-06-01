@@ -165,6 +165,8 @@ func contactSourceLabel(source string, isManual bool, accounts []models.Account)
 		return "Imported from any account"
 	case "provider:gmail":
 		return "Imported from Gmail"
+	case "provider:outlook":
+		return "Imported from Outlook"
 	default:
 		if source == "" {
 			return "Local"

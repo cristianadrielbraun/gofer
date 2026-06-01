@@ -1409,8 +1409,8 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
-		        CASE WHEN a.provider = 'gmail' THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
-		        CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
@@ -1449,8 +1449,8 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
-		        CASE WHEN a.provider = 'gmail' THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
-		        CASE WHEN a.provider = 'gmail' THEN 'gmail' ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ?

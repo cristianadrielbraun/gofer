@@ -67,7 +67,7 @@ func (m *Manager) GoogleAccountOAuthURL(state string) string {
 }
 
 func (m *Manager) MicrosoftAccountOAuthURL(state string) string {
-	return m.microsoftAccountOAuthConfig().AuthCodeURL(state, oauth2.SetAuthURLParam("prompt", "select_account"))
+	return m.microsoftAccountOAuthConfig().AuthCodeURL(state, oauth2.SetAuthURLParam("prompt", "consent"))
 }
 
 func (m *Manager) ExchangeAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
@@ -79,11 +79,15 @@ func (m *Manager) ExchangeAccountCode(ctx context.Context, code string) (*oauth2
 }
 
 func (m *Manager) ExchangeMicrosoftAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
-	token, err := m.microsoftAccountOAuthConfig().Exchange(ctx, code)
+	token, err := m.microsoftAccountOAuthConfig().Exchange(ctx, code, oauth2.SetAuthURLParam("scope", strings.Join(microsoftAccountTokenScopes(), " ")))
 	if err != nil {
 		return nil, fmt.Errorf("oauth exchange: %w", err)
 	}
 	return token, nil
+}
+
+func microsoftAccountTokenScopes() []string {
+	return append([]string{"openid", "email", "profile", "offline_access"}, microsoftOutlookMailScopes()...)
 }
 
 func (m *Manager) accountOAuthConfig() *oauth2.Config {

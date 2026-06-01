@@ -858,6 +858,16 @@ func (h *Handler) removeUnwantedContactSources(ctx context.Context, userID strin
 					return err
 				}
 			}
+		case providers.ProviderOutlook:
+			if strings.TrimSpace(source.RemoteID) != "" {
+				token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, source.AccountID)
+				if err != nil {
+					return err
+				}
+				if err := h.deleteOutlookContactByIDAndEmail(ctx, token, source.RemoteID, contact.Email); err != nil {
+					return err
+				}
+			}
 		case providers.ProviderCardDAV:
 			if strings.TrimSpace(source.RemoteID) != "" {
 				if err := h.deleteCardDAVContact(ctx, userID, source); err != nil {

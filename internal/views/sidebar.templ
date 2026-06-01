@@ -163,7 +163,8 @@ func contactSidebarAccountName(account models.Account) string {
 }
 
 func contactSidebarAccountVisible(account models.Account) bool {
-	return !account.IsDeleting && account.ContactSyncEnabled && (len(account.ContactAddressBooks) > 0 || strings.TrimSpace(account.ContactSyncProvider) == "gmail")
+	provider := strings.TrimSpace(account.ContactSyncProvider)
+	return !account.IsDeleting && account.ContactSyncEnabled && (len(account.ContactAddressBooks) > 0 || provider == "gmail" || provider == "outlook")
 }
 
 func contactSidebarAccountSectionID(account models.Account) string {
@@ -184,8 +185,11 @@ func contactSidebarAccountActive(account models.Account, filters models.ContactF
 }
 
 func contactSidebarAccountItemName(account models.Account) string {
-	if strings.TrimSpace(account.ContactSyncProvider) == "gmail" {
+	switch strings.TrimSpace(account.ContactSyncProvider) {
+	case "gmail":
 		return "Google Contacts"
+	case "outlook":
+		return "Outlook Contacts"
 	}
 	return "Contacts"
 }

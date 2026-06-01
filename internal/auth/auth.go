@@ -122,8 +122,9 @@ func LoadConfig() *Config {
 				"email",
 				"profile",
 				"offline_access",
-				"https://outlook.office.com/IMAP.AccessAsUser.All",
-				"https://outlook.office.com/SMTP.Send",
+				microsoftOutlookIMAPScope,
+				microsoftOutlookSMTPScope,
+				microsoftGraphContactsScope,
 			},
 			Endpoint: microsoftEndpoint(tenant),
 		}

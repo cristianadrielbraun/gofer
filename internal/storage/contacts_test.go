@@ -393,6 +393,28 @@ func TestUpsertSyncedContactPersistsProfileSourceCard(t *testing.T) {
 	}
 }
 
+func TestListContactSyncStatusesIncludesOutlookOAuthAccounts(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address, display_name, auth_method)
+		VALUES ('outlook_acc', 'default', 'outlook', 'jane@outlook.com', 'Jane Outlook', 'oauth2')`); err != nil {
+		t.Fatalf("insert outlook account: %v", err)
+	}
+
+	statuses, err := db.ListContactSyncStatuses(ctx, "default")
+	if err != nil {
+		t.Fatalf("ListContactSyncStatuses() error = %v", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("statuses = %#v, want one Outlook status", statuses)
+	}
+	if !statuses[0].Enabled || !statuses[0].Capable || statuses[0].Provider != "outlook" {
+		t.Fatalf("status = %#v, want enabled Outlook contact sync", statuses[0])
+	}
+}
+
 func TestUpsertSyncedContactFromContactPersistsProviderFields(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
