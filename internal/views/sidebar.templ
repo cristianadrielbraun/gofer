@@ -296,50 +296,56 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 				<div class="flex items-center gap-1">
 					<div class="flex items-center overflow-hidden rounded-md border border-sidebar-border/70 bg-sidebar-accent/20">
 						@SidebarMailSyncErrorSummaryTooltip(accounts)
-						<button
-							type="button"
-							hx-post="/api/mail/sync"
-							hx-swap="none"
-							hx-on::before-request="handleMailSidebarSyncStart()"
-							hx-on::after-request="handleMailSidebarSyncResult(event)"
-							data-mail-sidebar-sync-button
-							class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
-							aria-label="Sync all mail now"
-							title="Sync all mail now"
-						>
-							@icon.RefreshCw(icon.Props{Class: "size-4"})
-						</button>
-						@popover.Root(popover.RootProps{Class: "shrink-0"}) {
-							@popover.Trigger() {
+						@tooltip.Tooltip() {
+							@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
 								<button
 									type="button"
-									class="inline-flex h-8 w-7 items-center justify-center rounded-r-md border-l border-sidebar-border/70 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[tui-popover-open=true]:bg-sidebar-accent data-[tui-popover-open=true]:text-sidebar-accent-foreground"
-									aria-label="Choose account to sync"
-									title="Choose account to sync"
+									hx-post="/api/mail/sync"
+									hx-swap="none"
+									hx-on::before-request="handleMailSidebarSyncStart()"
+									hx-on::after-request="handleMailSidebarSyncResult(event)"
+									data-mail-sidebar-sync-button
+									class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
+									aria-label="Force refresh all mail, including IDLE folders"
 								>
-									@icon.ChevronDown(icon.Props{Class: "size-3.5"})
+									@icon.RefreshCw(icon.Props{Class: "size-4"})
 								</button>
 							}
-							@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-72 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-								<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Sync account</div>
-								<div class="space-y-1">
-									for _, account := range accounts {
-										if account.EmailSyncEnabled && !account.IsDeleting {
-											<button
-												type="button"
-												hx-post={ "/api/mail/sync/accounts/" + account.ID }
-												hx-swap="none"
-												hx-on::before-request="handleMailSidebarSyncStart()"
-												hx-on::after-request="handleMailSidebarSyncResult(event)"
-												data-mail-account-sync-button={ account.ID }
-												class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-											>
-												@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
-												<span class="min-w-0 flex-1">
-													<span class="block truncate font-medium">{ account.Name }</span>
-													<span class="block truncate text-[11px] text-sidebar-foreground/60">{ account.Email }</span>
-												</span>
-											</button>
+							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-64 border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+								<span data-mail-sidebar-sync-tooltip>Force refresh, including IDLE folders.</span>
+							}
+							}
+							@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+								@popover.Trigger() {
+									<button
+										type="button"
+										class="inline-flex h-8 w-7 items-center justify-center rounded-r-md border-l border-sidebar-border/70 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[tui-popover-open=true]:bg-sidebar-accent data-[tui-popover-open=true]:text-sidebar-accent-foreground"
+										aria-label="Choose account to sync"
+									>
+										@icon.ChevronDown(icon.Props{Class: "size-3.5"})
+									</button>
+								}
+								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-72 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+									<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Force sync individual account, including IDLE folder</div>
+									<div class="space-y-1">
+										for _, account := range accounts {
+											if account.EmailSyncEnabled && !account.IsDeleting {
+												<button
+													type="button"
+													hx-post={ "/api/mail/sync/accounts/" + account.ID }
+													hx-swap="none"
+													hx-on::before-request="handleMailSidebarSyncStart()"
+													hx-on::after-request="handleMailSidebarSyncResult(event)"
+													data-mail-account-sync-button={ account.ID }
+													class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+													aria-label={ "Force refresh " + account.Name + ", including IDLE folders" }
+												>
+													@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
+													<span class="min-w-0 flex-1">
+														<span class="block truncate font-medium">{ account.Name }</span>
+														<span class="block truncate text-[11px] text-sidebar-foreground/60">{ account.Email }</span>
+													</span>
+												</button>
 										}
 									}
 								</div>

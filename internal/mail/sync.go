@@ -16,7 +16,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
-const manualSyncMaxParallelAccounts = 3
+const (
+	manualSyncMaxParallelAccounts     = 0
+	backgroundSyncMaxParallelAccounts = 0
+)
 
 type manualSyncJob struct {
 	index     int
@@ -58,32 +61,51 @@ type TokenProvider interface {
 }
 
 type SyncOrchestrator struct {
-	db            *storage.DB
-	accountStore  *config.AccountStore
-	blobStore     *store.BlobStore
-	tokenProvider TokenProvider
-	events        *EventBus
-	mu            sync.Mutex
-	running       map[string]*accountSyncRun
-	manualRuns    map[string]*manualSyncRun
-	idleWatchers  map[string][]*imap.IdleWatcher
-	cancelFuncs   map[string]*accountWorker
-	interval      int
-	intervalMu    sync.RWMutex
+	db                  *storage.DB
+	accountStore        *config.AccountStore
+	blobStore           *store.BlobStore
+	tokenProvider       TokenProvider
+	events              *EventBus
+	mu                  sync.Mutex
+	running             map[string]*accountSyncRun
+	manualRuns          map[string]*manualSyncRun
+	backgroundSyncSlots chan struct{}
+	idleWatchers        map[string][]*imap.IdleWatcher
+	cancelFuncs         map[string]*accountWorker
+	interval            int
+	intervalMu          sync.RWMutex
+}
+
+func newAccountSyncSlots(limit int) chan struct{} {
+	if limit <= 0 {
+		return nil
+	}
+	return make(chan struct{}, limit)
+}
+
+func accountSyncParallelism(total, limit int) int {
+	if total <= 0 {
+		return 0
+	}
+	if limit <= 0 || limit > total {
+		return total
+	}
+	return limit
 }
 
 func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blobStore *store.BlobStore, tokenProvider TokenProvider) *SyncOrchestrator {
 	return &SyncOrchestrator{
-		db:            db,
-		accountStore:  accountStore,
-		blobStore:     blobStore,
-		tokenProvider: tokenProvider,
-		events:        NewEventBus(),
-		running:       make(map[string]*accountSyncRun),
-		manualRuns:    make(map[string]*manualSyncRun),
-		idleWatchers:  make(map[string][]*imap.IdleWatcher),
-		cancelFuncs:   make(map[string]*accountWorker),
-		interval:      5,
+		db:                  db,
+		accountStore:        accountStore,
+		blobStore:           blobStore,
+		tokenProvider:       tokenProvider,
+		events:              NewEventBus(),
+		running:             make(map[string]*accountSyncRun),
+		manualRuns:          make(map[string]*manualSyncRun),
+		backgroundSyncSlots: newAccountSyncSlots(backgroundSyncMaxParallelAccounts),
+		idleWatchers:        make(map[string][]*imap.IdleWatcher),
+		cancelFuncs:         make(map[string]*accountWorker),
+		interval:            5,
 	}
 }
 
@@ -249,6 +271,57 @@ func (o *SyncOrchestrator) getIdleFoldersForAccount(ctx context.Context, account
 	return o.db.GetIdleFoldersForAccount(ctx, userID, accountID)
 }
 
+func pollingFoldersForPeriodicSync(folders []storage.FolderSyncInfo, idleRoles map[string]bool) ([]storage.FolderSyncInfo, int) {
+	if len(folders) == 0 || len(idleRoles) == 0 {
+		return folders, 0
+	}
+
+	polling := make([]storage.FolderSyncInfo, 0, len(folders))
+	excluded := 0
+	for _, folder := range folders {
+		if idleRoles[folder.Role] {
+			excluded++
+			continue
+		}
+		polling = append(polling, folder)
+	}
+	return polling, excluded
+}
+
+func pollingIMAPFoldersForAutomaticSync(folders []imap.FolderInfo, idleRoles map[string]bool) ([]imap.FolderInfo, int) {
+	if len(folders) == 0 || len(idleRoles) == 0 {
+		return folders, 0
+	}
+
+	polling := make([]imap.FolderInfo, 0, len(folders))
+	excluded := 0
+	for _, folder := range folders {
+		if idleRoles[folder.Role] {
+			excluded++
+			continue
+		}
+		polling = append(polling, folder)
+	}
+	return polling, excluded
+}
+
+func (o *SyncOrchestrator) publishAutomaticSyncScope(ctx context.Context, accountID string, idleRoles map[string]bool) {
+	allFolders, err := o.db.GetFoldersForAccount(ctx, accountID)
+	if err != nil || len(allFolders) == 0 {
+		return
+	}
+	folders, idleExcluded := pollingFoldersForPeriodicSync(allFolders, idleRoles)
+	payload := map[string]any{
+		"status":                "syncing",
+		"kind":                  string(accountSyncBackground),
+		"account_folders_total": len(folders),
+	}
+	if idleExcluded > 0 {
+		payload["idle_folders_excluded"] = idleExcluded
+	}
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: payload})
+}
+
 func (o *SyncOrchestrator) Start(ctx context.Context) {
 	log.Printf("sync: startup scan started")
 	accounts, err := o.db.GetAllEmailSyncAccountIDs(ctx)
@@ -295,7 +368,7 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 	if !ok {
 		log.Printf("sync: account %s initial sync skipped, account already syncing", accountID)
 	} else {
-		if err := o.syncAccount(syncCtx, accountID); err != nil {
+		if err := o.syncAccount(syncCtx, accountID, false); err != nil {
 			log.Printf("sync account %s: %v", accountID, err)
 			o.markAccountSyncError(syncCtx, accountID, err)
 		} else {
@@ -342,10 +415,32 @@ func (o *SyncOrchestrator) periodicSync(ctx context.Context, accountID string) {
 	}
 	defer finish()
 
-	folders, err := o.db.GetFoldersForAccount(syncCtx, accountID)
+	allFolders, err := o.db.GetFoldersForAccount(syncCtx, accountID)
 	if err != nil {
 		log.Printf("periodic %s: get folders: %v", accountID, err)
 		o.markAccountSyncError(syncCtx, accountID, err)
+		return
+	}
+	folders, idleExcluded := pollingFoldersForPeriodicSync(allFolders, o.getIdleFoldersForAccount(syncCtx, accountID))
+	scopePayload := map[string]any{
+		"status":                "syncing",
+		"kind":                  string(accountSyncBackground),
+		"account_folders_total": len(folders),
+	}
+	if idleExcluded > 0 {
+		scopePayload["idle_folders_excluded"] = idleExcluded
+	}
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: scopePayload})
+	if len(folders) == 0 {
+		completePayload := map[string]any{
+			"status":                "ok",
+			"kind":                  string(accountSyncBackground),
+			"account_folders_total": 0,
+		}
+		if idleExcluded > 0 {
+			completePayload["idle_folders_excluded"] = idleExcluded
+		}
+		o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: completePayload})
 		return
 	}
 
@@ -378,7 +473,7 @@ func (o *SyncOrchestrator) periodicSync(ctx context.Context, accountID string) {
 		default:
 		}
 
-		if err := o.fullFolderSync(syncCtx, client, accountID, folder, i+1, len(folders)); err != nil {
+		if err := o.fullFolderSync(syncCtx, client, accountID, folder, i+1, len(folders), idleExcluded); err != nil {
 			log.Printf("periodic %s/%s: %v", accountID, folder.RemoteID, err)
 		}
 	}
@@ -451,34 +546,42 @@ func (o *SyncOrchestrator) senderAvatarURL(ctx context.Context, email string) st
 	return storage.SenderAvatarURL(rec.EmailHash, rec.ExpiresAt)
 }
 
-func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, folderIndex, folderTotal int) error {
+func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, folderIndex, folderTotal, idleExcluded int) error {
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folder.ID)
+	startPayload := map[string]any{
+		"account_folders_total": folderTotal,
+		"account_folders_done":  folderIndex - 1,
+		"current_folder":        displayName(folder.RemoteID, folder.Role),
+	}
+	if idleExcluded > 0 {
+		startPayload["idle_folders_excluded"] = idleExcluded
+	}
 	o.events.Publish(Event{
 		Type:       EventSyncStarted,
 		AccountID:  accountID,
 		FolderID:   folder.ID,
 		FolderRole: folder.Role,
 		Total:      totalHint,
-		Payload: map[string]any{
-			"account_folders_total": folderTotal,
-			"account_folders_done":  folderIndex - 1,
-			"current_folder":        displayName(folder.RemoteID, folder.Role),
-		},
+		Payload:    startPayload,
 	})
 	defer func() {
 		if ctx.Err() != nil {
 			return
+		}
+		completePayload := map[string]any{
+			"account_folders_total": folderTotal,
+			"account_folders_done":  folderIndex,
+			"current_folder":        displayName(folder.RemoteID, folder.Role),
+		}
+		if idleExcluded > 0 {
+			completePayload["idle_folders_excluded"] = idleExcluded
 		}
 		o.events.Publish(Event{
 			Type:       EventSyncComplete,
 			AccountID:  accountID,
 			FolderID:   folder.ID,
 			FolderRole: folder.Role,
-			Payload: map[string]any{
-				"account_folders_total": folderTotal,
-				"account_folders_done":  folderIndex,
-				"current_folder":        displayName(folder.RemoteID, folder.Role),
-			},
+			Payload:    completePayload,
 		})
 	}()
 	storedValidity, _ := o.db.GetStoredUIDValidity(ctx, folder.ID)
@@ -599,7 +702,28 @@ func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client
 	}
 }
 
+func (o *SyncOrchestrator) acquireBackgroundSyncSlot(ctx context.Context) (func(), bool) {
+	if o.backgroundSyncSlots == nil {
+		return func() {}, true
+	}
+	select {
+	case o.backgroundSyncSlots <- struct{}{}:
+		return func() { <-o.backgroundSyncSlots }, true
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
 func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID string, kind accountSyncKind) (context.Context, func(), bool) {
+	releaseSlot := func() {}
+	if kind == accountSyncBackground {
+		var ok bool
+		releaseSlot, ok = o.acquireBackgroundSyncSlot(ctx)
+		if !ok {
+			return nil, nil, false
+		}
+	}
+
 	syncCtx, cancel := context.WithCancel(ctx)
 	run := &accountSyncRun{
 		kind:   kind,
@@ -611,6 +735,7 @@ func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID strin
 	if o.running[accountID] != nil {
 		o.mu.Unlock()
 		cancel()
+		releaseSlot()
 		return nil, nil, false
 	}
 	o.running[accountID] = run
@@ -629,6 +754,7 @@ func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID strin
 			}
 			o.mu.Unlock()
 			cancel()
+			releaseSlot()
 			close(run.done)
 		})
 	}
@@ -729,13 +855,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 		defer o.clearManualRunning(userID, run)
 
 		total := len(accountIDs)
-		parallelism := manualSyncMaxParallelAccounts
-		if parallelism > total {
-			parallelism = total
-		}
-		if parallelism < 1 {
-			parallelism = 1
-		}
+		parallelism := accountSyncParallelism(total, manualSyncMaxParallelAccounts)
 
 		var progressMu sync.Mutex
 		completed := 0
@@ -792,7 +912,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 							errorText = err.Error()
 						}
 					} else {
-						err := o.syncAccount(accountCtx, job.accountID)
+						err := o.syncAccount(accountCtx, job.accountID, true)
 						if err != nil {
 							if syncCtx.Err() != nil {
 								status = "cancelled"
@@ -915,7 +1035,7 @@ func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) {
 	go func() {
 		defer finish()
 
-		if err := o.syncAccount(syncCtx, accountID); err != nil {
+		if err := o.syncAccount(syncCtx, accountID, false); err != nil {
 			log.Printf("sync account %s: %v", accountID, err)
 			o.markAccountSyncError(syncCtx, accountID, err)
 		} else {
@@ -924,9 +1044,14 @@ func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) {
 	}()
 }
 
-func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) error {
+func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, includeIDLEFolders bool) error {
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return nil
+	}
+	var idleRoles map[string]bool
+	if !includeIDLEFolders {
+		idleRoles = o.getIdleFoldersForAccount(ctx, accountID)
+		o.publishAutomaticSyncScope(ctx, accountID, idleRoles)
 	}
 	cfg, err := o.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
@@ -1005,6 +1130,22 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) er
 			syncFolders = append(syncFolders, f)
 		}
 	}
+	idleExcluded := 0
+	if !includeIDLEFolders {
+		syncFolders, idleExcluded = pollingIMAPFoldersForAutomaticSync(syncFolders, idleRoles)
+	}
+	if len(syncFolders) == 0 {
+		payload := map[string]any{
+			"status":                "ok",
+			"kind":                  string(accountSyncBackground),
+			"account_folders_total": 0,
+		}
+		if idleExcluded > 0 {
+			payload["idle_folders_excluded"] = idleExcluded
+		}
+		o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: payload})
+		return nil
+	}
 
 	for i, f := range syncFolders {
 		select {
@@ -1018,7 +1159,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string) er
 		if !ok {
 			folderInfo = storage.FolderSyncInfo{ID: folderDBID, AccountID: accountID, RemoteID: f.Name, Role: f.Role}
 		}
-		if err := o.fullFolderSync(ctx, client, accountID, folderInfo, i+1, len(syncFolders)); err != nil {
+		if err := o.fullFolderSync(ctx, client, accountID, folderInfo, i+1, len(syncFolders), idleExcluded); err != nil {
 			log.Printf("sync folder %s/%s: %v", accountID, f.Name, err)
 		}
 	}
