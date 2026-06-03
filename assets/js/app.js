@@ -2014,6 +2014,24 @@ document.addEventListener("DOMContentLoaded", function () {
       handleMailManualSyncEvent("complete", data)
     })
 
+    source.addEventListener("scheduled-sync-started", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      handleMailScheduledSyncEvent("started", data)
+    })
+
+    source.addEventListener("scheduled-sync-progress", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      handleMailScheduledSyncEvent("progress", data)
+    })
+
+    source.addEventListener("scheduled-sync-complete", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      handleMailScheduledSyncEvent("complete", data)
+    })
+
     source.addEventListener("account-sync-status", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
@@ -3557,7 +3575,7 @@ function setupMailSyncCancelControls() {
 }
 
 function cancelMailSync() {
-  if (_mailSyncCancelRequested || !(_mailSyncRunID || _mailSyncState.runID)) return
+  if (_mailSyncCancelRequested || _mailSyncState.kind !== "manual" || !(_mailSyncRunID || _mailSyncState.runID)) return
   _mailSyncCancelRequested = true
   renderMailSyncProgressDialog()
   showMailSyncToast({
@@ -3631,8 +3649,51 @@ function _mailSyncAccountsLabel(count) {
   return count === 1 ? "1 account" : count + " accounts"
 }
 
+function _mailSyncIsScheduledKind(kind) {
+  return kind === "scheduled"
+}
+
+function _mailSyncCanAdoptAccountKind() {
+  return !_mailSyncRunID && _mailSyncState.kind !== "manual" && _mailSyncState.kind !== "scheduled"
+}
+
+function _mailSyncIsScheduledEvent(data) {
+  return !!data && data.kind === "scheduled"
+}
+
+function populateMailSyncRunAccounts(data) {
+  if (!data || !Array.isArray(data.account_ids)) return
+  for (var i = 0; i < data.account_ids.length; i++) {
+    if (data.account_ids[i]) ensureMailSyncAccount(data.account_ids[i], i + 1)
+  }
+}
+
+function ensureMailScheduledRunFromEvent(data) {
+  if (!_mailSyncIsScheduledEvent(data)) return false
+  if (_mailSyncState.kind === "manual" && _mailSyncState.active) return false
+  var runID = data.run_id || ""
+  if (_mailSyncState.kind !== "scheduled" || (runID && _mailSyncState.runID && _mailSyncState.runID !== runID)) {
+    resetMailSyncProgressState(runID, "scheduled")
+  } else if (runID && !_mailSyncState.runID) {
+    _mailSyncState.runID = runID
+  }
+  _mailSyncActive = true
+  _mailSyncState.kind = "scheduled"
+  _mailSyncState.active = true
+  _mailSyncState.status = "syncing"
+  _mailSyncState.total = _mailSyncCount(data.accounts_total) || _mailSyncState.total
+  if (_mailSyncHasField(data, "accounts_done")) _mailSyncState.done = _mailSyncCount(data.accounts_done)
+  _mailSyncState.parallelism = _mailSyncCount(data.parallelism) || _mailSyncState.parallelism
+  _mailSyncState.failures = _mailSyncCount(data.failures)
+  _mailSyncState.skipped = _mailSyncCount(data.skipped)
+  _mailSyncState.cancelled = _mailSyncCount(data.cancelled)
+  populateMailSyncRunAccounts(data)
+  _setMailSyncButtonBusy(true)
+  return true
+}
+
 function updateMailSyncSidebarTooltip() {
-  var scheduled = _mailSyncState.active && _mailSyncState.kind === "background"
+  var scheduled = _mailSyncState.active && _mailSyncIsScheduledKind(_mailSyncState.kind)
   var text = scheduled ? _mailSyncScheduledTooltipText : _mailSyncForceTooltipText
   var tooltip = document.querySelector("[data-mail-sidebar-sync-tooltip]")
   if (tooltip) tooltip.textContent = text
@@ -3833,14 +3894,15 @@ function applyMailSyncAccountPayload(account, data) {
   }
 }
 
-function updateMailSyncStateFromManual(phase, data) {
+function updateMailSyncStateFromRun(phase, data, kind) {
   var runID = data && data.run_id ? data.run_id : ""
-  if (phase === "started" || (runID && _mailSyncState.runID && _mailSyncState.runID !== runID)) {
-    resetMailSyncProgressState(runID, "manual")
+  var shouldReset = phase === "started" || (kind === "scheduled" && _mailSyncState.kind !== "scheduled") || (runID && _mailSyncState.runID && _mailSyncState.runID !== runID)
+  if (shouldReset) {
+    resetMailSyncProgressState(runID, kind)
   } else if (runID && !_mailSyncState.runID) {
     _mailSyncState.runID = runID
   }
-  _mailSyncState.kind = "manual"
+  _mailSyncState.kind = kind
 
   _mailSyncState.active = phase !== "complete"
   _mailSyncState.status = phase === "complete" ? (data.status || "ok") : "syncing"
@@ -3853,6 +3915,7 @@ function updateMailSyncStateFromManual(phase, data) {
   _mailSyncState.notDone = _mailSyncCount(data.not_done)
   if (!_mailSyncState.startedAt) _mailSyncState.startedAt = Date.now()
   if (phase === "complete") _mailSyncState.completedAt = Date.now()
+  populateMailSyncRunAccounts(data)
 
   if (data.account_id) {
     var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
@@ -3865,15 +3928,26 @@ function updateMailSyncStateFromManual(phase, data) {
   renderMailSyncProgressDialog()
 }
 
+function updateMailSyncStateFromManual(phase, data) {
+  updateMailSyncStateFromRun(phase, data, "manual")
+}
+
+function updateMailSyncStateFromScheduled(phase, data) {
+  updateMailSyncStateFromRun(phase, data, "scheduled")
+}
+
 function updateMailSyncFolderProgress(phase, data) {
   if (!data || !data.account_id || !data.folder_id) return
+  if (_mailSyncIsScheduledEvent(data) && _mailSyncState.kind === "manual" && _mailSyncState.active) return
+  if (!_mailSyncIsScheduledEvent(data) && !(_mailSyncState.kind === "manual" && _mailSyncState.active)) return
+  var scheduledEvent = ensureMailScheduledRunFromEvent(data)
   if (!_mailSyncState.active) {
     _mailSyncActive = true
     resetMailSyncProgressState("", data.kind || "background")
     _setMailSyncButtonBusy(true)
   }
-  if (data.kind && !_mailSyncRunID && _mailSyncState.kind !== "manual") _mailSyncState.kind = data.kind
-  var account = ensureMailSyncAccount(data.account_id, 0)
+  if (data.kind && _mailSyncCanAdoptAccountKind()) _mailSyncState.kind = data.kind
+  var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
   if (account.status === "queued") account.status = "syncing"
   applyMailSyncAccountPayload(account, data)
   if (!_mailSyncHasField(data, "account_folders_total") && !account.totalFolders) account.totalFolders = _mailSyncAccountFolderTotal(data.account_id)
@@ -3902,7 +3976,7 @@ function updateMailSyncFolderProgress(phase, data) {
     account.status = "synced"
     account.currentFolderLabel = ""
   }
-  if (phase === "complete" && !_mailSyncRunID && !mailSyncHasActiveAccounts()) {
+  if (phase === "complete" && !scheduledEvent && !_mailSyncRunID && !mailSyncHasActiveAccounts()) {
     _mailSyncActive = false
     _mailSyncState.active = false
     _mailSyncState.status = "ok"
@@ -3916,15 +3990,24 @@ function updateMailSyncFolderProgress(phase, data) {
 
 function handleAccountSyncStatus(data) {
   if (!data || !data.account_id) return
+  if (_mailSyncIsScheduledEvent(data) && _mailSyncState.kind === "manual" && _mailSyncState.active) return
   var status = data.status || ""
+  if (!_mailSyncIsScheduledEvent(data) && !(_mailSyncState.kind === "manual" && _mailSyncState.active)) {
+    if (status !== "syncing") {
+      refreshSidebarAccount(data.account_id)
+      setTimeout(updateMailSyncErrorIndicator, 100)
+    }
+    return
+  }
+  var scheduledEvent = ensureMailScheduledRunFromEvent(data)
   if (status === "syncing") {
     if (!_mailSyncState.active) {
       _mailSyncActive = true
       resetMailSyncProgressState("", data.kind || "background")
-    } else if (data.kind && !_mailSyncRunID && _mailSyncState.kind !== "manual") {
+    } else if (data.kind && _mailSyncCanAdoptAccountKind()) {
       _mailSyncState.kind = data.kind
     }
-    var syncingAccount = ensureMailSyncAccount(data.account_id, 0)
+    var syncingAccount = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
     syncingAccount.status = "syncing"
     syncingAccount.error = ""
     applyMailSyncAccountPayload(syncingAccount, data)
@@ -3939,7 +4022,7 @@ function handleAccountSyncStatus(data) {
     return
   }
 
-  var account = ensureMailSyncAccount(data.account_id, 0)
+  var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
   applyMailSyncAccountPayload(account, data)
   if (status === "error") {
     account.status = "error"
@@ -3960,7 +4043,7 @@ function handleAccountSyncStatus(data) {
     return
   }
 
-  if (!mailSyncHasActiveAccounts()) {
+  if (!scheduledEvent && !mailSyncHasActiveAccounts()) {
     _mailSyncActive = false
     _mailSyncState.active = false
     _mailSyncState.status = _mailSyncState.failures > 0 ? "partial" : "ok"
@@ -4029,7 +4112,7 @@ function renderMailSyncProgressDialog() {
   }
   if (percentEl) percentEl.textContent = pct + "%"
   if (barEl) barEl.style.width = pct + "%"
-  var canCancel = _mailSyncState.active && !!(_mailSyncRunID || _mailSyncState.runID)
+  var canCancel = _mailSyncState.active && _mailSyncState.kind === "manual" && !!(_mailSyncRunID || _mailSyncState.runID)
   for (var cancelIndex = 0; cancelIndex < cancelButtons.length; cancelIndex++) {
     cancelButtons[cancelIndex].classList.toggle("hidden", !canCancel)
     cancelButtons[cancelIndex].disabled = _mailSyncCancelRequested
@@ -4217,6 +4300,24 @@ function handleMailManualSyncEvent(phase, data) {
     dismissible: false,
     cancelable: !_mailSyncCancelRequested,
   })
+}
+
+function handleMailScheduledSyncEvent(phase, data) {
+  if (!data) return
+  var runID = data.run_id || ""
+  if (_mailSyncState.kind === "manual" && _mailSyncState.active) return
+  if (_mailSyncState.kind === "scheduled" && _mailSyncState.active && _mailSyncState.runID && runID && _mailSyncState.runID !== runID && phase !== "started") return
+
+  _mailSyncActive = phase !== "complete"
+  _setMailSyncButtonBusy(phase !== "complete")
+  updateMailSyncStateFromScheduled(phase, data)
+
+  if (phase === "complete") {
+    _mailSyncActive = false
+    _mailSyncCancelRequested = false
+    _setMailSyncButtonBusy(false)
+    setTimeout(updateMailSyncErrorIndicator, 100)
+  }
 }
 
 function handleContactSidebarSyncStart() {

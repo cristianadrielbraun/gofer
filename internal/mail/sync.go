@@ -38,6 +38,17 @@ const (
 	accountSyncManual     accountSyncKind = "manual"
 )
 
+type accountSyncProgressScope struct {
+	kind          string
+	userID        string
+	runID         string
+	accountsTotal int
+	accountIndex  int
+	parallelism   int
+}
+
+type accountSyncProgressScopeKey struct{}
+
 type accountSyncRun struct {
 	kind   accountSyncKind
 	cancel context.CancelFunc
@@ -74,6 +85,7 @@ type SyncOrchestrator struct {
 	cancelFuncs         map[string]*accountWorker
 	interval            int
 	intervalMu          sync.RWMutex
+	intervalChanged     chan struct{}
 }
 
 func newAccountSyncSlots(limit int) chan struct{} {
@@ -93,6 +105,42 @@ func accountSyncParallelism(total, limit int) int {
 	return limit
 }
 
+func withAccountSyncProgressScope(ctx context.Context, scope accountSyncProgressScope) context.Context {
+	return context.WithValue(ctx, accountSyncProgressScopeKey{}, scope)
+}
+
+func accountSyncProgressPayload(ctx context.Context, fallbackKind accountSyncKind, payload map[string]any) map[string]any {
+	if payload == nil {
+		payload = make(map[string]any)
+	}
+	if fallbackKind != "" {
+		payload["kind"] = string(fallbackKind)
+	}
+	scope, ok := ctx.Value(accountSyncProgressScopeKey{}).(accountSyncProgressScope)
+	if !ok {
+		return payload
+	}
+	if scope.kind != "" {
+		payload["kind"] = scope.kind
+	}
+	if scope.userID != "" {
+		payload["user_id"] = scope.userID
+	}
+	if scope.runID != "" {
+		payload["run_id"] = scope.runID
+	}
+	if scope.accountsTotal > 0 {
+		payload["accounts_total"] = scope.accountsTotal
+	}
+	if scope.accountIndex > 0 {
+		payload["account_index"] = scope.accountIndex
+	}
+	if scope.parallelism > 0 {
+		payload["parallelism"] = scope.parallelism
+	}
+	return payload
+}
+
 func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blobStore *store.BlobStore, tokenProvider TokenProvider) *SyncOrchestrator {
 	return &SyncOrchestrator{
 		db:                  db,
@@ -106,6 +154,7 @@ func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blob
 		idleWatchers:        make(map[string][]*imap.IdleWatcher),
 		cancelFuncs:         make(map[string]*accountWorker),
 		interval:            5,
+		intervalChanged:     make(chan struct{}, 1),
 	}
 }
 
@@ -121,6 +170,10 @@ func (o *SyncOrchestrator) UpdateInterval(minutes int) {
 	o.intervalMu.Lock()
 	o.interval = minutes
 	o.intervalMu.Unlock()
+	select {
+	case o.intervalChanged <- struct{}{}:
+	default:
+	}
 }
 
 func (o *SyncOrchestrator) StopAccount(accountID string) {
@@ -244,11 +297,11 @@ func (o *SyncOrchestrator) markAccountSyncError(ctx context.Context, accountID s
 	if storeErr := o.db.MarkEmailSyncError(context.Background(), accountID, message, failedAt); storeErr != nil {
 		log.Printf("sync %s: store account error: %v", accountID, storeErr)
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
 		"status":    "error",
 		"error":     message,
 		"failed_at": failedAt.Format(time.RFC3339),
-	}})
+	})})
 }
 
 func (o *SyncOrchestrator) clearAccountSyncError(ctx context.Context, accountID string) {
@@ -258,9 +311,9 @@ func (o *SyncOrchestrator) clearAccountSyncError(ctx context.Context, accountID 
 	if err := o.db.ClearEmailSyncError(context.Background(), accountID); err != nil {
 		log.Printf("sync %s: clear account error: %v", accountID, err)
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
 		"status": "ok",
-	}})
+	})})
 }
 
 func (o *SyncOrchestrator) getIdleFoldersForAccount(ctx context.Context, accountID string) map[string]bool {
@@ -311,11 +364,10 @@ func (o *SyncOrchestrator) publishAutomaticSyncScope(ctx context.Context, accoun
 		return
 	}
 	folders, idleExcluded := pollingFoldersForPeriodicSync(allFolders, idleRoles)
-	payload := map[string]any{
+	payload := accountSyncProgressPayload(ctx, accountSyncBackground, map[string]any{
 		"status":                "syncing",
-		"kind":                  string(accountSyncBackground),
 		"account_folders_total": len(folders),
-	}
+	})
 	if idleExcluded > 0 {
 		payload["idle_folders_excluded"] = idleExcluded
 	}
@@ -342,8 +394,10 @@ func (o *SyncOrchestrator) Start(ctx context.Context) {
 
 	for _, accountID := range accounts {
 		log.Printf("sync: starting account bootstrap for %s", accountID)
-		o.startAccount(ctx, accountID)
+		o.StartAccount(ctx, accountID)
 	}
+	go o.runScheduledSync(ctx)
+	log.Printf("sync: scheduled sync worker started")
 	log.Printf("sync: startup scan complete")
 }
 
@@ -363,20 +417,6 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 	o.cancelFuncs[accountID] = worker
 	o.mu.Unlock()
 
-	log.Printf("sync: account %s initial sync started", accountID)
-	syncCtx, finish, ok := o.beginAccountSync(accountCtx, accountID, accountSyncBackground)
-	if !ok {
-		log.Printf("sync: account %s initial sync skipped, account already syncing", accountID)
-	} else {
-		if err := o.syncAccount(syncCtx, accountID, false); err != nil {
-			log.Printf("sync account %s: %v", accountID, err)
-			o.markAccountSyncError(syncCtx, accountID, err)
-		} else {
-			o.clearAccountSyncError(syncCtx, accountID)
-			log.Printf("sync: account %s initial sync finished", accountID)
-		}
-		finish()
-	}
 	if accountCtx.Err() != nil {
 		o.clearAccountWorker(accountID, worker)
 		return
@@ -385,99 +425,251 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 	o.startIDLEWatchers(accountCtx, accountID)
 	log.Printf("sync: account %s IDLE watchers started", accountID)
 
-	go o.runPeriodicSync(accountCtx, accountID)
-	log.Printf("sync: account %s periodic sync worker started", accountID)
+	go o.runInitialAccountSync(accountCtx, accountID)
 }
 
-func (o *SyncOrchestrator) runPeriodicSync(ctx context.Context, accountID string) {
-	for {
-		interval := time.Duration(o.getInterval()) * time.Minute
-		if interval < time.Minute {
-			interval = time.Minute
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-			o.periodicSync(ctx, accountID)
-		}
-	}
-}
-
-func (o *SyncOrchestrator) periodicSync(ctx context.Context, accountID string) {
-	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
-		return
-	}
+func (o *SyncOrchestrator) runInitialAccountSync(ctx context.Context, accountID string) {
+	log.Printf("sync: account %s initial sync started", accountID)
 	syncCtx, finish, ok := o.beginAccountSync(ctx, accountID, accountSyncBackground)
 	if !ok {
+		log.Printf("sync: account %s initial sync skipped, account already syncing", accountID)
 		return
 	}
 	defer finish()
 
-	allFolders, err := o.db.GetFoldersForAccount(syncCtx, accountID)
-	if err != nil {
-		log.Printf("periodic %s: get folders: %v", accountID, err)
+	if err := o.syncAccount(syncCtx, accountID, false); err != nil {
+		log.Printf("sync account %s: %v", accountID, err)
 		o.markAccountSyncError(syncCtx, accountID, err)
-		return
+	} else {
+		o.clearAccountSyncError(syncCtx, accountID)
+		log.Printf("sync: account %s initial sync finished", accountID)
 	}
-	folders, idleExcluded := pollingFoldersForPeriodicSync(allFolders, o.getIdleFoldersForAccount(syncCtx, accountID))
-	scopePayload := map[string]any{
-		"status":                "syncing",
-		"kind":                  string(accountSyncBackground),
-		"account_folders_total": len(folders),
-	}
-	if idleExcluded > 0 {
-		scopePayload["idle_folders_excluded"] = idleExcluded
-	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: scopePayload})
-	if len(folders) == 0 {
-		completePayload := map[string]any{
-			"status":                "ok",
-			"kind":                  string(accountSyncBackground),
-			"account_folders_total": 0,
+}
+
+func (o *SyncOrchestrator) runScheduledSync(ctx context.Context) {
+	for {
+		intervalMinutes := o.getInterval()
+		interval := time.Duration(intervalMinutes) * time.Minute
+		if interval < time.Minute {
+			interval = time.Minute
 		}
-		if idleExcluded > 0 {
-			completePayload["idle_folders_excluded"] = idleExcluded
-		}
-		o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: completePayload})
-		return
-	}
+		timer := time.NewTimer(interval)
 
-	cfg, err := o.accountStore.GetConfig(syncCtx, accountID)
-	if err != nil {
-		log.Printf("periodic %s: config: %v", accountID, err)
-		o.markAccountSyncError(syncCtx, accountID, err)
-		return
-	}
-
-	password, err := o.resolvePassword(syncCtx, cfg, accountID)
-	if err != nil {
-		log.Printf("periodic %s: password: %v", accountID, err)
-		o.markAccountSyncError(syncCtx, accountID, err)
-		return
-	}
-
-	client, err := imap.NewClient(syncCtx, cfg, password)
-	if err != nil {
-		log.Printf("periodic %s: connect: %v", accountID, err)
-		o.markAccountSyncError(syncCtx, accountID, err)
-		return
-	}
-	defer client.Close()
-
-	for i, folder := range folders {
 		select {
-		case <-syncCtx.Done():
+		case <-ctx.Done():
+			timer.Stop()
 			return
-		default:
-		}
-
-		if err := o.fullFolderSync(syncCtx, client, accountID, folder, i+1, len(folders), idleExcluded); err != nil {
-			log.Printf("periodic %s/%s: %v", accountID, folder.RemoteID, err)
+		case <-o.intervalChanged:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			log.Printf("scheduled sync: interval updated to %d minute(s), rescheduled", o.getInterval())
+			continue
+		case <-timer.C:
+			o.scheduledSync(ctx)
 		}
 	}
-	o.clearAccountSyncError(syncCtx, accountID)
+}
+
+func (o *SyncOrchestrator) scheduledSync(ctx context.Context) {
+	accountIDs, err := o.db.GetAllEmailSyncAccountIDs(ctx)
+	if err != nil {
+		log.Printf("scheduled sync: get accounts: %v", err)
+		return
+	}
+	if len(accountIDs) == 0 {
+		return
+	}
+
+	accountsByUser := make(map[string][]string)
+	for _, accountID := range accountIDs {
+		userID, err := o.db.GetAccountUserID(ctx, accountID)
+		if err != nil || userID == "" {
+			log.Printf("scheduled sync %s: get user: %v", accountID, err)
+			continue
+		}
+		accountsByUser[userID] = append(accountsByUser[userID], accountID)
+	}
+
+	for userID, ids := range accountsByUser {
+		o.runScheduledSyncForUser(ctx, userID, ids)
+	}
+}
+
+func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID string, accountIDs []string) {
+	if len(accountIDs) == 0 {
+		return
+	}
+	runID := userID + "-scheduled-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	total := len(accountIDs)
+	parallelism := accountSyncParallelism(total, backgroundSyncMaxParallelAccounts)
+	log.Printf("scheduled sync: run %s started with %d account(s)", runID, total)
+
+	var progressMu sync.Mutex
+	completed := 0
+	skipped := 0
+	failures := 0
+	cancelled := 0
+
+	o.events.Publish(Event{Type: EventScheduledSyncStarted, Payload: map[string]any{
+		"user_id":        userID,
+		"run_id":         runID,
+		"accounts_total": total,
+		"accounts_done":  0,
+		"account_ids":    append([]string(nil), accountIDs...),
+		"parallelism":    parallelism,
+		"kind":           "scheduled",
+	}})
+
+	jobs := make(chan manualSyncJob)
+	var wg sync.WaitGroup
+	for worker := 0; worker < parallelism; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+
+				progressMu.Lock()
+				done := completed
+				currentFailures := failures
+				currentSkipped := skipped
+				currentCancelled := cancelled
+				progressMu.Unlock()
+
+				o.events.Publish(Event{Type: EventScheduledSyncProgress, AccountID: job.accountID, Payload: map[string]any{
+					"user_id":        userID,
+					"run_id":         runID,
+					"accounts_total": total,
+					"accounts_done":  done,
+					"account_index":  job.index + 1,
+					"parallelism":    parallelism,
+					"status":         "syncing",
+					"failures":       currentFailures,
+					"skipped":        currentSkipped,
+					"cancelled":      currentCancelled,
+					"kind":           "scheduled",
+				}})
+
+				accountCtx := withAccountSyncProgressScope(ctx, accountSyncProgressScope{
+					kind:          "scheduled",
+					userID:        userID,
+					runID:         runID,
+					accountsTotal: total,
+					accountIndex:  job.index + 1,
+					parallelism:   parallelism,
+				})
+
+				status := "synced"
+				errorText := ""
+				accountCtx, finish, ok := o.beginAccountSync(accountCtx, job.accountID, accountSyncBackground)
+				if !ok {
+					status = "skipped"
+					errorText = "account is already syncing"
+					log.Printf("scheduled sync: account %s skipped, account already syncing", job.accountID)
+				} else {
+					err := o.syncAccount(accountCtx, job.accountID, false)
+					if err != nil {
+						if ctx.Err() != nil {
+							status = "cancelled"
+						} else {
+							status = "error"
+						}
+						errorText = err.Error()
+						log.Printf("scheduled sync account %s: %v", job.accountID, err)
+						o.markAccountSyncError(accountCtx, job.accountID, err)
+					} else {
+						o.clearAccountSyncError(accountCtx, job.accountID)
+					}
+					finish()
+				}
+
+				progressMu.Lock()
+				completed++
+				if status == "skipped" {
+					skipped++
+				} else if status == "cancelled" {
+					cancelled++
+				} else if status == "error" {
+					failures++
+				}
+				done = completed
+				currentFailures = failures
+				currentSkipped = skipped
+				currentCancelled = cancelled
+				progressMu.Unlock()
+
+				payload := map[string]any{
+					"user_id":        userID,
+					"run_id":         runID,
+					"accounts_total": total,
+					"accounts_done":  done,
+					"account_index":  job.index + 1,
+					"parallelism":    parallelism,
+					"status":         status,
+					"failures":       currentFailures,
+					"skipped":        currentSkipped,
+					"cancelled":      currentCancelled,
+					"kind":           "scheduled",
+				}
+				if errorText != "" {
+					payload["error"] = errorText
+				}
+				o.events.Publish(Event{Type: EventScheduledSyncProgress, AccountID: job.accountID, Payload: payload})
+			}
+		}()
+	}
+
+queueLoop:
+	for i, accountID := range accountIDs {
+		select {
+		case <-ctx.Done():
+			break queueLoop
+		case jobs <- manualSyncJob{index: i, accountID: accountID}:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	progressMu.Lock()
+	notDone := total - completed
+	finalFailures := failures
+	finalCancelled := cancelled
+	status := "ok"
+	successful := completed - skipped - failures - cancelled
+	if successful < 0 {
+		successful = 0
+	}
+	if ctx.Err() != nil {
+		status = "cancelled"
+	} else if (finalFailures > 0 || notDone > 0) && successful == 0 && skipped == 0 {
+		status = "error"
+	} else if finalFailures > 0 || skipped > 0 || notDone > 0 || finalCancelled > 0 {
+		status = "partial"
+	}
+	finalCompleted := completed
+	finalSkipped := skipped
+	progressMu.Unlock()
+
+	o.events.Publish(Event{Type: EventScheduledSyncComplete, Payload: map[string]any{
+		"user_id":        userID,
+		"run_id":         runID,
+		"accounts_total": total,
+		"accounts_done":  finalCompleted,
+		"failures":       finalFailures,
+		"skipped":        finalSkipped,
+		"cancelled":      finalCancelled,
+		"not_done":       notDone,
+		"parallelism":    parallelism,
+		"status":         status,
+		"kind":           "scheduled",
+	}})
+	log.Printf("scheduled sync: run %s finished with status %s", runID, status)
 }
 
 func (s *newMailSummary) Add(msgs []storage.SyncMessage) {
@@ -556,6 +748,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 	if idleExcluded > 0 {
 		startPayload["idle_folders_excluded"] = idleExcluded
 	}
+	startPayload = accountSyncProgressPayload(ctx, "", startPayload)
 	o.events.Publish(Event{
 		Type:       EventSyncStarted,
 		AccountID:  accountID,
@@ -576,6 +769,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		if idleExcluded > 0 {
 			completePayload["idle_folders_excluded"] = idleExcluded
 		}
+		completePayload = accountSyncProgressPayload(ctx, "", completePayload)
 		o.events.Publish(Event{
 			Type:       EventSyncComplete,
 			AccountID:  accountID,
@@ -741,10 +935,9 @@ func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID strin
 	o.running[accountID] = run
 	o.mu.Unlock()
 
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, kind, map[string]any{
 		"status": "syncing",
-		"kind":   string(kind),
-	}})
+	})})
 
 	finish := func() {
 		run.once.Do(func() {
@@ -868,6 +1061,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 			"run_id":         runID,
 			"accounts_total": total,
 			"accounts_done":  0,
+			"account_ids":    append([]string(nil), accountIDs...),
 			"parallelism":    parallelism,
 		}})
 
@@ -1135,11 +1329,10 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		syncFolders, idleExcluded = pollingIMAPFoldersForAutomaticSync(syncFolders, idleRoles)
 	}
 	if len(syncFolders) == 0 {
-		payload := map[string]any{
+		payload := accountSyncProgressPayload(ctx, accountSyncBackground, map[string]any{
 			"status":                "ok",
-			"kind":                  string(accountSyncBackground),
 			"account_folders_total": 0,
-		}
+		})
 		if idleExcluded > 0 {
 			payload["idle_folders_excluded"] = idleExcluded
 		}
@@ -1170,11 +1363,11 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.Client, accountID, folderID, remoteName string) {
 	folderRole, _ := o.db.GetFolderRole(ctx, folderID)
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folderID)
-	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: totalHint})
+	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", nil)})
 	fetched := 0
 	result, err := client.SyncFolder(ctx, folderID, remoteName, 500, func(msgs []storage.SyncMessage) error {
 		fetched += len(msgs)
-		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: totalHint})
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", nil)})
 		return o.db.UpsertSyncMessages(ctx, msgs)
 	})
 	if err != nil {
@@ -1190,11 +1383,11 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.
 		if total <= 0 {
 			total = int(result.NumMessages)
 		}
-		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total})
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total, Payload: accountSyncProgressPayload(ctx, "", nil)})
 	}
 	o.db.RefreshFolderUnreadCount(ctx, folderID)
 	log.Printf("synced %s/%s: %d messages", accountID, remoteName, result.TotalFetched)
-	o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, FolderRole: folderRole})
+	o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Payload: accountSyncProgressPayload(ctx, "", nil)})
 }
 
 func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folderID, remoteName string) {
