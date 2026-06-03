@@ -306,13 +306,13 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 									hx-on::after-request="handleMailSidebarSyncResult(event)"
 									data-mail-sidebar-sync-button
 									class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
-									aria-label="Force refresh all mail, including IDLE folders"
+									aria-label="Force sync all mail, including IDLE folders"
 								>
 									@icon.RefreshCw(icon.Props{Class: "size-4"})
 								</button>
 							}
-							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-64 border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-								<span data-mail-sidebar-sync-tooltip>Force refresh, including IDLE folders.</span>
+							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-fit whitespace-nowrap border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+								<span data-mail-sidebar-sync-tooltip>Force sync, including IDLE folders.</span>
 							}
 							}
 							@popover.Root(popover.RootProps{Class: "shrink-0"}) {
@@ -325,8 +325,8 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 										@icon.ChevronDown(icon.Props{Class: "size-3.5"})
 									</button>
 								}
-								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-72 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-									<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Force sync individual account, including IDLE folder</div>
+								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-64 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+									<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Force sync individual account, including IDLE folders</div>
 									<div class="space-y-1">
 										for _, account := range accounts {
 											if account.EmailSyncEnabled && !account.IsDeleting {
@@ -338,7 +338,7 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 													hx-on::after-request="handleMailSidebarSyncResult(event)"
 													data-mail-account-sync-button={ account.ID }
 													class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-													aria-label={ "Force refresh " + account.Name + ", including IDLE folders" }
+													aria-label={ "Force sync " + account.Name + ", including IDLE folders" }
 												>
 													@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
 													<span class="min-w-0 flex-1">
@@ -430,9 +430,9 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 			<button
 				type="button"
 				data-mail-sync-error-indicator
+				hidden?={ mailSyncErrorCount(accounts) == 0 }
 				class={
 					"inline-flex h-8 w-8 items-center justify-center border-r border-sidebar-border/70 text-destructive transition-colors hover:bg-sidebar-accent",
-					templ.KV("hidden", mailSyncErrorCount(accounts) == 0),
 				}
 				aria-label={ fmt.Sprintf("%d mail sync issue(s)", mailSyncErrorCount(accounts)) }
 			>
@@ -507,7 +507,7 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 		>
 			<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
 			<span class="flex-1 truncate text-left">{ account.Name }</span>
-			if account.EmailSyncError != "" {
+			if strings.TrimSpace(account.EmailSyncError) != "" {
 				@SidebarAccountSyncErrorTooltip(account, uiSettings)
 			}
 			@icon.ChevronDown(icon.Props{Class: "sidebar-account-chevron size-3.5 shrink-0 text-sidebar-foreground/60 transition-transform duration-200"})

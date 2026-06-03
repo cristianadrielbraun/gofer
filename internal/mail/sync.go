@@ -141,6 +141,24 @@ func accountSyncProgressPayload(ctx context.Context, fallbackKind accountSyncKin
 	return payload
 }
 
+func (o *SyncOrchestrator) accountSyncStatusPayload(ctx context.Context, accountID string, fallbackKind accountSyncKind, payload map[string]any) map[string]any {
+	payload = accountSyncProgressPayload(ctx, fallbackKind, payload)
+	if accountID == "" || o.accountStore == nil {
+		return payload
+	}
+	account, err := o.accountStore.GetAccountByID(context.Background(), accountID)
+	if err != nil || account == nil {
+		return payload
+	}
+	if name := strings.TrimSpace(account.Name); name != "" {
+		payload["account_name"] = name
+	}
+	if email := strings.TrimSpace(account.Email); email != "" {
+		payload["account_email"] = email
+	}
+	return payload
+}
+
 func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blobStore *store.BlobStore, tokenProvider TokenProvider) *SyncOrchestrator {
 	return &SyncOrchestrator{
 		db:                  db,
@@ -297,7 +315,7 @@ func (o *SyncOrchestrator) markAccountSyncError(ctx context.Context, accountID s
 	if storeErr := o.db.MarkEmailSyncError(context.Background(), accountID, message, failedAt); storeErr != nil {
 		log.Printf("sync %s: store account error: %v", accountID, storeErr)
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: o.accountSyncStatusPayload(ctx, accountID, "", map[string]any{
 		"status":    "error",
 		"error":     message,
 		"failed_at": failedAt.Format(time.RFC3339),
@@ -311,7 +329,7 @@ func (o *SyncOrchestrator) clearAccountSyncError(ctx context.Context, accountID 
 	if err := o.db.ClearEmailSyncError(context.Background(), accountID); err != nil {
 		log.Printf("sync %s: clear account error: %v", accountID, err)
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: o.accountSyncStatusPayload(ctx, accountID, "", map[string]any{
 		"status": "ok",
 	})})
 }

@@ -3301,6 +3301,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
 var sendStatusTimer = null
 var _sendStatusToast = null
+var _mailSyncIssuesByAccount = Object.create(null)
+var _mailSyncIssueOrder = []
 
 function setMailViewEmpty() {
   var mailView = document.getElementById("mail-view")
@@ -3510,9 +3512,9 @@ var _mailSyncRunID = ""
 var _mailSyncActive = false
 var _mailSyncCancelRequested = false
 var _mailSyncState = createMailSyncProgressState("")
-var _mailSyncForceTooltipText = "Force refresh, including IDLE folders."
+var _mailSyncForceTooltipText = "Force sync, including IDLE folders."
 var _mailSyncScheduledTooltipText = "Scheduled sync running. IDLE folders are not included."
-var _mailSyncForceAriaLabel = "Force refresh all mail, including IDLE folders"
+var _mailSyncForceAriaLabel = "Force sync all mail, including IDLE folders"
 var _mailSyncScheduledAriaLabel = "Scheduled sync running, IDLE folders not included"
 
 function createMailSyncProgressState(runID) {
@@ -3560,7 +3562,10 @@ function setupMailSyncSidebarControls() {
     e.stopImmediatePropagation()
     openMailSyncProgressDialog()
   }, true)
-  document.addEventListener("htmx:afterSwap", updateMailSyncErrorIndicator)
+  syncMailSyncIssuesFromDOM(document, true)
+  document.addEventListener("htmx:afterSwap", function (event) {
+    updateMailSyncErrorIndicator(event.target || document)
+  })
   updateMailSyncErrorIndicator()
   updateMailSyncSidebarTooltip()
 }
@@ -3741,6 +3746,16 @@ function _mailSyncAccountLabel(accountID) {
   return accountID || "Account"
 }
 
+function _mailSyncAccountEmail(accountID) {
+  var buttons = document.querySelectorAll("[data-mail-account-sync-button]")
+  for (var i = 0; i < buttons.length; i++) {
+    if (buttons[i].getAttribute("data-mail-account-sync-button") !== accountID) continue
+    var rows = buttons[i].querySelectorAll(".min-w-0 span")
+    if (rows.length > 1 && rows[1].textContent.trim()) return rows[1].textContent.trim()
+  }
+  return ""
+}
+
 function _mailSyncFolderLabel(folderID, role) {
   var links = document.querySelectorAll('a[hx-get^="/folder/"]')
   for (var i = 0; i < links.length; i++) {
@@ -3814,17 +3829,124 @@ function parseMailSyncUTCInstant(raw) {
   return isNaN(date.getTime()) ? null : date
 }
 
-function mailSyncErrorSummaryHTML(errorNodes) {
-  if (!errorNodes.length) {
+function mailSyncIssueList() {
+  var issues = []
+  var seen = Object.create(null)
+  for (var i = 0; i < _mailSyncIssueOrder.length; i++) {
+    var id = _mailSyncIssueOrder[i]
+    var issue = _mailSyncIssuesByAccount[id]
+    if (!issue || seen[id]) continue
+    seen[id] = true
+    issues.push(issue)
+  }
+  var keys = Object.keys(_mailSyncIssuesByAccount)
+  for (var j = 0; j < keys.length; j++) {
+    if (seen[keys[j]]) continue
+    issues.push(_mailSyncIssuesByAccount[keys[j]])
+  }
+  return issues
+}
+
+function upsertMailSyncIssue(issue) {
+  if (!issue || !issue.id || !String(issue.message || "").trim()) return
+  var existing = _mailSyncIssuesByAccount[issue.id] || {}
+  var name = String(issue.name || "").trim()
+  var email = String(issue.email || "").trim()
+  _mailSyncIssuesByAccount[issue.id] = {
+    id: issue.id,
+    name: name || existing.name || _mailSyncAccountLabel(issue.id) || "Account",
+    email: email || existing.email || _mailSyncAccountEmail(issue.id) || "",
+    message: String(issue.message || "").trim(),
+    failedAt: String(issue.failedAt || existing.failedAt || "").trim(),
+  }
+  if (_mailSyncIssueOrder.indexOf(issue.id) === -1) _mailSyncIssueOrder.push(issue.id)
+}
+
+function removeMailSyncIssue(accountID) {
+  if (!accountID || !_mailSyncIssuesByAccount[accountID]) return
+  delete _mailSyncIssuesByAccount[accountID]
+  _mailSyncIssueOrder = _mailSyncIssueOrder.filter(function (id) { return id !== accountID })
+}
+
+function mailSyncIssueFromNode(node) {
+  if (!node || !node.getAttribute) return null
+  var message = String(node.getAttribute("data-account-sync-error-message") || "").trim()
+  if (!message) return null
+  var id = String(node.getAttribute("data-account-sync-error") || "").trim()
+  if (!id) return null
+  return {
+    id: id,
+    name: node.getAttribute("data-account-sync-error-name") || "",
+    email: node.getAttribute("data-account-sync-error-email") || "",
+    message: message,
+    failedAt: node.getAttribute("data-account-sync-error-failed-at") || "",
+  }
+}
+
+function syncMailSyncIssuesFromDOM(root, reset) {
+  var scope = root && root.querySelectorAll ? root : document
+  if (reset) {
+    _mailSyncIssuesByAccount = Object.create(null)
+    _mailSyncIssueOrder = []
+  }
+
+  var accountSections = []
+  if (scope.matches && scope.matches("[data-sidebar-account]")) accountSections.push(scope)
+  var sectionNodes = scope.querySelectorAll ? scope.querySelectorAll("[data-sidebar-account]") : []
+  for (var i = 0; i < sectionNodes.length; i++) accountSections.push(sectionNodes[i])
+
+  if (accountSections.length) {
+    for (var j = 0; j < accountSections.length; j++) {
+      var accountID = accountSections[j].getAttribute("data-sidebar-account") || ""
+      var errorNode = accountSections[j].querySelector("[data-account-sync-error]")
+      var issue = mailSyncIssueFromNode(errorNode)
+      if (issue) upsertMailSyncIssue(issue)
+      else if (accountID && accountID !== "__unified__") removeMailSyncIssue(accountID)
+    }
+    return
+  }
+
+  var nodes = []
+  if (scope.matches && scope.matches("[data-account-sync-error]")) nodes.push(scope)
+  var descendants = scope.querySelectorAll ? scope.querySelectorAll("[data-account-sync-error]") : []
+  for (var k = 0; k < descendants.length; k++) nodes.push(descendants[k])
+  for (var n = 0; n < nodes.length; n++) {
+    var nodeIssue = mailSyncIssueFromNode(nodes[n])
+    if (nodeIssue) upsertMailSyncIssue(nodeIssue)
+  }
+}
+
+function applyMailSyncIssueStatus(data) {
+  if (!data || !data.account_id) return
+  var status = data.status || ""
+  if (status === "error") {
+    upsertMailSyncIssue({
+      id: data.account_id,
+      name: data.account_name || data.name || "",
+      email: data.account_email || data.email || "",
+      message: data.error || data.message || "Sync failed",
+      failedAt: data.failed_at || data.email_sync_error_at || "",
+    })
+    updateMailSyncErrorIndicator()
+    return
+  }
+  if (status === "ok" || status === "synced" || status === "complete") {
+    removeMailSyncIssue(data.account_id)
+    updateMailSyncErrorIndicator()
+  }
+}
+
+function mailSyncErrorSummaryHTML(issues) {
+  if (!issues.length) {
     return '<div class="text-xs text-sidebar-foreground/70">No current mail sync issues.</div>'
   }
   var html = '<div class="font-semibold">Mail sync issues</div><div class="space-y-2">'
-  for (var i = 0; i < errorNodes.length; i++) {
-    var node = errorNodes[i]
-    var name = node.getAttribute("data-account-sync-error-name") || "Account"
-    var email = node.getAttribute("data-account-sync-error-email") || ""
-    var message = node.getAttribute("data-account-sync-error-message") || "Sync failed"
-    var failedAt = node.getAttribute("data-account-sync-error-failed-at") || ""
+  for (var i = 0; i < issues.length; i++) {
+    var issue = issues[i]
+    var name = issue.name || "Account"
+    var email = issue.email || ""
+    var message = issue.message || "Sync failed"
+    var failedAt = issue.failedAt || ""
     var date = parseMailSyncUTCInstant(failedAt)
     var formattedAt = date ? formatGoferDateTime(date, {
       year: "numeric",
@@ -3844,16 +3966,17 @@ function mailSyncErrorSummaryHTML(errorNodes) {
   return html + '</div>'
 }
 
-function updateMailSyncErrorIndicator() {
+function updateMailSyncErrorIndicator(root) {
+  if (root && root.querySelectorAll) syncMailSyncIssuesFromDOM(root, false)
   var indicator = document.querySelector("[data-mail-sync-error-indicator]")
   if (!indicator) return
-  var errorNodes = Array.prototype.slice.call(document.querySelectorAll("[data-account-sync-error][data-account-sync-error-message]"))
-  var count = errorNodes.length
-  indicator.classList.toggle("hidden", count === 0)
+  var issues = mailSyncIssueList()
+  var count = issues.length
+  indicator.hidden = count === 0
   indicator.setAttribute("aria-label", count + " mail sync issue" + (count === 1 ? "" : "s"))
   indicator.removeAttribute("title")
   var summary = document.querySelector("[data-mail-sync-error-summary]")
-  if (summary) summary.innerHTML = mailSyncErrorSummaryHTML(errorNodes)
+  if (summary) summary.innerHTML = mailSyncErrorSummaryHTML(issues)
 }
 
 function ensureMailSyncAccount(accountID, index) {
@@ -3990,6 +4113,7 @@ function updateMailSyncFolderProgress(phase, data) {
 
 function handleAccountSyncStatus(data) {
   if (!data || !data.account_id) return
+  applyMailSyncIssueStatus(data)
   if (_mailSyncIsScheduledEvent(data) && _mailSyncState.kind === "manual" && _mailSyncState.active) return
   var status = data.status || ""
   if (!_mailSyncIsScheduledEvent(data) && !(_mailSyncState.kind === "manual" && _mailSyncState.active)) {
@@ -4029,7 +4153,7 @@ function handleAccountSyncStatus(data) {
     account.error = data.error || account.error || "Sync failed"
     _mailSyncState.failures = Math.max(_mailSyncState.failures || 0, 1)
     var indicator = document.querySelector("[data-mail-sync-error-indicator]")
-    if (indicator) indicator.classList.remove("hidden")
+    if (indicator) indicator.hidden = false
   } else if (status === "ok") {
     account.status = "synced"
     account.error = ""
