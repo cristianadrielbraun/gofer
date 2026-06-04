@@ -281,14 +281,29 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	emailID := r.URL.Query().Get("email")
 	ctx := r.Context()
+	userID := h.userID(ctx)
 
-	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
+	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	uiSettings := h.db.GetUISettings(ctx, userID)
+	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
+		ctx = h.contextWithUserTimezone(ctx, userID)
+		filters := parseEmailFilters(r)
+		window := h.loadMailWindow(ctx, userID, folderID, filters, emailID, 50)
+		w.Header().Set("Content-Type", "text/html")
+		views.MailAppPartial(accounts, folderID, window.emails, window.selectedEmail, window.totalCount, uiSettings, nil, emailID, window.windowStart).Render(ctx, w)
+		return
+	}
+	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "app-shell" {
+		w.Header().Set("Content-Type", "text/html")
+		views.MailShell(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID).Render(ctx, w)
+		return
+	}
 	if emailID == "" {
-		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, h.userID(ctx)), nil, "").Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, "").Render(ctx, w)
 		return
 	}
 
-	views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, h.userID(ctx)), nil, emailID).Render(ctx, w)
+	views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) {
@@ -361,6 +376,38 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	h.ensureContactsBackfilled(ctx)
 	userID := h.userID(ctx)
 	ctx = h.contextWithUserTimezone(ctx, userID)
+	switch r.URL.Query().Get("partial") {
+	case "activity":
+		selected, err := h.db.GetContact(ctx, userID, strings.TrimSpace(r.URL.Query().Get("contact")))
+		if err != nil {
+			http.Error(w, "failed to load contact activity", http.StatusInternalServerError)
+			return
+		}
+		if selected == nil {
+			http.NotFound(w, r)
+			return
+		}
+		recentActivity := h.recentContactActivity(ctx, userID, selected)
+		w.Header().Set("Content-Type", "text/html")
+		views.ContactRecentActivity(*selected, recentActivity).Render(ctx, w)
+		return
+	case "detail":
+		var selected *models.Contact
+		var selectedProfile *models.ContactProfile
+		if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
+			var err error
+			selected, selectedProfile, err = h.db.GetContactWithProfile(ctx, userID, id)
+			if err != nil {
+				http.Error(w, "failed to load contact", http.StatusInternalServerError)
+				return
+			}
+		}
+		syncQueued := selected != nil && r.URL.Query().Get("sync") == "queued"
+		accounts, _ := h.db.GetAccounts(ctx, userID)
+		w.Header().Set("Content-Type", "text/html")
+		views.ContactsDetail(selected, selectedProfile, false, syncQueued, accounts).Render(ctx, w)
+		return
+	}
 	filters := h.parseContactFilters(r)
 	if filters.View == "" {
 		filters.View = contactViewMode(h.db.GetUISettings(ctx, userID)["contacts_list_view"])
@@ -381,18 +428,10 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	var selected *models.Contact
 	var selectedProfile *models.ContactProfile
 	if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
-		selected, _ = h.db.GetContact(ctx, userID, id)
-		selectedProfile, _ = h.db.GetContactProfile(ctx, userID, id)
+		selected, selectedProfile, _ = h.db.GetContactWithProfile(ctx, userID, id)
 	}
-	recentActivity := h.recentContactActivity(ctx, userID, selected)
 	showNew := selected == nil && r.URL.Query().Get("new") == "1"
 	syncQueued := selected != nil && r.URL.Query().Get("sync") == "queued"
-	if r.URL.Query().Get("partial") == "detail" {
-		accounts, _ := h.db.GetAccounts(ctx, userID)
-		w.Header().Set("Content-Type", "text/html")
-		views.ContactsDetail(selected, selectedProfile, false, syncQueued, accounts, recentActivity).Render(ctx, w)
-		return
-	}
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -402,17 +441,22 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 			width = "50%"
 		}
 		w.Header().Set("Content-Type", "text/html")
-		if r.Header.Get("HX-Target") == "app-shell" {
+		if r.Header.Get("HX-Target") == "mail-list" {
 			layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
-			views.ContactsShell(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings, recentActivity).Render(ctx, w)
+			views.ContactsAppPartial(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
 			return
 		}
-		views.ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, width, accounts, recentActivity).Render(ctx, w)
+		if r.Header.Get("HX-Target") == "app-shell" {
+			layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+			views.ContactsShell(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
+			return
+		}
+		views.ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, width, accounts).Render(ctx, w)
 		return
 	}
 
 	layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
-	views.ContactsLayout(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, h.db.GetUISettings(ctx, userID), recentActivity).Render(ctx, w)
+	views.ContactsLayout(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
 }
 
 func (h *Handler) recentContactActivity(ctx context.Context, userID string, contact *models.Contact) []models.Email {
@@ -728,6 +772,18 @@ func (h *Handler) handleUnifyContact(w http.ResponseWriter, r *http.Request) {
 	location := "/contacts?contact=" + url.QueryEscape(saved.ID)
 	if syncQueued {
 		location += "&sync=queued"
+	}
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":                  true,
+			"action":              "unify",
+			"contact_id":          saved.ID,
+			"location":            location,
+			"contact_sync_queued": syncQueued,
+			"refresh_detail":      true,
+		})
+		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", location)
@@ -1458,32 +1514,47 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	filters := parseEmailFilters(r)
-	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, h.userID(ctx), folderID, filters)
-
-	var selectedEmail *models.Email
-	var selectedThread []models.ThreadItem
 	selectedEmailID := r.URL.Query().Get("selected")
+	window := h.loadMailWindow(ctx, h.userID(ctx), folderID, filters, selectedEmailID, 50)
+
+	w.Header().Set("Content-Type", "text/html")
+	views.MailContentPartial(accounts, window.emails, folderID, window.selectedEmail, window.totalCount, nil, h.db.GetUISettings(ctx, h.userID(ctx)), selectedEmailID, window.windowStart).Render(ctx, w)
+}
+
+type mailWindow struct {
+	emails        []models.Email
+	selectedEmail *models.Email
+	totalCount    int
+	windowStart   int
+}
+
+func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, filters models.EmailFilters, selectedEmailID string, limit int) mailWindow {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, userID, folderID, filters)
 
 	var page *models.EmailPage
 	if selectedEmailID != "" && !emailFiltersActive(filters) {
-		page, _ = h.db.GetEmailsAroundEmailForUser(ctx, h.userID(ctx), folderID, selectedEmailID, 50)
+		page, _ = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit)
 	}
 	if page == nil {
-		page, _ = h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, h.userID(ctx), folderID, 0, 50, filters, totalCount)
+		page, _ = h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, 0, limit, filters, totalCount)
 	}
-	windowStart := 0
-	var emails []models.Email
+
+	window := mailWindow{totalCount: totalCount}
 	if page != nil {
-		emails = page.Emails
-		windowStart = page.WindowStart
+		window.emails = page.Emails
+		window.windowStart = page.WindowStart
+		if page.TotalCount >= 0 {
+			window.totalCount = page.TotalCount
+		}
 	}
-
 	if selectedEmailID != "" {
-		selectedEmail = &models.Email{ID: h.visibleMailListSelectionID(ctx, emails, selectedEmailID)}
+		window.selectedEmail = &models.Email{ID: h.visibleMailListSelectionID(ctx, window.emails, selectedEmailID)}
 	}
-
-	w.Header().Set("Content-Type", "text/html")
-	views.MailContentPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, h.userID(ctx)), selectedEmailID, windowStart).Render(ctx, w)
+	return window
 }
 
 func (h *Handler) visibleMailListSelectionID(ctx context.Context, emails []models.Email, selectedEmailID string) string {

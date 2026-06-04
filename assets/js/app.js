@@ -228,12 +228,16 @@ document.addEventListener("DOMContentLoaded", function () {
       var row = contactItem.closest("[data-contact-id]")
       var list = currentList()
       if (list && row && row.dataset.contactId) list.onContactSelected(row.dataset.contactId)
+      var primaryActivation = e.button == null || e.button === 0
+      if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && primaryActivation) {
+        showContactsDetailLoading(contactItem)
+      }
     })
 
     document.addEventListener("submit", function (e) {
       if (e.target && e.target.matches("[data-contact-editor-form]")) {
         e.preventDefault()
-        saveContactEditor(e.target)
+        saveContactEditor(e.target, e.submitter || null)
         return
       }
       if (!e.target || (!e.target.matches("[data-contact-filter-form]") && !e.target.matches("[data-contact-search-form]"))) return
@@ -241,15 +245,30 @@ document.addEventListener("DOMContentLoaded", function () {
       applyFilters()
     }, true)
 
-    function saveContactEditor(form) {
+    function contactDetailURL(contactId, syncQueued) {
+      var url = "/contacts?partial=detail&contact=" + encodeURIComponent(contactId)
+      if (syncQueued) url += "&sync=queued"
+      return url
+    }
+
+    function refreshContactsDetail(contactId, trigger, syncQueued) {
+      if (!contactId || typeof htmx === "undefined") return
+      showContactsDetailLoading(trigger)
+      htmx.ajax("GET", contactDetailURL(contactId, syncQueued), { target: "#contacts-detail", swap: "outerHTML" })
+    }
+
+    function saveContactEditor(form, submitter) {
       if (!form || form.dataset.saving === "true") return
       form.dataset.saving = "true"
-      var submit = form.querySelector('button[type="submit"]')
+      var submit = submitter && submitter.matches && submitter.matches('button[type="submit"]') ? submitter : form.querySelector('button[type="submit"]')
       if (submit) submit.disabled = true
       var formData = new FormData(form)
+      var action = submitter && submitter.formAction ? submitter.formAction : form.action
+      var method = submitter && submitter.formMethod ? submitter.formMethod : form.method
+      var editorAction = submitter && submitter.dataset ? submitter.dataset.contactEditorAction || "" : ""
 
-      fetch(form.action, {
-        method: "POST",
+      fetch(action, {
+        method: (method || "POST").toUpperCase(),
         body: new URLSearchParams(formData),
         headers: {
           "Accept": "application/json",
@@ -265,7 +284,11 @@ document.addEventListener("DOMContentLoaded", function () {
           form.action = "/api/contacts?id=" + encodeURIComponent(data.contact_id)
           if (data.location) history.replaceState({ contacts: true, contact: data.contact_id }, "", data.location)
         }
-        if (data && data.gmail_sync_queued) {
+        var syncQueued = !!(data && (data.contact_sync_queued || data.gmail_sync_queued))
+        if (data && data.refresh_detail && data.contact_id) {
+          refreshContactsDetail(data.contact_id, form, syncQueued)
+        }
+        if (syncQueued) {
           setupSSE()
           var emailInput = form.querySelector('[name="email"]')
           contactGmailSyncEmail = emailInput ? emailInput.value || "" : ""
@@ -280,13 +303,14 @@ document.addEventListener("DOMContentLoaded", function () {
             dismissible: false,
           })
         } else {
+          var unified = editorAction === "unify" || (data && data.action === "unify")
           showGoferToast({
             id: "contact-save-toast",
-            title: "Contact saved locally",
-            description: "Changes are stored in Gofer.",
+            title: unified ? "Contact unified" : "Contact saved locally",
+            description: unified ? "Gofer is now the editable source of truth." : "Changes are stored in Gofer.",
             variant: "success",
             icon: "success",
-            position: "top-center",
+            position: unified ? "bottom-right" : "top-center",
             duration: 3000,
             dismissible: true,
           })
@@ -2962,9 +2986,6 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!btn || btn.disabled || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
 
       var href = btn.getAttribute("href")
-      if (!href) return
-      e.preventDefault()
-
       var mode = btn.getAttribute("data-sidebar-app-button")
       var group = btn.closest("[data-sidebar-app-nav]")
       if (group) {
@@ -2985,10 +3006,282 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
 
-      if (btn.getAttribute("aria-current") === "true" && window.location.pathname === href) return
-      window.setTimeout(function () { window.location.href = href }, 140)
+      if (mode === "contacts") document.title = "Contacts — Gofer"
+      else if (mode === "mail") document.title = "Gofer"
+
+      if (!href) return
+      var hrefPath = href
+      try {
+        hrefPath = new URL(href, window.location.href).pathname
+      } catch (_) {}
+      if (btn.getAttribute("aria-current") === "true" && window.location.pathname === hrefPath) {
+        e.preventDefault()
+        return
+      }
+      if (btn.hasAttribute("hx-get") && typeof htmx !== "undefined") {
+        showAppSwitchPending(mode)
+        return
+      }
+      e.preventDefault()
+      showAppSwitchPending(mode)
+      window.location.href = href
     })
   }
+
+  function mailMainContentClass() {
+    var layout = window.GoferSettings ? GoferSettings.get("mail_pane_layout") : ""
+    return layout === "stacked" ? "flex flex-1 min-w-0 flex-col" : "flex flex-1 min-w-0"
+  }
+
+  function setMainContentAppMode(mode) {
+    var main = document.getElementById("main-content")
+    if (!main) return
+    if (mode === "contacts") {
+      main.className = "flex flex-1 min-w-0 bg-background"
+      main.removeAttribute("data-mail-pane-layout")
+      return
+    }
+    main.className = mailMainContentClass()
+    main.setAttribute("data-mail-pane-layout", window.GoferSettings && GoferSettings.get("mail_pane_layout") === "stacked" ? "stacked" : "side")
+  }
+
+  function sidebarPendingHTML(mode) {
+    var label = mode === "contacts" ? "New contact" : "Compose"
+    var rows = mode === "contacts" ? 5 : 7
+    var html = '<div class="px-4 pb-4"><div class="btn-skeuo flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold text-sidebar-primary-foreground opacity-75">'
+    html += '<span class="size-4 rounded bg-sidebar-foreground/20"></span><span>' + label + '</span></div></div>'
+    html += '<hr class="divider-etched mx-4"><nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">'
+    for (var i = 0; i < rows; i++) {
+      html += '<div class="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5"><span class="size-5 rounded bg-sidebar-accent"></span><span class="h-3 flex-1 rounded bg-sidebar-accent"></span></div>'
+    }
+    html += '</nav>'
+    return html
+  }
+
+  function normalizedListViewMode(value) {
+    return value === "table" ? "table" : "cards"
+  }
+
+  function appSwitchListViewMode(mode) {
+    var key = mode === "contacts" ? "contacts_list_view" : "mail_list_view"
+    var currentScroll = mode === "contacts" ? document.getElementById("contacts-list-scroll") : document.getElementById("mail-list-scroll")
+    var currentShell = mode === "contacts" ? document.querySelector("[data-contact-list-shell]") : document.querySelector("[data-mail-list-view]")
+    var saved = window.GoferSettings ? GoferSettings.get(key) : ""
+    return normalizedListViewMode(
+      saved ||
+      (currentScroll && currentScroll.dataset.viewMode) ||
+      (currentShell && (currentShell.dataset.viewMode || currentShell.dataset.mailListView)) ||
+      "cards"
+    )
+  }
+
+  function pendingRowCount(list, mode, viewMode) {
+    var height = list && list.getBoundingClientRect ? list.getBoundingClientRect().height : 0
+    var reserved = mode === "contacts" ? 148 : 160
+    var itemHeight = viewMode === "table" ? 44 : 94
+    var count = Math.ceil(Math.max(0, height - reserved) / itemHeight) + 2
+    if (!isFinite(count) || count <= 0) count = viewMode === "table" ? 14 : 8
+    return Math.max(viewMode === "table" ? 10 : 6, Math.min(viewMode === "table" ? 28 : 12, count))
+  }
+
+  function pendingBar(width, className) {
+    return '<span class="' + (className || "block h-3") + ' rounded bg-muted animate-pulse" style="width:' + width + '"></span>'
+  }
+
+  function pendingIcon(className) {
+    return '<span class="inline-block ' + (className || "size-3.5") + ' rounded-sm bg-current opacity-30"></span>'
+  }
+
+  function pendingFilterButton(label) {
+    return '<button type="button" disabled aria-label="' + label + '" class="relative inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-75">' + pendingIcon("size-3.5") + '</button>'
+  }
+
+  function pendingViewToggleHTML(viewMode) {
+    var cardsClass = viewMode === "cards" ? "text-foreground" : "text-muted-foreground"
+    var tableClass = viewMode === "table" ? "text-foreground" : "text-muted-foreground"
+    var indicator = viewMode === "table" ? "transform:translateX(100%)" : "transform:translateX(0)"
+    return '<div class="relative inline-flex h-7 shrink-0 rounded-lg border border-border bg-background p-0.5 gap-0.5" aria-hidden="true">' +
+      '<div class="absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out" style="' + indicator + '"></div>' +
+      '<button type="button" disabled class="relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium ' + cardsClass + '">' + pendingIcon("size-3.5") + 'Cards</button>' +
+      '<button type="button" disabled class="relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium ' + tableClass + '">' + pendingIcon("size-3.5") + 'Table</button>' +
+    '</div>'
+  }
+
+  function mailPendingHeaderHTML() {
+    return '<div class="mail-list-header px-4 py-4 space-y-3">' +
+      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2><span id="mail-folder-count" class="h-5 w-10 rounded-full bg-muted animate-pulse"></span></div></div>' +
+      '<div class="mail-list-search-row flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
+        '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
+        '<input type="text" disabled placeholder="Quick search" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
+      '</div><button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Advanced filters</span>' + pendingIcon("size-3.5") + '</button></div>' +
+    '</div>'
+  }
+
+  function contactsPendingHeaderHTML() {
+    return '<div class="px-4 py-4 space-y-3">' +
+      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Contacts</h2><span id="contacts-count" class="h-5 w-10 rounded-full bg-muted animate-pulse"></span></div></div>' +
+      '<div class="flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
+        '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
+        '<input type="search" disabled placeholder="Search contacts" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
+      '</div></div>' +
+    '</div>'
+  }
+
+  function mailPendingToolbarHTML(viewMode) {
+    return '<div class="mail-list-toolbar flex items-center gap-1 px-4 py-1.5">' +
+      pendingFilterButton("Filter messages") +
+      pendingViewToggleHTML(viewMode) +
+      '<div class="mail-list-toolbar-spacer flex-1"></div>' +
+      '<button type="button" disabled class="h-7 w-7 rounded-md text-muted-foreground opacity-50">' + pendingIcon("mx-auto size-3.5") + '</button>' +
+      '<button type="button" disabled class="h-7 w-7 rounded-md text-muted-foreground opacity-50">' + pendingIcon("mx-auto size-3.5") + '</button>' +
+    '</div>'
+  }
+
+  function contactsPendingToolbarHTML(viewMode) {
+    return '<div class="flex items-center gap-1 px-4 py-1.5">' +
+      pendingFilterButton("Filter contacts") +
+      '<div class="flex-1"></div>' +
+      pendingViewToggleHTML(viewMode) +
+    '</div>'
+  }
+
+  function mailPendingTableHeaderHTML() {
+    return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">' +
+      '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="Account Marker"><span class="account-color-marker size-2.5 bg-muted"></span><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred">' + pendingIcon("mx-auto size-3") + '<span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment">' + pendingIcon("mx-auto size-3") + '<span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading flex items-center justify-start" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread">' + pendingIcon("size-3") + '<span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">To<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>' +
+      '<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>' +
+    '</div>'
+  }
+
+  function contactsPendingTableHeaderHTML() {
+    return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
+      '<div class="mail-list-table-heading">Name</div><div class="mail-list-table-heading">Origin</div><div class="mail-list-table-heading min-w-12 text-right">Msgs</div>' +
+    '</div>'
+  }
+
+  function mailCardPendingRow(i) {
+    var senderWidths = ["62%", "48%", "70%", "54%"]
+    var subjectWidths = ["84%", "66%", "76%", "58%"]
+    var previewWidths = ["92%", "80%", "68%", "86%"]
+    return '<div class="mail-list-item" aria-hidden="true"><div class="h-full flex items-start gap-3 px-3.5 py-2.5 rounded-lg envelope">' +
+      '<div class="w-7 flex flex-col items-center justify-between self-stretch py-1 shrink-0"><span class="size-6 rounded-full bg-muted animate-pulse"></span>' + (i % 4 === 0 ? pendingBar("60%", "block h-3") : '<span></span>') + '</div>' +
+      '<div class="flex-1 min-w-0 space-y-1"><div class="flex items-center justify-between gap-2"><div class="flex min-w-0 flex-1 items-center gap-2">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</div><div class="flex shrink-0 items-center gap-1.5">' + (i % 3 === 0 ? pendingIcon("size-3") : "") + pendingBar("3.5rem", "block h-3") + '</div></div>' +
+      pendingBar(subjectWidths[i % subjectWidths.length], "block h-3.5") +
+      '<div class="flex items-center gap-2">' + pendingBar(previewWidths[i % previewWidths.length], "block h-3 flex-1") + (i % 5 === 0 ? '<span class="h-4 w-10 rounded bg-muted animate-pulse"></span>' : "") + '</div>' +
+      '</div>' + (i % 3 === 0 ? '<span class="mt-2 size-2 rounded-full bg-primary/35"></span>' : "") + '</div></div>'
+  }
+
+  function contactCardPendingRow(i) {
+    var nameWidths = ["58%", "72%", "46%", "66%"]
+    var emailWidths = ["78%", "64%", "86%", "54%"]
+    var chipWidths = ["5rem", "7rem", "4rem", "6rem"]
+    return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item h-full flex items-start gap-3 px-3.5 py-2.5 rounded-lg envelope">' +
+      '<div class="w-7 flex flex-col items-center self-stretch py-1 shrink-0"><span class="size-6 rounded-full bg-muted animate-pulse"></span></div>' +
+      '<div class="flex-1 min-w-0 space-y-1"><div class="flex items-center justify-between gap-2">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + (i % 3 === 0 ? pendingBar("3rem", "block h-3 shrink-0") : "") + '</div>' +
+      pendingBar(emailWidths[i % emailWidths.length], "block h-3.5") +
+      '<div class="flex min-w-0 flex-wrap items-center gap-1"><span class="h-4 rounded-full border border-border bg-background animate-pulse" style="width:' + chipWidths[i % chipWidths.length] + '"></span>' + (i % 4 === 0 ? '<span class="h-4 w-16 rounded-full border border-border bg-background animate-pulse"></span>' : "") + '</div>' +
+      '</div></div></div>'
+  }
+
+  function mailTablePendingRow(i) {
+    var fromWidths = ["70%", "55%", "82%", "64%"]
+    var toWidths = ["60%", "76%", "48%", "68%"]
+    var subjectWidths = ["88%", "72%", "95%", "58%"]
+    return '<div class="mail-list-item mail-list-table-row" aria-hidden="true"><a tabindex="-1" class="mail-list-table-grid grid items-center gap-3 px-3 py-1.5 rounded-md cursor-default transition-all duration-150 group text-xs envelope">' +
+      '<div class="flex items-center justify-center" data-mail-table-cell="accountMarker"><span class="account-color-marker size-2.5 shrink-0 bg-muted"></span></div>' +
+      '<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="starred">' + (i % 4 === 0 ? pendingIcon("size-3") : "") + '</div>' +
+      '<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="attachment">' + (i % 5 === 0 ? pendingIcon("size-3") : "") + '</div>' +
+      '<div class="flex items-center justify-start min-w-0" data-mail-table-cell="thread">' + (i % 3 === 0 ? pendingBar("1.75rem", "block h-3") : "") + '</div>' +
+      '<div class="flex items-center min-w-0" data-mail-table-cell="from">' + pendingBar(fromWidths[i % fromWidths.length], "block h-3") + '</div>' +
+      '<div class="flex items-center min-w-0" data-mail-table-cell="to">' + pendingBar(toWidths[i % toWidths.length], "block h-3") + '</div>' +
+      '<div class="flex items-center gap-2 min-w-0" data-mail-table-cell="subject">' + pendingBar(subjectWidths[i % subjectWidths.length], "block h-3") + (i % 6 === 0 ? '<span class="hidden xl:inline h-4 w-10 rounded bg-muted animate-pulse"></span>' : "") + '</div>' +
+      '<div class="flex items-center justify-end shrink-0 text-muted-foreground tabular-nums" data-mail-table-cell="date">' + pendingBar("3rem", "block h-3") + '</div>' +
+    '</a></div>'
+  }
+
+  function contactTablePendingRow(i) {
+    var nameWidths = ["62%", "48%", "74%", "56%"]
+    var emailWidths = ["86%", "68%", "76%", "58%"]
+    var originWidths = ["6rem", "8rem", "5rem", "7rem"]
+    return '<div class="mail-list-item mail-list-table-row" aria-hidden="true"><a tabindex="-1" class="contact-list-item mail-list-table-grid grid items-center gap-3 px-3.5 py-1.5 rounded-md cursor-default transition-all duration-150 group text-xs envelope" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
+      '<div class="flex min-w-0 items-center gap-3"><div class="w-7 flex shrink-0 items-center justify-center"><span class="size-6 rounded-full bg-muted animate-pulse"></span></div><div class="min-w-0 flex-1">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3") + '<div class="mt-1.5">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3") + '</div></div></div>' +
+      '<div class="truncate text-xs text-muted-foreground">' + pendingBar(originWidths[i % originWidths.length], "block h-3") + '</div>' +
+      '<div class="flex justify-end text-right text-xs tabular-nums text-muted-foreground">' + pendingBar(i % 2 === 0 ? "2rem" : "1.25rem", "block h-3") + '</div>' +
+    '</a></div>'
+  }
+
+  function listRowsPendingHTML(mode, viewMode, rowCount) {
+    var html = ""
+    if (viewMode === "table") html += mode === "contacts" ? contactsPendingTableHeaderHTML() : mailPendingTableHeaderHTML()
+    for (var i = 0; i < rowCount; i++) {
+      if (mode === "contacts") html += viewMode === "table" ? contactTablePendingRow(i) : contactCardPendingRow(i)
+      else html += viewMode === "table" ? mailTablePendingRow(i) : mailCardPendingRow(i)
+    }
+    return html
+  }
+
+  function listPendingHTML(mode, viewMode, rowCount) {
+    var scrollID = mode === "contacts" ? "contacts-list-scroll" : "mail-list-scroll"
+    return (mode === "contacts" ? contactsPendingHeaderHTML() + contactsPendingToolbarHTML(viewMode) : mailPendingHeaderHTML() + mailPendingToolbarHTML(viewMode)) +
+      '<hr class="divider-etched">' +
+      '<div id="' + scrollID + '" class="flex-1 overflow-y-auto px-2 py-2" data-view-mode="' + viewMode + '" aria-busy="true">' +
+        listRowsPendingHTML(mode, viewMode, rowCount) +
+      '</div>'
+  }
+
+  function readPanePendingHTML(mode) {
+    var label = mode === "contacts" ? "Loading contacts..." : "Loading message..."
+    return '<div class="flex flex-col h-full p-2"><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-ink/45"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
+  }
+
+  function showAppSwitchPending(mode) {
+    if (mode !== "contacts" && mode !== "mail") return
+    setMainContentAppMode(mode)
+    virtualMailList = null
+    virtualContactsList = null
+    var viewMode = appSwitchListViewMode(mode)
+    var sidebarBody = document.getElementById("sidebar-app-body")
+    if (sidebarBody) {
+      sidebarBody.dataset.sidebarAppBody = mode
+      sidebarBody.innerHTML = sidebarPendingHTML(mode)
+    }
+    var list = document.getElementById("mail-list")
+    if (list) {
+      var rows = pendingRowCount(list, mode, viewMode)
+      list.className = "w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden"
+      list.dataset.viewMode = viewMode
+      if (mode === "contacts") {
+        list.setAttribute("data-contact-list-shell", "")
+        list.removeAttribute("data-mail-list-view")
+        list.removeAttribute("data-mail-navigation-mode")
+      } else {
+        list.removeAttribute("data-contact-list-shell")
+        list.dataset.mailListView = viewMode
+        list.dataset.mailNavigationMode = window.GoferSettings ? (GoferSettings.get("mail_list_navigation") || "infinite") : "infinite"
+      }
+      list.innerHTML = listPendingHTML(mode, viewMode, rows)
+      if (mode === "mail" && viewMode === "table" && typeof window.applyMailTableColumnSettings === "function") {
+        window.applyMailTableColumnSettings(list.querySelector("#mail-list-scroll"))
+      }
+    }
+    var pane = document.getElementById("mail-view")
+    if (pane) {
+      pane.className = mode === "contacts" ? "hidden flex-1 min-w-0 bg-background surface-desk xl:flex xl:flex-col" : "hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk"
+      pane.innerHTML = readPanePendingHTML(mode)
+    }
+  }
+
+  document.body.addEventListener("htmx:afterSwap", function () {
+    var shell = document.getElementById("app-shell")
+    if (!shell) return
+    if (!shell.querySelector("#mail-list-scroll")) virtualMailList = null
+    if (!shell.querySelector("#contacts-list-scroll")) virtualContactsList = null
+  })
 
   function setupMailTableColumnResize() {
     var columnIds = ["accountMarker", "starred", "attachment", "thread", "from", "to", "subject", "date"]
@@ -3207,9 +3500,95 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  function showMailViewLoading(trigger) {
-    var mailView = document.getElementById("mail-view")
-    if (!mailView) return
+  function getContactRowPreview(trigger) {
+    var row = trigger && trigger.closest && trigger.closest(".mail-list-item")
+    if (!row) return null
+    var fallback = row.querySelector("[data-avatar-fallback]")
+    var name = textFrom(row, "[data-contact-name]")
+    var email = textFrom(row, "[data-contact-email]")
+    return {
+      initials: fallback ? fallback.textContent.trim() : "",
+      name: name || email || "Loading contact",
+      email: email,
+    }
+  }
+
+  function skeletonField(widthClass) {
+    return '<div class="space-y-1.5">' +
+      '<div class="h-3 w-16 rounded bg-ink/5 animate-pulse"></div>' +
+      '<div class="h-10 rounded-lg border border-ink/10 bg-ink/[0.04] flex items-center px-3">' +
+        '<div class="h-3 ' + widthClass + ' rounded bg-ink/5 animate-pulse"></div>' +
+      '</div>' +
+    '</div>'
+  }
+
+  function showContactsDetailLoading(trigger) {
+    var detail = document.getElementById("contacts-detail")
+    if (!detail) return
+    var preview = getContactRowPreview(trigger) || {}
+    var initials = escapeHTML(preview.initials || "")
+    var name = escapeHTML(preview.name || "Loading contact")
+    var email = escapeHTML(preview.email || "")
+    detail.setAttribute("aria-busy", "true")
+    detail.innerHTML =
+      '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden" data-contact-detail-loading>' +
+        '<div class="flex items-center justify-between gap-3 px-6 py-2.5">' +
+          '<div class="flex items-center gap-1">' +
+            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
+            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
+            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
+            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
+          '</div>' +
+          '<div class="h-6 w-24 rounded bg-ink/5 animate-pulse"></div>' +
+        '</div>' +
+        '<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>' +
+        '<div class="flex-1 overflow-y-auto">' +
+          '<div class="w-full px-8 py-6">' +
+            '<div class="flex items-start gap-4">' +
+              '<div class="size-11 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-sm font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">' + initials + '</div>' +
+              '<div class="min-w-0 flex-1">' +
+                '<h1 class="truncate text-xl font-bold tracking-tight text-ink" style="font-family: var(--font-serif)">' + name + '</h1>' +
+                (email ? '<div class="mt-0.5 truncate text-xs text-ink/40">&lt;' + email + '&gt;</div>' : '<div class="mt-0.5 h-3 w-56 rounded bg-ink/5 animate-pulse"></div>') +
+                '<div class="mt-3 flex items-center gap-2 text-sm text-ink/45">' +
+                  '<div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div>' +
+                  '<span>Loading contact...</span>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>' +
+            '<div class="space-y-5 w-full" aria-hidden="true">' +
+              '<div class="grid gap-5 sm:grid-cols-2">' +
+                skeletonField("w-36") +
+                skeletonField("w-52") +
+              '</div>' +
+              '<div class="grid gap-5 sm:grid-cols-2">' +
+                skeletonField("w-32") +
+                skeletonField("w-40") +
+              '</div>' +
+              skeletonField("w-64") +
+              '<div class="space-y-1.5">' +
+                '<div class="h-3 w-16 rounded bg-ink/5 animate-pulse"></div>' +
+                '<div class="h-20 rounded-lg border border-ink/10 bg-ink/[0.04] p-3 space-y-2">' +
+                  '<div class="h-3 w-full rounded bg-ink/5 animate-pulse"></div>' +
+                  '<div class="h-3 w-11/12 rounded bg-ink/5 animate-pulse"></div>' +
+                  '<div class="h-3 w-2/3 rounded bg-ink/5 animate-pulse"></div>' +
+                '</div>' +
+              '</div>' +
+              '<div class="grid w-full gap-3 rounded-lg border border-ink/10 bg-ink/[0.025] p-4 sm:grid-cols-4">' +
+                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
+                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
+                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
+                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+  }
+
+	  function showMailViewLoading(trigger) {
+	    var mailView = document.getElementById("mail-view")
+	    if (!mailView) return
     var preview = getMailRowPreview(trigger) || {}
     var initials = escapeHTML(preview.initials || "")
     var sender = escapeHTML(preview.sender || "Loading message")
@@ -3272,6 +3651,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!evt.target.querySelector("#mail-list-scroll")) return
 
     var folderID = scroll.dataset.folderId || "inbox"
+    if (loadInitialFolderContent(scroll, folderID)) return
     virtualMailList = createMailListController(scroll, folderID)
     virtualMailList.hydrateFromDOM({ animate: true })
     scroll._virtualMailList = virtualMailList

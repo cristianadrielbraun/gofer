@@ -55,6 +55,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 					}
 				</div>
 			</div>
+			<div id="app-pane-dialogs"></div>
 			@ComposeDialog(accounts)
 			@ChooseAccountTypeDialog()
 			@GmailAccountDialog()
@@ -207,7 +208,49 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 	</html>
 }
 
-templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) {
+templ MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string) {
+	<div id="app-shell" class="flex h-screen overflow-hidden">
+		@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings)
+		@ResizeHandle("sidebar")
+		<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
+			@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
+			@ResizeHandle("maillist")
+			if initialEmailID != "" && selectedEmail == nil {
+				@MailViewLoading()
+			} else {
+				@MailView(selectedEmail, selectedThread)
+			}
+		</div>
+	</div>
+}
+
+templ MailAppPartial(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, windowStart int) {
+	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"))
+	@MailSidebarBody(accounts, activeFolder, uiSettings)
+	<div id="sidebar-sync-controls">
+		@SidebarSyncControls(accounts, "mail")
+	</div>
+	if initialEmailID != "" {
+		@MailViewLoading()
+	} else {
+		@MailView(selectedEmail, selectedThread)
+	}
+	<div id="app-pane-dialogs"></div>
+}
+
+templ ContactsAppPartial(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
+	@ContactsListPane(contacts, selected, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts)
+	@ContactsSidebarBody(accounts, "contacts", uiSettings, filters)
+	<div id="sidebar-sync-controls">
+		@SidebarSyncControls(accounts, "contacts")
+	</div>
+	@ContactsViewPane(selected, selectedProfile, showNew, syncQueued, accounts)
+	<div id="app-pane-dialogs">
+		@ContactsImportDialog(accounts)
+	</div>
+}
+
+templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -232,9 +275,12 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@toast.Script()
 			@AppSidebarResponsiveStyle()
 		</head>
-		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
-			@ContactsShell(accounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings, recentActivity)
-			@ComposeDialog(accounts)
+			<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
+				@ContactsShell(accounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings)
+				<div id="app-pane-dialogs">
+					@ContactsImportDialog(accounts)
+				</div>
+				@ComposeDialog(accounts)
 			@ChooseAccountTypeDialog()
 			@GmailAccountDialog()
 			@OutlookAccountDialog()
@@ -277,11 +323,11 @@ templ AppSidebarResponsiveStyle() {
 	</style>
 }
 
-templ ContactsShell(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string, recentActivity []models.Email) {
+templ ContactsShell(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
 	<div id="app-shell" class="flex h-screen overflow-hidden">
 		@ContactsSidebar(accounts, "contacts", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, filters)
 		@ResizeHandle("sidebar")
-		@ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts, recentActivity)
+		@ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts)
 	</div>
 }
 

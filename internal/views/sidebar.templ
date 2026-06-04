@@ -7,6 +7,8 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
@@ -15,8 +17,7 @@ import (
 templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string) {
 	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
 		@SidebarHeader(accounts, "mail")
-		<hr class="divider-etched mx-4"/>
-		@SidebarFolderTree(accounts, activeFolder, uiSettings)
+		@MailSidebarBody(accounts, activeFolder, uiSettings)
 		@SidebarFooter()
 	</aside>
 }
@@ -24,6 +25,53 @@ templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSe
 templ ContactsSidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string, filters models.ContactFilters) {
 	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
 		@SidebarHeader(accounts, "contacts")
+		@ContactsSidebarBody(accounts, activeFolder, uiSettings, filters)
+		@SidebarFooter()
+	</aside>
+}
+
+templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
+	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="mail">
+		<div class="px-4 pb-4">
+			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+				@icon.Pen(icon.Props{Class: "size-4"})
+				Compose
+			</button>
+		</div>
+		<hr class="divider-etched mx-4"/>
+		@SidebarFolderTree(accounts, activeFolder, uiSettings)
+	</div>
+}
+
+templ ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.ContactFilters) {
+	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="contacts">
+		<div class="px-4 pb-4">
+			<div class="inline-flex w-full items-stretch rounded-lg shadow-sm">
+				<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sidebar-primary-foreground font-semibold text-sm">
+					@icon.UserPlus(icon.Props{Class: "size-4"})
+					New contact
+				</a>
+				@dropdown.Dropdown() {
+					@dropdown.Trigger() {
+						<button type="button" class="btn-skeuo inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-l-none rounded-r-lg border-l border-sidebar-border/70 text-sidebar-primary-foreground" aria-label="Contact actions">
+							@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+						</button>
+					}
+					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-44 normal-case tracking-normal"}) {
+						@dialog.Trigger(dialog.TriggerProps{For: "contacts-import-dialog"}) {
+							<button type="button" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
+								@icon.Upload(icon.Props{Class: "size-4 text-muted-foreground"})
+								Import vCard
+							</button>
+						}
+						<a href="/api/contacts/export" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground">
+							@icon.Download(icon.Props{Class: "size-4 text-muted-foreground"})
+							Export all
+						</a>
+					}
+				}
+			</div>
+		</div>
 		<hr class="divider-etched mx-4"/>
 		<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
 			@ContactsSidebarItem("", "All contacts", filters)
@@ -34,8 +82,7 @@ templ ContactsSidebar(accounts []models.Account, activeFolder string, width stri
 				}
 			}
 		</nav>
-		@SidebarFooter()
-	</aside>
+	</div>
 }
 
 templ ContactsSidebarAccountSection(account models.Account, filters models.ContactFilters, uiSettings map[string]string) {
@@ -279,86 +326,20 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 				<img src="/assets/logo.svg" alt="Gofer" class="h-8 w-8 shrink-0 p-1"/>
 				<span class="text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Gofer</span>
 			</div>
-			if activeApp == "contacts" {
-				<button
-					type="button"
-					hx-post="/api/settings/contacts/accounts/sync"
-					hx-swap="none"
-					hx-on::before-request="handleContactSidebarSyncStart()"
-					hx-on::after-request="handleContactSidebarSyncResult(event)"
-					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-					aria-label="Sync contacts now"
-					title="Sync contacts now"
-				>
-					@icon.RefreshCw(icon.Props{Class: "size-4"})
-				</button>
-			} else {
-				<div class="flex items-center gap-1">
-					<div class="flex items-center overflow-hidden rounded-md border border-sidebar-border/70 bg-sidebar-accent/20">
-						@SidebarMailSyncErrorSummaryTooltip(accounts)
-						@tooltip.Tooltip() {
-							@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
-								<button
-									type="button"
-									hx-post="/api/mail/sync"
-									hx-swap="none"
-									hx-on::before-request="handleMailSidebarSyncStart()"
-									hx-on::after-request="handleMailSidebarSyncResult(event)"
-									data-mail-sidebar-sync-button
-									class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
-									aria-label="Force sync all mail, including IDLE folders"
-								>
-									@icon.RefreshCw(icon.Props{Class: "size-4"})
-								</button>
-							}
-							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-fit whitespace-nowrap border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-								<span data-mail-sidebar-sync-tooltip>Force sync, including IDLE folders.</span>
-							}
-							}
-							@popover.Root(popover.RootProps{Class: "shrink-0"}) {
-								@popover.Trigger() {
-									<button
-										type="button"
-										class="inline-flex h-8 w-7 items-center justify-center rounded-r-md border-l border-sidebar-border/70 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[tui-popover-open=true]:bg-sidebar-accent data-[tui-popover-open=true]:text-sidebar-accent-foreground"
-										aria-label="Choose account to sync"
-									>
-										@icon.ChevronDown(icon.Props{Class: "size-3.5"})
-									</button>
-								}
-								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-64 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-									<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Force sync individual account, including IDLE folders</div>
-									<div class="space-y-1">
-										for _, account := range accounts {
-											if account.EmailSyncEnabled && !account.IsDeleting {
-												<button
-													type="button"
-													hx-post={ "/api/mail/sync/accounts/" + account.ID }
-													hx-swap="none"
-													hx-on::before-request="handleMailSidebarSyncStart()"
-													hx-on::after-request="handleMailSidebarSyncResult(event)"
-													data-mail-account-sync-button={ account.ID }
-													class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-													aria-label={ "Force sync " + account.Name + ", including IDLE folders" }
-												>
-													@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
-													<span class="min-w-0 flex-1">
-														<span class="block truncate font-medium">{ account.Name }</span>
-														<span class="block truncate text-[11px] text-sidebar-foreground/60">{ account.Email }</span>
-													</span>
-												</button>
-										}
-									}
-								</div>
-							}
-						}
-					</div>
-				</div>
-			}
+			<div id="sidebar-sync-controls">
+				@SidebarSyncControls(accounts, activeApp)
+			</div>
 		</div>
 		<div class="sidebar-app-nav relative grid h-8 w-full grid-cols-3 gap-0.5 rounded-lg border border-sidebar-border bg-sidebar-accent/35 p-0.5 mb-3" data-sidebar-app-nav>
 			<div data-sidebar-app-indicator class="absolute top-0.5 bottom-0.5 left-0.5 rounded-md border border-sidebar-border bg-sidebar-accent shadow-sm transition-transform duration-200 ease-out" style={ sidebarAppIndicatorStyle(activeApp) }></div>
 			<a
 				href="/"
+				hx-get="/"
+				hx-target="#mail-list"
+				hx-select="#mail-list"
+				hx-select-oob="#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML,#mail-view:outerHTML,#app-pane-dialogs:outerHTML"
+				hx-swap="outerHTML"
+				hx-push-url="/"
 				data-sidebar-app-button="mail"
 				aria-current?={ activeApp == "mail" }
 				aria-label="Mail"
@@ -373,6 +354,12 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 			</a>
 			<a
 				href="/contacts"
+				hx-get="/contacts"
+				hx-target="#mail-list"
+				hx-select="#mail-list"
+				hx-select-oob="#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML,#mail-view:outerHTML,#app-pane-dialogs:outerHTML"
+				hx-swap="outerHTML"
+				hx-push-url="/contacts"
 				data-sidebar-app-button="contacts"
 				aria-current?={ activeApp == "contacts" }
 				aria-label="Contacts"
@@ -390,18 +377,122 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 				<span class="sidebar-app-nav-label truncate">Calendar</span>
 			</button>
 		</div>
-		if activeApp == "contacts" {
-			<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
-				@icon.UserPlus(icon.Props{Class: "size-4"})
-				New contact
-			</a>
-		} else {
-			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
-				@icon.Pen(icon.Props{Class: "size-4"})
-				Compose
-			</button>
-		}
 	</div>
+}
+
+templ SidebarSyncControls(accounts []models.Account, activeApp string) {
+	<div class="flex items-center gap-1">
+		<div class="flex items-center overflow-hidden rounded-md border border-sidebar-border/70 bg-sidebar-accent/20">
+			if activeApp != "contacts" {
+				@SidebarMailSyncErrorSummaryTooltip(accounts)
+			}
+			@tooltip.Tooltip() {
+				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
+					if activeApp == "contacts" {
+						<button
+							type="button"
+							hx-post="/api/settings/contacts/accounts/sync"
+							hx-swap="none"
+							hx-on::before-request="handleContactSidebarSyncStart()"
+							hx-on::after-request="handleContactSidebarSyncResult(event)"
+							data-contact-sidebar-sync-button
+							class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
+							aria-label="Sync all contacts"
+						>
+							@icon.RefreshCw(icon.Props{Class: "size-4"})
+						</button>
+					} else {
+						<button
+							type="button"
+							hx-post="/api/mail/sync"
+							hx-swap="none"
+							hx-on::before-request="handleMailSidebarSyncStart()"
+							hx-on::after-request="handleMailSidebarSyncResult(event)"
+							data-mail-sidebar-sync-button
+							class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
+							aria-label="Force sync all mail, including IDLE folders"
+						>
+							@icon.RefreshCw(icon.Props{Class: "size-4"})
+						</button>
+					}
+				}
+				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-fit whitespace-nowrap border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+					if activeApp == "contacts" {
+						<span>Sync contacts.</span>
+					} else {
+						<span data-mail-sidebar-sync-tooltip>Force sync, including IDLE folders.</span>
+					}
+				}
+			}
+			@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+				@popover.Trigger() {
+					<button
+						type="button"
+						class="inline-flex h-8 w-7 items-center justify-center rounded-r-md border-l border-sidebar-border/70 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[tui-popover-open=true]:bg-sidebar-accent data-[tui-popover-open=true]:text-sidebar-accent-foreground"
+						aria-label="Choose account to sync"
+					>
+						@icon.ChevronDown(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-64 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+					if activeApp == "contacts" {
+						<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Sync individual contact account</div>
+						<div class="space-y-1">
+							for _, account := range accounts {
+								if contactSidebarAccountVisible(account) {
+									<button
+										type="button"
+										hx-post="/api/settings/contacts/accounts/sync"
+										hx-vals={ sidebarContactSyncValues(account.ID) }
+										hx-swap="none"
+										hx-on::before-request="handleContactSidebarSyncStart()"
+										hx-on::after-request="handleContactSidebarSyncResult(event)"
+										data-contact-account-sync-button={ account.ID }
+										class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+										aria-label={ "Sync contacts for " + contactSidebarAccountName(account) }
+									>
+										@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
+										<span class="min-w-0 flex-1">
+											<span class="block truncate font-medium">{ contactSidebarAccountName(account) }</span>
+											<span class="block truncate text-[11px] text-sidebar-foreground/60">{ account.Email }</span>
+										</span>
+									</button>
+								}
+							}
+						</div>
+					} else {
+						<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Force sync individual account, including IDLE folders</div>
+						<div class="space-y-1">
+							for _, account := range accounts {
+								if account.EmailSyncEnabled && !account.IsDeleting {
+									<button
+										type="button"
+										hx-post={ "/api/mail/sync/accounts/" + account.ID }
+										hx-swap="none"
+										hx-on::before-request="handleMailSidebarSyncStart()"
+										hx-on::after-request="handleMailSidebarSyncResult(event)"
+										data-mail-account-sync-button={ account.ID }
+										class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+										aria-label={ "Force sync " + account.Name + ", including IDLE folders" }
+									>
+										@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
+										<span class="min-w-0 flex-1">
+											<span class="block truncate font-medium">{ account.Name }</span>
+											<span class="block truncate text-[11px] text-sidebar-foreground/60">{ account.Email }</span>
+										</span>
+									</button>
+								}
+							}
+						</div>
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+func sidebarContactSyncValues(accountID string) string {
+	return fmt.Sprintf(`{"account_id":%q}`, strings.TrimSpace(accountID))
 }
 
 func sidebarAppIndicatorStyle(activeApp string) string {

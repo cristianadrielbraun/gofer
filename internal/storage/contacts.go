@@ -663,20 +663,25 @@ func (db *DB) SearchContacts(ctx context.Context, userID, query string, limit in
 }
 
 func (db *DB) GetContact(ctx context.Context, userID, contactID string) (*models.Contact, error) {
+	contact, _, err := db.GetContactWithProfile(ctx, userID, contactID)
+	return contact, err
+}
+
+func (db *DB) GetContactWithProfile(ctx context.Context, userID, contactID string) (*models.Contact, *models.ContactProfile, error) {
 	if contactID == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if profile, err := db.GetContactProfile(ctx, userID, contactID); err != nil {
-		return nil, err
+		return nil, nil, err
 	} else if profile != nil && !profile.IsDeleted {
 		contact, err := db.contactFromProfile(ctx, userID, *profile)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		db.hydrateContactAvatar(ctx, &contact)
 		contact.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
 		_ = db.hydrateContactSyncState(ctx, userID, &contact)
-		return &contact, nil
+		return &contact, profile, nil
 	}
 	row := db.Read().QueryRowContext(ctx, `
 		SELECT c.id, c.display_name, ce.email, c.source, c.is_manual, c.is_deleted,
@@ -686,16 +691,16 @@ func (db *DB) GetContact(ctx context.Context, userID, contactID string) (*models
 		WHERE c.user_id = ? AND c.id = ? AND c.is_deleted = 0`, userID, contactID)
 	c, err := scanContactRow(row, timezoneLocationFromContext(ctx))
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	db.hydrateContactAvatar(ctx, &c)
 	c.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
 	_ = db.hydrateContactAddressBooks(ctx, userID, &c)
 	_ = db.hydrateContactSyncState(ctx, userID, &c)
-	return &c, nil
+	return &c, nil, nil
 }
 
 func contactLegacySearchSQL() string {

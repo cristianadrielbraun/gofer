@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -121,5 +122,54 @@ func TestUnifyContactCreatesGoferManagedFields(t *testing.T) {
 	}
 	if updated == nil || !updated.IsManual {
 		t.Fatalf("updated contact = %#v, want manual Gofer contact", updated)
+	}
+}
+
+func TestUnifyContactJSONRequestsDetailRefresh(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	profile, err := db.SaveContactProfile(ctx, "default", models.ContactProfile{
+		DisplayName:  "Observed Person",
+		PrimaryEmail: "seen@example.com",
+		Cards:        []models.ContactCard{{Kind: "observed"}},
+		Fields: []models.ContactField{
+			{ID: "observed-email", Kind: "email", Value: "seen@example.com", IsPrimary: true, Source: "observed"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveContactProfile() error = %v", err)
+	}
+
+	h := &Handler{db: db}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/contacts/{id}/unify", h.handleUnifyContact)
+	req := httptest.NewRequest(http.MethodPost, "/api/contacts/"+profile.ID+"/unify", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode JSON response: %v", err)
+	}
+	if body["contact_id"] != profile.ID {
+		t.Fatalf("contact_id = %v, want %q", body["contact_id"], profile.ID)
+	}
+	if body["refresh_detail"] != true {
+		t.Fatalf("refresh_detail = %v, want true", body["refresh_detail"])
+	}
+	if body["location"] != "/contacts?contact="+profile.ID {
+		t.Fatalf("location = %v, want contact URL", body["location"])
 	}
 }

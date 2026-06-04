@@ -12,7 +12,7 @@ import (
 func TestContactsDetailShowsSyncQueuedNotice(t *testing.T) {
 	var out bytes.Buffer
 	contact := models.Contact{ID: "contact-1", Name: "Jane", Email: "jane@example.com"}
-	if err := ContactsDetail(&contact, nil, false, true, nil, nil).Render(context.Background(), &out); err != nil {
+	if err := ContactsDetail(&contact, nil, false, true, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("ContactsDetail.Render() error = %v", err)
 	}
 	html := out.String()
