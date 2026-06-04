@@ -178,6 +178,7 @@
 
 .btn-skeuo {
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-sidebar-primary) 100%, #fff) 0%, var(--color-sidebar-primary) 100%);
+  color: var(--color-sidebar-primary-foreground);
   box-shadow: var(--shadow-button);
   transition: all 0.1s ease;
 }
@@ -1840,7 +1841,7 @@ body.mail-list-column-resizing {
   align-items: center;
   justify-content: center;
   background: linear-gradient(180deg, var(--sidebar-primary), color-mix(in srgb, var(--sidebar-primary) 80%, #000));
-  color: #fff;
+  color: var(--sidebar-primary-foreground);
   box-shadow:
     0 1px 0 rgba(255,255,255,0.15) inset,
     0 2px 4px rgba(0,0,0,0.3);
@@ -2088,7 +2089,7 @@ body.mail-list-column-resizing {
   border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: var(--primary-foreground);
   background: linear-gradient(180deg, color-mix(in srgb, var(--copper) 100%, #fff) 0%, var(--copper) 100%);
   box-shadow:
     0 1px 0 rgba(255,255,255,0.15) inset,

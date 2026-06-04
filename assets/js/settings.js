@@ -713,7 +713,7 @@ function setupSettingsHistory() {
   if (!window.location.pathname.startsWith("/settings")) return
   var parts = window.location.pathname.replace(/\/+$/, "").split("/")
   var tab = parts[2] || "accounts"
-  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "compose-display" && tab !== "advanced") tab = "accounts"
+  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "regional" && tab !== "compose-display" && tab !== "advanced") tab = "accounts"
   history.replaceState({ settingsTab: tab }, "", window.location.pathname)
 }
 
@@ -735,7 +735,7 @@ function setupSettingsSidebar() {
 function settingsTabFromLocation() {
   var parts = window.location.pathname.replace(/\/+$/, "").split("/")
   var tab = parts[2] || "accounts"
-  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "compose-display" && tab !== "advanced") return "accounts"
+  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "regional" && tab !== "compose-display" && tab !== "advanced") return "accounts"
   return tab
 }
 

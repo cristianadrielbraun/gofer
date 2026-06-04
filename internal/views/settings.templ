@@ -1109,6 +1109,7 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 								@selectbox.Item(selectbox.ItemProps{Value: "30", Selected: settings.SyncIntervalMinutes == 30}) { 30 minutes }
 							}
 						}
+						<span id="sync-save-status" class="sr-only" aria-live="polite"></span>
 					</div>
 				</div>
 			</div>
@@ -1169,7 +1170,7 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 									<div class="rounded-md border border-border/70 bg-card/60 p-3">
 										<div class="flex items-center gap-1.5 mb-2">
 											@icon.Clock(icon.Props{Class: "size-3 text-muted-foreground"})
-											<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Polling ({ strconv.Itoa(settings.SyncIntervalMinutes) } min)</span>
+											<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider" data-sync-polling-title>Polling ({ strconv.Itoa(settings.SyncIntervalMinutes) } min)</span>
 										</div>
 										<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-poll-zone={ account.AccountID }>
 											for _, f := range account.Folders {
@@ -1185,34 +1186,6 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 					</div>
 				</div>
 			}
-
-			<div class="flex justify-end pt-2">
-					<button
-						type="submit"
-						id="sync-save-btn"
-						disabled
-						class="btn-skeuo inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
-					>
-						<span class="inline-flex items-center gap-1.5">
-							<span class="sync-btn-idle inline-flex items-center gap-1.5">
-								@icon.Check(icon.Props{Class: "size-4"})
-								Save
-							</span>
-							<span class="sync-btn-saving hidden items-center gap-1.5">
-								<div class="size-4 border-2 border-current/30 border-t-current rounded-full animate-spin"></div>
-								Saving
-							</span>
-							<span class="sync-btn-saved hidden items-center gap-1.5">
-								<svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path class="sync-check-icon" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-								Saved
-							</span>
-							<span class="sync-btn-error hidden items-center gap-1.5">
-								<svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path class="sync-x-icon" stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M6 18L18 6"/></svg>
-								Failed
-							</span>
-						</span>
-					</button>
-			</div>
 		</form>
 	</div>
 	<style>
@@ -1226,19 +1199,29 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 		}
 		.sync-pill-enter { animation: sync-pill-in 220ms ease-out; }
 		.sync-pill-exit { animation: sync-pill-out 160ms ease-in forwards; }
-		@keyframes check-draw {
-			0% { stroke-dashoffset: 24; }
-			100% { stroke-dashoffset: 0; }
-		}
-		@keyframes x-draw {
-			0% { stroke-dashoffset: 12; }
-			100% { stroke-dashoffset: 0; }
-		}
-		.sync-check-icon { stroke-dasharray: 24; stroke-dashoffset: 24; animation: check-draw 300ms ease-out 100ms forwards; }
-		.sync-x-icon { stroke-dasharray: 12; stroke-dashoffset: 12; animation: x-draw 250ms ease-out 100ms forwards; }
 	</style>
 	<script>
 	(function() {
+		var syncAutoSaveTimer = null;
+		var syncSaveInFlight = false;
+		var syncSaveQueued = false;
+
+		function setPillMode(pill, isIDLE) {
+			var label = pill.querySelector('.sync-label');
+			if (isIDLE) {
+				pill.className = pill.className.replace(/bg-muted\/50 border-border text-muted-foreground/g, 'bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200');
+				if (!label) {
+					label = document.createElement('span');
+					label.className = 'sync-label text-[10px] opacity-70';
+					pill.appendChild(label);
+				}
+				label.textContent = 'real-time';
+				return;
+			}
+			pill.className = pill.className.replace(/bg-amber-800\/10 border-amber-700\/20 text-amber-800 dark:bg-amber-300\/10 dark:border-amber-300\/20 dark:text-amber-200/g, 'bg-muted/50 border-border text-muted-foreground');
+			if (label) label.remove();
+		}
+
 		function togglePill(pill) {
 			if (pill.classList.contains('sync-pill-exit')) return;
 
@@ -1256,13 +1239,7 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 				pill.removeEventListener('animationend', onExit);
 				pill.classList.remove('sync-pill-exit');
 
-				if (toIdle) {
-					pill.className = pill.className.replace(/bg-muted\/50 border-border text-muted-foreground/g, 'bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200');
-					pill.querySelector('.sync-label').textContent = 'real-time';
-				} else {
-					pill.className = pill.className.replace(/bg-amber-800\/10 border-amber-700\/20 text-amber-800 dark:bg-amber-300\/10 dark:border-amber-300\/20 dark:text-amber-200/g, 'bg-muted/50 border-border text-muted-foreground');
-					pill.querySelector('.sync-label').textContent = pill.dataset.interval + ' min';
-				}
+				setPillMode(pill, toIdle);
 
 				target.appendChild(pill);
 				pill.classList.add('sync-pill-enter');
@@ -1273,6 +1250,7 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 
 				updateEmptyStates(container);
 				updateHiddenInputs();
+				scheduleAutoSave(80);
 			});
 		}
 
@@ -1299,6 +1277,7 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 
 		function updateHiddenInputs() {
 			var container = document.getElementById('idle-folders-inputs');
+			if (!container) return;
 			container.innerHTML = '';
 			var seenAccounts = {};
 			document.querySelectorAll('[data-idle-zone] [data-role]').forEach(function(pill) {
@@ -1331,65 +1310,60 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 			if (pill) {
 				e.preventDefault();
 				togglePill(pill);
-				markDirty();
 				return;
 			}
 		});
 
-		function markDirty() {
-			var btn = document.getElementById('sync-save-btn');
-			if (btn) btn.disabled = false;
+		function syncPollingIntervalDisplay() {
+			var input = document.querySelector('#sync-settings-form input[name="sync_interval_minutes"]');
+			if (!input || !input.value) return;
+			var interval = input.value;
+			document.querySelectorAll('[data-sync-polling-title]').forEach(function(title) {
+				title.textContent = 'Polling (' + interval + ' min)';
+			});
+			document.querySelectorAll('[data-sync-folders]').forEach(function(container) {
+				container.dataset.syncFolders = interval;
+			});
+			document.querySelectorAll('[data-sync-pill]').forEach(function(pill) {
+				pill.dataset.interval = interval;
+			});
 		}
 
-		var syncBtnTimer = null;
-		function setButtonState(state) {
-			var btn = document.getElementById('sync-save-btn');
-			if (!btn) return;
+		function setSaveStatus(message) {
+			var status = document.getElementById('sync-save-status');
+			if (status) status.textContent = message || '';
+		}
 
-			if (syncBtnTimer) { clearTimeout(syncBtnTimer); syncBtnTimer = null; }
-
-			var fromW = btn.offsetWidth;
-			btn.style.width = fromW + 'px';
-
-			btn.querySelectorAll('.sync-btn-idle,.sync-btn-saving,.sync-btn-saved,.sync-btn-error').forEach(function(el) {
-				el.classList.add('hidden');
-				el.classList.remove('inline-flex');
+		function showSaveError() {
+			if (typeof showGoferToast !== 'function') return;
+			showGoferToast({
+				id: 'sync-settings-toast',
+				title: 'Could not save email sync settings',
+				description: 'Try again in a moment.',
+				variant: 'error',
+				icon: 'error',
+				position: 'bottom-right',
+				duration: 5000,
+				dismissible: true,
 			});
-			var target = btn.querySelector('.sync-btn-' + state);
-			if (target) { target.classList.remove('hidden'); target.classList.add('inline-flex'); }
+		}
 
-			btn.classList.remove('btn-skeuo', 'bg-emerald-600', 'hover:bg-emerald-700', 'text-white', 'bg-destructive', 'hover:bg-destructive/90');
-			if (state === 'saved') {
-				btn.classList.add('bg-emerald-600', 'hover:bg-emerald-700', 'text-white');
-			} else if (state === 'error') {
-				btn.classList.add('bg-destructive', 'hover:bg-destructive/90', 'text-white');
-			} else {
-				btn.classList.add('btn-skeuo');
+		function scheduleAutoSave(delay) {
+			if (syncAutoSaveTimer) window.clearTimeout(syncAutoSaveTimer);
+			syncAutoSaveTimer = window.setTimeout(saveSyncSettings, typeof delay === 'number' ? delay : 350);
+		}
+
+		function saveSyncSettings() {
+			var form = document.getElementById('sync-settings-form');
+			if (!form) return;
+			if (syncSaveInFlight) {
+				syncSaveQueued = true;
+				return;
 			}
 
-			btn.disabled = false;
-
-			var toW = btn.scrollWidth;
-			btn.style.width = fromW + 'px';
-
-			requestAnimationFrame(function() {
-				btn.style.transition = 'width 200ms ease, background-color 200ms ease, opacity 200ms ease, color 200ms ease';
-				btn.style.width = toW + 'px';
-
-				syncBtnTimer = setTimeout(function() {
-					btn.style.width = '';
-					btn.style.transition = '';
-					if (state === 'saving') btn.disabled = true;
-					syncBtnTimer = null;
-				}, 220);
-			});
-		}
-
-		document.getElementById('sync-settings-form').addEventListener('submit', function(e) {
-			e.preventDefault();
-			var form = this;
-			var btn = document.getElementById('sync-save-btn');
-			setButtonState('saving');
+			syncSaveInFlight = true;
+			syncAutoSaveTimer = null;
+			setSaveStatus('Saving');
 
 			var formData = new FormData(form);
 			var params = new URLSearchParams();
@@ -1404,23 +1378,42 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 				if (!res.ok) throw new Error(res.statusText);
 				return res.json();
 			}).then(function() {
-				setButtonState('saved');
-				syncBtnTimer = setTimeout(function() {
-					setButtonState('idle');
-					syncBtnTimer = setTimeout(function() {
-						document.getElementById('sync-save-btn').disabled = true;
-					}, 220);
-				}, 2000);
+				setSaveStatus('Saved');
 			}).catch(function() {
-				setButtonState('error');
-				syncBtnTimer = setTimeout(function() {
-					setButtonState('idle');
-				}, 3000);
+				setSaveStatus('Save failed');
+				showSaveError();
+			}).finally(function() {
+				syncSaveInFlight = false;
+				if (syncSaveQueued) {
+					syncSaveQueued = false;
+					scheduleAutoSave(0);
+				}
 			});
-		});
+		}
+
+		var form = document.getElementById('sync-settings-form');
+		if (form) {
+			form.addEventListener('submit', function(e) {
+				e.preventDefault();
+				saveSyncSettings();
+			});
+			form.addEventListener('change', function() {
+				syncPollingIntervalDisplay();
+				scheduleAutoSave();
+			});
+			form.addEventListener('input', function(e) {
+				if (e.target && e.target.matches && e.target.matches('input[name="sync_interval_minutes"]')) {
+					syncPollingIntervalDisplay();
+					scheduleAutoSave();
+				}
+			});
+		}
 
 		document.querySelector('#sync-settings-form [data-tui-selectbox-content]')?.addEventListener('click', function() {
-			setTimeout(markDirty, 50);
+			setTimeout(function() {
+				syncPollingIntervalDisplay();
+				scheduleAutoSave();
+			}, 50);
 		});
 
 		updateHiddenInputs();
@@ -1446,13 +1439,11 @@ templ syncFolderPill(f models.FolderSyncStatus, isIDLE bool, interval int, accou
 		{{ folderIcon := icon.Icon(f.Icon) }}
 		@folderIcon(icon.Props{Class: "size-3"})
 		{ f.Name }
-		<span class="sync-label text-[10px] opacity-70">
-			if isIDLE {
+		if isIDLE {
+			<span class="sync-label text-[10px] opacity-70">
 				real-time
-			} else {
-				{ strconv.Itoa(interval) } min
-			}
-		</span>
+			</span>
+		}
 	</button>
 }
 
