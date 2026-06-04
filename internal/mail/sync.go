@@ -42,6 +42,7 @@ type accountSyncProgressScope struct {
 	kind          string
 	userID        string
 	runID         string
+	accountIDs    []string
 	accountsTotal int
 	accountIndex  int
 	parallelism   int
@@ -128,6 +129,9 @@ func accountSyncProgressPayload(ctx context.Context, fallbackKind accountSyncKin
 	}
 	if scope.runID != "" {
 		payload["run_id"] = scope.runID
+	}
+	if len(scope.accountIDs) > 0 {
+		payload["account_ids"] = append([]string(nil), scope.accountIDs...)
 	}
 	if scope.accountsTotal > 0 {
 		payload["accounts_total"] = scope.accountsTotal
@@ -522,6 +526,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 		return
 	}
 	runID := userID + "-scheduled-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	runAccountIDs := append([]string(nil), accountIDs...)
 	total := len(accountIDs)
 	parallelism := accountSyncParallelism(total, backgroundSyncMaxParallelAccounts)
 	log.Printf("scheduled sync: run %s started with %d account(s)", runID, total)
@@ -537,7 +542,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 		"run_id":         runID,
 		"accounts_total": total,
 		"accounts_done":  0,
-		"account_ids":    append([]string(nil), accountIDs...),
+		"account_ids":    append([]string(nil), runAccountIDs...),
 		"parallelism":    parallelism,
 		"kind":           "scheduled",
 	}})
@@ -563,6 +568,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 				o.events.Publish(Event{Type: EventScheduledSyncProgress, AccountID: job.accountID, Payload: map[string]any{
 					"user_id":        userID,
 					"run_id":         runID,
+					"account_ids":    append([]string(nil), runAccountIDs...),
 					"accounts_total": total,
 					"accounts_done":  done,
 					"account_index":  job.index + 1,
@@ -578,6 +584,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 					kind:          "scheduled",
 					userID:        userID,
 					runID:         runID,
+					accountIDs:    runAccountIDs,
 					accountsTotal: total,
 					accountIndex:  job.index + 1,
 					parallelism:   parallelism,
@@ -625,6 +632,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 				payload := map[string]any{
 					"user_id":        userID,
 					"run_id":         runID,
+					"account_ids":    append([]string(nil), runAccountIDs...),
 					"accounts_total": total,
 					"accounts_done":  done,
 					"account_index":  job.index + 1,
@@ -677,6 +685,7 @@ queueLoop:
 	o.events.Publish(Event{Type: EventScheduledSyncComplete, Payload: map[string]any{
 		"user_id":        userID,
 		"run_id":         runID,
+		"account_ids":    append([]string(nil), runAccountIDs...),
 		"accounts_total": total,
 		"accounts_done":  finalCompleted,
 		"failures":       finalFailures,
@@ -1053,6 +1062,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 	}
 
 	accountIDs = append([]string(nil), accountIDs...)
+	runAccountIDs := append([]string(nil), accountIDs...)
 	runID := userID + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	run := &manualSyncRun{runID: runID, cancel: cancel}
@@ -1079,7 +1089,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 			"run_id":         runID,
 			"accounts_total": total,
 			"accounts_done":  0,
-			"account_ids":    append([]string(nil), accountIDs...),
+			"account_ids":    append([]string(nil), runAccountIDs...),
 			"parallelism":    parallelism,
 		}})
 
@@ -1104,6 +1114,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 					o.events.Publish(Event{Type: EventManualSyncProgress, AccountID: job.accountID, Payload: map[string]any{
 						"user_id":        userID,
 						"run_id":         runID,
+						"account_ids":    append([]string(nil), runAccountIDs...),
 						"accounts_total": total,
 						"accounts_done":  done,
 						"account_index":  job.index + 1,
@@ -1116,7 +1127,16 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 
 					status := "synced"
 					errorText := ""
-					accountCtx, finish, ok := o.beginManualAccountSync(syncCtx, job.accountID)
+					accountRunCtx := withAccountSyncProgressScope(syncCtx, accountSyncProgressScope{
+						kind:          string(accountSyncManual),
+						userID:        userID,
+						runID:         runID,
+						accountIDs:    runAccountIDs,
+						accountsTotal: total,
+						accountIndex:  job.index + 1,
+						parallelism:   parallelism,
+					})
+					accountCtx, finish, ok := o.beginManualAccountSync(accountRunCtx, job.accountID)
 					if !ok {
 						status = "cancelled"
 						errorText = "manual sync could not start"
@@ -1158,6 +1178,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 					payload := map[string]any{
 						"user_id":        userID,
 						"run_id":         runID,
+						"account_ids":    append([]string(nil), runAccountIDs...),
 						"accounts_total": total,
 						"accounts_done":  done,
 						"account_index":  job.index + 1,
@@ -1209,6 +1230,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 		o.events.Publish(Event{Type: EventManualSyncComplete, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         runID,
+			"account_ids":    append([]string(nil), runAccountIDs...),
 			"accounts_total": total,
 			"accounts_done":  finalCompleted,
 			"failures":       finalFailures,

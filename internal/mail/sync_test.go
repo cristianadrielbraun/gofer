@@ -33,6 +33,33 @@ func TestBackgroundSyncSlotsTreatsZeroAsUnlimited(t *testing.T) {
 	release()
 }
 
+func TestAccountSyncProgressPayloadCarriesRunAccountIDs(t *testing.T) {
+	accountIDs := []string{"acc-a", "acc-b"}
+	ctx := withAccountSyncProgressScope(context.Background(), accountSyncProgressScope{
+		kind:          "scheduled",
+		userID:        "user-1",
+		runID:         "run-1",
+		accountIDs:    accountIDs,
+		accountsTotal: len(accountIDs),
+		accountIndex:  1,
+		parallelism:   2,
+	})
+
+	payload := accountSyncProgressPayload(ctx, "", map[string]any{"status": "syncing"})
+	got, ok := payload["account_ids"].([]string)
+	if !ok {
+		t.Fatalf("account_ids = %#v, want []string", payload["account_ids"])
+	}
+	if len(got) != 2 || got[0] != "acc-a" || got[1] != "acc-b" {
+		t.Fatalf("account_ids = %#v, want full run roster", got)
+	}
+
+	accountIDs[0] = "mutated"
+	if got[0] != "acc-a" {
+		t.Fatalf("account_ids shares backing storage with scope input: %#v", got)
+	}
+}
+
 func TestPollingFoldersForPeriodicSyncExcludesIdleRoles(t *testing.T) {
 	folders := []storage.FolderSyncInfo{
 		{ID: "inbox", Role: "inbox"},
