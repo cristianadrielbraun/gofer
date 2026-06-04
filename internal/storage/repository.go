@@ -137,6 +137,24 @@ func isUnifiedFolderID(folderID string) bool {
 	}
 }
 
+func unifiedFolderRolePredicate(alias, folderID string) (string, []any) {
+	column := "role"
+	if alias != "" {
+		column = alias + ".role"
+	}
+	if folderID == "spam" {
+		return column + " IN (?, ?)", []any{"spam", "junk"}
+	}
+	return column + " = ?", []any{folderID}
+}
+
+func unifiedFolderIDFromRole(role string) string {
+	if role == "junk" {
+		return "spam"
+	}
+	return role
+}
+
 func normalizeSubject(subject string) string {
 	return mailmessage.BaseSubject(subject)
 }
@@ -1317,10 +1335,12 @@ func (db *DB) ensureFolderThreadState(ctx context.Context, folderID string) erro
 }
 
 func (db *DB) ensureFolderThreadStateForUserRole(ctx context.Context, userID, role string) error {
+	rolePredicate, roleArgs := unifiedFolderRolePredicate("f", role)
+	args := append([]any{userID}, roleArgs...)
 	rows, err := db.Read().QueryContext(ctx, `SELECT f.id
 		FROM folders f
 		JOIN accounts a ON f.account_id = a.id
-		WHERE a.user_id = ? AND f.role = ?`, userID, role)
+		WHERE a.user_id = ? AND `+rolePredicate, args...)
 	if err != nil {
 		return err
 	}
@@ -1367,7 +1387,7 @@ func (db *DB) GetAllFolderUnreadCounts(ctx context.Context, userID string) (map[
 		 FROM message_folder_state mfs
 		 JOIN folders f ON mfs.folder_id = f.id
 		 JOIN accounts a ON f.account_id = a.id
-		 WHERE a.user_id = ? AND f.role IN ('inbox', 'sent', 'drafts', 'archive', 'spam', 'trash')
+		 WHERE a.user_id = ? AND f.role IN ('inbox', 'sent', 'drafts', 'archive', 'spam', 'junk', 'trash')
 		 AND mfs.is_read = 0 AND mfs.is_deleted = 0
 		 GROUP BY f.role`, userID)
 	if err != nil {
@@ -1380,7 +1400,7 @@ func (db *DB) GetAllFolderUnreadCounts(ctx context.Context, userID string) (map[
 		if err := unifiedRows.Scan(&role, &count); err != nil {
 			return nil, err
 		}
-		result[role] = count
+		result[unifiedFolderIDFromRole(role)] += count
 	}
 
 	var starredUnread int
@@ -1572,10 +1592,11 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
 		args = []any{userID, ScheduledSendPending}
 	} else {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
 		where = `JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON f.account_id = a.id
-			 WHERE a.user_id = ? AND f.role = ? AND mfs.is_deleted = 0`
-		args = []any{userID, folderID}
+			 WHERE a.user_id = ? AND ` + rolePredicate + ` AND mfs.is_deleted = 0`
+		args = append([]any{userID}, roleArgs...)
 	}
 	args = append(append([]any{}, filterSQL.withArgs...), args...)
 	args = append(args, filterSQL.args...)
@@ -1640,12 +1661,14 @@ func (db *DB) GetFolderEmailCountUnfilteredForUser(ctx context.Context, userID, 
 		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
 			return 0, err
 		}
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		args := append([]any{userID}, roleArgs...)
 		var count int
 		err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*)
 			FROM folder_thread_state fts
 			JOIN folders f ON fts.folder_id = f.id
 			JOIN accounts a ON f.account_id = a.id
-			WHERE a.user_id = ? AND f.role = ?`, userID, folderID).Scan(&count)
+			WHERE a.user_id = ? AND `+rolePredicate, args...).Scan(&count)
 		return count, err
 	}
 	fromWhere, args := unifiedMailListFromWhere(userID, folderID)
@@ -2221,11 +2244,13 @@ func unifiedMailListFromWhere(userID, folderID string) (string, []any) {
 			JOIN accounts a ON m.account_id = a.id
 			WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`, []any{userID, ScheduledSendPending}
 	}
+	rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+	args := append([]any{userID}, roleArgs...)
 	return `FROM messages m
 		JOIN message_folder_state mfs ON m.id = mfs.message_id
 		JOIN folders f ON mfs.folder_id = f.id
 		JOIN accounts a ON f.account_id = a.id
-		WHERE a.user_id = ? AND f.role = ? AND mfs.is_deleted = 0`, []any{userID, folderID}
+		WHERE a.user_id = ? AND ` + rolePredicate + ` AND mfs.is_deleted = 0`, args
 }
 
 func accountMailListFromWhere(folderID string) (string, []any) {
@@ -2248,9 +2273,11 @@ func (db *DB) listEmailsUnfilteredForUser(ctx context.Context, userID, folderID 
 		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
 			return nil, err
 		}
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		args := append([]any{userID}, roleArgs...)
 		return db.listEmailsFromFolderThreadState(ctx, `JOIN folders f ON fts.folder_id = f.id
 			JOIN accounts owner ON f.account_id = owner.id
-			WHERE owner.user_id = ? AND f.role = ?`, []any{userID, folderID}, offset, limit)
+			WHERE owner.user_id = ? AND `+rolePredicate, args, offset, limit)
 	}
 	fromWhere, args := unifiedMailListFromWhere(userID, folderID)
 	return db.listEmailsUnfilteredFrom(ctx, fromWhere, args, offset, limit)
@@ -2333,10 +2360,11 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
 		args = []any{userID, ScheduledSendPending}
 	} else {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
 		where = `JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON f.account_id = a.id
-			 WHERE a.user_id = ? AND f.role = ? AND mfs.is_deleted = 0`
-		args = []any{userID, folderID}
+			 WHERE a.user_id = ? AND ` + rolePredicate + ` AND mfs.is_deleted = 0`
+		args = append([]any{userID}, roleArgs...)
 	}
 
 	query := `WITH ` + filterSQL.withClause + `visible AS (
@@ -2564,10 +2592,11 @@ func (db *DB) findEmailPositionForUser(ctx context.Context, userID, folderID, em
 			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
 		args = []any{msgID, userID, ScheduledSendPending}
 	} else {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
 		where = `JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON f.account_id = a.id
-			 WHERE a.user_id = ? AND f.role = ? AND mfs.is_deleted = 0`
-		args = []any{msgID, userID, folderID}
+			 WHERE a.user_id = ? AND ` + rolePredicate + ` AND mfs.is_deleted = 0`
+		args = append([]any{msgID, userID}, roleArgs...)
 	}
 
 	query := `WITH selected AS (
@@ -3701,6 +3730,7 @@ func defaultUISettings() map[string]string {
 		"mail_list_width":                   "50%",
 		"mail_list_height":                  "360",
 		"mail_list_navigation":              "infinite",
+		"unified_folders_enabled":           "true",
 		"auto_mark_read_after":              "0",
 		"translation_button_enabled":        "true",
 		"translation_provider":              "google_web_basic",

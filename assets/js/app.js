@@ -2641,11 +2641,15 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!activeFolderId) return false
     if (activeFolderId === eventFolderId) return true
     if (!eventFolderRole) return false
-    return isRoleFolderID(activeFolderId) && activeFolderId === eventFolderRole
+    return isRoleFolderID(activeFolderId) && activeFolderId === normalizedRoleFolderID(eventFolderRole)
   }
 
   function isRoleFolderID(folderId) {
     return folderId === "inbox" || folderId === "sent" || folderId === "drafts" || folderId === "trash" || folderId === "archive" || folderId === "spam"
+  }
+
+  function normalizedRoleFolderID(role) {
+    return role === "junk" ? "spam" : role
   }
 
   function applyActiveFolderSyncState() {

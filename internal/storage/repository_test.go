@@ -99,6 +99,59 @@ func TestEmailQueryFilterUsesExistingMessageFields(t *testing.T) {
 	}
 }
 
+func TestUnifiedSpamIncludesJunkRoleFolders(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc_junk', 'default', 'junk@example.com'), ('acc_spam', 'default', 'spam@example.com')`); err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_junk_junk", AccountID: "acc_junk", Name: "Junk", Role: "junk", Selectable: true},
+		{ID: "acc_spam_spam", AccountID: "acc_spam", Name: "Spam", Role: "spam", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{
+		{
+			AccountID: "acc_junk",
+			FolderID:  "acc_junk_junk",
+			RemoteUID: 1,
+			MessageID: "<junk@example.com>",
+			Subject:   "Junk message",
+			FromEmail: "sender@example.com",
+			DateSent:  time.Now(),
+		},
+		{
+			AccountID: "acc_spam",
+			FolderID:  "acc_spam_spam",
+			RemoteUID: 1,
+			MessageID: "<spam@example.com>",
+			Subject:   "Spam message",
+			FromEmail: "sender@example.com",
+			DateSent:  time.Now().Add(time.Minute),
+		},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "spam", 0, 50, models.EmailFilters{})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
+	}
+	if page.TotalCount != 2 || len(page.Emails) != 2 {
+		t.Fatalf("unified spam page total=%d len=%d, want 2 messages", page.TotalCount, len(page.Emails))
+	}
+
+	counts, err := db.GetAllFolderUnreadCounts(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetAllFolderUnreadCounts() error = %v", err)
+	}
+	if counts["spam"] != 2 {
+		t.Fatalf("unified spam unread = %d, want 2", counts["spam"])
+	}
+}
+
 func TestEmailsRangeSortsMixedTimezoneDatesByInstant(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

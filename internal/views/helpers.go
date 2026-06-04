@@ -226,12 +226,20 @@ func unifiedFolders(accounts []models.Account) []models.Folder {
 
 func collectUnifiedFolders(folders []models.Folder, unreadByRole map[string]int, seenRole map[string]bool) {
 	for _, folder := range folders {
-		if folder.Role != "" && folder.Role != "custom" {
-			seenRole[folder.Role] = true
-			unreadByRole[folder.Role] += folder.Unread
+		role := unifiedFolderIDFromRole(folder.Role)
+		if role != "" && role != "custom" {
+			seenRole[role] = true
+			unreadByRole[role] += folder.Unread
 		}
 		collectUnifiedFolders(folder.Children, unreadByRole, seenRole)
 	}
+}
+
+func unifiedFolderIDFromRole(role string) string {
+	if role == "junk" {
+		return "spam"
+	}
+	return role
 }
 
 func themeClass(settings map[string]string) string {

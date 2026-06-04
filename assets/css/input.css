@@ -131,6 +131,28 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  #settings-content {
+    transition: opacity 45ms ease;
+  }
+  #settings-content.htmx-swapping,
+  #settings-content.htmx-added {
+    opacity: 0;
+  }
+  [data-tui-tabs-animate-content] [data-tui-tabs-content] {
+    transition: opacity 45ms ease;
+  }
+  [data-tui-tabs-animate-content] [data-tui-tabs-content].tui-tabs-content-enter,
+  [data-tui-tabs-animate-content] [data-tui-tabs-content].tui-tabs-content-exit {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #settings-content {
+      transition: none;
+    }
+    [data-tui-tabs-animate-content] [data-tui-tabs-content] {
+      transition: none;
+    }
+  }
 }
 
 ::selection {

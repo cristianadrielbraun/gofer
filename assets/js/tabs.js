@@ -82,10 +82,95 @@
     trigger.style.borderColor = "transparent";
   }
 
+  function shouldAnimateContent(container, animate) {
+    if (!animate || !container.hasAttribute("data-tui-tabs-animate-content")) {
+      return false;
+    }
+    return !(
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }
+
+  function clearContentAnimation(container) {
+    if (container._tuiTabsContentTimer) {
+      window.clearTimeout(container._tuiTabsContentTimer);
+      container._tuiTabsContentTimer = null;
+    }
+    container
+      .querySelectorAll("[data-tui-tabs-content]")
+      .forEach((content) => {
+        content.classList.remove(
+          "tui-tabs-content-enter",
+          "tui-tabs-content-exit",
+        );
+      });
+  }
+
+  function revealContent(content) {
+    content.classList.remove("hidden");
+    content.classList.add("tui-tabs-content-enter");
+    void content.offsetHeight;
+    requestAnimationFrame(() => {
+      content.classList.remove("tui-tabs-content-enter");
+    });
+  }
+
+  function updateContentState(container, tabsId, value, animate) {
+    const contents = Array.from(
+      container.querySelectorAll(
+        `[data-tui-tabs-content][data-tui-tabs-id="${tabsId}"]`,
+      ),
+    );
+    const target = contents.find(
+      (content) => content.getAttribute("data-tui-tabs-value") === value,
+    );
+    if (!target) return;
+
+    const activeContents = contents.filter(
+      (content) =>
+        !content.classList.contains("hidden") && content !== target,
+    );
+
+    clearContentAnimation(container);
+
+    contents.forEach((content) => {
+      const isActive = content === target;
+      content.setAttribute(
+        "data-tui-tabs-state",
+        isActive ? "active" : "inactive",
+      );
+      if (!isActive && activeContents.indexOf(content) === -1) {
+        content.classList.add("hidden");
+      }
+    });
+
+    if (!animate || activeContents.length === 0) {
+      contents.forEach((content) => {
+        content.classList.toggle("hidden", content !== target);
+      });
+      return;
+    }
+
+    activeContents.forEach((content) => {
+      content.classList.add("tui-tabs-content-exit");
+    });
+
+    container._tuiTabsContentTimer = window.setTimeout(() => {
+      activeContents.forEach((content) => {
+        content.classList.add("hidden");
+        content.classList.remove("tui-tabs-content-exit");
+      });
+      revealContent(target);
+      container._tuiTabsContentTimer = null;
+    }, 45);
+  }
+
   // Update tab state
   function setActiveTab(tabsId, value, animate = true) {
     const container = getTabsContainer(tabsId);
     if (!container) return;
+    const animateContent = shouldAnimateContent(container, animate);
 
     // Update all triggers with this tabs-id
     container
@@ -101,16 +186,7 @@
 
     syncSlidingIndicator(container, tabsId, value, animate);
 
-    container
-      .querySelectorAll(`[data-tui-tabs-content][data-tui-tabs-id="${tabsId}"]`)
-      .forEach((content) => {
-        const isActive = content.getAttribute("data-tui-tabs-value") === value;
-        content.setAttribute(
-          "data-tui-tabs-state",
-          isActive ? "active" : "inactive",
-        );
-        content.classList.toggle("hidden", !isActive);
-      });
+    updateContentState(container, tabsId, value, animateContent);
   }
 
   // Click handler
@@ -121,14 +197,16 @@
     const tabsId = trigger.getAttribute("data-tui-tabs-id");
     const value = trigger.getAttribute("data-tui-tabs-value");
     if (tabsId && value) {
+      const container = getTabsContainer(tabsId);
+      const isLocalTabs = container && container.hasAttribute("data-tui-tabs-local");
       setActiveTab(tabsId, value, true);
 
-      if (window.location.pathname.startsWith("/settings")) {
+      if (!isLocalTabs && window.location.pathname.startsWith("/settings")) {
         var url = "/settings/" + value;
         if (window.location.pathname !== url) {
           history.pushState({ settingsTab: value }, "", url);
         }
-      } else if (window.location.pathname.startsWith("/admin/avatars")) {
+      } else if (!isLocalTabs && window.location.pathname.startsWith("/admin/avatars")) {
         var adminURL = value === "overview" ? "/admin/avatars/" : "/admin/avatars/" + value;
         if (window.location.pathname !== adminURL) {
           history.pushState({ adminAvatarTab: value }, "", adminURL);
@@ -189,7 +267,7 @@
     if (!window.location.pathname.startsWith("/settings")) return;
     if (!e.state || !e.state.settingsTab) return;
     var tab = e.state.settingsTab;
-    var container = document.querySelector("[data-tui-tabs]");
+    var container = document.querySelector("[data-tui-tabs]:not([data-tui-tabs-local])");
     if (!container) {
       if (typeof htmx !== "undefined") {
         htmx.ajax("GET", "/settings/" + tab, {target: "#main-content", swap: "outerHTML"});

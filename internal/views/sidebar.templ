@@ -264,7 +264,7 @@ templ SettingsSidebar(activeTab string, width string) {
 		<nav class="flex-1 overflow-y-auto px-3 pt-3 pb-3">
 			<div class="px-2.5 pb-2 text-[11px] text-sidebar-foreground/45 uppercase tracking-wider font-semibold">Categories</div>
 			@SettingsSidebarItem(activeTab, "accounts", "Accounts")
-			@SettingsSidebarItem(activeTab, "sync", "Email Sync")
+			@SettingsSidebarItem(activeTab, "sync", "Email sync and folders settings")
 			@SettingsSidebarItem(activeTab, "contacts", "Contacts")
 			@SettingsSidebarItem(activeTab, "appearance", "Appearance")
 			@SettingsSidebarItem(activeTab, "regional", "Regional")
@@ -280,7 +280,7 @@ templ SettingsSidebarItem(activeTab string, value string, label string) {
 		hx-get={ templ.URL(fmt.Sprintf("/settings/%s", value)) }
 		hx-target="#settings-content"
 		hx-select="#settings-content"
-		hx-swap="outerHTML"
+		hx-swap="outerHTML swap:45ms settle:20ms"
 		hx-push-url={ templ.URL(fmt.Sprintf("/settings/%s", value)) }
 		data-settings-sidebar-link
 		data-settings-sidebar-value={ value }
@@ -551,7 +551,9 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 
 templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
 	<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
-		@SidebarUnifiedSection(accounts, activeFolder, uiSettings)
+		if uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" {
+			@SidebarUnifiedSection(accounts, activeFolder, uiSettings)
+		}
 		for _, account := range accounts {
 			if account.EmailSyncEnabled {
 				@SidebarAccountSection(account, activeFolder, uiSettings)

@@ -15,8 +15,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
-	"github.com/cristianadrielbraun/gofer/components/tooltip"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
+	"github.com/cristianadrielbraun/gofer/components/tabs"
+	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
 
 templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, activeTab string, uiSettings map[string]string, signatureData []models.AccountSignatureData) {
@@ -30,7 +31,7 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 				if activeTab == "accounts" {
 					@SettingsAccountsTab(accounts)
 				} else if activeTab == "sync" {
-					@SettingsSyncTab(syncSettings)
+					@SettingsSyncTab(syncSettings, uiSettings)
 				} else if activeTab == "contacts" {
 					@SettingsContactsTab(accounts, uiSettings)
 				} else if activeTab == "appearance" {
@@ -1085,109 +1086,148 @@ templ SettingsAccountsTab(accounts []models.Account) {
 	</div>
 }
 
-templ SettingsSyncTab(settings models.SyncSettings) {
-	<div class="mt-6 space-y-6">
-		<form id="sync-settings-form" action="/api/settings/sync" method="POST" class="space-y-4">
-			<div class="bg-card rounded-lg border p-6">
-				<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-					<div class="min-w-0">
-						<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Sync Frequency</h3>
-						<p class="text-xs text-muted-foreground leading-relaxed">Controls how often polled folders are checked for changes.</p>
+templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string) {
+	@tabs.Tabs(tabs.Props{ID: "email-sync-folder-tabs", Class: "mt-6 gap-5", Attributes: templ.Attributes{"data-tui-tabs-local": "", "data-tui-tabs-animate-content": "", "aria-label": "Email sync and folder settings"}}) {
+		@tabs.List(tabs.ListProps{Class: "bg-card"}) {
+			@tabs.Trigger(tabs.TriggerProps{Value: "sync", IsActive: true, Class: "px-3 text-xs"}) {
+				@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+				Sync settings
+			}
+			@tabs.Trigger(tabs.TriggerProps{Value: "unified", Class: "px-3 text-xs"}) {
+				@icon.Folders(icon.Props{Class: "size-3.5"})
+				Unified folders
+			}
+		}
+		@tabs.Content(tabs.ContentProps{Value: "sync", IsActive: true}) {
+			<form id="sync-settings-form" action="/api/settings/sync" method="POST" class="space-y-4">
+				<div class="bg-card rounded-lg border p-6">
+					<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+						<div class="min-w-0">
+							<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Sync Frequency</h3>
+							<p class="text-xs text-muted-foreground leading-relaxed">Controls how often polled folders are checked for changes.</p>
+						</div>
+						<div class="w-full sm:w-40 shrink-0">
+							@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+								@selectbox.Trigger(selectbox.TriggerProps{Name: "sync_interval_minutes", Class: "bg-background", DisableClear: true}) {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "5 minutes"}) {
+										{ strconv.Itoa(settings.SyncIntervalMinutes) } min
+									}
+								}
+								@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+									@selectbox.Item(selectbox.ItemProps{Value: "1", Selected: settings.SyncIntervalMinutes == 1}) { 1 minute }
+									@selectbox.Item(selectbox.ItemProps{Value: "5", Selected: settings.SyncIntervalMinutes == 5}) { 5 minutes }
+									@selectbox.Item(selectbox.ItemProps{Value: "10", Selected: settings.SyncIntervalMinutes == 10}) { 10 minutes }
+									@selectbox.Item(selectbox.ItemProps{Value: "15", Selected: settings.SyncIntervalMinutes == 15}) { 15 minutes }
+									@selectbox.Item(selectbox.ItemProps{Value: "30", Selected: settings.SyncIntervalMinutes == 30}) { 30 minutes }
+								}
+								}
+								<span id="sync-save-status" class="sr-only" aria-live="polite"></span>
+							</div>
+						</div>
 					</div>
-					<div class="w-full sm:w-40 shrink-0">
-						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-							@selectbox.Trigger(selectbox.TriggerProps{Name: "sync_interval_minutes", Class: "bg-background", DisableClear: true}) {
-								@selectbox.Value(selectbox.ValueProps{Placeholder: "5 minutes"}) {
-									{ strconv.Itoa(settings.SyncIntervalMinutes) } min
+
+				if len(settings.Accounts) > 0 {
+					<div class="bg-card rounded-lg border p-6 space-y-5">
+						<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+							<div>
+								<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Folder Sync Mode</h3>
+								<p class="text-xs text-muted-foreground leading-relaxed">Click a folder to move it between real-time push notifications and periodic polling.</p>
+							</div>
+							@popover.Root(popover.RootProps{ID: "sync-real-time-note", Class: "shrink-0"}) {
+								@popover.Trigger() {
+									<button
+										type="button"
+										class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md"
+										aria-label="Show real-time sync note"
+									>
+										@icon.TriangleAlert(icon.Props{Class: "size-3"})
+										Real-time note
+									</button>
+								}
+								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-80"}) {
+									<div class="flex items-start gap-2.5 p-3">
+										@icon.TriangleAlert(icon.Props{Class: "size-3.5 text-muted-foreground mt-0.5 shrink-0"})
+										<p class="text-xs text-muted-foreground leading-relaxed">
+											Each real-time folder holds open a persistent IMAP connection. Most servers limit concurrent connections (typically 5-15). Enabling real-time on too many folders may cause connection errors or prevent new folders from syncing.
+										</p>
+									</div>
 								}
 							}
-							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-								@selectbox.Item(selectbox.ItemProps{Value: "1", Selected: settings.SyncIntervalMinutes == 1}) { 1 minute }
-								@selectbox.Item(selectbox.ItemProps{Value: "5", Selected: settings.SyncIntervalMinutes == 5}) { 5 minutes }
-								@selectbox.Item(selectbox.ItemProps{Value: "10", Selected: settings.SyncIntervalMinutes == 10}) { 10 minutes }
-								@selectbox.Item(selectbox.ItemProps{Value: "15", Selected: settings.SyncIntervalMinutes == 15}) { 15 minutes }
-								@selectbox.Item(selectbox.ItemProps{Value: "30", Selected: settings.SyncIntervalMinutes == 30}) { 30 minutes }
+						</div>
+						<div id="idle-folders-inputs"></div>
+						<div class="space-y-3" data-sync-folders={ strconv.Itoa(settings.SyncIntervalMinutes) }>
+							for _, account := range settings.Accounts {
+								<div class="rounded-lg border border-border bg-background p-4" data-sync-account-card>
+									<div class="flex items-center gap-2.5 mb-4">
+										<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.AccountID }></div>
+										<div class="min-w-0">
+											<p class="text-sm font-medium leading-tight truncate">{ account.AccountName }</p>
+											<p class="text-xs text-muted-foreground truncate">{ account.AccountEmail }</p>
+										</div>
+									</div>
+									<div class="grid gap-3 md:grid-cols-2">
+										<div class="rounded-md border border-border/70 bg-card/60 p-3">
+											<div class="flex items-center gap-1.5 mb-2">
+												@icon.Zap(icon.Props{Class: "size-3 text-amber-700/70 dark:text-amber-300/70"})
+												<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Real-time</span>
+											</div>
+											<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-idle-zone={ account.AccountID }>
+												for _, f := range account.Folders {
+													if f.IsIDLE {
+														@syncFolderPill(f, true, settings.SyncIntervalMinutes, account.AccountID)
+													}
+												}
+											</div>
+										</div>
+										<div class="rounded-md border border-border/70 bg-card/60 p-3">
+											<div class="flex items-center gap-1.5 mb-2">
+												@icon.Clock(icon.Props{Class: "size-3 text-muted-foreground"})
+												<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider" data-sync-polling-title>Polling ({ strconv.Itoa(settings.SyncIntervalMinutes) } min)</span>
+											</div>
+											<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-poll-zone={ account.AccountID }>
+												for _, f := range account.Folders {
+													if !f.IsIDLE {
+														@syncFolderPill(f, false, settings.SyncIntervalMinutes, account.AccountID)
+													}
+												}
+											</div>
+										</div>
+									</div>
+								</div>
 							}
-						}
-						<span id="sync-save-status" class="sr-only" aria-live="polite"></span>
+							</div>
+						</div>
+					}
+				</form>
+		}
+		@tabs.Content(tabs.ContentProps{Value: "unified"}) {
+			<div class="bg-card rounded-lg border p-6 space-y-5">
+				<div>
+					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Unified folders</h3>
+					<p class="text-xs text-muted-foreground leading-relaxed">Control how Gofer groups matching folders across connected mail accounts.</p>
+				</div>
+				<div class="rounded-lg border border-border/60 bg-background/40 p-4">
+					<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+						<div class="min-w-0">
+								<label for="unified-folders-enabled" class="text-sm font-medium text-foreground">Enable unified folders</label>
+							<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Place combined Inbox, Sent, Drafts, Archive, Spam, and Trash folders above the individual account list.</p>
+						</div>
+						<div class="w-full sm:w-44 shrink-0">
+							<div class="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/40 px-3 py-2">
+								<span class="text-xs font-medium text-muted-foreground">Enable</span>
+								@switchcomp.Switch(switchcomp.Props{
+									ID:      "unified-folders-enabled",
+									Name:    "unified_folders_enabled",
+									Checked: uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false",
+									Attributes: templ.Attributes{"data-unified-folders-setting": "enabled"},
+								})
+							</div>
+						</div>
 					</div>
 				</div>
 			</div>
-
-			if len(settings.Accounts) > 0 {
-				<div class="bg-card rounded-lg border p-6 space-y-5">
-					<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-						<div>
-							<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Folder Sync Mode</h3>
-							<p class="text-xs text-muted-foreground leading-relaxed">Click a folder to move it between real-time push notifications and periodic polling.</p>
-						</div>
-						@popover.Root(popover.RootProps{ID: "sync-real-time-note", Class: "shrink-0"}) {
-							@popover.Trigger() {
-								<button
-									type="button"
-									class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md"
-									aria-label="Show real-time sync note"
-								>
-									@icon.TriangleAlert(icon.Props{Class: "size-3"})
-									Real-time note
-								</button>
-							}
-							@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-80"}) {
-								<div class="flex items-start gap-2.5 p-3">
-									@icon.TriangleAlert(icon.Props{Class: "size-3.5 text-muted-foreground mt-0.5 shrink-0"})
-									<p class="text-xs text-muted-foreground leading-relaxed">
-										Each real-time folder holds open a persistent IMAP connection. Most servers limit concurrent connections (typically 5-15). Enabling real-time on too many folders may cause connection errors or prevent new folders from syncing.
-									</p>
-								</div>
-							}
-						}
-					</div>
-					<div id="idle-folders-inputs"></div>
-					<div class="space-y-3" data-sync-folders={ strconv.Itoa(settings.SyncIntervalMinutes) }>
-						for _, account := range settings.Accounts {
-							<div class="rounded-lg border border-border bg-background p-4" data-sync-account-card>
-								<div class="flex items-center gap-2.5 mb-4">
-									<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.AccountID }></div>
-									<div class="min-w-0">
-										<p class="text-sm font-medium leading-tight truncate">{ account.AccountName }</p>
-										<p class="text-xs text-muted-foreground truncate">{ account.AccountEmail }</p>
-									</div>
-								</div>
-								<div class="grid gap-3 md:grid-cols-2">
-									<div class="rounded-md border border-border/70 bg-card/60 p-3">
-										<div class="flex items-center gap-1.5 mb-2">
-											@icon.Zap(icon.Props{Class: "size-3 text-amber-700/70 dark:text-amber-300/70"})
-											<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Real-time</span>
-										</div>
-										<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-idle-zone={ account.AccountID }>
-											for _, f := range account.Folders {
-												if f.IsIDLE {
-													@syncFolderPill(f, true, settings.SyncIntervalMinutes, account.AccountID)
-												}
-											}
-										</div>
-									</div>
-									<div class="rounded-md border border-border/70 bg-card/60 p-3">
-										<div class="flex items-center gap-1.5 mb-2">
-											@icon.Clock(icon.Props{Class: "size-3 text-muted-foreground"})
-											<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider" data-sync-polling-title>Polling ({ strconv.Itoa(settings.SyncIntervalMinutes) } min)</span>
-										</div>
-										<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-poll-zone={ account.AccountID }>
-											for _, f := range account.Folders {
-												if !f.IsIDLE {
-													@syncFolderPill(f, false, settings.SyncIntervalMinutes, account.AccountID)
-												}
-											}
-										</div>
-									</div>
-								</div>
-							</div>
-						}
-					</div>
-				</div>
-			}
-		</form>
-	</div>
+		}
+	}
 	<style>
 		@keyframes sync-pill-in {
 			0% { opacity: 0; transform: scale(0.9); }
@@ -1408,6 +1448,13 @@ templ SettingsSyncTab(settings models.SyncSettings) {
 				}
 			});
 		}
+
+		document.addEventListener('change', function(e) {
+			var unifiedFolders = e.target.closest && e.target.closest('[data-unified-folders-setting="enabled"]');
+			if (unifiedFolders && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('unified_folders_enabled', unifiedFolders.checked ? 'true' : 'false');
+			}
+		});
 
 		document.querySelector('#sync-settings-form [data-tui-selectbox-content]')?.addEventListener('click', function() {
 			setTimeout(function() {
