@@ -152,6 +152,68 @@ func TestUnifiedSpamIncludesJunkRoleFolders(t *testing.T) {
 	}
 }
 
+func TestUnifiedFolderAccountSettingsFilterMailAndUnread(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc_a', 'default', 'a@example.com'), ('acc_b', 'default', 'b@example.com')`); err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_a_inbox", AccountID: "acc_a", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_b_inbox", AccountID: "acc_b", Name: "Inbox", Role: "inbox", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{
+		{
+			AccountID: "acc_a",
+			FolderID:  "acc_a_inbox",
+			RemoteUID: 1,
+			MessageID: "<included@example.com>",
+			Subject:   "Included account",
+			FromEmail: "sender@example.com",
+			DateSent:  time.Now(),
+		},
+		{
+			AccountID: "acc_b",
+			FolderID:  "acc_b_inbox",
+			RemoteUID: 1,
+			MessageID: "<excluded@example.com>",
+			Subject:   "Excluded account",
+			FromEmail: "sender@example.com",
+			DateSent:  time.Now().Add(time.Minute),
+		},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+
+	settings := db.GetUISettings(ctx, "default")
+	settings[unifiedFolderAccountSettingKey("inbox", "acc_b")] = "false"
+	if err := db.SetUISettings(ctx, "default", settings); err != nil {
+		t.Fatalf("SetUISettings() error = %v", err)
+	}
+
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Emails) != 1 {
+		t.Fatalf("unified inbox page total=%d len=%d, want only included account", page.TotalCount, len(page.Emails))
+	}
+	if page.Emails[0].AccountID != "acc_a" || page.Emails[0].Subject != "Included account" {
+		t.Fatalf("unified inbox returned %#v, want acc_a included message", page.Emails[0])
+	}
+
+	counts, err := db.GetAllFolderUnreadCounts(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetAllFolderUnreadCounts() error = %v", err)
+	}
+	if counts["inbox"] != 1 {
+		t.Fatalf("unified inbox unread = %d, want only included account", counts["inbox"])
+	}
+}
+
 func TestEmailsRangeSortsMixedTimezoneDatesByInstant(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

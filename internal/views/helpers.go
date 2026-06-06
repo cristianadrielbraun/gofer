@@ -35,8 +35,16 @@ func unifiedFolderSettingKey(folderID string) string {
 	return "unified_folder_" + strings.TrimSpace(folderID) + "_enabled"
 }
 
+func unifiedFolderAccountSettingKey(folderID, accountID string) string {
+	return "unified_folder_" + strings.TrimSpace(folderID) + "_account_" + strings.TrimSpace(accountID) + "_enabled"
+}
+
 func unifiedFolderEnabled(settings map[string]string, folderID string) bool {
 	return uiSettingGet(settings, unifiedFolderSettingKey(folderID), "true") != "false"
+}
+
+func unifiedFolderAccountEnabled(settings map[string]string, folderID, accountID string) bool {
+	return uiSettingGet(settings, unifiedFolderAccountSettingKey(folderID, accountID), "true") != "false"
 }
 
 func folderDisplayName(folderID string) string {
@@ -67,6 +75,16 @@ func composeDefaultName(accounts []models.Account) string {
 		return accounts[0].Name
 	}
 	return ""
+}
+
+func syncAccountDisplayName(account models.AccountSyncStatus) string {
+	if strings.TrimSpace(account.AccountName) != "" {
+		return account.AccountName
+	}
+	if strings.TrimSpace(account.AccountEmail) != "" {
+		return account.AccountEmail
+	}
+	return account.AccountID
 }
 
 func uiSettingsJSON(settings map[string]string) string {
@@ -204,7 +222,7 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 		if !account.EmailSyncEnabled {
 			continue
 		}
-		collectUnifiedFolders(account.Folders, unreadByRole, seenRole)
+		collectUnifiedFolders(account.Folders, account.ID, settings, unreadByRole, seenRole)
 	}
 
 	options := unifiedFolderOptions()
@@ -213,7 +231,11 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 		if !unifiedFolderEnabled(settings, option.ID) {
 			continue
 		}
-		if option.ID != "starred" && !seenRole[option.ID] {
+		if option.ID == "starred" {
+			if !hasUnifiedFolderAccount(accounts, settings, option.ID) {
+				continue
+			}
+		} else if !seenRole[option.ID] {
 			continue
 		}
 		folders = append(folders, models.Folder{
@@ -228,14 +250,23 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 	return folders
 }
 
-func collectUnifiedFolders(folders []models.Folder, unreadByRole map[string]int, seenRole map[string]bool) {
+func hasUnifiedFolderAccount(accounts []models.Account, settings map[string]string, folderID string) bool {
+	for _, account := range accounts {
+		if account.EmailSyncEnabled && unifiedFolderAccountEnabled(settings, folderID, account.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+func collectUnifiedFolders(folders []models.Folder, accountID string, settings map[string]string, unreadByRole map[string]int, seenRole map[string]bool) {
 	for _, folder := range folders {
 		role := unifiedFolderIDFromRole(folder.Role)
-		if role != "" && role != "custom" {
+		if role != "" && role != "custom" && unifiedFolderAccountEnabled(settings, role, accountID) {
 			seenRole[role] = true
 			unreadByRole[role] += folder.Unread
 		}
-		collectUnifiedFolders(folder.Children, unreadByRole, seenRole)
+		collectUnifiedFolders(folder.Children, accountID, settings, unreadByRole, seenRole)
 	}
 }
 

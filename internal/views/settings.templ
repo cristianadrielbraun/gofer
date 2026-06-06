@@ -1227,7 +1227,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 				</div>
 				<div class="overflow-hidden rounded-lg border border-border/60 bg-background/40" data-unified-folder-list>
 					for _, folder := range unifiedFolderOptions() {
-						@UnifiedFolderSettingRow(folder, uiSettings)
+						@UnifiedFolderSettingRow(folder, settings.Accounts, uiSettings)
 					}
 				</div>
 			</div>
@@ -1442,7 +1442,16 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 			document.querySelectorAll('[data-unified-folder-switch]').forEach(function(input) {
 				input.disabled = !enabled;
 			});
+			document.querySelectorAll('[data-unified-folder-account-switch]').forEach(function(input) {
+				input.disabled = !enabled;
+			});
+			document.querySelectorAll('[data-unified-folder-account-button]').forEach(function(button) {
+				button.disabled = !enabled;
+			});
 			document.querySelectorAll('[data-unified-folder-dependent]').forEach(function(row) {
+				row.classList.toggle('opacity-50', !enabled);
+			});
+			document.querySelectorAll('[data-unified-folder-account-dependent]').forEach(function(row) {
 				row.classList.toggle('opacity-50', !enabled);
 			});
 		}
@@ -1475,6 +1484,12 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 			var unifiedFolder = e.target.closest && e.target.closest('[data-unified-folder-switch]');
 			if (unifiedFolder && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set(unifiedFolder.name, unifiedFolder.checked ? 'true' : 'false');
+				syncUnifiedFolderControls();
+				return;
+			}
+			var unifiedFolderAccount = e.target.closest && e.target.closest('[data-unified-folder-account-switch]');
+			if (unifiedFolderAccount && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set(unifiedFolderAccount.name, unifiedFolderAccount.checked ? 'true' : 'false');
 			}
 		});
 
@@ -1492,7 +1507,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 	</script>
 }
 
-templ UnifiedFolderSettingRow(folder unifiedFolderOption, uiSettings map[string]string) {
+templ UnifiedFolderSettingRow(folder unifiedFolderOption, accounts []models.AccountSyncStatus, uiSettings map[string]string) {
 	{{ key := unifiedFolderSettingKey(folder.ID) }}
 	{{ enabled := uiSettingGet(uiSettings, key, "true") != "false" }}
 	{{ masterEnabled := uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" }}
@@ -1511,13 +1526,68 @@ templ UnifiedFolderSettingRow(folder unifiedFolderOption, uiSettings map[string]
 				<label for={ "unified-folder-" + folder.ID } class="text-sm font-medium text-foreground">{ folder.Name }</label>
 			</div>
 		</div>
+		<div class="flex shrink-0 items-center gap-2">
+			@UnifiedFolderAccountPopover(folder, accounts, uiSettings, masterEnabled)
+			@switchcomp.Switch(switchcomp.Props{
+				ID:       "unified-folder-" + folder.ID,
+				Name:     key,
+				Checked:  enabled,
+				Disabled: !masterEnabled,
+				Attributes: templ.Attributes{
+					"data-unified-folder-switch": folder.ID,
+				},
+			})
+		</div>
+	</div>
+}
+
+templ UnifiedFolderAccountPopover(folder unifiedFolderOption, accounts []models.AccountSyncStatus, uiSettings map[string]string, masterEnabled bool) {
+	if len(accounts) > 0 {
+		@popover.Root(popover.RootProps{ID: fmt.Sprintf("unified-folder-%s-accounts", folder.ID), Class: "shrink-0"}) {
+			@popover.Trigger() {
+				<button
+					type="button"
+					class="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+					aria-label={ "Choose accounts for " + folder.Name }
+					disabled?={ !masterEnabled }
+					data-unified-folder-account-button={ folder.ID }
+				>
+					@icon.Settings(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, ShowArrow: true, Class: "w-72 p-2"}) {
+				<div class="border-b border-border/60 px-2 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Accounts</div>
+				<div class="max-h-72 overflow-y-auto pt-1">
+					for _, account := range accounts {
+						@UnifiedFolderAccountRow(folder, account, uiSettings, masterEnabled)
+					}
+				</div>
+			}
+		}
+	}
+}
+
+templ UnifiedFolderAccountRow(folder unifiedFolderOption, account models.AccountSyncStatus, uiSettings map[string]string, masterEnabled bool) {
+	{{ key := unifiedFolderAccountSettingKey(folder.ID, account.AccountID) }}
+	{{ enabled := uiSettingGet(uiSettings, key, "true") != "false" }}
+	<div class="flex min-h-11 items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-muted/40" data-unified-folder-account-dependent={ folder.ID }>
+		<div class="flex min-w-0 items-center gap-2.5">
+			<span class="account-color-marker size-3 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.AccountID }></span>
+			<div class="min-w-0">
+				<label for={ "unified-folder-" + folder.ID + "-account-" + account.AccountID } class="block truncate text-sm font-medium text-foreground">{ syncAccountDisplayName(account) }</label>
+				if account.AccountEmail != "" && account.AccountEmail != syncAccountDisplayName(account) {
+					<p class="truncate text-[11px] text-muted-foreground">{ account.AccountEmail }</p>
+				}
+			</div>
+		</div>
 		@switchcomp.Switch(switchcomp.Props{
-			ID:       "unified-folder-" + folder.ID,
+			ID:       "unified-folder-" + folder.ID + "-account-" + account.AccountID,
 			Name:     key,
 			Checked:  enabled,
 			Disabled: !masterEnabled,
 			Attributes: templ.Attributes{
-				"data-unified-folder-switch": folder.ID,
+				"data-unified-folder-account-switch": folder.ID,
+				"data-unified-folder-account-id":     account.AccountID,
 			},
 		})
 	</div>

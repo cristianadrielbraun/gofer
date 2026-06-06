@@ -103,6 +103,59 @@ func TestSidebarFolderTreeCanHideIndividualUnifiedFolders(t *testing.T) {
 	}
 }
 
+func TestUnifiedFoldersApplyAccountSettings(t *testing.T) {
+	accounts := []models.Account{
+		{
+			ID:               "acc-a",
+			Name:             "Primary",
+			EmailSyncEnabled: true,
+			Folders: []models.Folder{{
+				ID:     "acc-a-inbox",
+				Name:   "Inbox",
+				Icon:   "inbox",
+				Role:   "inbox",
+				Unread: 3,
+			}},
+		},
+		{
+			ID:               "acc-b",
+			Name:             "Archive",
+			EmailSyncEnabled: true,
+			Folders: []models.Folder{{
+				ID:     "acc-b-inbox",
+				Name:   "Inbox",
+				Icon:   "inbox",
+				Role:   "inbox",
+				Unread: 5,
+			}},
+		},
+	}
+	settings := map[string]string{"unified_folder_inbox_account_acc-b_enabled": "false"}
+
+	folders := unifiedFolders(accounts, settings)
+	var inbox *models.Folder
+	for i := range folders {
+		if folders[i].ID == "inbox" {
+			inbox = &folders[i]
+			break
+		}
+	}
+	if inbox == nil {
+		t.Fatalf("unified inbox should render with included accounts: %#v", folders)
+	}
+	if inbox.Unread != 3 {
+		t.Fatalf("unified inbox unread = %d, want only included account", inbox.Unread)
+	}
+
+	settings["unified_folder_inbox_account_acc-a_enabled"] = "false"
+	folders = unifiedFolders(accounts, settings)
+	for _, folder := range folders {
+		if folder.ID == "inbox" {
+			t.Fatalf("unified inbox should not render when all accounts are excluded: %#v", folders)
+		}
+	}
+}
+
 func TestSidebarFolderTreeShowsScheduledOnlyWithPendingCount(t *testing.T) {
 	accounts := []models.Account{{
 		ID:               "acc",
