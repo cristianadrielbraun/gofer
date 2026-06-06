@@ -200,6 +200,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /compose/attachments/{id}/preview", h.handleComposeAttachmentPreview)
 	mux.HandleFunc("DELETE /compose/attachments/{id}", h.handleComposeAttachmentDelete)
 	mux.HandleFunc("GET /api/events", h.handleSSE)
+	mux.HandleFunc("GET /api/sidebar/mail", h.handleMailSidebar)
 	mux.HandleFunc("GET /api/sidebar/accounts/{id}", h.handleSidebarAccount)
 	mux.HandleFunc("POST /api/mail/sync", h.handleSyncMail)
 	mux.HandleFunc("POST /api/mail/sync/accounts/{id}", h.handleSyncMailAccount)
@@ -285,25 +286,26 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
 	uiSettings := h.db.GetUISettings(ctx, userID)
+	scheduledCount := h.scheduledSidebarCount(ctx, userID)
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
 		ctx = h.contextWithUserTimezone(ctx, userID)
 		filters := parseEmailFilters(r)
 		window := h.loadMailWindow(ctx, userID, folderID, filters, emailID, 50)
 		w.Header().Set("Content-Type", "text/html")
-		views.MailAppPartial(accounts, folderID, window.emails, window.selectedEmail, window.totalCount, uiSettings, nil, emailID, window.windowStart).Render(ctx, w)
+		views.MailAppPartial(accounts, folderID, window.emails, window.selectedEmail, window.totalCount, uiSettings, nil, emailID, window.windowStart, scheduledCount).Render(ctx, w)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "app-shell" {
 		w.Header().Set("Content-Type", "text/html")
-		views.MailShell(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID).Render(ctx, w)
+		views.MailShell(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount).Render(ctx, w)
 		return
 	}
 	if emailID == "" {
-		views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, "").Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, "", scheduledCount).Render(ctx, w)
 		return
 	}
 
-	views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID).Render(ctx, w)
+	views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) {
@@ -315,8 +317,9 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 	folderID = h.resolveFolderID(folderID)
 
 	ctx := r.Context()
-	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
-	views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, h.userID(ctx)), nil, emailID).Render(ctx, w)
+	userID := h.userID(ctx)
+	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID)).Render(ctx, w)
 }
 
 func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
@@ -1480,17 +1483,18 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	folderID = h.resolveFolderID(folderID)
 
 	ctx := r.Context()
-	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	ctx = h.contextWithUserTimezone(ctx, userID)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
 	if r.Header.Get("HX-Request") != "true" {
-		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, h.userID(ctx)), nil, "").Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, "", h.scheduledSidebarCount(ctx, userID)).Render(ctx, w)
 		return
 	}
 
 	filters := parseEmailFilters(r)
-	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, h.userID(ctx), folderID, filters)
+	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, userID, folderID, filters)
 
-	page, _ := h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, h.userID(ctx), folderID, 0, 50, filters, totalCount)
+	page, _ := h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, 0, 50, filters, totalCount)
 	var emails []models.Email
 	if page != nil {
 		emails = page.Emails
@@ -1500,7 +1504,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	var selectedThread []models.ThreadItem
 
 	w.Header().Set("Content-Type", "text/html")
-	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, h.userID(ctx))).Render(ctx, w)
+	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
@@ -1526,6 +1530,15 @@ type mailWindow struct {
 	selectedEmail *models.Email
 	totalCount    int
 	windowStart   int
+}
+
+func (h *Handler) scheduledSidebarCount(ctx context.Context, userID string) int {
+	count, err := h.db.GetFolderEmailCountFilteredForUser(ctx, userID, "scheduled", models.EmailFilters{})
+	if err != nil {
+		log.Printf("scheduled sidebar count: %v", err)
+		return 0
+	}
+	return count
 }
 
 func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, filters models.EmailFilters, selectedEmailID string, limit int) mailWindow {
@@ -3041,6 +3054,19 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(counts)
+}
+
+func (h *Handler) handleMailSidebar(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	accounts, err := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	if err != nil {
+		http.Error(w, "failed to load sidebar", http.StatusInternalServerError)
+		return
+	}
+	activeFolder := strings.TrimSpace(r.URL.Query().Get("active_folder"))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	views.MailSidebarBody(accounts, activeFolder, h.db.GetUISettings(ctx, userID), h.scheduledSidebarCount(ctx, userID)).Render(ctx, w)
 }
 
 func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {

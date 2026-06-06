@@ -1996,6 +1996,12 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     source.addEventListener("mutation", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { data = null }
+      if (data && data.folder_id === "scheduled") {
+        refreshMailSidebarBody()
+        return
+      }
       refreshSidebarUnread()
     })
 
@@ -2144,6 +2150,29 @@ document.addEventListener("DOMContentLoaded", function () {
       target.outerHTML = html
       updateMailSyncErrorIndicator()
     }).catch(function () {})
+  }
+
+  function refreshMailSidebarBody() {
+    var target = document.getElementById("sidebar-app-body")
+    if (!target || target.dataset.sidebarAppBody !== "mail") {
+      refreshSidebarUnread()
+      return
+    }
+    var url = "/api/sidebar/mail?active_folder=" + encodeURIComponent(currentSidebarActiveFolder())
+    if (window.htmx && typeof window.htmx.ajax === "function") {
+      window.htmx.ajax("GET", url, { target: "#sidebar-app-body", swap: "outerHTML" })
+      return
+    }
+    fetch(url).then(function (resp) {
+      if (!resp.ok) throw new Error("mail sidebar refresh failed")
+      return resp.text()
+    }).then(function (html) {
+      target.outerHTML = html
+      refreshSidebarUnread()
+      updateMailSyncErrorIndicator()
+    }).catch(function () {
+      refreshSidebarUnread()
+    })
   }
 
   function setupSidebarSyncErrorTimes() {

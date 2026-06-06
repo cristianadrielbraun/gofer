@@ -3735,7 +3735,6 @@ func defaultUISettings() map[string]string {
 		"unified_folder_starred_enabled":    "true",
 		"unified_folder_sent_enabled":       "true",
 		"unified_folder_drafts_enabled":     "true",
-		"unified_folder_scheduled_enabled":  "true",
 		"unified_folder_archive_enabled":    "true",
 		"unified_folder_spam_enabled":       "true",
 		"unified_folder_trash_enabled":      "true",

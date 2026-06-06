@@ -967,6 +967,13 @@ html[data-theme="minimal"] input[role="switch"] + div::after {
   border-radius: 0;
 }
 
+input[role="switch"] + .gofer-switch-track::after {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .account-action-btn {
   background: var(--card);
 }
@@ -2152,7 +2159,7 @@ body.mail-list-column-resizing {
 }
 
 .avatar-live-switch::after {
-  transform: scaleX(-1);
+  transform: translateY(-50%) scaleX(-1);
 }
 
 .avatar-live-switch {

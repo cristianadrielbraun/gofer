@@ -14,10 +14,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
 
-templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string) {
+templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string, scheduledCount int) {
 	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
 		@SidebarHeader(accounts, "mail")
-		@MailSidebarBody(accounts, activeFolder, uiSettings)
+		@MailSidebarBody(accounts, activeFolder, uiSettings, scheduledCount)
 		@SidebarFooter()
 	</aside>
 }
@@ -30,7 +30,7 @@ templ ContactsSidebar(accounts []models.Account, activeFolder string, width stri
 	</aside>
 }
 
-templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
+templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int) {
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="mail">
 		<div class="px-4 pb-4">
 			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
@@ -39,7 +39,7 @@ templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings
 			</button>
 		</div>
 		<hr class="divider-etched mx-4"/>
-		@SidebarFolderTree(accounts, activeFolder, uiSettings)
+		@SidebarFolderTree(accounts, activeFolder, uiSettings, scheduledCount)
 	</div>
 }
 
@@ -549,8 +549,11 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 	}
 }
 
-templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
+templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int) {
 	<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
+		if scheduledCount > 0 {
+			@SidebarScheduledFolder(activeFolder, scheduledCount)
+		}
 		if uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" {
 			@SidebarUnifiedSection(accounts, activeFolder, uiSettings)
 		}
@@ -560,6 +563,19 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettin
 			}
 		}
 	</nav>
+}
+
+templ SidebarScheduledFolder(activeFolder string, scheduledCount int) {
+	<div class="mb-2">
+		@SidebarFolderItem(models.Folder{
+			ID:       "scheduled",
+			Name:     "Scheduled",
+			Icon:     "calendar-clock",
+			Role:     "scheduled",
+			Unread:   scheduledCount,
+			IsSystem: true,
+		}, activeFolder, "")
+	</div>
 }
 
 templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string) {

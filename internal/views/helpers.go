@@ -14,22 +14,20 @@ import (
 )
 
 type unifiedFolderOption struct {
-	ID          string
-	Name        string
-	Icon        string
-	Description string
+	ID   string
+	Name string
+	Icon string
 }
 
 func unifiedFolderOptions() []unifiedFolderOption {
 	return []unifiedFolderOption{
-		{"inbox", "Inbox", "inbox", "Incoming messages across all accounts."},
-		{"starred", "Starred", "starred", "Messages starred in any account."},
-		{"sent", "Sent", "send", "Sent mail across all accounts."},
-		{"drafts", "Drafts", "file", "Draft messages across all accounts."},
-		{"scheduled", "Scheduled", "calendar-clock", "Pending scheduled sends across all accounts."},
-		{"archive", "Archive", "archive", "Archived mail across all accounts."},
-		{"spam", "Spam", "alert-circle", "Spam and junk folders across accounts."},
-		{"trash", "Trash", "trash", "Deleted mail across all accounts."},
+		{"inbox", "Inbox", "inbox"},
+		{"starred", "Starred", "starred"},
+		{"sent", "Sent", "send"},
+		{"drafts", "Drafts", "file"},
+		{"archive", "Archive", "archive"},
+		{"spam", "Spam", "alert-circle"},
+		{"trash", "Trash", "trash"},
 	}
 }
 
@@ -215,10 +213,7 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 		if !unifiedFolderEnabled(settings, option.ID) {
 			continue
 		}
-		if option.ID == "scheduled" && len(accounts) == 0 {
-			continue
-		}
-		if option.ID != "starred" && option.ID != "scheduled" && !seenRole[option.ID] {
+		if option.ID != "starred" && !seenRole[option.ID] {
 			continue
 		}
 		folders = append(folders, models.Folder{
