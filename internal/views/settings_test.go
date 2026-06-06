@@ -15,7 +15,15 @@ func TestSettingsSyncTabIncludesUnifiedFoldersPanel(t *testing.T) {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
-	for _, want := range []string{"Sync settings", "Unified folders", `name="unified_folders_enabled"`} {
+	for _, want := range []string{
+		"Sync settings",
+		"Unified folders",
+		`name="unified_folders_enabled"`,
+		`name="unified_folder_inbox_enabled"`,
+		`name="unified_folder_starred_enabled"`,
+		`name="unified_folder_scheduled_enabled"`,
+		"Spam and junk folders across accounts.",
+	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered sync tab missing %q: %s", want, html)
 		}

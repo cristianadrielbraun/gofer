@@ -13,19 +13,39 @@ import (
 	"github.com/a-h/templ"
 )
 
-func folderDisplayName(folderID string) string {
-	names := map[string]string{
-		"inbox":     "Inbox",
-		"starred":   "Starred",
-		"sent":      "Sent",
-		"drafts":    "Drafts",
-		"scheduled": "Scheduled",
-		"archive":   "Archive",
-		"spam":      "Spam",
-		"trash":     "Trash",
+type unifiedFolderOption struct {
+	ID          string
+	Name        string
+	Icon        string
+	Description string
+}
+
+func unifiedFolderOptions() []unifiedFolderOption {
+	return []unifiedFolderOption{
+		{"inbox", "Inbox", "inbox", "Incoming messages across all accounts."},
+		{"starred", "Starred", "starred", "Messages starred in any account."},
+		{"sent", "Sent", "send", "Sent mail across all accounts."},
+		{"drafts", "Drafts", "file", "Draft messages across all accounts."},
+		{"scheduled", "Scheduled", "calendar-clock", "Pending scheduled sends across all accounts."},
+		{"archive", "Archive", "archive", "Archived mail across all accounts."},
+		{"spam", "Spam", "alert-circle", "Spam and junk folders across accounts."},
+		{"trash", "Trash", "trash", "Deleted mail across all accounts."},
 	}
-	if name, ok := names[folderID]; ok {
-		return name
+}
+
+func unifiedFolderSettingKey(folderID string) string {
+	return "unified_folder_" + strings.TrimSpace(folderID) + "_enabled"
+}
+
+func unifiedFolderEnabled(settings map[string]string, folderID string) bool {
+	return uiSettingGet(settings, unifiedFolderSettingKey(folderID), "true") != "false"
+}
+
+func folderDisplayName(folderID string) string {
+	for _, folder := range unifiedFolderOptions() {
+		if folder.ID == folderID {
+			return folder.Name
+		}
 	}
 	return "Inbox"
 }
@@ -170,31 +190,16 @@ func folderHasActiveID(folder models.Folder, activeFolder string) bool {
 	return false
 }
 
-func unifiedHasActiveFolder(activeFolder string) bool {
-	switch activeFolder {
-	case "inbox", "starred", "sent", "drafts", "scheduled", "archive", "spam", "trash":
-		return true
-	default:
-		return false
+func unifiedHasActiveFolder(activeFolder string, settings map[string]string) bool {
+	for _, folder := range unifiedFolderOptions() {
+		if folder.ID == activeFolder {
+			return unifiedFolderEnabled(settings, activeFolder)
+		}
 	}
+	return false
 }
 
-func unifiedFolders(accounts []models.Account) []models.Folder {
-	roles := []struct {
-		id   string
-		name string
-		icon string
-	}{
-		{"inbox", "Inbox", "inbox"},
-		{"starred", "Starred", "starred"},
-		{"sent", "Sent", "send"},
-		{"drafts", "Drafts", "file"},
-		{"scheduled", "Scheduled", "calendar-clock"},
-		{"archive", "Archive", "archive"},
-		{"spam", "Spam", "alert-circle"},
-		{"trash", "Trash", "trash"},
-	}
-
+func unifiedFolders(accounts []models.Account, settings map[string]string) []models.Folder {
 	unreadByRole := make(map[string]int)
 	seenRole := make(map[string]bool)
 	for _, account := range accounts {
@@ -204,20 +209,24 @@ func unifiedFolders(accounts []models.Account) []models.Folder {
 		collectUnifiedFolders(account.Folders, unreadByRole, seenRole)
 	}
 
-	folders := make([]models.Folder, 0, len(roles))
-	for _, role := range roles {
-		if role.id == "scheduled" && len(accounts) == 0 {
+	options := unifiedFolderOptions()
+	folders := make([]models.Folder, 0, len(options))
+	for _, option := range options {
+		if !unifiedFolderEnabled(settings, option.ID) {
 			continue
 		}
-		if role.id != "starred" && role.id != "scheduled" && !seenRole[role.id] {
+		if option.ID == "scheduled" && len(accounts) == 0 {
+			continue
+		}
+		if option.ID != "starred" && option.ID != "scheduled" && !seenRole[option.ID] {
 			continue
 		}
 		folders = append(folders, models.Folder{
-			ID:       role.id,
-			Name:     role.name,
-			Icon:     role.icon,
-			Role:     role.id,
-			Unread:   unreadByRole[role.id],
+			ID:       option.ID,
+			Name:     option.Name,
+			Icon:     option.Icon,
+			Role:     option.ID,
+			Unread:   unreadByRole[option.ID],
 			IsSystem: true,
 		})
 	}

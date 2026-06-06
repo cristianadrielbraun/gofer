@@ -1060,6 +1060,10 @@ html[data-theme="minimal"] input[role="switch"] + div::after {
   overflow: hidden;
 }
 
+html[data-theme="classic"] .mail-list-search-row > .groove {
+  box-shadow: none;
+}
+
 #mail-folder-name {
   min-width: 0;
   overflow: hidden;

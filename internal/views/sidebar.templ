@@ -563,7 +563,9 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettin
 }
 
 templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
-	{{ active := unifiedHasActiveFolder(activeFolder) }}
+	{{ folders := unifiedFolders(accounts, uiSettings) }}
+	if len(folders) > 0 {
+	{{ active := unifiedHasActiveFolder(activeFolder, uiSettings) }}
 	{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
 	<div class="mb-1.5" data-sidebar-account="__unified__" data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
 		<button
@@ -580,12 +582,13 @@ templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSe
 		</button>
 		<div class="sidebar-account-folders" data-sidebar-account-folders="__unified__">
 			<div class="sidebar-account-folders-inner space-y-px mt-0.5">
-				for _, folder := range unifiedFolders(accounts) {
+				for _, folder := range folders {
 					@SidebarFolderItem(folder, activeFolder, "")
 				}
 			</div>
 		</div>
 	</div>
+	}
 }
 
 templ SidebarAccountSection(account models.Account, activeFolder string, uiSettings map[string]string) {

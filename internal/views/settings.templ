@@ -1210,7 +1210,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 					<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 						<div class="min-w-0">
 								<label for="unified-folders-enabled" class="text-sm font-medium text-foreground">Enable unified folders</label>
-							<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Place combined Inbox, Sent, Drafts, Archive, Spam, and Trash folders above the individual account list.</p>
+							<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Place combined Inbox, Starred, Sent, Drafts, Scheduled, Archive, Spam, and Trash folders above the individual account list.</p>
 						</div>
 						<div class="w-full sm:w-44 shrink-0">
 							<div class="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/40 px-3 py-2">
@@ -1224,6 +1224,11 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 							</div>
 						</div>
 					</div>
+				</div>
+				<div class="grid gap-3 sm:grid-cols-2" data-unified-folder-list>
+					for _, folder := range unifiedFolderOptions() {
+						@UnifiedFolderSettingRow(folder, uiSettings)
+					}
 				</div>
 			</div>
 		}
@@ -1431,6 +1436,17 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 			});
 		}
 
+		function syncUnifiedFolderControls() {
+			var master = document.querySelector('[data-unified-folders-setting="enabled"]');
+			var enabled = !master || master.checked;
+			document.querySelectorAll('[data-unified-folder-switch]').forEach(function(input) {
+				input.disabled = !enabled;
+			});
+			document.querySelectorAll('[data-unified-folder-dependent]').forEach(function(row) {
+				row.classList.toggle('opacity-50', !enabled);
+			});
+		}
+
 		var form = document.getElementById('sync-settings-form');
 		if (form) {
 			form.addEventListener('submit', function(e) {
@@ -1453,6 +1469,12 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 			var unifiedFolders = e.target.closest && e.target.closest('[data-unified-folders-setting="enabled"]');
 			if (unifiedFolders && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('unified_folders_enabled', unifiedFolders.checked ? 'true' : 'false');
+				syncUnifiedFolderControls();
+				return;
+			}
+			var unifiedFolder = e.target.closest && e.target.closest('[data-unified-folder-switch]');
+			if (unifiedFolder && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set(unifiedFolder.name, unifiedFolder.checked ? 'true' : 'false');
 			}
 		});
 
@@ -1465,8 +1487,41 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 
 		updateHiddenInputs();
 		updateEmptyStates();
+		syncUnifiedFolderControls();
 	})();
 	</script>
+}
+
+templ UnifiedFolderSettingRow(folder unifiedFolderOption, uiSettings map[string]string) {
+	{{ key := unifiedFolderSettingKey(folder.ID) }}
+	{{ enabled := uiSettingGet(uiSettings, key, "true") != "false" }}
+	{{ masterEnabled := uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" }}
+	<div
+		class={
+			"flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/40 p-3 transition-opacity",
+			templ.KV("opacity-50", !masterEnabled),
+		}
+		data-unified-folder-dependent
+	>
+		<div class="flex min-w-0 items-center gap-3">
+			<span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+				@SidebarFolderIcon(folder.Icon)
+			</span>
+			<div class="min-w-0">
+				<label for={ "unified-folder-" + folder.ID } class="text-sm font-medium text-foreground">{ folder.Name }</label>
+				<p class="mt-0.5 text-xs text-muted-foreground leading-relaxed">{ folder.Description }</p>
+			</div>
+		</div>
+		@switchcomp.Switch(switchcomp.Props{
+			ID:       "unified-folder-" + folder.ID,
+			Name:     key,
+			Checked:  enabled,
+			Disabled: !masterEnabled,
+			Attributes: templ.Attributes{
+				"data-unified-folder-switch": folder.ID,
+			},
+		})
+	</div>
 }
 
 templ syncFolderPill(f models.FolderSyncStatus, isIDLE bool, interval int, accountID string) {
