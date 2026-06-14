@@ -3597,12 +3597,95 @@ func (db *DB) GetIdleFoldersForAccount(ctx context.Context, userID string, accou
 	return result
 }
 
+func (db *DB) GetIdleFolderIDsForAccount(ctx context.Context, userID string, accountID string) map[string]bool {
+	val, err := db.GetSetting(ctx, userID, "idle_folders")
+	if err != nil || val == "" {
+		return db.idleFolderIDsForRoles(ctx, accountID, []string{"inbox", "sent", "drafts"})
+	}
+	if val == "none" {
+		return map[string]bool{}
+	}
+
+	var perAccount map[string][]string
+	if err := json.Unmarshal([]byte(val), &perAccount); err == nil {
+		entries := perAccount[accountID]
+		if entries == nil {
+			return db.idleFolderIDsForRoles(ctx, accountID, []string{"inbox", "sent", "drafts"})
+		}
+		if len(entries) == 1 && entries[0] == "none" {
+			return map[string]bool{}
+		}
+		return db.idleFolderIDsFromEntries(ctx, accountID, entries)
+	}
+
+	return db.idleFolderIDsFromEntries(ctx, accountID, strings.Split(val, ","))
+}
+
+func (db *DB) idleFolderIDsForRoles(ctx context.Context, accountID string, roles []string) map[string]bool {
+	return db.idleFolderIDsFromEntries(ctx, accountID, roles)
+}
+
+func (db *DB) idleFolderIDsFromEntries(ctx context.Context, accountID string, entries []string) map[string]bool {
+	folders, err := db.GetFoldersForAccount(ctx, accountID)
+	if err != nil {
+		return map[string]bool{}
+	}
+	folderIDs := make(map[string]bool, len(folders))
+	folderIDsByRole := make(map[string][]string)
+	for _, folder := range folders {
+		folderIDs[folder.ID] = true
+		folderIDsByRole[folder.Role] = append(folderIDsByRole[folder.Role], folder.ID)
+	}
+
+	result := make(map[string]bool)
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" || entry == "none" {
+			continue
+		}
+		if folderIDs[entry] {
+			result[entry] = true
+			continue
+		}
+		for _, folderID := range folderIDsByRole[entry] {
+			result[folderID] = true
+		}
+	}
+	return result
+}
+
 func (db *DB) SetIdleFoldersAll(ctx context.Context, userID string, perAccount map[string][]string) error {
+	perAccount = normalizeIdleFolderEntriesAll(perAccount)
 	val, err := json.Marshal(perAccount)
 	if err != nil {
 		return err
 	}
 	return db.SetSetting(ctx, userID, "idle_folders", string(val))
+}
+
+func normalizeIdleFolderEntriesAll(perAccount map[string][]string) map[string][]string {
+	normalized := make(map[string][]string, len(perAccount))
+	for accountID, entries := range perAccount {
+		accountID = strings.TrimSpace(accountID)
+		if accountID == "" {
+			continue
+		}
+		seen := make(map[string]bool, len(entries))
+		out := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			entry = strings.TrimSpace(entry)
+			if entry == "" || entry == "none" || seen[entry] {
+				continue
+			}
+			seen[entry] = true
+			out = append(out, entry)
+		}
+		if len(out) == 0 {
+			out = []string{"none"}
+		}
+		normalized[accountID] = out
+	}
+	return normalized
 }
 
 func (db *DB) GetUISettings(ctx context.Context, userID string) map[string]string {

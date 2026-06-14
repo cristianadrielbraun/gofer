@@ -272,18 +272,25 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 		return
 	}
 
-	idleRoles := o.getIdleFoldersForAccount(ctx, accountID)
+	idleFolderIDs := o.getIdleFolderIDsForAccount(ctx, accountID)
 	var watchers []*imap.IdleWatcher
 
-	for role := range idleRoles {
-		folderID, remoteName, err := o.db.GetFolderIDByRole(ctx, accountID, role)
-		if err != nil || folderID == "" {
+	folders, err := o.db.GetFoldersForAccount(ctx, accountID)
+	if err != nil {
+		log.Printf("idle %s: folders: %v", accountID, err)
+		o.markAccountSyncError(ctx, accountID, err)
+		return
+	}
+
+	for _, folder := range folders {
+		if !idleFolderIDs[folder.ID] {
 			continue
 		}
 
-		fID := folderID
+		folderID := folder.ID
+		remoteName := folder.RemoteID
 		watcher := imap.NewIdleWatcher(cfg, password, remoteName, func() {
-			o.syncIncremental(ctx, accountID, fID, remoteName)
+			o.syncIncremental(ctx, accountID, folderID, remoteName)
 		})
 		watchers = append(watchers, watcher)
 		go watcher.Run(ctx)
@@ -338,23 +345,23 @@ func (o *SyncOrchestrator) clearAccountSyncError(ctx context.Context, accountID 
 	})})
 }
 
-func (o *SyncOrchestrator) getIdleFoldersForAccount(ctx context.Context, accountID string) map[string]bool {
+func (o *SyncOrchestrator) getIdleFolderIDsForAccount(ctx context.Context, accountID string) map[string]bool {
 	userID, err := o.db.GetAccountUserID(ctx, accountID)
 	if err != nil || userID == "" {
-		return map[string]bool{"inbox": true, "sent": true, "drafts": true}
+		return map[string]bool{}
 	}
-	return o.db.GetIdleFoldersForAccount(ctx, userID, accountID)
+	return o.db.GetIdleFolderIDsForAccount(ctx, userID, accountID)
 }
 
-func pollingFoldersForPeriodicSync(folders []storage.FolderSyncInfo, idleRoles map[string]bool) ([]storage.FolderSyncInfo, int) {
-	if len(folders) == 0 || len(idleRoles) == 0 {
+func pollingFoldersForPeriodicSync(folders []storage.FolderSyncInfo, idleFolderIDs map[string]bool) ([]storage.FolderSyncInfo, int) {
+	if len(folders) == 0 || len(idleFolderIDs) == 0 {
 		return folders, 0
 	}
 
 	polling := make([]storage.FolderSyncInfo, 0, len(folders))
 	excluded := 0
 	for _, folder := range folders {
-		if idleRoles[folder.Role] {
+		if idleFolderIDs[folder.ID] {
 			excluded++
 			continue
 		}
@@ -363,15 +370,15 @@ func pollingFoldersForPeriodicSync(folders []storage.FolderSyncInfo, idleRoles m
 	return polling, excluded
 }
 
-func pollingIMAPFoldersForAutomaticSync(folders []imap.FolderInfo, idleRoles map[string]bool) ([]imap.FolderInfo, int) {
-	if len(folders) == 0 || len(idleRoles) == 0 {
+func pollingIMAPFoldersForAutomaticSync(folders []imap.FolderInfo, idleRemoteNames map[string]bool) ([]imap.FolderInfo, int) {
+	if len(folders) == 0 || len(idleRemoteNames) == 0 {
 		return folders, 0
 	}
 
 	polling := make([]imap.FolderInfo, 0, len(folders))
 	excluded := 0
 	for _, folder := range folders {
-		if idleRoles[folder.Role] {
+		if idleRemoteNames[folder.Name] {
 			excluded++
 			continue
 		}
@@ -380,12 +387,25 @@ func pollingIMAPFoldersForAutomaticSync(folders []imap.FolderInfo, idleRoles map
 	return polling, excluded
 }
 
-func (o *SyncOrchestrator) publishAutomaticSyncScope(ctx context.Context, accountID string, idleRoles map[string]bool) {
+func idleRemoteNamesFromFolders(folders []storage.FolderSyncInfo, idleFolderIDs map[string]bool) map[string]bool {
+	if len(folders) == 0 || len(idleFolderIDs) == 0 {
+		return map[string]bool{}
+	}
+	remoteNames := make(map[string]bool, len(idleFolderIDs))
+	for _, folder := range folders {
+		if idleFolderIDs[folder.ID] && folder.RemoteID != "" {
+			remoteNames[folder.RemoteID] = true
+		}
+	}
+	return remoteNames
+}
+
+func (o *SyncOrchestrator) publishAutomaticSyncScope(ctx context.Context, accountID string, idleFolderIDs map[string]bool) {
 	allFolders, err := o.db.GetFoldersForAccount(ctx, accountID)
 	if err != nil || len(allFolders) == 0 {
 		return
 	}
-	folders, idleExcluded := pollingFoldersForPeriodicSync(allFolders, idleRoles)
+	folders, idleExcluded := pollingFoldersForPeriodicSync(allFolders, idleFolderIDs)
 	payload := accountSyncProgressPayload(ctx, accountSyncBackground, map[string]any{
 		"status":                "syncing",
 		"account_folders_total": len(folders),
@@ -1282,10 +1302,10 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return nil
 	}
-	var idleRoles map[string]bool
+	var idleFolderIDs map[string]bool
 	if !includeIDLEFolders {
-		idleRoles = o.getIdleFoldersForAccount(ctx, accountID)
-		o.publishAutomaticSyncScope(ctx, accountID, idleRoles)
+		idleFolderIDs = o.getIdleFolderIDsForAccount(ctx, accountID)
+		o.publishAutomaticSyncScope(ctx, accountID, idleFolderIDs)
 	}
 	cfg, err := o.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
@@ -1357,6 +1377,10 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	for _, folder := range folderInfos {
 		folderInfoByRemote[folder.RemoteID] = folder
 	}
+	if !includeIDLEFolders {
+		idleFolderIDs = o.getIdleFolderIDsForAccount(ctx, accountID)
+	}
+	idleRemoteNames := idleRemoteNamesFromFolders(folderInfos, idleFolderIDs)
 
 	var syncFolders []imap.FolderInfo
 	for _, f := range folders {
@@ -1366,7 +1390,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	}
 	idleExcluded := 0
 	if !includeIDLEFolders {
-		syncFolders, idleExcluded = pollingIMAPFoldersForAutomaticSync(syncFolders, idleRoles)
+		syncFolders, idleExcluded = pollingIMAPFoldersForAutomaticSync(syncFolders, idleRemoteNames)
 	}
 	if len(syncFolders) == 0 {
 		payload := accountSyncProgressPayload(ctx, accountSyncBackground, map[string]any{

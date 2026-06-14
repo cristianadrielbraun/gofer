@@ -60,10 +60,11 @@ func TestAccountSyncProgressPayloadCarriesRunAccountIDs(t *testing.T) {
 	}
 }
 
-func TestPollingFoldersForPeriodicSyncExcludesIdleRoles(t *testing.T) {
+func TestPollingFoldersForPeriodicSyncExcludesIdleFolderIDs(t *testing.T) {
 	folders := []storage.FolderSyncInfo{
 		{ID: "inbox", Role: "inbox"},
 		{ID: "sent", Role: "sent"},
+		{ID: "gmail_sent", Role: "sent"},
 		{ID: "archive", Role: "archive"},
 		{ID: "custom", Role: "custom"},
 	}
@@ -76,12 +77,12 @@ func TestPollingFoldersForPeriodicSyncExcludesIdleRoles(t *testing.T) {
 	if excluded != 2 {
 		t.Fatalf("excluded = %d, want 2", excluded)
 	}
-	if len(got) != 2 || got[0].ID != "archive" || got[1].ID != "custom" {
-		t.Fatalf("polling folders = %#v, want archive and custom", got)
+	if len(got) != 3 || got[0].ID != "gmail_sent" || got[1].ID != "archive" || got[2].ID != "custom" {
+		t.Fatalf("polling folders = %#v, want gmail_sent, archive, and custom", got)
 	}
 }
 
-func TestPollingFoldersForPeriodicSyncKeepsAllWithoutIdleRoles(t *testing.T) {
+func TestPollingFoldersForPeriodicSyncKeepsAllWithoutIdleFolderIDs(t *testing.T) {
 	folders := []storage.FolderSyncInfo{
 		{ID: "inbox", Role: "inbox"},
 		{ID: "archive", Role: "archive"},
@@ -97,23 +98,24 @@ func TestPollingFoldersForPeriodicSyncKeepsAllWithoutIdleRoles(t *testing.T) {
 	}
 }
 
-func TestPollingIMAPFoldersForAutomaticSyncExcludesIdleRoles(t *testing.T) {
+func TestPollingIMAPFoldersForAutomaticSyncExcludesIdleRemoteNames(t *testing.T) {
 	folders := []imap.FolderInfo{
 		{Name: "INBOX", Role: "inbox", Selectable: true},
 		{Name: "Sent", Role: "sent", Selectable: true},
+		{Name: "[Gmail]/Sent Mail", Role: "sent", Selectable: true},
 		{Name: "Archive", Role: "archive", Selectable: true},
 		{Name: "Projects", Role: "custom", Selectable: true},
 	}
 
 	got, excluded := pollingIMAPFoldersForAutomaticSync(folders, map[string]bool{
-		"inbox": true,
-		"sent":  true,
+		"INBOX": true,
+		"Sent":  true,
 	})
 
 	if excluded != 2 {
 		t.Fatalf("excluded = %d, want 2", excluded)
 	}
-	if len(got) != 2 || got[0].Name != "Archive" || got[1].Name != "Projects" {
-		t.Fatalf("polling folders = %#v, want Archive and Projects", got)
+	if len(got) != 3 || got[0].Name != "[Gmail]/Sent Mail" || got[1].Name != "Archive" || got[2].Name != "Projects" {
+		t.Fatalf("polling folders = %#v, want [Gmail]/Sent Mail, Archive, and Projects", got)
 	}
 }

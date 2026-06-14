@@ -3,9 +3,11 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +62,49 @@ func TestGetFoldersForAccountSkipsNonSelectableFolders(t *testing.T) {
 	}
 	if !parentID.Valid || parentID.String != "acc_gmail" {
 		t.Fatalf("parent_id = %#v, want acc_gmail", parentID)
+	}
+}
+
+func TestIdleFolderIDsForAccountSupportsFolderIDsAndLegacyRoles(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_sent", AccountID: "acc", RemoteID: "Sent", Name: "Sent", Role: "sent", Selectable: true},
+		{ID: "acc_gmail_sent", AccountID: "acc", RemoteID: "[Gmail]/Sent Mail", Name: "Sent", Role: "sent", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	if err := db.SetIdleFoldersAll(ctx, "default", map[string][]string{
+		" acc ": {"acc_sent", "acc_sent", "sent", "", "none"},
+	}); err != nil {
+		t.Fatalf("SetIdleFoldersAll() error = %v", err)
+	}
+
+	var raw string
+	if err := db.Read().QueryRowContext(ctx, `SELECT value FROM app_settings WHERE user_id = 'default' AND key = 'idle_folders'`).Scan(&raw); err != nil {
+		t.Fatalf("query idle_folders: %v", err)
+	}
+
+	var stored map[string][]string
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
+		t.Fatalf("decode idle_folders: %v", err)
+	}
+
+	if got := strings.Join(stored["acc"], ","); got != "acc_sent,sent" {
+		t.Fatalf("stored acc entries = %q, want acc_sent,sent", got)
+	}
+
+	ids := db.GetIdleFolderIDsForAccount(ctx, "default", "acc")
+	for _, want := range []string{"acc_sent", "acc_gmail_sent"} {
+		if !ids[want] {
+			t.Fatalf("idle folder ids = %#v, missing %s", ids, want)
+		}
 	}
 }
 

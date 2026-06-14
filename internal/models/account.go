@@ -77,7 +77,9 @@ type AccountSyncStatus struct {
 }
 
 type FolderSyncStatus struct {
+	ID           string
 	Name         string
+	RemoteID     string
 	Icon         string
 	Role         string
 	LastSyncedAt string

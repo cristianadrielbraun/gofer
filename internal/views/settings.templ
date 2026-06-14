@@ -1325,13 +1325,17 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 			if (!container) return;
 			container.innerHTML = '';
 			var seenAccounts = {};
-			document.querySelectorAll('[data-idle-zone] [data-role]').forEach(function(pill) {
+			var seenIdle = {};
+			document.querySelectorAll('[data-idle-zone] [data-folder-id]').forEach(function(pill) {
 				var accountID = pill.dataset.accountId;
-				var role = pill.dataset.role;
+				var folderID = pill.dataset.folderId;
+				var key = accountID + ':' + folderID;
+				if (seenIdle[key]) return;
+				seenIdle[key] = true;
 				var input = document.createElement('input');
 				input.type = 'hidden';
 				input.name = 'idle_folders';
-				input.value = accountID + ':' + role;
+				input.value = accountID + ':' + folderID;
 				container.appendChild(input);
 				seenAccounts[accountID] = true;
 			});
@@ -1594,14 +1598,16 @@ templ UnifiedFolderAccountRow(folder unifiedFolderOption, account models.Account
 }
 
 templ syncFolderPill(f models.FolderSyncStatus, isIDLE bool, interval int, accountID string) {
-	<button
-		type="button"
-		data-sync-pill
-		data-role={ f.Role }
-		data-account-id={ accountID }
-		data-interval={ strconv.Itoa(interval) }
-		class={
-			"inline-flex items-center gap-1.5 px-2.5 rounded-md border text-xs font-medium cursor-pointer transition-transform hover:scale-[1.02] will-change-transform backface-hidden",
+		<button
+			type="button"
+			data-sync-pill
+			data-folder-id={ f.ID }
+			data-role={ f.Role }
+			data-account-id={ accountID }
+			data-interval={ strconv.Itoa(interval) }
+			title={ f.RemoteID }
+			class={
+				"inline-flex items-center gap-1.5 px-2.5 rounded-md border text-xs font-medium cursor-pointer transition-transform hover:scale-[1.02] will-change-transform backface-hidden",
 			templ.KV("bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200", isIDLE),
 			templ.KV("bg-muted/50 border-border text-muted-foreground", !isIDLE),
 		}
@@ -1609,7 +1615,7 @@ templ syncFolderPill(f models.FolderSyncStatus, isIDLE bool, interval int, accou
 	>
 		{{ folderIcon := icon.Icon(f.Icon) }}
 		@folderIcon(icon.Props{Class: "size-3"})
-		{ f.Name }
+		{ syncFolderDisplayName(f) }
 		if isIDLE {
 			<span class="sync-label text-[10px] opacity-70">
 				real-time
@@ -3858,6 +3864,16 @@ templ WizardConnectionTestStep(accountID string, wizardType string) {
 			</div>
 		</div>
 	</div>
+}
+
+func syncFolderDisplayName(f models.FolderSyncStatus) string {
+	if remoteID := strings.TrimSpace(f.RemoteID); remoteID != "" {
+		return remoteID
+	}
+	if name := strings.TrimSpace(f.Name); name != "" {
+		return name
+	}
+	return f.Role
 }
 
 templ AccountFormError(message string) {

@@ -2293,7 +2293,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 			continue
 		}
 
-		idleRoles := h.db.GetIdleFoldersForAccount(ctx, h.userID(ctx), account.ID)
+		idleFolderIDs := h.db.GetIdleFolderIDsForAccount(ctx, h.userID(ctx), account.ID)
 
 		var status models.AccountSyncStatus
 		status.AccountID = account.ID
@@ -2302,6 +2302,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 		status.Color = account.Color
 		status.Initials = account.Initials
 
+		folderStatuses := make([]models.FolderSyncStatus, 0, len(folders))
 		for _, f := range folders {
 			lastSynced := ""
 			if f.LastIncrementalAt.Valid {
@@ -2311,19 +2312,22 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 			}
 
 			name := f.Role
-			if name == "custom" {
+			if strings.TrimSpace(f.RemoteID) != "" {
 				name = f.RemoteID
 			}
 
-			status.Folders = append(status.Folders, models.FolderSyncStatus{
+			folderStatuses = append(folderStatuses, models.FolderSyncStatus{
+				ID:           f.ID,
 				Name:         name,
+				RemoteID:     f.RemoteID,
 				Icon:         folderIconFromRole(f.Role),
 				Role:         f.Role,
 				LastSyncedAt: lastSynced,
 				MessageCount: f.TotalCount,
-				IsIDLE:       idleRoles[f.Role],
+				IsIDLE:       idleFolderIDs[f.ID],
 			})
 		}
+		status.Folders = folderStatuses
 
 		accountStatuses = append(accountStatuses, status)
 	}

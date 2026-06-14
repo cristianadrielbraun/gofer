@@ -68,3 +68,40 @@ func TestSettingsSyncTabRendersUnifiedFolderAccountSwitches(t *testing.T) {
 		t.Fatalf("scheduled should not render account-level unified settings: %s", html)
 	}
 }
+
+func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
+	settings := models.SyncSettings{
+		SyncIntervalMinutes: 1,
+		Accounts: []models.AccountSyncStatus{
+			{
+				AccountID:    "acc-gmail",
+				AccountName:  "Gmail",
+				AccountEmail: "user@gmail.com",
+				Folders: []models.FolderSyncStatus{
+					{ID: "acc_gmail_sent", Name: "sent", RemoteID: "[Gmail]/Sent Mail", Role: "sent", Icon: "send", IsIDLE: true},
+					{ID: "acc_sent", Name: "sent", RemoteID: "Sent", Role: "sent", Icon: "send", IsIDLE: false},
+				},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`data-folder-id="acc_gmail_sent"`,
+		`title="[Gmail]/Sent Mail"`,
+		"[Gmail]/Sent Mail",
+		`data-folder-id="acc_sent"`,
+		">Sent ",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered sync folder paths missing %q: %s", want, html)
+		}
+	}
+	if strings.Contains(html, ">sent ") {
+		t.Fatalf("rendered sync folder should prefer remote path over role/name label: %s", html)
+	}
+}
