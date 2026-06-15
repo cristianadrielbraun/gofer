@@ -2525,6 +2525,177 @@ templ AddAccountDialog() {
 						if (sp && p) sp.value = p.value;
 					}
 				}
+				function mailDiscoveryStatus() {
+					return document.getElementById('mail-discovery-status');
+				}
+				function mailDiscoveryEscape(value) {
+					return String(value || '').replace(/[&<>"]/g, function(ch) {
+						return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]);
+					});
+				}
+				function mailDiscoverySourceLabel(source) {
+					if (source === 'provider_xml') return 'Provider XML';
+					if (source === 'thunderbird_xml') return 'Thunderbird XML';
+					if (source === 'mx_provider_xml') return 'Provider via MX';
+					if (source === 'dns_srv') return 'DNS SRV';
+					if (source === 'heuristic') return 'Common hostnames';
+					return source || 'Discovery';
+				}
+				function mailDiscoveryProviderLabel(provider) {
+					if (provider === 'gmail') return 'Google';
+					if (provider === 'outlook') return 'Microsoft';
+					return 'provider';
+				}
+				function mailDiscoverySetField(form, name, value) {
+					var input = form.querySelector('[name="' + name + '"]');
+					if (!input) return;
+					input.value = value || '';
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+					input.dispatchEvent(new Event('change', { bubbles: true }));
+				}
+				function setupMailDiscoveryOAuthSubmit(form) {
+					if (!form || form.dataset.mailDiscoveryOAuthBound === 'true') return;
+					form.dataset.mailDiscoveryOAuthBound = 'true';
+					form.addEventListener('submit', function(event) {
+						var provider = form.dataset.discoveryOauthProvider || '';
+						if (!provider) return;
+						event.preventDefault();
+						event.stopImmediatePropagation();
+						var oauthForm = document.createElement('form');
+						oauthForm.method = 'POST';
+						oauthForm.action = '/api/accounts/oauth2/authorize';
+						oauthForm.style.display = 'none';
+						var data = new FormData(form);
+						data.set('provider', provider);
+						data.set('auth_method', 'oauth2');
+						data.set('password', '_oauth2_');
+						data.forEach(function(value, key) {
+							var input = document.createElement('input');
+							input.type = 'hidden';
+							input.name = key;
+							input.value = value;
+							oauthForm.appendChild(input);
+						});
+						document.body.appendChild(oauthForm);
+						oauthForm.submit();
+					}, true);
+				}
+				function mailDiscoverySetOAuthMode(form, candidate) {
+					var provider = candidate && candidate.auth_method === 'oauth2' ? (candidate.provider || '') : '';
+					var password = form ? form.querySelector('[name="password"]') : null;
+					if (provider) {
+						form.dataset.discoveryOauthProvider = provider;
+						if (password) {
+							password.required = false;
+							password.value = '_oauth2_';
+						}
+						setupMailDiscoveryOAuthSubmit(form);
+						return;
+					}
+					if (form) delete form.dataset.discoveryOauthProvider;
+					if (password) {
+						password.required = true;
+						if (password.value === '_oauth2_') password.value = '';
+					}
+				}
+				function applyMailDiscoveryCandidate(index) {
+					var candidates = window._mailDiscoveryCandidates || [];
+					var candidate = candidates[index];
+					var form = document.getElementById('account-form');
+					var status = mailDiscoveryStatus();
+					if (!candidate || !form) return;
+					mailDiscoverySetField(form, 'imap_host', candidate.imap_host || '');
+					mailDiscoverySetField(form, 'imap_port', candidate.imap_port || '');
+					mailDiscoverySetField(form, 'imap_tls_mode', candidate.imap_tls_mode || 'tls');
+					mailDiscoverySetField(form, 'smtp_host', candidate.smtp_host || '');
+					mailDiscoverySetField(form, 'smtp_port', candidate.smtp_port || '');
+					mailDiscoverySetField(form, 'smtp_tls_mode', candidate.smtp_tls_mode || 'tls');
+					mailDiscoverySetField(form, 'username', candidate.username || '');
+					mailDiscoverySetField(form, 'auth_method', candidate.auth_method || 'plain');
+					mailDiscoverySetOAuthMode(form, candidate);
+					var sameAuth = document.getElementById('smtp-same-auth');
+					var separateSmtpUser = candidate.smtp_username && candidate.smtp_username !== candidate.username;
+					if (sameAuth) {
+						sameAuth.checked = !separateSmtpUser;
+						toggleSmtpAuth(sameAuth.checked);
+					}
+					if (separateSmtpUser) mailDiscoverySetField(form, 'smtp_username', candidate.smtp_username || '');
+					if (status) {
+						var label = mailDiscoverySourceLabel(candidate.source);
+						var summary = mailDiscoveryEscape(candidate.imap_host) + ':' + mailDiscoveryEscape(candidate.imap_port) + ' / ' + mailDiscoveryEscape(candidate.smtp_host) + ':' + mailDiscoveryEscape(candidate.smtp_port);
+						status.querySelectorAll('[data-mail-discovery-candidate]').forEach(function(item, idx) {
+							item.classList.toggle('border-primary', idx === index);
+							item.classList.toggle('bg-primary/10', idx === index);
+						});
+						var applied = status.querySelector('[data-mail-discovery-applied]');
+						if (applied) {
+							var oauthHint = candidate.auth_method === 'oauth2' && candidate.provider ? ' Continue with ' + mailDiscoveryProviderLabel(candidate.provider) + ' sign-in to finish.' : '';
+							applied.textContent = 'Applied ' + label + ' settings: ' + summary + oauthHint;
+						}
+					}
+				}
+				function renderMailDiscoveryCandidates(candidates) {
+					var status = mailDiscoveryStatus();
+					if (!status) return;
+					if (!candidates.length) {
+						status.innerHTML = '<div class="rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">No automatic settings were found. Continue with manual setup.</div>';
+						return;
+					}
+					var html = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs"><div class="flex items-start justify-between gap-3"><div><div class="font-semibold text-foreground" data-mail-discovery-applied></div><div class="mt-0.5 text-muted-foreground">' + candidates.length + ' candidate' + (candidates.length === 1 ? '' : 's') + ' found</div></div></div>';
+					if (candidates.length > 1) {
+						html += '<div class="mt-3 grid gap-2">';
+						candidates.forEach(function(candidate, index) {
+							var title = mailDiscoverySourceLabel(candidate.source);
+							var summary = mailDiscoveryEscape(candidate.imap_host) + ':' + mailDiscoveryEscape(candidate.imap_port) + ' ' + mailDiscoveryEscape(candidate.imap_tls_mode) + ' / ' + mailDiscoveryEscape(candidate.smtp_host) + ':' + mailDiscoveryEscape(candidate.smtp_port) + ' ' + mailDiscoveryEscape(candidate.smtp_tls_mode);
+							var notes = Array.isArray(candidate.notes) ? candidate.notes.filter(Boolean).slice(0, 2) : [];
+							var card = '<button type="button" data-mail-discovery-candidate class="w-full rounded-md border border-border bg-card px-3 py-2 text-left transition-colors hover:bg-accent" onclick="applyMailDiscoveryCandidate(' + index + ')"><span class="flex items-center justify-between gap-3"><span class="font-semibold text-foreground">' + mailDiscoveryEscape(title) + '</span><span class="text-[11px] text-muted-foreground">' + mailDiscoveryEscape(candidate.confidence) + '%</span></span><span class="mt-1 block truncate text-muted-foreground">' + summary + '</span>';
+							if (notes.length) {
+								card += '<span class="mt-1 block text-[11px] leading-relaxed text-muted-foreground">' + mailDiscoveryEscape(notes.join(' ')) + '</span>';
+							}
+							html += card + '</button>';
+						});
+						html += '</div>';
+					}
+					html += '</div>';
+					status.innerHTML = html;
+					applyMailDiscoveryCandidate(0);
+				}
+				function discoverMailSettings(button) {
+					var form = document.getElementById('account-form');
+					var status = mailDiscoveryStatus();
+					if (!form || !status) return;
+					var email = form.querySelector('input[name="email_address"]');
+					if (!email || !email.value.trim()) {
+						status.innerHTML = '<div class="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">Enter an email address first.</div>';
+						return;
+					}
+					var label = button ? button.querySelector('[data-mail-discovery-label]') : null;
+					var originalLabel = label ? label.textContent : '';
+					if (button) button.disabled = true;
+					if (label) label.textContent = 'Discovering...';
+					status.innerHTML = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs text-muted-foreground"><div class="flex items-center gap-2"><span class="size-3.5 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin"></span><span>Checking provider XML, MX provider records, DNS SRV, and verified common hostnames...</span></div></div>';
+					var body = new URLSearchParams();
+					body.append('email_address', email.value.trim());
+					fetch('/api/accounts/discover', {
+						method: 'POST',
+						credentials: 'same-origin',
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+						body: body.toString()
+					}).then(function(resp) {
+						return resp.json().then(function(data) {
+							if (!resp.ok) throw new Error(data && data.error ? data.error : 'Could not discover settings.');
+							return data;
+						});
+					}).then(function(data) {
+						window._mailDiscoveryCandidates = data.candidates || [];
+						renderMailDiscoveryCandidates(window._mailDiscoveryCandidates);
+					}).catch(function(err) {
+						status.innerHTML = '<div class="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">' + mailDiscoveryEscape(err && err.message ? err.message : 'Could not discover settings.') + '</div>';
+					}).finally(function() {
+						if (button) button.disabled = false;
+						if (label) label.textContent = originalLabel || 'Discover settings';
+					});
+				}
 				function contactSyncSaveButtons(accountID) {
 					return document.querySelectorAll('[data-contact-sync-save-button][data-account-id="' + accountID + '"]');
 				}
@@ -2865,6 +3036,19 @@ templ AddAccountDialog() {
 										Placeholder: "Your Name",
 									})
 								</div>
+								<div class="rounded-lg border border-border bg-background/45 p-3">
+									<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+										<div class="min-w-0">
+											<div class="text-xs font-semibold text-foreground">Automatic settings</div>
+											<p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Fill IMAP and SMTP fields from provider records when available.</p>
+										</div>
+										<button type="button" onclick="discoverMailSettings(this)" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-60">
+											@icon.Radar(icon.Props{Class: "size-3.5"})
+											<span data-mail-discovery-label>Discover settings</span>
+										</button>
+									</div>
+									<div id="mail-discovery-status" class="mt-3"></div>
+								</div>
 							</div>
 							</div>
 							<div class="account-wizard-controls flex justify-end">
@@ -2949,6 +3133,7 @@ templ AddAccountDialog() {
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "plain", Selected: true}) { PLAIN }
+											@selectbox.Item(selectbox.ItemProps{Value: "oauth2"}) { OAuth2 }
 										}
 									}
 								</div>

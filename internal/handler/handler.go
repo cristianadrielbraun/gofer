@@ -12,6 +12,7 @@ import (
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	mail "github.com/cristianadrielbraun/gofer/internal/mail"
+	mailautodiscover "github.com/cristianadrielbraun/gofer/internal/mail/autodiscover"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
@@ -163,6 +164,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/{id}/unify", h.handleUnifyContact)
 	mux.HandleFunc("POST /api/contacts/{id}/fields/{fieldID}/prefer", h.handlePreferContactField)
 	mux.HandleFunc("POST /api/contacts/{id}/delete", h.handleDeleteContact)
+	mux.HandleFunc("POST /api/accounts/discover", h.handleDiscoverAccount)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
 	mux.HandleFunc("GET /api/accounts/{id}/edit", h.handleGetEditAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
@@ -1740,6 +1742,33 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	views.MailListEmails(accounts, emails, "", nil, len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(ctx, w)
+}
+
+func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid discovery request.")
+		return
+	}
+	email := strings.TrimSpace(firstNonEmptyString(r.FormValue("email_address"), r.FormValue("email")))
+	if email == "" {
+		writeJSONError(w, http.StatusBadRequest, "Enter an email address first.")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Second)
+	defer cancel()
+	candidates, err := mailautodiscover.Discover(ctx, email, mailautodiscover.Options{
+		ProbeHeuristics: true,
+	})
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"candidates": candidates,
+	})
 }
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
