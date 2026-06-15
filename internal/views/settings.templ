@@ -2371,9 +2371,11 @@ templ AddAccountDialog() {
 			<style>
 				.account-wizard-section { border:1px solid var(--border); border-radius:var(--radius); background:color-mix(in srgb, var(--background) 55%, transparent); padding:.4rem; transition:background .16s ease,border-color .16s ease,box-shadow .16s ease; }
 				.account-wizard-section[data-active="true"] { border-color:color-mix(in srgb, var(--primary) 38%, var(--border)); background:var(--card); box-shadow:0 1px 0 var(--border); }
+				.account-wizard-section[data-disabled="true"] { opacity:.55; }
 				.account-wizard-section + .account-wizard-section { margin-top:.5rem; }
 				.account-wizard-section-heading { display:flex; width:100%; align-items:flex-start; gap:.75rem; border-radius:calc(var(--radius) * .75); border:1px solid transparent; padding:.65rem; text-align:left; color:var(--foreground); transition:background .16s ease,border-color .16s ease,color .16s ease,opacity .16s ease; }
 				.account-wizard-section-title { flex:1; min-width:0; display:flex; align-items:flex-start; gap:.75rem; border-radius:calc(var(--radius) * .75); text-align:left; }
+				.account-wizard-section-title:disabled { cursor:not-allowed; }
 				.account-wizard-section-heading:hover:not(:disabled) { background:var(--accent); color:var(--accent-foreground); }
 				.account-wizard-section-heading[data-active="true"] { border-color:var(--border); background:var(--background); }
 				.account-wizard-section-heading:disabled { cursor:not-allowed; opacity:.5; }
@@ -2439,17 +2441,17 @@ templ AddAccountDialog() {
 					_wizardFooterTimers[key] = window.setTimeout(applyFooterStep, 180);
 				}
 				function wizardGo(step, immediate) {
-					_wizStep = step;
 					var track = document.getElementById('wizard-track');
 					var root = document.getElementById('add-account-dialog');
 					if (!track || !root) return;
 					if (step < 0) step = 0;
-					if (step > 3) step = 3;
-					if (step === 3) {
-						var contactStep = root.querySelector('[data-account-wizard-step="3"]');
-						if (contactStep) contactStep.disabled = !addContactsEnabled();
-					}
-					track.style.transform = 'translateX(-' + (step * 25) + '%)';
+					if (step > 4) step = 4;
+					syncAddContactStep();
+					if (step === 3 && !addContactsEnabled()) step = 4;
+					if (step === 3 && !addStepContentReady('add-step-3-content')) return;
+					if (step === 4 && !addStepContentReady('add-step-4-content')) return;
+					_wizStep = step;
+					track.style.transform = 'translateX(-' + (step * 20) + '%)';
 					root.querySelectorAll('[data-account-wizard-step]').forEach(function(item) {
 						item.dataset.active = String(+item.dataset.accountWizardStep === step);
 					});
@@ -2459,22 +2461,58 @@ templ AddAccountDialog() {
 					});
 					setWizardFooter(root, step, !!immediate);
 				}
+				function addStepContentReady(id) {
+					var content = document.getElementById(id);
+					return !!(content && content.children.length);
+				}
 				function addContactsEnabled() {
 					var toggle = document.querySelector('[data-add-contact-sync-switch]');
 					return !toggle || toggle.checked;
 				}
+				function addAccountFormReady() {
+					var form = document.getElementById('account-form');
+					return !!(form && form.checkValidity());
+				}
+				function syncAddAccountSubmitButtons() {
+					var contactsEnabled = addContactsEnabled();
+					var disabled = contactsEnabled && !addAccountFormReady();
+					document.querySelectorAll('#add-account-dialog [data-add-account-submit-button]').forEach(function(button) {
+						button.setAttribute('aria-label', contactsEnabled ? 'Setup Contacts' : 'Add Account');
+						button.disabled = disabled;
+					});
+					document.querySelectorAll('#add-account-dialog [data-add-account-submit-label]').forEach(function(label) {
+						label.textContent = contactsEnabled ? 'Setup Contacts' : 'Add Account';
+					});
+					document.querySelectorAll('#add-account-dialog [data-add-account-submit-icon]').forEach(function(icon) {
+						icon.classList.toggle('hidden', icon.dataset.addAccountSubmitIcon === 'contacts' ? !contactsEnabled : contactsEnabled);
+					});
+				}
+				function setWizardStepDisabled(step, disabled) {
+					if (!step) return;
+					step.disabled = !!disabled;
+					var section = step.closest ? step.closest('.account-wizard-section') : null;
+					if (section) section.dataset.disabled = String(!!disabled);
+				}
 				function syncAddContactStep() {
-					var step = document.querySelector('#add-account-dialog [data-account-wizard-step="3"]');
-					var content = document.getElementById('add-step-3-content');
-					var ready = !!(content && content.children.length);
-					if (step) step.disabled = !ready || !addContactsEnabled();
+					var root = document.getElementById('add-account-dialog');
+					if (!root) return;
+					var contactStep = root.querySelector('[data-account-wizard-step="3"]');
+					var finishStep = root.querySelector('[data-account-wizard-step="4"]');
+					setWizardStepDisabled(contactStep, !addStepContentReady('add-step-3-content') || !addContactsEnabled());
+					setWizardStepDisabled(finishStep, !addStepContentReady('add-step-4-content'));
+					syncAddAccountSubmitButtons();
 				}
 				function maybeGoAddContacts() {
-					if (addContactsEnabled()) {
-						wizardGo(3);
-					} else {
-						window.location.href = '/settings/accounts';
+					syncAddContactStep();
+					var targetStep = addContactsEnabled() ? 3 : 4;
+					if ((targetStep === 3 && !addStepContentReady('add-step-3-content')) || (targetStep === 4 && !addStepContentReady('add-step-4-content'))) {
+						window.setTimeout(function() {
+							syncAddContactStep();
+							wizardGo(targetStep);
+						}, 0);
+						return;
 					}
+					wizardGo(targetStep);
 				}
 				function syncWizardServiceContent(root) {
 					root = root || document;
@@ -2505,7 +2543,11 @@ templ AddAccountDialog() {
 					if (button.dataset.accountWizardAction === 'editWizardGo' && typeof editWizardGo === 'function') editWizardGo(step);
 				});
 				document.addEventListener('change', function(event) {
-					if (event.target && event.target.matches && event.target.matches('[data-add-contact-sync-switch]')) syncAddContactStep();
+					if (event.target && event.target.matches && event.target.matches('[data-add-contact-sync-switch]')) {
+						syncAddContactStep();
+						if (_wizStep === 3 && !addContactsEnabled()) wizardGo(4);
+					}
+					if (event.target && event.target.closest && event.target.closest('#account-form')) syncAddContactStep();
 					if (event.target && event.target.matches && event.target.matches('[data-wizard-service-switch]')) {
 						var root = event.target.closest('#add-account-dialog,#edit-account-dialog') || document;
 						syncWizardServiceContent(root);
@@ -2933,6 +2975,7 @@ templ AddAccountDialog() {
 					if (input) input.focus();
 				});
 				document.addEventListener('input', function(event) {
+					if (event.target && event.target.closest && event.target.closest('#account-form')) syncAddContactStep();
 					var form = event.target && event.target.closest ? event.target.closest('[data-contact-sync-form]') : null;
 					if (form) contactSyncResetSave(form.dataset.accountId || '');
 				});
@@ -2970,6 +3013,7 @@ templ AddAccountDialog() {
 				document.body.addEventListener('htmx:afterSwap', function(event) {
 					refreshCardDAVBaseURLActions(event.target || document);
 					var addRoot = document.getElementById('add-account-dialog');
+					if (addRoot) syncAddContactStep();
 					if (addRoot && typeof _wizStep !== 'undefined') setWizardFooter(addRoot, _wizStep, true);
 					if (addRoot) syncWizardServiceContent(addRoot);
 					var editRoot = document.getElementById('edit-account-dialog');
@@ -2978,6 +3022,7 @@ templ AddAccountDialog() {
 				});
 				document.body.addEventListener('htmx:oobAfterSwap', function() {
 					var addRoot = document.getElementById('add-account-dialog');
+					if (addRoot) syncAddContactStep();
 					if (addRoot && typeof _wizStep !== 'undefined') setWizardFooter(addRoot, _wizStep, true);
 					if (addRoot) syncWizardServiceContent(addRoot);
 					var editRoot = document.getElementById('edit-account-dialog');
@@ -2986,6 +3031,7 @@ templ AddAccountDialog() {
 				});
 				document.body.addEventListener('htmx:afterSettle', function() {
 					var addRoot = document.getElementById('add-account-dialog');
+					if (addRoot) syncAddContactStep();
 					if (addRoot && typeof _wizStep !== 'undefined') setWizardFooter(addRoot, _wizStep, true);
 					if (addRoot) syncWizardServiceContent(addRoot);
 					var editRoot = document.getElementById('edit-account-dialog');
@@ -3009,9 +3055,9 @@ templ AddAccountDialog() {
 			<div class="account-wizard-shell grid gap-4 pt-2 md:grid-cols-[14.5rem_minmax(0,1fr)]">
 		@AccountWizardAddSidebar()
 				<div id="wizard-viewport" class="account-wizard-viewport">
-					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 400%">
+					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 500%">
 						<form id="account-form" hx-post="/api/accounts" hx-target="#add-step-3-content" hx-swap="innerHTML" class="contents">
-						<div class="w-1/4 shrink-0 px-1" data-wizard-step="0">
+						<div class="w-1/5 shrink-0 px-1" data-wizard-step="0">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
@@ -3060,7 +3106,7 @@ templ AddAccountDialog() {
 							</div>
 						</div>
 
-						<div class="w-1/4 shrink-0 px-1" data-wizard-step="1">
+						<div class="w-1/5 shrink-0 px-1" data-wizard-step="1">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
@@ -3152,7 +3198,7 @@ templ AddAccountDialog() {
 							</div>
 						</div>
 
-						<div class="w-1/4 shrink-0 px-1" data-wizard-step="2">
+						<div class="w-1/5 shrink-0 px-1" data-wizard-step="2">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
@@ -3230,18 +3276,30 @@ templ AddAccountDialog() {
 									@icon.ArrowLeft(icon.Props{Class: "size-4"})
 									Back
 								</button>
-								<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg">
-									@icon.Plus(icon.Props{Class: "size-4"})
-									Add Account
+								<button type="submit" data-add-account-submit-button aria-label="Setup Contacts" disabled class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg disabled:pointer-events-none disabled:opacity-50">
+									<span data-add-account-submit-icon="contacts" class="inline-flex">
+										@icon.BookUser(icon.Props{Class: "size-4"})
+									</span>
+									<span data-add-account-submit-icon="account" class="inline-flex hidden">
+										@icon.Plus(icon.Props{Class: "size-4"})
+									</span>
+									<span data-add-account-submit-label>Setup Contacts</span>
 								</button>
 							</div>
 							</div>
 						</div>
 						</form>
 
-						<div class="w-1/4 shrink-0 px-1" data-wizard-step="3">
+						<div class="w-1/5 shrink-0 px-1" data-wizard-step="3">
 							<div class="account-wizard-panel">
 								<div id="add-step-3-content" data-wizard-service-content="contacts" hx-on::after-swap="syncAddContactStep(); maybeGoAddContacts()"></div>
+							</div>
+						</div>
+						<div class="w-1/5 shrink-0 px-1" data-wizard-step="4">
+							<div class="account-wizard-panel">
+								<div class="account-wizard-scroll">
+									<div id="add-step-4-content"></div>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -3260,6 +3318,7 @@ templ AccountWizardAddSidebar() {
 		</div>
 		@AccountWizardEmailSection("wizardGo", "", true, true, false)
 		@AccountWizardTopStep("wizardGo", 3, "2", "Contacts", "Optional sync", true, true, "", "contacts", true, false, templ.Attributes{"data-add-contact-sync-switch": ""})
+		@AccountWizardTopStep("wizardGo", 4, "3", "Finish", "Test results", true, false, "", "", false, false, nil)
 	</aside>
 }
 
@@ -3300,7 +3359,7 @@ templ AccountWizardSubStep(goFn string, step int, index string, title string, de
 }
 
 templ AccountWizardTopStep(goFn string, step int, index string, title string, description string, disabled bool, section bool, accountID string, service string, enabled bool, switchDisabled bool, attrs templ.Attributes) {
-	<div class="account-wizard-section" data-wizard-section-steps={ strconv.Itoa(step) } data-active="false">
+	<div class="account-wizard-section" data-wizard-section-steps={ strconv.Itoa(step) } data-active="false" data-disabled={ strconv.FormatBool(disabled) }>
 		<div class="account-wizard-section-heading">
 			<button type="button" data-account-wizard-action={ goFn } data-account-wizard-target-step={ strconv.Itoa(step) } class="account-wizard-section-title" data-account-wizard-step={ strconv.Itoa(step) } data-active="false" disabled?={ disabled }>
 				<span class="account-wizard-index">{ index }</span>
@@ -3368,12 +3427,18 @@ templ AddAccountWizardFooter() {
 				@icon.ArrowLeft(icon.Props{Class: "size-4"})
 				Back
 			</button>
-			<button type="submit" form="account-form" class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg">
-				@icon.Plus(icon.Props{Class: "size-4"})
-				Add Account
+			<button type="submit" form="account-form" data-add-account-submit-button aria-label="Setup Contacts" disabled class="btn-skeuo inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg disabled:pointer-events-none disabled:opacity-50">
+				<span data-add-account-submit-icon="contacts" class="inline-flex">
+					@icon.BookUser(icon.Props{Class: "size-4"})
+				</span>
+				<span data-add-account-submit-icon="account" class="inline-flex hidden">
+					@icon.Plus(icon.Props{Class: "size-4"})
+				</span>
+				<span data-add-account-submit-label>Setup Contacts</span>
 			</button>
 		</div>
 		<div id="add-wizard-footer-step-3" data-wizard-footer-step="3" data-active="false" class="hidden"></div>
+		<div id="add-wizard-footer-step-4" data-wizard-footer-step="4" data-active="false" class="hidden"></div>
 	</div>
 }
 
@@ -3902,11 +3967,21 @@ templ AddAccountPostCreateStep(accountID string) {
 			Back
 		</button>
 		<div class="flex flex-wrap justify-end gap-2">
-			<a href="/settings/accounts" class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">Done</a>
+			<button type="button" onclick="wizardGo(4)" class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">Skip</button>
 			<button type="submit" form={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
 				Save
 			</button>
 		</div>
+	</div>
+	<div id="add-wizard-footer-step-4" data-wizard-footer-step="4" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-between gap-2">
+		<button type="button" onclick="wizardGo(addContactsEnabled() ? 3 : 2)" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+			@icon.ArrowLeft(icon.Props{Class: "size-4"})
+			Back
+		</button>
+		<a href="/settings/accounts" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Done</a>
+	</div>
+	<div id="add-step-4-content" hx-swap-oob="innerHTML">
+		@WizardStepSuccess("Account created", accountID, "add")
 	</div>
 	<div class="flex h-full flex-col pt-1">
 		<div class="account-wizard-scroll space-y-5">
@@ -3914,26 +3989,6 @@ templ AddAccountPostCreateStep(accountID string) {
 			@icon.BookUser(icon.Props{Class: "size-4 text-muted-foreground"})
 			Contact sync
 		</h4>
-		<div class="flex items-center gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3">
-			@icon.Check(icon.Props{Class: "size-5 text-emerald-500"})
-			<div class="min-w-0">
-				<p class="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Account created</p>
-				<p class="text-xs text-muted-foreground">Mail sync has started. Contact sync is optional.</p>
-			</div>
-		</div>
-		<div
-			id="wizard-test-results"
-			hx-post={ fmt.Sprintf("/api/accounts/%s/test?wizard=add", accountID) }
-			hx-trigger="load"
-			hx-target="#wizard-test-results"
-			hx-swap="innerHTML"
-			class="space-y-3"
-		>
-			<div class="flex items-center justify-center gap-2 py-4">
-				<div class="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"></div>
-				<span class="text-xs text-muted-foreground">Testing mail connection...</span>
-			</div>
-		</div>
 		<form id={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } hx-post={ fmt.Sprintf("/api/accounts/%s/contacts/sync", accountID) } hx-target={ fmt.Sprintf("#add-contact-sync-status-%s", accountID) } hx-swap="innerHTML" class="rounded-lg border border-border bg-background/45 p-4">
 			<div class="mb-3 flex items-start justify-between gap-4">
 				<div class="min-w-0">
@@ -3994,7 +4049,7 @@ templ AddAccountPostCreateStep(accountID string) {
 				Back
 			</button>
 			<div class="flex flex-wrap justify-end gap-2">
-				<a href="/settings/accounts" class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">Done</a>
+				<button type="button" onclick="wizardGo(4)" class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">Skip</button>
 				<button type="submit" form={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
 					Save
 				</button>
