@@ -26,6 +26,11 @@ document.addEventListener("DOMContentLoaded", function () {
   var lastSelectedMailId = null
   var mailSelectionBusy = false
 
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value)
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&")
+  }
+
   initVirtualScroll()
   setupFolderClickInterception()
   setupEmailSelectionTracking()
@@ -792,11 +797,6 @@ document.addEventListener("DOMContentLoaded", function () {
       if (isNaN(pos)) return
       var cached = virtualMailList.cache.get(pos)
       if (cached) cached.html = row.outerHTML
-    }
-
-    function cssEscape(value) {
-      if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value)
-      return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&")
     }
 
     function applyOptimisticRead(emailId) {
