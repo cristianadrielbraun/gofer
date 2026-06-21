@@ -46,20 +46,33 @@ func (c *Client) MoveMessage(ctx context.Context, folderRemoteName string, uid u
 	return c.MoveMessages(ctx, folderRemoteName, []uint32{uid}, destFolderRemoteName)
 }
 
+func (c *Client) MoveMessageWithDestUID(ctx context.Context, folderRemoteName string, uid uint32, destFolderRemoteName string) (uint32, error) {
+	destUIDs, err := c.MoveMessagesWithDestUIDs(ctx, folderRemoteName, []uint32{uid}, destFolderRemoteName)
+	if err != nil || len(destUIDs) == 0 {
+		return 0, err
+	}
+	return destUIDs[0], nil
+}
+
 func (c *Client) MoveMessages(ctx context.Context, folderRemoteName string, uids []uint32, destFolderRemoteName string) error {
+	_, err := c.MoveMessagesWithDestUIDs(ctx, folderRemoteName, uids, destFolderRemoteName)
+	return err
+}
+
+func (c *Client) MoveMessagesWithDestUIDs(ctx context.Context, folderRemoteName string, uids []uint32, destFolderRemoteName string) ([]uint32, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if len(uids) == 0 {
-		return nil
+		return nil, nil
 	}
 	if c.closed {
-		return fmt.Errorf("client is closed")
+		return nil, fmt.Errorf("client is closed")
 	}
 
 	_, err := c.client.Select(folderRemoteName, nil).Wait()
 	if err != nil {
-		return fmt.Errorf("select %s: %w", folderRemoteName, err)
+		return nil, fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
 	defer c.client.Unselect()
 
@@ -69,8 +82,28 @@ func (c *Client) MoveMessages(ctx context.Context, folderRemoteName string, uids
 	}
 
 	moveCmd := c.client.Move(uidSet, destFolderRemoteName)
-	_, err = moveCmd.Wait()
-	return err
+	data, err := moveCmd.Wait()
+	if err != nil {
+		return nil, err
+	}
+	if data == nil || data.DestUIDs == nil {
+		return nil, nil
+	}
+	destUIDSet, ok := data.DestUIDs.(imap.UIDSet)
+	if !ok {
+		return nil, nil
+	}
+	destUIDs, ok := destUIDSet.Nums()
+	if !ok {
+		return nil, nil
+	}
+	out := make([]uint32, 0, len(destUIDs))
+	for _, destUID := range destUIDs {
+		if destUID > 0 {
+			out = append(out, uint32(destUID))
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) DeleteMessages(ctx context.Context, folderRemoteName string, uids []uint32) error {

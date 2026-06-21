@@ -17,6 +17,7 @@ import (
 
 const (
 	microsoftGraphContactsScope = "https://graph.microsoft.com/Contacts.ReadWrite"
+	microsoftGraphMailScope     = "https://graph.microsoft.com/Mail.ReadWrite"
 	microsoftOutlookIMAPScope   = "https://outlook.office.com/IMAP.AccessAsUser.All"
 	microsoftOutlookSMTPScope   = "https://outlook.office.com/SMTP.Send"
 )
@@ -40,6 +41,14 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 }
 
 func (m *Manager) GetMicrosoftGraphContactsTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, microsoftGraphContactsScope, "contacts")
+}
+
+func (m *Manager) GetMicrosoftGraphMailTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, microsoftGraphMailScope, "mail")
+}
+
+func (m *Manager) getMicrosoftGraphTokenForAccount(ctx context.Context, accountID, scope, label string) (string, error) {
 	var accountProvider, providerAccountID string
 	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider, provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider, &providerAccountID); err != nil {
 		return "", fmt.Errorf("query account oauth identity: %w", err)
@@ -58,16 +67,16 @@ func (m *Manager) GetMicrosoftGraphContactsTokenForAccount(ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
-	token, err := refreshTokenForScopes(ctx, cfg, record.RefreshToken, []string{microsoftGraphContactsScope})
+	token, err := refreshTokenForScopes(ctx, cfg, record.RefreshToken, []string{scope})
 	if err != nil {
-		return "", fmt.Errorf("refresh graph token: %w", err)
+		return "", fmt.Errorf("refresh graph %s token: %w", label, err)
 	}
 	if strings.TrimSpace(token.AccessToken) == "" {
-		return "", fmt.Errorf("empty graph access token")
+		return "", fmt.Errorf("empty graph %s access token", label)
 	}
 	if strings.TrimSpace(token.RefreshToken) != "" && token.RefreshToken != record.RefreshToken {
 		if err := m.storeOAuthRefreshToken(ctx, record.ID, token.RefreshToken); err != nil {
-			return "", fmt.Errorf("store graph refresh token: %w", err)
+			return "", fmt.Errorf("store graph %s refresh token: %w", label, err)
 		}
 	}
 	return token.AccessToken, nil

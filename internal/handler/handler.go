@@ -222,6 +222,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/star", h.handleMarkMessagesStarred)
 	mux.HandleFunc("POST /api/messages/archive", h.handleArchiveMessages)
 	mux.HandleFunc("POST /api/messages/delete", h.handleDeleteMessages)
+	mux.HandleFunc("POST /api/messages/spam", h.handleMarkMessagesSpam)
+	mux.HandleFunc("POST /api/messages/not-spam", h.handleMarkMessagesNotSpam)
 	mux.HandleFunc("POST /api/messages/move", h.handleMoveMessages)
 	mux.HandleFunc("POST /api/messages/{id}/read", h.handleToggleRead)
 	mux.HandleFunc("POST /api/messages/{id}/star", h.handleToggleStar)
@@ -4139,6 +4141,21 @@ func (h *Handler) getMessageInfo(ctx context.Context, idStr string) (int64, *sto
 		return 0, nil, fmt.Errorf("invalid message id")
 	}
 	info, err := h.db.GetMessageMutationInfo(ctx, msgID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("get message info: %w", err)
+	}
+	if info == nil {
+		return 0, nil, fmt.Errorf("message not found")
+	}
+	return msgID, info, nil
+}
+
+func (h *Handler) getMessageInfoForFolder(ctx context.Context, idStr, folderID string) (int64, *storage.MessageMutationInfo, error) {
+	msgID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return 0, nil, fmt.Errorf("invalid message id")
+	}
+	info, err := h.db.GetMessageMutationInfoForFolder(ctx, msgID, folderID)
 	if err != nil {
 		return 0, nil, fmt.Errorf("get message info: %w", err)
 	}

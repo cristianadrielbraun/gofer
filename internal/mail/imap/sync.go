@@ -372,6 +372,42 @@ func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string) ([]uint32,
 	return uids, nil
 }
 
+func (c *Client) FindUIDByMessageID(ctx context.Context, remoteName, messageID string) (uint32, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return 0, nil
+	}
+	if c.closed {
+		return 0, fmt.Errorf("client is closed")
+	}
+
+	_, err := c.client.Select(remoteName, nil).Wait()
+	if err != nil {
+		return 0, fmt.Errorf("select %s: %w", remoteName, err)
+	}
+	defer c.client.Unselect()
+
+	searchCmd := c.client.UIDSearch(&imap.SearchCriteria{
+		Header: []imap.SearchCriteriaHeaderField{{
+			Key:   "Message-ID",
+			Value: messageID,
+		}},
+	}, nil)
+	searchData, err := searchCmd.Wait()
+	if err != nil {
+		return 0, fmt.Errorf("uid search %s message-id %s: %w", remoteName, messageID, err)
+	}
+
+	uids := searchData.AllUIDs()
+	if len(uids) == 0 {
+		return 0, nil
+	}
+	return uint32(uids[0]), nil
+}
+
 type FlagUpdate struct {
 	UID       uint32
 	IsRead    bool

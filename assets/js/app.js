@@ -834,6 +834,13 @@ document.addEventListener("DOMContentLoaded", function () {
       })
     }
 
+    function currentMailListFolderID() {
+      if (virtualMailList && virtualMailList.folderID) return virtualMailList.folderID
+      var scroll = document.getElementById("mail-list-scroll")
+      if (scroll && scroll._virtualMailList && scroll._virtualMailList.folderID) return scroll._virtualMailList.folderID
+      return scroll && scroll.dataset.folderId ? scroll.dataset.folderId : ""
+    }
+
     function markSelectedReadInBackground(ids) {
       var targets = selectedMailTargets(ids)
       for (var i = 0; i < ids.length; i++) applyOptimisticRead(ids[i])
@@ -877,14 +884,16 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
-      if (action === "archive" || action === "delete" || action === "star") {
+      if (action === "archive" || action === "delete" || action === "star" || action === "spam" || action === "not-spam") {
         var targets = selectedMailTargets(ids)
         var current = virtualMailList && virtualMailList.selectedEmailId
-        if ((action === "archive" || action === "delete") && current && ids.indexOf(current) !== -1) setMailViewEmpty()
-        if (action === "archive" || action === "delete") applyOptimisticRemove(ids)
+        var removesFromFolder = action === "archive" || action === "delete" || action === "spam" || action === "not-spam"
+        if (removesFromFolder && current && ids.indexOf(current) !== -1) setMailViewEmpty()
+        if (removesFromFolder) applyOptimisticRemove(ids)
         clearMailSelection()
-        var path = action === "archive" ? "/api/messages/archive" : (action === "delete" ? "/api/messages/delete" : "/api/messages/star")
+        var path = action === "archive" ? "/api/messages/archive" : (action === "delete" ? "/api/messages/delete" : (action === "spam" ? "/api/messages/spam" : (action === "not-spam" ? "/api/messages/not-spam" : "/api/messages/star")))
         var extra = action === "star" ? { state: "starred" } : null
+        if (action === "spam" || action === "not-spam") extra = { folder_id: currentMailListFolderID() }
         sendBulkMessageAction(path, targets, extra).then(function () {
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
             virtualMailList.refreshCurrentFolder({ noAnimation: action === "star" }).catch(function () {})
@@ -3123,7 +3132,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function pendingRowCount(list, mode, viewMode) {
     var height = list && list.getBoundingClientRect ? list.getBoundingClientRect().height : 0
     var reserved = mode === "contacts" ? 148 : 160
-    var itemHeight = viewMode === "table" ? 44 : 114
+    var itemHeight = viewMode === "table" ? 44 : 100
     var count = Math.ceil(Math.max(0, height - reserved) / itemHeight) + 2
     if (!isFinite(count) || count <= 0) count = viewMode === "table" ? 14 : 8
     return Math.max(viewMode === "table" ? 10 : 6, Math.min(viewMode === "table" ? 28 : 12, count))
@@ -8230,6 +8239,53 @@ function archiveThread(emailId) {
 
 function deleteThread(emailId) {
   fetch("/api/messages/" + emailId + "/thread", { method: "DELETE" })
+    .then(function () {
+      var mailView = document.getElementById("mail-view")
+      if (mailView) setMailViewEmpty()
+      var container = document.getElementById("mail-list-scroll")
+      if (container && container._virtualMailList) {
+        var vml = container._virtualMailList
+        if (vml.selectedEmailId === emailId) vml.selectedEmailId = null
+        vml.reset()
+        vml.hydrateFromDOM()
+        vml.switchFolder(vml.folderID)
+      }
+      refreshSidebarUnread()
+    })
+    .catch(function () {})
+}
+
+function markSpam(emailId) {
+  markSpamState(emailId, false, false)
+}
+
+function markThreadSpam(emailId) {
+  markSpamState(emailId, false, true)
+}
+
+function markNotSpam(emailId) {
+  markSpamState(emailId, true, false)
+}
+
+function markThreadNotSpam(emailId) {
+  markSpamState(emailId, true, true)
+}
+
+function mailActionCurrentFolderID() {
+  var container = document.getElementById("mail-list-scroll")
+  if (container && container._virtualMailList && container._virtualMailList.folderID) return container._virtualMailList.folderID
+  if (container && container.dataset.folderId) return container.dataset.folderId
+  var active = document.querySelector('aside a[hx-get^="/folder/"].bg-sidebar-accent')
+  return active ? (active.getAttribute("hx-get") || "").replace("/folder/", "") : ""
+}
+
+function markSpamState(emailId, notSpam, thread) {
+  var path = notSpam ? "/api/messages/not-spam" : "/api/messages/spam"
+  fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targets: [{ id: String(emailId), thread: !!thread }], folder_id: mailActionCurrentFolderID() })
+  })
     .then(function () {
       var mailView = document.getElementById("mail-view")
       if (mailView) setMailViewEmpty()

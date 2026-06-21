@@ -82,6 +82,74 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndDoesNotReplaceMailToken(t *
 	}
 }
 
+func TestMicrosoftGraphMailTokenUsesGraphMailScopeAndDoesNotReplaceMailToken(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('acc', 'default', 'outlook', 'subject-id', 'person@outlook.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	var gotScope string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm() error = %v", err)
+		}
+		gotScope = r.FormValue("scope")
+		if got := r.FormValue("grant_type"); got != "refresh_token" {
+			t.Fatalf("grant_type = %q, want refresh_token", got)
+		}
+		if got := r.FormValue("refresh_token"); got != "refresh-token" {
+			t.Fatalf("refresh_token = %q, want refresh-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"graph-mail-token","refresh_token":"rotated-refresh-token","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer server.Close()
+
+	manager := NewManager(&Config{
+		MicrosoftClient: &oauth2.Config{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
+		},
+	}, db)
+	expiresAt := time.Now().Add(time.Hour)
+	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "outlook-opaque-token", "refresh-token", "Bearer", &expiresAt, strings.Join(microsoftOutlookMailScopes(), " ")); err != nil {
+		t.Fatalf("UpsertOAuthAccount() error = %v", err)
+	}
+
+	token, err := manager.GetMicrosoftGraphMailTokenForAccount(ctx, "acc")
+	if err != nil {
+		t.Fatalf("GetMicrosoftGraphMailTokenForAccount() error = %v", err)
+	}
+	if token != "graph-mail-token" {
+		t.Fatalf("token = %q, want graph mail token", token)
+	}
+	if gotScope != microsoftGraphMailScope {
+		t.Fatalf("scope = %q, want %q", gotScope, microsoftGraphMailScope)
+	}
+
+	var storedAccessToken, storedRefreshToken string
+	if err := db.Read().QueryRowContext(ctx, `SELECT access_token, refresh_token FROM oauth_accounts WHERE provider = ? AND provider_account_id = ?`, providers.OAuthMicrosoft, "subject-id").Scan(&storedAccessToken, &storedRefreshToken); err != nil {
+		t.Fatalf("query stored token: %v", err)
+	}
+	if storedAccessToken != "outlook-opaque-token" {
+		t.Fatalf("stored access token = %q, want Outlook mail token preserved", storedAccessToken)
+	}
+	if storedRefreshToken != "rotated-refresh-token" {
+		t.Fatalf("stored refresh token = %q, want rotated refresh token", storedRefreshToken)
+	}
+}
+
 func TestGetOAuthTokenForOutlookUsesOutlookScopesAndStoresMailToken(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))

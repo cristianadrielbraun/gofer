@@ -480,6 +480,39 @@ templ MailViewHeader(email *models.Email) {
 			}
 			@tooltip.Tooltip() {
 				@tooltip.Trigger() {
+						if mailEmailIsSpam(email) {
+							@button.Button(button.Props{
+								Variant:    button.VariantGhost,
+								Size:       button.SizeIcon,
+								Class:      "h-8 w-8 border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-emerald-500/15 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200",
+								Attributes: templ.Attributes{"onclick": threadAwareAction("markNotSpam", "markThreadNotSpam", email)},
+							}) {
+								@icon.ShieldCheck(icon.Props{Class: "size-4"})
+						}
+					} else {
+						@button.Button(button.Props{
+							Variant:    button.VariantGhost,
+							Size:       button.SizeIcon,
+							Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
+							Attributes: templ.Attributes{"onclick": threadAwareAction("markSpam", "markThreadSpam", email)},
+						}) {
+							@icon.ShieldAlert(icon.Props{Class: "size-4"})
+						}
+					}
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					if mailEmailIsSpam(email) {
+						{ threadAwareLabel("Not spam", "Mark thread as not spam", email) }
+					} else {
+						{ threadAwareLabel("Report spam", "Report thread as spam", email) }
+					}
+				}
+			}
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
 					@button.Button(button.Props{
 						Variant:    button.VariantGhost,
 						Size:       button.SizeIcon,

@@ -56,6 +56,32 @@ func folderDisplayName(folderID string) string {
 	return "Inbox"
 }
 
+func mailRoleIsSpam(role string) bool {
+	role = strings.TrimSpace(strings.ToLower(role))
+	return role == "spam" || role == "junk"
+}
+
+func mailFolderIDIsSpam(folderID string, accounts []models.Account) bool {
+	if strings.TrimSpace(folderID) == "spam" {
+		return true
+	}
+	for _, account := range accounts {
+		for _, folder := range account.Folders {
+			if folder.ID == folderID && mailRoleIsSpam(folder.Role) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mailEmailIsSpam(email *models.Email) bool {
+	if email == nil {
+		return false
+	}
+	return email.FolderID == "spam" || mailRoleIsSpam(email.FolderRole)
+}
+
 func composeDefaultAccountID(accounts []models.Account) string {
 	if len(accounts) > 0 {
 		return accounts[0].ID

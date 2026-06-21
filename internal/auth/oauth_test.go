@@ -69,6 +69,7 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 				microsoftOutlookIMAPScope,
 				microsoftOutlookSMTPScope,
 				microsoftGraphContactsScope,
+				microsoftGraphMailScope,
 			},
 			Endpoint: oauth2.Endpoint{AuthURL: "https://login.example/authorize"},
 		},
@@ -85,6 +86,9 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 	}
 	if !strings.Contains(values.Get("scope"), microsoftGraphContactsScope) {
 		t.Fatalf("scope = %q, want Graph contacts scope", values.Get("scope"))
+	}
+	if !strings.Contains(values.Get("scope"), microsoftGraphMailScope) {
+		t.Fatalf("scope = %q, want Graph mail scope", values.Get("scope"))
 	}
 }
 

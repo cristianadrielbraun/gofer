@@ -197,6 +197,61 @@ func TestUnifiedSpamIncludesJunkRoleFolders(t *testing.T) {
 	}
 }
 
+func TestMutationInfoForFolderUsesActiveUnifiedRole(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_junk", AccountID: "acc", Name: "Junk", Role: "junk", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	for _, msg := range []SyncMessage{
+		{AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 11, MessageID: "<shared@example.com>", Subject: "Shared", FromEmail: "sender@example.com", DateSent: time.Now()},
+		{AccountID: "acc", FolderID: "acc_junk", RemoteUID: 22, MessageID: "<shared@example.com>", Subject: "Shared", FromEmail: "sender@example.com", DateSent: time.Now()},
+	} {
+		if err := db.UpsertSyncMessages(ctx, []SyncMessage{msg}); err != nil {
+			t.Fatalf("UpsertSyncMessages(%s) error = %v", msg.FolderID, err)
+		}
+	}
+
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<shared@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID(shared) = %d, %v", msgID, err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE messages SET thread_id = 'thread-shared' WHERE id = ?`, msgID); err != nil {
+		t.Fatalf("set thread id: %v", err)
+	}
+
+	info, err := db.GetMessageMutationInfoForFolder(ctx, msgID, "spam")
+	if err != nil {
+		t.Fatalf("GetMessageMutationInfoForFolder(spam) error = %v", err)
+	}
+	if info == nil || info.FolderID != "acc_junk" || info.RemoteUID != 22 {
+		t.Fatalf("spam mutation info = %#v, want junk folder UID 22", info)
+	}
+
+	info, err = db.GetMessageMutationInfoForFolder(ctx, msgID, "acc_inbox")
+	if err != nil {
+		t.Fatalf("GetMessageMutationInfoForFolder(acc_inbox) error = %v", err)
+	}
+	if info == nil || info.FolderID != "acc_inbox" || info.RemoteUID != 11 {
+		t.Fatalf("inbox mutation info = %#v, want inbox folder UID 11", info)
+	}
+
+	infos, err := db.GetThreadMutationInfosForFolder(ctx, "acc", "thread-shared", "spam")
+	if err != nil {
+		t.Fatalf("GetThreadMutationInfosForFolder(spam) error = %v", err)
+	}
+	if len(infos) != 1 || infos[0].FolderID != "acc_junk" || infos[0].RemoteUID != 22 {
+		t.Fatalf("spam thread mutation infos = %#v, want junk folder UID 22", infos)
+	}
+}
+
 func TestUnifiedFolderAccountSettingsFilterMailAndUnread(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -458,6 +513,39 @@ func TestEmailBodyFilterUsesMaintainedSearchIndex(t *testing.T) {
 	}
 	if page.TotalCount != 1 || len(page.Emails) != 1 {
 		t.Fatalf("body filtered page total=%d len=%d, want 1 result", page.TotalCount, len(page.Emails))
+	}
+}
+
+func TestAddMessageToFolderWithoutRemoteUIDAllowsMultipleUnknownUIDs(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "spam", AccountID: "acc", Name: "Spam", Role: "junk", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO messages (id, account_id, internet_message_id, subject, from_email)
+		VALUES (1, 'acc', '<one@example.com>', 'one', 'sender@example.com'),
+		       (2, 'acc', '<two@example.com>', 'two', 'sender@example.com')`); err != nil {
+		t.Fatalf("insert messages: %v", err)
+	}
+
+	if err := db.AddMessageToFolderWithoutRemoteUID(ctx, 1, "spam", true, false); err != nil {
+		t.Fatalf("AddMessageToFolderWithoutRemoteUID(1) error = %v", err)
+	}
+	if err := db.AddMessageToFolderWithoutRemoteUID(ctx, 2, "spam", false, true); err != nil {
+		t.Fatalf("AddMessageToFolderWithoutRemoteUID(2) error = %v", err)
+	}
+
+	var count, nullUIDs int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*), SUM(CASE WHEN remote_uid IS NULL THEN 1 ELSE 0 END) FROM message_folder_state WHERE folder_id = 'spam'`).Scan(&count, &nullUIDs); err != nil {
+		t.Fatalf("query folder state: %v", err)
+	}
+	if count != 2 || nullUIDs != 2 {
+		t.Fatalf("folder state count=%d nullUIDs=%d, want 2 and 2", count, nullUIDs)
 	}
 }
 

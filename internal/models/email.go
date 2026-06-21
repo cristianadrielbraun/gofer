@@ -35,6 +35,7 @@ type Email struct {
 	AccountID         string
 	AccountColor      string
 	FolderID          string
+	FolderRole        string
 	From              Contact
 	To                []Contact
 	CC                []Contact

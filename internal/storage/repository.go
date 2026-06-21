@@ -2226,13 +2226,17 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 		email.ThreadID = threadID.String
 	}
 
-	var folderID string
+	var folderID, folderRole string
 	var isRead, isStarred, isDraft int
 	err = db.Read().QueryRowContext(ctx,
-		`SELECT folder_id, is_read, is_starred, is_draft FROM message_folder_state WHERE message_id = ? LIMIT 1`, msgID,
-	).Scan(&folderID, &isRead, &isStarred, &isDraft)
+		`SELECT mfs.folder_id, f.role, mfs.is_read, mfs.is_starred, mfs.is_draft
+			 FROM message_folder_state mfs
+			 JOIN folders f ON mfs.folder_id = f.id
+			 WHERE mfs.message_id = ? LIMIT 1`, msgID,
+	).Scan(&folderID, &folderRole, &isRead, &isStarred, &isDraft)
 	if err == nil {
 		email.FolderID = folderID
+		email.FolderRole = folderRole
 		email.IsRead = isRead == 1
 		email.IsStarred = isStarred == 1
 		email.IsDraft = isDraft == 1
@@ -3283,11 +3287,15 @@ func (db *DB) GetMessageBodyPaths(ctx context.Context, messageID int64) (textPat
 }
 
 type MessageMutationInfo struct {
-	AccountID      string
-	FolderID       string
-	FolderRemoteID string
-	RemoteUID      uint32
-	FolderRole     string
+	AccountID         string
+	AccountProvider   string
+	FolderID          string
+	FolderRemoteID    string
+	RemoteUID         uint32
+	FolderRole        string
+	RemoteMessageID   string
+	InternetMessageID string
+	ProviderThreadID  string
 }
 
 type ThreadMessageMutationInfo struct {
@@ -3298,18 +3306,57 @@ type ThreadMessageMutationInfo struct {
 }
 
 func (db *DB) GetMessageMutationInfo(ctx context.Context, messageID int64) (*MessageMutationInfo, error) {
+	return db.getMessageMutationInfo(ctx, messageID, "", nil)
+}
+
+func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return db.GetMessageMutationInfo(ctx, messageID)
+	}
+
+	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID})
+	if err != nil || info != nil {
+		return info, err
+	}
+
+	if isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs)
+		if err != nil || info != nil {
+			return info, err
+		}
+	}
+
+	return db.GetMessageMutationInfo(ctx, messageID)
+}
+
+func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folderPredicate string, folderArgs []any) (*MessageMutationInfo, error) {
 	var info MessageMutationInfo
 	var remoteUID sql.NullInt64
 	var role string
+	var remoteMessageID, internetMessageID, providerThreadID sql.NullString
+
+	query := `SELECT m.account_id, a.provider, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role,
+	                 m.remote_message_id, m.internet_message_id, m.provider_thread_id
+			  FROM messages m
+			  JOIN accounts a ON m.account_id = a.id
+			  JOIN message_folder_state mfs ON m.id = mfs.message_id
+			  JOIN folders f ON mfs.folder_id = f.id
+			  WHERE m.id = ? AND mfs.is_deleted = 0`
+	args := []any{messageID}
+	if strings.TrimSpace(folderPredicate) != "" {
+		query += ` AND (` + folderPredicate + `)`
+		args = append(args, folderArgs...)
+	}
+	query += ` ORDER BY
+			CASE WHEN mfs.remote_uid IS NOT NULL AND mfs.remote_uid > 0 THEN 0 ELSE 1 END,
+			CASE f.role WHEN 'inbox' THEN 0 WHEN 'junk' THEN 1 WHEN 'spam' THEN 1 ELSE 2 END
+		  LIMIT 1`
 
 	err := db.Read().QueryRowContext(ctx,
-		`SELECT m.account_id, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role
-		 FROM messages m
-		 JOIN message_folder_state mfs ON m.id = mfs.message_id
-		 JOIN folders f ON mfs.folder_id = f.id
-		 WHERE m.id = ?
-		 LIMIT 1`, messageID,
-	).Scan(&info.AccountID, &info.FolderID, &info.FolderRemoteID, &remoteUID, &role)
+		query, args...,
+	).Scan(&info.AccountID, &info.AccountProvider, &info.FolderID, &info.FolderRemoteID, &remoteUID, &role, &remoteMessageID, &internetMessageID, &providerThreadID)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -3322,31 +3369,64 @@ func (db *DB) GetMessageMutationInfo(ctx context.Context, messageID int64) (*Mes
 	if remoteUID.Valid {
 		info.RemoteUID = uint32(remoteUID.Int64)
 	}
+	if remoteMessageID.Valid {
+		info.RemoteMessageID = remoteMessageID.String
+	}
+	if internetMessageID.Valid {
+		info.InternetMessageID = internetMessageID.String
+	}
+	if providerThreadID.Valid {
+		info.ProviderThreadID = providerThreadID.String
+	}
 	return &info, nil
 }
 
 func (db *DB) GetThreadMutationInfos(ctx context.Context, accountID, threadID string) ([]ThreadMessageMutationInfo, error) {
-	return db.getThreadMutationInfos(ctx, accountID, threadID, "")
+	return db.getThreadMutationInfos(ctx, accountID, threadID, "", nil)
 }
 
 func (db *DB) GetThreadMutationInfosInFolder(ctx context.Context, accountID, threadID, folderID string) ([]ThreadMessageMutationInfo, error) {
-	return db.getThreadMutationInfos(ctx, accountID, threadID, folderID)
+	if strings.TrimSpace(folderID) == "" {
+		return db.GetThreadMutationInfos(ctx, accountID, threadID)
+	}
+	return db.getThreadMutationInfos(ctx, accountID, threadID, "mfs.folder_id = ?", []any{folderID})
 }
 
-func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, folderID string) ([]ThreadMessageMutationInfo, error) {
+func (db *DB) GetThreadMutationInfosForFolder(ctx context.Context, accountID, threadID, folderID string) ([]ThreadMessageMutationInfo, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return db.GetThreadMutationInfos(ctx, accountID, threadID)
+	}
+
+	infos, err := db.GetThreadMutationInfosInFolder(ctx, accountID, threadID, folderID)
+	if err != nil || len(infos) > 0 {
+		return infos, err
+	}
+
+	if isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		return db.getThreadMutationInfos(ctx, accountID, threadID, rolePredicate, roleArgs)
+	}
+	return infos, nil
+}
+
+func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, folderPredicate string, folderArgs []any) ([]ThreadMessageMutationInfo, error) {
 	if threadID == "" {
 		return nil, nil
 	}
 
-	query := `SELECT m.id, m.account_id, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role, mfs.is_read, mfs.is_starred
-		 FROM messages m
-		 JOIN message_folder_state mfs ON m.id = mfs.message_id
-		 JOIN folders f ON mfs.folder_id = f.id
-		 WHERE m.account_id = ? AND m.thread_id = ? AND mfs.is_deleted = 0`
+	query := `SELECT m.id, m.account_id, a.provider, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role,
+	                 m.remote_message_id, m.internet_message_id, m.provider_thread_id,
+	                 mfs.is_read, mfs.is_starred
+			 FROM messages m
+			 JOIN accounts a ON m.account_id = a.id
+			 JOIN message_folder_state mfs ON m.id = mfs.message_id
+			 JOIN folders f ON mfs.folder_id = f.id
+			 WHERE m.account_id = ? AND m.thread_id = ? AND mfs.is_deleted = 0`
 	args := []any{accountID, threadID}
-	if folderID != "" {
-		query += ` AND mfs.folder_id = ?`
-		args = append(args, folderID)
+	if strings.TrimSpace(folderPredicate) != "" {
+		query += ` AND (` + folderPredicate + `)`
+		args = append(args, folderArgs...)
 	}
 	query += ` ORDER BY m.date_received ASC, m.id ASC`
 
@@ -3360,18 +3440,35 @@ func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, f
 	for rows.Next() {
 		var info ThreadMessageMutationInfo
 		var remoteUID sql.NullInt64
+		var remoteMessageID, internetMessageID, providerThreadID sql.NullString
 		var isRead, isStarred int
-		if err := rows.Scan(&info.MessageID, &info.AccountID, &info.FolderID, &info.FolderRemoteID, &remoteUID, &info.FolderRole, &isRead, &isStarred); err != nil {
+		if err := rows.Scan(&info.MessageID, &info.AccountID, &info.AccountProvider, &info.FolderID, &info.FolderRemoteID, &remoteUID, &info.FolderRole, &remoteMessageID, &internetMessageID, &providerThreadID, &isRead, &isStarred); err != nil {
 			return nil, err
 		}
 		if remoteUID.Valid {
 			info.RemoteUID = uint32(remoteUID.Int64)
+		}
+		if remoteMessageID.Valid {
+			info.RemoteMessageID = remoteMessageID.String
+		}
+		if internetMessageID.Valid {
+			info.InternetMessageID = internetMessageID.String
+		}
+		if providerThreadID.Valid {
+			info.ProviderThreadID = providerThreadID.String
 		}
 		info.IsRead = isRead == 1
 		info.IsStarred = isStarred == 1
 		infos = append(infos, info)
 	}
 	return infos, rows.Err()
+}
+
+func (db *DB) SetMessageProviderMessageID(ctx context.Context, messageID int64, providerMessageID string) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE messages SET remote_message_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		strings.TrimSpace(providerMessageID), messageID)
+	return err
 }
 
 func (db *DB) ThreadHasUnread(ctx context.Context, accountID, threadID string) (bool, error) {
@@ -3513,6 +3610,24 @@ func (db *DB) AddMessageToFolder(ctx context.Context, messageID int64, folderID 
 		 ON CONFLICT(message_id, folder_id) DO UPDATE SET
 			remote_uid = excluded.remote_uid`,
 		messageID, folderID, remoteUID, isRead, isStarred, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	db.RefreshFolderUnreadCount(ctx, folderID)
+	return nil
+}
+
+func (db *DB) AddMessageToFolderWithoutRemoteUID(ctx context.Context, messageID int64, folderID string, isRead, isStarred bool) error {
+	_, err := db.Write().ExecContext(ctx,
+		`INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
+		 VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?)
+		 ON CONFLICT(message_id, folder_id) DO UPDATE SET
+			remote_uid = NULL,
+			is_read = excluded.is_read,
+			is_starred = excluded.is_starred,
+			is_deleted = 0,
+			synced_at = excluded.synced_at`,
+		messageID, folderID, isRead, isStarred, time.Now().UTC())
 	if err != nil {
 		return err
 	}

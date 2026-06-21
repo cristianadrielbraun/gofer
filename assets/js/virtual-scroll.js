@@ -5,7 +5,7 @@ class VirtualMailList {
     this.folderID = options.folderID || "inbox"
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
-    this.itemHeight = this.viewMode === "table" ? 44 : 114
+    this.itemHeight = this.viewMode === "table" ? 44 : 100
     this.subItemHeight = this.viewMode === "table" ? 32 : 48
     this.expandedThreadGap = 14
     this.overscan = 10
@@ -1646,7 +1646,7 @@ class VirtualMailList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = this.viewMode === "table" ? 44 : 114
+    this.itemHeight = this.viewMode === "table" ? 44 : 100
     this.subItemHeight = this.viewMode === "table" ? 32 : 48
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
@@ -1705,7 +1705,7 @@ class VirtualMailList {
     var transition = this.captureListTransition()
     var selected = this.selectedEmailId
     var oldItemHeight = this.itemHeight
-    var targetItemHeight = viewMode === "table" ? 44 : 114
+    var targetItemHeight = viewMode === "table" ? 44 : 100
     var anchorIndex = this.positionAtOffset(this.container.scrollTop)
     var anchorOffset = Math.max(0, this.container.scrollTop - this.offsetAtPosition(anchorIndex))
     var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0

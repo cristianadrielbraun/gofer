@@ -19,7 +19,7 @@ import (
 templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, windowStart int, width string, senderDisplayMode string, viewMode string, navigationMode string) {
 	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) }>
 		@MailListHeader(activeFolder, totalCount)
-		@MailListToolbar(mailListViewMode(viewMode))
+		@MailListToolbar(accounts, activeFolder, mailListViewMode(viewMode))
 		@MailFilterAdvancedDialog(accounts)
 		@MailCardLayoutDialog()
 		<hr class="divider-etched"/>
@@ -62,7 +62,7 @@ templ MailListHeader(activeFolder string, totalCount int) {
 	</div>
 }
 
-templ MailListToolbar(viewMode string) {
+templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode string) {
 	<div class="mail-list-toolbar flex items-center gap-1 px-4 py-1.5">
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
@@ -245,11 +245,20 @@ templ MailListToolbar(viewMode string) {
 					</span>
 				}
 				@dropdown.Separator()
-				@dropdown.Item() {
-					<span class="flex items-center gap-2">
-						@icon.MailX(icon.Props{Class: "size-4"})
-						Move to spam
-					</span>
+				if mailFolderIDIsSpam(activeFolder, accounts) {
+					@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "not-spam"}}) {
+						<span class="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-300">
+							@icon.ShieldCheck(icon.Props{Class: "size-4"})
+							Not spam
+						</span>
+					}
+				} else {
+					@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "spam"}}) {
+						<span class="flex items-center gap-2">
+							@icon.ShieldAlert(icon.Props{Class: "size-4"})
+							Report spam
+						</span>
+					}
 				}
 			}
 		}
