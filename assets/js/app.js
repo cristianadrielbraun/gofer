@@ -808,6 +808,14 @@ document.addEventListener("DOMContentLoaded", function () {
       if (anchor) {
         anchor.setAttribute("data-mail-read-optimistic", "")
         anchor.removeAttribute("data-mail-selected")
+        var unreadFields = anchor.querySelectorAll('[data-mail-card-field="unread"]')
+        for (var u = 0; u < unreadFields.length; u++) {
+          var placeholder = document.createElement("span")
+          placeholder.dataset.mailCardField = "unread"
+          placeholder.className = "mail-list-card-empty-icon-slot"
+          placeholder.setAttribute("aria-hidden", "true")
+          unreadFields[u].replaceWith(placeholder)
+        }
         var unreadDots = anchor.querySelectorAll(".bg-primary")
         for (var i = 0; i < unreadDots.length; i++) {
           if (unreadDots[i].className.indexOf("rounded-full") !== -1) unreadDots[i].remove()
@@ -3115,7 +3123,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function pendingRowCount(list, mode, viewMode) {
     var height = list && list.getBoundingClientRect ? list.getBoundingClientRect().height : 0
     var reserved = mode === "contacts" ? 148 : 160
-    var itemHeight = viewMode === "table" ? 44 : 94
+    var itemHeight = viewMode === "table" ? 44 : 114
     var count = Math.ceil(Math.max(0, height - reserved) / itemHeight) + 2
     if (!isFinite(count) || count <= 0) count = viewMode === "table" ? 14 : 8
     return Math.max(viewMode === "table" ? 10 : 6, Math.min(viewMode === "table" ? 28 : 12, count))
@@ -3206,9 +3214,11 @@ document.addEventListener("DOMContentLoaded", function () {
     var subjectWidths = ["84%", "66%", "76%", "58%"]
     var previewWidths = ["92%", "80%", "68%", "86%"]
     return '<div class="mail-list-item" aria-hidden="true"><div class="mail-list-card h-full px-3.5 py-2.5 rounded-lg envelope" data-mail-card-layout-scope>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-rail" data-mail-card-zone="rail"><span data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse"></span>' + (i % 4 === 0 ? '<span data-mail-card-field="thread">' + pendingBar("60%", "block h-3") + '</span>' : "") + '</div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</span><span data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></span></div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? '<span data-mail-card-field="attachment">' + pendingIcon("size-3") + '</span>' : "") + '<span data-mail-card-field="date">' + pendingBar("3.5rem", "block h-3") + '</span>' + (i % 3 === 0 ? '<span data-mail-card-field="unread" class="size-2 rounded-full bg-primary/35"></span>' : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse"></span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail-middle" data-mail-card-zone="railMiddle"><span data-mail-card-field="accountMarker" class="account-color-marker size-2.5 shrink-0 bg-muted animate-pulse"></span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail-bottom" data-mail-card-zone="railBottom">' + (i % 4 === 0 ? '<span data-mail-card-field="thread">' + pendingBar("60%", "block h-3") + '</span>' : '<span data-mail-card-field="thread" class="mail-list-card-empty-icon-slot"></span>') + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</span><span data-mail-card-field="date">' + pendingBar("3.5rem", "block h-3") + '</span><span data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? '<span data-mail-card-field="attachment">' + pendingIcon("size-3") + '</span><span data-mail-card-field="unread" class="inline-flex size-4 shrink-0 items-center justify-center"><span class="size-2 rounded-full bg-primary/35"></span></span>' : "") + '</div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="subject">' + pendingBar(subjectWidths[i % subjectWidths.length], "block h-3.5") + '</span><span data-mail-card-field="to">' + pendingBar("46%", "block h-3") + '</span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer"><span data-mail-card-field="preview" class="min-w-0 flex-1">' + pendingBar(previewWidths[i % previewWidths.length], "block h-3 w-full") + '</span>' + (i % 5 === 0 ? '<span data-mail-card-field="labels" class="h-4 w-10 rounded bg-muted animate-pulse"></span>' : "") + '</div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div><div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner"><span data-mail-card-field="starred" class="h-3 w-3 rounded bg-muted animate-pulse"></span></div><div class="hidden" data-mail-card-zone="hidden"></div></div></div>'

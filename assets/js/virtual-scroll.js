@@ -5,7 +5,7 @@ class VirtualMailList {
     this.folderID = options.folderID || "inbox"
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
-    this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.itemHeight = this.viewMode === "table" ? 44 : 114
     this.subItemHeight = this.viewMode === "table" ? 32 : 48
     this.expandedThreadGap = 14
     this.overscan = 10
@@ -410,7 +410,7 @@ class VirtualMailList {
       else shell.removeAttribute("data-thread-collapsing")
       var mainRow = document.createElement("div")
       mainRow.className = "mail-list-thread-main"
-      anchor.style.height = this.viewMode === "table" ? "" : "88px"
+      anchor.style.height = this.viewMode === "table" ? "" : "108px"
       if (toggle) toggle.setAttribute("data-expanded", "")
       mainRow.appendChild(row)
 
@@ -738,16 +738,23 @@ class VirtualMailList {
     }
     row.setAttribute("data-mail-card-layout-scope", "")
     row.innerHTML =
-      '<div class="mail-list-card-zone mail-list-card-zone-rail" data-mail-card-zone="rail">' +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop">' +
       '<div data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse shadow-[0_1px_3px_rgba(0,0,0,0.12)]"></div>' +
+      "</div>" +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail-middle" data-mail-card-zone="railMiddle">' +
+      '<div data-mail-card-field="accountMarker" class="account-color-marker size-2.5 shrink-0 bg-muted animate-pulse"></div>' +
+      "</div>" +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail-bottom" data-mail-card-zone="railBottom">' +
+      '<div data-mail-card-field="thread" class="mail-list-card-empty-icon-slot"></div>' +
       "</div>" +
       '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">' +
       '<div data-mail-card-field="from" class="h-3.5 w-32 max-w-[42%] rounded bg-muted animate-pulse"></div>' +
+      '<div data-mail-card-field="date" class="h-3 w-16 rounded bg-muted animate-pulse"></div>' +
       '<div data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></div>' +
       "</div>" +
       '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' +
-      '<div data-mail-card-field="date" class="h-3 w-16 rounded bg-muted animate-pulse"></div>' +
-      '<div data-mail-card-field="unread" class="w-2 h-2 rounded-full bg-muted animate-pulse shrink-0"></div>' +
+      '<div data-mail-card-field="attachment" class="mail-list-card-empty-icon-slot"></div>' +
+      '<div data-mail-card-field="unread" class="inline-flex size-4 shrink-0 items-center justify-center"><span class="size-2 rounded-full bg-muted animate-pulse"></span></div>' +
       "</div>" +
       '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">' +
       '<div data-mail-card-field="subject" class="h-3.5 w-56 max-w-[58%] rounded bg-muted animate-pulse"></div>' +
@@ -1639,7 +1646,7 @@ class VirtualMailList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.itemHeight = this.viewMode === "table" ? 44 : 114
     this.subItemHeight = this.viewMode === "table" ? 32 : 48
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
@@ -1698,7 +1705,7 @@ class VirtualMailList {
     var transition = this.captureListTransition()
     var selected = this.selectedEmailId
     var oldItemHeight = this.itemHeight
-    var targetItemHeight = viewMode === "table" ? 44 : 94
+    var targetItemHeight = viewMode === "table" ? 44 : 114
     var anchorIndex = this.positionAtOffset(this.container.scrollTop)
     var anchorOffset = Math.max(0, this.container.scrollTop - this.offsetAtPosition(anchorIndex))
     var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0

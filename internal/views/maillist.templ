@@ -558,8 +558,15 @@ templ MailCardLayoutDialog() {
 					</div>
 					<div class="mail-card-layout-preview-shell rounded-lg border border-border bg-background/45 p-3">
 						<div class="mail-card-layout-preview-card mail-list-card rounded-lg border border-border bg-card px-3.5 py-2.5 shadow-sm" data-mail-card-layout-preview data-mail-card-layout-scope>
-							<div class="mail-list-card-zone mail-list-card-zone-rail" data-mail-card-zone="rail" data-mail-card-layout-zone-items="rail" data-mail-card-layout-dropzone="rail">
+							<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop" data-mail-card-layout-zone-items="railTop" data-mail-card-layout-dropzone="railTop">
 								<span data-mail-card-field="avatar" class="inline-flex size-6 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary shadow-[0_1px_3px_rgba(0,0,0,0.15)]">CB</span>
+							</div>
+							<div class="mail-list-card-zone mail-list-card-zone-rail-middle" data-mail-card-zone="railMiddle" data-mail-card-layout-zone-items="railMiddle" data-mail-card-layout-dropzone="railMiddle">
+								<span data-mail-card-field="accountMarker" class="inline-flex items-center justify-center shrink-0">
+									<span class="account-color-marker size-2.5 shrink-0 bg-primary"></span>
+								</span>
+							</div>
+							<div class="mail-list-card-zone mail-list-card-zone-rail-bottom" data-mail-card-zone="railBottom" data-mail-card-layout-zone-items="railBottom" data-mail-card-layout-dropzone="railBottom">
 								<span data-mail-card-field="thread" class="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
 									@icon.MessagesSquare(icon.Props{Class: "size-3"})
 									3
@@ -567,6 +574,7 @@ templ MailCardLayoutDialog() {
 							</div>
 							<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header" data-mail-card-layout-zone-items="header" data-mail-card-layout-dropzone="header">
 								<span data-mail-card-field="from" class="truncate text-sm font-semibold text-foreground">Cristian Braun</span>
+								<span data-mail-card-field="date" class="text-xs font-medium tabular-nums text-primary">10:42</span>
 								<span data-mail-card-field="account" class="mail-list-card-account inline-flex min-w-0 max-w-[42%] items-center gap-1 rounded-full border border-border/70 bg-background/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
 									<span class="account-color-marker size-2 shrink-0 bg-primary"></span>
 									<span class="truncate">Work</span>
@@ -576,8 +584,9 @@ templ MailCardLayoutDialog() {
 								<span data-mail-card-field="attachment">
 									@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
 								</span>
-								<span data-mail-card-field="date" class="text-xs font-medium tabular-nums text-primary">10:42</span>
-								<span data-mail-card-field="unread" class="size-2 shrink-0 rounded-full bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]"></span>
+								<span data-mail-card-field="unread" class="inline-flex size-4 shrink-0 items-center justify-center">
+									<span class="size-2 rounded-full bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]"></span>
+								</span>
 							</div>
 							<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body" data-mail-card-layout-zone-items="body" data-mail-card-layout-dropzone="body">
 								<p data-mail-card-field="subject" class="truncate text-[13px] font-medium text-foreground">Layout editor review</p>
@@ -602,10 +611,23 @@ templ MailCardLayoutDialog() {
 				</div>
 				<div class="mail-card-layout-hidden-panel min-w-0 rounded-lg border border-border bg-background/45 p-2" data-mail-card-layout-dropzone="hidden">
 					<div class="mb-1 flex items-center justify-between gap-2">
-						<div class="truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Hidden fields</div>
+						<div class="flex min-w-0 items-center gap-1.5">
+							<div class="truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">AVAILABLE FIELDS</div>
+							@tooltip.Tooltip() {
+								@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
+									<button type="button" class="mail-card-layout-help-trigger" aria-label="Available fields placement rules">
+										@icon.CircleQuestionMark(icon.Props{Class: "size-3.5"})
+									</button>
+								}
+								@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "mail-card-layout-help-tooltip"}) {
+									<p><strong>Text fields</strong> can be placed only in the center rows: top, middle, and bottom.</p>
+									<p><strong>Icon-only fields</strong> can be placed only in side slots: the three left rail spots and the right top, middle, and bottom areas.</p>
+								}
+							}
+						</div>
 						<div class="h-1.5 w-1.5 rounded-full bg-border"></div>
 					</div>
-					<div class="mail-card-layout-token-list min-h-10 rounded-md border border-dashed border-border/80 bg-card/70 p-1.5" data-mail-card-layout-zone-items="hidden"></div>
+					<div class="mail-card-layout-available-list min-h-10 rounded-md border border-dashed border-border/80 bg-card/70 p-1.5" data-mail-card-layout-zone-items="hidden"></div>
 				</div>
 			</div>
 			@dialog.Footer() {
@@ -633,16 +655,25 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			}
 			data-mail-card-layout-scope
 		>
-			<div class="mail-list-card-zone mail-list-card-zone-rail" data-mail-card-zone="rail">
+			<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop">
 				<div data-mail-card-field="avatar">
 					@ContactAvatar(email.From, "size-6 rounded-full text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]", contactAvatarListFallback(email.IsRead))
 				</div>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-rail-middle" data-mail-card-zone="railMiddle">
+				<span data-mail-card-field="accountMarker" class="inline-flex items-center justify-center shrink-0">
+					<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(email.AccountColor) }></span>
+				</span>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-rail-bottom" data-mail-card-zone="railBottom">
 				if email.ThreadCount > 1 {
 					<button type="button" data-thread-toggle={ email.ID } data-mail-card-field="thread" class="flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0 hover:text-foreground/70 transition-colors cursor-pointer">
 						@icon.MessagesSquare(icon.Props{Class: "size-3"})
 						{ fmt.Sprintf("%d", email.ThreadCount) }
 						@icon.ChevronRight(icon.Props{Class: "size-3 transition-transform thread-toggle-chevron"})
 					</button>
+				} else {
+					<span data-mail-card-field="thread" class="mail-list-card-empty-icon-slot" aria-hidden="true"></span>
 				}
 			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">
@@ -651,6 +682,11 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 					templ.KV("font-semibold text-foreground", !email.IsRead),
 					templ.KV("text-foreground/70", email.IsRead),
 				} data-mail-card-field="from">{ senderDisplay(email.From, senderDisplayMode) }</span>
+				<span class={
+					"text-xs tabular-nums",
+					templ.KV("text-primary font-medium", !email.IsRead),
+					templ.KV("text-muted-foreground", email.IsRead),
+				} data-mail-card-field="date">{ email.Date }</span>
 				<span data-mail-card-field="account" class="mail-list-card-account inline-flex min-w-0 max-w-[42%] items-center gap-1 rounded-full border border-border/70 bg-background/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
 					<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(email.AccountColor) }></span>
 					<span class="truncate">{ mailListAccountDisplay(accounts, email.AccountID) }</span>
@@ -661,14 +697,15 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 					<span data-mail-card-field="attachment">
 						@icon.Paperclip(icon.Props{Class: "size-3 text-muted-foreground"})
 					</span>
+				} else {
+					<span data-mail-card-field="attachment" class="mail-list-card-empty-icon-slot" aria-hidden="true"></span>
 				}
-				<span class={
-					"text-xs tabular-nums",
-					templ.KV("text-primary font-medium", !email.IsRead),
-					templ.KV("text-muted-foreground", email.IsRead),
-				} data-mail-card-field="date">{ email.Date }</span>
 				if !email.IsRead {
-					<div class="w-2 h-2 rounded-full bg-primary shrink-0 shadow-[0_0_6px_rgba(199,123,48,0.4)]" data-mail-card-field="unread"></div>
+					<span data-mail-card-field="unread" class="inline-flex size-4 shrink-0 items-center justify-center">
+						<span class="size-2 rounded-full bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]"></span>
+					</span>
+				} else {
+					<span data-mail-card-field="unread" class="mail-list-card-empty-icon-slot" aria-hidden="true"></span>
 				}
 			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">

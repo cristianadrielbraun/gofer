@@ -61,12 +61,12 @@ var GoferSettings;
     { id: "subject", min: 140 },
     { id: "date", min: 64 },
   ];
-  var MAIL_CARD_FIELD_MAX = 10;
   var MAIL_CARD_FIELDS = [
     { id: "avatar" },
     { id: "thread" },
     { id: "from" },
     { id: "account" },
+    { id: "accountMarker" },
     { id: "to" },
     { id: "date" },
     { id: "subject" },
@@ -77,21 +77,42 @@ var GoferSettings;
     { id: "unread" },
   ];
   var DEFAULT_MAIL_CARD_FIELDS = "avatar,thread,from,attachment,date,unread,subject,preview,labels,starred";
-  var MAIL_CARD_LAYOUT_ZONES = ["rail", "header", "meta", "body", "footer", "status", "corner", "hidden"];
-  var MAIL_CARD_VISIBLE_LAYOUT_ZONES = ["rail", "header", "meta", "body", "footer", "status", "corner"];
-  var DEFAULT_MAIL_CARD_LAYOUT = "rail:avatar,thread|header:from|meta:attachment,date,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,to";
+  var MAIL_CARD_LAYOUT_ZONES = ["railTop", "header", "meta", "railMiddle", "body", "status", "railBottom", "footer", "corner", "hidden"];
+  var MAIL_CARD_VISIBLE_LAYOUT_ZONES = ["railTop", "header", "meta", "railMiddle", "body", "status", "railBottom", "footer", "corner"];
+  var DEFAULT_MAIL_CARD_LAYOUT = "railTop:avatar|header:from,date|meta:attachment,unread|railMiddle:|body:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:account,accountMarker,to";
   var LEGACY_DEFAULT_MAIL_CARD_LAYOUTS = [
     "rail:avatar,thread|header:from,account|meta:attachment,date|body:subject,to,preview|footer:labels,starred|status:unread|hidden:",
     "rail:avatar,thread|header:from|meta:attachment,date|body:subject,preview|footer:labels,starred|status:unread|hidden:account,to",
     "rail:avatar,thread|header:from|meta:attachment,date|body:subject|footer:preview,labels,starred|status:unread|hidden:account,to",
+    "rail:avatar,thread|header:from|meta:attachment,date,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,accountMarker,to",
+    "rail:avatar,thread|header:from,date|meta:attachment,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,accountMarker,to",
   ];
+  var MAIL_CARD_ICON_FIELD_MAP = {
+    avatar: true,
+    thread: true,
+    accountMarker: true,
+    attachment: true,
+    starred: true,
+    unread: true,
+  };
+  var MAIL_CARD_SIDE_ZONES = ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"];
+  var MAIL_CARD_CENTER_ZONES = ["header", "body", "footer"];
+  var MAIL_CARD_SIDE_ZONE_MAX = {
+    railTop: 1,
+    railMiddle: 1,
+    railBottom: 1,
+    meta: 3,
+    status: 3,
+    corner: 3,
+  };
   var MAIL_CARD_DEFAULT_ZONE_BY_ID = {
-    avatar: "rail",
-    thread: "rail",
+    avatar: "railTop",
+    accountMarker: "railMiddle",
+    thread: "railBottom",
     from: "header",
     account: "header",
     attachment: "meta",
-    date: "meta",
+    date: "header",
     unread: "meta",
     subject: "body",
     to: "body",
@@ -126,7 +147,6 @@ var GoferSettings;
       if (allowed[id] && ids.indexOf(id) === -1) ids.push(id);
     }
     if (ids.length === 0) ids.push("subject");
-    if (ids.length > MAIL_CARD_FIELD_MAX) ids = ids.slice(0, MAIL_CARD_FIELD_MAX);
     return ids;
   }
 
@@ -150,6 +170,42 @@ var GoferSettings;
     return MAIL_CARD_DEFAULT_ZONE_BY_ID[id] || "body";
   }
 
+  function mailCardFieldType(id) {
+    return MAIL_CARD_ICON_FIELD_MAP[id] ? "icon" : "text";
+  }
+
+  function mailCardZoneAcceptsField(zone, id) {
+    if (zone === "hidden") return true;
+    if (mailCardFieldType(id) === "icon") return MAIL_CARD_SIDE_ZONES.indexOf(zone) !== -1;
+    return MAIL_CARD_CENTER_ZONES.indexOf(zone) !== -1;
+  }
+
+  function legacyRailZone(index, count) {
+    if (count <= 1) return "railTop";
+    if (count === 2) return index === 0 ? "railTop" : "railBottom";
+    if (index === 0) return "railTop";
+    if (index === 1) return "railMiddle";
+    return "railBottom";
+  }
+
+  function mailCardZoneHasRoom(layout, zone) {
+    var max = MAIL_CARD_SIDE_ZONE_MAX[zone];
+    return !max || ((layout[zone] || []).length < max);
+  }
+
+  function compatibleMailCardZone(layout, id, preferredZone) {
+    var candidates = mailCardFieldType(id) === "icon" ? MAIL_CARD_SIDE_ZONES : MAIL_CARD_CENTER_ZONES;
+    var fallbackZone = defaultMailCardZone(id);
+
+    if (mailCardZoneAcceptsField(preferredZone, id) && mailCardZoneHasRoom(layout, preferredZone)) return preferredZone;
+    if (mailCardZoneAcceptsField(fallbackZone, id) && mailCardZoneHasRoom(layout, fallbackZone)) return fallbackZone;
+
+    for (var i = 0; i < candidates.length; i++) {
+      if (mailCardZoneHasRoom(layout, candidates[i])) return candidates[i];
+    }
+    return candidates[0] || "body";
+  }
+
   function parseMailCardLayout(value) {
     var allowed = mailCardAllowedFieldMap();
     var layout = emptyMailCardLayout();
@@ -163,8 +219,21 @@ var GoferSettings;
       var sep = group.indexOf(":");
       if (sep === -1) continue;
       var zone = group.slice(0, sep).trim();
-      if (!mailCardZoneAllowed(zone)) continue;
       var ids = group.slice(sep + 1).split(",");
+      if (zone === "rail") {
+        var railIds = [];
+        for (var r = 0; r < ids.length; r++) {
+          var railID = ids[r].trim();
+          if (allowed[railID] && !seen[railID]) railIds.push(railID);
+        }
+        for (var n = 0; n < railIds.length; n++) {
+          var railZone = legacyRailZone(n, railIds.length);
+          layout[railZone].push(railIds[n]);
+          seen[railIds[n]] = true;
+        }
+        continue;
+      }
+      if (!mailCardZoneAllowed(zone)) continue;
       for (var j = 0; j < ids.length; j++) {
         var id = ids[j].trim();
         if (!allowed[id] || seen[id]) continue;
@@ -195,7 +264,8 @@ var GoferSettings;
       for (var j = 0; j < ids.length; j++) {
         var id = ids[j];
         if (visible[id]) {
-          layout[zone === "hidden" ? defaultMailCardZone(id) : zone].push(id);
+          var targetZone = zone === "hidden" ? defaultMailCardZone(id) : zone;
+          layout[compatibleMailCardZone(layout, id, targetZone)].push(id);
         } else {
           layout.hidden.push(id);
         }
@@ -214,7 +284,6 @@ var GoferSettings;
       }
     }
     if (ids.length === 0) ids.push("subject");
-    if (ids.length > MAIL_CARD_FIELD_MAX) ids = ids.slice(0, MAIL_CARD_FIELD_MAX);
     return ids;
   }
 
@@ -226,6 +295,14 @@ var GoferSettings;
       parts.push(zone + ":" + ((normalized[zone] || []).join(",")));
     }
     return parts.join("|");
+  }
+
+  function mailCardEmptyRightRows(layout) {
+    var rows = [];
+    if (!((layout.meta || []).length)) rows.push("meta");
+    if (!((layout.status || []).length)) rows.push("status");
+    if (!((layout.corner || []).length)) rows.push("corner");
+    return rows.join(" ");
   }
 
   function cssEscape(value) {
@@ -244,6 +321,9 @@ var GoferSettings;
 
     for (var s = 0; s < scopes.length; s++) {
       var card = scopes[s];
+      var emptyRightRows = mailCardEmptyRightRows(layout);
+      if (emptyRightRows) card.dataset.mailCardEmptyRightRows = emptyRightRows;
+      else delete card.dataset.mailCardEmptyRightRows;
       for (var z = 0; z < MAIL_CARD_LAYOUT_ZONES.length; z++) {
         var zone = MAIL_CARD_LAYOUT_ZONES[z];
         var target = card.querySelector('[data-mail-card-zone="' + zone + '"]');
@@ -444,10 +524,6 @@ var GoferSettings;
 
   window.getMailCardVisibleFieldsFromLayout = mailCardVisibleIdsFromLayout;
   window.serializeMailCardLayout = serializeMailCardLayout;
-
-  window.getMailCardFieldMax = function () {
-    return MAIL_CARD_FIELD_MAX;
-  };
 
   function applySetting(key, value) {
     if (key === "theme") {

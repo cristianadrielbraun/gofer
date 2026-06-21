@@ -3,14 +3,33 @@
   window.__goferMailCardLayoutDialogReady = true
 
   function setupMailCardLayoutDialog() {
-    var fieldIds = ["avatar", "thread", "from", "account", "to", "date", "subject", "preview", "labels", "attachment", "starred", "unread"]
-    var zones = ["rail", "header", "meta", "body", "footer", "status", "corner", "hidden"]
-    var visibleZones = ["rail", "header", "meta", "body", "footer", "status", "corner"]
+    var fieldIds = ["avatar", "thread", "from", "account", "accountMarker", "to", "date", "subject", "preview", "labels", "attachment", "starred", "unread"]
+    var zones = ["railTop", "header", "meta", "railMiddle", "body", "status", "railBottom", "footer", "corner", "hidden"]
+    var visibleZones = ["railTop", "header", "meta", "railMiddle", "body", "status", "railBottom", "footer", "corner"]
+    var iconFields = {
+      avatar: true,
+      thread: true,
+      accountMarker: true,
+      attachment: true,
+      starred: true,
+      unread: true,
+    }
+    var sideZones = ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"]
+    var centerZones = ["header", "body", "footer"]
+    var sideZoneMax = {
+      railTop: 1,
+      railMiddle: 1,
+      railBottom: 1,
+      meta: 3,
+      status: 3,
+      corner: 3,
+    }
     var fieldLabels = {
       avatar: "Avatar",
       thread: "Thread count",
       from: "Sender",
       account: "Account",
+      accountMarker: "Account marker",
       to: "Recipient",
       date: "Date",
       subject: "Subject",
@@ -28,28 +47,32 @@
     function currentLayout() {
       if (typeof window.getMailCardLayout === "function") return window.getMailCardLayout()
       return {
-        rail: ["avatar", "thread"],
-        header: ["from"],
-        meta: ["attachment", "date", "unread"],
+        railTop: ["avatar"],
+        header: ["from", "date"],
+        meta: ["attachment", "unread"],
+        railMiddle: [],
         body: ["subject"],
-        footer: ["preview", "labels"],
         status: [],
+        railBottom: ["thread"],
+        footer: ["preview", "labels"],
         corner: ["starred"],
-        hidden: ["account", "to"],
+        hidden: ["account", "accountMarker", "to"],
       }
     }
 
     function defaultLayout() {
       if (typeof window.getDefaultMailCardLayout === "function") return window.getDefaultMailCardLayout()
       return {
-        rail: ["avatar", "thread"],
-        header: ["from"],
-        meta: ["attachment", "date", "unread"],
+        railTop: ["avatar"],
+        header: ["from", "date"],
+        meta: ["attachment", "unread"],
+        railMiddle: [],
         body: ["subject"],
-        footer: ["preview", "labels"],
         status: [],
+        railBottom: ["thread"],
+        footer: ["preview", "labels"],
         corner: ["starred"],
-        hidden: ["account", "to"],
+        hidden: ["account", "accountMarker", "to"],
       }
     }
 
@@ -66,6 +89,14 @@
     function serializeLayout(layout) {
       if (typeof window.serializeMailCardLayout === "function") return window.serializeMailCardLayout(layout)
       return zones.map(function (zone) { return zone + ":" + ((layout[zone] || []).join(",")) }).join("|")
+    }
+
+    function emptyRightRows(layout) {
+      var rows = []
+      if (!((layout.meta || []).length)) rows.push("meta")
+      if (!((layout.status || []).length)) rows.push("status")
+      if (!((layout.corner || []).length)) rows.push("corner")
+      return rows.join(" ")
     }
 
     function dialogRoot(target) {
@@ -243,12 +274,38 @@
       return list ? list.dataset.mailCardLayoutZoneItems || "" : ""
     }
 
+    function fieldType(id) {
+      return iconFields[id] ? "icon" : "text"
+    }
+
+    function zoneAcceptsField(zone, id) {
+      if (zone === "hidden") return true
+      if (fieldType(id) === "icon") return sideZones.indexOf(zone) !== -1
+      return centerZones.indexOf(zone) !== -1
+    }
+
+    function zoneHasRoom(dialog, zone) {
+      var max = sideZoneMax[zone]
+      if (!max) return true
+      var list = previewZone(dialog, zone)
+      return !list || list.querySelectorAll("[data-mail-card-field]").length < max
+    }
+
+    function canShowFieldInAnyZone(dialog, id) {
+      var allowedZones = fieldType(id) === "icon" ? sideZones : centerZones
+      for (var i = 0; i < allowedZones.length; i++) {
+        if (zoneHasRoom(dialog, allowedZones[i])) return true
+      }
+      return false
+    }
+
     function createToken(id) {
       var token = document.createElement("button")
       token.type = "button"
       token.draggable = false
       token.className = "mail-card-layout-token"
       token.dataset.mailCardLayoutToken = id
+      token.dataset.mailCardLayoutCategory = fieldType(id)
       token.dataset.mailCardLayoutTooltip = fieldLabels[id] || id
       token.setAttribute("aria-label", fieldLabels[id] || id)
 
@@ -262,6 +319,35 @@
       label.textContent = fieldLabels[id] || id
       token.appendChild(label)
       return token
+    }
+
+    function categoryLabel(category) {
+      return category === "icon" ? "Icon-only fields" : "Text fields"
+    }
+
+    function createHiddenFieldGroup(category) {
+      var group = document.createElement("div")
+      group.className = "mail-card-layout-field-group"
+      group.dataset.mailCardLayoutFieldGroup = category
+
+      var label = document.createElement("div")
+      label.className = "mail-card-layout-field-group-label"
+      label.textContent = categoryLabel(category)
+      group.appendChild(label)
+
+      var list = document.createElement("div")
+      list.className = "mail-card-layout-token-list mail-card-layout-field-group-items"
+      list.dataset.mailCardLayoutCategoryList = category
+      group.appendChild(list)
+
+      return group
+    }
+
+    function hiddenCategoryList(dialog, id) {
+      var tray = hiddenTray(dialog)
+      if (!tray) return null
+      var category = fieldType(id)
+      return tray.querySelector('[data-mail-card-layout-category-list="' + category + '"]') || tray
     }
 
     function hiddenPreviewField(dialog, id) {
@@ -309,6 +395,9 @@
     function applyLayoutToPreview(dialog, layout) {
       var card = preview(dialog)
       if (!card) return
+      var emptyRows = emptyRightRows(layout)
+      if (emptyRows) card.dataset.mailCardEmptyRightRows = emptyRows
+      else delete card.dataset.mailCardEmptyRightRows
       for (var z = 0; z < zones.length; z++) {
         var zone = zones[z]
         var target = previewZone(dialog, zone)
@@ -340,27 +429,36 @@
       var tray = hiddenTray(dialog)
       if (!tray) return
       tray.textContent = ""
+      var textGroup = createHiddenFieldGroup("text")
+      var iconGroup = createHiddenFieldGroup("icon")
+      tray.appendChild(textGroup)
+      tray.appendChild(iconGroup)
+      var textList = textGroup.querySelector("[data-mail-card-layout-category-list]")
+      var iconList = iconGroup.querySelector("[data-mail-card-layout-category-list]")
       var hidden = layout.hidden || []
-      for (var i = 0; i < hidden.length; i++) tray.appendChild(createToken(hidden[i]))
+      for (var i = 0; i < hidden.length; i++) {
+        var target = fieldType(hidden[i]) === "icon" ? iconList : textList
+        target.appendChild(createToken(hidden[i]))
+      }
     }
 
-    function syncLimitState(dialog) {
+    function syncFieldState(dialog) {
       if (!dialog) return
-      var max = typeof window.getMailCardFieldMax === "function" ? window.getMailCardFieldMax() : 10
       var count = visibleCount(dialog)
-      var atLimit = count >= max
       var limit = dialog.querySelector("[data-mail-card-layout-limit]")
-      if (limit) limit.textContent = count + " / " + max + " fields"
+      if (limit) limit.textContent = count + " fields"
 
       var hidden = hiddenTray(dialog)
       var hiddenTokens = hidden ? hidden.querySelectorAll("[data-mail-card-layout-token]") : []
       for (var i = 0; i < hiddenTokens.length; i++) {
+        var id = hiddenTokens[i].dataset.mailCardLayoutToken
+        var canShow = canShowFieldInAnyZone(dialog, id)
         hiddenTokens[i].draggable = false
-        hiddenTokens[i].setAttribute("aria-disabled", atLimit ? "true" : "false")
-        hiddenTokens[i].classList.toggle("mail-card-layout-token-disabled", atLimit)
-        hiddenTokens[i].dataset.mailCardLayoutTooltip = atLimit
-          ? "Remove another field first"
-          : fieldLabels[hiddenTokens[i].dataset.mailCardLayoutToken] || hiddenTokens[i].dataset.mailCardLayoutToken || ""
+        hiddenTokens[i].setAttribute("aria-disabled", canShow ? "false" : "true")
+        hiddenTokens[i].classList.toggle("mail-card-layout-token-disabled", !canShow)
+        hiddenTokens[i].dataset.mailCardLayoutTooltip = canShow
+          ? fieldLabels[id] || id || ""
+          : "No compatible slot available"
         hiddenTokens[i].removeAttribute("title")
       }
     }
@@ -372,21 +470,25 @@
       applyLayoutToPreview(dialog, layout)
       decoratePreviewFields(dialog)
       renderHiddenTray(dialog, layout)
-      syncLimitState(dialog)
+      syncFieldState(dialog)
     }
 
-    function persistEditorLayout(dialog) {
-      var layout = readEditorLayout(dialog)
+    function persistLayout(dialog, layout) {
+      layout = layout || readEditorLayout(dialog)
       var visible = visibleIdsFromLayout(layout)
       if (!visible.length) return
       var serialized = serializeLayout(layout)
       if (window.GoferSettings) {
-        GoferSettings.set("mail_card_layout", serialized)
         GoferSettings.set("mail_card_fields", visible.join(","))
+        GoferSettings.set("mail_card_layout", serialized)
       } else if (typeof window.applyMailCardLayout === "function") {
         window.applyMailCardLayout(serialized, visible.join(","), document)
       }
       renderEditor(dialog, layout)
+    }
+
+    function persistEditorLayout(dialog) {
+      persistLayout(dialog, readEditorLayout(dialog))
     }
 
     function abortActiveDrag() {
@@ -401,17 +503,16 @@
     function resetEditorLayout(dialog) {
       if (!dialog) return
       abortActiveDrag()
-      renderEditor(dialog, defaultLayout())
-      persistEditorLayout(dialog)
+      persistLayout(dialog, defaultLayout())
     }
 
-    function canDropFromZone(fromZone, targetZone, dialog) {
+    function canDropFromZone(fromZone, targetZone, dialog, id) {
       if (!fromZone || !targetZone) return false
-      if (fromZone === targetZone) return true
       if (targetZone === "hidden") return fromZone === "hidden" || visibleCount(dialog) >= 1
-      if (fromZone !== "hidden") return true
-      var max = typeof window.getMailCardFieldMax === "function" ? window.getMailCardFieldMax() : 10
-      return visibleCount(dialog) < max
+      if (!zoneAcceptsField(targetZone, id)) return false
+      if (fromZone === targetZone) return true
+      if (!zoneHasRoom(dialog, targetZone)) return false
+      return true
     }
 
     function insertionTarget(list, event) {
@@ -496,13 +597,14 @@
       }, 220)
     }
 
-    function listForDropZone(dialog, zone) {
-      return zone === "hidden" ? hiddenTray(dialog) : previewZone(dialog, zone)
+    function listForDropZone(dialog, zone, id) {
+      return zone === "hidden" ? hiddenCategoryList(dialog, id) : previewZone(dialog, zone)
     }
 
     function movePlaceholderToList(drag, list, event) {
       if (!drag || !list) return false
       var zone = dropZoneName(list)
+      if (zone === "hidden") list = hiddenCategoryList(drag.dialog, drag.id) || list
       var before = insertionTarget(list, event)
       var currentParent = drag.placeholder.parentElement
       if (before && before !== drag.placeholder && before.parentElement === list) {
@@ -527,7 +629,7 @@
       if (!list) return
 
       var zone = dropZoneName(list)
-      var allowed = canDropFromZone(activeDrag.fromZone, zone, dialog)
+      var allowed = canDropFromZone(activeDrag.fromZone, zone, dialog, activeDrag.id)
       var dropzone = list.closest("[data-mail-card-layout-dropzone]")
       if (dropzone) {
         dropzone.classList.toggle("mail-card-layout-dropzone-active", allowed)
@@ -590,7 +692,7 @@
     function commitDrag(zone) {
       var drag = activeDrag
       if (!drag) return
-      var targetList = listForDropZone(drag.dialog, zone)
+      var targetList = listForDropZone(drag.dialog, zone, drag.id)
       if (!targetList || !drag.placeholder.parentElement) {
         cancelDrag()
         return

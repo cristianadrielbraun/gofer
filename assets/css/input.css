@@ -1133,9 +1133,9 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 }
 
 .mail-list-item {
-  height: 94px;
-  min-height: 94px;
-  max-height: 94px;
+  height: 114px;
+  min-height: 114px;
+  max-height: 114px;
   padding: 3px 0;
 }
 
@@ -1225,13 +1225,15 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 .mail-list-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: repeat(3, minmax(1.5rem, 1fr));
   grid-template-areas:
-    "rail header meta"
-    "rail body status"
-    "rail footer corner";
+    "railTop header meta"
+    "railMiddle body status"
+    "railBottom footer corner";
   column-gap: 0.75rem;
   row-gap: 0.125rem;
-  align-items: start;
+  align-items: stretch;
+  min-height: 6.75rem;
   min-width: 0;
 }
 
@@ -1246,18 +1248,34 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
   display: none;
 }
 
-.mail-list-card-zone-rail {
-  grid-area: rail;
+.mail-list-card-zone-rail-top,
+.mail-list-card-zone-rail-middle,
+.mail-list-card-zone-rail-bottom {
   width: 1.75rem;
+  min-width: 1.75rem;
+  justify-content: center;
   align-self: stretch;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 0.25rem 0;
-  gap: 0.25rem;
+  gap: 0;
+}
+
+.mail-list-card-zone-rail-top {
+  grid-area: railTop;
+}
+
+.mail-list-card-zone-rail-middle {
+  grid-area: railMiddle;
+}
+
+.mail-list-card-zone-rail-bottom {
+  grid-area: railBottom;
 }
 
 .mail-list-card-zone-header {
   grid-area: header;
+}
+
+.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-right-rows~="meta"] .mail-list-card-zone-header {
+  grid-column: 2 / 4;
 }
 
 .mail-list-card-zone-header [data-mail-card-field="from"],
@@ -1266,6 +1284,11 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 .mail-list-card-zone-body [data-mail-card-field="preview"],
 .mail-list-card-zone-footer [data-mail-card-field="preview"] {
   min-width: 0;
+}
+
+.mail-list-card [data-mail-card-field="date"] {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .mail-list-card-zone-meta {
@@ -1277,7 +1300,12 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
   grid-area: body;
   flex-direction: column;
   align-items: stretch;
+  justify-content: center;
   gap: 0.125rem;
+}
+
+.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-right-rows~="status"] .mail-list-card-zone-body {
+  grid-column: 2 / 4;
 }
 
 .mail-list-card-zone-footer {
@@ -1286,11 +1314,13 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
   gap: 0.375rem;
 }
 
+.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-right-rows~="corner"] .mail-list-card-zone-footer {
+  grid-column: 2 / 4;
+}
+
 .mail-list-card-zone-status {
   grid-area: status;
   justify-content: flex-end;
-  align-self: start;
-  padding-top: 0.25rem;
 }
 
 .mail-list-card-zone-corner {
@@ -1300,8 +1330,29 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 }
 
 .mail-card-layout-preview-card {
-  min-height: 6.75rem;
   cursor: default;
+}
+
+.mail-list-card-empty-icon-slot {
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.mail-list-card-zone-rail-top .mail-list-card-empty-icon-slot,
+.mail-list-card-zone-rail-middle .mail-list-card-empty-icon-slot,
+.mail-list-card-zone-rail-bottom .mail-list-card-empty-icon-slot {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.mail-list-card-zone-meta .mail-list-card-empty-icon-slot,
+.mail-list-card-zone-status .mail-list-card-empty-icon-slot,
+.mail-list-card-zone-corner .mail-list-card-empty-icon-slot {
+  display: none;
 }
 
 #mail-card-layout-dialog [data-tui-dialog-content] {
@@ -1357,16 +1408,63 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
   transform: rotate(45deg);
 }
 
+.mail-card-layout-help-trigger {
+  display: inline-flex;
+  width: 1.125rem;
+  height: 1.125rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--color-muted-foreground);
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mail-card-layout-help-trigger:hover,
+.mail-card-layout-help-trigger:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-foreground);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 24%, transparent);
+  outline: none;
+}
+
+.mail-card-layout-help-tooltip {
+  width: min(19rem, calc(100vw - 2rem));
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+}
+
+.mail-card-layout-help-tooltip p + p {
+  margin-top: 0.375rem;
+}
+
 .mail-card-layout-preview-card [data-mail-card-layout-zone-items] {
   min-height: 1.625rem;
   border-radius: calc(var(--radius) - 2px);
-  outline: 1px dashed transparent;
+  padding: 0.125rem 0.1875rem;
+  outline: 1px dashed color-mix(in srgb, var(--color-border) 78%, transparent);
   outline-offset: 2px;
-  transition: background-color 0.15s ease, outline-color 0.15s ease;
+  background: color-mix(in srgb, var(--color-background) 34%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 30%, transparent);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, outline-color 0.15s ease;
 }
 
 .mail-card-layout-preview-card [data-mail-card-layout-zone-items]:empty {
   display: flex;
+}
+
+.mail-card-layout-preview-card .mail-list-card-zone-rail-top[data-mail-card-layout-zone-items],
+.mail-card-layout-preview-card .mail-list-card-zone-rail-middle[data-mail-card-layout-zone-items],
+.mail-card-layout-preview-card .mail-list-card-zone-rail-bottom[data-mail-card-layout-zone-items] {
+  display: flex;
+  min-width: 1.75rem;
+}
+
+.mail-card-layout-preview-card .mail-list-card-zone-meta[data-mail-card-layout-zone-items],
+.mail-card-layout-preview-card .mail-list-card-zone-status[data-mail-card-layout-zone-items],
+.mail-card-layout-preview-card .mail-list-card-zone-corner[data-mail-card-layout-zone-items] {
+  min-width: 4.75rem;
 }
 
 .mail-card-layout-preview-token {
@@ -1392,6 +1490,35 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
   align-content: flex-start;
   gap: 0.375rem;
   transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.mail-card-layout-available-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
+  align-items: start;
+  gap: 0.5rem;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.mail-card-layout-field-group {
+  display: grid;
+  gap: 0.3125rem;
+}
+
+.mail-card-layout-field-group-label {
+  color: var(--color-muted-foreground);
+  font-size: 0.625rem;
+  line-height: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mail-card-layout-field-group-items:empty::before {
+  content: "None";
+  color: color-mix(in srgb, var(--color-muted-foreground) 62%, transparent);
+  font-size: 0.6875rem;
+  line-height: 1rem;
 }
 
 .mail-card-layout-token {
@@ -1487,12 +1614,14 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
   cursor: not-allowed;
 }
 
-.mail-card-layout-dropzone-active .mail-card-layout-token-list {
+.mail-card-layout-dropzone-active .mail-card-layout-token-list,
+.mail-card-layout-dropzone-active .mail-card-layout-available-list {
   border-color: color-mix(in srgb, var(--color-primary) 65%, var(--color-border));
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-card));
 }
 
-.mail-card-layout-dropzone-denied .mail-card-layout-token-list {
+.mail-card-layout-dropzone-denied .mail-card-layout-token-list,
+.mail-card-layout-dropzone-denied .mail-card-layout-available-list {
   border-color: color-mix(in srgb, var(--color-destructive) 55%, var(--color-border));
   background: color-mix(in srgb, var(--color-destructive) 8%, var(--color-card));
 }
@@ -1551,6 +1680,7 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 }
 
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="account"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="accountMarker"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="to"] {
   display: none !important;
 }
@@ -1559,6 +1689,7 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 #mail-list-scroll[data-mail-card-hidden~="thread"] [data-mail-card-field="thread"],
 #mail-list-scroll[data-mail-card-hidden~="from"] [data-mail-card-field="from"],
 #mail-list-scroll[data-mail-card-hidden~="account"] [data-mail-card-field="account"],
+#mail-list-scroll[data-mail-card-hidden~="accountMarker"] [data-mail-card-field="accountMarker"],
 #mail-list-scroll[data-mail-card-hidden~="to"] [data-mail-card-field="to"],
 #mail-list-scroll[data-mail-card-hidden~="date"] [data-mail-card-field="date"],
 #mail-list-scroll[data-mail-card-hidden~="subject"] [data-mail-card-field="subject"],
@@ -1568,10 +1699,6 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 #mail-list-scroll[data-mail-card-hidden~="starred"] [data-mail-card-field="starred"],
 #mail-list-scroll[data-mail-card-hidden~="unread"] [data-mail-card-field="unread"] {
   display: none !important;
-}
-
-#mail-list-scroll[data-mail-card-hidden~="avatar"][data-mail-card-hidden~="thread"] .mail-list-card-zone-rail {
-  display: none;
 }
 
 #mail-list-scroll[data-mail-card-hidden~="from"] .mail-list-card-account {
@@ -1642,9 +1769,9 @@ body.mail-list-column-resizing {
 }
 
 .mail-list-thread-main {
-  height: 94px;
-  min-height: 94px;
-  max-height: 94px;
+  height: 114px;
+  min-height: 114px;
+  max-height: 114px;
   overflow: hidden;
 }
 
@@ -1870,6 +1997,9 @@ body.mail-list-column-resizing {
   align-items: start;
   column-gap: 0.75rem;
   row-gap: 0.125rem;
+  height: 114px;
+  min-height: 114px;
+  max-height: 114px;
 }
 
 .mail-list-table-skeleton {
