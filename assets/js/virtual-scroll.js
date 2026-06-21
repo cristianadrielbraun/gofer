@@ -384,9 +384,11 @@ class VirtualMailList {
     shell.removeAttribute("data-thread-collapsing")
     if (!item) {
       shell.innerHTML = this.createSkeleton().outerHTML
+      if (this.viewMode === "cards" && typeof window.applyMailCardLayoutSettings === "function") window.applyMailCardLayoutSettings(shell)
       return
     }
     shell.innerHTML = this.rowHTML(item, this.viewMode)
+    if (this.viewMode === "cards" && typeof window.applyMailCardLayoutSettings === "function") window.applyMailCardLayoutSettings(shell)
     var row = shell.querySelector(".mail-list-item") || shell.firstElementChild
     if (!row) return
     var anchor = row.querySelector("a")
@@ -704,7 +706,7 @@ class VirtualMailList {
 
   createSkeleton() {
     var row = document.createElement("div")
-    row.className = "mail-list-skeleton" + (this.viewMode === "table" ? " mail-list-table-skeleton" : "")
+    row.className = "mail-list-skeleton" + (this.viewMode === "table" ? " mail-list-table-skeleton" : " mail-list-card")
     if (this.viewMode === "table") {
       row.innerHTML =
         '<div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5">' +
@@ -734,23 +736,31 @@ class VirtualMailList {
         "</div>"
       return row
     }
+    row.setAttribute("data-mail-card-layout-scope", "")
     row.innerHTML =
-      '<div class="w-7 flex flex-col items-center justify-between self-stretch py-1 shrink-0">' +
-      '<div class="size-6 rounded-full bg-muted animate-pulse shadow-[0_1px_3px_rgba(0,0,0,0.12)]"></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail" data-mail-card-zone="rail">' +
+      '<div data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse shadow-[0_1px_3px_rgba(0,0,0,0.12)]"></div>' +
       "</div>" +
-      '<div class="flex-1 min-w-0 space-y-1">' +
-      '<div class="flex items-center justify-between gap-2">' +
-      '<div class="h-3.5 w-32 max-w-[42%] rounded bg-muted animate-pulse"></div>' +
-      '<div class="flex items-center gap-1.5 shrink-0">' +
-      '<div class="h-3 w-16 rounded bg-muted animate-pulse"></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">' +
+      '<div data-mail-card-field="from" class="h-3.5 w-32 max-w-[42%] rounded bg-muted animate-pulse"></div>' +
+      '<div data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></div>' +
       "</div>" +
+      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' +
+      '<div data-mail-card-field="date" class="h-3 w-16 rounded bg-muted animate-pulse"></div>' +
+      '<div data-mail-card-field="unread" class="w-2 h-2 rounded-full bg-muted animate-pulse shrink-0"></div>' +
       "</div>" +
-      '<div class="h-3.5 w-56 max-w-[58%] rounded bg-muted animate-pulse"></div>' +
-      '<div class="flex items-center gap-2">' +
-      '<div class="h-3 w-72 max-w-[70%] rounded bg-muted animate-pulse"></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">' +
+      '<div data-mail-card-field="subject" class="h-3.5 w-56 max-w-[58%] rounded bg-muted animate-pulse"></div>' +
+      '<div data-mail-card-field="to" class="h-3 w-36 max-w-[46%] rounded bg-muted animate-pulse"></div>' +
       "</div>" +
+      '<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer">' +
+      '<div data-mail-card-field="preview" class="h-3 w-72 max-w-[70%] rounded bg-muted animate-pulse"></div>' +
+      '<div data-mail-card-field="labels" class="h-4 w-10 rounded bg-muted animate-pulse"></div>' +
       "</div>" +
-      '<div class="w-2 h-2 rounded-full bg-muted animate-pulse shrink-0 mt-2"></div>'
+      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner"><div data-mail-card-field="starred" class="h-3 w-3 rounded bg-muted animate-pulse"></div></div>' +
+      '<div class="hidden" data-mail-card-zone="hidden"></div>'
+    if (typeof window.applyMailCardLayoutSettings === "function") window.applyMailCardLayoutSettings(row)
     return row
   }
 
@@ -1309,6 +1319,7 @@ class VirtualMailList {
       this.syncSelectionClasses(this.itemsContainer)
       if (typeof htmx !== "undefined") htmx.process(this.itemsContainer)
       if (typeof window.applyMailTableColumnSettings === "function") window.applyMailTableColumnSettings(this.container)
+      if (typeof window.applyMailCardFieldSettings === "function") window.applyMailCardFieldSettings(this.container)
       this.setPaginationLoading(false)
       if (options.clearViewSwitchPending) this.setViewSwitchPending(false)
       if (transition) this.animateListTransition(transition, options.animation || {})
@@ -1409,6 +1420,9 @@ class VirtualMailList {
 
     if (typeof window.applyMailTableColumnSettings === "function") {
       window.applyMailTableColumnSettings(this.container)
+    }
+    if (typeof window.applyMailCardFieldSettings === "function") {
+      window.applyMailCardFieldSettings(this.container)
     }
     this.renderTableHeader()
 
@@ -1632,6 +1646,9 @@ class VirtualMailList {
     if (mailList) mailList.dataset.mailListView = this.viewMode
     if (this.viewMode === "table" && typeof window.applyMailTableColumnSettings === "function") {
       window.applyMailTableColumnSettings(this.container)
+    }
+    if (this.viewMode === "cards" && typeof window.applyMailCardFieldSettings === "function") {
+      window.applyMailCardFieldSettings(this.container)
     }
     this.renderTableHeader()
     this.invalidateOffsets()

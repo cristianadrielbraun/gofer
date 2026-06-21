@@ -2151,6 +2151,7 @@ document.addEventListener("DOMContentLoaded", function () {
       updateMailSyncErrorIndicator()
     }).catch(function () {})
   }
+  window.goferRefreshSidebarAccount = refreshSidebarAccount
 
   function refreshMailSidebarBody() {
     var target = document.getElementById("sidebar-app-body")
@@ -2990,6 +2991,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
       var mode = btn.dataset.mailListViewButton === "table" ? "table" : "cards"
       if (window.GoferSettings) GoferSettings.set("mail_list_view", mode)
+      if (mode === "cards" && scroll && typeof window.applyMailCardFieldSettings === "function") {
+        window.applyMailCardFieldSettings(scroll)
+      }
 
       var group = btn.closest("[data-mail-list-view-toggle]")
       if (group) {
@@ -3201,12 +3205,13 @@ document.addEventListener("DOMContentLoaded", function () {
     var senderWidths = ["62%", "48%", "70%", "54%"]
     var subjectWidths = ["84%", "66%", "76%", "58%"]
     var previewWidths = ["92%", "80%", "68%", "86%"]
-    return '<div class="mail-list-item" aria-hidden="true"><div class="h-full flex items-start gap-3 px-3.5 py-2.5 rounded-lg envelope">' +
-      '<div class="w-7 flex flex-col items-center justify-between self-stretch py-1 shrink-0"><span class="size-6 rounded-full bg-muted animate-pulse"></span>' + (i % 4 === 0 ? pendingBar("60%", "block h-3") : '<span></span>') + '</div>' +
-      '<div class="flex-1 min-w-0 space-y-1"><div class="flex items-center justify-between gap-2"><div class="flex min-w-0 flex-1 items-center gap-2">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</div><div class="flex shrink-0 items-center gap-1.5">' + (i % 3 === 0 ? pendingIcon("size-3") : "") + pendingBar("3.5rem", "block h-3") + '</div></div>' +
-      pendingBar(subjectWidths[i % subjectWidths.length], "block h-3.5") +
-      '<div class="flex items-center gap-2">' + pendingBar(previewWidths[i % previewWidths.length], "block h-3 flex-1") + (i % 5 === 0 ? '<span class="h-4 w-10 rounded bg-muted animate-pulse"></span>' : "") + '</div>' +
-      '</div>' + (i % 3 === 0 ? '<span class="mt-2 size-2 rounded-full bg-primary/35"></span>' : "") + '</div></div>'
+    return '<div class="mail-list-item" aria-hidden="true"><div class="mail-list-card h-full px-3.5 py-2.5 rounded-lg envelope" data-mail-card-layout-scope>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail" data-mail-card-zone="rail"><span data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse"></span>' + (i % 4 === 0 ? '<span data-mail-card-field="thread">' + pendingBar("60%", "block h-3") + '</span>' : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</span><span data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? '<span data-mail-card-field="attachment">' + pendingIcon("size-3") + '</span>' : "") + '<span data-mail-card-field="date">' + pendingBar("3.5rem", "block h-3") + '</span>' + (i % 3 === 0 ? '<span data-mail-card-field="unread" class="size-2 rounded-full bg-primary/35"></span>' : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="subject">' + pendingBar(subjectWidths[i % subjectWidths.length], "block h-3.5") + '</span><span data-mail-card-field="to">' + pendingBar("46%", "block h-3") + '</span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer"><span data-mail-card-field="preview" class="min-w-0 flex-1">' + pendingBar(previewWidths[i % previewWidths.length], "block h-3 w-full") + '</span>' + (i % 5 === 0 ? '<span data-mail-card-field="labels" class="h-4 w-10 rounded bg-muted animate-pulse"></span>' : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div><div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner"><span data-mail-card-field="starred" class="h-3 w-3 rounded bg-muted animate-pulse"></span></div><div class="hidden" data-mail-card-zone="hidden"></div></div></div>'
   }
 
   function contactCardPendingRow(i) {
@@ -3300,6 +3305,9 @@ document.addEventListener("DOMContentLoaded", function () {
       list.innerHTML = listPendingHTML(mode, viewMode, rows)
       if (mode === "mail" && viewMode === "table" && typeof window.applyMailTableColumnSettings === "function") {
         window.applyMailTableColumnSettings(list.querySelector("#mail-list-scroll"))
+      }
+      if (mode === "mail" && viewMode === "cards" && typeof window.applyMailCardFieldSettings === "function") {
+        window.applyMailCardFieldSettings(list.querySelector("#mail-list-scroll"))
       }
     }
     var pane = document.getElementById("mail-view")
@@ -3429,11 +3437,11 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.body.addEventListener("click", function (e) {
-      var button = e.target.closest("[data-mail-table-column-menu-button]")
+      var button = e.target.closest("[data-mail-list-display-menu-button]")
       if (button) {
         var root = button.closest("[data-tui-popover-root]")
-        var menu = root && root.querySelector("[data-mail-table-column-menu]")
-        if (menu) syncColumnMenu(menu)
+        var menu = root && root.querySelector("[data-mail-list-display-menu]")
+        if (menu) syncDisplayMenu(menu)
         return
       }
 
@@ -3453,9 +3461,16 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         selected.sort(function (a, b) { return columnIds.indexOf(a) - columnIds.indexOf(b) })
         if (window.GoferSettings) GoferSettings.set("mail_table_columns", selected.join(","))
-        syncColumnMenu(menuPanel)
+        var parentMenu = item.closest("[data-mail-list-display-menu]")
+        if (parentMenu) syncDisplayMenu(parentMenu)
+        else syncColumnMenu(menuPanel)
       }
     })
+
+    function syncDisplayMenu(menu) {
+      var tableMenu = menu.querySelector("[data-mail-table-column-menu]")
+      if (tableMenu) syncColumnMenu(tableMenu)
+    }
 
     function syncColumnMenu(menu) {
       var selected = typeof window.getMailTableColumns === "function" ? window.getMailTableColumns() : columnIds
@@ -3698,13 +3713,13 @@ document.addEventListener("DOMContentLoaded", function () {
   })
 
   document.body.addEventListener("htmx:afterSwap", function (evt) {
-    if (typeof window.applyMailTableColumnSettings !== "function") return
     if (!evt.target || !evt.target.querySelector) return
 
     var scroll = evt.target.id === "mail-list-scroll"
       ? evt.target
       : evt.target.querySelector("#mail-list-scroll")
-    if (scroll) window.applyMailTableColumnSettings(scroll)
+    if (scroll && typeof window.applyMailTableColumnSettings === "function") window.applyMailTableColumnSettings(scroll)
+    if (scroll && typeof window.applyMailCardFieldSettings === "function") window.applyMailCardFieldSettings(scroll)
   })
 
   document.body.addEventListener("htmx:afterSettle", function () {
@@ -4531,7 +4546,7 @@ function handleAccountSyncStatus(data) {
   var status = data.status || ""
   if (!_mailSyncIsScheduledEvent(data) && !(_mailSyncState.kind === "manual" && _mailSyncState.active)) {
     if (status !== "syncing") {
-      refreshSidebarAccount(data.account_id)
+      refreshSidebarAccountForSync(data.account_id)
       setTimeout(updateMailSyncErrorIndicator, 100)
     }
     return
@@ -4553,7 +4568,7 @@ function handleAccountSyncStatus(data) {
     return
   }
 
-  refreshSidebarAccount(data.account_id)
+  refreshSidebarAccountForSync(data.account_id)
   if (!_mailSyncState.active && !_mailSyncState.accounts[data.account_id]) {
     setTimeout(updateMailSyncErrorIndicator, 100)
     return
@@ -4591,6 +4606,12 @@ function handleAccountSyncStatus(data) {
   }
   renderMailSyncProgressDialog()
   setTimeout(updateMailSyncErrorIndicator, 100)
+}
+
+function refreshSidebarAccountForSync(accountID) {
+  if (typeof window.goferRefreshSidebarAccount === "function") {
+    window.goferRefreshSidebarAccount(accountID)
+  }
 }
 
 function openMailSyncProgressDialog() {

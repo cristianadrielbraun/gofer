@@ -68,6 +68,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<script src="/assets/js/app.js"></script>
 			<script src="/assets/js/settings.js"></script>
 			<script src="/assets/js/ui-settings.js"></script>
+			@MailCardLayoutScript()
 			<script src="/assets/js/resize.js"></script>
 			<script>
 				function setupEditAccountDialog() {
@@ -222,6 +223,7 @@ templ MailShell(accounts []models.Account, activeFolder string, emails []models.
 			}
 		</div>
 	</div>
+	@MailCardLayoutScript()
 }
 
 templ MailAppPartial(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, windowStart int, scheduledCount int) {
@@ -236,6 +238,7 @@ templ MailAppPartial(accounts []models.Account, activeFolder string, emails []mo
 		@MailView(selectedEmail, selectedThread)
 	}
 	<div id="app-pane-dialogs"></div>
+	@MailCardLayoutScript()
 }
 
 templ ContactsAppPartial(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
@@ -430,6 +433,7 @@ templ FolderPartial(accounts []models.Account, emails []models.Email, activeFold
 			@MailViewEmpty()
 		}
 	</div>
+	@MailCardLayoutScript()
 }
 
 templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string, windowStart int) {
@@ -442,6 +446,11 @@ templ MailContentPartial(accounts []models.Account, emails []models.Email, activ
 			@MailView(selectedEmail, selectedThread)
 		}
 	</div>
+	@MailCardLayoutScript()
+}
+
+templ MailCardLayoutScript() {
+	<script src="/assets/js/mail-card-layout.js"></script>
 }
 
 templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSettings, activeTab string, uiSettings map[string]string, signatureData []models.AccountSignatureData) {

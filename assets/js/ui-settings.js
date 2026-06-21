@@ -61,6 +61,44 @@ var GoferSettings;
     { id: "subject", min: 140 },
     { id: "date", min: 64 },
   ];
+  var MAIL_CARD_FIELD_MAX = 10;
+  var MAIL_CARD_FIELDS = [
+    { id: "avatar" },
+    { id: "thread" },
+    { id: "from" },
+    { id: "account" },
+    { id: "to" },
+    { id: "date" },
+    { id: "subject" },
+    { id: "preview" },
+    { id: "labels" },
+    { id: "attachment" },
+    { id: "starred" },
+    { id: "unread" },
+  ];
+  var DEFAULT_MAIL_CARD_FIELDS = "avatar,thread,from,attachment,date,unread,subject,preview,labels,starred";
+  var MAIL_CARD_LAYOUT_ZONES = ["rail", "header", "meta", "body", "footer", "status", "corner", "hidden"];
+  var MAIL_CARD_VISIBLE_LAYOUT_ZONES = ["rail", "header", "meta", "body", "footer", "status", "corner"];
+  var DEFAULT_MAIL_CARD_LAYOUT = "rail:avatar,thread|header:from|meta:attachment,date,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,to";
+  var LEGACY_DEFAULT_MAIL_CARD_LAYOUTS = [
+    "rail:avatar,thread|header:from,account|meta:attachment,date|body:subject,to,preview|footer:labels,starred|status:unread|hidden:",
+    "rail:avatar,thread|header:from|meta:attachment,date|body:subject,preview|footer:labels,starred|status:unread|hidden:account,to",
+    "rail:avatar,thread|header:from|meta:attachment,date|body:subject|footer:preview,labels,starred|status:unread|hidden:account,to",
+  ];
+  var MAIL_CARD_DEFAULT_ZONE_BY_ID = {
+    avatar: "rail",
+    thread: "rail",
+    from: "header",
+    account: "header",
+    attachment: "meta",
+    date: "meta",
+    unread: "meta",
+    subject: "body",
+    to: "body",
+    preview: "footer",
+    labels: "footer",
+    starred: "corner",
+  };
 
   function normalizeMailTableColumnIds(value) {
     var allowed = {};
@@ -74,6 +112,149 @@ var GoferSettings;
     }
     if (ids.length === 0) ids.push("subject");
     return ids;
+  }
+
+  function normalizeMailCardFieldIds(value) {
+    var allowed = {};
+    var ids = [];
+    for (var i = 0; i < MAIL_CARD_FIELDS.length; i++) allowed[MAIL_CARD_FIELDS[i].id] = true;
+
+    var raw = value ? String(value) : DEFAULT_MAIL_CARD_FIELDS;
+    var parts = raw.split(",");
+    for (var j = 0; j < parts.length; j++) {
+      var id = parts[j].trim();
+      if (allowed[id] && ids.indexOf(id) === -1) ids.push(id);
+    }
+    if (ids.length === 0) ids.push("subject");
+    if (ids.length > MAIL_CARD_FIELD_MAX) ids = ids.slice(0, MAIL_CARD_FIELD_MAX);
+    return ids;
+  }
+
+  function mailCardAllowedFieldMap() {
+    var allowed = {};
+    for (var i = 0; i < MAIL_CARD_FIELDS.length; i++) allowed[MAIL_CARD_FIELDS[i].id] = true;
+    return allowed;
+  }
+
+  function emptyMailCardLayout() {
+    var layout = {};
+    for (var i = 0; i < MAIL_CARD_LAYOUT_ZONES.length; i++) layout[MAIL_CARD_LAYOUT_ZONES[i]] = [];
+    return layout;
+  }
+
+  function mailCardZoneAllowed(zone) {
+    return MAIL_CARD_LAYOUT_ZONES.indexOf(zone) !== -1;
+  }
+
+  function defaultMailCardZone(id) {
+    return MAIL_CARD_DEFAULT_ZONE_BY_ID[id] || "body";
+  }
+
+  function parseMailCardLayout(value) {
+    var allowed = mailCardAllowedFieldMap();
+    var layout = emptyMailCardLayout();
+    var seen = {};
+    var raw = value ? String(value) : DEFAULT_MAIL_CARD_LAYOUT;
+    if (LEGACY_DEFAULT_MAIL_CARD_LAYOUTS.indexOf(raw) !== -1) raw = DEFAULT_MAIL_CARD_LAYOUT;
+    var groups = raw.split("|");
+
+    for (var i = 0; i < groups.length; i++) {
+      var group = groups[i];
+      var sep = group.indexOf(":");
+      if (sep === -1) continue;
+      var zone = group.slice(0, sep).trim();
+      if (!mailCardZoneAllowed(zone)) continue;
+      var ids = group.slice(sep + 1).split(",");
+      for (var j = 0; j < ids.length; j++) {
+        var id = ids[j].trim();
+        if (!allowed[id] || seen[id]) continue;
+        layout[zone].push(id);
+        seen[id] = true;
+      }
+    }
+
+    for (var k = 0; k < MAIL_CARD_FIELDS.length; k++) {
+      var fieldID = MAIL_CARD_FIELDS[k].id;
+      if (!seen[fieldID]) layout[defaultMailCardZone(fieldID)].push(fieldID);
+    }
+
+    return layout;
+  }
+
+  function normalizeMailCardLayout(value, fieldsValue) {
+    var parsed = parseMailCardLayout(value);
+    var visibleIds = normalizeMailCardFieldIds(fieldsValue);
+    var visible = {};
+    var layout = emptyMailCardLayout();
+
+    for (var i = 0; i < visibleIds.length; i++) visible[visibleIds[i]] = true;
+
+    for (var z = 0; z < MAIL_CARD_LAYOUT_ZONES.length; z++) {
+      var zone = MAIL_CARD_LAYOUT_ZONES[z];
+      var ids = parsed[zone] || [];
+      for (var j = 0; j < ids.length; j++) {
+        var id = ids[j];
+        if (visible[id]) {
+          layout[zone === "hidden" ? defaultMailCardZone(id) : zone].push(id);
+        } else {
+          layout.hidden.push(id);
+        }
+      }
+    }
+
+    return layout;
+  }
+
+  function mailCardVisibleIdsFromLayout(layout) {
+    var ids = [];
+    for (var i = 0; i < MAIL_CARD_VISIBLE_LAYOUT_ZONES.length; i++) {
+      var zoneIds = layout[MAIL_CARD_VISIBLE_LAYOUT_ZONES[i]] || [];
+      for (var j = 0; j < zoneIds.length; j++) {
+        if (ids.indexOf(zoneIds[j]) === -1) ids.push(zoneIds[j]);
+      }
+    }
+    if (ids.length === 0) ids.push("subject");
+    if (ids.length > MAIL_CARD_FIELD_MAX) ids = ids.slice(0, MAIL_CARD_FIELD_MAX);
+    return ids;
+  }
+
+  function serializeMailCardLayout(layout) {
+    var normalized = layout || emptyMailCardLayout();
+    var parts = [];
+    for (var i = 0; i < MAIL_CARD_LAYOUT_ZONES.length; i++) {
+      var zone = MAIL_CARD_LAYOUT_ZONES[i];
+      parts.push(zone + ":" + ((normalized[zone] || []).join(",")));
+    }
+    return parts.join("|");
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return String(value).replace(/["\\]/g, "\\$&");
+  }
+
+  function applyMailCardLayoutToScopes(root, layout) {
+    var scope = root || document;
+    var scopes = [];
+    if (scope.matches && scope.matches("[data-mail-card-layout-scope]")) scopes.push(scope);
+    if (scope.querySelectorAll) {
+      var found = scope.querySelectorAll("[data-mail-card-layout-scope]");
+      for (var i = 0; i < found.length; i++) scopes.push(found[i]);
+    }
+
+    for (var s = 0; s < scopes.length; s++) {
+      var card = scopes[s];
+      for (var z = 0; z < MAIL_CARD_LAYOUT_ZONES.length; z++) {
+        var zone = MAIL_CARD_LAYOUT_ZONES[z];
+        var target = card.querySelector('[data-mail-card-zone="' + zone + '"]');
+        if (!target) continue;
+        var ids = layout[zone] || [];
+        for (var j = 0; j < ids.length; j++) {
+          var fields = card.querySelectorAll('[data-mail-card-field="' + cssEscape(ids[j]) + '"]');
+          for (var k = 0; k < fields.length; k++) target.appendChild(fields[k]);
+        }
+      }
+    }
   }
 
   function normalizeMailTableColumnWidths(value, visibleIds) {
@@ -123,6 +304,23 @@ var GoferSettings;
       scroll.dataset.mailTableHidden = hidden;
       scroll.dataset.mailTableColumns = visibleIds.join(",");
     }
+  }
+
+  function applyMailCardSettings(root) {
+    var layout = normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields);
+    var visibleIds = mailCardVisibleIdsFromLayout(layout);
+    var hidden = MAIL_CARD_FIELDS.map(function (field) { return field.id; }).filter(function (id) {
+      return visibleIds.indexOf(id) === -1;
+    }).join(" ");
+
+    var scope = root || document;
+    var scroll = scope.id === "mail-list-scroll" ? scope : scope.querySelector && scope.querySelector("#mail-list-scroll");
+    if (scroll) {
+      scroll.dataset.mailCardHidden = hidden;
+      scroll.dataset.mailCardFields = visibleIds.join(",");
+      scroll.dataset.mailCardLayout = serializeMailCardLayout(layout);
+    }
+    applyMailCardLayoutToScopes(scope, layout);
   }
 
   function mailPaneLayout(value) {
@@ -208,6 +406,49 @@ var GoferSettings;
     return normalizeMailTableColumnIds(_cache.mail_table_columns);
   };
 
+  window.applyMailCardFields = function (value, root) {
+    _cache.mail_card_fields = normalizeMailCardFieldIds(value).join(",");
+    _cache.mail_card_layout = serializeMailCardLayout(normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields));
+    applyMailCardSettings(root);
+  };
+
+  window.applyMailCardLayout = function (value, fieldsValue, root) {
+    var layout = normalizeMailCardLayout(value, fieldsValue || _cache.mail_card_fields);
+    _cache.mail_card_layout = serializeMailCardLayout(layout);
+    _cache.mail_card_fields = mailCardVisibleIdsFromLayout(layout).join(",");
+    applyMailCardSettings(root);
+  };
+
+  window.applyMailCardFieldSettings = applyMailCardSettings;
+  window.applyMailCardLayoutSettings = applyMailCardSettings;
+
+  window.getMailCardFields = function () {
+    return normalizeMailCardFieldIds(_cache.mail_card_fields);
+  };
+
+  window.getMailCardLayout = function () {
+    return normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields);
+  };
+
+  window.getDefaultMailCardLayout = function () {
+    return normalizeMailCardLayout(DEFAULT_MAIL_CARD_LAYOUT, DEFAULT_MAIL_CARD_FIELDS);
+  };
+
+  window.getDefaultMailCardFields = function () {
+    return normalizeMailCardFieldIds(DEFAULT_MAIL_CARD_FIELDS);
+  };
+
+  window.getMailCardLayoutZones = function () {
+    return MAIL_CARD_LAYOUT_ZONES.slice();
+  };
+
+  window.getMailCardVisibleFieldsFromLayout = mailCardVisibleIdsFromLayout;
+  window.serializeMailCardLayout = serializeMailCardLayout;
+
+  window.getMailCardFieldMax = function () {
+    return MAIL_CARD_FIELD_MAX;
+  };
+
   function applySetting(key, value) {
     if (key === "theme") {
       applyTheme(value);
@@ -249,6 +490,15 @@ var GoferSettings;
     if (key === "mail_table_columns") {
       _cache.mail_table_columns = normalizeMailTableColumnIds(value).join(",");
       applyMailTableColumnSettings();
+    }
+    if (key === "mail_card_fields") {
+      _cache.mail_card_fields = normalizeMailCardFieldIds(value).join(",");
+      _cache.mail_card_layout = serializeMailCardLayout(normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields));
+      applyMailCardSettings();
+    }
+    if (key === "mail_card_layout") {
+      _cache.mail_card_layout = serializeMailCardLayout(normalizeMailCardLayout(value, _cache.mail_card_fields));
+      applyMailCardSettings();
     }
     if (key === "timezone") {
       document.documentElement.setAttribute("data-timezone", value || browserTimezone());

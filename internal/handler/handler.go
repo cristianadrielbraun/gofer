@@ -1643,12 +1643,13 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
+	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	viewMode := r.URL.Query().Get("view")
 	if viewMode == "" {
 		viewMode = uiSettings["mail_list_view"]
 	}
 	views.MailListItemsFragment(
-		page.Emails, folderID,
+		accounts, page.Emails, folderID,
 		page.WindowStart, page.WindowEnd, page.TotalCount,
 		page.NextCursor, page.HasMore,
 		selectedEmailId,

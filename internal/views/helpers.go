@@ -321,6 +321,22 @@ func contactsDisplay(contacts []models.Contact, mode string) string {
 	return fmt.Sprintf("%s +%d", senderDisplay(contacts[0], mode), len(contacts)-1)
 }
 
+func mailListAccountDisplay(accounts []models.Account, accountID string) string {
+	for _, account := range accounts {
+		if account.ID != accountID {
+			continue
+		}
+		if strings.TrimSpace(account.Name) != "" {
+			return account.Name
+		}
+		if strings.TrimSpace(account.Email) != "" {
+			return account.Email
+		}
+		return account.ID
+	}
+	return accountID
+}
+
 func contactAvatarListFallback(isRead bool) string {
 	if isRead {
 		return "bg-muted text-muted-foreground"
