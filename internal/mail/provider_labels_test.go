@@ -42,7 +42,7 @@ func newLabelSyncTestDB(t *testing.T) *storage.DB {
 func seedLabelSyncMessage(t *testing.T, db *storage.DB, provider, messageID, remoteMessageID string) int64 {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, provider); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, provider); err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
 	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
@@ -109,6 +109,66 @@ func TestSyncGmailLabelsImportsRemoteMessageLabels(t *testing.T) {
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderID != "Label_1" || email.Labels[0].ProviderType != storage.LabelProviderGmail {
 		t.Fatalf("labels = %#v, want Projects Gmail label only", email.Labels)
+	}
+}
+
+func TestSyncProviderLabelsStopsGmailMessageLoopOnAuthFailure(t *testing.T) {
+	db := newLabelSyncTestDB(t)
+	seedLabelSyncMessage(t, db, providers.ProviderGmail, "<gmail-label-1@example.com>", "gmail-msg-1")
+	seedLabelSyncMessage(t, db, providers.ProviderGmail, "<gmail-label-2@example.com>", "gmail-msg-2")
+	seedLabelSyncMessage(t, db, providers.ProviderGmail, "<gmail-label-3@example.com>", "gmail-msg-3")
+
+	messageRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer gmail-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]string{
+				{"id": "Label_1", "name": "Projects", "type": "user"},
+			}})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/users/me/messages/"):
+			messageRequests++
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{
+					"code":    401,
+					"message": "Invalid Credentials",
+					"status":  "UNAUTHENTICATED",
+				},
+			})
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	err := orchestrator.syncProviderLabels(context.Background(), "acc", providers.ProviderGmail)
+	if err == nil {
+		t.Fatalf("syncProviderLabels() error = nil, want auth failure")
+	}
+	if !providerLabelSyncShouldStop(err) {
+		t.Fatalf("providerLabelSyncShouldStop(%v) = false, want true", err)
+	}
+	if !strings.Contains(err.Error(), "provider api returned 401") {
+		t.Fatalf("error = %v, want provider 401", err)
+	}
+	if messageRequests != 1 {
+		t.Fatalf("message requests = %d, want 1", messageRequests)
+	}
+
+	state, err := db.GetLabelSyncState(context.Background(), "acc", storage.LabelProviderGmail, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if !strings.Contains(state.LastError, "provider api returned 401") {
+		t.Fatalf("label sync error = %q, want provider 401", state.LastError)
 	}
 }
 

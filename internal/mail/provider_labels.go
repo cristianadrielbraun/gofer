@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,18 +27,61 @@ var (
 const providerLabelSyncBatchSize = 250
 const providerLabelMutationReplayLimit = 100
 
-func (o *SyncOrchestrator) syncProviderLabels(ctx context.Context, accountID, accountProvider string) {
+var errProviderLabelAuth = errors.New("provider label auth failed")
+
+type providerAPIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *providerAPIError) Error() string {
+	if e == nil {
+		return ""
+	}
+	body := strings.TrimSpace(e.Body)
+	if body == "" {
+		return fmt.Sprintf("provider api returned %d", e.StatusCode)
+	}
+	return fmt.Sprintf("provider api returned %d: %s", e.StatusCode, body)
+}
+
+func providerAPIStatus(err error) (int, bool) {
+	var apiErr *providerAPIError
+	if errors.As(err, &apiErr) && apiErr != nil {
+		return apiErr.StatusCode, true
+	}
+	return 0, false
+}
+
+func providerLabelSyncShouldStop(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, errProviderLabelAuth) {
+		return true
+	}
+	status, ok := providerAPIStatus(err)
+	if !ok {
+		return false
+	}
+	return status == http.StatusUnauthorized ||
+		status == http.StatusForbidden ||
+		status == http.StatusTooManyRequests ||
+		status >= http.StatusInternalServerError
+}
+
+func (o *SyncOrchestrator) syncProviderLabels(ctx context.Context, accountID, accountProvider string) error {
 	if o.db == nil {
-		return
+		return nil
 	}
 	if o.tokenProvider == nil {
 		switch strings.TrimSpace(accountProvider) {
 		case providers.ProviderGmail, providers.ProviderOutlook:
-			return
+			return nil
 		default:
 			o.replayIMAPLabelMutationQueue(ctx, accountID)
 		}
-		return
+		return nil
 	}
 
 	var err error
@@ -51,15 +95,19 @@ func (o *SyncOrchestrator) syncProviderLabels(ctx context.Context, accountID, ac
 		err = o.syncOutlookCategories(ctx, accountID)
 	default:
 		o.replayIMAPLabelMutationQueue(ctx, accountID)
-		return
+		return nil
 	}
 	if err == nil {
-		return
+		return nil
 	}
 	log.Printf("provider label sync %s/%s: %v", accountID, providerType, err)
 	if markErr := o.db.MarkLabelSyncError(context.Background(), accountID, providerType, "messages", err); markErr != nil {
 		log.Printf("provider label sync error state %s/%s: %v", accountID, providerType, markErr)
 	}
+	if providerLabelSyncShouldStop(err) {
+		return err
+	}
+	return nil
 }
 
 type gmailLabelsResponse struct {
@@ -87,7 +135,7 @@ type gmailMessageState struct {
 func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string) error {
 	token, err := o.tokenProvider.GetOAuthTokenForAccount(ctx, accountID)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errProviderLabelAuth, err)
 	}
 
 	labelsByID, err := o.syncGmailLabelCatalog(ctx, accountID, token)
@@ -107,6 +155,9 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 		for _, msg := range messages {
 			afterID = msg.ID
 			if err := o.syncGmailMessageLabels(ctx, token, msg, labelsByID); err != nil {
+				if providerLabelSyncShouldStop(err) {
+					return err
+				}
 				failed++
 				log.Printf("gmail label sync message account=%s message=%d: %v", accountID, msg.ID, err)
 			}
@@ -269,7 +320,7 @@ func (o *SyncOrchestrator) syncOutlookCategories(ctx context.Context, accountID 
 	}
 	token, err := graphTokens.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errProviderLabelAuth, err)
 	}
 
 	categoriesByName, err := o.syncOutlookCategoryCatalog(ctx, accountID, token)
@@ -289,6 +340,9 @@ func (o *SyncOrchestrator) syncOutlookCategories(ctx context.Context, accountID 
 		for _, msg := range messages {
 			afterID = msg.ID
 			if err := o.syncOutlookMessageCategories(ctx, token, msg, categoriesByName); err != nil {
+				if providerLabelSyncShouldStop(err) {
+					return err
+				}
 				failed++
 				log.Printf("outlook category sync message account=%s message=%d: %v", accountID, msg.ID, err)
 			}
@@ -837,7 +891,7 @@ func providerJSON(ctx context.Context, method, endpoint, token string, headers m
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("provider api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return &providerAPIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)

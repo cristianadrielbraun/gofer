@@ -1429,7 +1429,9 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		}
 	}
 
-	o.syncProviderLabels(ctx, accountID, cfg.Provider)
+	if err := o.syncProviderLabels(ctx, accountID, cfg.Provider); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -1522,7 +1524,11 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 		o.db.UpdateFolderIncrementalSync(syncCtx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
 	}
 
-	o.syncProviderLabels(syncCtx, accountID, cfg.Provider)
+	if err := o.syncProviderLabels(syncCtx, accountID, cfg.Provider); err != nil {
+		log.Printf("incremental %s/%s labels: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
+		return
+	}
 
 	unread, _ := o.db.RefreshFolderUnreadCount(syncCtx, folderID)
 
