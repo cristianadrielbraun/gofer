@@ -523,7 +523,8 @@ func labelsFromFlags(flags []imap.Flag) []storage.LabelInput {
 func isSystemOrStatusFlag(flag string) bool {
 	switch strings.ToLower(strings.TrimSpace(flag)) {
 	case "\\seen", "\\answered", "\\flagged", "\\deleted", "\\draft", "\\recent",
-		"$junk", "$notjunk", "$forwarded", "$mdnsent", "$phishing", "$label1", "$label2", "$label3", "$label4", "$label5":
+		"$junk", "$notjunk", "$nonjunk", "junk", "notjunk", "nonjunk", "non-junk",
+		"$forwarded", "$mdnsent", "$phishing", "$label1", "$label2", "$label3", "$label4", "$label5":
 		return true
 	default:
 		return strings.HasPrefix(flag, "\\")

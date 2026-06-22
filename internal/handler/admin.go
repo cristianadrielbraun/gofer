@@ -33,11 +33,11 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(avatarStatus, models.ContactAdminStatus{}, "avatars", activeTab).Render(ctx, w)
+		views.AdminPartial(avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, "avatars", activeTab).Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, avatarStatus, models.ContactAdminStatus{}, "avatars", activeTab).Render(ctx, w)
+	views.AdminLayout(uiSettings, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, "avatars", activeTab).Render(ctx, w)
 }
 
 func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
@@ -51,11 +51,29 @@ func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(models.AvatarStatus{}, contactStatus, "contacts", "").Render(ctx, w)
+		views.AdminPartial(models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, "contacts", "").Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, models.AvatarStatus{}, contactStatus, "contacts", "").Render(ctx, w)
+	views.AdminLayout(uiSettings, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, "contacts", "").Render(ctx, w)
+}
+
+func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	labelStatus, err := h.labelAdminStatus(ctx)
+	if err != nil {
+		http.Error(w, "failed to get label admin status", http.StatusInternalServerError)
+		return
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html")
+		views.AdminPartial(models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, "labels", "").Render(ctx, w)
+		return
+	}
+
+	views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, "labels", "").Render(ctx, w)
 }
 
 func (h *Handler) handleContactAdminStatus(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +84,20 @@ func (h *Handler) handleContactAdminStatus(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(status)
+}
+
+func (h *Handler) handleLabelAdminStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := h.labelAdminStatus(r.Context())
+	if err != nil {
+		http.Error(w, "failed to get label admin status", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(status)
+}
+
+func (h *Handler) labelAdminStatus(ctx context.Context) (models.LabelAdminStatus, error) {
+	return h.db.GetLabelAdminStatus(ctx, h.userID(ctx))
 }
 
 func (h *Handler) contactAdminStatus(ctx context.Context) (models.ContactAdminStatus, error) {

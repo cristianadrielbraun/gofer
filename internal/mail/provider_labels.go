@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	mailimap "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -26,6 +28,7 @@ var (
 
 const providerLabelSyncBatchSize = 250
 const providerLabelMutationReplayLimit = 100
+const outlookProviderBatchSize = 20
 
 var errProviderLabelAuth = errors.New("provider label auth failed")
 
@@ -70,6 +73,15 @@ func providerLabelSyncShouldStop(err error) bool {
 		status >= http.StatusInternalServerError
 }
 
+func providerLabelSyncShouldFailAccount(providerType string, err error) bool {
+	if !providerLabelSyncShouldStop(err) {
+		return false
+	}
+	// Outlook Graph category access is separate from IMAP XOAUTH2 mail access.
+	// Keep category failures in label_sync_state instead of marking mail sync broken.
+	return providerType != storage.LabelProviderOutlook
+}
+
 func (o *SyncOrchestrator) syncProviderLabels(ctx context.Context, accountID, accountProvider string) error {
 	if o.db == nil {
 		return nil
@@ -104,7 +116,7 @@ func (o *SyncOrchestrator) syncProviderLabels(ctx context.Context, accountID, ac
 	if markErr := o.db.MarkLabelSyncError(context.Background(), accountID, providerType, "messages", err); markErr != nil {
 		log.Printf("provider label sync error state %s/%s: %v", accountID, providerType, markErr)
 	}
-	if providerLabelSyncShouldStop(err) {
+	if providerLabelSyncShouldFailAccount(providerType, err) {
 		return err
 	}
 	return nil
@@ -132,7 +144,17 @@ type gmailMessageState struct {
 	HistoryID string   `json:"historyId"`
 }
 
-func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string) error {
+func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string) (retErr error) {
+	stats := storage.LabelSyncRunStats{
+		AccountID:    accountID,
+		ProviderType: storage.LabelProviderGmail,
+		Scope:        "messages",
+		StartedAt:    time.Now().UTC(),
+		Full:         true,
+	}
+	defer func() {
+		retErr = o.completeProviderLabelSyncRun(stats, retErr)
+	}()
 	token, err := o.tokenProvider.GetOAuthTokenForAccount(ctx, accountID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errProviderLabelAuth, err)
@@ -152,14 +174,28 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 		if len(messages) == 0 {
 			break
 		}
+		stats.TotalMessages += len(messages)
 		for _, msg := range messages {
 			afterID = msg.ID
-			if err := o.syncGmailMessageLabels(ctx, token, msg, labelsByID); err != nil {
+			result, err := o.syncGmailMessageLabels(ctx, token, msg, labelsByID)
+			if err != nil {
 				if providerLabelSyncShouldStop(err) {
+					stats.FailedMessages++
 					return err
 				}
 				failed++
+				stats.FailedMessages++
+				if providerMessageNotFound(err) {
+					stats.MissingProviderMessages++
+				}
 				log.Printf("gmail label sync message account=%s message=%d: %v", accountID, msg.ID, err)
+				continue
+			}
+			stats.SyncedMessages++
+			if result.WithLabels {
+				stats.WithLabels++
+			} else {
+				stats.WithoutLabels++
 			}
 		}
 		if len(messages) < providerLabelSyncBatchSize {
@@ -170,7 +206,7 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 	if failed > 0 {
 		return fmt.Errorf("%d Gmail message label import(s) failed", failed)
 	}
-	return o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", "", true)
+	return nil
 }
 
 func (o *SyncOrchestrator) syncGmailLabelCatalog(ctx context.Context, accountID, token string) (map[string]gmailLabel, error) {
@@ -207,12 +243,12 @@ func (o *SyncOrchestrator) syncGmailLabelCatalog(ctx context.Context, accountID,
 	return labelsByID, nil
 }
 
-func (o *SyncOrchestrator) syncGmailMessageLabels(ctx context.Context, token string, msg storage.ProviderLabelSyncMessage, labelsByID map[string]gmailLabel) error {
+func (o *SyncOrchestrator) syncGmailMessageLabels(ctx context.Context, token string, msg storage.ProviderLabelSyncMessage, labelsByID map[string]gmailLabel) (gmailLabelSyncResult, error) {
 	providerMessageID := strings.TrimSpace(msg.ProviderMessageID)
 	if providerMessageID == "" {
 		resolved, err := gmailMessageIDForInternetID(ctx, token, msg.InternetMessageID)
 		if err != nil {
-			return err
+			return gmailLabelSyncResult{}, err
 		}
 		providerMessageID = resolved
 		if err := o.db.SetMessageProviderMessageID(ctx, msg.ID, providerMessageID); err != nil {
@@ -222,14 +258,18 @@ func (o *SyncOrchestrator) syncGmailMessageLabels(ctx context.Context, token str
 
 	state, err := getGmailMessageState(ctx, token, providerMessageID)
 	if err != nil {
-		return err
+		return gmailLabelSyncResult{}, err
 	}
 	if strings.TrimSpace(state.ID) != "" && state.ID != providerMessageID {
 		if err := o.db.SetMessageProviderMessageID(ctx, msg.ID, strings.TrimSpace(state.ID)); err != nil {
 			log.Printf("cache gmail message id failed: %v", err)
 		}
 	}
-	return o.db.ReplaceMessageLabelsForProvider(ctx, msg.ID, msg.AccountID, storage.LabelProviderGmail, gmailLabelInputs(msg.AccountID, state.LabelIDs, labelsByID))
+	labels := gmailLabelInputs(msg.AccountID, state.LabelIDs, labelsByID)
+	if err := o.db.ReplaceMessageLabelsForProvider(ctx, msg.ID, msg.AccountID, storage.LabelProviderGmail, labels); err != nil {
+		return gmailLabelSyncResult{}, err
+	}
+	return gmailLabelSyncResult{WithLabels: len(labels) > 0}, nil
 }
 
 func gmailMessageIDForInternetID(ctx context.Context, token, internetMessageID string) (string, error) {
@@ -313,11 +353,84 @@ type outlookMessageState struct {
 	Categories []string `json:"categories"`
 }
 
-func (o *SyncOrchestrator) syncOutlookCategories(ctx context.Context, accountID string) error {
+type providerBatchRequest struct {
+	ID      string            `json:"id"`
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    any               `json:"body,omitempty"`
+}
+
+type providerBatchResponse struct {
+	ID      string            `json:"id"`
+	Status  int               `json:"status"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    json.RawMessage   `json:"body,omitempty"`
+}
+
+type providerBatchResponseEnvelope struct {
+	Responses []providerBatchResponse `json:"responses"`
+}
+
+type outlookCategoryBatchResult struct {
+	Failed   int
+	NotFound int
+	Skipped  int
+	Synced   int
+	With     int
+	Without  int
+}
+
+type gmailLabelSyncResult struct {
+	WithLabels bool
+}
+
+func (o *SyncOrchestrator) completeProviderLabelSyncRun(stats storage.LabelSyncRunStats, syncErr error) error {
+	if o.db == nil {
+		return syncErr
+	}
+	stats.FinishedAt = time.Now().UTC()
+	if pending, err := o.db.CountLabelMutations(context.Background(), stats.AccountID, stats.ProviderType); err == nil {
+		stats.PendingMutations = pending
+	} else {
+		log.Printf("provider label sync pending mutation count %s/%s: %v", stats.AccountID, stats.ProviderType, err)
+	}
+	if err := o.db.MarkLabelSyncRun(context.Background(), stats, syncErr); err != nil {
+		if syncErr != nil {
+			log.Printf("provider label sync run state %s/%s: %v", stats.AccountID, stats.ProviderType, err)
+			return syncErr
+		}
+		return err
+	}
+	return syncErr
+}
+
+func providerMessageNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if status, ok := providerAPIStatus(err); ok && status == http.StatusNotFound {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "message not found")
+}
+
+func (o *SyncOrchestrator) syncOutlookCategories(ctx context.Context, accountID string) (retErr error) {
 	graphTokens, ok := o.tokenProvider.(graphMailTokenProvider)
 	if !ok {
 		return nil
 	}
+	stats := storage.LabelSyncRunStats{
+		AccountID:    accountID,
+		ProviderType: storage.LabelProviderOutlook,
+		Scope:        "messages",
+		StartedAt:    time.Now().UTC(),
+		Full:         true,
+	}
+	defer func() {
+		retErr = o.completeProviderLabelSyncRun(stats, retErr)
+	}()
 	token, err := graphTokens.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errProviderLabelAuth, err)
@@ -328,7 +441,7 @@ func (o *SyncOrchestrator) syncOutlookCategories(ctx context.Context, accountID 
 		return err
 	}
 
-	failed := 0
+	var total outlookCategoryBatchResult
 	for afterID := int64(0); ; {
 		messages, err := o.db.ListProviderLabelSyncMessages(ctx, accountID, afterID, providerLabelSyncBatchSize)
 		if err != nil {
@@ -337,25 +450,43 @@ func (o *SyncOrchestrator) syncOutlookCategories(ctx context.Context, accountID 
 		if len(messages) == 0 {
 			break
 		}
+		stats.TotalMessages += len(messages)
 		for _, msg := range messages {
 			afterID = msg.ID
-			if err := o.syncOutlookMessageCategories(ctx, token, msg, categoriesByName); err != nil {
-				if providerLabelSyncShouldStop(err) {
-					return err
-				}
-				failed++
-				log.Printf("outlook category sync message account=%s message=%d: %v", accountID, msg.ID, err)
+		}
+		result, err := o.syncOutlookMessageCategoriesBatch(ctx, token, messages, categoriesByName)
+		total.Failed += result.Failed
+		total.NotFound += result.NotFound
+		total.Skipped += result.Skipped
+		total.Synced += result.Synced
+		total.With += result.With
+		total.Without += result.Without
+		stats.SyncedMessages += result.Synced
+		stats.WithLabels += result.With
+		stats.WithoutLabels += result.Without
+		stats.MissingProviderMessages += result.NotFound
+		stats.SkippedMessages += result.Skipped
+		stats.FailedMessages += result.Failed
+		if err != nil {
+			if providerLabelSyncShouldStop(err) {
+				return err
 			}
+			total.Failed++
+			stats.FailedMessages++
+			log.Printf("outlook category sync batch account=%s after=%d: %v", accountID, afterID, err)
 		}
 		if len(messages) < providerLabelSyncBatchSize {
 			break
 		}
 	}
 	o.replayOutlookLabelMutationQueue(ctx, accountID, token)
-	if failed > 0 {
-		return fmt.Errorf("%d Outlook message categorization import(s) failed", failed)
+	if total.NotFound > 0 || total.Skipped > 0 {
+		log.Printf("outlook category sync account=%s: %d message(s) not found in Graph, %d message(s) skipped without provider identity", accountID, total.NotFound, total.Skipped)
 	}
-	return o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderOutlook, "messages", "", true)
+	if total.Failed > 0 {
+		return fmt.Errorf("%d Outlook message categorization import(s) failed", total.Failed)
+	}
+	return nil
 }
 
 func (o *SyncOrchestrator) syncOutlookCategoryCatalog(ctx context.Context, accountID, token string) (map[string]outlookCategory, error) {
@@ -404,6 +535,154 @@ func (o *SyncOrchestrator) syncOutlookMessageCategories(ctx context.Context, tok
 		}
 	}
 	return o.db.ReplaceMessageLabelsForProvider(ctx, msg.ID, msg.AccountID, storage.LabelProviderOutlook, outlookCategoryLabelInputs(msg.AccountID, state.Categories, categoriesByName))
+}
+
+func (o *SyncOrchestrator) syncOutlookMessageCategoriesBatch(ctx context.Context, token string, messages []storage.ProviderLabelSyncMessage, categoriesByName map[string]outlookCategory) (outlookCategoryBatchResult, error) {
+	var result outlookCategoryBatchResult
+	for start := 0; start < len(messages); start += outlookProviderBatchSize {
+		end := start + outlookProviderBatchSize
+		if end > len(messages) {
+			end = len(messages)
+		}
+		batchResult, err := o.syncOutlookMessageCategoriesBatchChunk(ctx, token, messages[start:end], categoriesByName)
+		result.Failed += batchResult.Failed
+		result.NotFound += batchResult.NotFound
+		result.Skipped += batchResult.Skipped
+		result.Synced += batchResult.Synced
+		result.With += batchResult.With
+		result.Without += batchResult.Without
+		if err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+func (o *SyncOrchestrator) syncOutlookMessageCategoriesBatchChunk(ctx context.Context, token string, messages []storage.ProviderLabelSyncMessage, categoriesByName map[string]outlookCategory) (outlookCategoryBatchResult, error) {
+	var result outlookCategoryBatchResult
+	requests := make([]providerBatchRequest, 0, len(messages))
+	byRequestID := make(map[string]storage.ProviderLabelSyncMessage, len(messages))
+	lookupByRequestID := make(map[string]bool, len(messages))
+	for _, msg := range messages {
+		requestID := strconv.FormatInt(msg.ID, 10)
+		requestURL, lookup, ok := outlookCategoryBatchRequestURL(msg)
+		if !ok {
+			result.Skipped++
+			continue
+		}
+		requests = append(requests, providerBatchRequest{
+			ID:      requestID,
+			Method:  http.MethodGet,
+			URL:     requestURL,
+			Headers: outlookImmutableIDHeaders(),
+		})
+		byRequestID[requestID] = msg
+		lookupByRequestID[requestID] = lookup
+	}
+	if len(requests) == 0 {
+		return result, nil
+	}
+
+	var envelope providerBatchResponseEnvelope
+	if err := providerJSON(ctx, http.MethodPost, outlookGraphBaseURL+"/$batch", token, nil, map[string][]providerBatchRequest{"requests": requests}, &envelope); err != nil {
+		return result, err
+	}
+	seen := make(map[string]bool, len(envelope.Responses))
+	for _, response := range envelope.Responses {
+		msg, ok := byRequestID[response.ID]
+		if !ok {
+			continue
+		}
+		seen[response.ID] = true
+		if response.Status == http.StatusNotFound {
+			result.NotFound++
+			continue
+		}
+		if response.Status < 200 || response.Status >= 300 {
+			if response.Status == http.StatusUnauthorized ||
+				response.Status == http.StatusForbidden ||
+				response.Status == http.StatusTooManyRequests ||
+				response.Status >= http.StatusInternalServerError {
+				return result, &providerAPIError{StatusCode: response.Status, Body: strings.TrimSpace(string(response.Body))}
+			}
+			result.Failed++
+			continue
+		}
+
+		state, found, err := outlookMessageStateFromBatchResponse(response.Body, lookupByRequestID[response.ID])
+		if err != nil {
+			result.Failed++
+			log.Printf("outlook category sync message account=%s message=%d: decode batch response: %v", msg.AccountID, msg.ID, err)
+			continue
+		}
+		if !found {
+			result.NotFound++
+			continue
+		}
+		if strings.TrimSpace(state.ID) != "" && strings.TrimSpace(state.ID) != strings.TrimSpace(msg.ProviderMessageID) {
+			if err := o.db.SetMessageProviderMessageID(ctx, msg.ID, strings.TrimSpace(state.ID)); err != nil {
+				log.Printf("cache outlook message id failed: %v", err)
+			}
+		}
+		labels := outlookCategoryLabelInputs(msg.AccountID, state.Categories, categoriesByName)
+		if err := o.db.ReplaceMessageLabelsForProvider(ctx, msg.ID, msg.AccountID, storage.LabelProviderOutlook, labels); err != nil {
+			return result, err
+		}
+		result.Synced++
+		if len(labels) > 0 {
+			result.With++
+		} else {
+			result.Without++
+		}
+	}
+	for requestID := range byRequestID {
+		if !seen[requestID] {
+			result.Failed++
+		}
+	}
+	return result, nil
+}
+
+func outlookCategoryBatchRequestURL(msg storage.ProviderLabelSyncMessage) (string, bool, bool) {
+	providerMessageID := strings.TrimSpace(msg.ProviderMessageID)
+	if providerMessageID != "" {
+		return "/me/messages/" + url.PathEscape(providerMessageID) + "?$select=id,categories", false, true
+	}
+	internetMessageID := strings.TrimSpace(msg.InternetMessageID)
+	if internetMessageID == "" || isSyntheticGoferMessageID(internetMessageID) {
+		return "", false, false
+	}
+	values := url.Values{}
+	values.Set("$filter", "internetMessageId eq '"+strings.ReplaceAll(internetMessageID, "'", "''")+"'")
+	values.Set("$select", "id,internetMessageId,categories")
+	values.Set("$top", "1")
+	return "/me/messages?" + values.Encode(), true, true
+}
+
+func outlookMessageStateFromBatchResponse(raw json.RawMessage, lookup bool) (outlookMessageState, bool, error) {
+	if lookup {
+		var response outlookMessagesResponse
+		if err := json.Unmarshal(raw, &response); err != nil {
+			return outlookMessageState{}, false, err
+		}
+		if len(response.Value) == 0 || strings.TrimSpace(response.Value[0].ID) == "" {
+			return outlookMessageState{}, false, nil
+		}
+		return response.Value[0], true, nil
+	}
+	var state outlookMessageState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return outlookMessageState{}, false, err
+	}
+	if strings.TrimSpace(state.ID) == "" {
+		return outlookMessageState{}, false, nil
+	}
+	return state, true, nil
+}
+
+func isSyntheticGoferMessageID(messageID string) bool {
+	normalized := strings.Trim(strings.ToLower(strings.TrimSpace(messageID)), "<>")
+	return strings.HasSuffix(normalized, "@sync.gofer")
 }
 
 func outlookMessageIDForInternetID(ctx context.Context, token, internetMessageID string) (string, error) {

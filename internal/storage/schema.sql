@@ -203,6 +203,16 @@ CREATE TABLE IF NOT EXISTS label_sync_state (
     last_full_sync_at DATETIME,
     last_success_at DATETIME,
     last_error TEXT NOT NULL DEFAULT '',
+    last_run_started_at DATETIME,
+    last_run_finished_at DATETIME,
+    last_total_messages INTEGER NOT NULL DEFAULT 0,
+    last_synced_messages INTEGER NOT NULL DEFAULT 0,
+    last_with_labels INTEGER NOT NULL DEFAULT 0,
+    last_without_labels INTEGER NOT NULL DEFAULT 0,
+    last_missing_provider_messages INTEGER NOT NULL DEFAULT 0,
+    last_skipped_messages INTEGER NOT NULL DEFAULT 0,
+    last_failed_messages INTEGER NOT NULL DEFAULT 0,
+    last_pending_mutations INTEGER NOT NULL DEFAULT 0,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (account_id, provider_type, scope)
 );
@@ -825,4 +835,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (46);
+INSERT OR REPLACE INTO schema_version (version) VALUES (47);

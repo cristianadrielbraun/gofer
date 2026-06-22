@@ -79,7 +79,7 @@ func (m *Manager) ExchangeAccountCode(ctx context.Context, code string) (*oauth2
 }
 
 func (m *Manager) ExchangeMicrosoftAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
-	token, err := m.microsoftAccountOAuthConfig().Exchange(ctx, code, oauth2.SetAuthURLParam("scope", strings.Join(microsoftAccountTokenScopes(), " ")))
+	token, err := m.microsoftAccountOAuthConfig().Exchange(ctx, code, oauth2.SetAuthURLParam("scope", strings.Join(microsoftAccountTokenExchangeScopes(), " ")))
 	if err != nil {
 		return nil, fmt.Errorf("oauth exchange: %w", err)
 	}
@@ -87,7 +87,28 @@ func (m *Manager) ExchangeMicrosoftAccountCode(ctx context.Context, code string)
 }
 
 func microsoftAccountTokenScopes() []string {
-	return append([]string{"openid", "email", "profile", "offline_access"}, microsoftOutlookMailScopes()...)
+	return []string{
+		"openid",
+		"email",
+		"profile",
+		"offline_access",
+		microsoftOutlookIMAPScope,
+		microsoftOutlookSMTPScope,
+		microsoftGraphContactsScope,
+		microsoftGraphMailScope,
+		microsoftGraphMailboxSettingsScope,
+	}
+}
+
+func microsoftAccountTokenExchangeScopes() []string {
+	return []string{
+		"openid",
+		"email",
+		"profile",
+		"offline_access",
+		microsoftOutlookIMAPScope,
+		microsoftOutlookSMTPScope,
+	}
 }
 
 func (m *Manager) accountOAuthConfig() *oauth2.Config {

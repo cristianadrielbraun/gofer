@@ -70,6 +70,7 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 				microsoftOutlookSMTPScope,
 				microsoftGraphContactsScope,
 				microsoftGraphMailScope,
+				microsoftGraphMailboxSettingsScope,
 			},
 			Endpoint: oauth2.Endpoint{AuthURL: "https://login.example/authorize"},
 		},
@@ -90,9 +91,12 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 	if !strings.Contains(values.Get("scope"), microsoftGraphMailScope) {
 		t.Fatalf("scope = %q, want Graph mail scope", values.Get("scope"))
 	}
+	if !strings.Contains(values.Get("scope"), microsoftGraphMailboxSettingsScope) {
+		t.Fatalf("scope = %q, want Graph mailbox settings scope", values.Get("scope"))
+	}
 }
 
-func TestExchangeMicrosoftAccountCodeRequestsOutlookTokenScope(t *testing.T) {
+func TestExchangeMicrosoftAccountCodeRequestsSingleResourceOutlookScopes(t *testing.T) {
 	ctx := context.Background()
 	var gotScope string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +111,7 @@ func TestExchangeMicrosoftAccountCodeRequestsOutlookTokenScope(t *testing.T) {
 			t.Fatalf("code = %q, want auth-code", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"outlook-token","refresh_token":"refresh-token","token_type":"Bearer","expires_in":3600,"scope":"https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send"}`))
+		_, _ = w.Write([]byte(`{"access_token":"outlook-token","refresh_token":"refresh-token","token_type":"Bearer","expires_in":3600,"scope":"https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite"}`))
 	}))
 	defer server.Close()
 
@@ -128,8 +132,13 @@ func TestExchangeMicrosoftAccountCodeRequestsOutlookTokenScope(t *testing.T) {
 	if token.AccessToken != "outlook-token" {
 		t.Fatalf("access token = %q, want outlook-token", token.AccessToken)
 	}
-	if gotScope != strings.Join(microsoftAccountTokenScopes(), " ") {
-		t.Fatalf("scope = %q, want Microsoft account token scopes", gotScope)
+	if gotScope != strings.Join(microsoftAccountTokenExchangeScopes(), " ") {
+		t.Fatalf("scope = %q, want Microsoft token exchange scopes", gotScope)
+	}
+	for _, graphScope := range []string{microsoftGraphContactsScope, microsoftGraphMailScope, microsoftGraphMailboxSettingsScope} {
+		if strings.Contains(gotScope, graphScope) {
+			t.Fatalf("scope = %q, must not request Graph scope %q during code exchange", gotScope, graphScope)
+		}
 	}
 }
 

@@ -126,6 +126,7 @@ func LoadConfig() *Config {
 				microsoftOutlookSMTPScope,
 				microsoftGraphContactsScope,
 				microsoftGraphMailScope,
+				microsoftGraphMailboxSettingsScope,
 			},
 			Endpoint: microsoftEndpoint(tenant),
 		}

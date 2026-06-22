@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 46
+	const targetSchemaVersion = 47
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -420,6 +420,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 45 {
 		if err := migrateV45ToV46(tx); err != nil {
 			return fmt.Errorf("migrate v45 to v46: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 46 {
+		if err := migrateV46ToV47(tx); err != nil {
+			return fmt.Errorf("migrate v46 to v47: %w", err)
 		}
 	}
 
@@ -1757,6 +1763,72 @@ func migrateV45ToV46(tx *sql.Tx) error {
 		}
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (46)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateV46ToV47(tx *sql.Tx) error {
+	if ok, err := tableExistsTx(tx, "label_sync_state"); err != nil {
+		return err
+	} else if !ok {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS label_sync_state (
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			provider_type TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT '',
+			cursor TEXT NOT NULL DEFAULT '',
+			last_full_sync_at DATETIME,
+			last_success_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			last_run_started_at DATETIME,
+			last_run_finished_at DATETIME,
+			last_total_messages INTEGER NOT NULL DEFAULT 0,
+			last_synced_messages INTEGER NOT NULL DEFAULT 0,
+			last_with_labels INTEGER NOT NULL DEFAULT 0,
+			last_without_labels INTEGER NOT NULL DEFAULT 0,
+			last_missing_provider_messages INTEGER NOT NULL DEFAULT 0,
+			last_skipped_messages INTEGER NOT NULL DEFAULT 0,
+			last_failed_messages INTEGER NOT NULL DEFAULT 0,
+			last_pending_mutations INTEGER NOT NULL DEFAULT 0,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (account_id, provider_type, scope)
+		)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_label_sync_state_account
+		 ON label_sync_state(account_id, provider_type)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (47)`); err != nil {
+			return err
+		}
+		return nil
+	}
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{name: "last_run_started_at", sql: `ALTER TABLE label_sync_state ADD COLUMN last_run_started_at DATETIME`},
+		{name: "last_run_finished_at", sql: `ALTER TABLE label_sync_state ADD COLUMN last_run_finished_at DATETIME`},
+		{name: "last_total_messages", sql: `ALTER TABLE label_sync_state ADD COLUMN last_total_messages INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_synced_messages", sql: `ALTER TABLE label_sync_state ADD COLUMN last_synced_messages INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_with_labels", sql: `ALTER TABLE label_sync_state ADD COLUMN last_with_labels INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_without_labels", sql: `ALTER TABLE label_sync_state ADD COLUMN last_without_labels INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_missing_provider_messages", sql: `ALTER TABLE label_sync_state ADD COLUMN last_missing_provider_messages INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_skipped_messages", sql: `ALTER TABLE label_sync_state ADD COLUMN last_skipped_messages INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_failed_messages", sql: `ALTER TABLE label_sync_state ADD COLUMN last_failed_messages INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_pending_mutations", sql: `ALTER TABLE label_sync_state ADD COLUMN last_pending_mutations INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, column := range columns {
+		if ok, err := columnExistsTx(tx, "label_sync_state", column.name); err != nil {
+			return err
+		} else if !ok {
+			if _, err := tx.Exec(column.sql); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (47)`); err != nil {
 		return err
 	}
 	return nil

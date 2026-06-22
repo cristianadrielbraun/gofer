@@ -781,13 +781,41 @@ type ProviderLabelSyncMessage struct {
 }
 
 type LabelSyncState struct {
-	AccountID      string
-	ProviderType   string
-	Scope          string
-	Cursor         string
-	LastFullSyncAt sql.NullTime
-	LastSuccessAt  sql.NullTime
-	LastError      string
+	AccountID                   string
+	ProviderType                string
+	Scope                       string
+	Cursor                      string
+	LastFullSyncAt              sql.NullTime
+	LastSuccessAt               sql.NullTime
+	LastError                   string
+	LastRunStartedAt            sql.NullTime
+	LastRunFinishedAt           sql.NullTime
+	LastTotalMessages           int
+	LastSyncedMessages          int
+	LastWithLabels              int
+	LastWithoutLabels           int
+	LastMissingProviderMessages int
+	LastSkippedMessages         int
+	LastFailedMessages          int
+	LastPendingMutations        int
+}
+
+type LabelSyncRunStats struct {
+	AccountID               string
+	ProviderType            string
+	Scope                   string
+	Cursor                  string
+	StartedAt               time.Time
+	FinishedAt              time.Time
+	Full                    bool
+	TotalMessages           int
+	SyncedMessages          int
+	WithLabels              int
+	WithoutLabels           int
+	MissingProviderMessages int
+	SkippedMessages         int
+	FailedMessages          int
+	PendingMutations        int
 }
 
 type LabelMutationQueueEntry struct {
@@ -1490,15 +1518,89 @@ func (db *DB) GetLabelSyncState(ctx context.Context, accountID, providerType, sc
 		Scope:        strings.TrimSpace(scope),
 	}
 	err := db.Read().QueryRowContext(ctx, `
-		SELECT cursor, last_full_sync_at, last_success_at, last_error
+		SELECT cursor, last_full_sync_at, last_success_at, last_error,
+		       last_run_started_at, last_run_finished_at,
+		       last_total_messages, last_synced_messages, last_with_labels, last_without_labels,
+		       last_missing_provider_messages, last_skipped_messages, last_failed_messages, last_pending_mutations
 		FROM label_sync_state
 		WHERE account_id = ? AND provider_type = ? AND scope = ?`,
 		state.AccountID, state.ProviderType, state.Scope).
-		Scan(&state.Cursor, &state.LastFullSyncAt, &state.LastSuccessAt, &state.LastError)
+		Scan(
+			&state.Cursor, &state.LastFullSyncAt, &state.LastSuccessAt, &state.LastError,
+			&state.LastRunStartedAt, &state.LastRunFinishedAt,
+			&state.LastTotalMessages, &state.LastSyncedMessages, &state.LastWithLabels, &state.LastWithoutLabels,
+			&state.LastMissingProviderMessages, &state.LastSkippedMessages, &state.LastFailedMessages, &state.LastPendingMutations,
+		)
 	if err == sql.ErrNoRows {
 		return state, nil
 	}
 	return state, err
+}
+
+func (db *DB) MarkLabelSyncRun(ctx context.Context, stats LabelSyncRunStats, syncErr error) error {
+	stats.AccountID = strings.TrimSpace(stats.AccountID)
+	stats.ProviderType = strings.TrimSpace(stats.ProviderType)
+	stats.Scope = strings.TrimSpace(stats.Scope)
+	stats.Cursor = strings.TrimSpace(stats.Cursor)
+	if stats.AccountID == "" || stats.ProviderType == "" || stats.Scope == "" {
+		return nil
+	}
+	if stats.StartedAt.IsZero() {
+		stats.StartedAt = time.Now().UTC()
+	}
+	if stats.FinishedAt.IsZero() {
+		stats.FinishedAt = time.Now().UTC()
+	}
+	lastError := ""
+	if syncErr != nil {
+		lastError = syncErr.Error()
+	}
+
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO label_sync_state (
+			account_id, provider_type, scope, cursor,
+			last_full_sync_at, last_success_at, last_error,
+			last_run_started_at, last_run_finished_at,
+			last_total_messages, last_synced_messages, last_with_labels, last_without_labels,
+			last_missing_provider_messages, last_skipped_messages, last_failed_messages, last_pending_mutations,
+			updated_at
+		) VALUES (
+			?, ?, ?, ?,
+			CASE WHEN ? THEN ? ELSE NULL END,
+			CASE WHEN ? THEN ? ELSE NULL END,
+			?,
+			?, ?,
+			?, ?, ?, ?,
+			?, ?, ?, ?,
+			CURRENT_TIMESTAMP
+		)
+		ON CONFLICT(account_id, provider_type, scope) DO UPDATE SET
+			cursor = CASE WHEN excluded.cursor != '' THEN excluded.cursor ELSE label_sync_state.cursor END,
+			last_full_sync_at = CASE WHEN ? AND ? THEN excluded.last_full_sync_at ELSE label_sync_state.last_full_sync_at END,
+			last_success_at = CASE WHEN ? THEN excluded.last_success_at ELSE label_sync_state.last_success_at END,
+			last_error = excluded.last_error,
+			last_run_started_at = excluded.last_run_started_at,
+			last_run_finished_at = excluded.last_run_finished_at,
+			last_total_messages = excluded.last_total_messages,
+			last_synced_messages = excluded.last_synced_messages,
+			last_with_labels = excluded.last_with_labels,
+			last_without_labels = excluded.last_without_labels,
+			last_missing_provider_messages = excluded.last_missing_provider_messages,
+			last_skipped_messages = excluded.last_skipped_messages,
+			last_failed_messages = excluded.last_failed_messages,
+			last_pending_mutations = excluded.last_pending_mutations,
+			updated_at = CURRENT_TIMESTAMP`,
+		stats.AccountID, stats.ProviderType, stats.Scope, stats.Cursor,
+		stats.Full && syncErr == nil, stats.FinishedAt,
+		syncErr == nil, stats.FinishedAt,
+		strings.TrimSpace(lastError),
+		stats.StartedAt, stats.FinishedAt,
+		clampNonNegative(stats.TotalMessages), clampNonNegative(stats.SyncedMessages), clampNonNegative(stats.WithLabels), clampNonNegative(stats.WithoutLabels),
+		clampNonNegative(stats.MissingProviderMessages), clampNonNegative(stats.SkippedMessages), clampNonNegative(stats.FailedMessages), clampNonNegative(stats.PendingMutations),
+		stats.Full, syncErr == nil,
+		syncErr == nil,
+	)
+	return err
 }
 
 func (db *DB) MarkLabelSyncSuccess(ctx context.Context, accountID, providerType, scope, cursor string, full bool) error {
@@ -1617,6 +1719,257 @@ func (db *DB) ListDueLabelMutations(ctx context.Context, accountID, providerType
 		entries = append(entries, entry)
 	}
 	return entries, rows.Err()
+}
+
+func (db *DB) CountLabelMutations(ctx context.Context, accountID, providerType string) (int, error) {
+	accountID = strings.TrimSpace(accountID)
+	providerType = strings.TrimSpace(providerType)
+	if accountID == "" || providerType == "" {
+		return 0, nil
+	}
+	var count int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM label_mutation_queue
+		WHERE account_id = ? AND provider_type = ?`, accountID, providerType).Scan(&count)
+	return count, err
+}
+
+func (db *DB) GetLabelAdminStatus(ctx context.Context, userID string) (models.LabelAdminStatus, error) {
+	var status models.LabelAdminStatus
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id, provider, COALESCE(email_address, ''), COALESCE(display_name, '')
+		FROM accounts
+		WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0
+		ORDER BY id`, strings.TrimSpace(userID))
+	if err != nil {
+		return status, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var account models.LabelAccountSyncStatus
+		if err := rows.Scan(&account.AccountID, &account.AccountProvider, &account.AccountEmail, &account.AccountName); err != nil {
+			return status, err
+		}
+		account.AccountName = labelAdminAccountName(account)
+		account.LabelProvider = labelProviderForAccountProvider(account.AccountProvider)
+		if err := db.populateLabelAccountMessageStats(ctx, &account); err != nil {
+			return status, err
+		}
+		if err := db.populateLabelAccountCatalogStats(ctx, &account); err != nil {
+			return status, err
+		}
+		if err := db.populateLabelAccountMutationStats(ctx, &account); err != nil {
+			return status, err
+		}
+		syncState, err := db.GetLabelSyncState(ctx, account.AccountID, account.LabelProvider, "messages")
+		if err != nil {
+			return status, err
+		}
+		account.Sync = labelSyncRunStatus(syncState)
+		topLabels, err := db.topLabelUsage(ctx, account.AccountID, 8)
+		if err != nil {
+			return status, err
+		}
+		account.TopLabels = topLabels
+
+		status.Totals.Accounts++
+		status.Totals.TotalMessages += account.TotalMessages
+		status.Totals.MessagesWithLabels += account.MessagesWithLabels
+		status.Totals.MessagesWithoutLabels += account.MessagesWithoutLabels
+		status.Totals.ProviderBackedMessages += account.ProviderBackedMessages
+		status.Totals.LocalOnlyMessages += account.LocalOnlyMessages
+		status.Totals.MissingProviderMessages += account.MissingProviderMessages
+		status.Totals.MissingIdentityMessages += account.MissingIdentityMessages
+		status.Totals.KnownLabels += account.KnownLabels
+		status.Totals.PendingMutations += account.PendingMutations
+		status.Totals.MutationErrors += account.MutationErrors
+		status.Totals.LastRunMissingProvider += account.Sync.LastMissingProviderMessages
+		status.Totals.LastRunSkipped += account.Sync.LastSkippedMessages
+		status.Totals.LastRunFailed += account.Sync.LastFailedMessages
+		status.Accounts = append(status.Accounts, account)
+	}
+	return status, rows.Err()
+}
+
+func (db *DB) populateLabelAccountMessageStats(ctx context.Context, account *models.LabelAccountSyncStatus) error {
+	supportsProviderID := account.LabelProvider == LabelProviderGmail || account.LabelProvider == LabelProviderOutlook
+	return db.Read().QueryRowContext(ctx, `
+		WITH visible AS (
+			SELECT DISTINCT m.id,
+			       COALESCE(m.remote_message_id, '') AS remote_message_id,
+			       COALESCE(m.internet_message_id, '') AS internet_message_id
+			FROM messages m
+			JOIN message_folder_state mfs ON mfs.message_id = m.id
+			WHERE m.account_id = ? AND mfs.is_deleted = 0
+			)
+			SELECT COUNT(*),
+			       COALESCE(SUM(CASE WHEN EXISTS (
+			         SELECT 1 FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+			         WHERE ml.message_id = visible.id AND l.account_id = ?
+			           AND NOT (l.provider_type = 'imap_keyword' AND (lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))
+			       ) THEN 1 ELSE 0 END), 0),
+			       COALESCE(SUM(CASE WHEN NOT EXISTS (
+			         SELECT 1 FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+			         WHERE ml.message_id = visible.id AND l.account_id = ?
+			           AND NOT (l.provider_type = 'imap_keyword' AND (lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))
+			       ) THEN 1 ELSE 0 END), 0),
+			       COALESCE(SUM(CASE WHEN EXISTS (
+			         SELECT 1 FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+			         WHERE ml.message_id = visible.id AND l.account_id = ? AND l.provider_type = ?
+			           AND NOT (l.provider_type = 'imap_keyword' AND (lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))
+			       ) THEN 1 ELSE 0 END), 0),
+			       COALESCE(SUM(CASE WHEN EXISTS (
+			         SELECT 1 FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+			         WHERE ml.message_id = visible.id AND l.account_id = ? AND l.provider_type = ?
+			           AND NOT (l.provider_type = 'imap_keyword' AND (lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))
+			       ) THEN 1 ELSE 0 END), 0),
+			       COALESCE(SUM(CASE WHEN EXISTS (
+			         SELECT 1 FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+			         WHERE ml.message_id = visible.id AND l.account_id = ? AND l.provider_type = ?
+			           AND NOT (l.provider_type = 'imap_keyword' AND (lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))
+			       ) AND NOT EXISTS (
+			         SELECT 1 FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+			         WHERE ml.message_id = visible.id AND l.account_id = ? AND l.provider_type = ?
+			           AND NOT (l.provider_type = 'imap_keyword' AND (lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))
+			       ) THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN ? = 1 AND remote_message_id = '' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN internet_message_id = '' OR lower(trim(internet_message_id, '<>')) LIKE '%@sync.gofer' THEN 1 ELSE 0 END), 0)
+		FROM visible`,
+		account.AccountID,
+		account.AccountID,
+		account.AccountID,
+		account.AccountID, account.LabelProvider,
+		account.AccountID, LabelProviderLocal,
+		account.AccountID, LabelProviderLocal,
+		account.AccountID, account.LabelProvider,
+		boolInt(supportsProviderID),
+	).Scan(
+		&account.TotalMessages,
+		&account.MessagesWithLabels,
+		&account.MessagesWithoutLabels,
+		&account.ProviderBackedMessages,
+		&account.LocalLabelMessages,
+		&account.LocalOnlyMessages,
+		&account.MissingProviderMessages,
+		&account.MissingIdentityMessages,
+	)
+}
+
+func (db *DB) populateLabelAccountCatalogStats(ctx context.Context, account *models.LabelAccountSyncStatus) error {
+	return db.Read().QueryRowContext(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN provider_type = ? THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN provider_type = ? THEN 1 ELSE 0 END), 0)
+		FROM labels
+		WHERE account_id = ?
+		  AND NOT (provider_type = 'imap_keyword' AND (lower(trim(name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))`,
+		account.LabelProvider, LabelProviderLocal, account.AccountID).
+		Scan(&account.KnownLabels, &account.ProviderLabels, &account.LocalLabels)
+}
+
+func (db *DB) populateLabelAccountMutationStats(ctx context.Context, account *models.LabelAccountSyncStatus) error {
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN last_error != '' THEN 1 ELSE 0 END), 0)
+		FROM label_mutation_queue
+		WHERE account_id = ? AND provider_type = ?`,
+		account.AccountID, account.LabelProvider).Scan(&account.PendingMutations, &account.MutationErrors); err != nil {
+		return err
+	}
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT last_error
+		FROM label_mutation_queue
+		WHERE account_id = ? AND provider_type = ? AND last_error != ''
+		ORDER BY updated_at DESC, id DESC
+		LIMIT 1`, account.AccountID, account.LabelProvider).Scan(&account.LatestMutationError)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	return err
+}
+
+func (db *DB) topLabelUsage(ctx context.Context, accountID string, limit int) ([]models.LabelUsageSummary, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 8
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		WITH visible AS (
+			SELECT DISTINCT m.id
+			FROM messages m
+			JOIN message_folder_state mfs ON mfs.message_id = m.id
+			WHERE m.account_id = ? AND mfs.is_deleted = 0
+		)
+		SELECT l.name, l.provider_type, COUNT(DISTINCT ml.message_id) AS usage_count
+		FROM labels l
+		JOIN message_labels ml ON ml.label_id = l.id
+		JOIN visible v ON v.id = ml.message_id
+		WHERE l.account_id = ?
+		  AND NOT (l.provider_type = 'imap_keyword' AND (lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk') OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')))
+		GROUP BY l.id, l.name, l.provider_type
+		ORDER BY usage_count DESC, l.name COLLATE NOCASE
+		LIMIT ?`, accountID, accountID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var labels []models.LabelUsageSummary
+	for rows.Next() {
+		var label models.LabelUsageSummary
+		if err := rows.Scan(&label.Name, &label.ProviderType, &label.Count); err != nil {
+			return nil, err
+		}
+		labels = append(labels, label)
+	}
+	return labels, rows.Err()
+}
+
+func labelProviderForAccountProvider(provider string) string {
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case "gmail":
+		return LabelProviderGmail
+	case "outlook":
+		return LabelProviderOutlook
+	default:
+		return LabelProviderIMAPKeyword
+	}
+}
+
+func labelAdminAccountName(account models.LabelAccountSyncStatus) string {
+	if strings.TrimSpace(account.AccountName) != "" {
+		return strings.TrimSpace(account.AccountName)
+	}
+	if strings.TrimSpace(account.AccountEmail) != "" {
+		return strings.TrimSpace(account.AccountEmail)
+	}
+	return strings.TrimSpace(account.AccountID)
+}
+
+func labelSyncRunStatus(state LabelSyncState) models.LabelSyncRunStatus {
+	return models.LabelSyncRunStatus{
+		LastFullSyncAt:              nullTimeValue(state.LastFullSyncAt),
+		LastSuccessAt:               nullTimeValue(state.LastSuccessAt),
+		LastRunStartedAt:            nullTimeValue(state.LastRunStartedAt),
+		LastRunFinishedAt:           nullTimeValue(state.LastRunFinishedAt),
+		LastError:                   state.LastError,
+		LastTotalMessages:           state.LastTotalMessages,
+		LastSyncedMessages:          state.LastSyncedMessages,
+		LastWithLabels:              state.LastWithLabels,
+		LastWithoutLabels:           state.LastWithoutLabels,
+		LastMissingProviderMessages: state.LastMissingProviderMessages,
+		LastSkippedMessages:         state.LastSkippedMessages,
+		LastFailedMessages:          state.LastFailedMessages,
+		LastPendingMutations:        state.LastPendingMutations,
+	}
+}
+
+func nullTimeValue(t sql.NullTime) time.Time {
+	if t.Valid {
+		return t.Time
+	}
+	return time.Time{}
 }
 
 func (db *DB) MarkLabelMutationSuccess(ctx context.Context, id int64) error {
@@ -4577,6 +4930,13 @@ func boolInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func clampNonNegative(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
 }
 
 func defaultUISettings() map[string]string {

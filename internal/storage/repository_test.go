@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -121,6 +122,97 @@ func TestSyncMessagesReplaceIMAPKeywordLabels(t *testing.T) {
 	}
 	if len(email.Labels) != 0 {
 		t.Fatalf("labels after keyword removal = %#v, want none", email.Labels)
+	}
+}
+
+func TestGetLabelAdminStatusAggregatesCoverageAndLastRun(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address, display_name) VALUES ('acc', 'default', 'gmail', 'user@example.com', 'User Gmail')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	now := time.Now()
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{
+		{AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 1, MessageID: "<labeled@example.com>", Subject: "Labeled", FromEmail: "sender@example.com", DateSent: now, IsRead: true},
+		{AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 2, MessageID: "<unlabeled@example.com>", Subject: "Unlabeled", FromEmail: "sender@example.com", DateSent: now, IsRead: true},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	labeledID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<labeled@example.com>")
+	if err != nil {
+		t.Fatalf("GetMessageLocalIDByInternetID() error = %v", err)
+	}
+	unlabeledID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<unlabeled@example.com>")
+	if err != nil {
+		t.Fatalf("GetMessageLocalIDByInternetID(unlabeled) error = %v", err)
+	}
+	if err := db.SetMessageProviderMessageID(ctx, labeledID, "gmail-message-1"); err != nil {
+		t.Fatalf("SetMessageProviderMessageID() error = %v", err)
+	}
+	if _, err := db.AddMessageLabel(ctx, labeledID, "acc", LabelInput{
+		AccountID:    "acc",
+		Name:         "Projects",
+		ProviderID:   "Label_1",
+		ProviderType: LabelProviderGmail,
+	}); err != nil {
+		t.Fatalf("AddMessageLabel() error = %v", err)
+	}
+	if _, err := db.AddMessageLabel(ctx, unlabeledID, "acc", LabelInput{
+		AccountID:    "acc",
+		Name:         "NonJunk",
+		ProviderID:   "NonJunk",
+		ProviderType: LabelProviderIMAPKeyword,
+	}); err != nil {
+		t.Fatalf("AddMessageLabel(NonJunk) error = %v", err)
+	}
+	if err := db.EnqueueLabelMutation(ctx, "acc", labeledID, "acc_inbox", LabelProviderGmail, LabelMutationAdd, "Later", errors.New("remote busy")); err != nil {
+		t.Fatalf("EnqueueLabelMutation() error = %v", err)
+	}
+	if err := db.MarkLabelSyncRun(ctx, LabelSyncRunStats{
+		AccountID:               "acc",
+		ProviderType:            LabelProviderGmail,
+		Scope:                   "messages",
+		StartedAt:               now.Add(-time.Minute),
+		FinishedAt:              now,
+		Full:                    true,
+		TotalMessages:           2,
+		SyncedMessages:          1,
+		WithLabels:              1,
+		MissingProviderMessages: 1,
+		PendingMutations:        1,
+	}, nil); err != nil {
+		t.Fatalf("MarkLabelSyncRun() error = %v", err)
+	}
+
+	status, err := db.GetLabelAdminStatus(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetLabelAdminStatus() error = %v", err)
+	}
+	if len(status.Accounts) != 1 {
+		t.Fatalf("accounts = %#v, want one account", status.Accounts)
+	}
+	account := status.Accounts[0]
+	if account.TotalMessages != 2 || account.MessagesWithLabels != 1 || account.MessagesWithoutLabels != 1 || account.ProviderBackedMessages != 1 || account.MissingProviderMessages != 1 {
+		t.Fatalf("account coverage = %#v, want one labeled and one missing provider id", account)
+	}
+	if account.KnownLabels != 1 {
+		t.Fatalf("known labels = %d, want only Projects; NonJunk should be excluded", account.KnownLabels)
+	}
+	if account.PendingMutations != 1 || account.MutationErrors != 1 || !strings.Contains(account.LatestMutationError, "remote busy") {
+		t.Fatalf("mutation status = %#v, want queued mutation error", account)
+	}
+	if account.Sync.LastTotalMessages != 2 || account.Sync.LastSyncedMessages != 1 || account.Sync.LastMissingProviderMessages != 1 || account.Sync.LastPendingMutations != 1 {
+		t.Fatalf("sync status = %#v, want persisted last-run counters", account.Sync)
+	}
+	if status.Totals.TotalMessages != 2 || status.Totals.PendingMutations != 1 || status.Totals.LastRunMissingProvider != 1 {
+		t.Fatalf("totals = %#v, want account totals", status.Totals)
+	}
+	if len(account.TopLabels) != 1 || account.TopLabels[0].Name != "Projects" || account.TopLabels[0].Count != 1 {
+		t.Fatalf("top labels = %#v, want Projects usage", account.TopLabels)
 	}
 }
 
@@ -689,7 +781,11 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 46 {
-		t.Fatalf("schema version = %d, want 46", version)
+	if version != 47 {
+		t.Fatalf("schema version = %d, want 47", version)
+	}
+	var totalMessages int
+	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {
+		t.Fatalf("query label_sync_state.last_total_messages: %v", err)
 	}
 }

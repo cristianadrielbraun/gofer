@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	microsoftGraphContactsScope = "https://graph.microsoft.com/Contacts.ReadWrite"
-	microsoftGraphMailScope     = "https://graph.microsoft.com/Mail.ReadWrite"
-	microsoftOutlookIMAPScope   = "https://outlook.office.com/IMAP.AccessAsUser.All"
-	microsoftOutlookSMTPScope   = "https://outlook.office.com/SMTP.Send"
+	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
+	microsoftGraphMailScope            = "https://graph.microsoft.com/Mail.ReadWrite"
+	microsoftGraphMailboxSettingsScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
+	microsoftOutlookIMAPScope          = "https://outlook.office.com/IMAP.AccessAsUser.All"
+	microsoftOutlookSMTPScope          = "https://outlook.office.com/SMTP.Send"
 )
 
 func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
@@ -41,14 +42,14 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 }
 
 func (m *Manager) GetMicrosoftGraphContactsTokenForAccount(ctx context.Context, accountID string) (string, error) {
-	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, microsoftGraphContactsScope, "contacts")
+	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, "contacts", microsoftGraphContactsScope)
 }
 
 func (m *Manager) GetMicrosoftGraphMailTokenForAccount(ctx context.Context, accountID string) (string, error) {
-	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, microsoftGraphMailScope, "mail")
+	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, "mail", microsoftGraphMailScopes()...)
 }
 
-func (m *Manager) getMicrosoftGraphTokenForAccount(ctx context.Context, accountID, scope, label string) (string, error) {
+func (m *Manager) getMicrosoftGraphTokenForAccount(ctx context.Context, accountID, label string, scopes ...string) (string, error) {
 	var accountProvider, providerAccountID string
 	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider, provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider, &providerAccountID); err != nil {
 		return "", fmt.Errorf("query account oauth identity: %w", err)
@@ -67,7 +68,7 @@ func (m *Manager) getMicrosoftGraphTokenForAccount(ctx context.Context, accountI
 	if err != nil {
 		return "", err
 	}
-	token, err := refreshTokenForScopes(ctx, cfg, record.RefreshToken, []string{scope})
+	token, err := refreshTokenForScopes(ctx, cfg, record.RefreshToken, scopes)
 	if err != nil {
 		return "", fmt.Errorf("refresh graph %s token: %w", label, err)
 	}
@@ -112,6 +113,10 @@ func (m *Manager) getMicrosoftOutlookMailTokenForAccount(ctx context.Context, ac
 
 func microsoftOutlookMailScopes() []string {
 	return []string{microsoftOutlookIMAPScope, microsoftOutlookSMTPScope}
+}
+
+func microsoftGraphMailScopes() []string {
+	return []string{microsoftGraphMailScope, microsoftGraphMailboxSettingsScope}
 }
 
 func recordHasScopes(recordScopes string, expected ...string) bool {

@@ -82,7 +82,7 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndDoesNotReplaceMailToken(t *
 	}
 }
 
-func TestMicrosoftGraphMailTokenUsesGraphMailScopeAndDoesNotReplaceMailToken(t *testing.T) {
+func TestMicrosoftGraphMailTokenUsesGraphMailAndMailboxSettingsScopesAndDoesNotReplaceMailToken(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
@@ -134,8 +134,14 @@ func TestMicrosoftGraphMailTokenUsesGraphMailScopeAndDoesNotReplaceMailToken(t *
 	if token != "graph-mail-token" {
 		t.Fatalf("token = %q, want graph mail token", token)
 	}
-	if gotScope != microsoftGraphMailScope {
-		t.Fatalf("scope = %q, want %q", gotScope, microsoftGraphMailScope)
+	if gotScope != strings.Join(microsoftGraphMailScopes(), " ") {
+		t.Fatalf("scope = %q, want Graph mail scopes", gotScope)
+	}
+	if !strings.Contains(gotScope, microsoftGraphMailScope) {
+		t.Fatalf("scope = %q, want Graph mail scope", gotScope)
+	}
+	if !strings.Contains(gotScope, microsoftGraphMailboxSettingsScope) {
+		t.Fatalf("scope = %q, want Graph mailbox settings scope", gotScope)
 	}
 
 	var storedAccessToken, storedRefreshToken string

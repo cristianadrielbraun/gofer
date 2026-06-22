@@ -110,6 +110,13 @@ func TestSyncGmailLabelsImportsRemoteMessageLabels(t *testing.T) {
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderID != "Label_1" || email.Labels[0].ProviderType != storage.LabelProviderGmail {
 		t.Fatalf("labels = %#v, want Projects Gmail label only", email.Labels)
 	}
+	state, err := db.GetLabelSyncState(context.Background(), "acc", storage.LabelProviderGmail, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if state.LastTotalMessages != 1 || state.LastSyncedMessages != 1 || state.LastWithLabels != 1 || state.LastWithoutLabels != 0 || state.LastFailedMessages != 0 {
+		t.Fatalf("sync stats = %#v, want one synced labeled Gmail message", state)
+	}
 }
 
 func TestSyncProviderLabelsStopsGmailMessageLoopOnAuthFailure(t *testing.T) {
@@ -180,16 +187,33 @@ func TestSyncOutlookCategoriesImportsRemoteMessageCategories(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer graph-token" {
 			t.Fatalf("Authorization = %q", got)
 		}
-		if got := r.Header.Get("Prefer"); !strings.Contains(got, "ImmutableId") {
-			t.Fatalf("Prefer = %q, want immutable ids", got)
-		}
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/me/outlook/masterCategories":
+			if got := r.Header.Get("Prefer"); !strings.Contains(got, "ImmutableId") {
+				t.Fatalf("Prefer = %q, want immutable ids", got)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"value": []map[string]string{
 				{"displayName": "Invoices", "color": "preset7"},
 			}})
-		case r.Method == http.MethodGet && r.URL.Path == "/me/messages/outlook-msg-1":
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "outlook-msg-1", "categories": []string{"Invoices"}})
+		case r.Method == http.MethodPost && r.URL.Path == "/$batch":
+			var payload struct {
+				Requests []providerBatchRequest `json:"requests"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode batch payload: %v", err)
+			}
+			if len(payload.Requests) != 1 {
+				t.Fatalf("batch requests = %#v, want one request", payload.Requests)
+			}
+			if payload.Requests[0].Method != http.MethodGet || payload.Requests[0].URL != "/me/messages/outlook-msg-1?$select=id,categories" {
+				t.Fatalf("batch request = %#v, want message category lookup", payload.Requests[0])
+			}
+			if got := payload.Requests[0].Headers["Prefer"]; !strings.Contains(got, "ImmutableId") {
+				t.Fatalf("batch Prefer = %q, want immutable ids", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"responses": []map[string]any{
+				{"id": payload.Requests[0].ID, "status": http.StatusOK, "body": map[string]any{"id": "outlook-msg-1", "categories": []string{"Invoices"}}},
+			}})
 		default:
 			t.Fatalf("unexpected Outlook request %s %s", r.Method, r.URL.String())
 		}
@@ -211,6 +235,148 @@ func TestSyncOutlookCategoriesImportsRemoteMessageCategories(t *testing.T) {
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Invoices" || email.Labels[0].ProviderType != storage.LabelProviderOutlook {
 		t.Fatalf("labels = %#v, want Invoices Outlook category", email.Labels)
+	}
+}
+
+func TestSyncOutlookCategoriesBatchesInternetMessageLookupsAndSkipsMissing(t *testing.T) {
+	db := newLabelSyncTestDB(t)
+	foundID := seedLabelSyncMessage(t, db, providers.ProviderOutlook, "<outlook-found@example.com>", "")
+	missingID := seedLabelSyncMessage(t, db, providers.ProviderOutlook, "<outlook-missing@example.com>", "")
+	syntheticID := seedLabelSyncMessage(t, db, providers.ProviderOutlook, "<acc_inbox-42@sync.gofer>", "")
+	batchCalls := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer graph-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/me/outlook/masterCategories":
+			_ = json.NewEncoder(w).Encode(map[string]any{"value": []map[string]string{
+				{"displayName": "Projects", "color": "preset7"},
+			}})
+		case r.Method == http.MethodPost && r.URL.Path == "/$batch":
+			batchCalls++
+			var payload struct {
+				Requests []providerBatchRequest `json:"requests"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode batch payload: %v", err)
+			}
+			if len(payload.Requests) != 2 {
+				t.Fatalf("batch requests = %#v, want found and missing lookups only", payload.Requests)
+			}
+			responses := make([]map[string]any, 0, len(payload.Requests))
+			for _, req := range payload.Requests {
+				switch {
+				case strings.Contains(req.URL, "outlook-found%40example.com"):
+					responses = append(responses, map[string]any{
+						"id":     req.ID,
+						"status": http.StatusOK,
+						"body": map[string]any{"value": []map[string]any{
+							{"id": "outlook-found-provider-id", "categories": []string{"Projects"}},
+						}},
+					})
+				case strings.Contains(req.URL, "outlook-missing%40example.com"):
+					responses = append(responses, map[string]any{
+						"id":     req.ID,
+						"status": http.StatusOK,
+						"body":   map[string]any{"value": []map[string]any{}},
+					})
+				default:
+					t.Fatalf("unexpected batch lookup URL %q", req.URL)
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"responses": responses})
+		default:
+			t.Fatalf("unexpected Outlook request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if err := orchestrator.syncOutlookCategories(context.Background(), "acc"); err != nil {
+		t.Fatalf("syncOutlookCategories() error = %v", err)
+	}
+	if batchCalls != 1 {
+		t.Fatalf("batch calls = %d, want 1", batchCalls)
+	}
+
+	found, err := db.GetEmailByID(context.Background(), strconv.FormatInt(foundID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID(found) error = %v", err)
+	}
+	if len(found.Labels) != 1 || found.Labels[0].Name != "Projects" {
+		t.Fatalf("found labels = %#v, want Projects", found.Labels)
+	}
+	missing, err := db.GetEmailByID(context.Background(), strconv.FormatInt(missingID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID(missing) error = %v", err)
+	}
+	if len(missing.Labels) != 0 {
+		t.Fatalf("missing labels = %#v, want none", missing.Labels)
+	}
+	synthetic, err := db.GetEmailByID(context.Background(), strconv.FormatInt(syntheticID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID(synthetic) error = %v", err)
+	}
+	if len(synthetic.Labels) != 0 {
+		t.Fatalf("synthetic labels = %#v, want none", synthetic.Labels)
+	}
+	state, err := db.GetLabelSyncState(context.Background(), "acc", storage.LabelProviderOutlook, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if state.LastTotalMessages != 3 ||
+		state.LastSyncedMessages != 1 ||
+		state.LastWithLabels != 1 ||
+		state.LastWithoutLabels != 0 ||
+		state.LastMissingProviderMessages != 1 ||
+		state.LastSkippedMessages != 1 ||
+		state.LastFailedMessages != 0 {
+		t.Fatalf("sync stats = %#v, want found/missing/skipped Outlook batch counts", state)
+	}
+}
+
+func TestSyncProviderLabelsRecordsOutlookGraphDeniedWithoutFailingAccountSync(t *testing.T) {
+	db := newLabelSyncTestDB(t)
+	seedLabelSyncMessage(t, db, providers.ProviderOutlook, "<outlook-denied@example.com>", "outlook-msg-denied")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer graph-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/me/outlook/masterCategories" {
+			t.Fatalf("unexpected Outlook request %s %s", r.Method, r.URL.String())
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"code":    "ErrorAccessDenied",
+				"message": "Access is denied. Check credentials and try again.",
+			},
+		})
+	}))
+	defer server.Close()
+
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if err := orchestrator.syncProviderLabels(context.Background(), "acc", providers.ProviderOutlook); err != nil {
+		t.Fatalf("syncProviderLabels() error = %v, want nil", err)
+	}
+
+	state, err := db.GetLabelSyncState(context.Background(), "acc", storage.LabelProviderOutlook, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if !strings.Contains(state.LastError, "provider api returned 403") {
+		t.Fatalf("label sync error = %q, want provider 403", state.LastError)
 	}
 }
 

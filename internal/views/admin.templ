@@ -39,6 +39,14 @@ templ AdminSidebar(activeSection string) {
 				@icon.BookUser(icon.Props{Class: "size-4 text-primary"})
 				Contacts
 			</a>
+			<a href="/admin/labels" class={
+				"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+				templ.KV("bg-accent font-semibold text-foreground", activeSection == "labels"),
+				templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "labels"),
+			}>
+				@icon.Tags(icon.Props{Class: "size-4 text-primary"})
+				Labels
+			</a>
 		</nav>
 		<div class="px-5 py-4 border-t border-border">
 			<a href="/" class="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
@@ -621,6 +629,201 @@ func adminContactSyncClass(sync models.ContactSyncStatus) string {
 		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
 	}
 	return "bg-muted text-muted-foreground"
+}
+
+func adminLabelProviderLabel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gmail":
+		return "Gmail labels"
+	case "outlook":
+		return "Outlook categories"
+	case "imap_keyword":
+		return "IMAP keywords"
+	case "local":
+		return "Local labels"
+	case "":
+		return "Unknown"
+	default:
+		return strings.Title(strings.ReplaceAll(provider, "_", " "))
+	}
+}
+
+func adminLabelSyncLabel(account models.LabelAccountSyncStatus) string {
+	if account.Sync.LastError != "" {
+		return "Error"
+	}
+	if !account.Sync.LastRunFinishedAt.IsZero() {
+		return "Synced"
+	}
+	return "Waiting"
+}
+
+func adminLabelSyncClass(account models.LabelAccountSyncStatus) string {
+	if account.Sync.LastError != "" || account.MutationErrors > 0 {
+		return "bg-red-500/12 text-red-700 dark:text-red-300"
+	}
+	if account.PendingMutations > 0 {
+		return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+	}
+	if !account.Sync.LastRunFinishedAt.IsZero() {
+		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+	}
+	return "bg-muted text-muted-foreground"
+}
+
+func adminLabelCoverageText(withLabels int, total int) string {
+	return fmt.Sprintf("%d%%", adminPercent(withLabels, total))
+}
+
+templ AdminLabelsPage(status models.LabelAdminStatus) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+		<div class="flex-1 overflow-y-auto">
+			<div class="lg:hidden border-b border-border bg-card px-4 py-3 flex items-center justify-between">
+				<a href="/" class="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground">
+					@icon.ArrowLeft(icon.Props{Class: "size-4"})
+					Mail
+				</a>
+				<span class="text-sm font-bold" style="font-family: var(--font-serif)">Gofer Admin</span>
+			</div>
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Labels</h2>
+						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">Inspect provider label coverage, unresolved message identities, and queued label mutations.</p>
+					</div>
+					<a href="/api/admin/labels/status" class="w-fit rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Raw JSON</a>
+				</div>
+				<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+					@AdminMetric("labels_total_messages", "Visible messages", status.Totals.TotalMessages)
+					@AdminMetric("labels_with_labels", "With labels", status.Totals.MessagesWithLabels)
+					@AdminMetric("labels_without_labels", "Without labels", status.Totals.MessagesWithoutLabels)
+					@AdminMetric("labels_known", "Known labels", status.Totals.KnownLabels)
+					@AdminMetric("labels_provider_backed", "Provider-backed", status.Totals.ProviderBackedMessages)
+					@AdminMetric("labels_local_only", "Local only", status.Totals.LocalOnlyMessages)
+					@AdminMetric("labels_missing_provider", "Missing provider IDs", status.Totals.MissingProviderMessages)
+					@AdminMetric("labels_pending_mutations", "Queued mutations", status.Totals.PendingMutations)
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div class="rounded-lg border border-border bg-card p-4">
+						<div class={ adminPanelTitleClass() }>Current coverage</div>
+						<div class="mt-3 flex items-center justify-between gap-3">
+							<div class="text-sm font-medium text-muted-foreground">Messages with any label</div>
+							<div class="text-sm font-bold tabular-nums text-foreground">{ adminLabelCoverageText(status.Totals.MessagesWithLabels, status.Totals.TotalMessages) }</div>
+						</div>
+						<div class="mt-3 h-2 overflow-hidden rounded-md bg-muted shadow-inner">
+							<div class="h-full rounded-md bg-primary" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Totals.MessagesWithLabels, status.Totals.TotalMessages)) }></div>
+						</div>
+					</div>
+					<div class="rounded-lg border border-border bg-card p-4">
+						<div class={ adminPanelTitleClass() }>Last provider run</div>
+						<div class="mt-3 space-y-2">
+							@AdminCompactMetric("labels_last_run_missing", "Not found remotely", status.Totals.LastRunMissingProvider)
+							@AdminCompactMetric("labels_last_run_skipped", "Skipped identity", status.Totals.LastRunSkipped)
+							@AdminCompactMetric("labels_last_run_failed", "Failed imports", status.Totals.LastRunFailed)
+						</div>
+					</div>
+					<div class="rounded-lg border border-border bg-card p-4">
+						<div class={ adminPanelTitleClass() }>Mutation queue</div>
+						<div class="mt-3 space-y-2">
+							@AdminCompactMetric("labels_queue_pending", "Pending", status.Totals.PendingMutations)
+							@AdminCompactMetric("labels_queue_errors", "With errors", status.Totals.MutationErrors)
+							@AdminCompactMetric("labels_identity_missing", "Missing Message-ID", status.Totals.MissingIdentityMessages)
+						</div>
+					</div>
+				</div>
+				<div class="mt-6 space-y-4">
+					<div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+						<div>
+							<div class={ adminPanelTitleClass() }>Accounts</div>
+							<p class="mt-1 text-sm text-muted-foreground">Per-account label/catalog state and the latest provider sync snapshot.</p>
+						</div>
+						<div class="text-xs font-semibold text-muted-foreground tabular-nums">{ fmt.Sprintf("%d account(s)", len(status.Accounts)) }</div>
+					</div>
+					if len(status.Accounts) == 0 {
+						<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">No accounts are configured yet.</div>
+					} else {
+						<div class="grid gap-4 xl:grid-cols-2">
+							for _, account := range status.Accounts {
+								@AdminLabelAccountCard(account)
+							}
+						</div>
+					}
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
+	<div class="rounded-lg border border-border bg-card p-4">
+		<div class="mb-4 flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<div class="truncate text-sm font-bold text-foreground">{ account.AccountName }</div>
+				<div class="mt-0.5 truncate text-xs font-medium text-muted-foreground">{ account.AccountEmail }</div>
+				<div class="mt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ adminLabelProviderLabel(account.LabelProvider) }</div>
+			</div>
+			<span class={ "inline-flex shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold", adminLabelSyncClass(account) }>{ adminLabelSyncLabel(account) }</span>
+		</div>
+		<div class="mb-4">
+			<div class="flex items-center justify-between gap-3">
+				<div class="text-xs font-medium text-muted-foreground">Label coverage</div>
+				<div class="text-xs font-bold tabular-nums text-foreground">{ adminLabelCoverageText(account.MessagesWithLabels, account.TotalMessages) }</div>
+			</div>
+			<div class="mt-2 h-2 overflow-hidden rounded-md bg-muted shadow-inner">
+				<div class="h-full rounded-md bg-primary" style={ fmt.Sprintf("width:%d%%", adminPercent(account.MessagesWithLabels, account.TotalMessages)) }></div>
+			</div>
+		</div>
+		<div class="grid gap-2 sm:grid-cols-2">
+			@AdminDetail("labels_total_" + account.AccountID, "Visible messages", fmt.Sprintf("%d", account.TotalMessages))
+			@AdminDetail("labels_any_" + account.AccountID, "With labels", fmt.Sprintf("%d", account.MessagesWithLabels))
+			@AdminDetail("labels_provider_" + account.AccountID, "Provider-backed", fmt.Sprintf("%d", account.ProviderBackedMessages))
+			@AdminDetail("labels_local_only_" + account.AccountID, "Local only", fmt.Sprintf("%d", account.LocalOnlyMessages))
+			@AdminDetail("labels_missing_provider_" + account.AccountID, "Missing provider IDs", fmt.Sprintf("%d", account.MissingProviderMessages))
+			@AdminDetail("labels_missing_identity_" + account.AccountID, "Missing Message-ID", fmt.Sprintf("%d", account.MissingIdentityMessages))
+			@AdminDetail("labels_catalog_" + account.AccountID, "Known labels", fmt.Sprintf("%d", account.KnownLabels))
+			@AdminDetail("labels_queue_" + account.AccountID, "Queued mutations", fmt.Sprintf("%d", account.PendingMutations))
+		</div>
+		<div class="mt-4 grid gap-3 lg:grid-cols-2">
+			<div class="rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Last sync run</div>
+				<div class="space-y-2">
+					@AdminCompactDetail("labels_sync_finished_" + account.AccountID, "Finished", adminTime(account.Sync.LastRunFinishedAt))
+					@AdminCompactMetric("labels_sync_total_" + account.AccountID, "Scanned", account.Sync.LastTotalMessages)
+					@AdminCompactMetric("labels_sync_synced_" + account.AccountID, "Synced", account.Sync.LastSyncedMessages)
+					@AdminCompactMetric("labels_sync_missing_" + account.AccountID, "Not found", account.Sync.LastMissingProviderMessages)
+					@AdminCompactMetric("labels_sync_skipped_" + account.AccountID, "Skipped", account.Sync.LastSkippedMessages)
+					@AdminCompactMetric("labels_sync_failed_" + account.AccountID, "Failed", account.Sync.LastFailedMessages)
+				</div>
+			</div>
+			<div class="rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Top labels</div>
+				if len(account.TopLabels) == 0 {
+					<div class="rounded-md border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">No labels on visible messages.</div>
+				} else {
+					<div class="space-y-2">
+						for _, label := range account.TopLabels {
+							<div>
+								<div class="flex items-center justify-between gap-3 text-xs">
+									<div class="min-w-0 truncate font-semibold text-foreground">{ label.Name }</div>
+									<div class="shrink-0 tabular-nums text-muted-foreground">{ fmt.Sprintf("%d", label.Count) }</div>
+								</div>
+								<div class="mt-1 h-1.5 overflow-hidden rounded-md bg-muted">
+									<div class="h-full rounded-md bg-primary/80" style={ fmt.Sprintf("width:%d%%", adminPercent(label.Count, account.MessagesWithLabels)) }></div>
+								</div>
+								<div class="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ adminLabelProviderLabel(label.ProviderType) }</div>
+							</div>
+						}
+					</div>
+				}
+			</div>
+		</div>
+		if account.Sync.LastError != "" {
+			<div class="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">{ account.Sync.LastError }</div>
+		}
+		if account.LatestMutationError != "" {
+			<div class="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-800 dark:text-amber-200">{ account.LatestMutationError }</div>
+		}
+	</div>
 }
 
 templ AdminContactsPage(status models.ContactAdminStatus) {

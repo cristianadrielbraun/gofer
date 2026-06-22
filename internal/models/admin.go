@@ -141,3 +141,71 @@ type ContactActivityEvent struct {
 	Count     int       `json:"count,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type LabelAdminStatus struct {
+	Totals   LabelAdminTotals         `json:"totals"`
+	Accounts []LabelAccountSyncStatus `json:"accounts"`
+}
+
+type LabelAdminTotals struct {
+	Accounts                int `json:"accounts"`
+	TotalMessages           int `json:"total_messages"`
+	MessagesWithLabels      int `json:"messages_with_labels"`
+	MessagesWithoutLabels   int `json:"messages_without_labels"`
+	ProviderBackedMessages  int `json:"provider_backed_messages"`
+	LocalOnlyMessages       int `json:"local_only_messages"`
+	MissingProviderMessages int `json:"missing_provider_messages"`
+	MissingIdentityMessages int `json:"missing_identity_messages"`
+	KnownLabels             int `json:"known_labels"`
+	PendingMutations        int `json:"pending_mutations"`
+	MutationErrors          int `json:"mutation_errors"`
+	LastRunMissingProvider  int `json:"last_run_missing_provider"`
+	LastRunSkipped          int `json:"last_run_skipped"`
+	LastRunFailed           int `json:"last_run_failed"`
+}
+
+type LabelAccountSyncStatus struct {
+	AccountID               string              `json:"account_id"`
+	AccountName             string              `json:"account_name"`
+	AccountEmail            string              `json:"account_email"`
+	AccountProvider         string              `json:"account_provider"`
+	LabelProvider           string              `json:"label_provider"`
+	TotalMessages           int                 `json:"total_messages"`
+	MessagesWithLabels      int                 `json:"messages_with_labels"`
+	MessagesWithoutLabels   int                 `json:"messages_without_labels"`
+	ProviderBackedMessages  int                 `json:"provider_backed_messages"`
+	LocalLabelMessages      int                 `json:"local_label_messages"`
+	LocalOnlyMessages       int                 `json:"local_only_messages"`
+	MissingProviderMessages int                 `json:"missing_provider_messages"`
+	MissingIdentityMessages int                 `json:"missing_identity_messages"`
+	KnownLabels             int                 `json:"known_labels"`
+	ProviderLabels          int                 `json:"provider_labels"`
+	LocalLabels             int                 `json:"local_labels"`
+	PendingMutations        int                 `json:"pending_mutations"`
+	MutationErrors          int                 `json:"mutation_errors"`
+	LatestMutationError     string              `json:"latest_mutation_error,omitempty"`
+	Sync                    LabelSyncRunStatus  `json:"sync"`
+	TopLabels               []LabelUsageSummary `json:"top_labels"`
+}
+
+type LabelSyncRunStatus struct {
+	LastFullSyncAt              time.Time `json:"last_full_sync_at,omitempty"`
+	LastSuccessAt               time.Time `json:"last_success_at,omitempty"`
+	LastRunStartedAt            time.Time `json:"last_run_started_at,omitempty"`
+	LastRunFinishedAt           time.Time `json:"last_run_finished_at,omitempty"`
+	LastError                   string    `json:"last_error,omitempty"`
+	LastTotalMessages           int       `json:"last_total_messages"`
+	LastSyncedMessages          int       `json:"last_synced_messages"`
+	LastWithLabels              int       `json:"last_with_labels"`
+	LastWithoutLabels           int       `json:"last_without_labels"`
+	LastMissingProviderMessages int       `json:"last_missing_provider_messages"`
+	LastSkippedMessages         int       `json:"last_skipped_messages"`
+	LastFailedMessages          int       `json:"last_failed_messages"`
+	LastPendingMutations        int       `json:"last_pending_mutations"`
+}
+
+type LabelUsageSummary struct {
+	Name         string `json:"name"`
+	ProviderType string `json:"provider_type"`
+	Count        int    `json:"count"`
+}
