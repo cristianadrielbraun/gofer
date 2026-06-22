@@ -643,3 +643,53 @@ func TestMigrateV34MarksGmailContainerNonSelectable(t *testing.T) {
 		t.Fatalf("selectable = %d, want 0", selectable)
 	}
 }
+
+func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gofer.db")
+	raw, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB() error = %v", err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO schema_version (version) VALUES (45);
+		CREATE TABLE label_mutation_queue (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id TEXT NOT NULL,
+			message_id INTEGER NOT NULL,
+			provider_type TEXT NOT NULL,
+			operation TEXT NOT NULL,
+			label_name TEXT NOT NULL,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`); err != nil {
+		raw.Close()
+		t.Fatalf("seed v45 database: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	db, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	var folderID string
+	if err := db.Read().QueryRow(`SELECT COALESCE(folder_id, '') FROM label_mutation_queue LIMIT 1`).Scan(&folderID); err != nil && err != sql.ErrNoRows {
+		t.Fatalf("query label_mutation_queue.folder_id: %v", err)
+	}
+
+	var version int
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("query schema version: %v", err)
+	}
+	if version != 46 {
+		t.Fatalf("schema version = %d, want 46", version)
+	}
+}

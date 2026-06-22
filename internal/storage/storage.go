@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 45
+	const targetSchemaVersion = 46
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -414,6 +414,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 44 {
 		if err := migrateV44ToV45(tx); err != nil {
 			return fmt.Errorf("migrate v44 to v45: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 45 {
+		if err := migrateV45ToV46(tx); err != nil {
+			return fmt.Errorf("migrate v45 to v46: %w", err)
 		}
 	}
 
@@ -1738,6 +1744,20 @@ func migrateV44ToV45(tx *sql.Tx) error {
 		if _, err := tx.Exec(m); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateV45ToV46(tx *sql.Tx) error {
+	if ok, err := columnExistsTx(tx, "label_mutation_queue", "folder_id"); err != nil {
+		return err
+	} else if !ok {
+		if _, err := tx.Exec(`ALTER TABLE label_mutation_queue ADD COLUMN folder_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (46)`); err != nil {
+		return err
 	}
 	return nil
 }

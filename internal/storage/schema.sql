@@ -825,4 +825,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (44);
+INSERT OR REPLACE INTO schema_version (version) VALUES (46);
