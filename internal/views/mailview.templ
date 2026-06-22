@@ -563,8 +563,16 @@ templ MailViewHeader(email *models.Email) {
 		<div class="mail-view-meta flex items-center gap-2">
 			if len(email.Labels) > 0 {
 				for _, label := range email.Labels {
-					<span class={ "text-[11px] px-2 py-0.5 rounded font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]", label.Color }>
+					<span class={ "inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]", label.Color }>
 						{ label.Name }
+						<button
+							type="button"
+							class="inline-flex size-4 items-center justify-center rounded text-current/60 transition-colors hover:bg-background/60 hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+							aria-label={ "Remove label " + label.Name }
+							{ templ.Attributes{"onclick": fmt.Sprintf("removeLabelMessage(%q, %q, %t)", email.ID, label.Name, email.ThreadCount > 1)}... }
+						>
+							@icon.X(icon.Props{Class: "size-3"})
+						</button>
 					</span>
 				}
 			}
@@ -609,7 +617,7 @@ templ MailViewHeader(email *models.Email) {
 						}
 						@dropdown.Separator()
 					}
-					@dropdown.Item() {
+					@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": fmt.Sprintf("promptLabelMessage('%s', %t)", email.ID, email.ThreadCount > 1)}}) {
 						<span class="flex items-center gap-2">
 							@icon.Tag(icon.Props{Class: "size-4"})
 							Add label

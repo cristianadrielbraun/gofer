@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 42
+	const targetSchemaVersion = 45
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -396,6 +396,24 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 41 {
 		if err := migrateV41ToV42(tx); err != nil {
 			return fmt.Errorf("migrate v41 to v42: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 42 {
+		if err := migrateV42ToV43(tx); err != nil {
+			return fmt.Errorf("migrate v42 to v43: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 43 {
+		if err := migrateV43ToV44(tx); err != nil {
+			return fmt.Errorf("migrate v43 to v44: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 44 {
+		if err := migrateV44ToV45(tx); err != nil {
+			return fmt.Errorf("migrate v44 to v45: %w", err)
 		}
 	}
 
@@ -1608,6 +1626,118 @@ func migrateV41ToV42(tx *sql.Tx) error {
 
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (42)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateV42ToV43(tx *sql.Tx) error {
+	createTables := []string{
+		`CREATE TABLE IF NOT EXISTS labels (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			color TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS message_labels (
+			message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+			label_id TEXT NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+			PRIMARY KEY (message_id, label_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_message_labels_message
+		 ON message_labels(message_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_message_labels_label
+		 ON message_labels(label_id)`,
+	}
+	for _, m := range createTables {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+
+	for _, column := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "provider_id", sql: `ALTER TABLE labels ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`},
+		{name: "provider_type", sql: `ALTER TABLE labels ADD COLUMN provider_type TEXT NOT NULL DEFAULT ''`},
+		{name: "is_system", sql: `ALTER TABLE labels ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0`},
+		{name: "updated_at", sql: `ALTER TABLE labels ADD COLUMN updated_at DATETIME NOT NULL DEFAULT ''`},
+	} {
+		if ok, err := columnExistsTx(tx, "labels", column.name); err != nil {
+			return err
+		} else if !ok {
+			if _, err := tx.Exec(column.sql); err != nil {
+				return err
+			}
+		}
+	}
+
+	migrations := []string{
+		`CREATE INDEX IF NOT EXISTS idx_labels_account_name
+		 ON labels(account_id, name COLLATE NOCASE)`,
+		`CREATE INDEX IF NOT EXISTS idx_labels_account_provider
+		 ON labels(account_id, provider_type, provider_id)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (43)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV43ToV44(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS label_sync_state (
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			provider_type TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT '',
+			cursor TEXT NOT NULL DEFAULT '',
+			last_full_sync_at DATETIME,
+			last_success_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (account_id, provider_type, scope)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_label_sync_state_account
+		 ON label_sync_state(account_id, provider_type)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (44)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV44ToV45(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS label_mutation_queue (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+			folder_id TEXT NOT NULL DEFAULT '',
+			provider_type TEXT NOT NULL,
+			operation TEXT NOT NULL,
+			label_name TEXT NOT NULL,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_label_mutation_queue_due
+		 ON label_mutation_queue(account_id, provider_type, next_attempt_at)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_label_mutation_queue_unique
+		 ON label_mutation_queue(message_id, provider_type, operation, label_name COLLATE NOCASE)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (45)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
 	}
 	return nil
 }

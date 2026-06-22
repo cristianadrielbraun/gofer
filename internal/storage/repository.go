@@ -733,21 +733,73 @@ func formatDBTime(t time.Time) string {
 }
 
 type SyncMessage struct {
+	AccountID     string
+	FolderID      string
+	RemoteUID     uint32
+	MessageID     string
+	InReplyTo     string
+	References    string
+	Subject       string
+	FromName      string
+	FromEmail     string
+	DateSent      time.Time
+	Snippet       string
+	IsRead        bool
+	IsStarred     bool
+	Labels        []LabelInput
+	LabelsKnown   bool
+	LabelProvider string
+	ToRecipients  []Recipient
+	CCRecipients  []Recipient
+}
+
+const (
+	LabelProviderGmail       = "gmail"
+	LabelProviderOutlook     = "outlook"
+	LabelProviderIMAPKeyword = "imap_keyword"
+	LabelProviderLocal       = "local"
+
+	LabelMutationAdd    = "add"
+	LabelMutationRemove = "remove"
+)
+
+type LabelInput struct {
+	ID           string
 	AccountID    string
+	Name         string
+	Color        string
+	ProviderID   string
+	ProviderType string
+	IsSystem     bool
+}
+
+type ProviderLabelSyncMessage struct {
+	ID                int64
+	AccountID         string
+	InternetMessageID string
+	ProviderMessageID string
+}
+
+type LabelSyncState struct {
+	AccountID      string
+	ProviderType   string
+	Scope          string
+	Cursor         string
+	LastFullSyncAt sql.NullTime
+	LastSuccessAt  sql.NullTime
+	LastError      string
+}
+
+type LabelMutationQueueEntry struct {
+	ID           int64
+	AccountID    string
+	MessageID    int64
 	FolderID     string
-	RemoteUID    uint32
-	MessageID    string
-	InReplyTo    string
-	References   string
-	Subject      string
-	FromName     string
-	FromEmail    string
-	DateSent     time.Time
-	Snippet      string
-	IsRead       bool
-	IsStarred    bool
-	ToRecipients []Recipient
-	CCRecipients []Recipient
+	ProviderType string
+	Operation    string
+	LabelName    string
+	Attempts     int
+	LastError    string
 }
 
 type Recipient struct {
@@ -1076,6 +1128,16 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			return fmt.Errorf("upsert state: %w", err)
 		}
 
+		if m.LabelsKnown && strings.TrimSpace(m.LabelProvider) != "" {
+			if err := db.replaceMessageLabelsForProviderTx(ctx, tx, msgID, m.AccountID, m.LabelProvider, m.Labels); err != nil {
+				return fmt.Errorf("replace message labels: %w", err)
+			}
+		} else if len(m.Labels) > 0 {
+			if err := db.addMessageLabelsTx(ctx, tx, msgID, m.AccountID, m.Labels); err != nil {
+				return fmt.Errorf("add message labels: %w", err)
+			}
+		}
+
 		if _, err := delRecipStmt.ExecContext(ctx, msgID); err != nil {
 			return fmt.Errorf("delete recipients: %w", err)
 		}
@@ -1120,6 +1182,483 @@ func (db *DB) GetMessageLocalIDByInternetID(ctx context.Context, accountID, inte
 		return 0, nil
 	}
 	return id, err
+}
+
+func normalizeLabelInput(accountID string, label LabelInput) (LabelInput, bool) {
+	label.AccountID = strings.TrimSpace(firstNonEmpty(label.AccountID, accountID))
+	label.Name = strings.TrimSpace(label.Name)
+	label.ProviderID = strings.TrimSpace(label.ProviderID)
+	label.ProviderType = strings.TrimSpace(label.ProviderType)
+	label.Color = strings.TrimSpace(label.Color)
+	if label.ProviderType == "" {
+		label.ProviderType = LabelProviderLocal
+	}
+	if label.ProviderID == "" && label.ProviderType != LabelProviderLocal {
+		label.ProviderID = label.Name
+	}
+	if label.Color == "" {
+		label.Color = defaultLabelColor(label.Name)
+	}
+	return label, label.AccountID != "" && label.Name != ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func defaultLabelColor(name string) string {
+	palette := []string{
+		"bg-sky-500/10 text-sky-700 dark:text-sky-300",
+		"bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+		"bg-amber-500/10 text-amber-700 dark:text-amber-300",
+		"bg-rose-500/10 text-rose-700 dark:text-rose-300",
+		"bg-violet-500/10 text-violet-700 dark:text-violet-300",
+		"bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+	}
+	if strings.TrimSpace(name) == "" {
+		return palette[0]
+	}
+	sum := 0
+	for _, r := range strings.ToLower(name) {
+		sum += int(r)
+	}
+	return palette[sum%len(palette)]
+}
+
+func newLabelID() string {
+	return "label_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+}
+
+func (db *DB) ensureLabelTx(ctx context.Context, tx *sql.Tx, label LabelInput) (models.Label, error) {
+	label, ok := normalizeLabelInput(label.AccountID, label)
+	if !ok {
+		return models.Label{}, fmt.Errorf("label name is required")
+	}
+
+	var existingID string
+	if label.ProviderID != "" {
+		err := tx.QueryRowContext(ctx,
+			`SELECT id FROM labels
+			 WHERE account_id = ? AND provider_type = ? AND provider_id = ?
+			 LIMIT 1`, label.AccountID, label.ProviderType, label.ProviderID).Scan(&existingID)
+		if err != nil && err != sql.ErrNoRows {
+			return models.Label{}, err
+		}
+	}
+	if existingID == "" {
+		err := tx.QueryRowContext(ctx,
+			`SELECT id FROM labels
+			 WHERE account_id = ? AND lower(name) = lower(?)
+			 ORDER BY CASE WHEN provider_id != '' THEN 0 ELSE 1 END
+			 LIMIT 1`, label.AccountID, label.Name).Scan(&existingID)
+		if err != nil && err != sql.ErrNoRows {
+			return models.Label{}, err
+		}
+	}
+	if existingID == "" {
+		existingID = strings.TrimSpace(label.ID)
+	}
+	if existingID == "" {
+		existingID = newLabelID()
+	}
+
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO labels (id, account_id, name, color, provider_id, provider_type, is_system, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			color = excluded.color,
+			provider_id = CASE WHEN excluded.provider_id != '' THEN excluded.provider_id ELSE labels.provider_id END,
+			provider_type = CASE WHEN excluded.provider_id != '' THEN excluded.provider_type WHEN labels.provider_type = '' THEN excluded.provider_type ELSE labels.provider_type END,
+			is_system = CASE WHEN excluded.is_system != 0 THEN excluded.is_system ELSE labels.is_system END,
+			updated_at = CURRENT_TIMESTAMP`,
+		existingID, label.AccountID, label.Name, label.Color, label.ProviderID, label.ProviderType, boolInt(label.IsSystem))
+	if err != nil {
+		return models.Label{}, err
+	}
+
+	return models.Label{
+		ID:           existingID,
+		AccountID:    label.AccountID,
+		Name:         label.Name,
+		Color:        label.Color,
+		ProviderID:   label.ProviderID,
+		ProviderType: label.ProviderType,
+	}, nil
+}
+
+func (db *DB) EnsureLabel(ctx context.Context, label LabelInput) (models.Label, error) {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return models.Label{}, err
+	}
+	defer tx.Rollback()
+	out, err := db.ensureLabelTx(ctx, tx, label)
+	if err != nil {
+		return models.Label{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Label{}, err
+	}
+	return out, nil
+}
+
+func (db *DB) UpsertLabels(ctx context.Context, labels []LabelInput) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, label := range labels {
+		if _, err := db.ensureLabelTx(ctx, tx, label); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (db *DB) addMessageLabelsTx(ctx context.Context, tx *sql.Tx, messageID int64, accountID string, labels []LabelInput) error {
+	for _, input := range labels {
+		input.AccountID = firstNonEmpty(input.AccountID, accountID)
+		label, err := db.ensureLabelTx(ctx, tx, input)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?, ?)`,
+			messageID, label.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *DB) replaceMessageLabelsForProviderTx(ctx context.Context, tx *sql.Tx, messageID int64, accountID, providerType string, labels []LabelInput) error {
+	providerType = strings.TrimSpace(providerType)
+	if providerType == "" {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM message_labels
+		WHERE message_id = ?
+		  AND label_id IN (
+			SELECT id FROM labels WHERE account_id = ? AND provider_type = ?
+		  )`, messageID, accountID, providerType); err != nil {
+		return err
+	}
+	for i := range labels {
+		labels[i].AccountID = firstNonEmpty(labels[i].AccountID, accountID)
+		if strings.TrimSpace(labels[i].ProviderType) == "" {
+			labels[i].ProviderType = providerType
+		}
+	}
+	return db.addMessageLabelsTx(ctx, tx, messageID, accountID, labels)
+}
+
+func (db *DB) ReplaceMessageLabelsForProvider(ctx context.Context, messageID int64, accountID, providerType string, labels []LabelInput) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := db.replaceMessageLabelsForProviderTx(ctx, tx, messageID, accountID, providerType, labels); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (db *DB) AddMessageLabel(ctx context.Context, messageID int64, accountID string, label LabelInput) (models.Label, error) {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return models.Label{}, err
+	}
+	defer tx.Rollback()
+	label.AccountID = firstNonEmpty(label.AccountID, accountID)
+	out, err := db.ensureLabelTx(ctx, tx, label)
+	if err != nil {
+		return models.Label{}, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?, ?)`,
+		messageID, out.ID); err != nil {
+		return models.Label{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Label{}, err
+	}
+	return out, nil
+}
+
+func (db *DB) RemoveMessageLabel(ctx context.Context, messageID int64, accountID, labelName string) error {
+	_, err := db.Write().ExecContext(ctx, `
+		DELETE FROM message_labels
+		WHERE message_id = ?
+		  AND label_id IN (
+			SELECT id FROM labels WHERE account_id = ? AND lower(name) = lower(?)
+		  )`, messageID, accountID, strings.TrimSpace(labelName))
+	return err
+}
+
+func (db *DB) RemoveMessageLabelForProvider(ctx context.Context, messageID int64, accountID, providerType, providerID, labelName string) error {
+	providerType = strings.TrimSpace(providerType)
+	providerID = strings.TrimSpace(providerID)
+	labelName = strings.TrimSpace(labelName)
+	if providerType == "" {
+		return db.RemoveMessageLabel(ctx, messageID, accountID, labelName)
+	}
+	args := []any{messageID, accountID, providerType}
+	predicate := `provider_type = ?`
+	if providerID != "" {
+		predicate += ` AND provider_id = ?`
+		args = append(args, providerID)
+	} else {
+		predicate += ` AND lower(name) = lower(?)`
+		args = append(args, labelName)
+	}
+	query := `
+		DELETE FROM message_labels
+		WHERE message_id = ?
+		  AND label_id IN (
+			SELECT id FROM labels WHERE account_id = ? AND ` + predicate + `
+		  )`
+	_, err := db.Write().ExecContext(ctx, query, args...)
+	return err
+}
+
+func (db *DB) GetProviderMessageLabels(ctx context.Context, messageID int64, accountID, providerType string) ([]models.Label, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type
+		FROM labels l
+		JOIN message_labels ml ON l.id = ml.label_id
+		WHERE ml.message_id = ? AND l.account_id = ? AND l.provider_type = ?
+		ORDER BY l.name COLLATE NOCASE`, messageID, accountID, providerType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var labels []models.Label
+	for rows.Next() {
+		var l models.Label
+		if err := rows.Scan(&l.ID, &l.AccountID, &l.Name, &l.Color, &l.ProviderID, &l.ProviderType); err != nil {
+			return nil, err
+		}
+		labels = append(labels, l)
+	}
+	return labels, rows.Err()
+}
+
+func (db *DB) ListProviderLabelSyncMessages(ctx context.Context, accountID string, afterID int64, limit int) ([]ProviderLabelSyncMessage, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, fmt.Errorf("account id is required")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 250
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id, account_id, COALESCE(internet_message_id, ''), COALESCE(remote_message_id, '')
+		FROM messages
+		WHERE account_id = ? AND id > ?
+		ORDER BY id
+		LIMIT ?`, accountID, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []ProviderLabelSyncMessage
+	for rows.Next() {
+		var msg ProviderLabelSyncMessage
+		if err := rows.Scan(&msg.ID, &msg.AccountID, &msg.InternetMessageID, &msg.ProviderMessageID); err != nil {
+			return nil, err
+		}
+		messages = append(messages, msg)
+	}
+	return messages, rows.Err()
+}
+
+func (db *DB) GetLabelSyncState(ctx context.Context, accountID, providerType, scope string) (LabelSyncState, error) {
+	state := LabelSyncState{
+		AccountID:    strings.TrimSpace(accountID),
+		ProviderType: strings.TrimSpace(providerType),
+		Scope:        strings.TrimSpace(scope),
+	}
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT cursor, last_full_sync_at, last_success_at, last_error
+		FROM label_sync_state
+		WHERE account_id = ? AND provider_type = ? AND scope = ?`,
+		state.AccountID, state.ProviderType, state.Scope).
+		Scan(&state.Cursor, &state.LastFullSyncAt, &state.LastSuccessAt, &state.LastError)
+	if err == sql.ErrNoRows {
+		return state, nil
+	}
+	return state, err
+}
+
+func (db *DB) MarkLabelSyncSuccess(ctx context.Context, accountID, providerType, scope, cursor string, full bool) error {
+	accountID = strings.TrimSpace(accountID)
+	providerType = strings.TrimSpace(providerType)
+	scope = strings.TrimSpace(scope)
+	cursor = strings.TrimSpace(cursor)
+	if full {
+		_, err := db.Write().ExecContext(ctx, `
+			INSERT INTO label_sync_state (
+				account_id, provider_type, scope, cursor, last_full_sync_at, last_success_at, last_error, updated_at
+			) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '', CURRENT_TIMESTAMP)
+			ON CONFLICT(account_id, provider_type, scope) DO UPDATE SET
+				cursor = CASE WHEN excluded.cursor != '' THEN excluded.cursor ELSE label_sync_state.cursor END,
+				last_full_sync_at = CURRENT_TIMESTAMP,
+				last_success_at = CURRENT_TIMESTAMP,
+				last_error = '',
+				updated_at = CURRENT_TIMESTAMP`,
+			accountID, providerType, scope, cursor)
+		return err
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO label_sync_state (
+			account_id, provider_type, scope, cursor, last_full_sync_at, last_success_at, last_error, updated_at
+		) VALUES (?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, '', CURRENT_TIMESTAMP)
+		ON CONFLICT(account_id, provider_type, scope) DO UPDATE SET
+			cursor = CASE WHEN excluded.cursor != '' THEN excluded.cursor ELSE label_sync_state.cursor END,
+			last_success_at = CURRENT_TIMESTAMP,
+			last_error = '',
+			updated_at = CURRENT_TIMESTAMP`,
+		accountID, providerType, scope, cursor)
+	return err
+}
+
+func (db *DB) MarkLabelSyncError(ctx context.Context, accountID, providerType, scope string, syncErr error) error {
+	message := ""
+	if syncErr != nil {
+		message = syncErr.Error()
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO label_sync_state (account_id, provider_type, scope, last_error, updated_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(account_id, provider_type, scope) DO UPDATE SET
+			last_error = excluded.last_error,
+			updated_at = CURRENT_TIMESTAMP`,
+		strings.TrimSpace(accountID), strings.TrimSpace(providerType), strings.TrimSpace(scope), strings.TrimSpace(message))
+	return err
+}
+
+func normalizeLabelMutationOperation(operation string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(operation)) {
+	case LabelMutationAdd:
+		return LabelMutationAdd, true
+	case LabelMutationRemove:
+		return LabelMutationRemove, true
+	default:
+		return "", false
+	}
+}
+
+func (db *DB) EnqueueLabelMutation(ctx context.Context, accountID string, messageID int64, folderID, providerType, operation, labelName string, mutationErr error) error {
+	accountID = strings.TrimSpace(accountID)
+	folderID = strings.TrimSpace(folderID)
+	providerType = strings.TrimSpace(providerType)
+	labelName = strings.TrimSpace(labelName)
+	operation, ok := normalizeLabelMutationOperation(operation)
+	if accountID == "" || messageID == 0 || providerType == "" || labelName == "" || !ok {
+		return nil
+	}
+	lastError := ""
+	if mutationErr != nil {
+		lastError = mutationErr.Error()
+	}
+
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO label_mutation_queue (
+			account_id, message_id, folder_id, provider_type, operation, label_name, last_error, next_attempt_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT DO UPDATE SET
+			account_id = excluded.account_id,
+			folder_id = excluded.folder_id,
+			label_name = excluded.label_name,
+			last_error = excluded.last_error,
+			next_attempt_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP`,
+		accountID, messageID, folderID, providerType, operation, labelName, strings.TrimSpace(lastError))
+	return err
+}
+
+func (db *DB) ListDueLabelMutations(ctx context.Context, accountID, providerType string, limit int) ([]LabelMutationQueueEntry, error) {
+	accountID = strings.TrimSpace(accountID)
+	providerType = strings.TrimSpace(providerType)
+	if accountID == "" || providerType == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id, account_id, message_id, folder_id, provider_type, operation, label_name, attempts, last_error
+		FROM label_mutation_queue
+		WHERE account_id = ? AND provider_type = ? AND next_attempt_at <= ?
+		ORDER BY next_attempt_at ASC, id ASC
+		LIMIT ?`, accountID, providerType, formatDBTime(time.Now().UTC()), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []LabelMutationQueueEntry
+	for rows.Next() {
+		var entry LabelMutationQueueEntry
+		if err := rows.Scan(&entry.ID, &entry.AccountID, &entry.MessageID, &entry.FolderID, &entry.ProviderType, &entry.Operation, &entry.LabelName, &entry.Attempts, &entry.LastError); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+func (db *DB) MarkLabelMutationSuccess(ctx context.Context, id int64) error {
+	if id == 0 {
+		return nil
+	}
+	_, err := db.Write().ExecContext(ctx, `DELETE FROM label_mutation_queue WHERE id = ?`, id)
+	return err
+}
+
+func (db *DB) MarkLabelMutationError(ctx context.Context, id int64, attempts int, mutationErr error) error {
+	if id == 0 {
+		return nil
+	}
+	message := ""
+	if mutationErr != nil {
+		message = mutationErr.Error()
+	}
+	nextAttempts := attempts + 1
+	nextAttemptAt := time.Now().UTC().Add(labelMutationRetryDelay(nextAttempts))
+	_, err := db.Write().ExecContext(ctx, `
+		UPDATE label_mutation_queue
+		SET attempts = ?,
+		    next_attempt_at = ?,
+		    last_error = ?,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`, nextAttempts, formatDBTime(nextAttemptAt), strings.TrimSpace(message), id)
+	return err
+}
+
+func labelMutationRetryDelay(attempts int) time.Duration {
+	if attempts <= 0 {
+		attempts = 1
+	}
+	if attempts > 9 {
+		attempts = 9
+	}
+	minutes := 1 << (attempts - 1)
+	if minutes > 360 {
+		minutes = 360
+	}
+	return time.Duration(minutes) * time.Minute
 }
 
 func (db *DB) GetFolderByAccountAndRemote(ctx context.Context, accountID, remoteID string) (string, error) {
@@ -2772,9 +3311,10 @@ func (db *DB) getRecipients(ctx context.Context, messageID int64, kind string) (
 
 func (db *DB) getMessageLabels(ctx context.Context, messageID int64) ([]models.Label, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT l.name, l.color FROM labels l
+		`SELECT l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type FROM labels l
 		 JOIN message_labels ml ON l.id = ml.label_id
-		 WHERE ml.message_id = ?`, messageID)
+		 WHERE ml.message_id = ?
+		 ORDER BY l.name COLLATE NOCASE`, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -2783,7 +3323,7 @@ func (db *DB) getMessageLabels(ctx context.Context, messageID int64) ([]models.L
 	var labels []models.Label
 	for rows.Next() {
 		var l models.Label
-		if err := rows.Scan(&l.Name, &l.Color); err != nil {
+		if err := rows.Scan(&l.ID, &l.AccountID, &l.Name, &l.Color, &l.ProviderID, &l.ProviderType); err != nil {
 			return nil, err
 		}
 		labels = append(labels, l)
@@ -2836,10 +3376,11 @@ func (db *DB) batchGetLabels(ctx context.Context, msgIDs []int64) (map[int64][]m
 	}
 
 	query := fmt.Sprintf(
-		`SELECT ml.message_id, l.name, l.color
+		`SELECT ml.message_id, l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type
 		 FROM message_labels ml
 		 JOIN labels l ON ml.label_id = l.id
-		 WHERE ml.message_id IN (%s)`, strings.Join(placeholders, ","))
+		 WHERE ml.message_id IN (%s)
+		 ORDER BY l.name COLLATE NOCASE`, strings.Join(placeholders, ","))
 
 	rows, err := db.Read().QueryContext(ctx, query, args...)
 	if err != nil {
@@ -2851,7 +3392,7 @@ func (db *DB) batchGetLabels(ctx context.Context, msgIDs []int64) (map[int64][]m
 	for rows.Next() {
 		var msgID int64
 		var l models.Label
-		if err := rows.Scan(&msgID, &l.Name, &l.Color); err != nil {
+		if err := rows.Scan(&msgID, &l.ID, &l.AccountID, &l.Name, &l.Color, &l.ProviderID, &l.ProviderType); err != nil {
 			return nil, err
 		}
 		result[msgID] = append(result[msgID], l)
@@ -4225,9 +4766,12 @@ func (db *DB) ClearFolderMessages(ctx context.Context, folderID string) error {
 }
 
 type FlagUpdate struct {
-	UID       uint32
-	IsRead    bool
-	IsStarred bool
+	UID           uint32
+	IsRead        bool
+	IsStarred     bool
+	Labels        []LabelInput
+	LabelsKnown   bool
+	LabelProvider string
 }
 
 func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []FlagUpdate) (int, error) {
@@ -4251,10 +4795,11 @@ func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []F
 
 	changed := 0
 	for _, u := range updates {
+		var messageID int64
 		var isRead, isStarred int
 		err := tx.QueryRow(
-			`SELECT is_read, is_starred FROM message_folder_state WHERE folder_id = ? AND remote_uid = ?`,
-			folderID, u.UID).Scan(&isRead, &isStarred)
+			`SELECT message_id, is_read, is_starred FROM message_folder_state WHERE folder_id = ? AND remote_uid = ?`,
+			folderID, u.UID).Scan(&messageID, &isRead, &isStarred)
 		if err != nil {
 			continue
 		}
@@ -4273,6 +4818,14 @@ func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []F
 				continue
 			}
 			changed++
+		}
+		if u.LabelsKnown && strings.TrimSpace(u.LabelProvider) != "" {
+			var accountID string
+			if err := tx.QueryRowContext(ctx, `SELECT account_id FROM messages WHERE id = ?`, messageID).Scan(&accountID); err == nil {
+				if err := db.replaceMessageLabelsForProviderTx(ctx, tx, messageID, accountID, u.LabelProvider, u.Labels); err != nil {
+					return 0, err
+				}
+			}
 		}
 	}
 

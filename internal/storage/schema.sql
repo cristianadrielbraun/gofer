@@ -181,7 +181,11 @@ CREATE TABLE IF NOT EXISTS labels (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    color TEXT NOT NULL DEFAULT ''
+    color TEXT NOT NULL DEFAULT '',
+    provider_id TEXT NOT NULL DEFAULT '',
+    provider_type TEXT NOT NULL DEFAULT '',
+    is_system INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Message-label mapping
@@ -189,6 +193,33 @@ CREATE TABLE IF NOT EXISTS message_labels (
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     label_id TEXT NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
     PRIMARY KEY (message_id, label_id)
+);
+
+CREATE TABLE IF NOT EXISTS label_sync_state (
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    provider_type TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT '',
+    cursor TEXT NOT NULL DEFAULT '',
+    last_full_sync_at DATETIME,
+    last_success_at DATETIME,
+    last_error TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_id, provider_type, scope)
+);
+
+CREATE TABLE IF NOT EXISTS label_mutation_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    folder_id TEXT NOT NULL DEFAULT '',
+    provider_type TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    label_name TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Sync state per account+folder
@@ -291,6 +322,21 @@ ON message_labels(message_id);
 
 CREATE INDEX IF NOT EXISTS idx_message_labels_label
 ON message_labels(label_id);
+
+CREATE INDEX IF NOT EXISTS idx_labels_account_name
+ON labels(account_id, name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_labels_account_provider
+ON labels(account_id, provider_type, provider_id);
+
+CREATE INDEX IF NOT EXISTS idx_label_sync_state_account
+ON label_sync_state(account_id, provider_type);
+
+CREATE INDEX IF NOT EXISTS idx_label_mutation_queue_due
+ON label_mutation_queue(account_id, provider_type, next_attempt_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_label_mutation_queue_unique
+ON label_mutation_queue(message_id, provider_type, operation, label_name COLLATE NOCASE);
 
 -- Application settings
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -779,4 +825,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (42);
+INSERT OR REPLACE INTO schema_version (version) VALUES (44);

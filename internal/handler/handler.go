@@ -224,6 +224,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/delete", h.handleDeleteMessages)
 	mux.HandleFunc("POST /api/messages/spam", h.handleMarkMessagesSpam)
 	mux.HandleFunc("POST /api/messages/not-spam", h.handleMarkMessagesNotSpam)
+	mux.HandleFunc("POST /api/messages/label", h.handleLabelMessages)
+	mux.HandleFunc("POST /api/messages/unlabel", h.handleUnlabelMessages)
 	mux.HandleFunc("POST /api/messages/move", h.handleMoveMessages)
 	mux.HandleFunc("POST /api/messages/{id}/read", h.handleToggleRead)
 	mux.HandleFunc("POST /api/messages/{id}/star", h.handleToggleStar)
@@ -231,6 +233,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/{id}/thread/archive", h.handleArchiveThread)
 	mux.HandleFunc("DELETE /api/messages/{id}/thread", h.handleDeleteThread)
 	mux.HandleFunc("DELETE /api/messages/{id}", h.handleDeleteMessage)
+	mux.HandleFunc("POST /api/messages/{id}/label", h.handleLabelMessage)
+	mux.HandleFunc("POST /api/messages/{id}/unlabel", h.handleUnlabelMessage)
 	mux.HandleFunc("POST /api/messages/{id}/move", h.handleMoveMessage)
 	mux.HandleFunc("POST /api/messages/{id}/refetch", h.handleRefetchBody)
 	mux.HandleFunc("POST /api/messages/{id}/translate", h.handleTranslateMessage)
@@ -4216,6 +4220,7 @@ type messageBulkRequest struct {
 	Targets  []messageBulkTarget `json:"targets"`
 	State    string              `json:"state"`
 	FolderID string              `json:"folder_id"`
+	Label    string              `json:"label"`
 }
 
 func decodeMessageBulkRequest(r *http.Request) (messageBulkRequest, error) {

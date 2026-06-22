@@ -232,10 +232,16 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 				}
 			}
 			@dropdown.Content() {
-				@dropdown.Item() {
+				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "label"}}) {
 					<span class="flex items-center gap-2">
 						@icon.Tag(icon.Props{Class: "size-4"})
 						Add label
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "unlabel"}}) {
+					<span class="flex items-center gap-2">
+						@icon.X(icon.Props{Class: "size-4"})
+						Remove label
 					</span>
 				}
 				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "star"}}) {

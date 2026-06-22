@@ -65,6 +65,65 @@ func TestGetFoldersForAccountSkipsNonSelectableFolders(t *testing.T) {
 	}
 }
 
+func TestSyncMessagesReplaceIMAPKeywordLabels(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID:     "acc",
+		FolderID:      "acc_inbox",
+		RemoteUID:     42,
+		MessageID:     "<label-keyword@example.com>",
+		Subject:       "Keyword label",
+		FromEmail:     "sender@example.com",
+		DateSent:      time.Now(),
+		IsRead:        true,
+		LabelsKnown:   true,
+		LabelProvider: LabelProviderIMAPKeyword,
+		Labels: []LabelInput{{
+			AccountID:    "acc",
+			Name:         "Work",
+			ProviderID:   "Work",
+			ProviderType: LabelProviderIMAPKeyword,
+		}},
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<label-keyword@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if len(email.Labels) != 1 || email.Labels[0].Name != "Work" || email.Labels[0].ProviderType != LabelProviderIMAPKeyword {
+		t.Fatalf("labels after sync = %#v, want Work IMAP keyword", email.Labels)
+	}
+
+	if _, err := db.BatchUpdateFlags(ctx, "acc_inbox", []FlagUpdate{{
+		UID:           42,
+		IsRead:        true,
+		LabelsKnown:   true,
+		LabelProvider: LabelProviderIMAPKeyword,
+	}}); err != nil {
+		t.Fatalf("BatchUpdateFlags() error = %v", err)
+	}
+	email, err = db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() after refresh error = %v", err)
+	}
+	if len(email.Labels) != 0 {
+		t.Fatalf("labels after keyword removal = %#v, want none", email.Labels)
+	}
+}
+
 func TestIdleFolderIDsForAccountSupportsFolderIDsAndLegacyRoles(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

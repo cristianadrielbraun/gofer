@@ -3,6 +3,7 @@ package imap
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/emersion/go-imap/v2"
 )
@@ -40,6 +41,50 @@ func (c *Client) StoreFlagsBatch(ctx context.Context, folderRemoteName string, u
 	}, nil)
 
 	return storeCmd.Close()
+}
+
+func (c *Client) StoreKeyword(ctx context.Context, folderRemoteName string, uid uint32, op imap.StoreFlagsOp, keyword string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return fmt.Errorf("keyword is required")
+	}
+	if c.closed {
+		return fmt.Errorf("client is closed")
+	}
+
+	selectData, err := c.client.Select(folderRemoteName, nil).Wait()
+	if err != nil {
+		return fmt.Errorf("select %s: %w", folderRemoteName, err)
+	}
+	defer c.client.Unselect()
+
+	flag := imap.Flag(keyword)
+	if op == imap.StoreFlagsAdd && !supportsPermanentKeyword(selectData.PermanentFlags, flag) {
+		return fmt.Errorf("mailbox does not allow persistent keyword %q", keyword)
+	}
+
+	var uidSet imap.UIDSet
+	uidSet.AddNum(imap.UID(uid))
+
+	storeCmd := c.client.Store(uidSet, &imap.StoreFlags{
+		Op:     op,
+		Silent: true,
+		Flags:  []imap.Flag{flag},
+	}, nil)
+
+	return storeCmd.Close()
+}
+
+func supportsPermanentKeyword(flags []imap.Flag, keyword imap.Flag) bool {
+	for _, flag := range flags {
+		if flag == "\\*" || strings.EqualFold(string(flag), string(keyword)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) MoveMessage(ctx context.Context, folderRemoteName string, uid uint32, destFolderRemoteName string) error {

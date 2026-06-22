@@ -137,6 +137,9 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 						}
 					}
 				case imapclient.FetchItemDataFlags:
+					syncMsg.Labels = labelsFromFlags(item.Flags)
+					syncMsg.LabelsKnown = true
+					syncMsg.LabelProvider = storage.LabelProviderIMAPKeyword
 					for _, flag := range item.Flags {
 						switch flag {
 						case imap.FlagSeen:
@@ -299,6 +302,9 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 					}
 				}
 			case imapclient.FetchItemDataFlags:
+				syncMsg.Labels = labelsFromFlags(item.Flags)
+				syncMsg.LabelsKnown = true
+				syncMsg.LabelProvider = storage.LabelProviderIMAPKeyword
 				for _, flag := range item.Flags {
 					switch flag {
 					case imap.FlagSeen:
@@ -412,6 +418,7 @@ type FlagUpdate struct {
 	UID       uint32
 	IsRead    bool
 	IsStarred bool
+	Labels    []storage.LabelInput
 }
 
 func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint32) ([]FlagUpdate, error) {
@@ -466,6 +473,7 @@ func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint3
 				case imapclient.FetchItemDataUID:
 					update.UID = uint32(item.UID)
 				case imapclient.FetchItemDataFlags:
+					update.Labels = labelsFromFlags(item.Flags)
 					for _, flag := range item.Flags {
 						switch flag {
 						case imap.FlagSeen:
@@ -488,6 +496,38 @@ func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint3
 	}
 
 	return allUpdates, nil
+}
+
+func labelsFromFlags(flags []imap.Flag) []storage.LabelInput {
+	labels := make([]storage.LabelInput, 0, len(flags))
+	seen := map[string]bool{}
+	for _, flag := range flags {
+		name := strings.TrimSpace(string(flag))
+		if name == "" || isSystemOrStatusFlag(name) {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		labels = append(labels, storage.LabelInput{
+			Name:         name,
+			ProviderID:   name,
+			ProviderType: storage.LabelProviderIMAPKeyword,
+		})
+	}
+	return labels
+}
+
+func isSystemOrStatusFlag(flag string) bool {
+	switch strings.ToLower(strings.TrimSpace(flag)) {
+	case "\\seen", "\\answered", "\\flagged", "\\deleted", "\\draft", "\\recent",
+		"$junk", "$notjunk", "$forwarded", "$mdnsent", "$phishing", "$label1", "$label2", "$label3", "$label4", "$label5":
+		return true
+	default:
+		return strings.HasPrefix(flag, "\\")
+	}
 }
 
 func (c *Client) CheckUIDValidity(ctx context.Context, remoteName string) (uint32, uint32, error) {

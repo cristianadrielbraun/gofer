@@ -132,8 +132,12 @@ type ContactFilters struct {
 }
 
 type Label struct {
-	Name  string
-	Color string
+	ID           string
+	AccountID    string
+	Name         string
+	Color        string
+	ProviderID   string
+	ProviderType string
 }
 
 type Attachment struct {

@@ -12,6 +12,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
@@ -70,6 +71,10 @@ type newMailSummary struct {
 
 type TokenProvider interface {
 	GetOAuthTokenForAccount(ctx context.Context, accountID string) (string, error)
+}
+
+type graphMailTokenProvider interface {
+	GetMicrosoftGraphMailTokenForAccount(ctx context.Context, accountID string) (string, error)
 }
 
 type SyncOrchestrator struct {
@@ -785,7 +790,7 @@ func (o *SyncOrchestrator) senderAvatarURL(ctx context.Context, email string) st
 	return storage.SenderAvatarURL(rec.EmailHash, rec.ExpiresAt)
 }
 
-func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, folderIndex, folderTotal, idleExcluded int) error {
+func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID, accountProvider string, folder storage.FolderSyncInfo, folderIndex, folderTotal, idleExcluded int) error {
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folder.ID)
 	startPayload := map[string]any{
 		"account_folders_total": folderTotal,
@@ -837,7 +842,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 			if err := o.db.ClearFolderMessages(ctx, folder.ID); err != nil {
 				return err
 			}
-			o.syncFolderMessages(ctx, client, accountID, folder.ID, folder.RemoteID)
+			o.syncFolderMessages(ctx, client, accountID, accountProvider, folder.ID, folder.RemoteID)
 			return nil
 		}
 	}
@@ -855,7 +860,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		var summary newMailSummary
 		result, err := client.SyncFolderIncremental(ctx, folder.ID, folder.RemoteID, highestUID, func(msgs []storage.SyncMessage) error {
 			summary.Add(msgs)
-			return o.db.UpsertSyncMessages(ctx, msgs)
+			return o.db.UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, folder.RemoteID, folder.Role))
 		})
 		if err != nil {
 			log.Printf("periodic incremental %s/%s: %v", accountID, folder.RemoteID, err)
@@ -867,7 +872,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 			}
 		}
 	} else {
-		o.syncFolderMessages(ctx, client, accountID, folder.ID, folder.RemoteID)
+		o.syncFolderMessages(ctx, client, accountID, accountProvider, folder.ID, folder.RemoteID)
 	}
 
 	o.refreshFlags(ctx, client, accountID, folder)
@@ -1269,9 +1274,12 @@ func convertFlagUpdates(imapUpdates []imap.FlagUpdate) []storage.FlagUpdate {
 	updates := make([]storage.FlagUpdate, len(imapUpdates))
 	for i, u := range imapUpdates {
 		updates[i] = storage.FlagUpdate{
-			UID:       u.UID,
-			IsRead:    u.IsRead,
-			IsStarred: u.IsStarred,
+			UID:           u.UID,
+			IsRead:        u.IsRead,
+			IsStarred:     u.IsStarred,
+			Labels:        u.Labels,
+			LabelsKnown:   true,
+			LabelProvider: storage.LabelProviderIMAPKeyword,
 		}
 	}
 	return updates
@@ -1416,15 +1424,17 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		if !ok {
 			folderInfo = storage.FolderSyncInfo{ID: folderDBID, AccountID: accountID, RemoteID: f.Name, Role: f.Role}
 		}
-		if err := o.fullFolderSync(ctx, client, accountID, folderInfo, i+1, len(syncFolders), idleExcluded); err != nil {
+		if err := o.fullFolderSync(ctx, client, accountID, cfg.Provider, folderInfo, i+1, len(syncFolders), idleExcluded); err != nil {
 			log.Printf("sync folder %s/%s: %v", accountID, f.Name, err)
 		}
 	}
 
+	o.syncProviderLabels(ctx, accountID, cfg.Provider)
+
 	return nil
 }
 
-func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.Client, accountID, folderID, remoteName string) {
+func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.Client, accountID, accountProvider, folderID, remoteName string) {
 	folderRole, _ := o.db.GetFolderRole(ctx, folderID)
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folderID)
 	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", nil)})
@@ -1432,7 +1442,7 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.
 	result, err := client.SyncFolder(ctx, folderID, remoteName, 500, func(msgs []storage.SyncMessage) error {
 		fetched += len(msgs)
 		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", nil)})
-		return o.db.UpsertSyncMessages(ctx, msgs)
+		return o.db.UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, remoteName, folderRole))
 	})
 	if err != nil {
 		log.Printf("sync messages %s/%s: %v", accountID, remoteName, err)
@@ -1491,11 +1501,12 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 	defer client.Close()
 
 	o.reconcileAndRefresh(syncCtx, client, accountID, folderID, remoteName)
+	folderRole, _ := o.db.GetFolderRole(syncCtx, folderID)
 
 	var summary newMailSummary
 	result, err := client.SyncFolderIncremental(syncCtx, folderID, remoteName, highestUID, func(msgs []storage.SyncMessage) error {
 		summary.Add(msgs)
-		return o.db.UpsertSyncMessages(syncCtx, msgs)
+		return o.db.UpsertSyncMessages(syncCtx, withFolderLabels(msgs, cfg.Provider, remoteName, folderRole))
 	})
 	if err != nil {
 		log.Printf("incremental %s/%s: %v", accountID, remoteName, err)
@@ -1510,6 +1521,8 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 	if result != nil {
 		o.db.UpdateFolderIncrementalSync(syncCtx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
 	}
+
+	o.syncProviderLabels(syncCtx, accountID, cfg.Provider)
 
 	unread, _ := o.db.RefreshFolderUnreadCount(syncCtx, folderID)
 
@@ -1632,4 +1645,43 @@ func displayName(remoteName, role string) string {
 		}
 	}
 	return remoteName
+}
+
+func withFolderLabels(msgs []storage.SyncMessage, accountProvider, remoteName, role string) []storage.SyncMessage {
+	label, ok := syncedFolderLabel(accountProvider, remoteName, role)
+	if !ok {
+		return msgs
+	}
+	for i := range msgs {
+		if !messageHasLabel(msgs[i].Labels, label) {
+			msgs[i].Labels = append(msgs[i].Labels, label)
+		}
+	}
+	return msgs
+}
+
+func syncedFolderLabel(accountProvider, remoteName, role string) (storage.LabelInput, bool) {
+	if strings.TrimSpace(accountProvider) != providers.ProviderGmail || role != "custom" {
+		return storage.LabelInput{}, false
+	}
+	name := strings.TrimSpace(remoteName)
+	if name == "" || strings.HasPrefix(strings.ToUpper(name), "[GMAIL]") {
+		return storage.LabelInput{}, false
+	}
+	return storage.LabelInput{
+		Name:         name,
+		ProviderID:   name,
+		ProviderType: storage.LabelProviderGmail,
+	}, true
+}
+
+func messageHasLabel(labels []storage.LabelInput, label storage.LabelInput) bool {
+	name := strings.ToLower(strings.TrimSpace(label.Name))
+	providerType := strings.TrimSpace(label.ProviderType)
+	for _, existing := range labels {
+		if strings.EqualFold(strings.TrimSpace(existing.Name), name) && strings.TrimSpace(existing.ProviderType) == providerType {
+			return true
+		}
+	}
+	return false
 }

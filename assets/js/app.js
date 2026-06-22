@@ -879,6 +879,38 @@ document.addEventListener("DOMContentLoaded", function () {
     function performMailSelectionAction(action) {
       if (mailSelectionBusy || selectedMailIds.size === 0) return
       var ids = Array.from(selectedMailIds)
+      if (action === "label") {
+        var labelName = promptMailLabelName()
+        if (!labelName) return
+        var labelTargets = selectedMailTargets(ids)
+        clearMailSelection()
+        sendBulkMessageAction("/api/messages/label", labelTargets, { label: labelName, folder_id: currentMailListFolderID() }).then(function () {
+          if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
+            virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+          }
+          var currentEmail = virtualMailList && virtualMailList.selectedEmailId
+          if (currentEmail && ids.indexOf(currentEmail) !== -1 && window.htmx) {
+            htmx.ajax("GET", "/email/" + encodeURIComponent(currentEmail), { target: "#mail-view", swap: "innerHTML" })
+          }
+        })
+        return
+      }
+      if (action === "unlabel") {
+        var removeLabelName = promptMailLabelName()
+        if (!removeLabelName) return
+        var unlabelTargets = selectedMailTargets(ids)
+        clearMailSelection()
+        sendBulkMessageAction("/api/messages/unlabel", unlabelTargets, { label: removeLabelName, folder_id: currentMailListFolderID() }).then(function () {
+          if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
+            virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+          }
+          var currentEmail = virtualMailList && virtualMailList.selectedEmailId
+          if (currentEmail && ids.indexOf(currentEmail) !== -1 && window.htmx) {
+            htmx.ajax("GET", "/email/" + encodeURIComponent(currentEmail), { target: "#mail-view", swap: "innerHTML" })
+          }
+        })
+        return
+      }
       if (action === "read") {
         markSelectedReadInBackground(ids)
         return
@@ -1239,6 +1271,12 @@ document.addEventListener("DOMContentLoaded", function () {
         afterDate: "",
         beforeDate: "",
       }
+    }
+
+    function promptMailLabelName() {
+      var value = window.prompt("Label name")
+      if (value == null) return ""
+      return String(value).trim()
     }
 
     function readFilters() {
@@ -8300,6 +8338,41 @@ function markSpamState(emailId, notSpam, thread) {
       refreshSidebarUnread()
     })
     .catch(function () {})
+}
+
+function promptLabelMessage(emailId, thread) {
+  var labelName = window.prompt("Label name")
+  if (labelName == null) return
+  labelName = String(labelName).trim()
+  if (!labelName) return
+  fetch("/api/messages/" + encodeURIComponent(emailId) + "/label", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: labelName, thread: !!thread, folder_id: mailActionCurrentFolderID() })
+  })
+    .then(function () { refreshAfterLabelMutation(emailId) })
+    .catch(function () {})
+}
+
+function removeLabelMessage(emailId, labelName, thread) {
+  labelName = String(labelName || "").trim()
+  if (!labelName) return
+  fetch("/api/messages/" + encodeURIComponent(emailId) + "/unlabel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: labelName, thread: !!thread, folder_id: mailActionCurrentFolderID() })
+  })
+    .then(function () { refreshAfterLabelMutation(emailId) })
+    .catch(function () {})
+}
+
+function refreshAfterLabelMutation(emailId) {
+  invalidateMailListItem(emailId)
+  var container = document.getElementById("mail-list-scroll")
+  if (container && container._virtualMailList && typeof container._virtualMailList.refreshCurrentFolder === "function") {
+    container._virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+  }
+  if (window.htmx) htmx.ajax("GET", "/email/" + encodeURIComponent(emailId), { target: "#mail-view", swap: "innerHTML" })
 }
 
 function moveMessage(emailId, folderId) {
