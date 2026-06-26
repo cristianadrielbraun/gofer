@@ -165,27 +165,42 @@ type LabelAdminTotals struct {
 }
 
 type LabelAccountSyncStatus struct {
-	AccountID               string              `json:"account_id"`
-	AccountName             string              `json:"account_name"`
-	AccountEmail            string              `json:"account_email"`
-	AccountProvider         string              `json:"account_provider"`
-	LabelProvider           string              `json:"label_provider"`
-	TotalMessages           int                 `json:"total_messages"`
-	MessagesWithLabels      int                 `json:"messages_with_labels"`
-	MessagesWithoutLabels   int                 `json:"messages_without_labels"`
-	ProviderBackedMessages  int                 `json:"provider_backed_messages"`
-	LocalLabelMessages      int                 `json:"local_label_messages"`
-	LocalOnlyMessages       int                 `json:"local_only_messages"`
-	MissingProviderMessages int                 `json:"missing_provider_messages"`
-	MissingIdentityMessages int                 `json:"missing_identity_messages"`
-	KnownLabels             int                 `json:"known_labels"`
-	ProviderLabels          int                 `json:"provider_labels"`
-	LocalLabels             int                 `json:"local_labels"`
-	PendingMutations        int                 `json:"pending_mutations"`
-	MutationErrors          int                 `json:"mutation_errors"`
-	LatestMutationError     string              `json:"latest_mutation_error,omitempty"`
-	Sync                    LabelSyncRunStatus  `json:"sync"`
-	TopLabels               []LabelUsageSummary `json:"top_labels"`
+	AccountID               string                   `json:"account_id"`
+	AccountName             string                   `json:"account_name"`
+	AccountEmail            string                   `json:"account_email"`
+	AccountProvider         string                   `json:"account_provider"`
+	LabelProvider           string                   `json:"label_provider"`
+	TotalMessages           int                      `json:"total_messages"`
+	MessagesWithLabels      int                      `json:"messages_with_labels"`
+	MessagesWithoutLabels   int                      `json:"messages_without_labels"`
+	ProviderBackedMessages  int                      `json:"provider_backed_messages"`
+	LocalLabelMessages      int                      `json:"local_label_messages"`
+	LocalOnlyMessages       int                      `json:"local_only_messages"`
+	MissingProviderMessages int                      `json:"missing_provider_messages"`
+	MissingIdentityMessages int                      `json:"missing_identity_messages"`
+	KnownLabels             int                      `json:"known_labels"`
+	ProviderLabels          int                      `json:"provider_labels"`
+	LocalLabels             int                      `json:"local_labels"`
+	PendingMutations        int                      `json:"pending_mutations"`
+	MutationErrors          int                      `json:"mutation_errors"`
+	LatestMutationError     string                   `json:"latest_mutation_error,omitempty"`
+	Sync                    LabelSyncRunStatus       `json:"sync"`
+	TopLabels               []LabelUsageSummary      `json:"top_labels"`
+	OutlookGraph            *OutlookGraphDiagnostics `json:"outlook_graph,omitempty"`
+}
+
+type OutlookGraphDiagnostics struct {
+	GraphBackedMessages              int  `json:"graph_backed_messages"`
+	IMAPBackedMessages               int  `json:"imap_backed_messages"`
+	MessageParityDelta               int  `json:"message_parity_delta"`
+	GraphParityReady                 bool `json:"graph_parity_ready"`
+	MessagesMissingGraphID           int  `json:"messages_missing_graph_id"`
+	MissingGraphIDWithInternetID     int  `json:"missing_graph_id_with_internet_id"`
+	MissingGraphIDWithoutInternetID  int  `json:"missing_graph_id_without_internet_id"`
+	MissingGraphIDWithoutGraphFolder int  `json:"missing_graph_id_without_graph_folder"`
+	LocalFolders                     int  `json:"local_folders"`
+	GraphBackedFolders               int  `json:"graph_backed_folders"`
+	FoldersMissingGraphID            int  `json:"folders_missing_graph_id"`
 }
 
 type LabelSyncRunStatus struct {

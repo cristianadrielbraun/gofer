@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS folders (
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     parent_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
     remote_id TEXT,
+    provider_remote_id TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     icon TEXT NOT NULL DEFAULT 'folder',
     role TEXT NOT NULL DEFAULT 'custom',
@@ -173,7 +174,8 @@ CREATE TABLE IF NOT EXISTS attachments (
     content_id TEXT,
     inline INTEGER NOT NULL DEFAULT 0,
     storage_path TEXT NOT NULL,
-    sha256 TEXT
+    sha256 TEXT,
+    provider_remote_id TEXT NOT NULL DEFAULT ''
 );
 
 -- Labels
@@ -264,6 +266,9 @@ ON folders(account_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_folders_account_role
 ON folders(account_id, role);
 
+CREATE INDEX IF NOT EXISTS idx_folders_account_provider_remote
+ON folders(account_id, provider_remote_id);
+
 CREATE INDEX IF NOT EXISTS idx_folders_role_account
 ON folders(role, account_id, id);
 
@@ -323,6 +328,8 @@ ON message_recipients(message_id);
 
 CREATE INDEX IF NOT EXISTS idx_attachments_message
 ON attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_message_provider_remote
+ON attachments(message_id, provider_remote_id);
 
 CREATE INDEX IF NOT EXISTS idx_sync_state_account
 ON sync_state(account_id, folder_id);
@@ -835,4 +842,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (47);
+INSERT OR REPLACE INTO schema_version (version) VALUES (49);

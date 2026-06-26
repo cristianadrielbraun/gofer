@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 47
+	const targetSchemaVersion = 49
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -426,6 +426,18 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 46 {
 		if err := migrateV46ToV47(tx); err != nil {
 			return fmt.Errorf("migrate v46 to v47: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 47 {
+		if err := migrateV47ToV48(tx); err != nil {
+			return fmt.Errorf("migrate v47 to v48: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 48 {
+		if err := migrateV48ToV49(tx); err != nil {
+			return fmt.Errorf("migrate v48 to v49: %w", err)
 		}
 	}
 
@@ -1829,6 +1841,58 @@ func migrateV46ToV47(tx *sql.Tx) error {
 		}
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (47)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateV47ToV48(tx *sql.Tx) error {
+	hasFolders := false
+	if ok, err := tableExistsTx(tx, "folders"); err != nil {
+		return err
+	} else if ok {
+		hasFolders = true
+		if exists, err := columnExistsTx(tx, "folders", "provider_remote_id"); err != nil {
+			return err
+		} else if !exists {
+			if _, err := tx.Exec(`ALTER TABLE folders ADD COLUMN provider_remote_id TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+	}
+	if hasFolders {
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_folders_account_provider_remote
+		 ON folders(account_id, provider_remote_id)`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (48)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateV48ToV49(tx *sql.Tx) error {
+	hasAttachments := false
+	if ok, err := tableExistsTx(tx, "attachments"); err != nil {
+		return err
+	} else if ok {
+		hasAttachments = true
+		if exists, err := columnExistsTx(tx, "attachments", "provider_remote_id"); err != nil {
+			return err
+		} else if !exists {
+			if _, err := tx.Exec(`ALTER TABLE attachments ADD COLUMN provider_remote_id TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+	}
+	if hasAttachments {
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_attachments_message_provider_remote
+		 ON attachments(message_id, provider_remote_id)`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (49)`); err != nil {
 		return err
 	}
 	return nil

@@ -77,6 +77,10 @@ type graphMailTokenProvider interface {
 	GetMicrosoftGraphMailTokenForAccount(ctx context.Context, accountID string) (string, error)
 }
 
+type legacyOutlookMailTokenProvider interface {
+	GetMicrosoftLegacyOutlookMailTokenForAccount(ctx context.Context, accountID string) (string, error)
+}
+
 type SyncOrchestrator struct {
 	db                  *storage.DB
 	accountStore        *config.AccountStore
@@ -269,6 +273,10 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 		o.markAccountSyncError(ctx, accountID, err)
 		return
 	}
+	if o.shouldUseOutlookGraphMail(cfg) {
+		log.Printf("idle %s: skipping IMAP IDLE for Graph-first Outlook sync", accountID)
+		return
+	}
 
 	password, err := o.resolvePassword(ctx, cfg, accountID)
 	if err != nil {
@@ -314,6 +322,11 @@ func (o *SyncOrchestrator) getInterval() int {
 
 func (o *SyncOrchestrator) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
 	if cfg.AuthMethod == "oauth2" && o.tokenProvider != nil {
+		if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
+			if legacy, ok := o.tokenProvider.(legacyOutlookMailTokenProvider); ok {
+				return legacy.GetMicrosoftLegacyOutlookMailTokenForAccount(ctx, accountID)
+			}
+		}
 		return o.tokenProvider.GetOAuthTokenForAccount(ctx, accountID)
 	}
 	return o.accountStore.DecryptPassword(ctx, accountID)
@@ -1320,6 +1333,10 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		return err
 	}
 
+	if o.shouldUseOutlookGraphMail(cfg) {
+		return o.syncOutlookGraphAccount(ctx, accountID, includeIDLEFolders)
+	}
+
 	password, err := o.resolvePassword(ctx, cfg, accountID)
 	if err != nil {
 		return err
@@ -1401,6 +1418,9 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		syncFolders, idleExcluded = pollingIMAPFoldersForAutomaticSync(syncFolders, idleRemoteNames)
 	}
 	if len(syncFolders) == 0 {
+		if err := o.syncProviderLabelChanges(ctx, accountID, cfg.Provider); err != nil {
+			return err
+		}
 		payload := accountSyncProgressPayload(ctx, accountSyncBackground, map[string]any{
 			"status":                "ok",
 			"account_folders_total": 0,
@@ -1429,7 +1449,11 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		}
 	}
 
-	if err := o.syncProviderLabels(ctx, accountID, cfg.Provider); err != nil {
+	if includeIDLEFolders {
+		if err := o.syncProviderLabels(ctx, accountID, cfg.Provider); err != nil {
+			return err
+		}
+	} else if err := o.syncProviderLabelChanges(ctx, accountID, cfg.Provider); err != nil {
 		return err
 	}
 
@@ -1524,7 +1548,7 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 		o.db.UpdateFolderIncrementalSync(syncCtx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
 	}
 
-	if err := o.syncProviderLabels(syncCtx, accountID, cfg.Provider); err != nil {
+	if err := o.syncProviderLabelChanges(syncCtx, accountID, cfg.Provider); err != nil {
 		log.Printf("incremental %s/%s labels: %v", accountID, remoteName, err)
 		o.markAccountSyncError(syncCtx, accountID, err)
 		return

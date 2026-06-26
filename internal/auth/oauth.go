@@ -92,10 +92,9 @@ func microsoftAccountTokenScopes() []string {
 		"email",
 		"profile",
 		"offline_access",
-		microsoftOutlookIMAPScope,
-		microsoftOutlookSMTPScope,
 		microsoftGraphContactsScope,
 		microsoftGraphMailScope,
+		microsoftGraphMailSendScope,
 		microsoftGraphMailboxSettingsScope,
 	}
 }
@@ -106,8 +105,10 @@ func microsoftAccountTokenExchangeScopes() []string {
 		"email",
 		"profile",
 		"offline_access",
-		microsoftOutlookIMAPScope,
-		microsoftOutlookSMTPScope,
+		microsoftGraphContactsScope,
+		microsoftGraphMailScope,
+		microsoftGraphMailSendScope,
+		microsoftGraphMailboxSettingsScope,
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -24,6 +25,10 @@ func (labelSyncTestTokens) GetOAuthTokenForAccount(context.Context, string) (str
 
 func (labelSyncTestTokens) GetMicrosoftGraphMailTokenForAccount(context.Context, string) (string, error) {
 	return "graph-token", nil
+}
+
+func (labelSyncTestTokens) GetMicrosoftLegacyOutlookMailTokenForAccount(context.Context, string) (string, error) {
+	return "legacy-outlook-token", nil
 }
 
 func newLabelSyncTestDB(t *testing.T) *storage.DB {
@@ -87,7 +92,9 @@ func TestSyncGmailLabelsImportsRemoteMessageLabels(t *testing.T) {
 				{"id": "INBOX", "name": "INBOX", "type": "system"},
 			}})
 		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-msg-1":
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "gmail-msg-1", "labelIds": []string{"INBOX", "Label_1"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "gmail-msg-1", "historyId": "101", "labelIds": []string{"INBOX", "Label_1"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/profile":
+			_ = json.NewEncoder(w).Encode(map[string]any{"historyId": "105"})
 		default:
 			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
 		}
@@ -116,6 +123,220 @@ func TestSyncGmailLabelsImportsRemoteMessageLabels(t *testing.T) {
 	}
 	if state.LastTotalMessages != 1 || state.LastSyncedMessages != 1 || state.LastWithLabels != 1 || state.LastWithoutLabels != 0 || state.LastFailedMessages != 0 {
 		t.Fatalf("sync stats = %#v, want one synced labeled Gmail message", state)
+	}
+	if state.Cursor != "105" {
+		t.Fatalf("sync cursor = %q, want profile history cursor", state.Cursor)
+	}
+}
+
+func TestSyncGmailLabelsMirrorsInboxSystemLabelFromImportantMailbox(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_important", AccountID: "acc", RemoteID: "[Gmail]/Important", Name: "Important", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []storage.SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "acc_important",
+		RemoteUID: 44,
+		MessageID: "<important-inbox@example.com>",
+		Subject:   "Important arrival",
+		FromEmail: "sender@example.com",
+		DateSent:  time.Now(),
+		IsRead:    false,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<important-inbox@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+	if err := db.SetMessageProviderMessageID(ctx, msgID, "gmail-important-1"); err != nil {
+		t.Fatalf("SetMessageProviderMessageID() error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]string{
+				{"id": "INBOX", "name": "INBOX", "type": "system"},
+				{"id": "IMPORTANT", "name": "IMPORTANT", "type": "system"},
+				{"id": "UNREAD", "name": "UNREAD", "type": "system"},
+			}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-important-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "gmail-important-1", "historyId": "201", "labelIds": []string{"INBOX", "IMPORTANT", "UNREAD"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/profile":
+			_ = json.NewEncoder(w).Encode(map[string]any{"historyId": "205"})
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if err := orchestrator.syncGmailLabels(ctx, "acc"); err != nil {
+		t.Fatalf("syncGmailLabels() error = %v", err)
+	}
+
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser(inbox) error = %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Emails) != 1 || page.Emails[0].Subject != "Important arrival" {
+		t.Fatalf("inbox page total=%d emails=%#v, want Important arrival", page.TotalCount, page.Emails)
+	}
+	if page.Emails[0].IsRead {
+		t.Fatalf("important inbox email IsRead = true, want unread from Gmail UNREAD label")
+	}
+
+	var inboxRows, nullUIDs int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*), SUM(CASE WHEN remote_uid IS NULL THEN 1 ELSE 0 END) FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_inbox'`, msgID).Scan(&inboxRows, &nullUIDs); err != nil {
+		t.Fatalf("query inbox state: %v", err)
+	}
+	if inboxRows != 1 || nullUIDs != 1 {
+		t.Fatalf("inbox state rows=%d nullUIDs=%d, want one synthetic inbox row", inboxRows, nullUIDs)
+	}
+}
+
+func TestSyncGmailLabelChangesUsesHistoryCursor(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	msgID := seedLabelSyncMessage(t, db, providers.ProviderGmail, "<gmail-history@example.com>", "gmail-msg-history")
+	if err := db.MarkLabelSyncRun(ctx, storage.LabelSyncRunStats{
+		AccountID:    "acc",
+		ProviderType: storage.LabelProviderGmail,
+		Scope:        "messages",
+		Cursor:       "10",
+		Full:         true,
+	}, nil); err != nil {
+		t.Fatalf("MarkLabelSyncRun() error = %v", err)
+	}
+
+	historyRequests := 0
+	messageRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]string{
+				{"id": "Label_1", "name": "Projects", "type": "user"},
+				{"id": "INBOX", "name": "INBOX", "type": "system"},
+			}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
+			historyRequests++
+			if got := r.URL.Query().Get("startHistoryId"); got != "10" {
+				t.Fatalf("startHistoryId = %q, want 10", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"historyId": "12",
+				"history": []map[string]any{{
+					"labelsAdded": []map[string]any{{
+						"message":  map[string]string{"id": "gmail-msg-history"},
+						"labelIds": []string{"Label_1"},
+					}},
+				}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-msg-history":
+			messageRequests++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":        "gmail-msg-history",
+				"historyId": "12",
+				"labelIds":  []string{"INBOX", "Label_1"},
+				"payload": map[string]any{"headers": []map[string]string{
+					{"name": "Message-ID", "value": "<gmail-history@example.com>"},
+				}},
+			})
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if err := orchestrator.syncGmailLabelChanges(ctx, "acc"); err != nil {
+		t.Fatalf("syncGmailLabelChanges() error = %v", err)
+	}
+	if historyRequests != 1 || messageRequests != 1 {
+		t.Fatalf("requests history=%d message=%d, want 1 and 1", historyRequests, messageRequests)
+	}
+
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderID != "Label_1" {
+		t.Fatalf("labels = %#v, want Projects from history delta", email.Labels)
+	}
+	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if state.Cursor != "12" || state.LastTotalMessages != 1 || state.LastSyncedMessages != 1 || state.LastWithLabels != 1 {
+		t.Fatalf("sync state = %#v, want cursor 12 and one synced labeled message", state)
+	}
+}
+
+func TestSyncGmailLabelChangesSkipsCatalogWhenHistoryIsEmpty(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.MarkLabelSyncRun(ctx, storage.LabelSyncRunStats{
+		AccountID:    "acc",
+		ProviderType: storage.LabelProviderGmail,
+		Scope:        "messages",
+		Cursor:       "20",
+		Full:         true,
+	}, nil); err != nil {
+		t.Fatalf("MarkLabelSyncRun() error = %v", err)
+	}
+
+	historyRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
+			historyRequests++
+			if got := r.URL.Query().Get("startHistoryId"); got != "20" {
+				t.Fatalf("startHistoryId = %q, want 20", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"historyId": "21"})
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if err := orchestrator.syncGmailLabelChanges(ctx, "acc"); err != nil {
+		t.Fatalf("syncGmailLabelChanges() error = %v", err)
+	}
+	if historyRequests != 1 {
+		t.Fatalf("history requests = %d, want 1", historyRequests)
+	}
+	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if state.Cursor != "21" || state.LastTotalMessages != 0 || state.LastSyncedMessages != 0 {
+		t.Fatalf("sync state = %#v, want cursor 21 and no message work", state)
 	}
 }
 

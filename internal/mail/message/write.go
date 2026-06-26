@@ -44,6 +44,14 @@ func NewMessageID() string {
 }
 
 func BuildMIMEMessage(msg *OutgoingMessage) ([]byte, error) {
+	return buildMIMEMessage(msg, false)
+}
+
+func BuildMIMEMessageForGraph(msg *OutgoingMessage) ([]byte, error) {
+	return buildMIMEMessage(msg, true)
+}
+
+func buildMIMEMessage(msg *OutgoingMessage, includeBcc bool) ([]byte, error) {
 	from := []*mail.Address{{Name: msg.FromName, Address: msg.FromEmail}}
 	if msg.MessageID == "" {
 		msg.MessageID = NewMessageID()
@@ -58,6 +66,9 @@ func BuildMIMEMessage(msg *OutgoingMessage) ([]byte, error) {
 	buf.WriteString(fmt.Sprintf("To: %s\r\n", formatAddressList(msg.To)))
 	if len(msg.CC) > 0 {
 		buf.WriteString(fmt.Sprintf("Cc: %s\r\n", formatAddressList(msg.CC)))
+	}
+	if includeBcc && len(msg.Bcc) > 0 {
+		buf.WriteString(fmt.Sprintf("Bcc: %s\r\n", formatAddressList(msg.Bcc)))
 	}
 	buf.WriteString(fmt.Sprintf("Subject: %s\r\n", mime.QEncoding.Encode("utf-8", msg.Subject)))
 	buf.WriteString(fmt.Sprintf("Date: %s\r\n", msg.Date.Format(time.RFC1123Z)))

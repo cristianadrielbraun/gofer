@@ -46,7 +46,7 @@ func detectRoleByName(upper string) string {
 		return "junk"
 	case "ARCHIVE", "[GMAIL]/ALL MAIL":
 		return "archive"
-	case "STARRED", "[GMAIL]/STARRED", "FLAGGED", "IMPORTANT":
+	case "STARRED", "[GMAIL]/STARRED", "FLAGGED":
 		return "starred"
 	default:
 		return "custom"

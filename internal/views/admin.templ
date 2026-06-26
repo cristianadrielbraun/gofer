@@ -675,6 +675,13 @@ func adminLabelCoverageText(withLabels int, total int) string {
 	return fmt.Sprintf("%d%%", adminPercent(withLabels, total))
 }
 
+func adminOutlookGraphParityStatus(status *models.OutlookGraphDiagnostics) string {
+	if status != nil && status.GraphParityReady {
+		return "Ready"
+	}
+	return "Needs repair"
+}
+
 templ AdminLabelsPage(status models.LabelAdminStatus) {
 	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
@@ -783,6 +790,24 @@ templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
 			@AdminDetail("labels_catalog_" + account.AccountID, "Known labels", fmt.Sprintf("%d", account.KnownLabels))
 			@AdminDetail("labels_queue_" + account.AccountID, "Queued mutations", fmt.Sprintf("%d", account.PendingMutations))
 		</div>
+		if account.OutlookGraph != nil {
+			<div class="mt-4 rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 flex items-center justify-between gap-3">
+					<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Outlook Graph parity</div>
+					<div class="text-[11px] font-bold tabular-nums text-foreground">{ fmt.Sprintf("%d/%d folders", account.OutlookGraph.GraphBackedFolders, account.OutlookGraph.LocalFolders) }</div>
+				</div>
+				<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+					@AdminCompactMetric("labels_graph_messages_" + account.AccountID, "Graph IDs", account.OutlookGraph.GraphBackedMessages)
+					@AdminCompactMetric("labels_imap_messages_" + account.AccountID, "IMAP rows", account.OutlookGraph.IMAPBackedMessages)
+					@AdminCompactMetric("labels_graph_delta_" + account.AccountID, "Parity delta", account.OutlookGraph.MessageParityDelta)
+					@AdminCompactDetail("labels_graph_ready_" + account.AccountID, "Parity status", adminOutlookGraphParityStatus(account.OutlookGraph))
+					@AdminCompactMetric("labels_missing_graph_" + account.AccountID, "Missing Graph IDs", account.OutlookGraph.MessagesMissingGraphID)
+					@AdminCompactMetric("labels_backfillable_" + account.AccountID, "Backfillable", account.OutlookGraph.MissingGraphIDWithInternetID)
+					@AdminCompactMetric("labels_unresolvable_" + account.AccountID, "No Message-ID", account.OutlookGraph.MissingGraphIDWithoutInternetID)
+					@AdminCompactMetric("labels_missing_graph_folder_" + account.AccountID, "No Graph folder", account.OutlookGraph.MissingGraphIDWithoutGraphFolder)
+				</div>
+			</div>
+		}
 		<div class="mt-4 grid gap-3 lg:grid-cols-2">
 			<div class="rounded-lg border border-border bg-background/35 p-3">
 				<div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Last sync run</div>

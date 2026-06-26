@@ -66,6 +66,183 @@ func TestGetFoldersForAccountSkipsNonSelectableFolders(t *testing.T) {
 	}
 }
 
+func TestUpsertFoldersPreservesRemoteIDWhenProviderRemoteIDChanges(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "INBOX",
+		ProviderRemoteID: "graph-inbox-1",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders(graph) error = %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:         "acc_inbox",
+		AccountID:  "acc",
+		RemoteID:   "INBOX",
+		Name:       "Inbox",
+		Role:       "inbox",
+		Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders(imap) error = %v", err)
+	}
+
+	folders, err := db.GetFoldersForAccount(ctx, "acc")
+	if err != nil {
+		t.Fatalf("GetFoldersForAccount() error = %v", err)
+	}
+	if len(folders) != 1 {
+		t.Fatalf("folders = %#v, want one folder", folders)
+	}
+	if folders[0].RemoteID != "INBOX" || folders[0].ProviderRemoteID != "graph-inbox-1" {
+		t.Fatalf("folder identity = remote %q provider %q, want INBOX/graph-inbox-1", folders[0].RemoteID, folders[0].ProviderRemoteID)
+	}
+}
+
+func TestUpsertProviderSyncMessagesHydratesExistingIMAPMessage(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "graph-inbox", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "acc_inbox",
+		RemoteUID: 7,
+		MessageID: "<shared@example.com>",
+		Subject:   "IMAP version",
+		FromEmail: "sender@example.com",
+		DateSent:  time.Now(),
+		IsRead:    false,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	beforeID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<shared@example.com>")
+	if err != nil || beforeID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", beforeID, err)
+	}
+
+	ids, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<shared@example.com>",
+		ProviderThreadID:  "conversation-1",
+		Subject:           "Graph version",
+		FromEmail:         "sender@example.com",
+		DateSent:          time.Now(),
+		DateReceived:      time.Now(),
+		IsRead:            true,
+		ToRecipients:      []Recipient{{Name: "To", Email: "to@example.com"}},
+		CCRecipients:      []Recipient{{Name: "Cc", Email: "cc@example.com"}},
+		BCCRecipients:     []Recipient{{Name: "Bcc", Email: "bcc@example.com"}},
+		LabelsKnown:       true,
+		LabelProvider:     LabelProviderOutlook,
+		Labels:            []LabelInput{{Name: "Projects", ProviderID: "Projects", ProviderType: LabelProviderOutlook}},
+	}})
+	if err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	if ids["graph-message-1"] != beforeID {
+		t.Fatalf("provider ids = %#v, want graph-message-1 -> %d", ids, beforeID)
+	}
+
+	var remoteID string
+	var isRead bool
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT COALESCE(m.remote_message_id, ''), mfs.is_read
+		FROM messages m JOIN message_folder_state mfs ON mfs.message_id = m.id
+		WHERE m.id = ?`, beforeID).Scan(&remoteID, &isRead); err != nil {
+		t.Fatalf("query hydrated message: %v", err)
+	}
+	if remoteID != "graph-message-1" || !isRead {
+		t.Fatalf("hydrated message remote=%q is_read=%v, want graph-message-1/true", remoteID, isRead)
+	}
+
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(beforeID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderType != LabelProviderOutlook {
+		t.Fatalf("labels = %#v, want Projects outlook label", email.Labels)
+	}
+	if len(email.To) != 1 || email.To[0].Email != "to@example.com" || len(email.CC) != 1 || email.CC[0].Email != "cc@example.com" || len(email.BCC) != 1 || email.BCC[0].Email != "bcc@example.com" {
+		t.Fatalf("recipients to=%#v cc=%#v bcc=%#v, want provider to/cc/bcc", email.To, email.CC, email.BCC)
+	}
+}
+
+func TestReplaceAttachmentsPreservesProviderStoragePath(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'outlook', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "Inbox", ProviderRemoteID: "graph-inbox", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	ids, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<attachment-preserve@example.com>",
+		Subject:           "Attachment preserve",
+		FromEmail:         "sender@example.com",
+		DateSent:          time.Now(),
+		DateReceived:      time.Now(),
+		IsRead:            true,
+		HasAttachments:    true,
+	}})
+	if err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	msgID := ids["graph-message-1"]
+	if msgID == 0 {
+		t.Fatal("provider message was not inserted")
+	}
+
+	if err := db.ReplaceAttachments(ctx, msgID, []AttachmentRow{{
+		Filename:         "old.pdf",
+		ContentType:      "application/pdf",
+		SizeBytes:        10,
+		StoragePath:      "/tmp/gofer-downloaded-old.pdf",
+		ProviderRemoteID: "graph-attachment-1",
+	}}); err != nil {
+		t.Fatalf("ReplaceAttachments(initial) error = %v", err)
+	}
+	if err := db.ReplaceAttachments(ctx, msgID, []AttachmentRow{{
+		Filename:         "new.pdf",
+		ContentType:      "application/pdf",
+		SizeBytes:        12,
+		ProviderRemoteID: "graph-attachment-1",
+	}}); err != nil {
+		t.Fatalf("ReplaceAttachments(refresh) error = %v", err)
+	}
+
+	var filename, storagePath string
+	if err := db.Read().QueryRowContext(ctx, `SELECT filename, storage_path FROM attachments WHERE message_id = ?`, msgID).Scan(&filename, &storagePath); err != nil {
+		t.Fatalf("query attachment: %v", err)
+	}
+	if filename != "new.pdf" {
+		t.Fatalf("filename = %q, want refreshed metadata", filename)
+	}
+	if storagePath != "/tmp/gofer-downloaded-old.pdf" {
+		t.Fatalf("storage_path = %q, want preserved downloaded path", storagePath)
+	}
+}
+
 func TestSyncMessagesReplaceIMAPKeywordLabels(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -213,6 +390,62 @@ func TestGetLabelAdminStatusAggregatesCoverageAndLastRun(t *testing.T) {
 	}
 	if len(account.TopLabels) != 1 || account.TopLabels[0].Name != "Projects" || account.TopLabels[0].Count != 1 {
 		t.Fatalf("top labels = %#v, want Projects usage", account.TopLabels)
+	}
+}
+
+func TestGetLabelAdminStatusIncludesOutlookGraphDiagnostics(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address, display_name) VALUES ('acc', 'default', 'outlook', 'user@example.com', 'User Outlook')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", RemoteID: "Inbox", ProviderRemoteID: "graph-inbox", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_legacy", AccountID: "acc", RemoteID: "Legacy", Name: "Legacy", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	now := time.Now()
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<graph@example.com>",
+		Subject:           "Graph",
+		FromEmail:         "sender@example.com",
+		DateSent:          now,
+		DateReceived:      now,
+		IsRead:            true,
+	}}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{
+		{AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 2, MessageID: "<backfillable@example.com>", Subject: "Backfillable", FromEmail: "sender@example.com", DateSent: now, IsRead: true},
+		{AccountID: "acc", FolderID: "acc_legacy", RemoteUID: 3, MessageID: "", Subject: "Synthetic", FromEmail: "sender@example.com", DateSent: now, IsRead: true},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+
+	status, err := db.GetLabelAdminStatus(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetLabelAdminStatus() error = %v", err)
+	}
+	if len(status.Accounts) != 1 || status.Accounts[0].OutlookGraph == nil {
+		t.Fatalf("accounts = %#v, want Outlook graph diagnostics", status.Accounts)
+	}
+	graph := status.Accounts[0].OutlookGraph
+	if graph.GraphBackedMessages != 1 || graph.IMAPBackedMessages != 2 || graph.MessagesMissingGraphID != 2 {
+		t.Fatalf("graph diagnostics = %#v, want graph/imap/missing counts", graph)
+	}
+	if graph.MessageParityDelta != -1 || graph.GraphParityReady {
+		t.Fatalf("graph parity = delta %d ready %v, want -1/not ready", graph.MessageParityDelta, graph.GraphParityReady)
+	}
+	if graph.MissingGraphIDWithInternetID != 1 || graph.MissingGraphIDWithoutInternetID != 1 || graph.MissingGraphIDWithoutGraphFolder != 1 {
+		t.Fatalf("graph missing reason buckets = %#v, want one in each expected bucket", graph)
+	}
+	if graph.LocalFolders != 2 || graph.GraphBackedFolders != 1 || graph.FoldersMissingGraphID != 1 {
+		t.Fatalf("graph folder diagnostics = %#v, want one graph-backed and one legacy folder", graph)
 	}
 }
 
@@ -700,6 +933,95 @@ func TestAddMessageToFolderWithoutRemoteUIDAllowsMultipleUnknownUIDs(t *testing.
 	}
 }
 
+func TestSyncGmailInboxMembershipPreservesRealUIDAndRemovesOnlySyntheticRows(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_important", AccountID: "acc", RemoteID: "[Gmail]/Important", Name: "Important", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	now := time.Now()
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "acc_important",
+		RemoteUID: 7,
+		MessageID: "<synthetic-inbox@example.com>",
+		Subject:   "Synthetic inbox",
+		FromEmail: "sender@example.com",
+		DateSent:  now,
+		IsRead:    true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages(important) error = %v", err)
+	}
+	syntheticID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<synthetic-inbox@example.com>")
+	if err != nil || syntheticID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID(synthetic) = %d, %v", syntheticID, err)
+	}
+	if err := db.SyncGmailInboxMembership(ctx, syntheticID, "acc", []string{"INBOX", "UNREAD"}); err != nil {
+		t.Fatalf("SyncGmailInboxMembership(add synthetic) error = %v", err)
+	}
+	var remoteUID sql.NullInt64
+	var isRead int
+	if err := db.Read().QueryRowContext(ctx, `SELECT remote_uid, is_read FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_inbox'`, syntheticID).Scan(&remoteUID, &isRead); err != nil {
+		t.Fatalf("query synthetic inbox row: %v", err)
+	}
+	if remoteUID.Valid || isRead != 0 {
+		t.Fatalf("synthetic inbox row remoteUID=%v isRead=%d, want null/unread", remoteUID, isRead)
+	}
+	if err := db.SyncGmailInboxMembership(ctx, syntheticID, "acc", []string{"IMPORTANT"}); err != nil {
+		t.Fatalf("SyncGmailInboxMembership(remove synthetic) error = %v", err)
+	}
+	var syntheticRows int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_inbox'`, syntheticID).Scan(&syntheticRows); err != nil {
+		t.Fatalf("query synthetic inbox rows: %v", err)
+	}
+	if syntheticRows != 0 {
+		t.Fatalf("synthetic inbox rows after removal = %d, want 0", syntheticRows)
+	}
+
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "acc_inbox",
+		RemoteUID: 99,
+		MessageID: "<real-inbox@example.com>",
+		Subject:   "Real inbox",
+		FromEmail: "sender@example.com",
+		DateSent:  now,
+		IsRead:    false,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages(inbox) error = %v", err)
+	}
+	realID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<real-inbox@example.com>")
+	if err != nil || realID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID(real) = %d, %v", realID, err)
+	}
+	if err := db.SyncGmailInboxMembership(ctx, realID, "acc", []string{"INBOX"}); err != nil {
+		t.Fatalf("SyncGmailInboxMembership(update real) error = %v", err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `SELECT remote_uid, is_read FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_inbox'`, realID).Scan(&remoteUID, &isRead); err != nil {
+		t.Fatalf("query real inbox row: %v", err)
+	}
+	if !remoteUID.Valid || remoteUID.Int64 != 99 || isRead != 1 {
+		t.Fatalf("real inbox row remoteUID=%v isRead=%d, want UID 99/read", remoteUID, isRead)
+	}
+	if err := db.SyncGmailInboxMembership(ctx, realID, "acc", []string{"IMPORTANT"}); err != nil {
+		t.Fatalf("SyncGmailInboxMembership(skip real removal) error = %v", err)
+	}
+	var realRows int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_inbox'`, realID).Scan(&realRows); err != nil {
+		t.Fatalf("query real inbox rows: %v", err)
+	}
+	if realRows != 1 {
+		t.Fatalf("real inbox rows after removal attempt = %d, want preserved row", realRows)
+	}
+}
+
 func TestMigrateV34MarksGmailContainerNonSelectable(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gofer.db")
 	raw, err := openDB(dbPath)
@@ -733,6 +1055,22 @@ func TestMigrateV34MarksGmailContainerNonSelectable(t *testing.T) {
 	}
 	if selectable != 0 {
 		t.Fatalf("selectable = %d, want 0", selectable)
+	}
+}
+
+func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	var version int
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("query schema version: %v", err)
+	}
+	if version != 49 {
+		t.Fatalf("schema version = %d, want 49", version)
 	}
 }
 
@@ -781,8 +1119,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 47 {
-		t.Fatalf("schema version = %d, want 47", version)
+	if version != 49 {
+		t.Fatalf("schema version = %d, want 49", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

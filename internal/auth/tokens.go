@@ -18,6 +18,7 @@ import (
 const (
 	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
 	microsoftGraphMailScope            = "https://graph.microsoft.com/Mail.ReadWrite"
+	microsoftGraphMailSendScope        = "https://graph.microsoft.com/Mail.Send"
 	microsoftGraphMailboxSettingsScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
 	microsoftOutlookIMAPScope          = "https://outlook.office.com/IMAP.AccessAsUser.All"
 	microsoftOutlookSMTPScope          = "https://outlook.office.com/SMTP.Send"
@@ -33,12 +34,20 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 		return "", err
 	}
 	if accountProvider == providers.ProviderOutlook {
-		return m.getMicrosoftOutlookMailTokenForAccount(ctx, accountID, providerAccountID != "")
+		return m.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	}
 	if providerAccountID != "" {
 		return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider, true)
 	}
 	return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider, false)
+}
+
+func (m *Manager) GetMicrosoftLegacyOutlookMailTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	var providerAccountID string
+	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider_account_id FROM accounts WHERE id = ? AND provider = ?`, accountID, providers.ProviderOutlook).Scan(&providerAccountID); err != nil {
+		return "", fmt.Errorf("query outlook oauth identity: %w", err)
+	}
+	return m.getMicrosoftOutlookMailTokenForAccount(ctx, accountID, providerAccountID != "")
 }
 
 func (m *Manager) GetMicrosoftGraphContactsTokenForAccount(ctx context.Context, accountID string) (string, error) {
@@ -60,6 +69,9 @@ func (m *Manager) getMicrosoftGraphTokenForAccount(ctx context.Context, accountI
 	record, err := m.oauthTokenForAccount(ctx, accountID, providers.OAuthMicrosoft, providerAccountID != "")
 	if err != nil {
 		return "", err
+	}
+	if record.AccessToken != "" && recordHasScopes(record.Scopes, scopes...) && record.ExpiresAt.Valid && record.ExpiresAt.Time.After(time.Now().Add(5*time.Minute)) {
+		return record.AccessToken, nil
 	}
 	if strings.TrimSpace(record.RefreshToken) == "" {
 		return "", fmt.Errorf("no refresh token available for account %s", accountID)
@@ -116,7 +128,7 @@ func microsoftOutlookMailScopes() []string {
 }
 
 func microsoftGraphMailScopes() []string {
-	return []string{microsoftGraphMailScope, microsoftGraphMailboxSettingsScope}
+	return []string{microsoftGraphMailScope, microsoftGraphMailSendScope, microsoftGraphMailboxSettingsScope}
 }
 
 func recordHasScopes(recordScopes string, expected ...string) bool {

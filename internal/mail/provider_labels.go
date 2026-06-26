@@ -122,6 +122,46 @@ func (o *SyncOrchestrator) syncProviderLabels(ctx context.Context, accountID, ac
 	return nil
 }
 
+func (o *SyncOrchestrator) syncProviderLabelChanges(ctx context.Context, accountID, accountProvider string) error {
+	if o.db == nil {
+		return nil
+	}
+	if o.tokenProvider == nil {
+		switch strings.TrimSpace(accountProvider) {
+		case providers.ProviderGmail, providers.ProviderOutlook:
+			return nil
+		default:
+			o.replayIMAPLabelMutationQueue(ctx, accountID)
+		}
+		return nil
+	}
+
+	var err error
+	var providerType string
+	switch strings.TrimSpace(accountProvider) {
+	case providers.ProviderGmail:
+		providerType = storage.LabelProviderGmail
+		err = o.syncGmailLabelChanges(ctx, accountID)
+	case providers.ProviderOutlook:
+		providerType = storage.LabelProviderOutlook
+		err = o.syncOutlookCategories(ctx, accountID)
+	default:
+		o.replayIMAPLabelMutationQueue(ctx, accountID)
+		return nil
+	}
+	if err == nil {
+		return nil
+	}
+	log.Printf("provider label sync %s/%s: %v", accountID, providerType, err)
+	if markErr := o.db.MarkLabelSyncError(context.Background(), accountID, providerType, "messages", err); markErr != nil {
+		log.Printf("provider label sync error state %s/%s: %v", accountID, providerType, markErr)
+	}
+	if providerLabelSyncShouldFailAccount(providerType, err) {
+		return err
+	}
+	return nil
+}
+
 type gmailLabelsResponse struct {
 	Labels []gmailLabel `json:"labels"`
 }
@@ -142,6 +182,41 @@ type gmailMessageState struct {
 	ID        string   `json:"id"`
 	LabelIDs  []string `json:"labelIds"`
 	HistoryID string   `json:"historyId"`
+	Payload   struct {
+		Headers []struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"headers"`
+	} `json:"payload"`
+}
+
+type gmailProfile struct {
+	HistoryID string `json:"historyId"`
+}
+
+type gmailHistoryResponse struct {
+	History       []gmailHistoryRecord `json:"history"`
+	NextPageToken string               `json:"nextPageToken"`
+	HistoryID     string               `json:"historyId"`
+}
+
+type gmailHistoryRecord struct {
+	MessagesAdded []gmailHistoryMessageChange `json:"messagesAdded"`
+	LabelsAdded   []gmailHistoryLabelChange   `json:"labelsAdded"`
+	LabelsRemoved []gmailHistoryLabelChange   `json:"labelsRemoved"`
+}
+
+type gmailHistoryMessageChange struct {
+	Message gmailHistoryMessage `json:"message"`
+}
+
+type gmailHistoryLabelChange struct {
+	Message  gmailHistoryMessage `json:"message"`
+	LabelIDs []string            `json:"labelIds"`
+}
+
+type gmailHistoryMessage struct {
+	ID string `json:"id"`
 }
 
 func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string) (retErr error) {
@@ -192,6 +267,7 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 				continue
 			}
 			stats.SyncedMessages++
+			stats.Cursor = newerGmailHistoryID(stats.Cursor, result.HistoryID)
 			if result.WithLabels {
 				stats.WithLabels++
 			} else {
@@ -203,8 +279,99 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 		}
 	}
 	o.replayGmailLabelMutationQueue(ctx, accountID, token)
+	if cursor, err := getGmailProfileHistoryID(ctx, token); err == nil {
+		stats.Cursor = newerGmailHistoryID(stats.Cursor, cursor)
+	} else {
+		log.Printf("gmail label sync profile cursor account=%s: %v", accountID, err)
+	}
 	if failed > 0 {
 		return fmt.Errorf("%d Gmail message label import(s) failed", failed)
+	}
+	return nil
+}
+
+func (o *SyncOrchestrator) syncGmailLabelChanges(ctx context.Context, accountID string) (retErr error) {
+	state, err := o.db.GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, "messages")
+	if err != nil {
+		return err
+	}
+	cursor := strings.TrimSpace(state.Cursor)
+	if cursor == "" || !state.LastFullSyncAt.Valid {
+		return o.syncGmailLabels(ctx, accountID)
+	}
+
+	stats := storage.LabelSyncRunStats{
+		AccountID:    accountID,
+		ProviderType: storage.LabelProviderGmail,
+		Scope:        "messages",
+		StartedAt:    time.Now().UTC(),
+		Full:         false,
+		Cursor:       cursor,
+	}
+	fallbackFull := false
+	defer func() {
+		if fallbackFull {
+			return
+		}
+		retErr = o.completeProviderLabelSyncRun(stats, retErr)
+	}()
+
+	token, err := o.tokenProvider.GetOAuthTokenForAccount(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errProviderLabelAuth, err)
+	}
+
+	providerIDs, latestCursor, err := gmailHistoryChangedMessageIDs(ctx, token, cursor)
+	if err != nil {
+		if status, ok := providerAPIStatus(err); ok && status == http.StatusNotFound {
+			log.Printf("gmail label sync account=%s history cursor expired, running full reconciliation", accountID)
+			fallbackFull = true
+			return o.syncGmailLabels(ctx, accountID)
+		}
+		return err
+	}
+	stats.Cursor = newerGmailHistoryID(stats.Cursor, latestCursor)
+	stats.TotalMessages = len(providerIDs)
+
+	labelsByID := map[string]gmailLabel{}
+	if len(providerIDs) > 0 {
+		labelsByID, err = o.syncGmailLabelCatalog(ctx, accountID, token)
+		if err != nil {
+			return err
+		}
+	}
+
+	failed := 0
+	for _, providerID := range providerIDs {
+		result, err := o.syncGmailHistoryMessageLabels(ctx, token, accountID, providerID, labelsByID)
+		if err != nil {
+			if providerLabelSyncShouldStop(err) {
+				stats.FailedMessages++
+				return err
+			}
+			failed++
+			stats.FailedMessages++
+			if providerMessageNotFound(err) {
+				stats.MissingProviderMessages++
+			}
+			log.Printf("gmail label sync history account=%s provider_message=%s: %v", accountID, providerID, err)
+			continue
+		}
+		stats.Cursor = newerGmailHistoryID(stats.Cursor, result.HistoryID)
+		if result.Skipped {
+			stats.SkippedMessages++
+			continue
+		}
+		stats.SyncedMessages++
+		if result.WithLabels {
+			stats.WithLabels++
+		} else {
+			stats.WithoutLabels++
+		}
+	}
+	o.replayGmailLabelMutationQueue(ctx, accountID, token)
+	if failed > 0 {
+		return fmt.Errorf("%d Gmail message label change import(s) failed", failed)
 	}
 	return nil
 }
@@ -260,8 +427,35 @@ func (o *SyncOrchestrator) syncGmailMessageLabels(ctx context.Context, token str
 	if err != nil {
 		return gmailLabelSyncResult{}, err
 	}
-	if strings.TrimSpace(state.ID) != "" && state.ID != providerMessageID {
+	return o.applyGmailMessageState(ctx, msg, providerMessageID, state, labelsByID)
+}
+
+func (o *SyncOrchestrator) syncGmailHistoryMessageLabels(ctx context.Context, token, accountID, providerMessageID string, labelsByID map[string]gmailLabel) (gmailLabelSyncResult, error) {
+	providerMessageID = strings.TrimSpace(providerMessageID)
+	if providerMessageID == "" {
+		return gmailLabelSyncResult{Skipped: true}, nil
+	}
+	state, err := getGmailMessageState(ctx, token, providerMessageID)
+	if err != nil {
+		return gmailLabelSyncResult{}, err
+	}
+	msg, err := o.db.GetProviderLabelSyncMessage(ctx, accountID, strings.TrimSpace(state.ID), gmailStateInternetMessageID(state))
+	if err != nil {
+		return gmailLabelSyncResult{}, err
+	}
+	if msg == nil {
+		return gmailLabelSyncResult{HistoryID: state.HistoryID, Skipped: true}, nil
+	}
+	return o.applyGmailMessageState(ctx, *msg, providerMessageID, state, labelsByID)
+}
+
+func (o *SyncOrchestrator) applyGmailMessageState(ctx context.Context, msg storage.ProviderLabelSyncMessage, providerMessageID string, state gmailMessageState, labelsByID map[string]gmailLabel) (gmailLabelSyncResult, error) {
+	if strings.TrimSpace(state.ID) != "" && strings.TrimSpace(state.ID) != strings.TrimSpace(msg.ProviderMessageID) {
 		if err := o.db.SetMessageProviderMessageID(ctx, msg.ID, strings.TrimSpace(state.ID)); err != nil {
+			log.Printf("cache gmail message id failed: %v", err)
+		}
+	} else if strings.TrimSpace(msg.ProviderMessageID) == "" && strings.TrimSpace(providerMessageID) != "" {
+		if err := o.db.SetMessageProviderMessageID(ctx, msg.ID, strings.TrimSpace(providerMessageID)); err != nil {
 			log.Printf("cache gmail message id failed: %v", err)
 		}
 	}
@@ -269,7 +463,10 @@ func (o *SyncOrchestrator) syncGmailMessageLabels(ctx context.Context, token str
 	if err := o.db.ReplaceMessageLabelsForProvider(ctx, msg.ID, msg.AccountID, storage.LabelProviderGmail, labels); err != nil {
 		return gmailLabelSyncResult{}, err
 	}
-	return gmailLabelSyncResult{WithLabels: len(labels) > 0}, nil
+	if err := o.db.SyncGmailInboxMembership(ctx, msg.ID, msg.AccountID, state.LabelIDs); err != nil {
+		return gmailLabelSyncResult{}, err
+	}
+	return gmailLabelSyncResult{WithLabels: len(labels) > 0, HistoryID: state.HistoryID}, nil
 }
 
 func gmailMessageIDForInternetID(ctx context.Context, token, internetMessageID string) (string, error) {
@@ -303,6 +500,100 @@ func getGmailMessageState(ctx context.Context, token, providerMessageID string) 
 		return gmailMessageState{}, err
 	}
 	return state, nil
+}
+
+func getGmailProfileHistoryID(ctx context.Context, token string) (string, error) {
+	var profile gmailProfile
+	if err := providerJSON(ctx, http.MethodGet, gmailAPIBaseURL+"/users/me/profile", token, nil, nil, &profile); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(profile.HistoryID), nil
+}
+
+func gmailHistoryChangedMessageIDs(ctx context.Context, token, cursor string) ([]string, string, error) {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return nil, "", nil
+	}
+	seen := map[string]bool{}
+	var ids []string
+	latestCursor := cursor
+	pageToken := ""
+	for {
+		values := url.Values{}
+		values.Set("startHistoryId", cursor)
+		values.Set("maxResults", "500")
+		values.Add("historyTypes", "messageAdded")
+		values.Add("historyTypes", "labelAdded")
+		values.Add("historyTypes", "labelRemoved")
+		if pageToken != "" {
+			values.Set("pageToken", pageToken)
+		}
+
+		var response gmailHistoryResponse
+		endpoint := gmailAPIBaseURL + "/users/me/history?" + values.Encode()
+		if err := providerJSON(ctx, http.MethodGet, endpoint, token, nil, nil, &response); err != nil {
+			return nil, "", err
+		}
+		latestCursor = newerGmailHistoryID(latestCursor, response.HistoryID)
+		add := func(providerID string) {
+			providerID = strings.TrimSpace(providerID)
+			if providerID == "" || seen[providerID] {
+				return
+			}
+			seen[providerID] = true
+			ids = append(ids, providerID)
+		}
+		for _, record := range response.History {
+			for _, change := range record.MessagesAdded {
+				add(change.Message.ID)
+			}
+			for _, change := range record.LabelsAdded {
+				add(change.Message.ID)
+			}
+			for _, change := range record.LabelsRemoved {
+				add(change.Message.ID)
+			}
+		}
+		if strings.TrimSpace(response.NextPageToken) == "" {
+			break
+		}
+		pageToken = strings.TrimSpace(response.NextPageToken)
+	}
+	sort.Strings(ids)
+	return ids, latestCursor, nil
+}
+
+func gmailStateInternetMessageID(state gmailMessageState) string {
+	for _, header := range state.Payload.Headers {
+		if strings.EqualFold(strings.TrimSpace(header.Name), "Message-ID") {
+			return strings.TrimSpace(header.Value)
+		}
+	}
+	return ""
+}
+
+func newerGmailHistoryID(current, candidate string) string {
+	current = strings.TrimSpace(current)
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return current
+	}
+	if current == "" {
+		return candidate
+	}
+	left := strings.TrimLeft(current, "0")
+	right := strings.TrimLeft(candidate, "0")
+	if left == "" {
+		left = "0"
+	}
+	if right == "" {
+		right = "0"
+	}
+	if len(right) > len(left) || (len(right) == len(left) && right > left) {
+		return candidate
+	}
+	return current
 }
 
 func gmailLabelInputs(accountID string, labelIDs []string, labelsByID map[string]gmailLabel) []storage.LabelInput {
@@ -383,6 +674,8 @@ type outlookCategoryBatchResult struct {
 
 type gmailLabelSyncResult struct {
 	WithLabels bool
+	HistoryID  string
+	Skipped    bool
 }
 
 func (o *SyncOrchestrator) completeProviderLabelSyncRun(stats storage.LabelSyncRunStats, syncErr error) error {

@@ -34,8 +34,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	goimap "github.com/emersion/go-imap/v2"
 )
 
 type Handler struct {
@@ -118,6 +116,9 @@ func (h *Handler) userID(ctx context.Context) string {
 
 func (h *Handler) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
 	if cfg.AuthMethod == "oauth2" && h.auth != nil {
+		if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
+			return h.auth.GetMicrosoftLegacyOutlookMailTokenForAccount(ctx, accountID)
+		}
 		token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
 		if err != nil {
 			return "", err
@@ -1185,7 +1186,7 @@ func bodyFromParsedMessage(parsed *message.ParsedMessage, msgID int64) []byte {
 	cidToURL := make(map[string]string)
 	for _, a := range parsed.Attachments {
 		if a.Inline && a.ContentID != "" {
-			cidToURL[a.ContentID] = "/api/inline-content/" + strconv.FormatInt(msgID, 10) + "/" + a.ContentID
+			cidToURL[a.ContentID] = inlineContentURL(msgID, a.ContentID)
 		}
 	}
 
@@ -1208,7 +1209,7 @@ func originalBodyFromParsedMessage(parsed *message.ParsedMessage, msgID int64) [
 	cidToURL := make(map[string]string)
 	for _, a := range parsed.Attachments {
 		if a.Inline && a.ContentID != "" {
-			cidToURL[a.ContentID] = "/api/inline-content/" + strconv.FormatInt(msgID, 10) + "/" + a.ContentID
+			cidToURL[a.ContentID] = inlineContentURL(msgID, a.ContentID)
 		}
 	}
 	sanitized := message.SanitizeOriginalHTML(parsed.HTMLBody)
@@ -1242,7 +1243,7 @@ func (h *Handler) originalBodyFromStoredMessage(ctx context.Context, emailID str
 	if err == nil {
 		for _, a := range atts {
 			if a.Inline && a.ContentID != "" {
-				cidToURL[a.ContentID] = "/api/inline-content/" + strconv.FormatInt(msgID, 10) + "/" + a.ContentID
+				cidToURL[a.ContentID] = inlineContentURL(msgID, a.ContentID)
 			}
 		}
 	}
@@ -1270,7 +1271,7 @@ func (h *Handler) storeParsedBody(ctx context.Context, parsed *message.ParsedMes
 	cidToURL := make(map[string]string)
 	for _, a := range parsed.Attachments {
 		if a.Inline && a.ContentID != "" {
-			cidToURL[a.ContentID] = "/api/inline-content/" + strconv.FormatInt(msgID, 10) + "/" + a.ContentID
+			cidToURL[a.ContentID] = inlineContentURL(msgID, a.ContentID)
 		}
 	}
 
@@ -1414,7 +1415,7 @@ func (h *Handler) fetchParsedBody(ctx context.Context, msgID int64, accountID st
 			return nil, err
 		}
 
-		bodyData, err = h.fetchBodyRemote(ctx, accountID, info.FolderRemoteID, info.RemoteUID)
+		bodyData, err = h.fetchBodyRemote(ctx, msgID, info)
 		if err != nil {
 			return nil, err
 		}
@@ -1427,13 +1428,35 @@ func (h *Handler) fetchParsedBody(ctx context.Context, msgID int64, accountID st
 	return parsed, nil
 }
 
-func (h *Handler) fetchBodyRemote(ctx context.Context, accountID, folderRemoteID string, remoteUID uint32) ([]byte, error) {
-	bodyData, err := h.fetchBodyRemoteWithCachedClient(ctx, accountID, folderRemoteID, remoteUID)
+func (h *Handler) fetchBodyRemote(ctx context.Context, msgID int64, info *storage.MessageFetchInfo) ([]byte, error) {
+	if info == nil {
+		return nil, fmt.Errorf("message fetch info not found")
+	}
+	var graphErr error
+	if bodyData, attempted, err := h.fetchOutlookGraphMessageMIME(ctx, msgID); attempted {
+		if err == nil {
+			return bodyData, nil
+		}
+		graphErr = err
+		log.Printf("outlook fetch body account=%s message=%d: %v", info.AccountID, msgID, err)
+	}
+	if strings.TrimSpace(info.FolderRemoteID) == "" || info.RemoteUID == 0 {
+		if graphErr != nil {
+			return nil, graphErr
+		}
+		return nil, fmt.Errorf("message has no remote IMAP body identity")
+	}
+
+	bodyData, err := h.fetchBodyRemoteWithCachedClient(ctx, info.AccountID, info.FolderRemoteID, info.RemoteUID)
 	if err == nil {
 		return bodyData, nil
 	}
-	h.closeBodyClient(accountID)
-	return h.fetchBodyRemoteWithCachedClient(ctx, accountID, folderRemoteID, remoteUID)
+	h.closeBodyClient(info.AccountID)
+	bodyData, err = h.fetchBodyRemoteWithCachedClient(ctx, info.AccountID, info.FolderRemoteID, info.RemoteUID)
+	if err != nil && graphErr != nil {
+		return nil, fmt.Errorf("graph body fetch failed: %v; imap body fetch failed: %w", graphErr, err)
+	}
+	return bodyData, err
 }
 
 func (h *Handler) fetchBodyRemoteWithCachedClient(ctx context.Context, accountID, folderRemoteID string, remoteUID uint32) ([]byte, error) {
@@ -2211,6 +2234,11 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
+		h.writeConnectionTestResults(w, r, h.testOutlookGraphMail(r.Context(), accountID), accountID)
+		return
+	}
+
 	password, err := h.resolvePassword(r.Context(), cfg, accountID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("get credentials: %v", err), http.StatusInternalServerError)
@@ -2255,6 +2283,10 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	results = append(results, smtpResult)
 
+	h.writeConnectionTestResults(w, r, results, accountID)
+}
+
+func (h *Handler) writeConnectionTestResults(w http.ResponseWriter, r *http.Request, results []models.ConnectionTestResult, accountID string) {
 	w.Header().Set("Content-Type", "text/html")
 	wizardType := r.URL.Query().Get("wizard")
 	if wizardType != "" {
@@ -2629,15 +2661,17 @@ func (h *Handler) handleAttachmentDownload(w http.ResponseWriter, r *http.Reques
 
 	ctx := r.Context()
 
-	var filename, contentType, storagePath string
-	err = h.db.Read().QueryRowContext(ctx,
-		`SELECT filename, content_type, storage_path FROM attachments WHERE id = ?`, attID,
-	).Scan(&filename, &contentType, &storagePath)
-	if err != nil {
+	info, err := h.db.GetAttachmentFetchInfo(ctx, attID)
+	if err != nil || info == nil {
 		http.NotFound(w, r)
 		return
 	}
 
+	storagePath, err := h.ensureAttachmentStorage(ctx, info)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	f, err := os.Open(storagePath)
 	if err != nil {
 		http.NotFound(w, r)
@@ -2645,9 +2679,9 @@ func (h *Handler) handleAttachmentDownload(w http.ResponseWriter, r *http.Reques
 	}
 	defer f.Close()
 
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	http.ServeContent(w, r, filename, time.Time{}, f)
+	w.Header().Set("Content-Type", info.ContentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, info.Filename))
+	http.ServeContent(w, r, info.Filename, time.Time{}, f)
 }
 
 func (h *Handler) handleAttachmentPreview(w http.ResponseWriter, r *http.Request) {
@@ -2656,15 +2690,17 @@ func (h *Handler) handleAttachmentPreview(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	var filename, contentType, storagePath string
-	err = h.db.Read().QueryRowContext(r.Context(),
-		`SELECT filename, content_type, storage_path FROM attachments WHERE id = ?`, attID,
-	).Scan(&filename, &contentType, &storagePath)
-	if err != nil || !isPreviewableImage(contentType, filename) {
+	info, err := h.db.GetAttachmentFetchInfo(r.Context(), attID)
+	if err != nil || info == nil || !isPreviewableImage(info.ContentType, info.Filename) {
 		http.NotFound(w, r)
 		return
 	}
-	serveAttachmentPreview(w, r, filename, contentType, storagePath)
+	storagePath, err := h.ensureAttachmentStorage(r.Context(), info)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	serveAttachmentPreview(w, r, info.Filename, info.ContentType, storagePath)
 }
 
 func (h *Handler) handleComposeAttachmentUpload(w http.ResponseWriter, r *http.Request) {
@@ -2790,6 +2826,10 @@ func cleanContentID(cid string) string {
 	}, cid)
 }
 
+func inlineContentURL(msgID int64, contentID string) string {
+	return "/api/inline-content/" + strconv.FormatInt(msgID, 10) + "/" + url.PathEscape(contentID)
+}
+
 func attachmentPreviewURL(id int64, contentType, filename string) string {
 	if !isPreviewableImage(contentType, filename) {
 		return ""
@@ -2827,7 +2867,7 @@ func serveAttachmentPreview(w http.ResponseWriter, r *http.Request, filename, co
 
 func (h *Handler) handleInlineContent(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("messageID")
-	contentID := r.PathValue("contentID")
+	contentID := cleanContentID(r.PathValue("contentID"))
 	if messageID == "" || contentID == "" {
 		http.NotFound(w, r)
 		return
@@ -2840,16 +2880,17 @@ func (h *Handler) handleInlineContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	var filename, contentType, storagePath string
-	err = h.db.Read().QueryRowContext(ctx,
-		`SELECT filename, content_type, storage_path FROM attachments WHERE message_id = ? AND content_id = ? LIMIT 1`,
-		msgID, contentID,
-	).Scan(&filename, &contentType, &storagePath)
-	if err != nil {
+	info, err := h.db.GetAttachmentFetchInfoByContentID(ctx, msgID, contentID)
+	if err != nil || info == nil {
 		http.NotFound(w, r)
 		return
 	}
 
+	storagePath, err := h.ensureAttachmentStorage(ctx, info)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	f, err := os.Open(storagePath)
 	if err != nil {
 		http.NotFound(w, r)
@@ -2857,9 +2898,9 @@ func (h *Handler) handleInlineContent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Type", info.ContentType)
 	w.Header().Set("Cache-Control", "private, max-age=31536000")
-	http.ServeContent(w, r, filename, time.Time{}, f)
+	http.ServeContent(w, r, info.Filename, time.Time{}, f)
 }
 
 func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Request) {
@@ -3329,6 +3370,30 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 	_ = h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, "", snippet)
 	_ = h.db.ReplaceAttachments(ctx, msgID, attachmentRows)
+	if strings.TrimSpace(account.Provider) == providers.ProviderOutlook {
+		toAddrs, _ := message.ParseAddressList(r.FormValue("to"))
+		ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
+		bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
+		graphDraft := &message.OutgoingMessage{
+			FromName:    account.Name,
+			FromEmail:   account.Email,
+			To:          toAddrs,
+			CC:          ccAddrs,
+			Bcc:         bccAddrs,
+			Subject:     subject,
+			TextBody:    body,
+			HTMLBody:    htmlBody,
+			InReplyTo:   r.FormValue("in_reply_to"),
+			References:  r.FormValue("references"),
+			MessageID:   draftID,
+			Date:        time.Now().UTC(),
+			Attachments: outgoingAttachments,
+		}
+		if err := h.saveOutlookGraphDraft(ctx, accountID, msgID, graphDraft); err != nil {
+			log.Printf("outlook draft save account=%s message=%d: %v", accountID, msgID, err)
+			return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save Outlook draft"}
+		}
+	}
 	h.publishMutation(accountID, draftFolderID)
 
 	return composeDraftSaveResult{AccountID: accountID, DraftID: draftID, MessageID: msgID, DraftFolderID: draftFolderID}, nil
@@ -3345,6 +3410,7 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	accountID := r.FormValue("account_id")
 	draftID := r.FormValue("draft_id")
 	draftPaths := h.composeDraftAttachmentPaths(ctx, accountID, draftID)
+	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, accountID, draftID)
 	folderID, err := h.db.DeleteDraftMessage(ctx, accountID, draftID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -3354,6 +3420,11 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	}
 	if folderID != "" {
 		h.publishMutation(accountID, folderID)
+	}
+	if draftProvider != nil && strings.TrimSpace(draftProvider.AccountProvider) == providers.ProviderOutlook {
+		if err := h.deleteOutlookGraphDraft(ctx, accountID, draftProvider.ProviderMessageID); err != nil {
+			log.Printf("outlook draft discard account=%s draft=%s: %v", accountID, draftID, err)
+		}
 	}
 	h.deleteComposeAttachmentPaths(draftPaths)
 	w.Header().Set("Content-Type", "application/json")
@@ -3449,16 +3520,16 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 		if err != nil {
 			continue
 		}
-		var filename, contentType, storagePath string
-		var size int64
-		err = h.db.Read().QueryRowContext(ctx,
-			`SELECT filename, content_type, size_bytes, storage_path FROM attachments WHERE id = ?`, attID,
-		).Scan(&filename, &contentType, &size, &storagePath)
-		if err != nil {
+		info, err := h.db.GetAttachmentFetchInfo(ctx, attID)
+		if err != nil || info == nil {
 			continue
 		}
-		outgoing = append(outgoing, message.OutgoingAttachment{Filename: filename, ContentType: contentType, Path: storagePath, Size: size})
-		rows = append(rows, storage.AttachmentRow{Filename: filename, ContentType: contentType, SizeBytes: size, StoragePath: storagePath})
+		storagePath, err := h.ensureAttachmentStorage(ctx, info)
+		if err != nil || strings.TrimSpace(storagePath) == "" {
+			continue
+		}
+		outgoing = append(outgoing, message.OutgoingAttachment{Filename: info.Filename, ContentType: info.ContentType, Path: storagePath, Size: info.SizeBytes})
+		rows = append(rows, storage.AttachmentRow{Filename: info.Filename, ContentType: info.ContentType, SizeBytes: info.SizeBytes, StoragePath: storagePath})
 	}
 
 	existingInlineCIDs := r.Form["existing_inline_attachment_cid"]
@@ -3467,22 +3538,23 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 		if err != nil {
 			continue
 		}
-		var filename, contentType, storagePath, contentID string
-		var size int64
-		err = h.db.Read().QueryRowContext(ctx,
-			`SELECT filename, content_type, size_bytes, storage_path, content_id FROM attachments WHERE id = ?`, attID,
-		).Scan(&filename, &contentType, &size, &storagePath, &contentID)
-		if err != nil {
+		info, err := h.db.GetAttachmentFetchInfo(ctx, attID)
+		if err != nil || info == nil {
 			continue
 		}
+		storagePath, err := h.ensureAttachmentStorage(ctx, info)
+		if err != nil || strings.TrimSpace(storagePath) == "" {
+			continue
+		}
+		contentID := info.ContentID
 		if cid := cleanContentID(formValueAt(existingInlineCIDs, i, "")); cid != "" {
 			contentID = cid
 		}
 		if contentID == "" {
 			contentID = composeInlineContentID(existingID)
 		}
-		outgoing = append(outgoing, message.OutgoingAttachment{Filename: filename, ContentType: contentType, Path: storagePath, Size: size, ContentID: contentID, Inline: true})
-		rows = append(rows, storage.AttachmentRow{Filename: filename, ContentType: contentType, SizeBytes: size, ContentID: contentID, Inline: true, StoragePath: storagePath})
+		outgoing = append(outgoing, message.OutgoingAttachment{Filename: info.Filename, ContentType: info.ContentType, Path: storagePath, Size: info.SizeBytes, ContentID: contentID, Inline: true})
+		rows = append(rows, storage.AttachmentRow{Filename: info.Filename, ContentType: info.ContentType, SizeBytes: info.SizeBytes, ContentID: contentID, Inline: true, StoragePath: storagePath})
 	}
 
 	return outgoing, rows
@@ -3608,6 +3680,7 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	draftPaths := attachmentStoragePaths(email.Attachments)
+	draftProvider, _ := h.db.GetDraftProviderInfo(r.Context(), email.AccountID, email.InternetMessageID)
 	folderID, err := h.db.DeleteDraftMessage(r.Context(), email.AccountID, email.InternetMessageID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -3617,6 +3690,11 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	if folderID != "" {
 		h.publishMutation(email.AccountID, folderID)
+	}
+	if draftProvider != nil && strings.TrimSpace(draftProvider.AccountProvider) == providers.ProviderOutlook {
+		if err := h.deleteOutlookGraphDraft(r.Context(), email.AccountID, draftProvider.ProviderMessageID); err != nil {
+			log.Printf("outlook draft delete account=%s draft=%s: %v", email.AccountID, email.InternetMessageID, err)
+		}
 	}
 	h.deleteComposeAttachmentPaths(draftPaths)
 	w.Header().Set("Content-Type", "application/json")
@@ -3727,6 +3805,10 @@ func (h *Handler) sendOutgoingMessage(ctx context.Context, accountID string, msg
 	cfg, err := h.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
 		return "failed", "account not found"
+	}
+
+	if handled, status, errText := h.sendOutlookGraphMessage(ctx, cfg, msg, draftID); handled {
+		return status, errText
 	}
 
 	password, err := h.resolvePassword(ctx, cfg, accountID)
@@ -4292,19 +4374,7 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() {
-		client, err := h.connectIMAP(context.Background(), info.AccountID)
-		if err != nil {
-			return
-		}
-		defer client.Close()
-
-		op := goimap.StoreFlagsAdd
-		if !targetRead {
-			op = goimap.StoreFlagsDel
-		}
-		client.StoreFlags(context.Background(), info.FolderRemoteID, info.RemoteUID, op, []goimap.Flag{goimap.FlagSeen})
-	}()
+	go h.setRemoteMessageRead(context.Background(), msgID, *info, targetRead)
 
 	h.publishMutation(info.AccountID, info.FolderID)
 
@@ -4356,16 +4426,11 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 			}
 			updated++
 
-			go func(accountID string, infos []storage.ThreadMessageMutationInfo) {
-				client, err := h.connectIMAP(context.Background(), accountID)
-				if err != nil {
-					return
+			go func(infos []storage.ThreadMessageMutationInfo) {
+				for _, info := range infos {
+					h.setRemoteMessageRead(context.Background(), info.MessageID, info.MessageMutationInfo, true)
 				}
-				defer client.Close()
-				for folderRemoteID, uids := range threadUIDsByFolder(infos) {
-					client.StoreFlagsBatch(context.Background(), folderRemoteID, uids, goimap.StoreFlagsAdd, []goimap.Flag{goimap.FlagSeen})
-				}
-			}(email.AccountID, infos)
+			}(infos)
 
 			h.publishThreadMutation(infos)
 			continue
@@ -4386,14 +4451,7 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 		}
 		updated++
 
-		go func(info *storage.MessageMutationInfo) {
-			client, err := h.connectIMAP(context.Background(), info.AccountID)
-			if err != nil {
-				return
-			}
-			defer client.Close()
-			client.StoreFlags(context.Background(), info.FolderRemoteID, info.RemoteUID, goimap.StoreFlagsAdd, []goimap.Flag{goimap.FlagSeen})
-		}(info)
+		go h.setRemoteMessageRead(context.Background(), msgID, *info, true)
 
 		h.publishMutation(info.AccountID, info.FolderID)
 	}
@@ -4431,20 +4489,11 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 				}
 			}
 			updated++
-			go func(accountID string, infos []storage.ThreadMessageMutationInfo, starred bool) {
-				client, err := h.connectIMAP(context.Background(), accountID)
-				if err != nil {
-					return
+			go func(infos []storage.ThreadMessageMutationInfo, starred bool) {
+				for _, info := range infos {
+					h.setRemoteMessageStarred(context.Background(), info.MessageID, info.MessageMutationInfo, starred)
 				}
-				defer client.Close()
-				op := goimap.StoreFlagsAdd
-				if !starred {
-					op = goimap.StoreFlagsDel
-				}
-				for folderRemoteID, uids := range threadUIDsByFolder(infos) {
-					client.StoreFlagsBatch(context.Background(), folderRemoteID, uids, op, []goimap.Flag{goimap.FlagFlagged})
-				}
-			}(email.AccountID, infos, targetStarred)
+			}(infos, targetStarred)
 			h.publishThreadMutation(infos)
 			continue
 		}
@@ -4458,18 +4507,7 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		updated++
-		go func(info *storage.MessageMutationInfo, starred bool) {
-			client, err := h.connectIMAP(context.Background(), info.AccountID)
-			if err != nil {
-				return
-			}
-			defer client.Close()
-			op := goimap.StoreFlagsAdd
-			if !starred {
-				op = goimap.StoreFlagsDel
-			}
-			client.StoreFlags(context.Background(), info.FolderRemoteID, info.RemoteUID, op, []goimap.Flag{goimap.FlagFlagged})
-		}(info, targetStarred)
+		go h.setRemoteMessageStarred(context.Background(), msgID, *info, targetStarred)
 		h.publishMutation(info.AccountID, info.FolderID)
 	}
 
@@ -4519,16 +4557,11 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 			updated++
 			h.publishThreadMutation(infos)
 			h.publishMutation(email.AccountID, archiveFolderID)
-			go func(accountID, archiveRemoteID string, infos []storage.ThreadMessageMutationInfo) {
-				client, err := h.connectIMAP(context.Background(), accountID)
-				if err != nil {
-					return
+			go func(infos []storage.ThreadMessageMutationInfo, archiveFolderID, archiveRemoteID string) {
+				for _, info := range infos {
+					h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, archiveFolderID, archiveRemoteID)
 				}
-				defer client.Close()
-				for folderRemoteID, uids := range threadUIDsByFolder(infos) {
-					client.MoveMessages(context.Background(), folderRemoteID, uids, archiveRemoteID)
-				}
-			}(email.AccountID, archiveRemoteID, infos)
+			}(infos, archiveFolderID, archiveRemoteID)
 			continue
 		}
 
@@ -4560,14 +4593,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		updated++
 		h.publishMutation(info.AccountID, info.FolderID)
 		h.publishMutation(info.AccountID, archiveFolderID)
-		go func(info *storage.MessageMutationInfo, archiveRemoteID string) {
-			client, err := h.connectIMAP(context.Background(), info.AccountID)
-			if err != nil {
-				return
-			}
-			defer client.Close()
-			client.MoveMessage(context.Background(), info.FolderRemoteID, info.RemoteUID, archiveRemoteID)
-		}(info, archiveRemoteID)
+		go h.moveRemoteMessage(context.Background(), msgID, *info, archiveFolderID, archiveRemoteID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -4627,19 +4653,14 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 			updated++
 			h.publishThreadMutation(infos)
 			h.publishMutation(email.AccountID, trashFolderID)
-			go func(accountID, trashRemoteID string, deleteInfos, moveInfos []storage.ThreadMessageMutationInfo) {
-				client, err := h.connectIMAP(context.Background(), accountID)
-				if err != nil {
-					return
+			go func(trashFolderID, trashRemoteID string, deleteInfos, moveInfos []storage.ThreadMessageMutationInfo) {
+				for _, info := range deleteInfos {
+					h.deleteRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo)
 				}
-				defer client.Close()
-				for folderRemoteID, uids := range threadUIDsByFolder(deleteInfos) {
-					client.DeleteMessages(context.Background(), folderRemoteID, uids)
+				for _, info := range moveInfos {
+					h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, trashFolderID, trashRemoteID)
 				}
-				for folderRemoteID, uids := range threadUIDsByFolder(moveInfos) {
-					client.MoveMessages(context.Background(), folderRemoteID, uids, trashRemoteID)
-				}
-			}(email.AccountID, trashRemoteID, deleteInfos, moveInfos)
+			}(trashFolderID, trashRemoteID, deleteInfos, moveInfos)
 			continue
 		}
 
@@ -4652,14 +4673,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			go func(info *storage.MessageMutationInfo) {
-				client, err := h.connectIMAP(context.Background(), info.AccountID)
-				if err != nil {
-					return
-				}
-				defer client.Close()
-				client.DeleteMessages(context.Background(), info.FolderRemoteID, []uint32{info.RemoteUID})
-			}(info)
+			go h.deleteRemoteMessage(context.Background(), msgID, *info)
 		} else {
 			trashFolderID, trashRemoteID, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
 			if err != nil || trashFolderID == "" {
@@ -4682,14 +4696,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			go func(info *storage.MessageMutationInfo, trashRemoteID string) {
-				client, err := h.connectIMAP(context.Background(), info.AccountID)
-				if err != nil {
-					return
-				}
-				defer client.Close()
-				client.MoveMessage(context.Background(), info.FolderRemoteID, info.RemoteUID, trashRemoteID)
-			}(info, trashRemoteID)
+			go h.moveRemoteMessage(context.Background(), msgID, *info, trashFolderID, trashRemoteID)
 			h.publishMutation(info.AccountID, trashFolderID)
 		}
 		updated++
@@ -4748,16 +4755,11 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 			updated++
 			h.publishThreadMutation(infos)
 			h.publishMutation(email.AccountID, destFolderID)
-			go func(accountID, destRemoteID string, infos []storage.ThreadMessageMutationInfo) {
-				client, err := h.connectIMAP(context.Background(), accountID)
-				if err != nil {
-					return
+			go func(infos []storage.ThreadMessageMutationInfo, destFolderID, destRemoteID string) {
+				for _, info := range infos {
+					h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, destFolderID, destRemoteID)
 				}
-				defer client.Close()
-				for folderRemoteID, uids := range threadUIDsByFolder(infos) {
-					client.MoveMessages(context.Background(), folderRemoteID, uids, destRemoteID)
-				}
-			}(email.AccountID, destRemoteID, infos)
+			}(infos, destFolderID, destRemoteID)
 			continue
 		}
 
@@ -4785,14 +4787,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		updated++
 		h.publishMutation(info.AccountID, info.FolderID)
 		h.publishMutation(info.AccountID, destFolderID)
-		go func(info *storage.MessageMutationInfo, destRemoteID string) {
-			client, err := h.connectIMAP(context.Background(), info.AccountID)
-			if err != nil {
-				return
-			}
-			defer client.Close()
-			client.MoveMessage(context.Background(), info.FolderRemoteID, info.RemoteUID, destRemoteID)
-		}(info, destRemoteID)
+		go h.moveRemoteMessage(context.Background(), msgID, *info, destFolderID, destRemoteID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -4820,19 +4815,7 @@ func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() {
-		client, err := h.connectIMAP(context.Background(), info.AccountID)
-		if err != nil {
-			return
-		}
-		defer client.Close()
-
-		op := goimap.StoreFlagsAdd
-		if !currentState {
-			op = goimap.StoreFlagsDel
-		}
-		client.StoreFlags(context.Background(), info.FolderRemoteID, info.RemoteUID, op, []goimap.Flag{goimap.FlagFlagged})
-	}()
+	go h.setRemoteMessageStarred(context.Background(), msgID, *info, !currentState)
 
 	h.publishMutation(info.AccountID, info.FolderID)
 
@@ -4878,21 +4861,11 @@ func (h *Handler) handleToggleThreadRead(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	go func() {
-		client, err := h.connectIMAP(context.Background(), email.AccountID)
-		if err != nil {
-			return
+	go func(infos []storage.ThreadMessageMutationInfo, read bool) {
+		for _, info := range infos {
+			h.setRemoteMessageRead(context.Background(), info.MessageID, info.MessageMutationInfo, read)
 		}
-		defer client.Close()
-
-		op := goimap.StoreFlagsAdd
-		if !targetRead {
-			op = goimap.StoreFlagsDel
-		}
-		for folderRemoteID, uids := range threadUIDsByFolder(infos) {
-			client.StoreFlagsBatch(context.Background(), folderRemoteID, uids, op, []goimap.Flag{goimap.FlagSeen})
-		}
-	}()
+	}(infos, targetRead)
 
 	h.publishThreadMutation(infos)
 
@@ -4941,16 +4914,11 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() {
-		client, err := h.connectIMAP(context.Background(), email.AccountID)
-		if err != nil {
-			return
+	go func(infos []storage.ThreadMessageMutationInfo, archiveFolderID, archiveRemoteID string) {
+		for _, info := range infos {
+			h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, archiveFolderID, archiveRemoteID)
 		}
-		defer client.Close()
-		for folderRemoteID, uids := range threadUIDsByFolder(infos) {
-			client.MoveMessages(context.Background(), folderRemoteID, uids, archiveRemoteID)
-		}
-	}()
+	}(infos, archiveFolderID, archiveRemoteID)
 
 	for _, threadInfo := range infos {
 		h.db.RemoveMessageFromFolder(ctx, threadInfo.MessageID, threadInfo.FolderID)
@@ -5000,19 +4968,14 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 		moveInfos = append(moveInfos, info)
 	}
 
-	go func() {
-		client, err := h.connectIMAP(context.Background(), email.AccountID)
-		if err != nil {
-			return
+	go func(trashFolderID, trashRemoteID string, deleteInfos, moveInfos []storage.ThreadMessageMutationInfo) {
+		for _, info := range deleteInfos {
+			h.deleteRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo)
 		}
-		defer client.Close()
-		for folderRemoteID, uids := range threadUIDsByFolder(deleteInfos) {
-			client.DeleteMessages(context.Background(), folderRemoteID, uids)
+		for _, info := range moveInfos {
+			h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, trashFolderID, trashRemoteID)
 		}
-		for folderRemoteID, uids := range threadUIDsByFolder(moveInfos) {
-			client.MoveMessages(context.Background(), folderRemoteID, uids, trashRemoteID)
-		}
-	}()
+	}(trashFolderID, trashRemoteID, deleteInfos, moveInfos)
 
 	for _, info := range deleteInfos {
 		h.db.MarkMessageDeleted(ctx, info.MessageID)
@@ -5040,14 +5003,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if info.FolderRole == "trash" {
-		go func() {
-			client, err := h.connectIMAP(context.Background(), info.AccountID)
-			if err != nil {
-				return
-			}
-			defer client.Close()
-			client.DeleteMessages(context.Background(), info.FolderRemoteID, []uint32{info.RemoteUID})
-		}()
+		go h.deleteRemoteMessage(context.Background(), msgID, *info)
 
 		h.db.MarkMessageDeleted(ctx, msgID)
 	} else {
@@ -5067,14 +5023,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		go func() {
-			client, err := h.connectIMAP(context.Background(), info.AccountID)
-			if err != nil {
-				return
-			}
-			defer client.Close()
-			client.MoveMessage(context.Background(), info.FolderRemoteID, info.RemoteUID, trashRemoteID)
-		}()
+		go h.moveRemoteMessage(context.Background(), msgID, *info, trashFolderID, trashRemoteID)
 
 		h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID)
 		h.db.AddMessageToFolder(ctx, msgID, trashFolderID, 0, isRead, isStarred)
@@ -5127,14 +5076,7 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	go func() {
-		client, err := h.connectIMAP(context.Background(), info.AccountID)
-		if err != nil {
-			return
-		}
-		defer client.Close()
-		client.MoveMessage(context.Background(), info.FolderRemoteID, info.RemoteUID, destRemoteID)
-	}()
+	go h.moveRemoteMessage(context.Background(), msgID, *info, destFolderID, destRemoteID)
 
 	h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID)
 	h.db.AddMessageToFolder(ctx, msgID, destFolderID, 0, isRead, isStarred)
