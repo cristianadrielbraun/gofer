@@ -324,11 +324,15 @@ func (db *DB) ListContacts(ctx context.Context, userID string, filters models.Co
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-	profileContacts, err := db.listProfileContacts(ctx, userID, filters)
+	if offset < 0 {
+		offset = 0
+	}
+	windowLimit := offset + limit
+	profileContacts, err := db.listProfileContacts(ctx, userID, filters, windowLimit)
 	if err != nil {
 		return nil, err
 	}
-	legacyContacts, err := db.listLegacyContacts(ctx, userID, filters)
+	legacyContacts, err := db.listLegacyContacts(ctx, userID, filters, windowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -341,11 +345,17 @@ func (db *DB) ListContacts(ctx context.Context, userID string, filters models.Co
 	if end > len(contacts) {
 		end = len(contacts)
 	}
-	return contacts[offset:end], nil
+	contacts = contacts[offset:end]
+	db.hydrateContactListRows(ctx, userID, contacts)
+	return contacts, nil
 }
 
-func (db *DB) listLegacyContacts(ctx context.Context, userID string, filters models.ContactFilters) ([]models.Contact, error) {
+func (db *DB) listLegacyContacts(ctx context.Context, userID string, filters models.ContactFilters, limit int) ([]models.Contact, error) {
+	if limit <= 0 {
+		limit = 100
+	}
 	where, args := contactLegacyFilterSQL(userID, filters)
+	args = append(args, limit)
 
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT c.id, c.display_name, ce.email, c.source, c.is_manual, c.is_deleted,
@@ -354,7 +364,7 @@ func (db *DB) listLegacyContacts(ctx context.Context, userID string, filters mod
 		JOIN contact_emails ce ON ce.contact_id = c.id AND ce.is_primary = 1
 		WHERE `+where+`
 		ORDER BY COALESCE(ce.last_seen_at, c.updated_at) DESC, c.display_name COLLATE NOCASE
-		LIMIT 1000`, args...)
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query contacts: %w", err)
 	}
@@ -367,8 +377,6 @@ func (db *DB) listLegacyContacts(ctx context.Context, userID string, filters mod
 		if err != nil {
 			return nil, err
 		}
-		db.hydrateContactAvatar(ctx, &c)
-		_ = db.hydrateContactAddressBooks(ctx, userID, &c)
 		contacts = append(contacts, c)
 	}
 	return contacts, rows.Err()
@@ -390,7 +398,7 @@ func (db *DB) CountContacts(ctx context.Context, userID string, filters models.C
 }
 
 func (db *DB) ListContactsForExport(ctx context.Context, userID string) ([]models.Contact, error) {
-	profiles, err := db.listProfileContacts(ctx, userID, models.ContactFilters{})
+	profiles, err := db.listProfileContacts(ctx, userID, models.ContactFilters{}, 1000000)
 	if err != nil {
 		return nil, err
 	}
@@ -462,11 +470,15 @@ func contactLegacyFilterSQL(userID string, filters models.ContactFilters) (strin
 	return where, args
 }
 
-func (db *DB) listProfileContacts(ctx context.Context, userID string, filters models.ContactFilters) ([]models.Contact, error) {
+func (db *DB) listProfileContacts(ctx context.Context, userID string, filters models.ContactFilters, limit int) ([]models.Contact, error) {
 	if !profileContactsIncluded(filters) {
 		return nil, nil
 	}
+	if limit <= 0 {
+		limit = 100
+	}
 	where, args := contactProfileFilterSQL(userID, filters)
+	args = append(args, limit)
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT p.id, p.display_name, COALESCE(email.value, p.primary_email), p.is_deleted,
 		       CASE
@@ -486,7 +498,7 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 		LEFT JOIN contact_fields email ON email.profile_id = p.id AND email.user_id = p.user_id AND email.kind = 'email' AND email.is_primary = 1
 		WHERE `+where+`
 		ORDER BY p.updated_at DESC, p.display_name COLLATE NOCASE
-		LIMIT 1000`, args...)
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query contact profiles: %w", err)
 	}
@@ -499,9 +511,6 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 		if err != nil {
 			return nil, err
 		}
-		contact.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contact.ID)
-		db.hydrateContactAvatar(ctx, &contact)
-		_ = db.hydrateContactSyncState(ctx, userID, &contact)
 		contacts = append(contacts, contact)
 	}
 	return contacts, rows.Err()
@@ -513,11 +522,18 @@ func (db *DB) countProfileContacts(ctx context.Context, userID string, filters m
 	}
 	where, args := contactProfileFilterSQL(userID, filters)
 	var count int
-	err := db.Read().QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT p.id)
+	query := `
+		SELECT COUNT(*)
 		FROM contact_profiles p
-		LEFT JOIN contact_fields email ON email.profile_id = p.id AND email.user_id = p.user_id AND email.kind = 'email' AND email.is_primary = 1
-		WHERE `+where, args...).Scan(&count)
+		WHERE ` + where
+	if strings.TrimSpace(filters.Query) != "" {
+		query = `
+			SELECT COUNT(DISTINCT p.id)
+			FROM contact_profiles p
+			LEFT JOIN contact_fields email ON email.profile_id = p.id AND email.user_id = p.user_id AND email.kind = 'email' AND email.is_primary = 1
+			WHERE ` + where
+	}
+	err := db.Read().QueryRowContext(ctx, query, args...).Scan(&count)
 	return count, err
 }
 
@@ -621,7 +637,7 @@ func (db *DB) SearchContacts(ctx context.Context, userID, query string, limit in
 	if query == "" {
 		return nil, nil
 	}
-	profileContacts, err := db.listProfileContacts(ctx, userID, models.ContactFilters{Query: query})
+	profileContacts, err := db.listProfileContacts(ctx, userID, models.ContactFilters{Query: query}, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -659,7 +675,116 @@ func (db *DB) SearchContacts(ctx context.Context, userID, query string, limit in
 	if len(contacts) > limit {
 		contacts = contacts[:limit]
 	}
+	db.hydrateContactListRows(ctx, userID, contacts)
 	return contacts, nil
+}
+
+func (db *DB) hydrateContactListRows(ctx context.Context, userID string, contacts []models.Contact) {
+	if len(contacts) == 0 {
+		return
+	}
+	db.hydrateContactAvatars(ctx, contacts)
+	if err := db.hydrateContactAddressBooksForList(ctx, userID, contacts); err != nil {
+		return
+	}
+}
+
+func (db *DB) hydrateContactAvatars(ctx context.Context, contacts []models.Contact) {
+	indexesByHash := make(map[string][]int)
+	var hashes []string
+	for i := range contacts {
+		hash := strings.ToLower(strings.TrimSpace(contacts[i].AvatarHash))
+		if hash == "" {
+			continue
+		}
+		contacts[i].AvatarStatus = "unknown"
+		if _, ok := indexesByHash[hash]; !ok {
+			hashes = append(hashes, hash)
+		}
+		indexesByHash[hash] = append(indexesByHash[hash], i)
+	}
+	if len(hashes) == 0 {
+		return
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT email_hash, source, status, storage_path, image_data IS NOT NULL, expires_at
+		FROM sender_avatars
+		WHERE email_hash IN (`+sqlPlaceholders(len(hashes))+`)`, stringsToAny(hashes)...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	now := time.Now()
+	for rows.Next() {
+		var hash, source, status, storagePath string
+		var hasImage int
+		var expiresAt sql.NullTime
+		if err := rows.Scan(&hash, &source, &status, &storagePath, &hasImage, &expiresAt); err != nil {
+			return
+		}
+		hash = strings.ToLower(strings.TrimSpace(hash))
+		for _, idx := range indexesByHash[hash] {
+			contacts[idx].AvatarStatus = status
+			contacts[idx].AvatarSource = source
+			if status == "found" && (storagePath != "" || hasImage != 0) && (!expiresAt.Valid || now.Before(expiresAt.Time)) {
+				contacts[idx].AvatarURL = senderAvatarURL(hash, expiresAtVersion(expiresAt))
+			}
+		}
+	}
+}
+
+func expiresAtVersion(expiresAt sql.NullTime) int64 {
+	if expiresAt.Valid {
+		return expiresAt.Time.Unix()
+	}
+	return 0
+}
+
+func (db *DB) hydrateContactAddressBooksForList(ctx context.Context, userID string, contacts []models.Contact) error {
+	indexesByID := make(map[string][]int)
+	var ids []string
+	for i := range contacts {
+		id := strings.TrimSpace(contacts[i].ID)
+		if id == "" {
+			continue
+		}
+		if _, ok := indexesByID[id]; !ok {
+			ids = append(ids, id)
+		}
+		indexesByID[id] = append(indexesByID[id], i)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	args := append([]any{userID}, stringsToAny(ids)...)
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT DISTINCT cs.contact_id, ab.id, ab.account_id, COALESCE(NULLIF(a.display_name, ''), a.email_address), ab.name, ab.url, ab.is_default
+		FROM contact_sources cs
+		JOIN account_contact_address_books ab ON ab.account_id = cs.account_id
+		JOIN accounts a ON a.id = ab.account_id
+		WHERE cs.user_id = ?
+		  AND cs.contact_id IN (`+sqlPlaceholders(len(ids))+`)
+		  AND cs.provider = 'carddav'
+		  AND (cs.address_book_id = ab.id OR (cs.address_book_id = '' AND cs.remote_id LIKE ab.url || '%'))
+		ORDER BY cs.contact_id, a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var contactID string
+		var book models.ContactAddressBook
+		var isDefault int
+		if err := rows.Scan(&contactID, &book.ID, &book.AccountID, &book.AccountName, &book.Name, &book.URL, &isDefault); err != nil {
+			return err
+		}
+		book.Selected = true
+		book.Default = isDefault == 1
+		for _, idx := range indexesByID[contactID] {
+			contacts[idx].SourceBooks = append(contacts[idx].SourceBooks, book)
+		}
+	}
+	return rows.Err()
 }
 
 func (db *DB) GetContact(ctx context.Context, userID, contactID string) (*models.Contact, error) {

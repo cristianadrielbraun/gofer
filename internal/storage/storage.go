@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 52
+	const targetSchemaVersion = 53
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -456,6 +456,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 51 {
 		if err := migrateV51ToV52(tx); err != nil {
 			return fmt.Errorf("migrate v51 to v52: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 52 {
+		if err := migrateV52ToV53(tx); err != nil {
+			return fmt.Errorf("migrate v52 to v53: %w", err)
 		}
 	}
 
@@ -2012,6 +2018,29 @@ func migrateV51ToV52(tx *sql.Tx) error {
 		if _, err := tx.Exec(m); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateV52ToV53(tx *sql.Tx) error {
+	if ok, err := tableExistsTx(tx, "contact_observations"); err != nil {
+		return err
+	} else if ok {
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_contact_observations_profile_active
+		 ON contact_observations(user_id, profile_id, is_suppressed, last_seen_at, message_count)`); err != nil {
+			return err
+		}
+	}
+	if ok, err := tableExistsTx(tx, "contact_profiles"); err != nil {
+		return err
+	} else if ok {
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_updated
+		 ON contact_profiles(user_id, is_deleted, updated_at DESC, display_name COLLATE NOCASE)`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (53)`); err != nil {
+		return err
 	}
 	return nil
 }

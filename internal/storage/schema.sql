@@ -720,6 +720,9 @@ CREATE TABLE IF NOT EXISTS contact_profiles (
 CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_name
 ON contact_profiles(user_id, is_deleted, sort_name COLLATE NOCASE, display_name COLLATE NOCASE);
 
+CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_updated
+ON contact_profiles(user_id, is_deleted, updated_at DESC, display_name COLLATE NOCASE);
+
 CREATE TABLE IF NOT EXISTS contact_cards (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -803,6 +806,9 @@ CREATE TABLE IF NOT EXISTS contact_observations (
 
 CREATE INDEX IF NOT EXISTS idx_contact_observations_profile
 ON contact_observations(user_id, profile_id);
+
+CREATE INDEX IF NOT EXISTS idx_contact_observations_profile_active
+ON contact_observations(user_id, profile_id, is_suppressed, last_seen_at, message_count);
 
 CREATE INDEX IF NOT EXISTS idx_contact_observations_suppressed
 ON contact_observations(user_id, is_suppressed, updated_at DESC);
@@ -895,4 +901,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (52);
+INSERT OR REPLACE INTO schema_version (version) VALUES (53);

@@ -1583,8 +1583,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 52 {
-		t.Fatalf("schema version = %d, want 52", version)
+	if version != 53 {
+		t.Fatalf("schema version = %d, want 53", version)
 	}
 }
 
@@ -1633,8 +1633,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 52 {
-		t.Fatalf("schema version = %d, want 52", version)
+	if version != 53 {
+		t.Fatalf("schema version = %d, want 53", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

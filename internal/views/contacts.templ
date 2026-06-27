@@ -950,22 +950,26 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 			data-contact-list-item={ contact.ID }
 			data-active={ fmt.Sprintf("%t", selected != nil && selected.ID == contact.ID) }
 			class={
-				"contact-list-item flex items-start gap-3 px-3.5 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group",
+				"contact-list-item mail-list-card px-3.5 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group",
 				templ.KV("envelope-active", selected != nil && selected.ID == contact.ID),
 				templ.KV("envelope", selected == nil || selected.ID != contact.ID),
 			}
 		>
-			<div class="w-7 flex flex-col items-center self-stretch py-1 shrink-0">
-				@ContactAvatar(contact, "size-6 rounded-full text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
-			</div>
-			<div class="flex-1 min-w-0 space-y-0.5">
-				<div class="flex items-center justify-between gap-2">
-					<span class="truncate text-sm font-semibold text-foreground" data-contact-name>{ contact.Name }</span>
-					if contact.CreatedAt != "" {
-						<span class="shrink-0 text-xs tabular-nums font-medium text-muted-foreground">{ contact.CreatedAt }</span>
-					}
+			<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop">
+				<div data-mail-card-field="avatar">
+					@ContactAvatar(contact, "size-6 rounded-full text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 				</div>
-				<p class="truncate text-[13px] font-medium text-foreground/60" data-contact-email>{ contact.Email }</p>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">
+				<span class="truncate text-sm font-semibold text-foreground" data-contact-name data-mail-card-field="from">{ contact.Name }</span>
+				if contact.CreatedAt != "" {
+					<span class="shrink-0 text-xs tabular-nums font-medium text-muted-foreground" data-mail-card-field="date">{ contact.CreatedAt }</span>
+				}
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">
+				<p class="truncate text-[13px] font-medium text-foreground/60" data-contact-email data-mail-card-field="subject">{ contact.Email }</p>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer">
 				@ContactSourceChips(contact, accounts)
 			</div>
 		</a>
@@ -973,10 +977,10 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 }
 
 templ ContactSourceChips(contact models.Contact, accounts []models.Account) {
-	<div class="flex min-w-0 flex-wrap items-center gap-1">
+	<div class="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden" data-mail-card-field="preview">
 		if len(contact.SourceBooks) > 0 {
 			for _, book := range contact.SourceBooks {
-				<span class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+				<span class="min-w-0 max-w-full shrink truncate rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
 					{ book.AccountName } / { contactAddressBookDisplayName(book) }
 				</span>
 			}

@@ -412,13 +412,50 @@ func (h *Handler) ensureContactsBackfilled(ctx context.Context) {
 	if done, _ := h.db.GetSetting(ctx, userID, "contacts_observed_backfilled_v1"); done == sourceKey {
 		return
 	}
-	if err := h.db.BackfillObservedContacts(ctx, userID); err != nil {
-		log.Printf("contacts: observed backfill failed: %v", err)
+	h.startAutomaticContactBackfill(userID, sourceKey)
+}
+
+func (h *Handler) startAutomaticContactBackfill(userID, sourceKey string) {
+	h.contactBackfillMu.Lock()
+	if h.contactBackfillState.InProgress {
+		h.contactBackfillMu.Unlock()
 		return
 	}
-	if err := h.db.SetSetting(ctx, userID, "contacts_observed_backfilled_v1", sourceKey); err != nil {
-		log.Printf("contacts: mark observed backfill failed: %v", err)
-	}
+	state := models.ContactBackfillState{InProgress: true, StartedAt: time.Now().UTC()}
+	h.contactBackfillState = state
+	h.contactBackfillMu.Unlock()
+	h.publishContactBackfill(userID, state)
+
+	go func() {
+		backfillCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		err := h.db.BackfillObservedContactsWithProgress(backfillCtx, userID, func(processed int) {
+			h.contactBackfillMu.Lock()
+			h.contactBackfillState.Processed = processed
+			state := h.contactBackfillState
+			h.contactBackfillMu.Unlock()
+			h.publishContactBackfill(userID, state)
+		})
+		var setErr error
+		if err == nil {
+			setErr = h.db.SetSetting(context.Background(), userID, "contacts_observed_backfilled_v1", sourceKey)
+		}
+		h.contactBackfillMu.Lock()
+		h.contactBackfillState.InProgress = false
+		h.contactBackfillState.FinishedAt = time.Now().UTC()
+		if err != nil {
+			h.contactBackfillState.LastError = err.Error()
+			log.Printf("contacts: observed backfill failed: %v", err)
+		} else if setErr != nil {
+			h.contactBackfillState.LastError = setErr.Error()
+			log.Printf("contacts: mark observed backfill failed: %v", setErr)
+		} else {
+			h.contactBackfillState.LastError = ""
+		}
+		state := h.contactBackfillState
+		h.contactBackfillMu.Unlock()
+		h.publishContactBackfill(userID, state)
+	}()
 }
 
 func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
@@ -465,7 +502,7 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	if filters.View == "" {
 		filters.View = "cards"
 	}
-	contacts, err := h.db.ListContacts(ctx, userID, filters, 200, 0)
+	contacts, err := h.db.ListContacts(ctx, userID, filters, 100, 0)
 	if err != nil {
 		http.Error(w, "failed to load contacts", http.StatusInternalServerError)
 		return

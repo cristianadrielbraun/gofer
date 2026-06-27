@@ -2281,7 +2281,7 @@ class VirtualContactsList {
   constructor(container, options) {
     this.container = container
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
-    this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.itemHeight = this.viewMode === "table" ? 44 : 100
     this.overscan = 10
     this.chunkSize = 100
     this.loadingSkeletonMinDuration = 180
@@ -2364,7 +2364,7 @@ class VirtualContactsList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = this.viewMode === "table" ? 44 : 94
+    this.itemHeight = this.viewMode === "table" ? 44 : 100
     this.container.dataset.viewMode = this.viewMode
     var shell = document.querySelector("[data-contact-list-shell]") || document.getElementById("mail-list")
     if (shell) shell.dataset.viewMode = this.viewMode

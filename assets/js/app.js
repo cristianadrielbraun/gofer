@@ -3551,12 +3551,12 @@ document.addEventListener("DOMContentLoaded", function () {
     var nameWidths = ["58%", "72%", "46%", "66%"]
     var emailWidths = ["78%", "64%", "86%", "54%"]
     var chipWidths = ["5rem", "7rem", "4rem", "6rem"]
-    return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item h-full flex items-start gap-3 px-3.5 py-2.5 rounded-lg envelope">' +
-      '<div class="w-7 flex flex-col items-center self-stretch py-1 shrink-0"><span class="size-6 rounded-full bg-muted animate-pulse"></span></div>' +
-      '<div class="flex-1 min-w-0 space-y-1"><div class="flex items-center justify-between gap-2">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + (i % 3 === 0 ? pendingBar("3rem", "block h-3 shrink-0") : "") + '</div>' +
-      pendingBar(emailWidths[i % emailWidths.length], "block h-3.5") +
-      '<div class="flex min-w-0 flex-wrap items-center gap-1"><span class="h-4 rounded-full border border-border bg-background animate-pulse" style="width:' + chipWidths[i % chipWidths.length] + '"></span>' + (i % 4 === 0 ? '<span class="h-4 w-16 rounded-full border border-border bg-background animate-pulse"></span>' : "") + '</div>' +
-      '</div></div></div>'
+    return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item mail-list-card h-full px-3.5 py-2.5 rounded-lg envelope">' +
+      '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse"></span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + '</span>' + (i % 3 === 0 ? '<span data-mail-card-field="date">' + pendingBar("3rem", "block h-3") + '</span>' : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="subject">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3.5") + '</span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer"><span data-mail-card-field="preview" class="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"><span class="h-4 rounded-full border border-border bg-background animate-pulse" style="width:' + chipWidths[i % chipWidths.length] + '"></span>' + (i % 4 === 0 ? '<span class="h-4 w-16 rounded-full border border-border bg-background animate-pulse"></span>' : "") + '</span></div>' +
+      '</div></div>'
   }
 
   function mailTablePendingRow(i) {

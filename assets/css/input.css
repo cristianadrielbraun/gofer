@@ -374,11 +374,6 @@
   font-size: 0.75rem;
 }
 
-.contact-list-item[data-active="true"] {
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
-
 .compose-attachment-chip {
   display: inline-flex;
   max-width: 100%;
@@ -1212,6 +1207,12 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 
 [data-view-mode="table"] .mail-list-item > a.envelope-active {
   background: var(--color-accent);
+}
+
+[data-contact-list-shell][data-view-mode="cards"] .mail-list-item > a.envelope-active {
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-card));
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
 .mail-list-item[data-mail-selected] > a,
