@@ -11,6 +11,10 @@ document.addEventListener("DOMContentLoaded", function () {
   var virtualContactsList = null
   var pendingSyncEvents = []
   var syncRefreshTimer = null
+  var syncRefreshLastAt = 0
+  var syncRefreshPendingVml = null
+  var syncRefreshPendingOptions = null
+  var syncRefreshMinInterval = 5000
   var processingStatusHandler = null
   var syncStatesByFolder = Object.create(null)
   var appEventSource = null
@@ -2249,9 +2253,17 @@ document.addEventListener("DOMContentLoaded", function () {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.folder_id) return
+      // Progress events are frequent; content changes refresh through new-mail, mutation, or completion events.
       if (data.refresh_only) {
+        updateMailSyncFolderProgress("progress", data)
+        syncStatesByFolder[data.folder_id] = {
+          active: true,
+          current: data.current || 0,
+          total: data.total || 0,
+          folderRole: data.folder_role || "",
+        }
         withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
-          scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
+          vml.setSyncState((data.current || 0) > 0, data.current || 0, data.total || 0)
         }, false)
         return
       }
@@ -2265,7 +2277,6 @@ document.addEventListener("DOMContentLoaded", function () {
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         var current = data.current || 0
         vml.setSyncState(current > 0, current, data.total || 0)
-        if (current > 0) scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
       }, false)
     })
 
@@ -2283,7 +2294,7 @@ document.addEventListener("DOMContentLoaded", function () {
         refreshSidebarUnread()
         withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
           vml.setSyncState(false, 0, 0)
-          scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
+          scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml), immediate: true })
         }, false)
         return
       }
@@ -2297,7 +2308,7 @@ document.addEventListener("DOMContentLoaded", function () {
       refreshSidebarUnread()
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         vml.setSyncState(false, 0, 0)
-        scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
+        scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml), immediate: true })
       }, false)
     })
 
@@ -2847,11 +2858,39 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function scheduleSyncRefresh(vml, options) {
     if (!vml) return
-    if (syncRefreshTimer) return
+    syncRefreshPendingVml = vml
+    syncRefreshPendingOptions = mergeSyncRefreshOptions(syncRefreshPendingOptions, options || {})
+    if (syncRefreshTimer) {
+      if (!syncRefreshPendingOptions.immediate) return
+      clearTimeout(syncRefreshTimer)
+      syncRefreshTimer = null
+    }
+    var now = Date.now()
+    var immediate = !!(syncRefreshPendingOptions && syncRefreshPendingOptions.immediate)
+    var elapsed = syncRefreshLastAt ? now - syncRefreshLastAt : syncRefreshMinInterval
+    var delay = immediate ? 0 : Math.max(700, syncRefreshMinInterval - elapsed)
     syncRefreshTimer = setTimeout(function () {
       syncRefreshTimer = null
-      vml.refreshCurrentFolder(options || {}).catch(function () {})
-    }, 700)
+      var runVml = syncRefreshPendingVml
+      var runOptions = syncRefreshPendingOptions || {}
+      syncRefreshPendingVml = null
+      syncRefreshPendingOptions = null
+      syncRefreshLastAt = Date.now()
+      runVml.refreshCurrentFolder({
+        noAnimation: !!runOptions.noAnimation,
+        rebase: !!runOptions.rebase,
+      }).catch(function () {})
+    }, delay)
+  }
+
+  function mergeSyncRefreshOptions(base, next) {
+    base = base || {}
+    next = next || {}
+    return {
+      noAnimation: !!(base.noAnimation || next.noAnimation),
+      rebase: !!(base.rebase || next.rebase),
+      immediate: !!(base.immediate || next.immediate),
+    }
   }
 
   function mailListNearTop(vml) {
@@ -2862,9 +2901,22 @@ document.addEventListener("DOMContentLoaded", function () {
   function refreshActiveMailListAfterAccountSync(data) {
     if (!data || data.status !== "ok") return
     if (!virtualMailList || typeof virtualMailList.refreshCurrentFolder !== "function") return
+    if (!mailListCanChangeForAccount(virtualMailList, data.account_id || "")) return
     scheduleSyncRefresh(virtualMailList, { noAnimation: true, rebase: mailListNearTop(virtualMailList) })
   }
   window.goferRefreshActiveMailListAfterAccountSync = refreshActiveMailListAfterAccountSync
+
+  function mailListCanChangeForAccount(vml, accountID) {
+    if (!vml || !accountID) return true
+    var filters = vml.filters || {}
+    if (filters.accountId && filters.accountId !== accountID) return false
+    var tag = vml.sidebarTag || {}
+    if (tag.accountId && tag.accountId !== accountID) return false
+    var folderID = String(vml.folderID || "").trim()
+    if (!folderID || isRoleFolderID(folderID)) return true
+    if (folderID === accountID || folderID.indexOf(accountID + "_") === 0) return true
+    return folderID.indexOf("acc_") !== 0
+  }
 
   function withMailListForFolder(folderId, folderRole, fn, queueIfInactive) {
     if (typeof folderRole === "function") {

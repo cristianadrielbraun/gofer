@@ -7,7 +7,7 @@ class VirtualMailList {
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
     this.itemHeight = this.viewMode === "table" ? 44 : 100
     this.subItemHeight = this.viewMode === "table" ? 32 : 48
-    this.expandedThreadGap = 14
+    this.expandedThreadGap = 26
     this.overscan = 10
 
     this.cache = new Map()
@@ -178,6 +178,7 @@ class VirtualMailList {
     if (!item) return this.itemHeight
     var expanded = this.expandedThreads.get(item.id)
     if (expanded) {
+      if (expanded.measuredHeight) return expanded.measuredHeight
       var gap = this.viewMode === "table" ? 0 : this.expandedThreadGap
       return this.itemHeight + expanded.subCount * this.subItemHeight + gap
     }
@@ -188,6 +189,72 @@ class VirtualMailList {
     this._offsetCacheLen = -1
     this._offsetCacheStart = -1
     this._offsetCache = null
+  }
+
+  captureExpandedThreads() {
+    if (!this.expandedThreads || this.expandedThreads.size === 0) return null
+    var snapshot = new Map()
+    this.expandedThreads.forEach(function (thread, emailId) {
+      if (!thread || !thread.html || thread.collapsing) return
+      snapshot.set(emailId, {
+        html: thread.html,
+        subCount: thread.subCount || 0,
+        threadId: this.getThreadDataAttr(emailId) || "",
+        measuredHeight: thread.measuredHeight || 0,
+      })
+    }, this)
+    return snapshot.size > 0 ? snapshot : null
+  }
+
+  restoreExpandedThreads(snapshot) {
+    if (!snapshot || typeof snapshot.forEach !== "function") return
+    var restored = new Map()
+    snapshot.forEach(function (thread, emailId) {
+      if (!thread || !thread.html) return
+      var pos = this.indexById.get(emailId)
+      if (pos === undefined) return
+      var item = this.cache.get(pos)
+      if (!item || !item.html) return
+      var tmp = document.createElement("div")
+      tmp.innerHTML = this.rowHTML(item, this.viewMode)
+      var node = tmp.firstElementChild
+      if (!node || node.dataset.hasThread !== "true") return
+      var nextThreadId = node.dataset.threadId || ""
+      if (thread.threadId && nextThreadId && thread.threadId !== nextThreadId) return
+      restored.set(emailId, {
+        html: thread.html,
+        subCount: thread.subCount || 0,
+        entering: false,
+        measuredHeight: thread.measuredHeight || 0,
+      })
+    }, this)
+    this.expandedThreads = restored
+    this.invalidateOffsets()
+  }
+
+  updateExpandedThreadMeasuredHeight(emailId, shell) {
+    var expanded = this.expandedThreads.get(emailId)
+    if (!expanded || !shell) return
+    var measured = Math.ceil(shell.scrollHeight || 0)
+    if (measured <= 0) return
+    if (Math.abs((expanded.measuredHeight || 0) - measured) <= 1) return
+    expanded.measuredHeight = measured
+    this.invalidateOffsets()
+    this.scheduleMeasuredLayoutRefresh()
+  }
+
+  scheduleMeasuredLayoutRefresh() {
+    if (this._threadMeasureRaf) return
+    var self = this
+    var schedule = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : function (fn) { return setTimeout(fn, 16) }
+    this._threadMeasureRaf = schedule(function () {
+      self._threadMeasureRaf = null
+      self.prevFirst = null
+      self.prevLast = null
+      self.render()
+    })
   }
 
   setupDOM() {
@@ -381,21 +448,57 @@ class VirtualMailList {
     shell.hidden = false
     shell.style.transform = "translateY(" + this.offsetAtPosition(index) + "px)"
     shell.style.height = this.getHeight(index) + "px"
-    shell.className = ""
-    shell.removeAttribute("data-thread-entering")
-    shell.removeAttribute("data-thread-collapsing")
     if (!item) {
+      if (shell._mailRenderSkeleton === true && shell._mailRenderViewMode === this.viewMode) return
+      shell._mailRenderSkeleton = true
+      shell._mailRenderId = ""
+      shell._mailRenderHTML = ""
+      shell._mailRenderExpandedHTML = ""
+      shell._mailRenderExpandedSubCount = 0
+      shell._mailRenderExpandedEntering = false
+      shell._mailRenderExpandedCollapsing = false
+      shell._mailRenderViewMode = this.viewMode
+      shell.className = ""
+      shell.removeAttribute("data-thread-entering")
+      shell.removeAttribute("data-thread-collapsing")
       shell.innerHTML = this.createSkeleton().outerHTML
       if (this.viewMode === "cards" && typeof window.applyMailCardLayoutSettings === "function") window.applyMailCardLayoutSettings(shell)
       return
     }
+    var expanded = this.expandedThreads.get(item.id)
+    var expandedHTML = expanded && expanded.html ? expanded.html : ""
+    var expandedSubCount = expanded ? (expanded.subCount || 0) : 0
+    var expandedEntering = !!(expanded && expanded.entering)
+    var expandedCollapsing = !!(expanded && expanded.collapsing)
+    if (
+      shell._mailRenderSkeleton === false &&
+      shell._mailRenderId === item.id &&
+      shell._mailRenderHTML === item.html &&
+      shell._mailRenderExpandedHTML === expandedHTML &&
+      shell._mailRenderExpandedSubCount === expandedSubCount &&
+      shell._mailRenderExpandedEntering === expandedEntering &&
+      shell._mailRenderExpandedCollapsing === expandedCollapsing &&
+      shell._mailRenderViewMode === this.viewMode
+    ) {
+      return
+    }
+    shell._mailRenderSkeleton = false
+    shell._mailRenderId = item.id
+    shell._mailRenderHTML = item.html
+    shell._mailRenderExpandedHTML = expandedHTML
+    shell._mailRenderExpandedSubCount = expandedSubCount
+    shell._mailRenderExpandedEntering = expandedEntering
+    shell._mailRenderExpandedCollapsing = expandedCollapsing
+    shell._mailRenderViewMode = this.viewMode
+    shell.className = ""
+    shell.removeAttribute("data-thread-entering")
+    shell.removeAttribute("data-thread-collapsing")
     shell.innerHTML = this.rowHTML(item, this.viewMode)
     if (this.viewMode === "cards" && typeof window.applyMailCardLayoutSettings === "function") window.applyMailCardLayoutSettings(shell)
     var row = shell.querySelector(".mail-list-item") || shell.firstElementChild
     if (!row) return
     var anchor = row.querySelector("a")
     if (!anchor) return
-    var expanded = this.expandedThreads.get(item.id)
     if (item.id === this.selectedEmailId) {
       anchor.classList.remove("envelope")
       anchor.classList.add("envelope-active")
@@ -412,7 +515,7 @@ class VirtualMailList {
       else shell.removeAttribute("data-thread-collapsing")
       var mainRow = document.createElement("div")
       mainRow.className = "mail-list-thread-main"
-      anchor.style.height = this.viewMode === "table" ? "" : "108px"
+      anchor.style.height = ""
       if (toggle) toggle.setAttribute("data-expanded", "")
       mainRow.appendChild(row)
 
@@ -423,6 +526,7 @@ class VirtualMailList {
       shell.replaceChildren(mainRow, subContainer)
       this.syncSelectionClasses(shell)
       if (typeof window.syncMailSelectionControls === "function") window.syncMailSelectionControls()
+      this.updateExpandedThreadMeasuredHeight(item.id, shell)
       return
     }
     if (toggle) toggle.removeAttribute("data-expanded")
@@ -1312,12 +1416,14 @@ class VirtualMailList {
     var targetViewMode = options.viewMode === "table" ? "table" : (options.viewMode === "cards" ? "cards" : this.viewMode)
     var transition = options.noAnimation ? null : this.captureListTransition()
     var scrollAnchor = options.preserveScroll ? this.captureScrollAnchor() : null
+    var expandedSnapshot = options.preserveExpandedThreads ? this.captureExpandedThreads() : null
     var selected = options.preserveSelection ? this.selectedEmailId : null
     this.setPaginationLoading(true)
     try {
       var html = await this.fetchHTML(this.itemsURLForView(targetViewMode, start, this.pageSize, { selected: selected, knownTotal: options.knownTotal !== false }))
       if (options.pendingStartedAt !== undefined) await this.waitForViewSwitchPending(options.pendingStartedAt)
       this.ingestHTML(html)
+      if (expandedSnapshot) this.restoreExpandedThreads(expandedSnapshot)
       if (options.preserveScroll) this.restoreScrollAnchor(scrollAnchor)
       else this.container.scrollTop = 0
       if (selected && this.indexById.has(selected)) this.selectedEmailId = selected
@@ -1569,7 +1675,7 @@ class VirtualMailList {
     var self = this
     this.refreshInFlight = (async function () {
       if (self.navigationMode === "pagination") {
-        await self.loadPage(self.pageStart, { preserveSelection: true, loadSelected: false, preserveScroll: true, knownTotal: false, noAnimation: !!options.noAnimation, animation: { enterFrom: -12, exitTo: 12 } })
+        await self.loadPage(self.pageStart, { preserveSelection: true, preserveExpandedThreads: true, loadSelected: false, preserveScroll: true, knownTotal: false, noAnimation: !!options.noAnimation, animation: { enterFrom: -12, exitTo: 12 } })
         self.updateHeader()
         self.updateSyncHeader()
         return
@@ -1584,13 +1690,16 @@ class VirtualMailList {
       var html = await self.fetchHTML(url)
       var selected = self.selectedEmailId
       var syncState = self.syncState
+      var expandedSnapshot = self.captureExpandedThreads()
       var rebaseTopWindow = !!options.rebase || self.filterCount() > 0 || self.container.scrollTop < self.itemHeight * 2
-      if (rebaseTopWindow) {
+      var hardRebaseTopWindow = rebaseTopWindow && (self.windowStart !== 0 || self.frontierUp !== 0)
+      if (hardRebaseTopWindow) {
         self.reset()
         self.selectedEmailId = selected
         self.syncState = syncState
       }
       self.ingestHTML(html)
+      if (expandedSnapshot) self.restoreExpandedThreads(expandedSnapshot)
       self.prevFirst = null
       self.prevLast = null
       self.render()
@@ -2109,7 +2218,7 @@ class VirtualMailList {
 
   onNewEmail() {
     if (this.navigationMode === "pagination") {
-      this.loadPage(0, { preserveSelection: true, loadSelected: false, knownTotal: false, animation: { enterFrom: -12, exitTo: 12 } }).catch(function () {})
+      this.loadPage(0, { preserveSelection: true, preserveExpandedThreads: true, loadSelected: false, knownTotal: false, animation: { enterFrom: -12, exitTo: 12 } }).catch(function () {})
       return
     }
     if (this.container.scrollTop < this.itemHeight * 2) {
@@ -2123,7 +2232,7 @@ class VirtualMailList {
 
   invalidateItem(emailId) {
     if (this.navigationMode === "pagination") {
-      this.loadPage(this.pageStart, { preserveSelection: true, loadSelected: false, preserveScroll: true, animation: { enterFrom: -8, exitTo: 12 } }).catch(function () {})
+      this.loadPage(this.pageStart, { preserveSelection: true, preserveExpandedThreads: true, loadSelected: false, preserveScroll: true, animation: { enterFrom: -8, exitTo: 12 } }).catch(function () {})
       return
     }
     var pos = this.indexById.get(emailId)

@@ -967,7 +967,7 @@ func (h *Handler) handleAvatarImage(w http.ResponseWriter, r *http.Request) {
 	if isSVGAvatarContentType(contentType) {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
 	}
-	w.Header().Set("Cache-Control", "private, max-age=604800")
+	w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
 	w.Header().Set("ETag", etag)
 	if rec.ExpiresAtValid {
 		w.Header().Set("Expires", rec.ExpiresAt.UTC().Format(http.TimeFormat))

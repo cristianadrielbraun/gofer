@@ -222,6 +222,9 @@ func TestHandleAvatarImageAddsStrictHeadersForSVG(t *testing.T) {
 	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
 	}
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "max-age=604800") || !strings.Contains(got, "immutable") {
+		t.Fatalf("Cache-Control = %q, want week-long immutable cache", got)
+	}
 	csp := rec.Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "script-src 'none'") || !strings.Contains(csp, "object-src 'none'") {
 		t.Fatalf("Content-Security-Policy = %q, want strict SVG policy", csp)

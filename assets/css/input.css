@@ -1833,6 +1833,11 @@ body.mail-list-column-resizing {
   overflow: hidden;
 }
 
+.mail-list-thread-main > .mail-list-item,
+.mail-list-thread-main > .mail-list-item > a {
+  height: 100%;
+}
+
 .thread-sub-items {
   margin: 0.25rem 0.875rem 0.25rem;
   padding-left: 1rem;
