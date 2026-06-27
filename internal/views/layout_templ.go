@@ -24,7 +24,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
 
-func Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int) templ.Component {
+func Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -170,7 +170,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount, filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -588,7 +588,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 	})
 }
 
-func MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int) templ.Component {
+func MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -613,7 +613,7 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount, filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -687,7 +687,7 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 	})
 }
 
-func MailAppPartial(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, windowStart int, scheduledCount int) templ.Component {
+func MailAppPartial(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, windowStart int, scheduledCount int, filters models.EmailFilters) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -712,7 +712,7 @@ func MailAppPartial(accounts []models.Account, activeFolder string, emails []mod
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailSidebarBody(accounts, activeFolder, uiSettings, scheduledCount).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailSidebarBody(accounts, activeFolder, uiSettings, scheduledCount, filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1295,7 +1295,7 @@ func SavedPanelSizeStyle() templ.Component {
 	})
 }
 
-func FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string) templ.Component {
+func FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, filters models.EmailFilters) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {

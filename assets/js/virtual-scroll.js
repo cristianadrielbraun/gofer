@@ -24,6 +24,7 @@ class VirtualMailList {
     this.newEmailCount = 0
     this.syncState = { active: false, current: 0, total: 0 }
     this.filters = this.readFiltersFromURL()
+    this.sidebarTag = this.readSidebarTagFromURL()
     this.refreshInFlight = null
     this.refreshQueued = false
     this.refreshQueuedOptions = null
@@ -1777,6 +1778,15 @@ class VirtualMailList {
       url += sep + encodeURIComponent(pairs[i][0]) + "=" + encodeURIComponent(pairs[i][1])
       sep = "&"
     }
+    var tag = this.sidebarTag || this.emptySidebarTag()
+    if (tag.label) {
+      url += sep + "tag=" + encodeURIComponent(tag.label)
+      sep = "&"
+    }
+    if (tag.accountId) {
+      url += sep + "tag_account_id=" + encodeURIComponent(tag.accountId)
+      sep = "&"
+    }
     return url
   }
 
@@ -1827,6 +1837,31 @@ class VirtualMailList {
     return filters
   }
 
+  emptySidebarTag() {
+    return {
+      label: "",
+      accountId: "",
+    }
+  }
+
+  readSidebarTagFromURL() {
+    var params = new URLSearchParams(window.location.search)
+    var label = (params.get("tag") || "").trim()
+    return {
+      label: label,
+      accountId: label ? (params.get("tag_account_id") || "").trim() : "",
+    }
+  }
+
+  setSidebarTag(tag) {
+    tag = tag || {}
+    var label = (tag.label || "").trim()
+    this.sidebarTag = {
+      label: label,
+      accountId: label ? (tag.accountId || "").trim() : "",
+    }
+  }
+
   syncFilterInputs() {
     var search = document.querySelector("[data-mail-search-input]")
     if (search) search.value = this.filters.query || ""
@@ -1853,6 +1888,9 @@ class VirtualMailList {
     if (filters.query) params.set("q", filters.query)
     if (filters.afterDate) params.set("after_date", filters.afterDate)
     if (filters.beforeDate) params.set("before_date", filters.beforeDate)
+    var tag = this.sidebarTag || this.emptySidebarTag()
+    if (tag.label) params.set("tag", tag.label)
+    if (tag.accountId) params.set("tag_account_id", tag.accountId)
     return params.toString()
   }
 
@@ -1971,9 +2009,22 @@ class VirtualMailList {
   updateHeader() {
     var nameEl = document.getElementById("mail-folder-name")
     if (nameEl) {
-      var link = document.querySelector(
-        'aside a[hx-get="/folder/' + this.folderID + '"]'
-      )
+      var link = null
+      var tag = this.sidebarTag || this.emptySidebarTag()
+      if (tag.label) {
+        var tagLinks = document.querySelectorAll("aside a[data-sidebar-tag-filter]")
+        for (var i = 0; i < tagLinks.length; i++) {
+          if ((tagLinks[i].dataset.sidebarTagLabel || "") === tag.label && (tagLinks[i].dataset.sidebarTagAccount || "") === tag.accountId) {
+            link = tagLinks[i]
+            break
+          }
+        }
+      }
+      if (!link) {
+        link = document.querySelector(
+          'aside a[hx-get="/folder/' + this.folderID + '"]'
+        )
+      }
       if (link) {
         var span = link.querySelector("span.truncate")
         if (span) nameEl.textContent = span.textContent.trim()
@@ -3059,42 +3110,99 @@ window.addEventListener("popstate", function (e) {
   var container = document.getElementById("mail-list-scroll")
   if (!container || !container._virtualMailList) {
     if (typeof htmx !== "undefined") {
-      htmx.ajax("GET", "/folder/" + e.state.folder + "/full", {target: "#main-content", swap: "outerHTML"})
+      htmx.ajax("GET", "/folder/" + e.state.folder + "/full" + window.location.search, {target: "#main-content", swap: "outerHTML"})
     }
     return
   }
 
   var vml = container._virtualMailList
   var folderID = e.state.folder
-  if (folderID && folderID !== vml.folderID) {
-    vml.switchFolder(folderID, false)
+  var oldNavigationState = JSON.stringify({ filters: vml.filters || {}, tag: vml.sidebarTag || {} })
+  vml.filters = vml.readFiltersFromURL()
+  vml.setSidebarTag(vml.readSidebarTagFromURL())
+  var navigationStateChanged = oldNavigationState !== JSON.stringify({ filters: vml.filters || {}, tag: vml.sidebarTag || {} })
+  var sidebarTag = vml.sidebarTag || vml.emptySidebarTag()
+  var updateSidebarActive = function () {
     var sidebar = document.querySelector("aside")
-    if (sidebar) {
-      var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
-      for (var i = 0; i < sidebarLinks.length; i++) {
-        sidebarLinks[i].classList.remove(
-          "bg-sidebar-accent",
-          "text-sidebar-primary",
-          "font-medium"
-        )
-        sidebarLinks[i].classList.add("text-sidebar-foreground")
-        var badge = sidebarLinks[i].querySelector("[data-folder-unread]")
-        if (badge) {
-          badge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
-          badge.classList.add("bg-sidebar-accent", "text-sidebar-foreground/80")
-        }
+    if (!sidebar) return
+    var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
+    for (var i = 0; i < sidebarLinks.length; i++) {
+      sidebarLinks[i].classList.remove(
+        "bg-sidebar-accent",
+        "text-sidebar-primary",
+        "font-medium"
+      )
+      sidebarLinks[i].classList.add("text-sidebar-foreground")
+      var badge = sidebarLinks[i].querySelector("[data-folder-unread]")
+      if (badge) {
+        badge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
+        badge.classList.add("bg-sidebar-accent", "text-sidebar-foreground/80")
       }
-      var activeLink = sidebar.querySelector('a[hx-get="/folder/' + folderID + '"]')
-      if (activeLink) {
-        activeLink.classList.add("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
-        activeLink.classList.remove("text-sidebar-foreground")
-        var activeBadge = activeLink.querySelector("[data-folder-unread]")
-        if (activeBadge) {
-          activeBadge.classList.remove("bg-sidebar-accent", "text-sidebar-foreground/80")
-          activeBadge.classList.add("bg-sidebar-primary/20", "text-sidebar-primary")
+    }
+    var folderRows = sidebar.querySelectorAll("[data-sidebar-folder-row]")
+    for (var r = 0; r < folderRows.length; r++) {
+      folderRows[r].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+      folderRows[r].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
+      var rowBadge = folderRows[r].querySelector("[data-folder-unread]")
+      if (rowBadge) {
+        rowBadge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
+        rowBadge.classList.add("bg-sidebar-accent", "text-sidebar-foreground/80")
+      }
+    }
+    var activeLink = null
+    var tagGroups = sidebar.querySelectorAll("[data-sidebar-tag-group]")
+    for (var g = 0; g < tagGroups.length; g++) tagGroups[g].removeAttribute("data-sidebar-tag-active")
+    var folderGroups = sidebar.querySelectorAll("[data-sidebar-folder]")
+    for (var f = 0; f < folderGroups.length; f++) folderGroups[f].removeAttribute("data-sidebar-folder-active")
+    if (sidebarTag.label) {
+      var tagLinks = sidebar.querySelectorAll("a[data-sidebar-tag-filter]")
+      for (var t = 0; t < tagLinks.length; t++) {
+        if ((tagLinks[t].dataset.sidebarTagLabel || "") === sidebarTag.label && (tagLinks[t].dataset.sidebarTagAccount || "") === sidebarTag.accountId) {
+          activeLink = tagLinks[t]
+          break
         }
       }
     }
+    if (!activeLink) activeLink = sidebar.querySelector('a[hx-get="/folder/' + folderID + '"]')
+    if (activeLink) {
+      activeLink.classList.add("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+      activeLink.classList.remove("text-sidebar-foreground")
+      var activeRow = activeLink.closest("[data-sidebar-folder-row]")
+      if (activeRow) {
+        activeRow.classList.add("bg-sidebar-accent")
+        activeRow.classList.remove("hover:bg-sidebar-accent/60")
+      }
+      var activeBadge = activeLink.querySelector("[data-folder-unread]")
+      if (activeBadge) {
+        activeBadge.classList.remove("bg-sidebar-accent", "text-sidebar-foreground/80")
+        activeBadge.classList.add("bg-sidebar-primary/20", "text-sidebar-primary")
+      }
+      if (activeLink.hasAttribute("data-sidebar-tag-filter")) {
+        var activeGroup = activeLink.closest("[data-sidebar-tag-group]")
+        if (activeGroup) {
+          activeGroup.setAttribute("data-sidebar-tag-active", "")
+          activeGroup.setAttribute("data-sidebar-tag-collapsed", "false")
+          var toggle = activeGroup.querySelector("[data-sidebar-tag-toggle]")
+          if (toggle) toggle.setAttribute("aria-expanded", "true")
+        }
+      } else {
+        var folderGroup = activeLink.closest("[data-sidebar-folder]")
+        while (folderGroup) {
+          folderGroup.setAttribute("data-sidebar-folder-active", "")
+          folderGroup.setAttribute("data-sidebar-folder-collapsed", "false")
+          var folderToggle = folderGroup.querySelector("[data-sidebar-folder-toggle]")
+          if (folderToggle) folderToggle.setAttribute("aria-expanded", "true")
+          folderGroup = folderGroup.parentElement && folderGroup.parentElement.closest ? folderGroup.parentElement.closest("[data-sidebar-folder]") : null
+        }
+      }
+    }
+  }
+  if (folderID && folderID !== vml.folderID) {
+    vml.switchFolder(folderID, false)
+    updateSidebarActive()
+  } else if (navigationStateChanged) {
+    vml.refreshCurrentFolder({ rebase: true }).catch(function () {})
+    updateSidebarActive()
   } else if (e.state.email && e.state.email !== vml.selectedEmailId) {
     vml.selectedEmailId = e.state.email
     vml.prevFirst = null

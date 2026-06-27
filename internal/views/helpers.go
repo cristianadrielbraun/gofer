@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -211,7 +213,47 @@ func sidebarAccountCollapsed(settings map[string]string, accountID string, activ
 	return state[accountID]
 }
 
-func accountHasActiveFolder(account models.Account, activeFolder string) bool {
+func sidebarTagGroupID(accountID string) string {
+	if strings.TrimSpace(accountID) == "" {
+		return "__unified__"
+	}
+	return strings.TrimSpace(accountID)
+}
+
+func sidebarTagGroupCollapsed(settings map[string]string, accountID string, active bool) bool {
+	if active {
+		return false
+	}
+	var state map[string]bool
+	if err := json.Unmarshal([]byte(uiSettingGet(settings, "sidebar_tag_group_collapsed", "{}")), &state); err != nil {
+		return false
+	}
+	return state[sidebarTagGroupID(accountID)]
+}
+
+func sidebarFolderGroupID(accountID string, folderID string) string {
+	scope := strings.TrimSpace(accountID)
+	if scope == "" {
+		scope = "__unified__"
+	}
+	return scope + ":" + strings.TrimSpace(folderID)
+}
+
+func sidebarFolderCollapsed(settings map[string]string, accountID string, folder models.Folder, activeFolder string) bool {
+	if folderHasActiveDescendant(folder, activeFolder) {
+		return false
+	}
+	var state map[string]bool
+	if err := json.Unmarshal([]byte(uiSettingGet(settings, "sidebar_folder_collapsed", "{}")), &state); err != nil {
+		return false
+	}
+	return state[sidebarFolderGroupID(accountID, folder.ID)]
+}
+
+func accountHasActiveFolder(account models.Account, activeFolder string, filters models.EmailFilters) bool {
+	if sidebarAccountHasActiveTag(account.ID, filters) {
+		return true
+	}
 	for _, folder := range account.Folders {
 		if folderHasActiveID(folder, activeFolder) {
 			return true
@@ -232,7 +274,19 @@ func folderHasActiveID(folder models.Folder, activeFolder string) bool {
 	return false
 }
 
-func unifiedHasActiveFolder(activeFolder string, settings map[string]string) bool {
+func folderHasActiveDescendant(folder models.Folder, activeFolder string) bool {
+	for _, child := range folder.Children {
+		if folderHasActiveID(child, activeFolder) {
+			return true
+		}
+	}
+	return false
+}
+
+func unifiedHasActiveFolder(activeFolder string, settings map[string]string, filters models.EmailFilters) bool {
+	if sidebarUnifiedHasActiveTag(filters) {
+		return true
+	}
 	for _, folder := range unifiedFolderOptions() {
 		if folder.ID == activeFolder {
 			return unifiedFolderEnabled(settings, activeFolder)
@@ -301,6 +355,76 @@ func unifiedFolderIDFromRole(role string) string {
 		return "spam"
 	}
 	return role
+}
+
+func unifiedSidebarLabels(accounts []models.Account) []models.Label {
+	labels := make([]models.Label, 0)
+	seen := make(map[string]bool)
+	for _, account := range accounts {
+		if account.IsDeleting || !account.EmailSyncEnabled {
+			continue
+		}
+		for _, label := range account.Labels {
+			name := strings.TrimSpace(label.Name)
+			if name == "" {
+				continue
+			}
+			key := strings.ToLower(name)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			label.Name = name
+			labels = append(labels, label)
+		}
+	}
+	sort.SliceStable(labels, func(i, j int) bool {
+		return strings.ToLower(labels[i].Name) < strings.ToLower(labels[j].Name)
+	})
+	return labels
+}
+
+func sidebarTagBaseFolder(activeFolder string) string {
+	folder := strings.TrimSpace(activeFolder)
+	if folder == "" || folder == "scheduled" {
+		return "inbox"
+	}
+	return folder
+}
+
+func sidebarTagFilterURL(folderID string, label models.Label, accountID string) templ.SafeURL {
+	folderID = sidebarTagBaseFolder(folderID)
+	values := url.Values{}
+	values.Set("tag", strings.TrimSpace(label.Name))
+	if strings.TrimSpace(accountID) != "" {
+		values.Set("tag_account_id", strings.TrimSpace(accountID))
+	}
+	return templ.URL("/folder/" + url.PathEscape(folderID) + "?" + values.Encode())
+}
+
+func sidebarTagActive(activeFolder string, folderID string, filters models.EmailFilters, label models.Label, accountID string) bool {
+	if strings.TrimSpace(activeFolder) != sidebarTagBaseFolder(folderID) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(filters.SidebarTag), strings.TrimSpace(label.Name)) {
+		return false
+	}
+	return strings.TrimSpace(filters.SidebarTagAccountID) == strings.TrimSpace(accountID)
+}
+
+func sidebarAccountHasActiveTag(accountID string, filters models.EmailFilters) bool {
+	return strings.TrimSpace(filters.SidebarTag) != "" && strings.TrimSpace(filters.SidebarTagAccountID) == strings.TrimSpace(accountID)
+}
+
+func sidebarUnifiedHasActiveTag(filters models.EmailFilters) bool {
+	return strings.TrimSpace(filters.SidebarTag) != "" && strings.TrimSpace(filters.SidebarTagAccountID) == ""
+}
+
+func sidebarTagGroupActive(filters models.EmailFilters, accountID string) bool {
+	if strings.TrimSpace(accountID) == "" {
+		return sidebarUnifiedHasActiveTag(filters)
+	}
+	return sidebarAccountHasActiveTag(accountID, filters)
 }
 
 func themeClass(settings map[string]string) string {

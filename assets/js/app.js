@@ -595,14 +595,67 @@ document.addEventListener("DOMContentLoaded", function () {
       if (window.GoferSettings) GoferSettings.set("sidebar_account_collapsed", JSON.stringify(state))
     }
 
+    function readTagState() {
+      var raw = window.GoferSettings ? GoferSettings.get("sidebar_tag_group_collapsed") : null
+      try {
+        return JSON.parse(raw || "{}") || {}
+      } catch (_) {
+        return {}
+      }
+    }
+
+    function writeTagState(state) {
+      if (window.GoferSettings) GoferSettings.set("sidebar_tag_group_collapsed", JSON.stringify(state))
+    }
+
+    function readFolderState() {
+      var raw = window.GoferSettings ? GoferSettings.get("sidebar_folder_collapsed") : null
+      try {
+        return JSON.parse(raw || "{}") || {}
+      } catch (_) {
+        return {}
+      }
+    }
+
+    function writeFolderState(state) {
+      if (window.GoferSettings) GoferSettings.set("sidebar_folder_collapsed", JSON.stringify(state))
+    }
+
     function setCollapsed(section, collapsed) {
       var toggle = section.querySelector("[data-sidebar-account-toggle]")
       section.setAttribute("data-sidebar-account-collapsed", collapsed ? "true" : "false")
       if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true")
     }
 
+    function setTagCollapsed(group, collapsed) {
+      var toggle = group.querySelector("[data-sidebar-tag-toggle]")
+      group.setAttribute("data-sidebar-tag-collapsed", collapsed ? "true" : "false")
+      if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true")
+    }
+
+    function setFolderCollapsed(group, collapsed) {
+      var toggle = group.querySelector("[data-sidebar-folder-toggle]")
+      group.setAttribute("data-sidebar-folder-collapsed", collapsed ? "true" : "false")
+      if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true")
+    }
+
     function sectionHasActiveFolder(section) {
       return section.hasAttribute("data-sidebar-account-active") || !!section.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent')
+    }
+
+    function tagGroupHasActiveTag(group) {
+      return group.hasAttribute("data-sidebar-tag-active") || !!group.querySelector('a[data-sidebar-tag-filter].bg-sidebar-accent')
+    }
+
+    function folderGroupHasActiveDescendant(group) {
+      var childContainer = null
+      for (var i = 0; i < group.children.length; i++) {
+        if (group.children[i].classList && group.children[i].classList.contains("sidebar-folder-children")) {
+          childContainer = group.children[i]
+          break
+        }
+      }
+      return !!(childContainer && childContainer.querySelector('[data-sidebar-folder-active], a[hx-get^="/folder/"].bg-sidebar-accent'))
     }
 
     function hydrate(root) {
@@ -613,6 +666,22 @@ document.addEventListener("DOMContentLoaded", function () {
         var accountId = section.getAttribute("data-sidebar-account")
         var collapsed = state[accountId] === true && !sectionHasActiveFolder(section)
         setCollapsed(section, collapsed)
+      }
+      var tagState = readTagState()
+      var tagGroups = (root || document).querySelectorAll("[data-sidebar-tag-group]")
+      for (var j = 0; j < tagGroups.length; j++) {
+        var group = tagGroups[j]
+        var groupId = group.getAttribute("data-sidebar-tag-group")
+        var tagCollapsed = tagState[groupId] === true && !tagGroupHasActiveTag(group)
+        setTagCollapsed(group, tagCollapsed)
+      }
+      var folderState = readFolderState()
+      var folderGroups = (root || document).querySelectorAll("[data-sidebar-folder]")
+      for (var k = 0; k < folderGroups.length; k++) {
+        var folderGroup = folderGroups[k]
+        var folderGroupId = folderGroup.getAttribute("data-sidebar-folder")
+        var folderCollapsed = folderState[folderGroupId] === true && !folderGroupHasActiveDescendant(folderGroup)
+        setFolderCollapsed(folderGroup, folderCollapsed)
       }
       var initialStyle = document.querySelector("[data-sidebar-account-collapse-style]")
       if (initialStyle) initialStyle.remove()
@@ -635,8 +704,44 @@ document.addEventListener("DOMContentLoaded", function () {
       setCollapsed(section, collapsed)
     })
 
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-sidebar-tag-toggle]")
+      if (!toggle) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      var group = toggle.closest("[data-sidebar-tag-group]")
+      if (!group) return
+      var groupId = group.getAttribute("data-sidebar-tag-group")
+      var collapsed = group.getAttribute("data-sidebar-tag-collapsed") !== "true"
+      var state = readTagState()
+      state[groupId] = collapsed
+      writeTagState(state)
+      setTagCollapsed(group, collapsed)
+    })
+
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-sidebar-folder-toggle]")
+      if (!toggle) return
+      if (toggle.matches && toggle.matches('a[hx-get^="/folder/"]')) return
+
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation()
+
+      var group = toggle.closest("[data-sidebar-folder]")
+      if (!group) return
+      var groupId = group.getAttribute("data-sidebar-folder")
+      var collapsed = group.getAttribute("data-sidebar-folder-collapsed") !== "true"
+      var state = readFolderState()
+      state[groupId] = collapsed
+      writeFolderState(state)
+      setFolderCollapsed(group, collapsed)
+    })
+
     document.body.addEventListener("htmx:afterSettle", function (evt) {
-      if (evt.target && evt.target.querySelector && evt.target.querySelector("[data-sidebar-account]")) {
+      if (evt.target && evt.target.querySelector && (evt.target.querySelector("[data-sidebar-account]") || evt.target.querySelector("[data-sidebar-tag-group]") || evt.target.querySelector("[data-sidebar-folder]"))) {
         hydrate(evt.target)
       }
     })
@@ -2207,14 +2312,34 @@ document.addEventListener("DOMContentLoaded", function () {
     if (virtualMailList && virtualMailList.folderID) return virtualMailList.folderID
     var active = document.querySelector('aside a[hx-get^="/folder/"].bg-sidebar-accent')
     if (!active) return ""
-    return (active.getAttribute("hx-get") || "").replace("/folder/", "")
+    var raw = active.getAttribute("hx-get") || ""
+    try {
+      var parsed = new URL(raw, window.location.origin)
+      return decodeURIComponent(parsed.pathname.replace(/^\/folder\//, ""))
+    } catch (_) {
+      return raw.replace("/folder/", "").split("?")[0]
+    }
+  }
+
+  function currentSidebarNavigationParams() {
+    var tag = virtualMailList && virtualMailList.sidebarTag ? virtualMailList.sidebarTag : null
+    var params = new URLSearchParams()
+    if (tag && tag.label) params.set("tag", tag.label)
+    if (tag && tag.label && tag.accountId) params.set("tag_account_id", tag.accountId)
+    return params
+  }
+
+  function sidebarRefreshURL(path) {
+    var params = currentSidebarNavigationParams()
+    params.set("active_folder", currentSidebarActiveFolder())
+    return path + "?" + params.toString()
   }
 
   function refreshSidebarAccount(accountID) {
     if (!accountID) return
     var target = document.getElementById("sidebar-account-" + accountID)
     if (!target) return
-    var url = "/api/sidebar/accounts/" + encodeURIComponent(accountID) + "?active_folder=" + encodeURIComponent(currentSidebarActiveFolder())
+    var url = sidebarRefreshURL("/api/sidebar/accounts/" + encodeURIComponent(accountID))
     if (window.htmx && typeof window.htmx.ajax === "function") {
       window.htmx.ajax("GET", url, { target: "#" + cssEscape(target.id), swap: "outerHTML" })
       return
@@ -2235,7 +2360,7 @@ document.addEventListener("DOMContentLoaded", function () {
       refreshSidebarUnread()
       return
     }
-    var url = "/api/sidebar/mail?active_folder=" + encodeURIComponent(currentSidebarActiveFolder())
+    var url = sidebarRefreshURL("/api/sidebar/mail")
     if (window.htmx && typeof window.htmx.ajax === "function") {
       window.htmx.ajax("GET", url, { target: "#sidebar-app-body", swap: "outerHTML" })
       return
@@ -2855,7 +2980,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (document.body) document.body.removeAttribute("data-initial-email-id")
     var path = "/folder/" + folderID + (initialEmailId ? "/" + initialEmailId : "")
     if (window.location.pathname !== path) {
-      history.replaceState({ folder: folderID, email: initialEmailId || null }, "", path)
+      history.replaceState({ folder: folderID, email: initialEmailId || null }, "", path + window.location.search)
     }
     if (typeof htmx !== "undefined") {
       if (initialEmailId) {
@@ -2867,8 +2992,10 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         document.body.addEventListener("htmx:afterSettle", loadEmailAfterShell)
       }
-      var url = "/folder/" + folderID + "/full"
-      if (initialEmailId) url += "?selected=" + encodeURIComponent(initialEmailId)
+      var params = new URLSearchParams(window.location.search)
+      if (initialEmailId) params.set("selected", initialEmailId)
+      var query = params.toString()
+      var url = "/folder/" + folderID + "/full" + (query ? "?" + query : "")
       htmx.ajax("GET", url, {target: "#main-content", swap: "outerHTML"})
     }
     return true
@@ -2923,6 +3050,16 @@ document.addEventListener("DOMContentLoaded", function () {
           badge.classList.add("bg-sidebar-accent", "text-sidebar-foreground/80")
         }
       }
+      var folderRows = sidebar.querySelectorAll("[data-sidebar-folder-row]")
+      for (var r = 0; r < folderRows.length; r++) {
+        folderRows[r].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+        folderRows[r].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
+        var rowBadge = folderRows[r].querySelector("[data-folder-unread]")
+        if (rowBadge) {
+          rowBadge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
+          rowBadge.classList.add("bg-sidebar-accent", "text-sidebar-foreground/80")
+        }
+      }
     }
 
     function setContactsActive(active) {
@@ -2932,6 +3069,95 @@ document.addEventListener("DOMContentLoaded", function () {
       contactsLink.classList.toggle("text-sidebar-primary", active)
       contactsLink.classList.toggle("font-medium", active)
       contactsLink.classList.toggle("text-sidebar-foreground", !active)
+    }
+
+    function setActiveSidebarTagGroup(link, sidebarTag) {
+      var groups = sidebar.querySelectorAll("[data-sidebar-tag-group]")
+      for (var i = 0; i < groups.length; i++) {
+        groups[i].removeAttribute("data-sidebar-tag-active")
+      }
+      if (!sidebarTag || !sidebarTag.label || !link || !link.hasAttribute("data-sidebar-tag-filter")) return
+      var group = link.closest("[data-sidebar-tag-group]")
+      if (!group) return
+      group.setAttribute("data-sidebar-tag-active", "")
+      group.setAttribute("data-sidebar-tag-collapsed", "false")
+      var toggle = group.querySelector("[data-sidebar-tag-toggle]")
+      if (toggle) toggle.setAttribute("aria-expanded", "true")
+    }
+
+    function readSidebarFolderCollapseState() {
+      var raw = window.GoferSettings ? GoferSettings.get("sidebar_folder_collapsed") : null
+      try {
+        return JSON.parse(raw || "{}") || {}
+      } catch (_) {
+        return {}
+      }
+    }
+
+    function writeSidebarFolderCollapseState(state) {
+      if (window.GoferSettings) GoferSettings.set("sidebar_folder_collapsed", JSON.stringify(state))
+    }
+
+    function toggleSidebarFolderBranch(link) {
+      if (!link || !link.hasAttribute("data-sidebar-folder-toggle")) return null
+      var group = link.closest("[data-sidebar-folder]")
+      if (!group) return null
+      var groupId = group.getAttribute("data-sidebar-folder")
+      if (!groupId) return group
+      var collapsed = group.getAttribute("data-sidebar-folder-collapsed") !== "true"
+      var state = readSidebarFolderCollapseState()
+      state[groupId] = collapsed
+      writeSidebarFolderCollapseState(state)
+      group.setAttribute("data-sidebar-folder-collapsed", collapsed ? "true" : "false")
+      link.setAttribute("aria-expanded", collapsed ? "false" : "true")
+      return group
+    }
+
+    function setActiveSidebarFolderGroups(link, sidebarTag, preserveCollapsedGroup) {
+      var groups = sidebar.querySelectorAll("[data-sidebar-folder]")
+      for (var i = 0; i < groups.length; i++) {
+        groups[i].removeAttribute("data-sidebar-folder-active")
+      }
+      if (sidebarTag && sidebarTag.label) return
+      var group = link && link.closest ? link.closest("[data-sidebar-folder]") : null
+      while (group) {
+        group.setAttribute("data-sidebar-folder-active", "")
+        var toggle = group.querySelector("[data-sidebar-folder-toggle]")
+        if (group !== preserveCollapsedGroup) {
+          group.setAttribute("data-sidebar-folder-collapsed", "false")
+          if (toggle) toggle.setAttribute("aria-expanded", "true")
+        }
+        group = group.parentElement && group.parentElement.closest ? group.parentElement.closest("[data-sidebar-folder]") : null
+      }
+    }
+
+    function sidebarFolderLinkTarget(link) {
+      var raw = (link && link.getAttribute("hx-get")) || "/folder/inbox"
+      try {
+        var parsed = new URL(raw, window.location.origin)
+        return {
+          folderID: decodeURIComponent(parsed.pathname.replace(/^\/folder\//, "")) || "inbox",
+          search: parsed.search || "",
+        }
+      } catch (_) {
+        var parts = raw.split("?")
+        return {
+          folderID: (parts[0] || "/folder/inbox").replace("/folder/", "") || "inbox",
+          search: parts.length > 1 ? "?" + parts.slice(1).join("?") : "",
+        }
+      }
+    }
+
+    function sidebarTagForLink(link) {
+      if (!link || !link.hasAttribute("data-sidebar-tag-filter")) {
+        return { label: "", accountId: "" }
+      }
+      var target = sidebarFolderLinkTarget(link)
+      var params = new URLSearchParams(target.search || "")
+      return {
+        label: (link.dataset.sidebarTagLabel || params.get("tag") || "").trim(),
+        accountId: (link.dataset.sidebarTagAccount || params.get("tag_account_id") || "").trim(),
+      }
     }
 
     sidebar.addEventListener("click", function (e) {
@@ -2950,7 +3176,15 @@ document.addEventListener("DOMContentLoaded", function () {
       e.stopPropagation()
       e.stopImmediatePropagation()
 
-      var folderID = link.getAttribute("hx-get").replace("/folder/", "")
+      var target = sidebarFolderLinkTarget(link)
+      var folderID = target.folderID
+      var sidebarTag = sidebarTagForLink(link)
+      var toggledFolderGroup = toggleSidebarFolderBranch(link)
+      if (virtualMailList && typeof virtualMailList.setSidebarTag === "function") {
+        virtualMailList.setSidebarTag(sidebarTag)
+      }
+      setActiveSidebarTagGroup(link, sidebarTag)
+      setActiveSidebarFolderGroups(link, sidebarTag, toggledFolderGroup)
 
       if (document.querySelector("[data-compose-pane]")) {
         collapseComposeFullWidth()
@@ -2966,6 +3200,11 @@ document.addEventListener("DOMContentLoaded", function () {
         "font-medium"
       )
       link.classList.remove("text-sidebar-foreground")
+      var activeRow = link.closest("[data-sidebar-folder-row]")
+      if (activeRow) {
+        activeRow.classList.add("bg-sidebar-accent")
+        activeRow.classList.remove("hover:bg-sidebar-accent/60")
+      }
       var activeBadge = link.querySelector("[data-folder-unread]")
       if (activeBadge) {
         activeBadge.classList.remove("bg-sidebar-accent", "text-sidebar-foreground/80")
@@ -2979,9 +3218,9 @@ document.addEventListener("DOMContentLoaded", function () {
       if (isOnSettings || isOnContacts || mailListDetached) {
         if (typeof htmx !== "undefined") {
           virtualContactsList = null
-          history.pushState({ folder: folderID, email: null }, "", "/folder/" + folderID)
+          history.pushState({ folder: folderID, email: null }, "", "/folder/" + folderID + target.search)
           if (mainContent) showMailContentLoading(mainContent, link)
-          htmx.ajax("GET", "/folder/" + folderID + "/full", {target: "#main-content", swap: "outerHTML"})
+          htmx.ajax("GET", "/folder/" + folderID + "/full" + target.search, {target: "#main-content", swap: "outerHTML"})
         }
       } else {
         virtualMailList.switchFolder(folderID).then(function () {

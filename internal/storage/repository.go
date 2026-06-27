@@ -3243,6 +3243,9 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		}
 		accounts[i].Folders = folders
 	}
+	if err := db.attachAccountLabels(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 	db.attachContactAddressBooks(ctx, userID, accounts)
 
 	return accounts, nil
@@ -3286,9 +3289,60 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		}
 		accounts[i].Folders = folders
 	}
+	if err := db.attachAccountLabels(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 	db.attachContactAddressBooks(ctx, userID, accounts)
 
 	return accounts, nil
+}
+
+func (db *DB) attachAccountLabels(ctx context.Context, userID string, accounts []models.Account) error {
+	if len(accounts) == 0 {
+		return nil
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type
+		FROM labels l
+		JOIN accounts a ON a.id = l.account_id
+		WHERE a.user_id = ?
+		  AND COALESCE(a.is_deleting, 0) = 0
+		  AND COALESCE(l.is_system, 0) = 0
+		  AND trim(l.name) != ''
+		  AND NOT (
+		    l.provider_type = 'imap_keyword'
+		    AND (
+		      lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')
+		      OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')
+		    )
+		  )
+		ORDER BY l.account_id, l.name COLLATE NOCASE`, userID)
+	if err != nil {
+		return fmt.Errorf("query account labels: %w", err)
+	}
+	defer rows.Close()
+
+	labelsByAccount := make(map[string][]models.Label)
+	seen := make(map[string]bool)
+	for rows.Next() {
+		var label models.Label
+		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.Color, &label.ProviderID, &label.ProviderType); err != nil {
+			return fmt.Errorf("scan account label: %w", err)
+		}
+		key := label.AccountID + "\x00" + strings.ToLower(strings.TrimSpace(label.Name))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		labelsByAccount[label.AccountID] = append(labelsByAccount[label.AccountID], label)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate account labels: %w", err)
+	}
+	for i := range accounts {
+		accounts[i].Labels = labelsByAccount[accounts[i].ID]
+	}
+	return nil
 }
 
 func (db *DB) attachContactAddressBooks(ctx context.Context, userID string, accounts []models.Account) {
@@ -3633,7 +3687,7 @@ type emailFilterParts struct {
 }
 
 func emailFiltersEmpty(filters models.EmailFilters) bool {
-	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasLabels && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Label == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
+	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasLabels && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Label == "" && filters.AccountID == "" && filters.SidebarTag == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
 }
 
 func ftsQuery(input string) string {
@@ -3681,6 +3735,10 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		cteParts = append(cteParts, "m.account_id = ?")
 		args = append(args, filters.AccountID)
 	}
+	if filters.SidebarTag != "" && filters.SidebarTagAccountID != "" {
+		cteParts = append(cteParts, "m.account_id = ?")
+		args = append(args, filters.SidebarTagAccountID)
+	}
 	if filters.Query != "" {
 		if query := ftsQuery(filters.Query); query != "" {
 			matchParts = append(matchParts, query)
@@ -3717,6 +3775,10 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	if filters.Label != "" {
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml JOIN labels l ON ml.label_id = l.id WHERE ml.message_id = m.id AND l.name LIKE ?)")
 		args = append(args, "%"+filters.Label+"%")
+	}
+	if filters.SidebarTag != "" {
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml JOIN labels l ON ml.label_id = l.id WHERE ml.message_id = m.id AND l.name = ? COLLATE NOCASE)")
+		args = append(args, filters.SidebarTag)
 	}
 	if filters.After != "" {
 		cteParts = append(cteParts, "date(m.date_received) >= date(?)")
@@ -5958,6 +6020,8 @@ func defaultUISettings() map[string]string {
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
 		"sidebar_account_collapsed":         "{}",
+		"sidebar_folder_collapsed":          "{}",
+		"sidebar_tag_group_collapsed":       "{}",
 		"contacts_auto_create_observed":     "true",
 		"contacts_prevent_recreate_deleted": "true",
 		"contacts_observed_sources":         "senders,recipients",

@@ -18,6 +18,7 @@ type Account struct {
 	ContactSyncProvider string
 	ContactAddressBooks []ContactAddressBook
 	Folders             []Folder
+	Labels              []Label
 }
 
 type Folder struct {
@@ -160,24 +161,26 @@ type EmailPage struct {
 }
 
 type EmailFilters struct {
-	Unread      bool
-	Starred     bool
-	Attachments bool
-	Read        bool
-	NoAttach    bool
-	HasLabels   bool
-	ThreadsOnly bool
-	From        string
-	To          string
-	Subject     string
-	Body        string
-	FromDomain  string
-	Attachment  string
-	Label       string
-	AccountID   string
-	Query       string
-	After       string
-	Before      string
+	Unread              bool
+	Starred             bool
+	Attachments         bool
+	Read                bool
+	NoAttach            bool
+	HasLabels           bool
+	ThreadsOnly         bool
+	From                string
+	To                  string
+	Subject             string
+	Body                string
+	FromDomain          string
+	Attachment          string
+	Label               string
+	AccountID           string
+	SidebarTag          string
+	SidebarTagAccountID string
+	Query               string
+	After               string
+	Before              string
 }
 
 type ThreadItem struct {

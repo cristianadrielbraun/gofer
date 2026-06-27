@@ -334,25 +334,25 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 	uiSettings := h.db.GetUISettings(ctx, userID)
 	scheduledCount := h.scheduledSidebarCount(ctx, userID)
+	filters := parseEmailFilters(r)
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
 		ctx = h.contextWithUserTimezone(ctx, userID)
-		filters := parseEmailFilters(r)
 		window := h.loadMailWindow(ctx, userID, folderID, filters, emailID, 50)
 		w.Header().Set("Content-Type", "text/html")
-		views.MailAppPartial(accounts, folderID, window.emails, window.selectedEmail, window.totalCount, uiSettings, nil, emailID, window.windowStart, scheduledCount).Render(ctx, w)
+		views.MailAppPartial(accounts, folderID, window.emails, window.selectedEmail, window.totalCount, uiSettings, nil, emailID, window.windowStart, scheduledCount, filters).Render(ctx, w)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "app-shell" {
 		w.Header().Set("Content-Type", "text/html")
-		views.MailShell(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount).Render(ctx, w)
+		views.MailShell(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount, filters).Render(ctx, w)
 		return
 	}
 	if emailID == "" {
-		views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, "", scheduledCount).Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, "", scheduledCount, filters).Render(ctx, w)
 		return
 	}
 
-	views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount).Render(ctx, w)
+	views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount, filters).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) {
@@ -366,7 +366,7 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	userID := h.userID(ctx)
 	accounts, _ := h.db.GetAccounts(ctx, userID)
-	views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID)).Render(ctx, w)
+	views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID), parseEmailFilters(r)).Render(ctx, w)
 }
 
 func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
@@ -1571,12 +1571,12 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(ctx)
 	ctx = h.contextWithUserTimezone(ctx, userID)
 	accounts, _ := h.db.GetAccounts(ctx, userID)
+	filters := parseEmailFilters(r)
 	if r.Header.Get("HX-Request") != "true" {
-		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, "", h.scheduledSidebarCount(ctx, userID)).Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, "", h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
 		return
 	}
 
-	filters := parseEmailFilters(r)
 	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, userID, folderID, filters)
 
 	page, _ := h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, 0, 50, filters, totalCount)
@@ -1589,7 +1589,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	var selectedThread []models.ThreadItem
 
 	w.Header().Set("Content-Type", "text/html")
-	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
+	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, userID), filters).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
@@ -1743,30 +1743,37 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 
 func parseEmailFilters(r *http.Request) models.EmailFilters {
 	q := r.URL.Query()
+	sidebarTag := strings.TrimSpace(q.Get("tag"))
+	sidebarTagAccountID := ""
+	if sidebarTag != "" {
+		sidebarTagAccountID = strings.TrimSpace(q.Get("tag_account_id"))
+	}
 	return models.EmailFilters{
-		Unread:      q.Get("unread") == "1",
-		Starred:     q.Get("starred") == "1",
-		Attachments: q.Get("attachments") == "1",
-		Read:        q.Get("read") == "1",
-		NoAttach:    q.Get("no_attachments") == "1",
-		HasLabels:   q.Get("has_labels") == "1",
-		ThreadsOnly: q.Get("threads_only") == "1",
-		From:        strings.TrimSpace(q.Get("from")),
-		To:          strings.TrimSpace(q.Get("to")),
-		Subject:     strings.TrimSpace(q.Get("subject")),
-		Body:        strings.TrimSpace(q.Get("body")),
-		FromDomain:  strings.TrimSpace(q.Get("from_domain")),
-		Attachment:  strings.TrimSpace(q.Get("attachment")),
-		Label:       strings.TrimSpace(q.Get("label")),
-		AccountID:   strings.TrimSpace(q.Get("account_id")),
-		Query:       strings.TrimSpace(q.Get("q")),
-		After:       strings.TrimSpace(q.Get("after_date")),
-		Before:      strings.TrimSpace(q.Get("before_date")),
+		Unread:              q.Get("unread") == "1",
+		Starred:             q.Get("starred") == "1",
+		Attachments:         q.Get("attachments") == "1",
+		Read:                q.Get("read") == "1",
+		NoAttach:            q.Get("no_attachments") == "1",
+		HasLabels:           q.Get("has_labels") == "1",
+		ThreadsOnly:         q.Get("threads_only") == "1",
+		From:                strings.TrimSpace(q.Get("from")),
+		To:                  strings.TrimSpace(q.Get("to")),
+		Subject:             strings.TrimSpace(q.Get("subject")),
+		Body:                strings.TrimSpace(q.Get("body")),
+		FromDomain:          strings.TrimSpace(q.Get("from_domain")),
+		Attachment:          strings.TrimSpace(q.Get("attachment")),
+		Label:               strings.TrimSpace(q.Get("label")),
+		AccountID:           strings.TrimSpace(q.Get("account_id")),
+		SidebarTag:          sidebarTag,
+		SidebarTagAccountID: sidebarTagAccountID,
+		Query:               strings.TrimSpace(q.Get("q")),
+		After:               strings.TrimSpace(q.Get("after_date")),
+		Before:              strings.TrimSpace(q.Get("before_date")),
 	}
 }
 
 func emailFiltersActive(filters models.EmailFilters) bool {
-	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasLabels || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Label != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != ""
+	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasLabels || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Label != "" || filters.AccountID != "" || filters.SidebarTag != "" || filters.Query != "" || filters.After != "" || filters.Before != ""
 }
 
 func (h *Handler) resolveFolderID(requested string) string {
@@ -3207,8 +3214,9 @@ func (h *Handler) handleMailSidebar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	activeFolder := strings.TrimSpace(r.URL.Query().Get("active_folder"))
+	filters := parseEmailFilters(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	views.MailSidebarBody(accounts, activeFolder, h.db.GetUISettings(ctx, userID), h.scheduledSidebarCount(ctx, userID)).Render(ctx, w)
+	views.MailSidebarBody(accounts, activeFolder, h.db.GetUISettings(ctx, userID), h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
 }
 
 func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
@@ -3232,7 +3240,7 @@ func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		activeFolder := strings.TrimSpace(r.URL.Query().Get("active_folder"))
-		views.SidebarAccountSection(account, activeFolder, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
+		views.SidebarAccountSection(account, activeFolder, h.db.GetUISettings(ctx, userID), parseEmailFilters(r)).Render(ctx, w)
 		return
 	}
 

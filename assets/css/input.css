@@ -1019,6 +1019,50 @@ input[role="switch"] + .gofer-switch-track::after {
   transform: rotate(-90deg);
 }
 
+.sidebar-tag-children {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 220ms ease, opacity 160ms ease, margin 220ms ease;
+}
+
+.sidebar-tag-children-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+[data-sidebar-tag-collapsed="true"] .sidebar-tag-children {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: -0.125rem;
+}
+
+[data-sidebar-tag-collapsed="true"] .sidebar-tag-chevron {
+  transform: rotate(-90deg);
+}
+
+.sidebar-folder-children {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 220ms ease, opacity 160ms ease, margin 220ms ease;
+}
+
+.sidebar-folder-children-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+[data-sidebar-folder-collapsed="true"] > .sidebar-folder-children {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: -0.125rem;
+}
+
+[data-sidebar-folder-collapsed="true"] > [data-sidebar-folder-row] .sidebar-folder-chevron {
+  transform: rotate(-90deg);
+}
+
 .sidebar-shortcuts-popover[data-tui-popover-placement^="top"] [data-tui-popover-arrow],
 .sidebar-account-error-tooltip[data-tui-popover-placement^="top"] [data-tui-popover-arrow],
 .sidebar-shortcuts-popover [data-tui-popover-arrow][data-tui-popover-placement^="top"],

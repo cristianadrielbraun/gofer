@@ -14,10 +14,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
 
-templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string, scheduledCount int) {
+templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string, scheduledCount int, filters models.EmailFilters) {
 	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
 		@SidebarHeader(accounts, "mail")
-		@MailSidebarBody(accounts, activeFolder, uiSettings, scheduledCount)
+		@MailSidebarBody(accounts, activeFolder, uiSettings, scheduledCount, filters)
 		@SidebarFooter()
 	</aside>
 }
@@ -30,7 +30,7 @@ templ ContactsSidebar(accounts []models.Account, activeFolder string, width stri
 	</aside>
 }
 
-templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int) {
+templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int, filters models.EmailFilters) {
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="mail">
 		<div class="px-4 pb-4">
 			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
@@ -39,7 +39,7 @@ templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings
 			</button>
 		</div>
 		<hr class="divider-etched mx-4"/>
-		@SidebarFolderTree(accounts, activeFolder, uiSettings, scheduledCount)
+		@SidebarFolderTree(accounts, activeFolder, uiSettings, scheduledCount, filters)
 	</div>
 }
 
@@ -549,17 +549,17 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 	}
 }
 
-templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int) {
+templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int, filters models.EmailFilters) {
 	<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
 		if scheduledCount > 0 {
 			@SidebarScheduledFolder(activeFolder, scheduledCount)
 		}
 		if uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" {
-			@SidebarUnifiedSection(accounts, activeFolder, uiSettings)
+			@SidebarUnifiedSection(accounts, activeFolder, uiSettings, filters)
 		}
 		for _, account := range accounts {
 			if account.EmailSyncEnabled && !account.IsDeleting {
-				@SidebarAccountSection(account, activeFolder, uiSettings)
+				@SidebarAccountSection(account, activeFolder, uiSettings, filters)
 			}
 		}
 	</nav>
@@ -567,7 +567,7 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettin
 
 templ SidebarScheduledFolder(activeFolder string, scheduledCount int) {
 	<div class="mb-2">
-		@SidebarFolderItem(models.Folder{
+		@SidebarFolderLink(models.Folder{
 			ID:       "scheduled",
 			Name:     "Scheduled",
 			Icon:     "calendar-clock",
@@ -578,10 +578,11 @@ templ SidebarScheduledFolder(activeFolder string, scheduledCount int) {
 	</div>
 }
 
-templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string) {
+templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
 	{{ folders := unifiedFolders(accounts, uiSettings) }}
-	if len(folders) > 0 {
-	{{ active := unifiedHasActiveFolder(activeFolder, uiSettings) }}
+	{{ labels := unifiedSidebarLabels(accounts) }}
+	if len(folders) > 0 || len(labels) > 0 {
+	{{ active := unifiedHasActiveFolder(activeFolder, uiSettings, filters) }}
 	{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
 	<div class="mb-1.5" data-sidebar-account="__unified__" data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
 		<button
@@ -599,16 +600,17 @@ templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSe
 		<div class="sidebar-account-folders" data-sidebar-account-folders="__unified__">
 			<div class="sidebar-account-folders-inner space-y-px mt-0.5">
 				for _, folder := range folders {
-					@SidebarFolderItem(folder, activeFolder, "")
+					@SidebarFolderItem(folder, activeFolder, "", uiSettings)
 				}
+				@SidebarTagGroup(labels, activeFolder, filters, "", uiSettings)
 			</div>
 		</div>
 	</div>
 	}
 }
 
-templ SidebarAccountSection(account models.Account, activeFolder string, uiSettings map[string]string) {
-	{{ active := accountHasActiveFolder(account, activeFolder) }}
+templ SidebarAccountSection(account models.Account, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
+	{{ active := accountHasActiveFolder(account, activeFolder, filters) }}
 	{{ collapsed := sidebarAccountCollapsed(uiSettings, account.ID, active) }}
 	<div id={ "sidebar-account-" + account.ID } class="mb-1.5" data-sidebar-account={ account.ID } data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
 		<button
@@ -627,21 +629,120 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 		<div class="sidebar-account-folders" data-sidebar-account-folders={ account.ID }>
 			<div class="sidebar-account-folders-inner space-y-px mt-0.5">
 				for _, folder := range account.Folders {
-					@SidebarFolderItem(folder, activeFolder, account.ID)
+					@SidebarFolderItem(folder, activeFolder, account.ID, uiSettings)
 				}
+				@SidebarTagGroup(account.Labels, activeFolder, filters, account.ID, uiSettings)
 			</div>
 		</div>
 	</div>
 }
 
-templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID string) {
+templ SidebarTagGroup(labels []models.Label, activeFolder string, filters models.EmailFilters, accountID string, uiSettings map[string]string) {
+	if len(labels) > 0 {
+		{{ folderID := sidebarTagBaseFolder(activeFolder) }}
+		{{ active := sidebarTagGroupActive(filters, accountID) }}
+		{{ collapsed := sidebarTagGroupCollapsed(uiSettings, accountID, active) }}
+		<div
+			class="space-y-px"
+			data-sidebar-tag-group={ sidebarTagGroupID(accountID) }
+			data-sidebar-tag-active?={ active }
+			data-sidebar-tag-collapsed={ fmt.Sprintf("%t", collapsed) }
+		>
+			<button
+				type="button"
+				class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-sidebar-foreground transition-all duration-150 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+				data-sidebar-tag-toggle={ sidebarTagGroupID(accountID) }
+				aria-expanded={ fmt.Sprintf("%t", !collapsed) }
+			>
+				<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/70">
+					@icon.Tags(icon.Props{Class: "size-4"})
+				</span>
+				<span class="flex-1 truncate text-left">Tags</span>
+				@icon.ChevronDown(icon.Props{Class: "sidebar-tag-chevron size-3.5 shrink-0 text-sidebar-foreground/60 transition-transform duration-200"})
+			</button>
+			<div class="sidebar-tag-children" data-sidebar-tag-children={ sidebarTagGroupID(accountID) }>
+				<div class="sidebar-tag-children-inner pl-5 space-y-px">
+					for _, label := range labels {
+						@SidebarTagFilterLink(label, folderID, activeFolder, filters, accountID)
+					}
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ SidebarTagFilterLink(label models.Label, folderID string, activeFolder string, filters models.EmailFilters, accountID string) {
+	{{ active := sidebarTagActive(activeFolder, folderID, filters, label, accountID) }}
+	<a
+		href={ sidebarTagFilterURL(folderID, label, accountID) }
+		hx-get={ sidebarTagFilterURL(folderID, label, accountID) }
+		hx-target="#mail-list"
+		hx-swap="outerHTML settle:0s"
+		data-sidebar-tag-filter
+		data-sidebar-tag-label={ strings.TrimSpace(label.Name) }
+		data-sidebar-tag-account={ strings.TrimSpace(accountID) }
+		class={
+			"flex items-center gap-2.5 w-full rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150",
+			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", active),
+			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", !active),
+		}
+	>
+		<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/70">
+			@icon.Tag(icon.Props{Class: "size-3.5"})
+		</span>
+		<span class="flex-1 truncate">{ strings.TrimSpace(label.Name) }</span>
+	</a>
+}
+
+templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID string, uiSettings map[string]string) {
 	if len(folder.Children) > 0 {
-		<div class="space-y-px">
-			@SidebarFolderLink(folder, activeFolder, accountID)
-			<div class="pl-5 space-y-px">
-				for _, child := range folder.Children {
-					@SidebarFolderItem(child, activeFolder, accountID)
+		{{ active := folderHasActiveID(folder, activeFolder) }}
+		{{ collapsed := sidebarFolderCollapsed(uiSettings, accountID, folder, activeFolder) }}
+		{{ groupID := sidebarFolderGroupID(accountID, folder.ID) }}
+		<div
+			class="space-y-px"
+			data-sidebar-folder={ groupID }
+			data-sidebar-folder-active?={ active }
+			data-sidebar-folder-collapsed={ fmt.Sprintf("%t", collapsed) }
+		>
+			<a
+				href={ sidebarFolderHref(folder.ID, accountID) }
+				hx-get={ templ.URL(fmt.Sprintf("/folder/%s", folder.ID)) }
+				hx-target="#mail-list"
+				hx-swap="outerHTML settle:0s"
+				class={
+					"flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150",
+					templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", activeFolder == folder.ID),
+					templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", activeFolder != folder.ID),
 				}
+				data-sidebar-folder-row
+				data-sidebar-folder-toggle={ groupID }
+				aria-label={ "Toggle " + folder.Name }
+				aria-expanded={ fmt.Sprintf("%t", !collapsed) }
+			>
+				<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/70">
+					@SidebarFolderIcon(folder.Icon)
+				</span>
+				<span class="flex-1 truncate text-left">{ folder.Name }</span>
+				if folder.Unread > 0 {
+					<span
+						data-folder-unread={ folder.ID }
+						class={
+							"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+							templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
+							templ.KV("bg-sidebar-accent text-sidebar-foreground/80", activeFolder != folder.ID),
+						}>
+						{ fmt.Sprintf("%d", folder.Unread) }
+					</span>
+				}
+				@icon.ChevronDown(icon.Props{Class: "sidebar-folder-chevron size-3.5 shrink-0 text-sidebar-foreground/60 transition-transform duration-200"})
+			</a>
+			<div class="sidebar-folder-children" data-sidebar-folder-children={ groupID }>
+				<div class="sidebar-folder-children-inner pl-5 space-y-px">
+					for _, child := range folder.Children {
+						@SidebarFolderItem(child, activeFolder, accountID, uiSettings)
+					}
+				</div>
 			</div>
 		</div>
 	} else {
@@ -656,7 +757,7 @@ templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID str
 		hx-target="#mail-list"
 		hx-swap="outerHTML settle:0s"
 		class={
-			"flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150",
+			"flex min-w-0 flex-1 items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150",
 			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", activeFolder == folder.ID),
 			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", activeFolder != folder.ID),
 		}
