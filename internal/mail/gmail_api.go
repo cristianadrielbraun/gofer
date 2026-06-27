@@ -2,9 +2,7 @@ package mail
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
-	"html/template"
 	"log"
 	"mime"
 	"net/http"
@@ -24,13 +22,6 @@ import (
 )
 
 const gmailAPIMessagePageSize = 500
-
-type gmailAPIMessageFetchMode string
-
-const (
-	gmailAPIMessageFetchFull     gmailAPIMessageFetchMode = "full"
-	gmailAPIMessageFetchMetadata gmailAPIMessageFetchMode = "metadata"
-)
 
 var gmailAPIMessageMetadataHeaders = []string{
 	"Message-ID",
@@ -109,6 +100,7 @@ type gmailAPIMessageSyncResult struct {
 	ProviderMessageID string
 	LocalMessageID    int64
 	HistoryID         string
+	FolderIDs         []string
 	Synced            bool
 	Skipped           bool
 }
@@ -150,13 +142,22 @@ func (o *SyncOrchestrator) syncGmailAPIAccount(ctx context.Context, accountID st
 
 	o.backfillGmailAPIMessageIDs(ctx, accountID, token, 250)
 
+	var syncErr error
 	if !includeIDLEFolders {
 		state, err := o.db.GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, "messages")
 		if err == nil && strings.TrimSpace(state.Cursor) != "" && state.LastFullSyncAt.Valid {
-			return o.syncGmailAPIHistoryChanges(ctx, accountID, token, labelsByID, targets, state.Cursor)
+			syncErr = o.syncGmailAPIHistoryChanges(ctx, accountID, token, labelsByID, targets, state.Cursor)
+			if syncErr != nil {
+				return syncErr
+			}
+			return o.db.RefreshAccountFolderThreadState(ctx, accountID)
 		}
 	}
-	return o.syncGmailAPIFull(ctx, accountID, token, labelsByID, targets)
+	syncErr = o.syncGmailAPIFull(ctx, accountID, token, labelsByID, targets)
+	if syncErr != nil {
+		return syncErr
+	}
+	return o.db.RefreshAccountFolderThreadState(ctx, accountID)
 }
 
 func (o *SyncOrchestrator) syncGmailAPIFolders(ctx context.Context, accountID, token string) ([]gmailAPIFolderSyncTarget, map[string]gmailAPILabel, error) {
@@ -254,6 +255,8 @@ func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, toke
 
 	targetsByLabelID := gmailAPITargetsByLabelID(targets)
 	seenProviderIDs := map[string]bool{}
+	touchedFolders := map[string]bool{}
+	syncedFolders := map[string]bool{}
 	failed := 0
 	processed := 0
 	totalEstimate := 0
@@ -279,7 +282,7 @@ func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, toke
 				}
 				seenProviderIDs[providerID] = true
 				processed++
-				result, err := o.syncGmailAPIProviderMessage(ctx, accountID, token, providerID, labelsByID, targetsByLabelID, gmailAPIMessageFetchMetadata)
+				result, err := o.syncGmailAPIProviderMessage(ctx, accountID, token, providerID, labelsByID, targetsByLabelID)
 				if err != nil {
 					if providerLabelSyncShouldStop(err) {
 						stats.FailedMessages++
@@ -300,11 +303,14 @@ func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, toke
 				}
 				stats.SyncedMessages++
 				stats.WithLabels++
+				recordGmailAPITouchedFolders(touchedFolders, result.FolderIDs)
+				recordGmailAPITouchedFolders(syncedFolders, result.FolderIDs)
 				if processed%25 == 0 {
 					total := totalEstimate
 					if total < processed {
 						total = processed
 					}
+					o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
 					o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, Current: processed, Total: total, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
 						"provider": "gmail_api",
 					})})
@@ -317,6 +323,12 @@ func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, toke
 		}
 	}
 	stats.TotalMessages = len(seenProviderIDs)
+	total := totalEstimate
+	if total < processed {
+		total = processed
+	}
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncComplete, accountID, syncedFolders, processed, total, false)
 	o.replayGmailLabelMutationQueue(ctx, accountID, token)
 	if cursor, err := getGmailProfileHistoryID(ctx, token); err == nil {
 		stats.Cursor = newerGmailHistoryID(stats.Cursor, cursor)
@@ -362,11 +374,15 @@ func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accou
 	targetsByLabelID := gmailAPITargetsByLabelID(targets)
 
 	failed := 0
+	processed := 0
+	touchedFolders := map[string]bool{}
+	syncedFolders := map[string]bool{}
 	for _, providerID := range providerIDs {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		result, err := o.syncGmailAPIProviderMessage(ctx, accountID, token, providerID, labelsByID, targetsByLabelID, gmailAPIMessageFetchFull)
+		processed++
+		result, err := o.syncGmailAPIProviderMessage(ctx, accountID, token, providerID, labelsByID, targetsByLabelID)
 		if err != nil {
 			if providerLabelSyncShouldStop(err) {
 				stats.FailedMessages++
@@ -387,7 +403,22 @@ func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accou
 		}
 		stats.SyncedMessages++
 		stats.WithLabels++
+		recordGmailAPITouchedFolders(touchedFolders, result.FolderIDs)
+		recordGmailAPITouchedFolders(syncedFolders, result.FolderIDs)
+		if processed%25 == 0 {
+			total := stats.TotalMessages
+			if total < processed {
+				total = processed
+			}
+			o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
+		}
 	}
+	total := stats.TotalMessages
+	if total < processed {
+		total = processed
+	}
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncComplete, accountID, syncedFolders, processed, total, false)
 	o.replayGmailLabelMutationQueue(ctx, accountID, token)
 	if failed > 0 {
 		return fmt.Errorf("%d Gmail API message change import(s) failed", failed)
@@ -395,8 +426,8 @@ func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accou
 	return nil
 }
 
-func (o *SyncOrchestrator) syncGmailAPIProviderMessage(ctx context.Context, accountID, token, providerMessageID string, labelsByID map[string]gmailAPILabel, targetsByLabelID map[string]gmailAPIFolderSyncTarget, mode gmailAPIMessageFetchMode) (gmailAPIMessageSyncResult, error) {
-	msg, err := getGmailAPIMessage(ctx, token, providerMessageID, mode)
+func (o *SyncOrchestrator) syncGmailAPIProviderMessage(ctx context.Context, accountID, token, providerMessageID string, labelsByID map[string]gmailAPILabel, targetsByLabelID map[string]gmailAPIFolderSyncTarget) (gmailAPIMessageSyncResult, error) {
+	msg, err := getGmailAPIMessageMetadata(ctx, token, providerMessageID)
 	if err != nil {
 		return gmailAPIMessageSyncResult{}, err
 	}
@@ -412,13 +443,61 @@ func (o *SyncOrchestrator) syncGmailAPIProviderMessage(ctx context.Context, acco
 	if localID == 0 {
 		return gmailAPIMessageSyncResult{ProviderMessageID: msg.ID, HistoryID: msg.HistoryID, Skipped: true}, nil
 	}
-	if mode == gmailAPIMessageFetchFull {
-		if err := o.db.ReplaceAttachments(ctx, localID, gmailAPIAttachmentRows(msg)); err != nil {
-			log.Printf("gmail api attachment metadata account=%s message=%s local=%d: %v", accountID, msg.ID, localID, err)
+	folderIDs := gmailAPIProviderSyncFolderIDs(upserts)
+	return gmailAPIMessageSyncResult{ProviderMessageID: msg.ID, LocalMessageID: localID, HistoryID: msg.HistoryID, FolderIDs: folderIDs, Synced: true}, nil
+}
+
+func recordGmailAPITouchedFolders(touched map[string]bool, folderIDs []string) {
+	for _, folderID := range folderIDs {
+		folderID = strings.TrimSpace(folderID)
+		if folderID != "" {
+			touched[folderID] = true
 		}
-		o.storeGmailAPIBody(ctx, accountID, localID, msg)
 	}
-	return gmailAPIMessageSyncResult{ProviderMessageID: msg.ID, LocalMessageID: localID, HistoryID: msg.HistoryID, Synced: true}, nil
+}
+
+func (o *SyncOrchestrator) publishGmailAPIFolderSyncEvent(ctx context.Context, eventType EventType, accountID string, touched map[string]bool, current, total int, clearTouched bool) {
+	if len(touched) == 0 {
+		return
+	}
+	folderIDs := make([]string, 0, len(touched))
+	for folderID := range touched {
+		folderIDs = append(folderIDs, folderID)
+	}
+	sort.Strings(folderIDs)
+	for _, folderID := range folderIDs {
+		if err := o.db.RefreshFolderThreadState(ctx, folderID); err != nil {
+			log.Printf("gmail api refresh folder thread state account=%s folder=%s: %v", accountID, folderID, err)
+			continue
+		}
+		folderRole, _ := o.db.GetFolderRole(ctx, folderID)
+		o.events.Publish(Event{Type: eventType, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: current, Total: total, Payload: gmailAPIFolderRefreshPayload(ctx)})
+	}
+	if clearTouched {
+		clear(touched)
+	}
+}
+
+func gmailAPIFolderRefreshPayload(ctx context.Context) map[string]any {
+	return accountSyncProgressPayload(ctx, "", map[string]any{
+		"provider":     "gmail_api",
+		"refresh_only": true,
+	})
+}
+
+func gmailAPIProviderSyncFolderIDs(upserts []storage.ProviderSyncMessage) []string {
+	seen := map[string]bool{}
+	folderIDs := make([]string, 0, len(upserts))
+	for _, upsert := range upserts {
+		folderID := strings.TrimSpace(upsert.FolderID)
+		if folderID == "" || seen[folderID] {
+			continue
+		}
+		seen[folderID] = true
+		folderIDs = append(folderIDs, folderID)
+	}
+	sort.Strings(folderIDs)
+	return folderIDs
 }
 
 func listGmailAPIMessageIDPage(ctx context.Context, token, labelID, pageToken string) (gmailAPIMessageListResponse, error) {
@@ -441,16 +520,11 @@ func listGmailAPIMessageIDPage(ctx context.Context, token, labelID, pageToken st
 	return response, nil
 }
 
-func getGmailAPIMessage(ctx context.Context, token, providerMessageID string, mode gmailAPIMessageFetchMode) (gmailAPIMessage, error) {
-	if mode == "" {
-		mode = gmailAPIMessageFetchFull
-	}
+func getGmailAPIMessageMetadata(ctx context.Context, token, providerMessageID string) (gmailAPIMessage, error) {
 	values := url.Values{}
-	values.Set("format", string(mode))
-	if mode == gmailAPIMessageFetchMetadata {
-		for _, header := range gmailAPIMessageMetadataHeaders {
-			values.Add("metadataHeaders", header)
-		}
+	values.Set("format", "metadata")
+	for _, header := range gmailAPIMessageMetadataHeaders {
+		values.Add("metadataHeaders", header)
 	}
 	endpoint := gmailAPIBaseURL + "/users/me/messages/" + url.PathEscape(strings.TrimSpace(providerMessageID)) + "?" + values.Encode()
 	var msg gmailAPIMessage
@@ -571,96 +645,6 @@ func gmailAPIAttachmentRows(msg gmailAPIMessage) []storage.AttachmentRow {
 	}
 	walk(msg.Payload)
 	return rows
-}
-
-func (o *SyncOrchestrator) storeGmailAPIBody(ctx context.Context, accountID string, localID int64, msg gmailAPIMessage) {
-	if o.blobStore == nil || o.db == nil || o.db.IsBodyFetched(ctx, localID) {
-		return
-	}
-	text, htmlBody := gmailAPIBodyContent(msg.Payload)
-	snippet := strings.TrimSpace(msg.Snippet)
-	if snippet == "" {
-		snippet = strings.TrimSpace(gmailAPIHeaders(msg.Payload.Headers)["subject"])
-	}
-	var textPath, htmlPath, originalHTMLPath string
-	if strings.TrimSpace(text) != "" {
-		if p, err := o.blobStore.StoreBodyText(ctx, accountID, localID, []byte(text)); err == nil {
-			textPath = p
-		}
-	}
-	if len(htmlBody) > 0 {
-		if p, err := o.blobStore.StoreBodyOriginalHTML(ctx, accountID, localID, htmlBody); err == nil {
-			originalHTMLPath = p
-		}
-		sanitized := message.SanitizeHTML(htmlBody)
-		sanitized = message.RewriteCIDReferences(sanitized, gmailAPICIDURLMap(localID, msg))
-		if p, err := o.blobStore.StoreBodyHTML(ctx, accountID, localID, sanitized); err == nil {
-			htmlPath = p
-		}
-	} else if strings.TrimSpace(text) != "" {
-		wrapped := "<pre style=\"white-space:pre-wrap;word-wrap:break-word;font-family:inherit;margin:0;padding:8px\">" +
-			template.HTMLEscapeString(text) + "</pre>"
-		if p, err := o.blobStore.StoreBodyHTML(ctx, accountID, localID, []byte(wrapped)); err == nil {
-			htmlPath = p
-		}
-	}
-	if textPath == "" && htmlPath == "" {
-		return
-	}
-	if err := o.db.UpdateMessageBody(ctx, localID, textPath, htmlPath, "", snippet); err != nil {
-		log.Printf("gmail api body update message=%d: %v", localID, err)
-		return
-	}
-	if originalHTMLPath != "" {
-		_ = o.db.UpdateMessageOriginalHTMLPath(ctx, localID, originalHTMLPath)
-	}
-}
-
-func gmailAPIBodyContent(part gmailAPIPart) (text string, htmlBody []byte) {
-	var walk func(gmailAPIPart)
-	walk = func(p gmailAPIPart) {
-		mimeType := strings.ToLower(strings.TrimSpace(p.MimeType))
-		if p.Body.Data != "" {
-			data := gmailAPIDecodeBody(p.Body.Data)
-			switch mimeType {
-			case "text/html":
-				if len(htmlBody) == 0 {
-					htmlBody = data
-				}
-			case "text/plain":
-				if text == "" {
-					text = string(data)
-				}
-			}
-		}
-		for _, child := range p.Parts {
-			walk(child)
-		}
-	}
-	walk(part)
-	return text, htmlBody
-}
-
-func gmailAPIDecodeBody(data string) []byte {
-	data = strings.TrimSpace(data)
-	if data == "" {
-		return nil
-	}
-	if raw, err := base64.RawURLEncoding.DecodeString(data); err == nil {
-		return raw
-	}
-	raw, _ := base64.URLEncoding.DecodeString(data)
-	return raw
-}
-
-func gmailAPICIDURLMap(localID int64, msg gmailAPIMessage) map[string]string {
-	cidToURL := map[string]string{}
-	for _, attachment := range gmailAPIAttachmentRows(msg) {
-		if attachment.Inline && strings.TrimSpace(attachment.ContentID) != "" {
-			cidToURL[attachment.ContentID] = fmt.Sprintf("/api/inline-content/%d/%s", localID, url.PathEscape(attachment.ContentID))
-		}
-	}
-	return cidToURL
 }
 
 func gmailAPILabelSelectable(label gmailAPILabel) bool {

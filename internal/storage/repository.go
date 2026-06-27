@@ -2753,13 +2753,19 @@ func (db *DB) UpdateProviderFolderSyncState(ctx context.Context, folderID, curso
 			`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
 			 last_full_sync_at = CURRENT_TIMESTAMP, sync_error = NULL, updated_at = CURRENT_TIMESTAMP
 			 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), folderID)
-		return err
+		if err != nil {
+			return err
+		}
+		return db.RefreshFolderThreadState(ctx, folderID)
 	}
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
 		 last_incremental_sync_at = CURRENT_TIMESTAMP, sync_error = NULL, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), folderID)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.RefreshFolderThreadState(ctx, folderID)
 }
 
 func (db *DB) MarkProviderMessageRemovedFromFolder(ctx context.Context, accountID, folderID, providerMessageID string) error {
@@ -3011,6 +3017,23 @@ func (db *DB) RefreshFolderThreadState(ctx context.Context, folderID string) err
 		return err
 	}
 	return tx.Commit()
+}
+
+func (db *DB) RefreshAccountFolderThreadState(ctx context.Context, accountID string) error {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil
+	}
+	folders, err := db.GetFoldersForAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	for _, folder := range folders {
+		if err := db.RefreshFolderThreadState(ctx, folder.ID); err != nil {
+			return fmt.Errorf("refresh folder thread state %s: %w", folder.ID, err)
+		}
+	}
+	return nil
 }
 
 func (db *DB) refreshFolderThreadStateTx(ctx context.Context, tx *sql.Tx, folderID string) error {

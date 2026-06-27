@@ -2144,6 +2144,12 @@ document.addEventListener("DOMContentLoaded", function () {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.folder_id) return
+      if (data.refresh_only) {
+        withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
+          scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
+        }, false)
+        return
+      }
       updateMailSyncFolderProgress("progress", data)
       syncStatesByFolder[data.folder_id] = {
         active: true,
@@ -2154,7 +2160,7 @@ document.addEventListener("DOMContentLoaded", function () {
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         var current = data.current || 0
         vml.setSyncState(current > 0, current, data.total || 0)
-        if (current > 0) scheduleSyncRefresh(vml, { noAnimation: true })
+        if (current > 0) scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
       }, false)
     })
 
@@ -2162,6 +2168,20 @@ document.addEventListener("DOMContentLoaded", function () {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.folder_id) return
+      if (data.refresh_only) {
+        syncStatesByFolder[data.folder_id] = {
+          active: false,
+          current: 0,
+          total: 0,
+          folderRole: data.folder_role || "",
+        }
+        refreshSidebarUnread()
+        withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
+          vml.setSyncState(false, 0, 0)
+          scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
+        }, false)
+        return
+      }
       updateMailSyncFolderProgress("complete", data)
       syncStatesByFolder[data.folder_id] = {
         active: false,
@@ -2172,7 +2192,7 @@ document.addEventListener("DOMContentLoaded", function () {
       refreshSidebarUnread()
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         vml.setSyncState(false, 0, 0)
-        scheduleSyncRefresh(vml, { noAnimation: true })
+        scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
       }, false)
     })
 
@@ -2706,6 +2726,18 @@ document.addEventListener("DOMContentLoaded", function () {
       vml.refreshCurrentFolder(options || {}).catch(function () {})
     }, 700)
   }
+
+  function mailListNearTop(vml) {
+    if (!vml || !vml.container) return true
+    return vml.container.scrollTop < (vml.itemHeight || 100) * 2
+  }
+
+  function refreshActiveMailListAfterAccountSync(data) {
+    if (!data || data.status !== "ok") return
+    if (!virtualMailList || typeof virtualMailList.refreshCurrentFolder !== "function") return
+    scheduleSyncRefresh(virtualMailList, { noAnimation: true, rebase: mailListNearTop(virtualMailList) })
+  }
+  window.goferRefreshActiveMailListAfterAccountSync = refreshActiveMailListAfterAccountSync
 
   function withMailListForFolder(folderId, folderRole, fn, queueIfInactive) {
     if (typeof folderRole === "function") {
@@ -4605,6 +4637,7 @@ function handleAccountSyncStatus(data) {
   if (!_mailSyncIsScheduledEvent(data) && !(_mailSyncState.kind === "manual" && _mailSyncState.active)) {
     if (status !== "syncing") {
       refreshSidebarAccountForSync(data.account_id)
+      refreshActiveMailListAfterAccountSyncForSync(data)
       setTimeout(updateMailSyncErrorIndicator, 100)
     }
     return
@@ -4627,6 +4660,7 @@ function handleAccountSyncStatus(data) {
   }
 
   refreshSidebarAccountForSync(data.account_id)
+  refreshActiveMailListAfterAccountSyncForSync(data)
   if (!_mailSyncState.active && !_mailSyncState.accounts[data.account_id]) {
     setTimeout(updateMailSyncErrorIndicator, 100)
     return
@@ -4669,6 +4703,12 @@ function handleAccountSyncStatus(data) {
 function refreshSidebarAccountForSync(accountID) {
   if (typeof window.goferRefreshSidebarAccount === "function") {
     window.goferRefreshSidebarAccount(accountID)
+  }
+}
+
+function refreshActiveMailListAfterAccountSyncForSync(data) {
+  if (typeof window.goferRefreshActiveMailListAfterAccountSync === "function") {
+    window.goferRefreshActiveMailListAfterAccountSync(data)
   }
 }
 

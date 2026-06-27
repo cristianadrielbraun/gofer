@@ -26,6 +26,7 @@ class VirtualMailList {
     this.filters = this.readFiltersFromURL()
     this.refreshInFlight = null
     this.refreshQueued = false
+    this.refreshQueuedOptions = null
     this.windowedMode = false
     this.windowThreshold = 20000
     this.chunkSize = 100
@@ -1560,6 +1561,7 @@ class VirtualMailList {
     options = options || {}
     if (this.refreshInFlight) {
       this.refreshQueued = true
+      this.refreshQueuedOptions = this.mergeRefreshOptions(this.refreshQueuedOptions, options)
       return this.refreshInFlight
     }
 
@@ -1581,7 +1583,8 @@ class VirtualMailList {
       var html = await self.fetchHTML(url)
       var selected = self.selectedEmailId
       var syncState = self.syncState
-      if (self.filterCount() > 0) {
+      var rebaseTopWindow = !!options.rebase || self.filterCount() > 0 || self.container.scrollTop < self.itemHeight * 2
+      if (rebaseTopWindow) {
         self.reset()
         self.selectedEmailId = selected
         self.syncState = syncState
@@ -1593,6 +1596,7 @@ class VirtualMailList {
       if (transition) self.animateListTransition(transition, { enterFrom: -12, exitTo: 12 })
       self.updateHeader()
       self.updateSyncHeader()
+      self.removeBanner()
     })()
 
     try {
@@ -1600,9 +1604,20 @@ class VirtualMailList {
     } finally {
       this.refreshInFlight = null
       if (this.refreshQueued) {
+        var queuedOptions = this.mergeRefreshOptions(options, this.refreshQueuedOptions)
         this.refreshQueued = false
-        this.refreshCurrentFolder(options)
+        this.refreshQueuedOptions = null
+        this.refreshCurrentFolder(queuedOptions)
       }
+    }
+  }
+
+  mergeRefreshOptions(base, next) {
+    base = base || {}
+    next = next || {}
+    return {
+      noAnimation: !!(base.noAnimation || next.noAnimation),
+      rebase: !!(base.rebase || next.rebase),
     }
   }
 
@@ -1941,7 +1956,7 @@ class VirtualMailList {
     this.bannerEl.textContent = this.newEmailCount + " new email" + (this.newEmailCount !== 1 ? "s" : "")
     this.bannerEl.addEventListener("click", function () {
       self.container.scrollTop = 0
-      self.switchFolder(self.folderID)
+      self.refreshCurrentFolder({ rebase: true }).catch(function () {})
     })
     this.container.insertBefore(this.bannerEl, this.itemsContainer)
   }
@@ -2032,7 +2047,7 @@ class VirtualMailList {
     }
     if (this.container.scrollTop < this.itemHeight * 2) {
       this.removeBanner()
-      this.switchFolder(this.folderID)
+      this.refreshCurrentFolder({ rebase: true }).catch(function () {})
     } else {
       this.newEmailCount++
       this.showNewEmailBanner()

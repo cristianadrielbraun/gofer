@@ -237,6 +237,81 @@ func TestUpsertProviderSyncMessagesHydratesExistingIMAPMessage(t *testing.T) {
 	}
 }
 
+func TestRefreshAccountFolderThreadStateMakesProviderMessagesVisible(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "INBOX",
+		ProviderRemoteID: "INBOX",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	base := time.Date(2020, 8, 7, 12, 0, 0, 0, time.UTC)
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "gmail-old",
+		InternetMessageID: "<gmail-old@example.com>",
+		Subject:           "Old inbox message",
+		FromEmail:         "sender@example.com",
+		DateSent:          base,
+		DateReceived:      base,
+		IsRead:            true,
+	}}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages(old) error = %v", err)
+	}
+	if err := db.RefreshAccountFolderThreadState(ctx, "acc"); err != nil {
+		t.Fatalf("RefreshAccountFolderThreadState(initial) error = %v", err)
+	}
+
+	newer := base.AddDate(0, 0, 3)
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "gmail-new",
+		InternetMessageID: "<gmail-new@example.com>",
+		Subject:           "New inbox message",
+		FromEmail:         "sender@example.com",
+		DateSent:          newer,
+		DateReceived:      newer,
+		IsRead:            true,
+	}}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages(new) error = %v", err)
+	}
+
+	stalePage, err := db.GetEmailsRangeForUser(ctx, "default", "inbox", 0, 10)
+	if err != nil {
+		t.Fatalf("GetEmailsRangeForUser(stale) error = %v", err)
+	}
+	if len(stalePage.Emails) != 1 || stalePage.Emails[0].Subject != "Old inbox message" {
+		t.Fatalf("stale unified inbox = %#v, want old cached thread before explicit refresh", stalePage.Emails)
+	}
+
+	if err := db.RefreshAccountFolderThreadState(ctx, "acc"); err != nil {
+		t.Fatalf("RefreshAccountFolderThreadState(final) error = %v", err)
+	}
+	page, err := db.GetEmailsRangeForUser(ctx, "default", "inbox", 0, 10)
+	if err != nil {
+		t.Fatalf("GetEmailsRangeForUser(refreshed) error = %v", err)
+	}
+	if page.TotalCount != 2 || len(page.Emails) != 2 {
+		t.Fatalf("refreshed unified inbox count=%d emails=%#v, want two messages", page.TotalCount, page.Emails)
+	}
+	if page.Emails[0].Subject != "New inbox message" || page.Emails[1].Subject != "Old inbox message" {
+		t.Fatalf("refreshed unified inbox order = %#v, want new then old", page.Emails)
+	}
+}
+
 func TestReplaceAttachmentsPreservesProviderStoragePath(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

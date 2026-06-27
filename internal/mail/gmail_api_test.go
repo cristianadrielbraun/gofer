@@ -259,8 +259,8 @@ func TestSyncGmailAPIAccountUsesHistoryAfterBaseline(t *testing.T) {
 				}},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-msg-2":
-			if got := r.URL.Query().Get("format"); got != "full" {
-				t.Fatalf("message format = %q, want full for history delta sync", got)
+			if got := r.URL.Query().Get("format"); got != "metadata" {
+				t.Fatalf("message format = %q, want metadata for history delta sync", got)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":           "gmail-msg-2",
@@ -311,6 +311,9 @@ func TestSyncGmailAPIAccountUsesHistoryAfterBaseline(t *testing.T) {
 	}
 	if state.Cursor != "111" || state.LastSyncedMessages != 1 {
 		t.Fatalf("sync state = %#v, want history cursor 111 with one synced message", state)
+	}
+	if db.IsBodyFetched(ctx, msgID) {
+		t.Fatal("Gmail history sync fetched the body; want metadata-only import before lazy open")
 	}
 }
 

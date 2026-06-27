@@ -189,7 +189,7 @@ func (o *SyncOrchestrator) syncOutlookGraphAccount(ctx context.Context, accountI
 	if failedFolders > 0 {
 		return fmt.Errorf("%d Outlook Graph folder sync(s) failed: %w", failedFolders, firstFolderErr)
 	}
-	return nil
+	return o.db.RefreshAccountFolderThreadState(ctx, accountID)
 }
 
 func (o *SyncOrchestrator) backfillOutlookGraphMessageIDs(ctx context.Context, accountID, token string, limit int) {
