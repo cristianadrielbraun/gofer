@@ -100,3 +100,57 @@ func TestLabelActionFallsBackToLocalLabelWhenRemoteApplyFails(t *testing.T) {
 		t.Fatalf("labels after unlabel = %#v, want none", email.Labels)
 	}
 }
+
+func TestIMAPKeywordForMessageLabelUsesPredefinedProviderID(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderIMAP); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []storage.SyncMessage{{
+		AccountID:     "acc",
+		FolderID:      "acc_inbox",
+		RemoteUID:     42,
+		MessageID:     "<predefined-label@example.com>",
+		Subject:       "Predefined label",
+		FromEmail:     "sender@example.com",
+		DateSent:      time.Now(),
+		IsRead:        true,
+		LabelsKnown:   true,
+		LabelProvider: storage.LabelProviderIMAPKeyword,
+		Labels: []storage.LabelInput{{
+			AccountID:    "acc",
+			Name:         "Work",
+			ProviderID:   "$label2",
+			ProviderType: storage.LabelProviderIMAPKeyword,
+		}},
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<predefined-label@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+
+	h := &Handler{db: db}
+	keyword, err := h.imapKeywordForMessageLabel(ctx, msgID, "acc", "Work")
+	if err != nil {
+		t.Fatalf("imapKeywordForMessageLabel() error = %v", err)
+	}
+	if keyword != "$label2" {
+		t.Fatalf("imapKeywordForMessageLabel() = %q, want $label2", keyword)
+	}
+}

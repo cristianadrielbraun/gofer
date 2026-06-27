@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 51
+	const targetSchemaVersion = 52
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -450,6 +450,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 50 {
 		if err := migrateV50ToV51(tx); err != nil {
 			return fmt.Errorf("migrate v50 to v51: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 51 {
+		if err := migrateV51ToV52(tx); err != nil {
+			return fmt.Errorf("migrate v51 to v52: %w", err)
 		}
 	}
 
@@ -1981,6 +1987,31 @@ func migrateV50ToV51(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (51)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateV51ToV52(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS label_aliases (
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			provider_type TEXT NOT NULL,
+			provider_id TEXT NOT NULL,
+			display_name TEXT NOT NULL,
+			color TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (account_id, provider_type, provider_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_label_aliases_display
+		 ON label_aliases(account_id, provider_type, display_name COLLATE NOCASE)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (52)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
 	}
 	return nil
 }

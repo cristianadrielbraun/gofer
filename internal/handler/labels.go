@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	mailimap "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 
@@ -262,7 +263,7 @@ func (h *Handler) enqueueFailedLabelMutation(ctx context.Context, messageID int6
 		return
 	}
 	if providerType == storage.LabelProviderIMAPKeyword {
-		if _, err := imapKeywordFromLabel(labelName); err != nil {
+		if _, err := h.imapKeywordForAccountLabel(ctx, info.AccountID, labelName); err != nil {
 			return
 		}
 	}
@@ -302,7 +303,7 @@ func (h *Handler) removeMessageLabelRemote(ctx context.Context, messageID int64,
 	case providers.ProviderOutlook:
 		return h.removeOutlookMessageLabel(ctx, messageID, info, labelName)
 	default:
-		return h.removeIMAPMessageKeyword(ctx, info, labelName)
+		return h.removeIMAPMessageKeyword(ctx, messageID, info, labelName)
 	}
 }
 
@@ -580,7 +581,7 @@ func removeFold(values []string, value string) ([]string, bool) {
 }
 
 func (h *Handler) applyIMAPMessageKeyword(ctx context.Context, info storage.MessageMutationInfo, labelName string) (storage.LabelInput, error) {
-	keyword, err := imapKeywordFromLabel(labelName)
+	keyword, err := h.imapKeywordForAccountLabel(ctx, info.AccountID, labelName)
 	if err != nil {
 		return storage.LabelInput{}, err
 	}
@@ -609,14 +610,14 @@ func (h *Handler) applyIMAPMessageKeyword(ctx context.Context, info storage.Mess
 	}
 	return storage.LabelInput{
 		AccountID:    info.AccountID,
-		Name:         keyword,
+		Name:         labelName,
 		ProviderID:   keyword,
 		ProviderType: storage.LabelProviderIMAPKeyword,
 	}, nil
 }
 
-func (h *Handler) removeIMAPMessageKeyword(ctx context.Context, info storage.MessageMutationInfo, labelName string) (storage.LabelInput, error) {
-	keyword, err := imapKeywordFromLabel(labelName)
+func (h *Handler) removeIMAPMessageKeyword(ctx context.Context, messageID int64, info storage.MessageMutationInfo, labelName string) (storage.LabelInput, error) {
+	keyword, err := h.imapKeywordForMessageLabel(ctx, messageID, info.AccountID, labelName)
 	if err != nil {
 		return storage.LabelInput{}, err
 	}
@@ -645,25 +646,45 @@ func (h *Handler) removeIMAPMessageKeyword(ctx context.Context, info storage.Mes
 	}
 	return storage.LabelInput{
 		AccountID:    info.AccountID,
-		Name:         keyword,
+		Name:         labelName,
 		ProviderID:   keyword,
 		ProviderType: storage.LabelProviderIMAPKeyword,
 	}, nil
 }
 
-func imapKeywordFromLabel(labelName string) (string, error) {
-	keyword := strings.TrimSpace(labelName)
-	if keyword == "" {
-		return "", fmt.Errorf("label is required")
-	}
-	if strings.HasPrefix(keyword, "\\") {
-		return "", fmt.Errorf("label cannot be an IMAP system flag")
-	}
-	for _, r := range keyword {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
-			continue
+func (h *Handler) imapKeywordForAccountLabel(ctx context.Context, accountID, labelName string) (string, error) {
+	if h.db != nil {
+		providerID, ok, err := h.db.ResolveLabelAliasProviderID(ctx, accountID, storage.LabelProviderIMAPKeyword, labelName)
+		if err != nil {
+			return "", err
 		}
-		return "", fmt.Errorf("label %q is not a portable IMAP keyword", labelName)
+		if ok {
+			return mailimap.ValidateKeyword(providerID)
+		}
 	}
-	return keyword, nil
+	return imapKeywordFromLabel(labelName)
+}
+
+func (h *Handler) imapKeywordForMessageLabel(ctx context.Context, messageID int64, accountID, labelName string) (string, error) {
+	if h.db != nil && messageID > 0 {
+		labels, err := h.db.GetProviderMessageLabels(ctx, messageID, accountID, storage.LabelProviderIMAPKeyword)
+		if err != nil {
+			return "", err
+		}
+		for _, label := range labels {
+			if !strings.EqualFold(strings.TrimSpace(label.Name), strings.TrimSpace(labelName)) {
+				continue
+			}
+			keyword := strings.TrimSpace(label.ProviderID)
+			if keyword == "" {
+				keyword = strings.TrimSpace(label.Name)
+			}
+			return mailimap.ValidateKeyword(keyword)
+		}
+	}
+	return h.imapKeywordForAccountLabel(ctx, accountID, labelName)
+}
+
+func imapKeywordFromLabel(labelName string) (string, error) {
+	return mailimap.ValidateKeyword(labelName)
 }

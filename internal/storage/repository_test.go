@@ -431,6 +431,157 @@ func TestSyncMessagesReplaceIMAPKeywordLabels(t *testing.T) {
 	}
 }
 
+func TestSyncMessagesResolveIMAPKeywordAliases(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID:     "acc",
+		FolderID:      "acc_inbox",
+		RemoteUID:     42,
+		MessageID:     "<alias-keyword@example.com>",
+		Subject:       "Keyword alias",
+		FromEmail:     "sender@example.com",
+		DateSent:      time.Now(),
+		IsRead:        true,
+		LabelsKnown:   true,
+		LabelProvider: LabelProviderIMAPKeyword,
+		Labels: []LabelInput{
+			{Name: "$label2", ProviderID: "$label2", ProviderType: LabelProviderIMAPKeyword},
+			{Name: "$VendorSnooze", ProviderID: "$VendorSnooze", ProviderType: LabelProviderIMAPKeyword},
+		},
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<alias-keyword@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	labels := map[string]string{}
+	for _, label := range email.Labels {
+		labels[label.Name] = label.ProviderID
+	}
+	if labels["Work"] != "$label2" {
+		t.Fatalf("labels = %#v, want Work backed by $label2", email.Labels)
+	}
+	if labels["$VendorSnooze"] != "$VendorSnooze" {
+		t.Fatalf("labels = %#v, want discovered raw vendor label", email.Labels)
+	}
+
+	providerID, ok, err := db.ResolveLabelAliasProviderID(ctx, "acc", LabelProviderIMAPKeyword, "Work")
+	if err != nil || !ok || providerID != "$label2" {
+		t.Fatalf("ResolveLabelAliasProviderID(Work) = %q, %v, %v; want $label2 true nil", providerID, ok, err)
+	}
+}
+
+func TestUpsertLabelAliasRenamesExistingIMAPKeywordLabel(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID:     "acc",
+		FolderID:      "acc_inbox",
+		RemoteUID:     42,
+		MessageID:     "<custom-alias-keyword@example.com>",
+		Subject:       "Custom keyword alias",
+		FromEmail:     "sender@example.com",
+		DateSent:      time.Now(),
+		IsRead:        true,
+		LabelsKnown:   true,
+		LabelProvider: LabelProviderIMAPKeyword,
+		Labels: []LabelInput{{
+			Name:         "$VendorSnooze",
+			ProviderID:   "$VendorSnooze",
+			ProviderType: LabelProviderIMAPKeyword,
+		}},
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<custom-alias-keyword@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+
+	if err := db.UpsertLabelAlias(ctx, LabelAliasInput{
+		AccountID:    "acc",
+		ProviderType: LabelProviderIMAPKeyword,
+		ProviderID:   "$VendorSnooze",
+		DisplayName:  "Snooze",
+		Source:       "user",
+	}); err != nil {
+		t.Fatalf("UpsertLabelAlias() error = %v", err)
+	}
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if len(email.Labels) != 1 || email.Labels[0].Name != "Snooze" || email.Labels[0].ProviderID != "$VendorSnooze" {
+		t.Fatalf("labels = %#v, want Snooze backed by vendor keyword", email.Labels)
+	}
+
+	providerID, ok, err := db.ResolveLabelAliasProviderID(ctx, "acc", LabelProviderIMAPKeyword, "Snooze")
+	if err != nil || !ok || providerID != "$VendorSnooze" {
+		t.Fatalf("ResolveLabelAliasProviderID(Snooze) = %q, %v, %v; want $VendorSnooze true nil", providerID, ok, err)
+	}
+}
+
+func TestSyncMessagesDeduplicateResolvedIMAPKeywordAliases(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID:     "acc",
+		FolderID:      "acc_inbox",
+		RemoteUID:     42,
+		MessageID:     "<duplicate-alias-keyword@example.com>",
+		Subject:       "Duplicate keyword alias",
+		FromEmail:     "sender@example.com",
+		DateSent:      time.Now(),
+		IsRead:        true,
+		LabelsKnown:   true,
+		LabelProvider: LabelProviderIMAPKeyword,
+		Labels: []LabelInput{
+			{Name: "Work", ProviderID: "Work", ProviderType: LabelProviderIMAPKeyword},
+			{Name: "$label2", ProviderID: "$label2", ProviderType: LabelProviderIMAPKeyword},
+		},
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<duplicate-alias-keyword@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if len(email.Labels) != 1 || email.Labels[0].Name != "Work" || email.Labels[0].ProviderID != "$label2" {
+		t.Fatalf("labels = %#v, want one Work label backed by $label2", email.Labels)
+	}
+}
+
 func TestGetLabelAdminStatusAggregatesCoverageAndLastRun(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -1161,6 +1312,108 @@ func TestEmailBodyFilterUsesMaintainedSearchIndex(t *testing.T) {
 	}
 }
 
+func TestSidebarTagFilterMatchesAliasedIMAPKeywordLabels(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "inbox",
+		RemoteUID: 1,
+		MessageID: "<work-label@example.com>",
+		Subject:   "Work label",
+		FromEmail: "sender@example.com",
+		DateSent:  time.Now(),
+		IsRead:    true,
+		Labels:    []LabelInput{{Name: "$label2", ProviderID: "$label2", ProviderType: LabelProviderIMAPKeyword}},
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{
+		SidebarTag:          "Work",
+		SidebarTagAccountID: "acc",
+	})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Emails) != 1 {
+		t.Fatalf("sidebar tag filtered page total=%d len=%d, want 1 result", page.TotalCount, len(page.Emails))
+	}
+	if len(page.Emails[0].Labels) != 1 || page.Emails[0].Labels[0].Name != "Work" || page.Emails[0].Labels[0].ProviderID != "$label2" {
+		t.Fatalf("email labels = %#v, want Work backed by $label2", page.Emails[0].Labels)
+	}
+}
+
+func TestSidebarTagFilterMatchesLegacyRawIMAPKeywordRows(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "inbox",
+		RemoteUID: 1,
+		MessageID: "<legacy-work-label@example.com>",
+		Subject:   "Legacy work label",
+		FromEmail: "sender@example.com",
+		DateSent:  time.Now(),
+		IsRead:    true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	messageID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<legacy-work-label@example.com>")
+	if err != nil || messageID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO labels (id, account_id, name, color, provider_id, provider_type, is_system, updated_at)
+		VALUES ('legacy-label', 'acc', '$label2', 'bg-muted text-muted-foreground', '$label2', 'imap_keyword', 0, CURRENT_TIMESTAMP);
+		INSERT INTO message_labels (message_id, label_id)
+		VALUES (?, 'legacy-label')`, messageID); err != nil {
+		t.Fatalf("insert legacy label: %v", err)
+	}
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{
+		SidebarTag:             "Work",
+		SidebarTagAccountID:    "acc",
+		SidebarTagProviderID:   "$label2",
+		SidebarTagProviderType: LabelProviderIMAPKeyword,
+	})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Emails) != 1 {
+		t.Fatalf("provider-backed sidebar tag page total=%d len=%d, want 1 legacy result", page.TotalCount, len(page.Emails))
+	}
+
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO label_aliases (account_id, provider_type, provider_id, display_name, color, source, updated_at)
+		VALUES ('acc', 'imap_keyword', '$label2', 'Work', 'bg-muted text-muted-foreground', 'default', CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatalf("insert alias: %v", err)
+	}
+	page, err = db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{
+		SidebarTag:          "Work",
+		SidebarTagAccountID: "acc",
+	})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser(alias) error = %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Emails) != 1 {
+		t.Fatalf("alias sidebar tag page total=%d len=%d, want 1 legacy result", page.TotalCount, len(page.Emails))
+	}
+}
+
 func TestAddMessageToFolderWithoutRemoteUIDAllowsMultipleUnknownUIDs(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -1330,8 +1583,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 51 {
-		t.Fatalf("schema version = %d, want 51", version)
+	if version != 52 {
+		t.Fatalf("schema version = %d, want 52", version)
 	}
 }
 
@@ -1380,11 +1633,15 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 51 {
-		t.Fatalf("schema version = %d, want 51", version)
+	if version != 52 {
+		t.Fatalf("schema version = %d, want 52", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {
 		t.Fatalf("query label_sync_state.last_total_messages: %v", err)
+	}
+	var aliasRows int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM label_aliases`).Scan(&aliasRows); err != nil {
+		t.Fatalf("query label_aliases: %v", err)
 	}
 }

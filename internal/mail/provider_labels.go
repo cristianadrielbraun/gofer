@@ -1331,7 +1331,7 @@ func (o *SyncOrchestrator) applyQueuedIMAPLabelMutation(ctx context.Context, cli
 	if err != nil || info == nil {
 		return err
 	}
-	keyword, err := imapKeywordFromLabel(entry.LabelName)
+	keyword, err := o.imapKeywordForAccountLabel(ctx, entry.AccountID, entry.LabelName)
 	if err != nil {
 		return err
 	}
@@ -1357,7 +1357,7 @@ func (o *SyncOrchestrator) applyQueuedIMAPLabelMutation(ctx context.Context, cli
 		}
 		if _, err := o.db.AddMessageLabel(ctx, entry.MessageID, entry.AccountID, storage.LabelInput{
 			AccountID:    entry.AccountID,
-			Name:         keyword,
+			Name:         entry.LabelName,
 			ProviderID:   keyword,
 			ProviderType: storage.LabelProviderIMAPKeyword,
 		}); err != nil {
@@ -1396,20 +1396,20 @@ func (o *SyncOrchestrator) markLabelMutationBatchError(ctx context.Context, entr
 }
 
 func imapKeywordFromLabel(labelName string) (string, error) {
-	keyword := strings.TrimSpace(labelName)
-	if keyword == "" {
-		return "", fmt.Errorf("label is required")
-	}
-	if strings.HasPrefix(keyword, "\\") {
-		return "", fmt.Errorf("label cannot be an IMAP system flag")
-	}
-	for _, r := range keyword {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
-			continue
+	return mailimap.ValidateKeyword(labelName)
+}
+
+func (o *SyncOrchestrator) imapKeywordForAccountLabel(ctx context.Context, accountID, labelName string) (string, error) {
+	if o.db != nil {
+		providerID, ok, err := o.db.ResolveLabelAliasProviderID(ctx, accountID, storage.LabelProviderIMAPKeyword, labelName)
+		if err != nil {
+			return "", err
 		}
-		return "", fmt.Errorf("label %q is not a portable IMAP keyword", labelName)
+		if ok {
+			return mailimap.ValidateKeyword(providerID)
+		}
 	}
-	return keyword, nil
+	return imapKeywordFromLabel(labelName)
 }
 
 func appendUniqueFold(values []string, value string) []string {

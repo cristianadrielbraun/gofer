@@ -398,6 +398,12 @@ func sidebarTagFilterURL(folderID string, label models.Label, accountID string) 
 	values.Set("tag", strings.TrimSpace(label.Name))
 	if strings.TrimSpace(accountID) != "" {
 		values.Set("tag_account_id", strings.TrimSpace(accountID))
+		if providerID := strings.TrimSpace(label.ProviderID); providerID != "" {
+			values.Set("tag_provider_id", providerID)
+			if providerType := strings.TrimSpace(label.ProviderType); providerType != "" {
+				values.Set("tag_provider_type", providerType)
+			}
+		}
 	}
 	return templ.URL("/folder/" + url.PathEscape(folderID) + "?" + values.Encode())
 }

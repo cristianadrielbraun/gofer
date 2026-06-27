@@ -68,18 +68,15 @@ func (w *IdleWatcher) Run(ctx context.Context) {
 
 func (w *IdleWatcher) run(ctx context.Context) error {
 	notifyCh := make(chan struct{}, 1)
+	notify := func() {
+		select {
+		case notifyCh <- struct{}{}:
+		default:
+		}
+	}
 
 	options := &imapclient.Options{
-		UnilateralDataHandler: &imapclient.UnilateralDataHandler{
-			Mailbox: func(data *imapclient.UnilateralDataMailbox) {
-				if data.NumMessages != nil {
-					select {
-					case notifyCh <- struct{}{}:
-					default:
-					}
-				}
-			},
-		},
+		UnilateralDataHandler: newIdleUnilateralDataHandler(notify),
 	}
 
 	c, err := ConnectWithConfig(w.config, w.password, options)
@@ -119,6 +116,47 @@ func (w *IdleWatcher) run(ctx context.Context) error {
 		case <-c.Closed():
 			idleCmd.Close()
 			return fmt.Errorf("connection closed")
+		}
+	}
+}
+
+func newIdleUnilateralDataHandler(notify func()) *imapclient.UnilateralDataHandler {
+	if notify == nil {
+		notify = func() {}
+	}
+	return &imapclient.UnilateralDataHandler{
+		Expunge: func(seqNum uint32) {
+			notify()
+		},
+		Mailbox: func(data *imapclient.UnilateralDataMailbox) {
+			if data != nil && data.NumMessages != nil {
+				notify()
+			}
+		},
+		Fetch: func(msg *imapclient.FetchMessageData) {
+			if idleFetchHasFlagUpdate(msg) {
+				notify()
+			}
+		},
+	}
+}
+
+type idleFetchItemReader interface {
+	Next() imapclient.FetchItemData
+}
+
+func idleFetchHasFlagUpdate(msg idleFetchItemReader) bool {
+	if msg == nil {
+		return false
+	}
+	hasFlags := false
+	for {
+		item := msg.Next()
+		if item == nil {
+			return hasFlags
+		}
+		if _, ok := item.(imapclient.FetchItemDataFlags); ok {
+			hasFlags = true
 		}
 	}
 }

@@ -234,6 +234,18 @@ CREATE TABLE IF NOT EXISTS label_mutation_queue (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS label_aliases (
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    provider_type TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_id, provider_type, provider_id)
+);
+
 CREATE TABLE IF NOT EXISTS gmail_poll_state (
     account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
     profile_history_id TEXT NOT NULL DEFAULT '',
@@ -380,6 +392,9 @@ ON label_mutation_queue(account_id, provider_type, next_attempt_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_label_mutation_queue_unique
 ON label_mutation_queue(message_id, provider_type, operation, label_name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_label_aliases_display
+ON label_aliases(account_id, provider_type, display_name COLLATE NOCASE);
 
 CREATE INDEX IF NOT EXISTS idx_gmail_poll_state_checked
 ON gmail_poll_state(last_checked_at);
@@ -880,4 +895,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (51);
+INSERT OR REPLACE INTO schema_version (version) VALUES (52);

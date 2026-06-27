@@ -1787,6 +1787,14 @@ class VirtualMailList {
       url += sep + "tag_account_id=" + encodeURIComponent(tag.accountId)
       sep = "&"
     }
+    if (tag.providerId) {
+      url += sep + "tag_provider_id=" + encodeURIComponent(tag.providerId)
+      sep = "&"
+    }
+    if (tag.providerId && tag.providerType) {
+      url += sep + "tag_provider_type=" + encodeURIComponent(tag.providerType)
+      sep = "&"
+    }
     return url
   }
 
@@ -1841,6 +1849,8 @@ class VirtualMailList {
     return {
       label: "",
       accountId: "",
+      providerId: "",
+      providerType: "",
     }
   }
 
@@ -1850,6 +1860,8 @@ class VirtualMailList {
     return {
       label: label,
       accountId: label ? (params.get("tag_account_id") || "").trim() : "",
+      providerId: label ? (params.get("tag_provider_id") || "").trim() : "",
+      providerType: label ? (params.get("tag_provider_type") || "").trim() : "",
     }
   }
 
@@ -1859,6 +1871,8 @@ class VirtualMailList {
     this.sidebarTag = {
       label: label,
       accountId: label ? (tag.accountId || "").trim() : "",
+      providerId: label ? (tag.providerId || "").trim() : "",
+      providerType: label ? (tag.providerType || "").trim() : "",
     }
   }
 
@@ -1891,6 +1905,8 @@ class VirtualMailList {
     var tag = this.sidebarTag || this.emptySidebarTag()
     if (tag.label) params.set("tag", tag.label)
     if (tag.accountId) params.set("tag_account_id", tag.accountId)
+    if (tag.providerId) params.set("tag_provider_id", tag.providerId)
+    if (tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
     return params.toString()
   }
 

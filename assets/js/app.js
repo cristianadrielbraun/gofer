@@ -2326,6 +2326,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var params = new URLSearchParams()
     if (tag && tag.label) params.set("tag", tag.label)
     if (tag && tag.label && tag.accountId) params.set("tag_account_id", tag.accountId)
+    if (tag && tag.label && tag.providerId) params.set("tag_provider_id", tag.providerId)
+    if (tag && tag.label && tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
     return params
   }
 
@@ -3157,6 +3159,8 @@ document.addEventListener("DOMContentLoaded", function () {
       return {
         label: (link.dataset.sidebarTagLabel || params.get("tag") || "").trim(),
         accountId: (link.dataset.sidebarTagAccount || params.get("tag_account_id") || "").trim(),
+        providerId: (params.get("tag_provider_id") || "").trim(),
+        providerType: (params.get("tag_provider_type") || "").trim(),
       }
     }
 

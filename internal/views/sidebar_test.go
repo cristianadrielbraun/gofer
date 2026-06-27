@@ -328,6 +328,36 @@ func TestSidebarFolderTreeMarksAccountTagActive(t *testing.T) {
 	}
 }
 
+func TestSidebarFolderTreeIncludesProviderIdentityForAccountTag(t *testing.T) {
+	accounts := []models.Account{{
+		ID:               "acc",
+		Name:             "Personal",
+		EmailSyncEnabled: true,
+		Folders: []models.Folder{{
+			ID:   "acc-inbox",
+			Name: "Inbox",
+			Icon: "inbox",
+			Role: "inbox",
+		}},
+		Labels: []models.Label{{
+			AccountID:    "acc",
+			Name:         "Work",
+			ProviderID:   "$label2",
+			ProviderType: "imap_keyword",
+		}},
+	}}
+
+	var buf bytes.Buffer
+	if err := SidebarFolderTree(accounts, "acc-inbox", nil, 0, models.EmailFilters{}).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
+	}
+	html := buf.String()
+	want := `hx-get="/folder/acc-inbox?tag=Work&amp;tag_account_id=acc&amp;tag_provider_id=%24label2&amp;tag_provider_type=imap_keyword"`
+	if !strings.Contains(html, want) {
+		t.Fatalf("account tag link missing provider identity %q: %s", want, html)
+	}
+}
+
 func TestSidebarFolderTreeDoesNotMarkAdvancedLabelFilterAsTagActive(t *testing.T) {
 	accounts := []models.Account{{
 		ID:               "acc",

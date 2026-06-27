@@ -502,29 +502,57 @@ func labelsFromFlags(flags []imap.Flag) []storage.LabelInput {
 	labels := make([]storage.LabelInput, 0, len(flags))
 	seen := map[string]bool{}
 	for _, flag := range flags {
-		name := strings.TrimSpace(string(flag))
-		if name == "" || isSystemOrStatusFlag(name) {
+		label, ok := labelInputFromFlag(flag)
+		if !ok {
 			continue
 		}
-		key := strings.ToLower(name)
+		key := strings.ToLower(label.ProviderID)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		labels = append(labels, storage.LabelInput{
-			Name:         name,
-			ProviderID:   name,
-			ProviderType: storage.LabelProviderIMAPKeyword,
-		})
+		labels = append(labels, label)
 	}
 	return labels
+}
+
+func labelInputFromFlag(flag imap.Flag) (storage.LabelInput, bool) {
+	keyword := strings.TrimSpace(string(flag))
+	if keyword == "" || isSystemOrStatusFlag(keyword) {
+		return storage.LabelInput{}, false
+	}
+	return storage.LabelInput{
+		Name:         keyword,
+		ProviderID:   keyword,
+		ProviderType: storage.LabelProviderIMAPKeyword,
+	}, true
+}
+
+func ValidateKeyword(keyword string) (string, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return "", fmt.Errorf("label is required")
+	}
+	if strings.HasPrefix(keyword, "\\") {
+		return "", fmt.Errorf("label cannot be an IMAP system flag")
+	}
+	if isSystemOrStatusFlag(keyword) {
+		return "", fmt.Errorf("label %q is an IMAP status keyword", keyword)
+	}
+	for _, r := range keyword {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' || r == '$' {
+			continue
+		}
+		return "", fmt.Errorf("label %q is not a portable IMAP keyword", keyword)
+	}
+	return keyword, nil
 }
 
 func isSystemOrStatusFlag(flag string) bool {
 	switch strings.ToLower(strings.TrimSpace(flag)) {
 	case "\\seen", "\\answered", "\\flagged", "\\deleted", "\\draft", "\\recent",
 		"$junk", "$notjunk", "$nonjunk", "junk", "notjunk", "nonjunk", "non-junk",
-		"$forwarded", "$mdnsent", "$phishing", "$label1", "$label2", "$label3", "$label4", "$label5":
+		"$forwarded", "$mdnsent", "$phishing":
 		return true
 	default:
 		return strings.HasPrefix(flag, "\\")

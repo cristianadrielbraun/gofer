@@ -1745,30 +1745,36 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 	q := r.URL.Query()
 	sidebarTag := strings.TrimSpace(q.Get("tag"))
 	sidebarTagAccountID := ""
+	sidebarTagProviderID := ""
+	sidebarTagProviderType := ""
 	if sidebarTag != "" {
 		sidebarTagAccountID = strings.TrimSpace(q.Get("tag_account_id"))
+		sidebarTagProviderID = strings.TrimSpace(q.Get("tag_provider_id"))
+		sidebarTagProviderType = strings.TrimSpace(q.Get("tag_provider_type"))
 	}
 	return models.EmailFilters{
-		Unread:              q.Get("unread") == "1",
-		Starred:             q.Get("starred") == "1",
-		Attachments:         q.Get("attachments") == "1",
-		Read:                q.Get("read") == "1",
-		NoAttach:            q.Get("no_attachments") == "1",
-		HasLabels:           q.Get("has_labels") == "1",
-		ThreadsOnly:         q.Get("threads_only") == "1",
-		From:                strings.TrimSpace(q.Get("from")),
-		To:                  strings.TrimSpace(q.Get("to")),
-		Subject:             strings.TrimSpace(q.Get("subject")),
-		Body:                strings.TrimSpace(q.Get("body")),
-		FromDomain:          strings.TrimSpace(q.Get("from_domain")),
-		Attachment:          strings.TrimSpace(q.Get("attachment")),
-		Label:               strings.TrimSpace(q.Get("label")),
-		AccountID:           strings.TrimSpace(q.Get("account_id")),
-		SidebarTag:          sidebarTag,
-		SidebarTagAccountID: sidebarTagAccountID,
-		Query:               strings.TrimSpace(q.Get("q")),
-		After:               strings.TrimSpace(q.Get("after_date")),
-		Before:              strings.TrimSpace(q.Get("before_date")),
+		Unread:                 q.Get("unread") == "1",
+		Starred:                q.Get("starred") == "1",
+		Attachments:            q.Get("attachments") == "1",
+		Read:                   q.Get("read") == "1",
+		NoAttach:               q.Get("no_attachments") == "1",
+		HasLabels:              q.Get("has_labels") == "1",
+		ThreadsOnly:            q.Get("threads_only") == "1",
+		From:                   strings.TrimSpace(q.Get("from")),
+		To:                     strings.TrimSpace(q.Get("to")),
+		Subject:                strings.TrimSpace(q.Get("subject")),
+		Body:                   strings.TrimSpace(q.Get("body")),
+		FromDomain:             strings.TrimSpace(q.Get("from_domain")),
+		Attachment:             strings.TrimSpace(q.Get("attachment")),
+		Label:                  strings.TrimSpace(q.Get("label")),
+		AccountID:              strings.TrimSpace(q.Get("account_id")),
+		SidebarTag:             sidebarTag,
+		SidebarTagAccountID:    sidebarTagAccountID,
+		SidebarTagProviderID:   sidebarTagProviderID,
+		SidebarTagProviderType: sidebarTagProviderType,
+		Query:                  strings.TrimSpace(q.Get("q")),
+		After:                  strings.TrimSpace(q.Get("after_date")),
+		Before:                 strings.TrimSpace(q.Get("before_date")),
 	}
 }
 

@@ -830,6 +830,23 @@ type LabelInput struct {
 	IsSystem     bool
 }
 
+type LabelAliasInput struct {
+	AccountID    string
+	ProviderType string
+	ProviderID   string
+	DisplayName  string
+	Color        string
+	Source       string
+}
+
+var defaultIMAPKeywordAliases = []LabelAliasInput{
+	{ProviderType: LabelProviderIMAPKeyword, ProviderID: "$label1", DisplayName: "Important", Source: "default"},
+	{ProviderType: LabelProviderIMAPKeyword, ProviderID: "$label2", DisplayName: "Work", Source: "default"},
+	{ProviderType: LabelProviderIMAPKeyword, ProviderID: "$label3", DisplayName: "Personal", Source: "default"},
+	{ProviderType: LabelProviderIMAPKeyword, ProviderID: "$label4", DisplayName: "To Do", Source: "default"},
+	{ProviderType: LabelProviderIMAPKeyword, ProviderID: "$label5", DisplayName: "Later", Source: "default"},
+}
+
 type ProviderLabelSyncMessage struct {
 	ID                int64
 	AccountID         string
@@ -1681,6 +1698,19 @@ func normalizeLabelInput(accountID string, label LabelInput) (LabelInput, bool) 
 	return label, label.AccountID != "" && label.Name != ""
 }
 
+func normalizeLabelAliasInput(input LabelAliasInput) (LabelAliasInput, bool) {
+	input.AccountID = strings.TrimSpace(input.AccountID)
+	input.ProviderType = strings.TrimSpace(input.ProviderType)
+	input.ProviderID = strings.TrimSpace(input.ProviderID)
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Color = strings.TrimSpace(input.Color)
+	input.Source = strings.TrimSpace(input.Source)
+	if input.Source == "" {
+		input.Source = "user"
+	}
+	return input, input.AccountID != "" && input.ProviderType != "" && input.ProviderID != "" && input.DisplayName != ""
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -1718,6 +1748,11 @@ func (db *DB) ensureLabelTx(ctx context.Context, tx *sql.Tx, label LabelInput) (
 	if !ok {
 		return models.Label{}, fmt.Errorf("label name is required")
 	}
+	resolvedLabel, err := db.resolveProviderLabelAliasTx(ctx, tx, label)
+	if err != nil {
+		return models.Label{}, err
+	}
+	label = resolvedLabel
 
 	var existingID string
 	if label.ProviderID != "" {
@@ -1746,7 +1781,7 @@ func (db *DB) ensureLabelTx(ctx context.Context, tx *sql.Tx, label LabelInput) (
 		existingID = newLabelID()
 	}
 
-	_, err := tx.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO labels (id, account_id, name, color, provider_id, provider_type, is_system, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
@@ -1769,6 +1804,160 @@ func (db *DB) ensureLabelTx(ctx context.Context, tx *sql.Tx, label LabelInput) (
 		ProviderID:   label.ProviderID,
 		ProviderType: label.ProviderType,
 	}, nil
+}
+
+func (db *DB) resolveProviderLabelAliasTx(ctx context.Context, tx *sql.Tx, label LabelInput) (LabelInput, error) {
+	if label.ProviderType != LabelProviderIMAPKeyword || strings.TrimSpace(label.ProviderID) == "" {
+		return label, nil
+	}
+	if err := db.ensureDefaultLabelAliasesTx(ctx, tx, label.AccountID, label.ProviderType); err != nil {
+		return label, err
+	}
+
+	originalName := label.Name
+	var displayName, color string
+	err := tx.QueryRowContext(ctx, `
+		SELECT display_name, color
+		FROM label_aliases
+		WHERE account_id = ? AND provider_type = ? AND provider_id = ?
+		LIMIT 1`, label.AccountID, label.ProviderType, label.ProviderID).Scan(&displayName, &color)
+	if err == sql.ErrNoRows {
+		displayName = firstNonEmpty(label.Name, label.ProviderID)
+		color = label.Color
+		if err := db.insertLabelAliasTx(ctx, tx, LabelAliasInput{
+			AccountID:    label.AccountID,
+			ProviderType: label.ProviderType,
+			ProviderID:   label.ProviderID,
+			DisplayName:  displayName,
+			Color:        color,
+			Source:       "discovered",
+		}, false); err != nil {
+			return label, err
+		}
+	} else if err != nil {
+		return label, err
+	}
+
+	if strings.TrimSpace(displayName) != "" {
+		label.Name = strings.TrimSpace(displayName)
+	}
+	if strings.TrimSpace(color) != "" {
+		label.Color = strings.TrimSpace(color)
+	} else if label.Color == "" || label.Color == defaultLabelColor(originalName) {
+		label.Color = defaultLabelColor(label.Name)
+	}
+	return label, nil
+}
+
+func (db *DB) ensureDefaultLabelAliasesTx(ctx context.Context, tx *sql.Tx, accountID, providerType string) error {
+	if strings.TrimSpace(providerType) != LabelProviderIMAPKeyword {
+		return nil
+	}
+	for _, input := range defaultIMAPKeywordAliases {
+		input.AccountID = accountID
+		if input.Color == "" {
+			input.Color = defaultLabelColor(input.DisplayName)
+		}
+		if err := db.insertLabelAliasTx(ctx, tx, input, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *DB) insertLabelAliasTx(ctx context.Context, tx *sql.Tx, input LabelAliasInput, ignoreConflict bool) error {
+	input, ok := normalizeLabelAliasInput(input)
+	if !ok {
+		return fmt.Errorf("label alias requires account, provider, provider id, and display name")
+	}
+	if input.Color == "" {
+		input.Color = defaultLabelColor(input.DisplayName)
+	}
+	if ignoreConflict {
+		_, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO label_aliases (
+				account_id, provider_type, provider_id, display_name, color, source, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			input.AccountID, input.ProviderType, input.ProviderID, input.DisplayName, input.Color, input.Source)
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO label_aliases (
+			account_id, provider_type, provider_id, display_name, color, source, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(account_id, provider_type, provider_id) DO UPDATE SET
+			display_name = excluded.display_name,
+			color = CASE WHEN excluded.color != '' THEN excluded.color ELSE label_aliases.color END,
+			source = excluded.source,
+			updated_at = CURRENT_TIMESTAMP`,
+		input.AccountID, input.ProviderType, input.ProviderID, input.DisplayName, input.Color, input.Source)
+	return err
+}
+
+func (db *DB) UpsertLabelAlias(ctx context.Context, input LabelAliasInput) error {
+	input, ok := normalizeLabelAliasInput(input)
+	if !ok {
+		return fmt.Errorf("label alias requires account, provider, provider id, and display name")
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := db.insertLabelAliasTx(ctx, tx, input, false); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE labels
+		SET name = ?,
+		    color = CASE WHEN ? != '' THEN ? ELSE color END,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ? AND provider_type = ? AND provider_id = ?`,
+		input.DisplayName, input.Color, input.Color, input.AccountID, input.ProviderType, input.ProviderID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (db *DB) ResolveLabelAliasProviderID(ctx context.Context, accountID, providerType, displayName string) (string, bool, error) {
+	accountID = strings.TrimSpace(accountID)
+	providerType = strings.TrimSpace(providerType)
+	displayName = strings.TrimSpace(displayName)
+	if accountID == "" || providerType == "" || displayName == "" {
+		return "", false, nil
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback()
+
+	if err := db.ensureDefaultLabelAliasesTx(ctx, tx, accountID, providerType); err != nil {
+		return "", false, err
+	}
+
+	var providerID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT provider_id
+		FROM label_aliases
+		WHERE account_id = ? AND provider_type = ? AND lower(display_name) = lower(?)
+		ORDER BY CASE source WHEN 'user' THEN 0 WHEN 'default' THEN 1 ELSE 2 END, provider_id
+		LIMIT 1`, accountID, providerType, displayName).Scan(&providerID)
+	if err == sql.ErrNoRows {
+		if err := tx.Commit(); err != nil {
+			return "", false, err
+		}
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	return providerID, true, nil
 }
 
 func (db *DB) EnsureLabel(ctx context.Context, label LabelInput) (models.Label, error) {
@@ -1802,19 +1991,68 @@ func (db *DB) UpsertLabels(ctx context.Context, labels []LabelInput) error {
 }
 
 func (db *DB) addMessageLabelsTx(ctx context.Context, tx *sql.Tx, messageID int64, accountID string, labels []LabelInput) error {
+	type insertedLabel struct {
+		label models.Label
+		rank  int
+	}
+	seen := map[string]insertedLabel{}
 	for _, input := range labels {
 		input.AccountID = firstNonEmpty(input.AccountID, accountID)
 		label, err := db.ensureLabelTx(ctx, tx, input)
 		if err != nil {
 			return err
 		}
+		key := strings.ToLower(label.ProviderType + ":" + label.Name)
+		rank, err := db.labelAliasRankTx(ctx, tx, label.AccountID, label.ProviderType, label.ProviderID)
+		if err != nil {
+			return err
+		}
+		if previous, ok := seen[key]; ok {
+			if rank <= previous.rank {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM message_labels WHERE message_id = ? AND label_id = ?`,
+				messageID, previous.label.ID); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?, ?)`,
 			messageID, label.ID); err != nil {
 			return err
 		}
+		seen[key] = insertedLabel{label: label, rank: rank}
 	}
 	return nil
+}
+
+func (db *DB) labelAliasRankTx(ctx context.Context, tx *sql.Tx, accountID, providerType, providerID string) (int, error) {
+	if strings.TrimSpace(providerType) == "" || strings.TrimSpace(providerID) == "" {
+		return 0, nil
+	}
+	var source string
+	err := tx.QueryRowContext(ctx, `
+		SELECT source
+		FROM label_aliases
+		WHERE account_id = ? AND provider_type = ? AND provider_id = ?
+		LIMIT 1`, accountID, providerType, providerID).Scan(&source)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "user":
+		return 4, nil
+	case "default":
+		return 3, nil
+	case "discovered":
+		return 2, nil
+	default:
+		return 1, nil
+	}
 }
 
 func (db *DB) replaceMessageLabelsForProviderTx(ctx context.Context, tx *sql.Tx, messageID int64, accountID, providerType string, labels []LabelInput) error {
@@ -3777,8 +4015,23 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		args = append(args, "%"+filters.Label+"%")
 	}
 	if filters.SidebarTag != "" {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml JOIN labels l ON ml.label_id = l.id WHERE ml.message_id = m.id AND l.name = ? COLLATE NOCASE)")
-		args = append(args, filters.SidebarTag)
+		predicate := `
+			l.name = ? COLLATE NOCASE
+			OR EXISTS (
+				SELECT 1 FROM label_aliases la
+				WHERE la.account_id = l.account_id
+				  AND la.provider_type = l.provider_type
+				  AND la.provider_id = l.provider_id
+				  AND la.display_name = ? COLLATE NOCASE
+			)
+		`
+		args = append(args, filters.SidebarTag, filters.SidebarTag)
+		if strings.TrimSpace(filters.SidebarTagProviderID) != "" && strings.TrimSpace(filters.SidebarTagProviderType) != "" {
+			predicate += `
+			OR (l.provider_type = ? AND l.provider_id = ?)`
+			args = append(args, strings.TrimSpace(filters.SidebarTagProviderType), strings.TrimSpace(filters.SidebarTagProviderID))
+		}
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml JOIN labels l ON ml.label_id = l.id WHERE ml.message_id = m.id AND ("+predicate+"))")
 	}
 	if filters.After != "" {
 		cteParts = append(cteParts, "date(m.date_received) >= date(?)")
