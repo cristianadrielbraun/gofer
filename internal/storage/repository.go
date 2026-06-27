@@ -270,6 +270,34 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	return tx.Commit()
 }
 
+func (db *DB) MarkUnlistedProviderFoldersNonSelectable(ctx context.Context, accountID string, providerRemoteIDs []string) error {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	args := []any{accountID}
+	for _, id := range providerRemoteIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		args = append(args, id)
+	}
+
+	query := `UPDATE folders
+	          SET selectable = 0, updated_at = CURRENT_TIMESTAMP
+	          WHERE account_id = ?
+	            AND COALESCE(provider_remote_id, '') != ''`
+	if len(args) > 1 {
+		query += ` AND provider_remote_id NOT IN (` + sqlPlaceholders(len(args)-1) + `)`
+	}
+	_, err := db.Write().ExecContext(ctx, query, args...)
+	return err
+}
+
 func (db *DB) reconcileMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, messageID, inReplyTo, refsRaw, subject string, sentAt time.Time) error {
 	normalizedSubject := normalizeSubject(subject)
 	refs := mailmessage.ThreadReferences(refsRaw, inReplyTo)
@@ -829,6 +857,15 @@ type LabelSyncState struct {
 	LastPendingMutations        int
 }
 
+type GmailPollState struct {
+	AccountID         string
+	ProfileHistoryID  string
+	LastCheckedAt     sql.NullTime
+	LastChangedAt     sql.NullTime
+	LastError         string
+	ConsecutiveErrors int
+}
+
 type LabelSyncRunStats struct {
 	AccountID               string
 	ProviderType            string
@@ -1044,14 +1081,16 @@ type DraftProviderInfo struct {
 	ProviderMessageID string
 }
 
-type OutlookGraphIDBackfillCandidate struct {
+type ProviderMessageIDBackfillCandidate struct {
 	MessageID         int64
 	InternetMessageID string
 	FolderID          string
 	FolderProviderID  string
 }
 
-func (db *DB) ListOutlookGraphIDBackfillCandidates(ctx context.Context, accountID string, limit int) ([]OutlookGraphIDBackfillCandidate, error) {
+type OutlookGraphIDBackfillCandidate = ProviderMessageIDBackfillCandidate
+
+func (db *DB) ListProviderMessageIDBackfillCandidates(ctx context.Context, accountID string, limit int) ([]ProviderMessageIDBackfillCandidate, error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
 		return nil, nil
@@ -1075,15 +1114,19 @@ func (db *DB) ListOutlookGraphIDBackfillCandidates(ctx context.Context, accountI
 		return nil, err
 	}
 	defer rows.Close()
-	var out []OutlookGraphIDBackfillCandidate
+	var out []ProviderMessageIDBackfillCandidate
 	for rows.Next() {
-		var c OutlookGraphIDBackfillCandidate
+		var c ProviderMessageIDBackfillCandidate
 		if err := rows.Scan(&c.MessageID, &c.InternetMessageID, &c.FolderID, &c.FolderProviderID); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func (db *DB) ListOutlookGraphIDBackfillCandidates(ctx context.Context, accountID string, limit int) ([]OutlookGraphIDBackfillCandidate, error) {
+	return db.ListProviderMessageIDBackfillCandidates(ctx, accountID, limit)
 }
 
 func (db *DB) GetDraftProviderInfo(ctx context.Context, accountID, internetMessageID string) (*DraftProviderInfo, error) {
@@ -1394,6 +1437,8 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 	}
 	observed := make([]observedMessage, 0, len(msgs))
 	msgIDs := make([]int64, 0, len(msgs))
+	desiredProviderFolders := map[int64]map[string]bool{}
+	messageAccounts := map[int64]string{}
 
 	for _, m := range msgs {
 		m.AccountID = strings.TrimSpace(m.AccountID)
@@ -1465,6 +1510,11 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, m.IsRead, m.IsStarred, m.IsFlagged, m.IsDraft, time.Now().UTC()); err != nil {
 			return nil, fmt.Errorf("upsert provider folder state: %w", err)
 		}
+		if desiredProviderFolders[msgID] == nil {
+			desiredProviderFolders[msgID] = map[string]bool{}
+		}
+		desiredProviderFolders[msgID][m.FolderID] = true
+		messageAccounts[msgID] = m.AccountID
 
 		if m.LabelsKnown && strings.TrimSpace(m.LabelProvider) != "" {
 			if err := db.replaceMessageLabelsForProviderTx(ctx, tx, msgID, m.AccountID, m.LabelProvider, m.Labels); err != nil {
@@ -1511,6 +1561,12 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		})
 	}
 
+	for msgID, folderSet := range desiredProviderFolders {
+		if err := reconcileProviderFolderStatesTx(ctx, tx, msgID, messageAccounts[msgID], folderSet); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -1523,6 +1579,42 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		}
 	}
 	return idsByProvider, nil
+}
+
+func reconcileProviderFolderStatesTx(ctx context.Context, tx *sql.Tx, messageID int64, accountID string, desired map[string]bool) error {
+	accountID = strings.TrimSpace(accountID)
+	if messageID == 0 || accountID == "" || len(desired) == 0 {
+		return nil
+	}
+	args := []any{messageID, accountID}
+	placeholders := make([]string, 0, len(desired))
+	for folderID := range desired {
+		folderID = strings.TrimSpace(folderID)
+		if folderID == "" {
+			continue
+		}
+		placeholders = append(placeholders, "?")
+		args = append(args, folderID)
+	}
+	if len(placeholders) == 0 {
+		return nil
+	}
+	query := `
+		UPDATE message_folder_state
+		SET is_deleted = 1
+		WHERE message_id = ?
+		  AND is_deleted = 0
+		  AND folder_id IN (
+		    SELECT id FROM folders
+		    WHERE account_id = ?
+		      AND COALESCE(provider_remote_id, '') != ''
+		  )
+		  AND folder_id NOT IN (` + strings.Join(placeholders, ",") + `)`
+	_, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("reconcile provider folder states: %w", err)
+	}
+	return nil
 }
 
 func (db *DB) findProviderSyncMessageTx(ctx context.Context, tx *sql.Tx, accountID, providerMessageID, internetMessageID string) (int64, error) {
@@ -2128,6 +2220,96 @@ func (db *DB) CountLabelMutations(ctx context.Context, accountID, providerType s
 	return count, err
 }
 
+func (db *DB) GetGmailPollState(ctx context.Context, accountID string) (GmailPollState, error) {
+	state := GmailPollState{AccountID: strings.TrimSpace(accountID)}
+	if state.AccountID == "" {
+		return state, nil
+	}
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT profile_history_id, last_checked_at, last_changed_at, last_error, consecutive_errors
+		FROM gmail_poll_state
+		WHERE account_id = ?`, state.AccountID).
+		Scan(&state.ProfileHistoryID, &state.LastCheckedAt, &state.LastChangedAt, &state.LastError, &state.ConsecutiveErrors)
+	if err == sql.ErrNoRows {
+		return state, nil
+	}
+	return state, err
+}
+
+func (db *DB) MarkGmailPollCheck(ctx context.Context, state GmailPollState, changed bool, pollErr error) error {
+	state.AccountID = strings.TrimSpace(state.AccountID)
+	state.ProfileHistoryID = strings.TrimSpace(state.ProfileHistoryID)
+	if state.AccountID == "" {
+		return nil
+	}
+	checkedAt := time.Now().UTC()
+	if state.LastCheckedAt.Valid && !state.LastCheckedAt.Time.IsZero() {
+		checkedAt = state.LastCheckedAt.Time.UTC()
+	}
+	lastError := ""
+	consecutiveErrors := 0
+	if pollErr != nil {
+		lastError = strings.TrimSpace(pollErr.Error())
+		consecutiveErrors = state.ConsecutiveErrors
+		if consecutiveErrors < 0 {
+			consecutiveErrors = 0
+		}
+		consecutiveErrors++
+	}
+	var changedAt any
+	if changed {
+		if state.LastChangedAt.Valid && !state.LastChangedAt.Time.IsZero() {
+			changedAt = formatDBTime(state.LastChangedAt.Time.UTC())
+		} else {
+			changedAt = formatDBTime(checkedAt)
+		}
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		INSERT INTO gmail_poll_state (
+			account_id, profile_history_id, last_checked_at, last_changed_at, last_error, consecutive_errors, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(account_id) DO UPDATE SET
+			profile_history_id = CASE WHEN excluded.profile_history_id != '' THEN excluded.profile_history_id ELSE gmail_poll_state.profile_history_id END,
+			last_checked_at = excluded.last_checked_at,
+			last_changed_at = CASE WHEN excluded.last_changed_at IS NOT NULL THEN excluded.last_changed_at ELSE gmail_poll_state.last_changed_at END,
+			last_error = excluded.last_error,
+			consecutive_errors = excluded.consecutive_errors,
+			updated_at = CURRENT_TIMESTAMP`,
+		state.AccountID,
+		state.ProfileHistoryID,
+		formatDBTime(checkedAt),
+		changedAt,
+		lastError,
+		consecutiveErrors,
+	)
+	return err
+}
+
+func (db *DB) GetGmailEmailSyncAccountIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE user_id = ?
+		  AND provider = 'gmail'
+		  AND COALESCE(is_deleting, 0) = 0
+		  AND COALESCE(email_sync_enabled, 1) = 1
+		ORDER BY id`, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (db *DB) GetLabelAdminStatus(ctx context.Context, userID string) (models.LabelAdminStatus, error) {
 	var status models.LabelAdminStatus
 	rows, err := db.Read().QueryContext(ctx, `
@@ -2152,6 +2334,11 @@ func (db *DB) GetLabelAdminStatus(ctx context.Context, userID string) (models.La
 		}
 		if strings.TrimSpace(account.AccountProvider) == "outlook" {
 			if err := db.populateOutlookGraphDiagnostics(ctx, &account); err != nil {
+				return status, err
+			}
+		}
+		if strings.TrimSpace(account.AccountProvider) == "gmail" {
+			if err := db.populateGmailAPIDiagnostics(ctx, &account); err != nil {
 				return status, err
 			}
 		}
@@ -2309,6 +2496,72 @@ func (db *DB) populateOutlookGraphDiagnostics(ctx context.Context, account *mode
 	return nil
 }
 
+func (db *DB) populateGmailAPIDiagnostics(ctx context.Context, account *models.LabelAccountSyncStatus) error {
+	var diagnostics models.GmailAPIDiagnostics
+	err := db.Read().QueryRowContext(ctx, `
+		WITH visible AS (
+			SELECT DISTINCT m.id,
+			       COALESCE(m.remote_message_id, '') AS remote_message_id,
+			       COALESCE(m.internet_message_id, '') AS internet_message_id,
+			       COALESCE(mfs.remote_uid, 0) AS remote_uid,
+			       COALESCE(f.provider_remote_id, '') AS folder_provider_remote_id
+			FROM messages m
+			JOIN message_folder_state mfs ON mfs.message_id = m.id
+			JOIN folders f ON f.id = mfs.folder_id
+			WHERE m.account_id = ? AND mfs.is_deleted = 0
+		)
+		SELECT COALESCE(SUM(CASE WHEN remote_message_id != '' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN remote_uid > 0 THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN remote_message_id = '' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN remote_message_id = ''
+		                          AND internet_message_id != ''
+		                          AND lower(trim(internet_message_id, '<>')) NOT LIKE '%@sync.gofer'
+		                         THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN remote_message_id = ''
+		                          AND (internet_message_id = '' OR lower(trim(internet_message_id, '<>')) LIKE '%@sync.gofer')
+		                         THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN remote_message_id = '' AND folder_provider_remote_id = '' THEN 1 ELSE 0 END), 0)
+		FROM visible`, account.AccountID,
+	).Scan(
+		&diagnostics.APIBackedMessages,
+		&diagnostics.IMAPBackedMessages,
+		&diagnostics.MessagesMissingGmailID,
+		&diagnostics.MissingGmailIDWithInternetID,
+		&diagnostics.MissingGmailIDWithoutInternetID,
+		&diagnostics.MissingGmailIDWithoutGmailLabel,
+	)
+	if err != nil {
+		return err
+	}
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN provider_remote_id != '' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN provider_remote_id = '' THEN 1 ELSE 0 END), 0)
+		FROM folders
+		WHERE account_id = ?`, account.AccountID,
+	).Scan(&diagnostics.LocalFolders, &diagnostics.GmailBackedFolders, &diagnostics.FoldersMissingGmailID); err != nil {
+		return err
+	}
+	if state, err := db.GetLabelSyncState(ctx, account.AccountID, LabelProviderGmail, "messages"); err == nil {
+		diagnostics.HistoryCursor = strings.TrimSpace(state.Cursor)
+		diagnostics.HasHistoryCursor = diagnostics.HistoryCursor != ""
+	}
+	if pollState, err := db.GetGmailPollState(ctx, account.AccountID); err == nil {
+		diagnostics.PollProfileHistoryID = strings.TrimSpace(pollState.ProfileHistoryID)
+		diagnostics.LastPollAt = nullTimeValue(pollState.LastCheckedAt)
+		diagnostics.LastPollChangeAt = nullTimeValue(pollState.LastChangedAt)
+		diagnostics.LastPollError = strings.TrimSpace(pollState.LastError)
+		diagnostics.PollConsecutiveErrors = pollState.ConsecutiveErrors
+	}
+	diagnostics.MessageParityDelta = diagnostics.APIBackedMessages - diagnostics.IMAPBackedMessages
+	diagnostics.APIParityReady = diagnostics.MessagesMissingGmailID == 0 &&
+		diagnostics.FoldersMissingGmailID == 0 &&
+		diagnostics.MessageParityDelta >= 0 &&
+		diagnostics.HasHistoryCursor
+	account.GmailAPI = &diagnostics
+	return nil
+}
+
 func (db *DB) populateLabelAccountCatalogStats(ctx context.Context, account *models.LabelAccountSyncStatus) error {
 	return db.Read().QueryRowContext(ctx, `
 		SELECT COUNT(*),
@@ -2406,6 +2659,7 @@ func labelSyncRunStatus(state LabelSyncState) models.LabelSyncRunStatus {
 		LastRunStartedAt:            nullTimeValue(state.LastRunStartedAt),
 		LastRunFinishedAt:           nullTimeValue(state.LastRunFinishedAt),
 		LastError:                   state.LastError,
+		Cursor:                      strings.TrimSpace(state.Cursor),
 		LastTotalMessages:           state.LastTotalMessages,
 		LastSyncedMessages:          state.LastSyncedMessages,
 		LastWithLabels:              state.LastWithLabels,
@@ -2617,6 +2871,23 @@ func (db *DB) IsEmailSyncEnabled(ctx context.Context, accountID string) bool {
 	return err == nil && enabled == 1
 }
 
+func (db *DB) GetAccountProvider(ctx context.Context, accountID string) (string, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return "", nil
+	}
+	var provider sql.NullString
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT provider FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID).Scan(&provider)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(provider.String), nil
+}
+
 func (db *DB) MarkEmailSyncError(ctx context.Context, accountID, message string, failedAt time.Time) error {
 	if failedAt.IsZero() {
 		failedAt = time.Now().UTC()
@@ -2674,6 +2945,25 @@ func (db *DB) GetFolderProviderRemoteID(ctx context.Context, folderID string) (s
 		return "", err
 	}
 	return strings.TrimSpace(providerRemoteID.String), nil
+}
+
+func (db *DB) GetFolderProviderRemoteInfo(ctx context.Context, folderID string) (string, string, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return "", "", nil
+	}
+	var providerRemoteID sql.NullString
+	var role string
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT provider_remote_id, role FROM folders WHERE id = ?`, folderID,
+	).Scan(&providerRemoteID, &role)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return strings.TrimSpace(providerRemoteID.String), strings.TrimSpace(role), nil
 }
 
 func (db *DB) GetFolderRole(ctx context.Context, folderID string) (string, error) {
@@ -2994,8 +3284,17 @@ func (db *DB) attachContactAddressBooks(ctx context.Context, userID string, acco
 
 func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, name, icon, role, unread_count, parent_id
-		 FROM folders WHERE account_id = ? ORDER BY sort_order`, accountID)
+		`SELECT f.id, f.name, f.icon, f.role, f.unread_count, f.parent_id
+		 FROM folders f
+		 JOIN accounts a ON a.id = f.account_id
+		 WHERE f.account_id = ?
+		   AND COALESCE(f.selectable, 1) = 1
+		   AND (
+		     a.provider != 'gmail'
+		     OR COALESCE(f.provider_remote_id, '') = ''
+		     OR f.provider_remote_id IN ('INBOX', 'SENT', 'DRAFT', 'TRASH', 'SPAM', 'ARCHIVE')
+		   )
+		 ORDER BY f.sort_order`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query folders: %w", err)
 	}
@@ -3018,10 +3317,15 @@ func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder
 
 func buildFolderTree(flat []folderRow) []models.Folder {
 	childrenMap := make(map[string][]models.Folder)
+	folderIDs := make(map[string]bool, len(flat))
 	var roots []models.Folder
 
 	for _, fr := range flat {
-		if fr.parentID.Valid && fr.parentID.String != "" {
+		folderIDs[fr.folder.ID] = true
+	}
+
+	for _, fr := range flat {
+		if fr.parentID.Valid && fr.parentID.String != "" && folderIDs[fr.parentID.String] {
 			childrenMap[fr.parentID.String] = append(childrenMap[fr.parentID.String], fr.folder)
 		} else {
 			roots = append(roots, fr.folder)
@@ -5640,11 +5944,20 @@ func defaultUISettings() map[string]string {
 
 func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]FolderSyncInfo, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, account_id, remote_id, COALESCE(provider_remote_id, ''), role,
-		        COALESCE(uid_validity, 0), COALESCE(highest_seen_uid, 0),
-		        last_full_sync_at, last_incremental_sync_at, COALESCE(sync_cursor, ''),
-		        COALESCE(total_count, 0)
-		 FROM folders WHERE account_id = ? AND COALESCE(selectable, 1) = 1 ORDER BY sort_order`, accountID)
+		`SELECT f.id, f.account_id, f.remote_id, COALESCE(f.provider_remote_id, ''), f.role,
+		        COALESCE(f.uid_validity, 0), COALESCE(f.highest_seen_uid, 0),
+		        f.last_full_sync_at, f.last_incremental_sync_at, COALESCE(f.sync_cursor, ''),
+		        COALESCE(f.total_count, 0)
+		 FROM folders f
+		 JOIN accounts a ON a.id = f.account_id
+		 WHERE f.account_id = ?
+		   AND COALESCE(f.selectable, 1) = 1
+		   AND (
+		     a.provider != 'gmail'
+		     OR COALESCE(f.provider_remote_id, '') = ''
+		     OR f.provider_remote_id IN ('INBOX', 'SENT', 'DRAFT', 'TRASH', 'SPAM', 'ARCHIVE')
+		   )
+		 ORDER BY f.sort_order`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query folders: %w", err)
 	}

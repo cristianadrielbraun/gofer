@@ -187,6 +187,7 @@ type LabelAccountSyncStatus struct {
 	Sync                    LabelSyncRunStatus       `json:"sync"`
 	TopLabels               []LabelUsageSummary      `json:"top_labels"`
 	OutlookGraph            *OutlookGraphDiagnostics `json:"outlook_graph,omitempty"`
+	GmailAPI                *GmailAPIDiagnostics     `json:"gmail_api,omitempty"`
 }
 
 type OutlookGraphDiagnostics struct {
@@ -203,12 +204,34 @@ type OutlookGraphDiagnostics struct {
 	FoldersMissingGraphID            int  `json:"folders_missing_graph_id"`
 }
 
+type GmailAPIDiagnostics struct {
+	APIBackedMessages               int       `json:"api_backed_messages"`
+	IMAPBackedMessages              int       `json:"imap_backed_messages"`
+	MessageParityDelta              int       `json:"message_parity_delta"`
+	APIParityReady                  bool      `json:"api_parity_ready"`
+	MessagesMissingGmailID          int       `json:"messages_missing_gmail_id"`
+	MissingGmailIDWithInternetID    int       `json:"missing_gmail_id_with_internet_id"`
+	MissingGmailIDWithoutInternetID int       `json:"missing_gmail_id_without_internet_id"`
+	MissingGmailIDWithoutGmailLabel int       `json:"missing_gmail_id_without_gmail_label"`
+	LocalFolders                    int       `json:"local_folders"`
+	GmailBackedFolders              int       `json:"gmail_backed_folders"`
+	FoldersMissingGmailID           int       `json:"folders_missing_gmail_id"`
+	HistoryCursor                   string    `json:"history_cursor,omitempty"`
+	HasHistoryCursor                bool      `json:"has_history_cursor"`
+	PollProfileHistoryID            string    `json:"poll_profile_history_id,omitempty"`
+	LastPollAt                      time.Time `json:"last_poll_at,omitempty"`
+	LastPollChangeAt                time.Time `json:"last_poll_change_at,omitempty"`
+	LastPollError                   string    `json:"last_poll_error,omitempty"`
+	PollConsecutiveErrors           int       `json:"poll_consecutive_errors"`
+}
+
 type LabelSyncRunStatus struct {
 	LastFullSyncAt              time.Time `json:"last_full_sync_at,omitempty"`
 	LastSuccessAt               time.Time `json:"last_success_at,omitempty"`
 	LastRunStartedAt            time.Time `json:"last_run_started_at,omitempty"`
 	LastRunFinishedAt           time.Time `json:"last_run_finished_at,omitempty"`
 	LastError                   string    `json:"last_error,omitempty"`
+	Cursor                      string    `json:"cursor,omitempty"`
 	LastTotalMessages           int       `json:"last_total_messages"`
 	LastSyncedMessages          int       `json:"last_synced_messages"`
 	LastWithLabels              int       `json:"last_with_labels"`

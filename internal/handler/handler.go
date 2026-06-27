@@ -47,6 +47,7 @@ type Handler struct {
 	bodyClients          map[string]*imap.Client
 	bodyFetchMu          sync.Mutex
 	bodyFetches          map[int64]chan struct{}
+	accountDeleteMu      sync.Mutex
 	avatarWarmupQueue    chan storage.SenderAvatarCandidate
 	avatarWarmupMu       sync.Mutex
 	avatarWarmupQueued   map[string]struct{}
@@ -104,6 +105,40 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	})
 	h.startAvatarWarmupWorkers()
 	return h
+}
+
+func (h *Handler) StartAccountDeletionCleanup(ctx context.Context) {
+	go h.CleanupPendingAccountDeletions(ctx)
+}
+
+func (h *Handler) CleanupPendingAccountDeletions(ctx context.Context) {
+	ids, err := h.accountStore.ListDeletingAccountIDs(ctx)
+	if err != nil {
+		log.Printf("delete account cleanup: list pending accounts failed: %v", err)
+		return
+	}
+	if len(ids) == 0 {
+		log.Printf("delete account cleanup: no pending accounts")
+		return
+	}
+	log.Printf("delete account cleanup: found %d pending account(s)", len(ids))
+	for _, accountID := range ids {
+		if ctx.Err() != nil {
+			return
+		}
+		log.Printf("delete account cleanup %s started", accountID)
+		if h.syncer != nil {
+			h.syncer.StopAccount(accountID)
+		}
+		cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		err := h.cleanupDeletingAccount(cleanupCtx, accountID)
+		cancel()
+		if err != nil {
+			log.Printf("delete account cleanup %s failed: %v", accountID, err)
+			continue
+		}
+		log.Printf("delete account cleanup %s complete", accountID)
+	}
 }
 
 func (h *Handler) userID(ctx context.Context) string {
@@ -296,7 +331,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := h.userID(ctx)
 
-	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
 	uiSettings := h.db.GetUISettings(ctx, userID)
 	scheduledCount := h.scheduledSidebarCount(ctx, userID)
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
@@ -330,7 +365,7 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 
 	ctx := r.Context()
 	userID := h.userID(ctx)
-	accounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
 	views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID)).Render(ctx, w)
 }
 
@@ -457,12 +492,12 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html")
 		if r.Header.Get("HX-Target") == "mail-list" {
-			layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+			layoutAccounts, _ := h.db.GetAccounts(ctx, userID)
 			views.ContactsAppPartial(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
 			return
 		}
 		if r.Header.Get("HX-Target") == "app-shell" {
-			layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+			layoutAccounts, _ := h.db.GetAccounts(ctx, userID)
 			views.ContactsShell(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
 			return
 		}
@@ -470,7 +505,7 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	layoutAccounts, _ := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	layoutAccounts, _ := h.db.GetAccounts(ctx, userID)
 	views.ContactsLayout(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
 }
 
@@ -1433,6 +1468,7 @@ func (h *Handler) fetchBodyRemote(ctx context.Context, msgID int64, info *storag
 		return nil, fmt.Errorf("message fetch info not found")
 	}
 	var graphErr error
+	var gmailErr error
 	if bodyData, attempted, err := h.fetchOutlookGraphMessageMIME(ctx, msgID); attempted {
 		if err == nil {
 			return bodyData, nil
@@ -1440,7 +1476,17 @@ func (h *Handler) fetchBodyRemote(ctx context.Context, msgID int64, info *storag
 		graphErr = err
 		log.Printf("outlook fetch body account=%s message=%d: %v", info.AccountID, msgID, err)
 	}
+	if bodyData, attempted, err := h.fetchGmailAPIMessageMIME(ctx, msgID); attempted {
+		if err == nil {
+			return bodyData, nil
+		}
+		gmailErr = err
+		log.Printf("gmail fetch body account=%s message=%d: %v", info.AccountID, msgID, err)
+	}
 	if strings.TrimSpace(info.FolderRemoteID) == "" || info.RemoteUID == 0 {
+		if gmailErr != nil {
+			return nil, gmailErr
+		}
 		if graphErr != nil {
 			return nil, graphErr
 		}
@@ -1453,8 +1499,13 @@ func (h *Handler) fetchBodyRemote(ctx context.Context, msgID int64, info *storag
 	}
 	h.closeBodyClient(info.AccountID)
 	bodyData, err = h.fetchBodyRemoteWithCachedClient(ctx, info.AccountID, info.FolderRemoteID, info.RemoteUID)
-	if err != nil && graphErr != nil {
-		return nil, fmt.Errorf("graph body fetch failed: %v; imap body fetch failed: %w", graphErr, err)
+	if err != nil {
+		if gmailErr != nil {
+			return nil, fmt.Errorf("gmail api body fetch failed: %v; imap body fetch failed: %w", gmailErr, err)
+		}
+		if graphErr != nil {
+			return nil, fmt.Errorf("graph body fetch failed: %v; imap body fetch failed: %w", graphErr, err)
+		}
 	}
 	return bodyData, err
 }
@@ -1839,6 +1890,12 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.cleanupDeletingAccountForCreate(r.Context(), h.userID(r.Context()), req.EmailAddress); err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError(fmt.Sprintf("Failed to clean up deleting account: %v", err)).Render(r.Context(), w)
+		return
+	}
+
 	account, err := h.accountStore.CreateAccount(r.Context(), h.userID(r.Context()), &req)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
@@ -2204,11 +2261,7 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 
-		if err := h.blobStore.DeleteAccount(id); err != nil {
-			log.Printf("warning: failed to clean up blob storage for account %s: %v", id, err)
-		}
-
-		if err := h.accountStore.DeleteAccount(ctx, id); err != nil {
+		if err := h.cleanupDeletingAccount(ctx, id); err != nil {
 			log.Printf("delete account %s failed: %v", id, err)
 			return
 		}
@@ -3049,6 +3102,11 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	userID := h.userID(r.Context())
+	if h.syncer != nil {
+		endActiveSession := h.syncer.BeginActiveUserSession(userID)
+		defer endActiveSession()
+	}
+
 	userAccounts, _ := h.db.GetAccountIDs(r.Context(), userID)
 	accountSet := make(map[string]bool, len(userAccounts))
 	for _, id := range userAccounts {
@@ -3143,7 +3201,7 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 func (h *Handler) handleMailSidebar(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := h.userID(ctx)
-	accounts, err := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	accounts, err := h.db.GetAccounts(ctx, userID)
 	if err != nil {
 		http.Error(w, "failed to load sidebar", http.StatusInternalServerError)
 		return
@@ -3162,7 +3220,7 @@ func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	userID := h.userID(ctx)
-	accounts, err := h.db.GetAccountsIncludingDeleting(ctx, userID)
+	accounts, err := h.db.GetAccounts(ctx, userID)
 	if err != nil {
 		http.Error(w, "failed to load account", http.StatusInternalServerError)
 		return
@@ -3370,11 +3428,11 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 	_ = h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, "", snippet)
 	_ = h.db.ReplaceAttachments(ctx, msgID, attachmentRows)
-	if strings.TrimSpace(account.Provider) == providers.ProviderOutlook {
+	if strings.TrimSpace(account.Provider) == providers.ProviderOutlook || (strings.TrimSpace(account.Provider) == providers.ProviderGmail && gmailAPIMailRuntimeEnabled()) {
 		toAddrs, _ := message.ParseAddressList(r.FormValue("to"))
 		ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
 		bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
-		graphDraft := &message.OutgoingMessage{
+		providerDraft := &message.OutgoingMessage{
 			FromName:    account.Name,
 			FromEmail:   account.Email,
 			To:          toAddrs,
@@ -3389,9 +3447,17 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 			Date:        time.Now().UTC(),
 			Attachments: outgoingAttachments,
 		}
-		if err := h.saveOutlookGraphDraft(ctx, accountID, msgID, graphDraft); err != nil {
-			log.Printf("outlook draft save account=%s message=%d: %v", accountID, msgID, err)
-			return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save Outlook draft"}
+		switch strings.TrimSpace(account.Provider) {
+		case providers.ProviderOutlook:
+			if err := h.saveOutlookGraphDraft(ctx, accountID, msgID, providerDraft); err != nil {
+				log.Printf("outlook draft save account=%s message=%d: %v", accountID, msgID, err)
+				return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save Outlook draft"}
+			}
+		case providers.ProviderGmail:
+			if err := h.saveGmailAPIDraft(ctx, accountID, msgID, providerDraft); err != nil {
+				log.Printf("gmail draft save account=%s message=%d: %v", accountID, msgID, err)
+				return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save Gmail draft"}
+			}
 		}
 	}
 	h.publishMutation(accountID, draftFolderID)
@@ -3424,6 +3490,11 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	if draftProvider != nil && strings.TrimSpace(draftProvider.AccountProvider) == providers.ProviderOutlook {
 		if err := h.deleteOutlookGraphDraft(ctx, accountID, draftProvider.ProviderMessageID); err != nil {
 			log.Printf("outlook draft discard account=%s draft=%s: %v", accountID, draftID, err)
+		}
+	}
+	if draftProvider != nil && strings.TrimSpace(draftProvider.AccountProvider) == providers.ProviderGmail {
+		if err := h.deleteGmailAPIDraft(ctx, accountID, draftProvider.ProviderMessageID); err != nil {
+			log.Printf("gmail draft discard account=%s draft=%s: %v", accountID, draftID, err)
 		}
 	}
 	h.deleteComposeAttachmentPaths(draftPaths)
@@ -3696,6 +3767,11 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 			log.Printf("outlook draft delete account=%s draft=%s: %v", email.AccountID, email.InternetMessageID, err)
 		}
 	}
+	if draftProvider != nil && strings.TrimSpace(draftProvider.AccountProvider) == providers.ProviderGmail {
+		if err := h.deleteGmailAPIDraft(r.Context(), email.AccountID, draftProvider.ProviderMessageID); err != nil {
+			log.Printf("gmail draft delete account=%s draft=%s: %v", email.AccountID, email.InternetMessageID, err)
+		}
+	}
 	h.deleteComposeAttachmentPaths(draftPaths)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "discarded"})
@@ -3808,6 +3884,9 @@ func (h *Handler) sendOutgoingMessage(ctx context.Context, accountID string, msg
 	}
 
 	if handled, status, errText := h.sendOutlookGraphMessage(ctx, cfg, msg, draftID); handled {
+		return status, errText
+	}
+	if handled, status, errText := h.sendGmailAPIMessage(ctx, cfg, msg, draftID); handled {
 		return status, errText
 	}
 
@@ -5493,9 +5572,54 @@ func (h *Handler) createOrUpdateOAuthMailAccount(ctx context.Context, userID str
 		}
 		return existingAccountID, nil
 	}
+	if err := h.cleanupDeletingAccountForCreate(ctx, userID, req.EmailAddress); err != nil {
+		return "", err
+	}
 	account, err := h.accountStore.CreateAccount(ctx, userID, req)
 	if err != nil {
 		return "", err
 	}
 	return account.ID, nil
+}
+
+func (h *Handler) cleanupDeletingAccountForCreate(ctx context.Context, userID, email string) error {
+	accountID, err := h.accountStore.FindDeletingAccountIDByEmail(ctx, userID, email)
+	if err != nil {
+		return err
+	}
+	if accountID == "" {
+		return nil
+	}
+	if h.syncer != nil {
+		h.syncer.StopAccount(accountID)
+	}
+	return h.cleanupDeletingAccount(ctx, accountID)
+}
+
+func (h *Handler) cleanupDeletingAccount(ctx context.Context, accountID string) error {
+	h.accountDeleteMu.Lock()
+	defer h.accountDeleteMu.Unlock()
+
+	deleting, err := h.accountStore.IsAccountDeleting(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("check deleting account: %w", err)
+	}
+	if !deleting {
+		return nil
+	}
+
+	if h.blobStore != nil {
+		log.Printf("delete account cleanup %s: deleting blobs", accountID)
+		if err := h.blobStore.DeleteAccount(accountID); err != nil {
+			log.Printf("warning: failed to clean up blob storage for account %s: %v", accountID, err)
+		}
+	}
+
+	log.Printf("delete account cleanup %s: deleting database rows", accountID)
+	if err := h.accountStore.DeleteAccountWithProgress(ctx, accountID, func(progress config.AccountDeletionProgress) {
+		log.Printf("delete account cleanup %s: %s deleted=%d total=%d", accountID, progress.Step, progress.RowsAffected, progress.TotalStepRowsAffected)
+	}); err != nil {
+		return fmt.Errorf("delete account row: %w", err)
+	}
+	return nil
 }

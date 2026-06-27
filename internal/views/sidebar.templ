@@ -558,7 +558,7 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettin
 			@SidebarUnifiedSection(accounts, activeFolder, uiSettings)
 		}
 		for _, account := range accounts {
-			if account.EmailSyncEnabled {
+			if account.EmailSyncEnabled && !account.IsDeleting {
 				@SidebarAccountSection(account, activeFolder, uiSettings)
 			}
 		}
@@ -731,6 +731,8 @@ templ SidebarFolderIcon(iconName string) {
 			@icon.CircleAlert(icon.Props{Class: "size-4"})
 		case "trash":
 			@icon.Trash2(icon.Props{Class: "size-4"})
+		case "tag":
+			@icon.Tag(icon.Props{Class: "size-4"})
 		default:
 			@icon.Folder(icon.Props{Class: "size-4"})
 	}

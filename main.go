@@ -81,6 +81,9 @@ func main() {
 	notificationService.Start(ctx)
 	log.Printf("boot: notification worker started")
 
+	mux := http.NewServeMux()
+	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey)
+
 	go func() {
 		log.Printf("boot: background threading worker started")
 		db.SetThreadingState(storage.ThreadingState{InProgress: true})
@@ -95,13 +98,12 @@ func main() {
 		syncer.Start(ctx)
 	}()
 
-	mux := http.NewServeMux()
-	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey)
 	h.StartAvatarBackfill(ctx)
 	h.StartContactSync(ctx)
 	h.StartScheduledSendWorker(ctx)
 	h.RegisterRoutes(mux)
 	log.Printf("boot: HTTP routes registered")
+	h.StartAccountDeletionCleanup(ctx)
 
 	var handler http.Handler = mux
 	handler = authManager.Middleware(handler)

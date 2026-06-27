@@ -234,6 +234,17 @@ CREATE TABLE IF NOT EXISTS label_mutation_queue (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS gmail_poll_state (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    profile_history_id TEXT NOT NULL DEFAULT '',
+    last_checked_at DATETIME,
+    last_changed_at DATETIME,
+    last_error TEXT NOT NULL DEFAULT '',
+    consecutive_errors INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Sync state per account+folder
 CREATE TABLE IF NOT EXISTS sync_state (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -287,17 +298,26 @@ ON messages(account_id, thread_id, date_received);
 CREATE INDEX IF NOT EXISTS idx_messages_msgid_norm
 ON messages(account_id, message_id_normalized);
 
+CREATE INDEX IF NOT EXISTS idx_messages_thread_parent
+ON messages(thread_parent_id);
+
 CREATE INDEX IF NOT EXISTS idx_threads_account_last
 ON threads(account_id, last_message_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_threads_subject
 ON threads(account_id, normalized_subject, last_message_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_threads_root_message
+ON threads(root_message_id);
+
 CREATE INDEX IF NOT EXISTS idx_message_references_ref
 ON message_references(referenced_message_id);
 
 CREATE INDEX IF NOT EXISTS idx_unresolved_references_ref
 ON unresolved_references(account_id, referenced_message_id);
+
+CREATE INDEX IF NOT EXISTS idx_unresolved_references_child
+ON unresolved_references(child_message_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_remote_id
 ON messages(account_id, remote_message_id);
@@ -316,6 +336,12 @@ ON message_folder_state(is_starred, is_deleted, message_id);
 
 CREATE INDEX IF NOT EXISTS idx_folder_thread_state_folder_last
 ON folder_thread_state(folder_id, last_message_at DESC, head_message_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_folder_thread_state_account
+ON folder_thread_state(account_id);
+
+CREATE INDEX IF NOT EXISTS idx_folder_thread_state_head
+ON folder_thread_state(head_message_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_uid
 ON message_folder_state(folder_id, remote_uid);
@@ -354,6 +380,9 @@ ON label_mutation_queue(account_id, provider_type, next_attempt_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_label_mutation_queue_unique
 ON label_mutation_queue(message_id, provider_type, operation, label_name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_gmail_poll_state_checked
+ON gmail_poll_state(last_checked_at);
 
 -- Application settings
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -701,6 +730,9 @@ ON contact_cards(user_id, profile_id, is_deleted);
 CREATE INDEX IF NOT EXISTS idx_contact_cards_remote
 ON contact_cards(user_id, provider, account_id, address_book_id, remote_id);
 
+CREATE INDEX IF NOT EXISTS idx_contact_cards_account
+ON contact_cards(account_id);
+
 CREATE TABLE IF NOT EXISTS contact_fields (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -778,6 +810,9 @@ ON contact_groups(user_id, name COLLATE NOCASE);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_groups_remote
 ON contact_groups(user_id, provider, account_id, remote_id);
 
+CREATE INDEX IF NOT EXISTS idx_contact_groups_account
+ON contact_groups(account_id);
+
 CREATE TABLE IF NOT EXISTS contact_card_groups (
     card_id TEXT NOT NULL REFERENCES contact_cards(id) ON DELETE CASCADE,
     group_id TEXT NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
@@ -805,6 +840,9 @@ CREATE TABLE IF NOT EXISTS contact_conflicts (
 
 CREATE INDEX IF NOT EXISTS idx_contact_conflicts_profile
 ON contact_conflicts(user_id, profile_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_contact_conflicts_account
+ON contact_conflicts(account_id);
 
 CREATE TABLE IF NOT EXISTS web_push_subscriptions (
     endpoint TEXT PRIMARY KEY,
@@ -842,4 +880,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (49);
+INSERT OR REPLACE INTO schema_version (version) VALUES (51);

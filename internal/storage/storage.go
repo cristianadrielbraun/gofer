@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 49
+	const targetSchemaVersion = 51
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -438,6 +438,18 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 48 {
 		if err := migrateV48ToV49(tx); err != nil {
 			return fmt.Errorf("migrate v48 to v49: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 49 {
+		if err := migrateV49ToV50(tx); err != nil {
+			return fmt.Errorf("migrate v49 to v50: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 50 {
+		if err := migrateV50ToV51(tx); err != nil {
+			return fmt.Errorf("migrate v50 to v51: %w", err)
 		}
 	}
 
@@ -1893,6 +1905,81 @@ func migrateV48ToV49(tx *sql.Tx) error {
 		}
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (49)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateV49ToV50(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS gmail_poll_state (
+			account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+			profile_history_id TEXT NOT NULL DEFAULT '',
+			last_checked_at DATETIME,
+			last_changed_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			consecutive_errors INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_gmail_poll_state_checked
+		 ON gmail_poll_state(last_checked_at)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (50)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV50ToV51(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS gmail_poll_state (
+			account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+			profile_history_id TEXT NOT NULL DEFAULT '',
+			last_checked_at DATETIME,
+			last_changed_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			consecutive_errors INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_gmail_poll_state_checked
+		 ON gmail_poll_state(last_checked_at)`,
+	}
+	for _, m := range migrations {
+		if _, err := tx.Exec(m); err != nil {
+			return err
+		}
+	}
+	tableIndexes := []struct {
+		table string
+		sql   string
+	}{
+		{"messages", `CREATE INDEX IF NOT EXISTS idx_messages_thread_parent ON messages(thread_parent_id)`},
+		{"threads", `CREATE INDEX IF NOT EXISTS idx_threads_root_message ON threads(root_message_id)`},
+		{"folder_thread_state", `CREATE INDEX IF NOT EXISTS idx_folder_thread_state_account ON folder_thread_state(account_id)`},
+		{"folder_thread_state", `CREATE INDEX IF NOT EXISTS idx_folder_thread_state_head ON folder_thread_state(head_message_id)`},
+		{"unresolved_references", `CREATE INDEX IF NOT EXISTS idx_unresolved_references_child ON unresolved_references(child_message_id)`},
+		{"contact_cards", `CREATE INDEX IF NOT EXISTS idx_contact_cards_account ON contact_cards(account_id)`},
+		{"contact_groups", `CREATE INDEX IF NOT EXISTS idx_contact_groups_account ON contact_groups(account_id)`},
+		{"contact_conflicts", `CREATE INDEX IF NOT EXISTS idx_contact_conflicts_account ON contact_conflicts(account_id)`},
+	}
+	for _, idx := range tableIndexes {
+		exists, err := tableExistsTx(tx, idx.table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		if _, err := tx.Exec(idx.sql); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (51)`); err != nil {
 		return err
 	}
 	return nil

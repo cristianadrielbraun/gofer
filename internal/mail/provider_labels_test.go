@@ -400,6 +400,51 @@ func TestSyncProviderLabelsStopsGmailMessageLoopOnAuthFailure(t *testing.T) {
 	}
 }
 
+func TestSyncGmailLabelsStopsOnContextCancellation(t *testing.T) {
+	db := newLabelSyncTestDB(t)
+	seedLabelSyncMessage(t, db, providers.ProviderGmail, "<gmail-cancel-1@example.com>", "gmail-msg-1")
+	seedLabelSyncMessage(t, db, providers.ProviderGmail, "<gmail-cancel-2@example.com>", "gmail-msg-2")
+	seedLabelSyncMessage(t, db, providers.ProviderGmail, "<gmail-cancel-3@example.com>", "gmail-msg-3")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	messageRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]string{
+				{"id": "Label_1", "name": "Projects", "type": "user"},
+			}})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/users/me/messages/"):
+			messageRequests++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":        "gmail-msg-1",
+				"historyId": "101",
+				"labelIds":  []string{"Label_1"},
+			})
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			cancel()
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	err := orchestrator.syncGmailLabels(ctx, "acc")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("syncGmailLabels() error = %v, want context canceled", err)
+	}
+	if messageRequests != 1 {
+		t.Fatalf("message requests = %d, want cancellation after first request", messageRequests)
+	}
+}
+
 func TestSyncOutlookCategoriesImportsRemoteMessageCategories(t *testing.T) {
 	db := newLabelSyncTestDB(t)
 	msgID := seedLabelSyncMessage(t, db, providers.ProviderOutlook, "<outlook-label@example.com>", "outlook-msg-1")

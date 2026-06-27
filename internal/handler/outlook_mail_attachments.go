@@ -26,8 +26,45 @@ func (h *Handler) ensureAttachmentStorage(ctx context.Context, info *storage.Att
 			return info.StoragePath, nil
 		}
 	}
-	if strings.TrimSpace(info.AccountProvider) != providers.ProviderOutlook {
-		return strings.TrimSpace(info.StoragePath), fmt.Errorf("attachment is not graph backed")
+	switch strings.TrimSpace(info.AccountProvider) {
+	case providers.ProviderGmail:
+		if !gmailAPIMailRuntimeEnabled() {
+			return strings.TrimSpace(info.StoragePath), fmt.Errorf("gmail api attachment fetch is disabled")
+		}
+		if h.auth == nil || h.blobStore == nil {
+			return strings.TrimSpace(info.StoragePath), fmt.Errorf("gmail api attachment fetch is unavailable")
+		}
+		providerMessageID := strings.TrimSpace(info.ProviderMessageID)
+		if providerMessageID == "" {
+			mutationInfo, err := h.db.GetMessageMutationInfo(ctx, info.MessageID)
+			if err != nil {
+				return strings.TrimSpace(info.StoragePath), err
+			}
+			if mutationInfo == nil {
+				return strings.TrimSpace(info.StoragePath), fmt.Errorf("message mutation info not found")
+			}
+			token, resolvedMessageID, ok := h.gmailMessageIdentity(ctx, info.MessageID, *mutationInfo, "attachment fetch")
+			if !ok {
+				return strings.TrimSpace(info.StoragePath), fmt.Errorf("gmail message identity unavailable")
+			}
+			content, err := h.fetchGmailAPIAttachmentContent(ctx, token, resolvedMessageID, info.ProviderAttachmentID)
+			if err != nil {
+				return strings.TrimSpace(info.StoragePath), err
+			}
+			return h.storeFetchedAttachment(ctx, info, content)
+		}
+		token, err := h.auth.GetOAuthTokenForAccount(ctx, info.AccountID)
+		if err != nil {
+			return strings.TrimSpace(info.StoragePath), err
+		}
+		content, err := h.fetchGmailAPIAttachmentContent(ctx, token, providerMessageID, info.ProviderAttachmentID)
+		if err != nil {
+			return strings.TrimSpace(info.StoragePath), err
+		}
+		return h.storeFetchedAttachment(ctx, info, content)
+	case providers.ProviderOutlook:
+	default:
+		return strings.TrimSpace(info.StoragePath), fmt.Errorf("attachment is not provider backed")
 	}
 	if h.auth == nil || h.blobStore == nil {
 		return strings.TrimSpace(info.StoragePath), fmt.Errorf("outlook graph attachment fetch is unavailable")

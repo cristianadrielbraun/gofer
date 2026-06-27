@@ -66,6 +66,60 @@ func TestGetFoldersForAccountSkipsNonSelectableFolders(t *testing.T) {
 	}
 }
 
+func TestGetFoldersForAccountSkipsGmailLabelBackedFolders(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_archive", AccountID: "acc", RemoteID: "[Gmail]/All Mail", ProviderRemoteID: "ARCHIVE", Name: "Archive", Role: "archive", Selectable: true},
+		{ID: "acc_important", AccountID: "acc", RemoteID: "[Gmail]/Important", ProviderRemoteID: "IMPORTANT", Name: "[Gmail]/Important", Role: "custom", Selectable: true},
+		{ID: "acc_category", AccountID: "acc", RemoteID: "CATEGORY_FORUMS", ProviderRemoteID: "CATEGORY_FORUMS", Name: "CATEGORY_FORUMS", Role: "custom", Selectable: true},
+		{ID: "acc_label", AccountID: "acc", RemoteID: "Projects", ProviderRemoteID: "Label_Projects", Name: "Projects", Role: "custom", Selectable: true},
+		{ID: "acc_imap_label", AccountID: "acc", RemoteID: "[Imap]/Trash", ProviderRemoteID: "Label_ImapTrash", Name: "[Imap]/Trash", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	folders, err := db.GetFoldersForAccount(ctx, "acc")
+	if err != nil {
+		t.Fatalf("GetFoldersForAccount() error = %v", err)
+	}
+	byProvider := map[string]bool{}
+	for _, folder := range folders {
+		byProvider[folder.ProviderRemoteID] = true
+	}
+	for _, want := range []string{"INBOX", "ARCHIVE"} {
+		if !byProvider[want] {
+			t.Fatalf("GetFoldersForAccount() missing %s: %#v", want, folders)
+		}
+	}
+	for _, hidden := range []string{"IMPORTANT", "CATEGORY_FORUMS", "Label_Projects", "Label_ImapTrash"} {
+		if byProvider[hidden] {
+			t.Fatalf("GetFoldersForAccount() included Gmail label %s: %#v", hidden, folders)
+		}
+	}
+
+	accounts, err := db.GetAccounts(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetAccounts() error = %v", err)
+	}
+	if len(accounts) != 1 {
+		t.Fatalf("GetAccounts() = %#v, want one account", accounts)
+	}
+	for _, folder := range accounts[0].Folders {
+		switch folder.ID {
+		case "acc_inbox", "acc_archive":
+		default:
+			t.Fatalf("sidebar folder %s/%s rendered from Gmail label rows: %#v", folder.ID, folder.Name, accounts[0].Folders)
+		}
+	}
+}
+
 func TestUpsertFoldersPreservesRemoteIDWhenProviderRemoteIDChanges(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -446,6 +500,138 @@ func TestGetLabelAdminStatusIncludesOutlookGraphDiagnostics(t *testing.T) {
 	}
 	if graph.LocalFolders != 2 || graph.GraphBackedFolders != 1 || graph.FoldersMissingGraphID != 1 {
 		t.Fatalf("graph folder diagnostics = %#v, want one graph-backed and one legacy folder", graph)
+	}
+}
+
+func TestGetLabelAdminStatusIncludesGmailAPIDiagnostics(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address, display_name) VALUES ('acc', 'default', 'gmail', 'user@example.com', 'User Gmail')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_legacy", AccountID: "acc", RemoteID: "Legacy", Name: "Legacy", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	now := time.Now()
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "gmail-message-1",
+		InternetMessageID: "<gmail@example.com>",
+		Subject:           "Gmail",
+		FromEmail:         "sender@example.com",
+		DateSent:          now,
+		DateReceived:      now,
+		IsRead:            true,
+	}}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{
+		{AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 2, MessageID: "<backfillable@example.com>", Subject: "Backfillable", FromEmail: "sender@example.com", DateSent: now, IsRead: true},
+		{AccountID: "acc", FolderID: "acc_legacy", RemoteUID: 3, MessageID: "", Subject: "Synthetic", FromEmail: "sender@example.com", DateSent: now, IsRead: true},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	if err := db.MarkLabelSyncRun(ctx, LabelSyncRunStats{
+		AccountID:      "acc",
+		ProviderType:   LabelProviderGmail,
+		Scope:          "messages",
+		StartedAt:      now.Add(-time.Minute),
+		FinishedAt:     now,
+		Full:           true,
+		Cursor:         "gmail-history-123",
+		TotalMessages:  3,
+		SyncedMessages: 1,
+	}, nil); err != nil {
+		t.Fatalf("MarkLabelSyncRun() error = %v", err)
+	}
+	if err := db.MarkGmailPollCheck(ctx, GmailPollState{
+		AccountID:        "acc",
+		ProfileHistoryID: "gmail-profile-456",
+		LastCheckedAt:    sql.NullTime{Time: now, Valid: true},
+		LastChangedAt:    sql.NullTime{Time: now.Add(time.Minute), Valid: true},
+	}, true, nil); err != nil {
+		t.Fatalf("MarkGmailPollCheck() error = %v", err)
+	}
+
+	status, err := db.GetLabelAdminStatus(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetLabelAdminStatus() error = %v", err)
+	}
+	if len(status.Accounts) != 1 || status.Accounts[0].GmailAPI == nil {
+		t.Fatalf("accounts = %#v, want Gmail API diagnostics", status.Accounts)
+	}
+	gmail := status.Accounts[0].GmailAPI
+	if gmail.APIBackedMessages != 1 || gmail.IMAPBackedMessages != 2 || gmail.MessagesMissingGmailID != 2 {
+		t.Fatalf("gmail diagnostics = %#v, want api/imap/missing counts", gmail)
+	}
+	if gmail.MessageParityDelta != -1 || gmail.APIParityReady {
+		t.Fatalf("gmail parity = delta %d ready %v, want -1/not ready", gmail.MessageParityDelta, gmail.APIParityReady)
+	}
+	if gmail.MissingGmailIDWithInternetID != 1 || gmail.MissingGmailIDWithoutInternetID != 1 || gmail.MissingGmailIDWithoutGmailLabel != 1 {
+		t.Fatalf("gmail missing reason buckets = %#v, want one in each expected bucket", gmail)
+	}
+	if gmail.LocalFolders != 2 || gmail.GmailBackedFolders != 1 || gmail.FoldersMissingGmailID != 1 {
+		t.Fatalf("gmail folder diagnostics = %#v, want one gmail-backed and one legacy folder", gmail)
+	}
+	if !gmail.HasHistoryCursor || gmail.HistoryCursor != "gmail-history-123" || status.Accounts[0].Sync.Cursor != "gmail-history-123" {
+		t.Fatalf("gmail cursor diagnostics = %#v sync=%#v, want cursor surfaced", gmail, status.Accounts[0].Sync)
+	}
+	if gmail.PollProfileHistoryID != "gmail-profile-456" || gmail.LastPollAt.IsZero() || gmail.LastPollChangeAt.IsZero() || gmail.LastPollError != "" {
+		t.Fatalf("gmail poll diagnostics = %#v, want profile history and poll timestamps", gmail)
+	}
+}
+
+func TestGmailPollStateAndAccountListing(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('acc', 'default', 'gmail', 'User@Example.com'),
+		       ('disabled', 'default', 'gmail', 'disabled@example.com'),
+		       ('outlook', 'default', 'outlook', 'outlook@example.com')
+	`); err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE accounts SET email_sync_enabled = 0 WHERE id = 'disabled'`); err != nil {
+		t.Fatalf("disable account: %v", err)
+	}
+
+	accounts, err := db.GetGmailEmailSyncAccountIDs(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetGmailEmailSyncAccountIDs() error = %v", err)
+	}
+	if len(accounts) != 1 || accounts[0] != "acc" {
+		t.Fatalf("accounts = %#v, want only enabled Gmail account", accounts)
+	}
+
+	now := time.Now().UTC()
+	if err := db.MarkGmailPollCheck(ctx, GmailPollState{
+		AccountID:        "acc",
+		ProfileHistoryID: "100",
+		LastCheckedAt:    sql.NullTime{Time: now, Valid: true},
+		LastChangedAt:    sql.NullTime{Time: now, Valid: true},
+	}, true, nil); err != nil {
+		t.Fatalf("MarkGmailPollCheck(success) error = %v", err)
+	}
+	if err := db.MarkGmailPollCheck(ctx, GmailPollState{
+		AccountID:         "acc",
+		ProfileHistoryID:  "101",
+		LastCheckedAt:     sql.NullTime{Time: now.Add(time.Minute), Valid: true},
+		ConsecutiveErrors: 0,
+	}, false, errors.New("profile failed")); err != nil {
+		t.Fatalf("MarkGmailPollCheck(error) error = %v", err)
+	}
+	state, err := db.GetGmailPollState(ctx, "acc")
+	if err != nil {
+		t.Fatalf("GetGmailPollState() error = %v", err)
+	}
+	if state.ProfileHistoryID != "101" || !state.LastCheckedAt.Valid || !state.LastChangedAt.Valid || state.LastError != "profile failed" || state.ConsecutiveErrors != 1 {
+		t.Fatalf("state = %#v, want latest profile history, check/change timestamps, and error", state)
 	}
 }
 
@@ -1069,8 +1255,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 49 {
-		t.Fatalf("schema version = %d, want 49", version)
+	if version != 51 {
+		t.Fatalf("schema version = %d, want 51", version)
 	}
 }
 
@@ -1119,8 +1305,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 49 {
-		t.Fatalf("schema version = %d, want 49", version)
+	if version != 51 {
+		t.Fatalf("schema version = %d, want 51", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

@@ -682,6 +682,13 @@ func adminOutlookGraphParityStatus(status *models.OutlookGraphDiagnostics) strin
 	return "Needs repair"
 }
 
+func adminGmailAPIParityStatus(status *models.GmailAPIDiagnostics) string {
+	if status != nil && status.APIParityReady {
+		return "Ready"
+	}
+	return "Needs repair"
+}
+
 templ AdminLabelsPage(status models.LabelAdminStatus) {
 	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
@@ -805,6 +812,25 @@ templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
 					@AdminCompactMetric("labels_backfillable_" + account.AccountID, "Backfillable", account.OutlookGraph.MissingGraphIDWithInternetID)
 					@AdminCompactMetric("labels_unresolvable_" + account.AccountID, "No Message-ID", account.OutlookGraph.MissingGraphIDWithoutInternetID)
 					@AdminCompactMetric("labels_missing_graph_folder_" + account.AccountID, "No Graph folder", account.OutlookGraph.MissingGraphIDWithoutGraphFolder)
+				</div>
+			</div>
+		}
+		if account.GmailAPI != nil {
+			<div class="mt-4 rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 flex items-center justify-between gap-3">
+					<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gmail API parity</div>
+					<div class="text-[11px] font-bold tabular-nums text-foreground">{ fmt.Sprintf("%d/%d folders", account.GmailAPI.GmailBackedFolders, account.GmailAPI.LocalFolders) }</div>
+				</div>
+				<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+					@AdminCompactMetric("labels_gmail_messages_" + account.AccountID, "Gmail IDs", account.GmailAPI.APIBackedMessages)
+					@AdminCompactMetric("labels_gmail_imap_messages_" + account.AccountID, "IMAP rows", account.GmailAPI.IMAPBackedMessages)
+					@AdminCompactMetric("labels_gmail_delta_" + account.AccountID, "Parity delta", account.GmailAPI.MessageParityDelta)
+					@AdminCompactDetail("labels_gmail_ready_" + account.AccountID, "Parity status", adminGmailAPIParityStatus(account.GmailAPI))
+					@AdminCompactMetric("labels_missing_gmail_" + account.AccountID, "Missing Gmail IDs", account.GmailAPI.MessagesMissingGmailID)
+					@AdminCompactMetric("labels_gmail_backfillable_" + account.AccountID, "Backfillable", account.GmailAPI.MissingGmailIDWithInternetID)
+					@AdminCompactMetric("labels_gmail_unresolvable_" + account.AccountID, "No Message-ID", account.GmailAPI.MissingGmailIDWithoutInternetID)
+					@AdminCompactMetric("labels_missing_gmail_folder_" + account.AccountID, "No Gmail label", account.GmailAPI.MissingGmailIDWithoutGmailLabel)
+					@AdminCompactDetail("labels_gmail_cursor_" + account.AccountID, "History cursor", account.GmailAPI.HistoryCursor)
 				</div>
 			</div>
 		}

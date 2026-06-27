@@ -67,13 +67,15 @@ type googleBiography struct {
 	Value string `json:"value,omitempty"`
 }
 
+var googlePeopleAPIBaseURL = "https://people.googleapis.com/v1"
+
 type googleAPIError struct {
 	Status int
 	Body   string
 }
 
 func (e googleAPIError) Error() string {
-	return fmt.Sprintf("people api returned %d: %s", e.Status, strings.TrimSpace(e.Body))
+	return fmt.Sprintf("google api returned %d: %s", e.Status, strings.TrimSpace(e.Body))
 }
 
 type contactSyncAccount struct {
@@ -237,7 +239,7 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 		if pageToken != "" {
 			values.Set("pageToken", pageToken)
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://people.googleapis.com/v1/people/me/connections?"+values.Encode(), nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, googlePeopleAPIBaseURL+"/people/me/connections?"+values.Encode(), nil)
 		if err != nil {
 			return imported, err
 		}
@@ -783,18 +785,18 @@ func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, 
 }
 
 func (h *Handler) createGoogleContact(ctx context.Context, accessToken string, contact models.Contact) (googlePerson, error) {
-	endpoint := "https://people.googleapis.com/v1/people:createContact?personFields=" + url.QueryEscape(googleContactPersonFields())
+	endpoint := googlePeopleAPIBaseURL + "/people:createContact?personFields=" + url.QueryEscape(googleContactPersonFields())
 	return h.writeGoogleContact(ctx, http.MethodPost, endpoint, accessToken, googlePersonFromContact(contact, "", ""))
 }
 
 func (h *Handler) updateGoogleContact(ctx context.Context, accessToken, remoteID, etag string, contact models.Contact) (googlePerson, error) {
 	updateFields := "names,emailAddresses,phoneNumbers,organizations,biographies"
-	endpoint := "https://people.googleapis.com/v1/" + strings.TrimSpace(remoteID) + ":updateContact?updatePersonFields=" + url.QueryEscape(updateFields) + "&personFields=" + url.QueryEscape(googleContactPersonFields())
+	endpoint := googlePeopleAPIBaseURL + "/" + strings.TrimSpace(remoteID) + ":updateContact?updatePersonFields=" + url.QueryEscape(updateFields) + "&personFields=" + url.QueryEscape(googleContactPersonFields())
 	return h.writeGoogleContact(ctx, http.MethodPatch, endpoint, accessToken, googlePersonFromContact(contact, remoteID, etag))
 }
 
 func (h *Handler) getGoogleContact(ctx context.Context, accessToken, remoteID string) (googlePerson, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://people.googleapis.com/v1/"+strings.TrimSpace(remoteID)+"?personFields="+url.QueryEscape(googleContactPersonFields()), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googlePeopleAPIBaseURL+"/"+strings.TrimSpace(remoteID)+"?personFields="+url.QueryEscape(googleContactPersonFields()), nil)
 	if err != nil {
 		return googlePerson{}, err
 	}
@@ -816,7 +818,7 @@ func (h *Handler) getGoogleContact(ctx context.Context, accessToken, remoteID st
 }
 
 func (h *Handler) deleteGoogleContact(ctx context.Context, accessToken, remoteID string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "https://people.googleapis.com/v1/"+strings.TrimSpace(remoteID)+":deleteContact", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, googlePeopleAPIBaseURL+"/"+strings.TrimSpace(remoteID)+":deleteContact", nil)
 	if err != nil {
 		return err
 	}
@@ -873,7 +875,7 @@ func (h *Handler) searchGoogleContactsByEmail(ctx context.Context, accessToken, 
 	values.Set("query", email)
 	values.Set("readMask", googleContactPersonFields())
 	values.Set("pageSize", "10")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://people.googleapis.com/v1/people:searchContacts?"+values.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googlePeopleAPIBaseURL+"/people:searchContacts?"+values.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}

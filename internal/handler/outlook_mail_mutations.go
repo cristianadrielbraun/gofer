@@ -19,6 +19,9 @@ type outlookMessageMoveResponse struct {
 }
 
 func (h *Handler) setRemoteMessageRead(ctx context.Context, messageID int64, info storage.MessageMutationInfo, read bool) {
+	if h.trySetGmailMessageRead(ctx, messageID, info, read) {
+		return
+	}
 	if h.trySetOutlookMessageRead(ctx, messageID, info, read) {
 		return
 	}
@@ -32,6 +35,9 @@ func (h *Handler) setRemoteMessageRead(ctx context.Context, messageID int64, inf
 }
 
 func (h *Handler) setRemoteMessageStarred(ctx context.Context, messageID int64, info storage.MessageMutationInfo, starred bool) {
+	if h.trySetGmailMessageStarred(ctx, messageID, info, starred) {
+		return
+	}
 	if h.trySetOutlookMessageStarred(ctx, messageID, info, starred) {
 		return
 	}
@@ -45,6 +51,9 @@ func (h *Handler) setRemoteMessageStarred(ctx context.Context, messageID int64, 
 }
 
 func (h *Handler) moveRemoteMessage(ctx context.Context, messageID int64, info storage.MessageMutationInfo, destinationFolderID, destinationIMAPRemoteID string) {
+	if h.tryMoveGmailMessage(ctx, messageID, info, destinationFolderID) {
+		return
+	}
 	if h.tryMoveOutlookMessage(ctx, messageID, info, destinationFolderID) {
 		return
 	}
@@ -57,6 +66,9 @@ func (h *Handler) moveRemoteMessage(ctx context.Context, messageID int64, info s
 }
 
 func (h *Handler) deleteRemoteMessage(ctx context.Context, messageID int64, info storage.MessageMutationInfo) {
+	if h.tryDeleteGmailMessage(ctx, messageID, info) {
+		return
+	}
 	if h.tryDeleteOutlookMessage(ctx, messageID, info) {
 		return
 	}

@@ -196,7 +196,7 @@ func (o *SyncOrchestrator) backfillOutlookGraphMessageIDs(ctx context.Context, a
 	if o.db == nil {
 		return
 	}
-	candidates, err := o.db.ListOutlookGraphIDBackfillCandidates(ctx, accountID, limit)
+	candidates, err := o.db.ListProviderMessageIDBackfillCandidates(ctx, accountID, limit)
 	if err != nil {
 		log.Printf("outlook graph id backfill %s: list candidates: %v", accountID, err)
 		return

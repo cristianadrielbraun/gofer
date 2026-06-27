@@ -20,6 +20,14 @@ type AccountStore struct {
 	aes cipher.AEAD
 }
 
+const accountDeletionBatchSize int64 = 5000
+
+type AccountDeletionProgress struct {
+	Step                  string
+	RowsAffected          int64
+	TotalStepRowsAffected int64
+}
+
 func NewAccountStore(db *storage.DB, secretKey []byte) (*AccountStore, error) {
 	block, err := aes.NewCipher(secretKey)
 	if err != nil {
@@ -56,7 +64,7 @@ func (s *AccountStore) decrypt(ciphertext []byte) (string, error) {
 func (s *AccountStore) DecryptPassword(ctx context.Context, accountID string) (string, error) {
 	var encrypted []byte
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT encrypted_password FROM accounts WHERE id = ?`, accountID,
+		`SELECT encrypted_password FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&encrypted)
 	if err != nil {
 		return "", fmt.Errorf("query password: %w", err)
@@ -70,7 +78,7 @@ func (s *AccountStore) DecryptPassword(ctx context.Context, accountID string) (s
 func (s *AccountStore) DecryptSmtpPassword(ctx context.Context, accountID string) (string, error) {
 	var encrypted []byte
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT encrypted_smtp_password FROM accounts WHERE id = ?`, accountID,
+		`SELECT encrypted_smtp_password FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&encrypted)
 	if err != nil {
 		return "", fmt.Errorf("query smtp password: %w", err)
@@ -89,7 +97,7 @@ func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode,
 		        username, auth_method, smtp_username
-		 FROM accounts WHERE id = ?`, accountID,
+		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&cfg.Provider, &cfg.ProviderAccountID,
 		&cfg.IMAPHost, &cfg.IMAPPort, &cfg.IMAPTLSMode,
 		&cfg.SMTPHost, &cfg.SMTPPort, &cfg.SMTPTLSMode,
@@ -109,7 +117,7 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode, COALESCE(email_sync_enabled, 1),
 		        username, auth_method, COALESCE(smtp_username, '')
-		 FROM accounts WHERE id = ?`, accountID,
+		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
 		&data.IMAPHost, &data.IMAPPort, &data.IMAPTLSMode,
 		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode, &emailSyncEnabled,
@@ -371,6 +379,11 @@ func isBuiltinContactProvider(provider string) bool {
 }
 
 func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *models.CreateAccountRequest) (*models.Account, error) {
+	id := generateAccountID(req.EmailAddress)
+	if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
+		return nil, fmt.Errorf("purge deleting account: %w", err)
+	}
+
 	encrypted, err := s.encrypt(req.Password)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt password: %w", err)
@@ -403,7 +416,6 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 		}
 	}
 
-	id := generateAccountID(req.EmailAddress)
 	initials := extractInitials(req.DisplayName)
 	color := generateColor(id)
 
@@ -512,7 +524,7 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
 	args = append(args, accountID)
 
-	query := fmt.Sprintf("UPDATE accounts SET %s WHERE id = ?", strings.Join(setClauses, ", "))
+	query := fmt.Sprintf("UPDATE accounts SET %s WHERE id = ? AND COALESCE(is_deleting, 0) = 0", strings.Join(setClauses, ", "))
 	_, err := s.db.Write().ExecContext(ctx, query, args...)
 	return err
 }
@@ -540,6 +552,72 @@ func (s *AccountStore) FindProviderAccountID(ctx context.Context, userID, provid
 		return "", err
 	}
 	return id, nil
+}
+
+func (s *AccountStore) FindDeletingAccountIDByEmail(ctx context.Context, userID, email string) (string, error) {
+	id := generateAccountID(email)
+	var accountID string
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT id FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 1`,
+		id, userID,
+	).Scan(&accountID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return accountID, nil
+}
+
+func (s *AccountStore) IsAccountDeleting(ctx context.Context, accountID string) (bool, error) {
+	var isDeleting int
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT COALESCE(is_deleting, 0) FROM accounts WHERE id = ?`,
+		accountID,
+	).Scan(&isDeleting)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return isDeleting == 1, nil
+}
+
+func (s *AccountStore) ListDeletingAccountIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.Read().QueryContext(ctx,
+		`SELECT id FROM accounts WHERE COALESCE(is_deleting, 0) = 1 ORDER BY updated_at, id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (s *AccountStore) purgeDeletingAccountForCreate(ctx context.Context, userID, accountID string) error {
+	var existingID string
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT id FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 1`,
+		accountID, userID,
+	).Scan(&existingID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return s.DeleteAccount(ctx, existingID)
 }
 
 func (s *AccountStore) UpdateAccountColor(ctx context.Context, userID, accountID, color string) error {
@@ -619,8 +697,367 @@ func (s *AccountStore) SetContactSyncEnabled(ctx context.Context, userID, accoun
 }
 
 func (s *AccountStore) DeleteAccount(ctx context.Context, accountID string) error {
-	_, err := s.db.Write().ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, accountID)
-	return err
+	return s.DeleteAccountWithProgress(ctx, accountID, nil)
+}
+
+func (s *AccountStore) DeleteAccountWithProgress(ctx context.Context, accountID string, progress func(AccountDeletionProgress)) error {
+	deleting, err := s.IsAccountDeleting(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if !deleting {
+		return nil
+	}
+
+	statements := []accountDeletionStatement{
+		{
+			step:  "unlink message thread parents",
+			table: "messages",
+			sql: `UPDATE messages
+			      SET thread_parent_id = NULL
+			      WHERE rowid IN (
+			          SELECT rowid
+			          FROM messages
+			          WHERE account_id = ? AND thread_parent_id IS NOT NULL
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete message search",
+			table: "message_search",
+			sql: `DELETE FROM message_search
+			      WHERE rowid IN (SELECT rowid FROM message_search WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete legacy message search docs",
+			table: "message_search_docs",
+			sql: `DELETE FROM message_search_docs
+			      WHERE rowid IN (
+			          SELECT msd.rowid
+			          FROM message_search_docs msd
+			          JOIN messages m ON m.id = msd.message_id
+			          WHERE m.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete folder thread state",
+			table: "folder_thread_state",
+			sql: `DELETE FROM folder_thread_state
+			      WHERE rowid IN (SELECT rowid FROM folder_thread_state WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete scheduled sends",
+			table: "scheduled_sends",
+			sql: `DELETE FROM scheduled_sends
+			      WHERE rowid IN (SELECT rowid FROM scheduled_sends WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete label mutation queue",
+			table: "label_mutation_queue",
+			sql: `DELETE FROM label_mutation_queue
+			      WHERE rowid IN (SELECT rowid FROM label_mutation_queue WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete unresolved references",
+			table: "unresolved_references",
+			sql: `DELETE FROM unresolved_references
+			      WHERE rowid IN (SELECT rowid FROM unresolved_references WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete threads",
+			table: "threads",
+			sql: `DELETE FROM threads
+			      WHERE rowid IN (SELECT rowid FROM threads WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete message folder state by folder",
+			table: "message_folder_state",
+			sql: `DELETE FROM message_folder_state
+			      WHERE rowid IN (
+			          SELECT mfs.rowid
+			          FROM message_folder_state mfs
+			          JOIN folders f ON f.id = mfs.folder_id
+			          WHERE f.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete message folder state by message",
+			table: "message_folder_state",
+			sql: `DELETE FROM message_folder_state
+			      WHERE rowid IN (
+			          SELECT mfs.rowid
+			          FROM message_folder_state mfs
+			          JOIN messages m ON m.id = mfs.message_id
+			          WHERE m.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete message labels by label",
+			table: "message_labels",
+			sql: `DELETE FROM message_labels
+			      WHERE rowid IN (
+			          SELECT ml.rowid
+			          FROM message_labels ml
+			          JOIN labels l ON l.id = ml.label_id
+			          WHERE l.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete message labels by message",
+			table: "message_labels",
+			sql: `DELETE FROM message_labels
+			      WHERE rowid IN (
+			          SELECT ml.rowid
+			          FROM message_labels ml
+			          JOIN messages m ON m.id = ml.message_id
+			          WHERE m.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete attachments",
+			table: "attachments",
+			sql: `DELETE FROM attachments
+			      WHERE rowid IN (
+			          SELECT a.rowid
+			          FROM attachments a
+			          JOIN messages m ON m.id = a.message_id
+			          WHERE m.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete message recipients",
+			table: "message_recipients",
+			sql: `DELETE FROM message_recipients
+			      WHERE rowid IN (
+			          SELECT mr.rowid
+			          FROM message_recipients mr
+			          JOIN messages m ON m.id = mr.message_id
+			          WHERE m.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete message references",
+			table: "message_references",
+			sql: `DELETE FROM message_references
+			      WHERE rowid IN (
+			          SELECT mr.rowid
+			          FROM message_references mr
+			          JOIN messages m ON m.id = mr.message_id
+			          WHERE m.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete remote content state",
+			table: "remote_content_messages",
+			sql: `DELETE FROM remote_content_messages
+			      WHERE rowid IN (
+			          SELECT rcm.rowid
+			          FROM remote_content_messages rcm
+			          JOIN messages m ON m.id = rcm.message_id
+			          WHERE m.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete messages",
+			table: "messages",
+			sql: `DELETE FROM messages
+			      WHERE rowid IN (SELECT rowid FROM messages WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete sync state",
+			table: "sync_state",
+			sql: `DELETE FROM sync_state
+			      WHERE rowid IN (SELECT rowid FROM sync_state WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete folders",
+			table: "folders",
+			sql: `DELETE FROM folders
+			      WHERE rowid IN (SELECT rowid FROM folders WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete labels",
+			table: "labels",
+			sql: `DELETE FROM labels
+			      WHERE rowid IN (SELECT rowid FROM labels WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete label sync state",
+			table: "label_sync_state",
+			sql: `DELETE FROM label_sync_state
+			      WHERE rowid IN (SELECT rowid FROM label_sync_state WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete gmail watch state",
+			table: "gmail_watch_state",
+			sql: `DELETE FROM gmail_watch_state
+			      WHERE account_id IN (SELECT account_id FROM gmail_watch_state WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete gmail poll state",
+			table: "gmail_poll_state",
+			sql: `DELETE FROM gmail_poll_state
+			      WHERE account_id IN (SELECT account_id FROM gmail_poll_state WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete account contact address books",
+			table: "account_contact_address_books",
+			sql: `DELETE FROM account_contact_address_books
+			      WHERE rowid IN (SELECT rowid FROM account_contact_address_books WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete account contact sync config",
+			table: "account_contact_sync_configs",
+			sql: `DELETE FROM account_contact_sync_configs
+			      WHERE account_id IN (SELECT account_id FROM account_contact_sync_configs WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete account signature settings",
+			table: "account_signature_settings",
+			sql: `DELETE FROM account_signature_settings
+			      WHERE account_id IN (SELECT account_id FROM account_signature_settings WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete contact card groups by card",
+			table: "contact_card_groups",
+			sql: `DELETE FROM contact_card_groups
+			      WHERE rowid IN (
+			          SELECT ccg.rowid
+			          FROM contact_card_groups ccg
+			          JOIN contact_cards cc ON cc.id = ccg.card_id
+			          WHERE cc.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete contact card groups by group",
+			table: "contact_card_groups",
+			sql: `DELETE FROM contact_card_groups
+			      WHERE rowid IN (
+			          SELECT ccg.rowid
+			          FROM contact_card_groups ccg
+			          JOIN contact_groups cg ON cg.id = ccg.group_id
+			          WHERE cg.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete contact fields",
+			table: "contact_fields",
+			sql: `DELETE FROM contact_fields
+			      WHERE rowid IN (
+			          SELECT cf.rowid
+			          FROM contact_fields cf
+			          JOIN contact_cards cc ON cc.id = cf.card_id
+			          WHERE cc.account_id = ?
+			          LIMIT ?
+			      )`,
+		},
+		{
+			step:  "delete contact conflicts",
+			table: "contact_conflicts",
+			sql: `DELETE FROM contact_conflicts
+			      WHERE rowid IN (SELECT rowid FROM contact_conflicts WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete contact save targets",
+			table: "contact_save_targets",
+			sql: `DELETE FROM contact_save_targets
+			      WHERE rowid IN (SELECT rowid FROM contact_save_targets WHERE target = 'account:' || ? LIMIT ?)`,
+		},
+		{
+			step:  "delete contact cards",
+			table: "contact_cards",
+			sql: `DELETE FROM contact_cards
+			      WHERE rowid IN (SELECT rowid FROM contact_cards WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete contact sources",
+			table: "contact_sources",
+			sql: `DELETE FROM contact_sources
+			      WHERE rowid IN (SELECT rowid FROM contact_sources WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete contact groups",
+			table: "contact_groups",
+			sql: `DELETE FROM contact_groups
+			      WHERE rowid IN (SELECT rowid FROM contact_groups WHERE account_id = ? LIMIT ?)`,
+		},
+	}
+	for _, statement := range statements {
+		if err := s.runAccountDeletionStatement(ctx, accountID, statement, progress); err != nil {
+			return err
+		}
+	}
+
+	result, err := s.db.Write().ExecContext(ctx, `DELETE FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 1`, accountID)
+	if err != nil {
+		return err
+	}
+	if progress != nil {
+		if rows, err := result.RowsAffected(); err == nil && rows > 0 {
+			progress(AccountDeletionProgress{Step: "delete account", RowsAffected: rows, TotalStepRowsAffected: rows})
+		}
+	}
+	return nil
+}
+
+type accountDeletionStatement struct {
+	step  string
+	table string
+	sql   string
+}
+
+func (s *AccountStore) runAccountDeletionStatement(ctx context.Context, accountID string, statement accountDeletionStatement, progress func(AccountDeletionProgress)) error {
+	exists, err := s.tableExists(ctx, statement.table)
+	if err != nil {
+		return fmt.Errorf("check %s table: %w", statement.table, err)
+	}
+	if !exists {
+		return nil
+	}
+
+	var total int64
+	for {
+		result, err := s.db.Write().ExecContext(ctx, statement.sql, accountID, accountDeletionBatchSize)
+		if err != nil {
+			return fmt.Errorf("%s: %w", statement.step, err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("%s rows affected: %w", statement.step, err)
+		}
+		if rows <= 0 {
+			return nil
+		}
+		total += rows
+		if progress != nil {
+			progress(AccountDeletionProgress{Step: statement.step, RowsAffected: rows, TotalStepRowsAffected: total})
+		}
+	}
+}
+
+func (s *AccountStore) tableExists(ctx context.Context, table string) (bool, error) {
+	var name string
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT name FROM sqlite_schema WHERE type IN ('table', 'view') AND name = ?`, table,
+	).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *AccountStore) MarkAccountDeleting(ctx context.Context, accountID string) error {
@@ -638,7 +1075,7 @@ func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*m
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
-		 WHERE a.id = ?`, accountID,
+		 WHERE a.id = ? AND COALESCE(a.is_deleting, 0) = 0`, accountID,
 	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider)
 	if err == sql.ErrNoRows {
 		return nil, nil

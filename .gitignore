@@ -1,6 +1,7 @@
 tmp/
 .env
 internal_notes/
+gofer
 *.png
 !screenshots/
 !screenshots/*.png

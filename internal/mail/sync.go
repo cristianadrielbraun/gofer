@@ -93,6 +93,9 @@ type SyncOrchestrator struct {
 	backgroundSyncSlots chan struct{}
 	idleWatchers        map[string][]*imap.IdleWatcher
 	cancelFuncs         map[string]*accountWorker
+	gmailPollMu         sync.Mutex
+	activeUsers         map[string]int
+	gmailPollRuntime    map[string]gmailPollRuntimeState
 	interval            int
 	intervalMu          sync.RWMutex
 	intervalChanged     chan struct{}
@@ -184,6 +187,8 @@ func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blob
 		backgroundSyncSlots: newAccountSyncSlots(backgroundSyncMaxParallelAccounts),
 		idleWatchers:        make(map[string][]*imap.IdleWatcher),
 		cancelFuncs:         make(map[string]*accountWorker),
+		activeUsers:         make(map[string]int),
+		gmailPollRuntime:    make(map[string]gmailPollRuntimeState),
 		interval:            5,
 		intervalChanged:     make(chan struct{}, 1),
 	}
@@ -231,6 +236,15 @@ func (o *SyncOrchestrator) StopAccount(accountID string) {
 	}
 }
 
+func (o *SyncOrchestrator) IsAccountSyncRunning(accountID string) bool {
+	if o == nil {
+		return false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.running[strings.TrimSpace(accountID)] != nil
+}
+
 func (o *SyncOrchestrator) StartAccount(ctx context.Context, accountID string) {
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return
@@ -275,6 +289,10 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 	}
 	if o.shouldUseOutlookGraphMail(cfg) {
 		log.Printf("idle %s: skipping IMAP IDLE for Graph-first Outlook sync", accountID)
+		return
+	}
+	if o.shouldUseGmailAPIMail(cfg) {
+		log.Printf("idle %s: skipping IMAP IDLE for Gmail API-first sync", accountID)
 		return
 	}
 
@@ -455,6 +473,10 @@ func (o *SyncOrchestrator) Start(ctx context.Context) {
 	for _, accountID := range accounts {
 		log.Printf("sync: starting account bootstrap for %s", accountID)
 		o.StartAccount(ctx, accountID)
+	}
+	if o.tokenProvider != nil && gmailAPIPollEnabled() {
+		go o.runGmailAPIPoller(ctx)
+		log.Printf("sync: Gmail API active poll worker started")
 	}
 	go o.runScheduledSync(ctx)
 	log.Printf("sync: scheduled sync worker started")
@@ -1298,13 +1320,13 @@ func convertFlagUpdates(imapUpdates []imap.FlagUpdate) []storage.FlagUpdate {
 	return updates
 }
 
-func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) {
+func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) bool {
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
-		return
+		return false
 	}
 	syncCtx, finish, ok := o.beginAccountSync(ctx, accountID, accountSyncBackground)
 	if !ok {
-		return
+		return false
 	}
 
 	go func() {
@@ -1317,6 +1339,7 @@ func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) {
 			o.clearAccountSyncError(syncCtx, accountID)
 		}
 	}()
+	return true
 }
 
 func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, includeIDLEFolders bool) error {
@@ -1335,6 +1358,9 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 
 	if o.shouldUseOutlookGraphMail(cfg) {
 		return o.syncOutlookGraphAccount(ctx, accountID, includeIDLEFolders)
+	}
+	if o.shouldUseGmailAPIMail(cfg) {
+		return o.syncGmailAPIAccount(ctx, accountID, includeIDLEFolders)
 	}
 
 	password, err := o.resolvePassword(ctx, cfg, accountID)

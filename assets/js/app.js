@@ -708,6 +708,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var match = path && path.match(/^\/api\/accounts\/([^/]+)$/)
       if (!match || !evt.detail.xhr || evt.detail.xhr.status !== 202) return
       markAccountDeleting(match[1])
+      refreshMailSidebarBody()
     })
 
     document.body.addEventListener("htmx:beforeRequest", function (evt) {

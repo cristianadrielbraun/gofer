@@ -192,3 +192,47 @@ func TestSidebarFolderTreeShowsScheduledOnlyWithPendingCount(t *testing.T) {
 		t.Fatalf("scheduled folder should not depend on unified folders being enabled: %s", html)
 	}
 }
+
+func TestSidebarFolderTreeHidesDeletingAccounts(t *testing.T) {
+	accounts := []models.Account{
+		{
+			ID:               "acc-active",
+			Name:             "Active",
+			EmailSyncEnabled: true,
+			Folders: []models.Folder{{
+				ID:   "acc-active-inbox",
+				Name: "Inbox",
+				Icon: "inbox",
+				Role: "inbox",
+			}},
+		},
+		{
+			ID:               "acc-deleting",
+			Name:             "Deleting Gmail",
+			IsDeleting:       true,
+			EmailSyncEnabled: true,
+			EmailSyncError:   "stale sync error",
+			Folders: []models.Folder{{
+				ID:     "acc-deleting-inbox",
+				Name:   "Old Inbox",
+				Icon:   "inbox",
+				Role:   "inbox",
+				Unread: 99,
+			}},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := SidebarFolderTree(accounts, "acc-active-inbox", nil, 0).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
+	}
+	html := buf.String()
+	if !strings.Contains(html, "Active") {
+		t.Fatalf("active account missing from sidebar: %s", html)
+	}
+	for _, unwanted := range []string{"Deleting Gmail", "Old Inbox", "stale sync error", `data-sidebar-account="acc-deleting"`} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("deleting account content %q rendered in sidebar: %s", unwanted, html)
+		}
+	}
+}

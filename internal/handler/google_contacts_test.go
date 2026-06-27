@@ -1,11 +1,16 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
 
 func TestGoogleContactFromPersonMapsExpandedFields(t *testing.T) {
@@ -67,5 +72,123 @@ func TestGoogleContactPersonFieldsIncludesExpandedFields(t *testing.T) {
 		if !strings.Contains(fields, want) {
 			t.Fatalf("googleContactPersonFields() = %q, missing %q", fields, want)
 		}
+	}
+}
+
+func TestSyncGooglePeopleConnectionsUsesPeopleAPIAndStoresSource(t *testing.T) {
+	ctx := context.Background()
+	h, db := newGmailAPITestHandler(t, ctx)
+
+	var sawConnections bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer gmail-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/people/me/connections" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		if got := r.URL.Query().Get("pageSize"); got != "1000" {
+			t.Fatalf("pageSize = %q, want 1000", got)
+		}
+		if fields := r.URL.Query().Get("personFields"); !strings.Contains(fields, "emailAddresses") || !strings.Contains(fields, "metadata") {
+			t.Fatalf("personFields = %q, want People API contact fields", fields)
+		}
+		sawConnections = true
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"connections": []map[string]any{{
+				"resourceName": "people/c1",
+				"etag":         "etag-1",
+				"names":        []map[string]string{{"displayName": "Jane People"}},
+				"emailAddresses": []map[string]string{{
+					"value": "jane@example.com",
+					"type":  "work",
+				}},
+			}},
+		})
+	}))
+	defer server.Close()
+	previousBase := googlePeopleAPIBaseURL
+	googlePeopleAPIBaseURL = server.URL
+	t.Cleanup(func() { googlePeopleAPIBaseURL = previousBase })
+
+	imported, err := h.syncGooglePeopleConnections(ctx, "default", "acc", "gmail-token")
+	if err != nil {
+		t.Fatalf("syncGooglePeopleConnections() error = %v", err)
+	}
+	if imported != 1 || !sawConnections {
+		t.Fatalf("imported=%d sawConnections=%v, want one People API import", imported, sawConnections)
+	}
+	contacts, err := db.SearchContacts(ctx, "default", "jane", 10)
+	if err != nil || len(contacts) != 1 {
+		t.Fatalf("SearchContacts() = %#v, %v; want one imported contact", contacts, err)
+	}
+	source, err := db.GetContactSource(ctx, "default", contacts[0].ID, providers.ProviderGmail, "acc")
+	if err != nil || source == nil {
+		t.Fatalf("GetContactSource() = %#v, %v; want Gmail People source", source, err)
+	}
+	if source.RemoteID != "people/c1" || source.Etag != "etag-1" {
+		t.Fatalf("source = %#v, want People resource and etag", source)
+	}
+}
+
+func TestPushContactToGmailAccountUsesPeopleAPIAndStoresSource(t *testing.T) {
+	ctx := context.Background()
+	h, db := newGmailAPITestHandler(t, ctx)
+	contact, err := db.SaveContact(ctx, "default", models.Contact{
+		Name:        "Jane Push",
+		Email:       "jane@example.com",
+		Phone:       "+1 555 0100",
+		SaveTargets: []string{"account:acc"},
+	})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+
+	var sawCreate bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer gmail-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/people:createContact" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		if fields := r.URL.Query().Get("personFields"); !strings.Contains(fields, "emailAddresses") || !strings.Contains(fields, "phoneNumbers") {
+			t.Fatalf("personFields = %q, want People API contact fields", fields)
+		}
+		var payload googlePerson
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode create payload: %v", err)
+		}
+		if len(payload.EmailAddresses) != 1 || payload.EmailAddresses[0].Value != "jane@example.com" {
+			t.Fatalf("payload email addresses = %#v, want Jane email", payload.EmailAddresses)
+		}
+		if len(payload.PhoneNumbers) != 1 || payload.PhoneNumbers[0].Value != "+1 555 0100" {
+			t.Fatalf("payload phone numbers = %#v, want Jane phone", payload.PhoneNumbers)
+		}
+		sawCreate = true
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resourceName": "people/new-contact",
+			"etag":         "etag-new",
+		})
+	}))
+	defer server.Close()
+	previousBase := googlePeopleAPIBaseURL
+	googlePeopleAPIBaseURL = server.URL
+	t.Cleanup(func() { googlePeopleAPIBaseURL = previousBase })
+
+	if err := h.pushContactToGmailAccount(ctx, "default", contact, "acc"); err != nil {
+		t.Fatalf("pushContactToGmailAccount() error = %v", err)
+	}
+	if !sawCreate {
+		t.Fatal("People createContact was not observed")
+	}
+	source, err := db.GetContactSource(ctx, "default", contact.ID, providers.ProviderGmail, "acc")
+	if err != nil || source == nil {
+		t.Fatalf("GetContactSource() = %#v, %v; want Gmail People source", source, err)
+	}
+	if source.RemoteID != "people/new-contact" || source.Etag != "etag-new" {
+		t.Fatalf("source = %#v, want created People source", source)
 	}
 }

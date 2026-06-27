@@ -60,6 +60,9 @@ func providerLabelSyncShouldStop(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
 	if errors.Is(err, errProviderLabelAuth) {
 		return true
 	}
@@ -251,6 +254,9 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 		}
 		stats.TotalMessages += len(messages)
 		for _, msg := range messages {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			afterID = msg.ID
 			result, err := o.syncGmailMessageLabels(ctx, token, msg, labelsByID)
 			if err != nil {
@@ -343,6 +349,9 @@ func (o *SyncOrchestrator) syncGmailLabelChanges(ctx context.Context, accountID 
 
 	failed := 0
 	for _, providerID := range providerIDs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		result, err := o.syncGmailHistoryMessageLabels(ctx, token, accountID, providerID, labelsByID)
 		if err != nil {
 			if providerLabelSyncShouldStop(err) {

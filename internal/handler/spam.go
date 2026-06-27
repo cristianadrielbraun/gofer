@@ -181,6 +181,9 @@ func (h *Handler) reportMessageSpamRemote(ctx context.Context, disposition spamD
 			return 0, nil
 		} else {
 			providerErr = err
+			if gmailAPIMailRuntimeEnabled() {
+				return 0, providerErr
+			}
 		}
 	case providers.ProviderOutlook:
 		if err := h.reportOutlookMessageSpam(ctx, disposition, messageID, info); err == nil {
@@ -287,13 +290,20 @@ func doGoogleJSON(ctx context.Context, method, endpoint, token string, body any,
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("google api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return googleAPIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}
 	if out == nil {
 		io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func googleAPIStatus(err error, status int) bool {
+	if apiErr, ok := err.(googleAPIError); ok {
+		return apiErr.Status == status
+	}
+	return false
 }
 
 func (h *Handler) reportOutlookMessageSpam(ctx context.Context, disposition spamDisposition, messageID int64, info storage.MessageMutationInfo) error {
