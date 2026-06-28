@@ -330,10 +330,9 @@ class VirtualMailList {
       this.visibleRows.clear()
       this.rowByIndex.clear()
       var syncing = this.syncState && this.syncState.active
+      var syncCount = syncing ? this.syncCountLabel() : ""
       var subtitle = syncing
-        ? (this.syncState.total > 0
-          ? ("Syncing emails " + this.syncState.current + " / " + this.syncState.total)
-          : "Syncing emails...")
+        ? (this.syncActionLabel() + (syncCount ? " (" + syncCount + ")" : "..."))
         : "This folder is empty"
       this.itemsContainer.innerHTML =
         '<div class="flex flex-col items-center justify-center py-20 px-4 text-center">' +
@@ -533,11 +532,20 @@ class VirtualMailList {
     anchor.style.height = ""
   }
 
-  setSyncState(active, current, total) {
+  setSyncState(active, current, total, meta) {
+    meta = meta || {}
     this.syncState = {
       active: !!active,
       current: current || 0,
       total: total || 0,
+      accountName: meta.accountName || meta.account_name || meta.name || "",
+      accountEmail: meta.accountEmail || meta.account_email || meta.email || "",
+      folderName: meta.folderName || meta.current_folder || meta.folder_name || "",
+      folderRole: meta.folderRole || meta.folder_role || "",
+      provider: meta.provider || "",
+      mode: meta.mode || "",
+      refreshOnly: !!(meta.refreshOnly || meta.refresh_only),
+      totalEstimated: !!(meta.totalEstimated || meta.total_estimated),
     }
     if (this.totalCount === 0) {
       this.prevFirst = null
@@ -545,6 +553,50 @@ class VirtualMailList {
       this.render()
     }
     this.updateSyncHeader()
+  }
+
+  syncUsesIndeterminateProgress() {
+    var state = this.syncState || {}
+    return !!(state.refreshOnly || state.totalEstimated || !(state.total > 0))
+  }
+
+  syncActionLabel() {
+    var state = this.syncState || {}
+    if (state.refreshOnly && state.provider === "gmail_api" && state.mode === "repair") return "Repairing Gmail"
+    if (state.refreshOnly && state.provider === "gmail_api") return "Refreshing Gmail labels"
+    if (state.refreshOnly) return "Refreshing mailbox state"
+    return "Syncing folder"
+  }
+
+  syncDetailLabel() {
+    var state = this.syncState || {}
+    var parts = []
+    var account = state.accountEmail || state.accountName || ""
+    if (account) parts.push(account)
+    if (state.folderName) parts.push(state.folderName)
+    return parts.join(" · ")
+  }
+
+  syncNumber(value) {
+    value = Math.max(0, Number(value) || 0)
+    try { return value.toLocaleString() } catch (_) { return String(value) }
+  }
+
+  syncCountLabel() {
+    var state = this.syncState || {}
+    var current = Math.max(0, Number(state.current) || 0)
+    var total = Math.max(0, Number(state.total) || 0)
+    var verb = state.refreshOnly ? "refreshed" : "fetched"
+    if (!this.syncUsesIndeterminateProgress() && total > 0) {
+      return this.syncNumber(current) + " / " + this.syncNumber(total) + " " + verb
+    }
+    if (current > 0) return this.syncNumber(current) + " " + verb
+    return ""
+  }
+
+  syncHeaderText() {
+    var detail = this.syncDetailLabel()
+    return this.syncActionLabel() + (detail ? ": " + detail : "")
   }
 
   createMailRow(html) {
@@ -2171,9 +2223,9 @@ class VirtualMailList {
       row.className = "px-4 pb-2 hidden"
       row.innerHTML =
         '<div class="rounded-[var(--radius)] border border-border bg-muted/40 px-2.5 py-2">' +
-          '<div class="flex items-center justify-between text-[11px] text-muted-foreground mb-1">' +
-            '<span id="mail-sync-text">Syncing folder: fetching messages</span>' +
-            '<span id="mail-sync-count"></span>' +
+          '<div class="flex items-center justify-between gap-3 text-[11px] text-muted-foreground mb-1">' +
+            '<span id="mail-sync-text" class="min-w-0 truncate">Syncing folder</span>' +
+            '<span id="mail-sync-count" class="shrink-0 tabular-nums"></span>' +
           '</div>' +
           '<div class="h-1.5 w-full rounded-full bg-muted overflow-hidden">' +
             '<div id="mail-sync-progress" class="h-full bg-amber-500 transition-all duration-300 ease-out" style="width: 8%"></div>' +
@@ -2195,23 +2247,21 @@ class VirtualMailList {
     var count = document.getElementById("mail-sync-count")
     var bar = document.getElementById("mail-sync-progress")
     if (text) {
-      text.textContent = total > 0
-        ? "Syncing folder: fetching messages"
-        : "Syncing folder: fetching messages (total unknown)"
+      text.textContent = this.syncHeaderText()
     }
     if (count) {
-      count.textContent = total > 0
-        ? (cur + " / " + total + " fetched")
-        : (cur > 0 ? (cur + " fetched") : "")
+      count.textContent = this.syncCountLabel()
     }
     if (bar) {
-      if (total > 0) {
+      if (!this.syncUsesIndeterminateProgress() && total > 0) {
         var pct = Math.max(4, Math.min(100, (cur / total) * 100))
         bar.style.width = pct + "%"
         bar.style.animation = "none"
+        bar.style.transform = "translateX(0)"
       } else {
         bar.style.width = "35%"
         bar.style.animation = "mailSyncIndeterminate 1.2s ease-in-out infinite"
+        bar.style.transform = ""
       }
     }
   }

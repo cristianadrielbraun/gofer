@@ -1142,6 +1142,23 @@ func (db *DB) ListProviderMessageIDBackfillCandidates(ctx context.Context, accou
 	return out, rows.Err()
 }
 
+func (db *DB) CountProviderBackedMessages(ctx context.Context, accountID string) (int, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return 0, nil
+	}
+	var count int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM messages
+		WHERE account_id = ?
+		  AND COALESCE(remote_message_id, '') != ''`, accountID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (db *DB) ListOutlookGraphIDBackfillCandidates(ctx context.Context, accountID string, limit int) ([]OutlookGraphIDBackfillCandidate, error) {
 	return db.ListProviderMessageIDBackfillCandidates(ctx, accountID, limit)
 }
@@ -1632,6 +1649,175 @@ func reconcileProviderFolderStatesTx(ctx context.Context, tx *sql.Tx, messageID 
 		return fmt.Errorf("reconcile provider folder states: %w", err)
 	}
 	return nil
+}
+
+func (db *DB) UpsertExistingProviderFolderStates(ctx context.Context, accountID, folderID string, providerMessageIDs []string) (map[string]int64, error) {
+	accountID = strings.TrimSpace(accountID)
+	folderID = strings.TrimSpace(folderID)
+	found := make(map[string]int64)
+	providerMessageIDs = compactProviderMessageIDs(providerMessageIDs)
+	if accountID == "" || folderID == "" || len(providerMessageIDs) == 0 {
+		return found, nil
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin provider folder state tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stateStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, 0, ?)
+		ON CONFLICT(message_id, folder_id) DO UPDATE SET
+			is_deleted = 0,
+			synced_at = excluded.synced_at`)
+	if err != nil {
+		return nil, fmt.Errorf("prepare existing provider state upsert: %w", err)
+	}
+	defer stateStmt.Close()
+
+	syncedAt := time.Now().UTC()
+	for _, chunk := range chunkStrings(providerMessageIDs, 500) {
+		args := make([]any, 0, len(chunk)+1)
+		args = append(args, accountID)
+		placeholders := make([]string, len(chunk))
+		for i, id := range chunk {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		rows, err := tx.QueryContext(ctx, `
+			SELECT m.id, m.remote_message_id,
+			       COALESCE((SELECT mfs.is_read FROM message_folder_state mfs WHERE mfs.message_id = m.id ORDER BY mfs.is_deleted ASC, mfs.synced_at DESC LIMIT 1), 1),
+			       COALESCE((SELECT mfs.is_starred FROM message_folder_state mfs WHERE mfs.message_id = m.id ORDER BY mfs.is_deleted ASC, mfs.synced_at DESC LIMIT 1), 0),
+			       COALESCE((SELECT mfs.is_flagged FROM message_folder_state mfs WHERE mfs.message_id = m.id ORDER BY mfs.is_deleted ASC, mfs.synced_at DESC LIMIT 1), 0),
+			       COALESCE((SELECT mfs.is_draft FROM message_folder_state mfs WHERE mfs.message_id = m.id ORDER BY mfs.is_deleted ASC, mfs.synced_at DESC LIMIT 1), 0)
+			FROM messages m
+			WHERE m.account_id = ?
+			  AND m.remote_message_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+		if err != nil {
+			return nil, fmt.Errorf("query existing provider messages: %w", err)
+		}
+		for rows.Next() {
+			var msgID int64
+			var providerID string
+			var isRead, isStarred, isFlagged, isDraft bool
+			if err := rows.Scan(&msgID, &providerID, &isRead, &isStarred, &isFlagged, &isDraft); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan existing provider message: %w", err)
+			}
+			providerID = strings.TrimSpace(providerID)
+			if providerID == "" {
+				continue
+			}
+			if _, err := stateStmt.ExecContext(ctx, msgID, folderID, isRead, isStarred, isFlagged, isDraft, syncedAt); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("upsert existing provider state: %w", err)
+			}
+			found[providerID] = msgID
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+func (db *DB) ReconcileProviderFolderSeen(ctx context.Context, accountID, folderID string, providerMessageIDs []string) error {
+	accountID = strings.TrimSpace(accountID)
+	folderID = strings.TrimSpace(folderID)
+	if accountID == "" || folderID == "" {
+		return nil
+	}
+	providerMessageIDs = compactProviderMessageIDs(providerMessageIDs)
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin provider folder reconcile tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `CREATE TEMP TABLE IF NOT EXISTS temp_provider_folder_seen (provider_id TEXT PRIMARY KEY)`); err != nil {
+		return fmt.Errorf("create provider seen temp table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM temp_provider_folder_seen`); err != nil {
+		return fmt.Errorf("clear provider seen temp table: %w", err)
+	}
+	if len(providerMessageIDs) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO temp_provider_folder_seen (provider_id) VALUES (?)`)
+		if err != nil {
+			return fmt.Errorf("prepare provider seen insert: %w", err)
+		}
+		for _, providerID := range providerMessageIDs {
+			if _, err := stmt.ExecContext(ctx, providerID); err != nil {
+				stmt.Close()
+				return fmt.Errorf("insert provider seen: %w", err)
+			}
+		}
+		if err := stmt.Close(); err != nil {
+			return err
+		}
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE message_folder_state
+		SET is_deleted = 1,
+		    synced_at = ?
+		WHERE folder_id = ?
+		  AND is_deleted = 0
+		  AND message_id IN (
+		    SELECT m.id
+		    FROM messages m
+		    WHERE m.account_id = ?
+		      AND COALESCE(m.remote_message_id, '') != ''
+		      AND NOT EXISTS (
+		        SELECT 1 FROM temp_provider_folder_seen seen
+		        WHERE seen.provider_id = m.remote_message_id
+		      )
+		  )`, time.Now().UTC(), folderID, accountID)
+	if err != nil {
+		return fmt.Errorf("mark unseen provider folder messages deleted: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM temp_provider_folder_seen`); err != nil {
+		return fmt.Errorf("clear provider seen temp table after reconcile: %w", err)
+	}
+	return tx.Commit()
+}
+
+func compactProviderMessageIDs(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func chunkStrings(values []string, size int) [][]string {
+	if size <= 0 {
+		size = len(values)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	chunks := make([][]string, 0, (len(values)+size-1)/size)
+	for start := 0; start < len(values); start += size {
+		end := start + size
+		if end > len(values) {
+			end = len(values)
+		}
+		chunks = append(chunks, values[start:end])
+	}
+	return chunks
 }
 
 func (db *DB) findProviderSyncMessageTx(ctx context.Context, tx *sql.Tx, accountID, providerMessageID, internetMessageID string) (int64, error) {
@@ -2278,6 +2464,10 @@ func (db *DB) MarkLabelSyncRun(ctx context.Context, stats LabelSyncRunStats, syn
 	if syncErr != nil {
 		lastError = syncErr.Error()
 	}
+	storedCursor := stats.Cursor
+	if syncErr != nil {
+		storedCursor = ""
+	}
 
 	_, err := db.Write().ExecContext(ctx, `
 		INSERT INTO label_sync_state (
@@ -2313,7 +2503,7 @@ func (db *DB) MarkLabelSyncRun(ctx context.Context, stats LabelSyncRunStats, syn
 			last_failed_messages = excluded.last_failed_messages,
 			last_pending_mutations = excluded.last_pending_mutations,
 			updated_at = CURRENT_TIMESTAMP`,
-		stats.AccountID, stats.ProviderType, stats.Scope, stats.Cursor,
+		stats.AccountID, stats.ProviderType, stats.Scope, storedCursor,
 		stats.Full && syncErr == nil, stats.FinishedAt,
 		syncErr == nil, stats.FinishedAt,
 		strings.TrimSpace(lastError),

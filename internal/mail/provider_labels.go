@@ -56,6 +56,11 @@ func providerAPIStatus(err error) (int, bool) {
 	return 0, false
 }
 
+func providerAPIUnauthorized(err error) bool {
+	status, ok := providerAPIStatus(err)
+	return ok && status == http.StatusUnauthorized
+}
+
 func providerLabelSyncShouldStop(err error) bool {
 	if err == nil {
 		return false
@@ -258,7 +263,7 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 				return err
 			}
 			afterID = msg.ID
-			result, err := o.syncGmailMessageLabels(ctx, token, msg, labelsByID)
+			result, err := o.syncGmailMessageLabelsWithAuthRetry(ctx, accountID, &token, msg, labelsByID)
 			if err != nil {
 				if providerLabelSyncShouldStop(err) {
 					stats.FailedMessages++
@@ -285,7 +290,7 @@ func (o *SyncOrchestrator) syncGmailLabels(ctx context.Context, accountID string
 		}
 	}
 	o.replayGmailLabelMutationQueue(ctx, accountID, token)
-	if cursor, err := getGmailProfileHistoryID(ctx, token); err == nil {
+	if cursor, err := o.getGmailProfileHistoryIDWithAuthRetry(ctx, accountID, &token); err == nil {
 		stats.Cursor = newerGmailHistoryID(stats.Cursor, cursor)
 	} else {
 		log.Printf("gmail label sync profile cursor account=%s: %v", accountID, err)
@@ -327,7 +332,7 @@ func (o *SyncOrchestrator) syncGmailLabelChanges(ctx context.Context, accountID 
 		return fmt.Errorf("%w: %w", errProviderLabelAuth, err)
 	}
 
-	providerIDs, latestCursor, err := gmailHistoryChangedMessageIDs(ctx, token, cursor)
+	providerIDs, latestCursor, err := o.gmailHistoryChangedMessageIDsWithAuthRetry(ctx, accountID, &token, cursor)
 	if err != nil {
 		if status, ok := providerAPIStatus(err); ok && status == http.StatusNotFound {
 			log.Printf("gmail label sync account=%s history cursor expired, running full reconciliation", accountID)
@@ -352,7 +357,7 @@ func (o *SyncOrchestrator) syncGmailLabelChanges(ctx context.Context, accountID 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		result, err := o.syncGmailHistoryMessageLabels(ctx, token, accountID, providerID, labelsByID)
+		result, err := o.syncGmailHistoryMessageLabelsWithAuthRetry(ctx, accountID, &token, providerID, labelsByID)
 		if err != nil {
 			if providerLabelSyncShouldStop(err) {
 				stats.FailedMessages++
@@ -439,6 +444,19 @@ func (o *SyncOrchestrator) syncGmailMessageLabels(ctx context.Context, token str
 	return o.applyGmailMessageState(ctx, msg, providerMessageID, state, labelsByID)
 }
 
+func (o *SyncOrchestrator) syncGmailMessageLabelsWithAuthRetry(ctx context.Context, accountID string, token *string, msg storage.ProviderLabelSyncMessage, labelsByID map[string]gmailLabel) (gmailLabelSyncResult, error) {
+	current := ""
+	if token != nil {
+		current = *token
+	}
+	result, err := o.syncGmailMessageLabels(ctx, current, msg, labelsByID)
+	refreshed, ok := o.refreshGmailTokenAfterUnauthorized(ctx, accountID, token, err)
+	if !ok {
+		return result, err
+	}
+	return o.syncGmailMessageLabels(ctx, refreshed, msg, labelsByID)
+}
+
 func (o *SyncOrchestrator) syncGmailHistoryMessageLabels(ctx context.Context, token, accountID, providerMessageID string, labelsByID map[string]gmailLabel) (gmailLabelSyncResult, error) {
 	providerMessageID = strings.TrimSpace(providerMessageID)
 	if providerMessageID == "" {
@@ -456,6 +474,19 @@ func (o *SyncOrchestrator) syncGmailHistoryMessageLabels(ctx context.Context, to
 		return gmailLabelSyncResult{HistoryID: state.HistoryID, Skipped: true}, nil
 	}
 	return o.applyGmailMessageState(ctx, *msg, providerMessageID, state, labelsByID)
+}
+
+func (o *SyncOrchestrator) syncGmailHistoryMessageLabelsWithAuthRetry(ctx context.Context, accountID string, token *string, providerMessageID string, labelsByID map[string]gmailLabel) (gmailLabelSyncResult, error) {
+	current := ""
+	if token != nil {
+		current = *token
+	}
+	result, err := o.syncGmailHistoryMessageLabels(ctx, current, accountID, providerMessageID, labelsByID)
+	refreshed, ok := o.refreshGmailTokenAfterUnauthorized(ctx, accountID, token, err)
+	if !ok {
+		return result, err
+	}
+	return o.syncGmailHistoryMessageLabels(ctx, refreshed, accountID, providerMessageID, labelsByID)
 }
 
 func (o *SyncOrchestrator) applyGmailMessageState(ctx context.Context, msg storage.ProviderLabelSyncMessage, providerMessageID string, state gmailMessageState, labelsByID map[string]gmailLabel) (gmailLabelSyncResult, error) {
@@ -517,6 +548,49 @@ func getGmailProfileHistoryID(ctx context.Context, token string) (string, error)
 		return "", err
 	}
 	return strings.TrimSpace(profile.HistoryID), nil
+}
+
+func (o *SyncOrchestrator) getGmailProfileHistoryIDWithAuthRetry(ctx context.Context, accountID string, token *string) (string, error) {
+	current := ""
+	if token != nil {
+		current = *token
+	}
+	cursor, err := getGmailProfileHistoryID(ctx, current)
+	refreshed, ok := o.refreshGmailTokenAfterUnauthorized(ctx, accountID, token, err)
+	if !ok {
+		return cursor, err
+	}
+	return getGmailProfileHistoryID(ctx, refreshed)
+}
+
+func (o *SyncOrchestrator) gmailHistoryChangedMessageIDsWithAuthRetry(ctx context.Context, accountID string, token *string, cursor string) ([]string, string, error) {
+	current := ""
+	if token != nil {
+		current = *token
+	}
+	ids, latestCursor, err := gmailHistoryChangedMessageIDs(ctx, current, cursor)
+	refreshed, ok := o.refreshGmailTokenAfterUnauthorized(ctx, accountID, token, err)
+	if !ok {
+		return ids, latestCursor, err
+	}
+	return gmailHistoryChangedMessageIDs(ctx, refreshed, cursor)
+}
+
+func (o *SyncOrchestrator) refreshGmailTokenAfterUnauthorized(ctx context.Context, accountID string, token *string, err error) (string, bool) {
+	if !providerAPIUnauthorized(err) {
+		return "", false
+	}
+	refreshed, refreshErr := o.refreshOAuthTokenForAccount(ctx, accountID)
+	if refreshErr != nil || strings.TrimSpace(refreshed) == "" {
+		if refreshErr != nil {
+			log.Printf("gmail oauth refresh after unauthorized account=%s: %v", accountID, refreshErr)
+		}
+		return "", false
+	}
+	if token != nil {
+		*token = refreshed
+	}
+	return refreshed, true
 }
 
 func gmailHistoryChangedMessageIDs(ctx context.Context, token, cursor string) ([]string, string, error) {

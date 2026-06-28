@@ -608,21 +608,18 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 	}
 
 	totalHint := graphFolder.TotalItemCount
-	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
+	folderName := displayName(folder.RemoteID, folder.Role)
+	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", map[string]any{
 		"account_folders_total": folderTotal,
 		"account_folders_done":  folderIndex - 1,
-		"current_folder":        displayName(folder.RemoteID, folder.Role),
-		"provider":              "graph",
 	})})
 	defer func() {
 		if ctx.Err() != nil {
 			return
 		}
-		o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
+		o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", map[string]any{
 			"account_folders_total": folderTotal,
 			"account_folders_done":  folderIndex,
-			"current_folder":        displayName(folder.RemoteID, folder.Role),
-			"provider":              "graph",
 		})})
 	}()
 
@@ -666,9 +663,7 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 			o.syncOutlookGraphAttachmentMetadata(ctx, token, idsByProvider, bodySources)
 			o.storeOutlookGraphBodies(ctx, accountID, idsByProvider, bodySources)
 			fetched += len(upserts)
-			o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Current: fetched, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
-				"provider": "graph",
-			})})
+			o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Current: fetched, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", nil)})
 		}
 
 		if strings.TrimSpace(response.NextLink) != "" {

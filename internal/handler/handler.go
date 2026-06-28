@@ -244,6 +244,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sidebar/accounts/{id}", h.handleSidebarAccount)
 	mux.HandleFunc("POST /api/mail/sync", h.handleSyncMail)
 	mux.HandleFunc("POST /api/mail/sync/accounts/{id}", h.handleSyncMailAccount)
+	mux.HandleFunc("POST /api/mail/sync/accounts/{id}/repair", h.handleRepairMailAccount)
 	mux.HandleFunc("POST /api/mail/sync/cancel", h.handleCancelSyncMail)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
 	mux.HandleFunc("GET /api/system/processing", h.handleProcessingStatus)
@@ -3163,6 +3164,51 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		accountSet[id] = true
 	}
 
+	writeEvent := func(event mail.Event) bool {
+		if event.AccountID != "" && !accountSet[event.AccountID] {
+			return false
+		}
+		if eventUser, _ := event.Payload["user_id"].(string); eventUser != "" && eventUser != userID {
+			return false
+		}
+		m := map[string]any{
+			"type":       string(event.Type),
+			"account_id": event.AccountID,
+			"folder_id":  event.FolderID,
+		}
+		for key, value := range event.Payload {
+			m[key] = value
+		}
+		if event.FolderRole != "" {
+			m["folder_role"] = event.FolderRole
+		}
+		if event.Status != "" {
+			m["status"] = event.Status
+		}
+		if event.Error != "" {
+			m["error"] = event.Error
+		}
+		if event.Current > 0 {
+			m["current"] = event.Current
+		}
+		if event.Total > 0 {
+			m["total"] = event.Total
+		}
+		if event.AvatarHash != "" {
+			m["avatar_hash"] = event.AvatarHash
+		}
+		if event.AvatarURL != "" {
+			m["avatar_url"] = event.AvatarURL
+		}
+		if event.AvatarDataURL != "" {
+			m["avatar_data_url"] = event.AvatarDataURL
+		}
+		data, _ := json.Marshal(m)
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+		flusher.Flush()
+		return true
+	}
+
 	ch := h.syncer.Events().Subscribe()
 	defer h.syncer.Events().Unsubscribe(ch)
 	ticker := time.NewTicker(1200 * time.Millisecond)
@@ -3171,6 +3217,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
 	flusher.Flush()
+	for _, event := range h.syncer.ActiveManualSyncSnapshot(r.Context(), userID) {
+		writeEvent(event)
+	}
 
 	for {
 		select {
@@ -3192,47 +3241,7 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 			lastProcessingActive = active
 		case event := <-ch:
-			if event.AccountID != "" && !accountSet[event.AccountID] {
-				continue
-			}
-			if eventUser, _ := event.Payload["user_id"].(string); eventUser != "" && eventUser != userID {
-				continue
-			}
-			m := map[string]any{
-				"type":       string(event.Type),
-				"account_id": event.AccountID,
-				"folder_id":  event.FolderID,
-			}
-			for key, value := range event.Payload {
-				m[key] = value
-			}
-			if event.FolderRole != "" {
-				m["folder_role"] = event.FolderRole
-			}
-			if event.Status != "" {
-				m["status"] = event.Status
-			}
-			if event.Error != "" {
-				m["error"] = event.Error
-			}
-			if event.Current > 0 {
-				m["current"] = event.Current
-			}
-			if event.Total > 0 {
-				m["total"] = event.Total
-			}
-			if event.AvatarHash != "" {
-				m["avatar_hash"] = event.AvatarHash
-			}
-			if event.AvatarURL != "" {
-				m["avatar_url"] = event.AvatarURL
-			}
-			if event.AvatarDataURL != "" {
-				m["avatar_data_url"] = event.AvatarDataURL
-			}
-			data, _ := json.Marshal(m)
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
-			flusher.Flush()
+			writeEvent(event)
 		}
 	}
 }
@@ -3312,6 +3321,7 @@ func (h *Handler) handleSyncMail(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("X-Gofer-Mail-Sync-Run-ID", runID)
 	w.Header().Set("X-Gofer-Mail-Sync-Accounts", strconv.Itoa(len(accountIDs)))
+	w.Header().Set("X-Gofer-Mail-Sync-Mode", "sync")
 	if len(accountIDs) == 1 {
 		htmlStatus(w, http.StatusOK, "Mail sync started for 1 account.")
 		return
@@ -3354,7 +3364,60 @@ func (h *Handler) handleSyncMailAccount(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("X-Gofer-Mail-Sync-Run-ID", runID)
 	w.Header().Set("X-Gofer-Mail-Sync-Accounts", "1")
+	w.Header().Set("X-Gofer-Mail-Sync-Mode", "sync")
 	htmlStatus(w, http.StatusOK, "Mail sync started for 1 account.")
+}
+
+func (h *Handler) handleRepairMailAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	accountID := strings.TrimSpace(r.PathValue("id"))
+	if accountID == "" {
+		htmlStatus(w, http.StatusBadRequest, "Choose an account before repairing mail.")
+		return
+	}
+	if h.syncer == nil {
+		htmlStatus(w, http.StatusInternalServerError, "Mail sync is not available.")
+		return
+	}
+
+	accountIDs, err := h.db.GetEmailSyncAccountIDs(ctx, userID)
+	if err != nil {
+		htmlStatus(w, http.StatusInternalServerError, "Could not find email-sync accounts.")
+		return
+	}
+	found := false
+	for _, id := range accountIDs {
+		if id == accountID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		htmlStatus(w, http.StatusNotFound, "That account is not available for mail repair.")
+		return
+	}
+	account, err := h.accountStore.GetAccountByID(ctx, accountID)
+	if err != nil {
+		htmlStatus(w, http.StatusInternalServerError, "Could not load account.")
+		return
+	}
+	if account == nil || strings.TrimSpace(account.Provider) != providers.ProviderGmail {
+		htmlStatus(w, http.StatusBadRequest, "Full mail repair is only available for Gmail accounts.")
+		return
+	}
+
+	runID, started := h.syncer.RepairGmailAPIAccount(context.Background(), userID, accountID)
+	if !started {
+		w.Header().Set("X-Gofer-Mail-Sync-Running", "true")
+		htmlStatus(w, http.StatusOK, "Mail sync is already running.")
+		return
+	}
+
+	w.Header().Set("X-Gofer-Mail-Sync-Run-ID", runID)
+	w.Header().Set("X-Gofer-Mail-Sync-Accounts", "1")
+	w.Header().Set("X-Gofer-Mail-Sync-Mode", "repair")
+	htmlStatus(w, http.StatusOK, "Gmail repair and full resync started for 1 account.")
 }
 
 func (h *Handler) handleCancelSyncMail(w http.ResponseWriter, r *http.Request) {

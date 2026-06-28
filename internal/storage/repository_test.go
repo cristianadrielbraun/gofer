@@ -673,6 +673,41 @@ func TestGetLabelAdminStatusAggregatesCoverageAndLastRun(t *testing.T) {
 	}
 }
 
+func TestMarkLabelSyncRunDoesNotAdvanceCursorOnError(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.MarkLabelSyncRun(ctx, LabelSyncRunStats{
+		AccountID:    "acc",
+		ProviderType: LabelProviderGmail,
+		Scope:        "messages",
+		Cursor:       "100",
+		StartedAt:    time.Now().Add(-time.Minute),
+		FinishedAt:   time.Now(),
+	}, nil); err != nil {
+		t.Fatalf("MarkLabelSyncRun(success) error = %v", err)
+	}
+	if err := db.MarkLabelSyncRun(ctx, LabelSyncRunStats{
+		AccountID:    "acc",
+		ProviderType: LabelProviderGmail,
+		Scope:        "messages",
+		Cursor:       "200",
+		StartedAt:    time.Now().Add(-time.Minute),
+		FinishedAt:   time.Now(),
+	}, errors.New("temporary failure")); err != nil {
+		t.Fatalf("MarkLabelSyncRun(error) error = %v", err)
+	}
+	state, err := db.GetLabelSyncState(ctx, "acc", LabelProviderGmail, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if state.Cursor != "100" || state.LastError != "temporary failure" {
+		t.Fatalf("sync state = %#v, want cursor preserved and error recorded", state)
+	}
+}
+
 func TestGetLabelAdminStatusIncludesOutlookGraphDiagnostics(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

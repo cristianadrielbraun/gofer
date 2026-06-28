@@ -810,6 +810,13 @@ document.addEventListener("DOMContentLoaded", function () {
           window.tui.dialog.close("delete-account-" + accountId)
         }
       }
+      var repairBtn = e.target.closest("[data-repair-account-action]")
+      if (repairBtn) {
+        var repairAccountId = repairBtn.getAttribute("data-account-id")
+        if (repairAccountId && window.tui && window.tui.dialog) {
+          window.tui.dialog.close("repair-account-" + repairAccountId)
+        }
+      }
     }, true)
 
     document.body.addEventListener("htmx:afterRequest", function (evt) {
@@ -2127,6 +2134,24 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
+  function mailFolderSyncStateFromEvent(data, active) {
+    data = data || {}
+    return {
+      active: !!active,
+      current: data.current || 0,
+      total: data.total || 0,
+      folderRole: data.folder_role || "",
+      folderName: data.current_folder || data.folder_name || "",
+      accountName: data.account_name || data.name || "",
+      accountEmail: data.account_email || data.email || "",
+      provider: data.provider || "",
+      mode: data.mode || "",
+      refreshOnly: !!data.refresh_only,
+      totalEstimated: !!data.total_estimated,
+      updatedAt: Date.now(),
+    }
+  }
+
   function setupSSE() {
     if (appEventSource) return
 
@@ -2238,14 +2263,9 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.folder_id) return
       updateMailSyncFolderProgress("started", data)
-      syncStatesByFolder[data.folder_id] = {
-        active: true,
-        current: data.current || 0,
-        total: data.total || 0,
-        folderRole: data.folder_role || "",
-      }
+      syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, true)
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
-        vml.setSyncState(false, 0, data.total || 0)
+        vml.setSyncState(true, data.current || 0, data.total || 0, data)
       }, false)
     })
 
@@ -2256,27 +2276,17 @@ document.addEventListener("DOMContentLoaded", function () {
       // Progress events are frequent; content changes refresh through new-mail, mutation, or completion events.
       if (data.refresh_only) {
         updateMailSyncFolderProgress("progress", data)
-        syncStatesByFolder[data.folder_id] = {
-          active: true,
-          current: data.current || 0,
-          total: data.total || 0,
-          folderRole: data.folder_role || "",
-        }
+        syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, true)
         withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
-          vml.setSyncState((data.current || 0) > 0, data.current || 0, data.total || 0)
+          vml.setSyncState(true, data.current || 0, data.total || 0, data)
         }, false)
         return
       }
       updateMailSyncFolderProgress("progress", data)
-      syncStatesByFolder[data.folder_id] = {
-        active: true,
-        current: data.current || 0,
-        total: data.total || 0,
-        folderRole: data.folder_role || "",
-      }
+      syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, true)
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
         var current = data.current || 0
-        vml.setSyncState(current > 0, current, data.total || 0)
+        vml.setSyncState(current > 0, current, data.total || 0, data)
       }, false)
     })
 
@@ -2285,29 +2295,19 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.folder_id) return
       if (data.refresh_only) {
-        syncStatesByFolder[data.folder_id] = {
-          active: false,
-          current: 0,
-          total: 0,
-          folderRole: data.folder_role || "",
-        }
+        syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, false)
         refreshSidebarUnread()
         withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
-          vml.setSyncState(false, 0, 0)
+          vml.setSyncState(false, 0, 0, data)
           scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml), immediate: true })
         }, false)
         return
       }
       updateMailSyncFolderProgress("complete", data)
-      syncStatesByFolder[data.folder_id] = {
-        active: false,
-        current: 0,
-        total: 0,
-        folderRole: data.folder_role || "",
-      }
+      syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, false)
       refreshSidebarUnread()
       withMailListForFolder(data.folder_id, data.folder_role, function (vml) {
-        vml.setSyncState(false, 0, 0)
+        vml.setSyncState(false, 0, 0, data)
         scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml), immediate: true })
       }, false)
     })
@@ -2949,12 +2949,32 @@ document.addEventListener("DOMContentLoaded", function () {
     return role === "junk" ? "spam" : role
   }
 
+  function activeSyncStateForFolder(folderID) {
+    var state = syncStatesByFolder[folderID]
+    if (state && state.active) return state
+    if (!isRoleFolderID(folderID)) return null
+    var newest = null
+    var newestAt = 0
+    for (var id in syncStatesByFolder) {
+      if (!Object.prototype.hasOwnProperty.call(syncStatesByFolder, id)) continue
+      state = syncStatesByFolder[id]
+      if (!state || !state.active) continue
+      if (normalizedRoleFolderID(state.folderRole || "") !== folderID) continue
+      var updatedAt = state.updatedAt || 0
+      if (!newest || updatedAt >= newestAt) {
+        newest = state
+        newestAt = updatedAt
+      }
+    }
+    return newest
+  }
+
   function applyActiveFolderSyncState() {
     if (!virtualMailList) return
-    var state = syncStatesByFolder[virtualMailList.folderID]
+    var state = activeSyncStateForFolder(virtualMailList.folderID)
     if (state && state.active) {
       var current = state.current || 0
-      virtualMailList.setSyncState(current > 0, current, state.total || 0)
+      virtualMailList.setSyncState(true, current, state.total || 0, state)
       return
     }
     virtualMailList.setSyncState(false, 0, 0)
@@ -4336,6 +4356,7 @@ function createMailSyncProgressState(runID) {
     kind: "",
     active: false,
     status: "idle",
+    mode: "",
     startedAt: 0,
     completedAt: 0,
     total: 0,
@@ -4347,6 +4368,8 @@ function createMailSyncProgressState(runID) {
     notDone: 0,
     accounts: Object.create(null),
     accountOrder: [],
+    runs: Object.create(null),
+    runOrder: [],
   }
 }
 
@@ -4367,10 +4390,148 @@ function stopMailSyncProgressState(status) {
   renderMailSyncProgressDialog()
 }
 
+function _mailSyncModeFromData(data) {
+  var hasMode = !!(data && Object.prototype.hasOwnProperty.call(data, "mode"))
+  var mode = String(hasMode ? data.mode : (_mailSyncState.mode || "")).trim().toLowerCase()
+  return mode === "repair" ? "repair" : "sync"
+}
+
+function _mailSyncRunMode(run) {
+  return _mailSyncModeFromData(run || {})
+}
+
+function _mailSyncRunKey(data, kind) {
+  var runID = String((data && data.run_id) || "").trim()
+  if (runID) return runID
+  return (kind || "manual") + ":" + _mailSyncModeFromData(data)
+}
+
+function _mailSyncAccountKey(accountID, runID) {
+  accountID = accountID || "__unknown__"
+  runID = String(runID || "").trim()
+  return runID ? runID + "::" + accountID : accountID
+}
+
+function ensureMailSyncRun(data, kind) {
+  data = data || {}
+  var key = _mailSyncRunKey(data, kind)
+  var run = _mailSyncState.runs[key]
+  if (!run) {
+    run = {
+      key: key,
+      runID: String(data.run_id || "").trim(),
+      kind: kind || data.kind || "manual",
+      mode: _mailSyncModeFromData(data),
+      active: true,
+      status: "syncing",
+      total: 0,
+      done: 0,
+      parallelism: 0,
+      failures: 0,
+      skipped: 0,
+      cancelled: 0,
+      notDone: 0,
+      startedAt: Date.now(),
+      completedAt: 0,
+    }
+    _mailSyncState.runs[key] = run
+    _mailSyncState.runOrder.push(key)
+  }
+  if (data.run_id) run.runID = String(data.run_id).trim()
+  run.kind = kind || data.kind || run.kind || "manual"
+  run.mode = _mailSyncModeFromData(data)
+  return run
+}
+
+function _mailSyncHasActiveRunMode(mode) {
+  mode = mode === "repair" ? "repair" : "sync"
+  var keys = _mailSyncState.runOrder || []
+  for (var i = 0; i < keys.length; i++) {
+    var run = _mailSyncState.runs[keys[i]]
+    if (run && run.active && _mailSyncRunMode(run) === mode) return true
+  }
+  return false
+}
+
+function _mailSyncHasActiveManualRun() {
+  var keys = _mailSyncState.runOrder || []
+  for (var i = 0; i < keys.length; i++) {
+    var run = _mailSyncState.runs[keys[i]]
+    if (run && run.active && run.kind === "manual") return true
+  }
+  return false
+}
+
+function updateMailSyncAggregateFromRuns() {
+  var keys = _mailSyncState.runOrder || []
+  var active = false
+  var anyManual = false
+  var anyScheduled = false
+  var anyError = false
+  var anyPartial = false
+  var anyCancelled = false
+  var total = 0
+  var done = 0
+  var failures = 0
+  var skipped = 0
+  var cancelled = 0
+  var notDone = 0
+  var parallelism = 0
+  var activeRunID = ""
+  for (var i = 0; i < keys.length; i++) {
+    var run = _mailSyncState.runs[keys[i]]
+    if (!run) continue
+    var runTotal = _mailSyncCount(run.total)
+    var runDone = _mailSyncCount(run.done)
+    total += runTotal
+    done += runDone
+    failures += _mailSyncCount(run.failures)
+    skipped += _mailSyncCount(run.skipped)
+    cancelled += _mailSyncCount(run.cancelled)
+    notDone += _mailSyncCount(run.notDone)
+    parallelism = Math.max(parallelism, _mailSyncCount(run.parallelism))
+    if (run.kind === "manual") anyManual = true
+    if (run.kind === "scheduled") anyScheduled = true
+    if (run.active) {
+      active = true
+      if (!activeRunID && run.runID) activeRunID = run.runID
+    }
+    if (run.status === "error") anyError = true
+    if (run.status === "partial") anyPartial = true
+    if (run.status === "cancelled") anyCancelled = true
+  }
+  _mailSyncState.active = active
+  _mailSyncState.kind = anyManual ? "manual" : (anyScheduled ? "scheduled" : _mailSyncState.kind)
+  _mailSyncState.runID = activeRunID
+  _mailSyncState.status = active ? "syncing" : (anyError ? "error" : (anyPartial ? "partial" : (anyCancelled ? "cancelled" : "ok")))
+  _mailSyncState.total = total
+  _mailSyncState.done = done
+  _mailSyncState.failures = failures
+  _mailSyncState.skipped = skipped
+  _mailSyncState.cancelled = cancelled
+  _mailSyncState.notDone = notDone
+  _mailSyncState.parallelism = parallelism
+  _mailSyncActive = active
+  _mailSyncRunID = activeRunID
+}
+
+function _mailSyncRunningTitle(data) {
+  if (_mailSyncHasActiveRunMode("repair") && _mailSyncHasActiveRunMode("sync")) return "Repair and sync running"
+  return _mailSyncModeFromData(data) === "repair" ? "Repairing Gmail" : "Syncing mail"
+}
+
+function _mailSyncCompleteTitle(status, data) {
+  if (_mailSyncModeFromData(data) !== "repair") {
+    return status === "cancelled" ? "Mail sync cancelled" : (status === "error" ? "Mail sync failed" : (status === "partial" ? "Mail sync partly finished" : "Mail synced"))
+  }
+  return status === "cancelled" ? "Gmail repair cancelled" : (status === "error" ? "Gmail repair failed" : (status === "partial" ? "Gmail repair partly finished" : "Gmail repair complete"))
+}
+
 function setupMailSyncSidebarControls() {
   document.addEventListener("click", function (e) {
     var button = e.target && e.target.closest ? e.target.closest("[data-mail-sidebar-sync-button], [data-mail-account-sync-button]") : null
     if (!button || button.dataset.syncing !== "true") return
+    if (_mailSyncCanSubmitBusyButton(button)) return
     e.preventDefault()
     e.stopImmediatePropagation()
     openMailSyncProgressDialog()
@@ -4381,6 +4542,13 @@ function setupMailSyncSidebarControls() {
   })
   updateMailSyncErrorIndicator()
   updateMailSyncSidebarTooltip()
+}
+
+function _mailSyncCanSubmitBusyButton(button) {
+  if (!button) return false
+  if (button.hasAttribute("data-repair-account-action")) return false
+  if (_mailSyncHasActiveRunMode("sync")) return false
+  return _mailSyncHasActiveRunMode("repair")
 }
 
 function setupMailSyncCancelControls() {
@@ -4481,14 +4649,16 @@ function _mailSyncIsScheduledEvent(data) {
 
 function populateMailSyncRunAccounts(data) {
   if (!data || !Array.isArray(data.account_ids)) return
+  var runID = String(data.run_id || "").trim()
+  var mode = _mailSyncModeFromData(data)
   for (var i = 0; i < data.account_ids.length; i++) {
-    if (data.account_ids[i]) ensureMailSyncAccount(data.account_ids[i], i + 1)
+    if (data.account_ids[i]) ensureMailSyncAccount(data.account_ids[i], i + 1, runID, mode)
   }
 }
 
 function ensureMailScheduledRunFromEvent(data) {
   if (!_mailSyncIsScheduledEvent(data)) return false
-  if (_mailSyncState.kind === "manual" && _mailSyncState.active) return false
+  if (_mailSyncHasActiveManualRun()) return false
   var runID = data.run_id || ""
   if (_mailSyncState.kind !== "scheduled" || (runID && _mailSyncState.runID && _mailSyncState.runID !== runID)) {
     resetMailSyncProgressState(runID, "scheduled")
@@ -4614,6 +4784,7 @@ function _mailSyncAccountFolderMeta(account) {
   var done = Math.min(_mailSyncCount(account.syncedFolders), total)
   var idleExcluded = _mailSyncCount(account.excludedIdleFolders)
   if (account.status === "queued") return "Waiting for account"
+  if (account.status === "skipped" && /repair/i.test(account.error || "")) return "Skipped because repair is running"
   if (account.status === "skipped") return "Already running"
   if (!total && idleExcluded) return _mailSyncAppendIdleExclusion(account.status === "syncing" ? "Checking folders..." : "No polled folders", idleExcluded)
   if (account.status === "cancelled") return total ? _mailSyncAppendIdleExclusion("Cancelled after " + done + " of " + total + " folders", idleExcluded) : "Cancelled"
@@ -4792,12 +4963,18 @@ function updateMailSyncErrorIndicator(root) {
   if (summary) summary.innerHTML = mailSyncErrorSummaryHTML(issues)
 }
 
-function ensureMailSyncAccount(accountID, index) {
+function ensureMailSyncAccount(accountID, index, runID, mode) {
   accountID = accountID || "__unknown__"
-  var account = _mailSyncState.accounts[accountID]
+  runID = String(runID || "").trim()
+  mode = mode === "repair" ? "repair" : "sync"
+  var accountKey = _mailSyncAccountKey(accountID, runID)
+  var account = _mailSyncState.accounts[accountKey]
   if (!account) {
     account = {
+      key: accountKey,
       id: accountID,
+      runID: runID,
+      runMode: mode,
       index: index || _mailSyncState.accountOrder.length + 1,
       label: _mailSyncAccountLabel(accountID),
       status: "queued",
@@ -4809,11 +4986,13 @@ function ensureMailSyncAccount(accountID, index) {
       error: "",
       excludedIdleFolders: 0,
     }
-    _mailSyncState.accounts[accountID] = account
-    _mailSyncState.accountOrder.push(accountID)
+    _mailSyncState.accounts[accountKey] = account
+    _mailSyncState.accountOrder.push(accountKey)
   } else if (index && (!account.index || index < account.index)) {
     account.index = index
   }
+  if (runID && !account.runID) account.runID = runID
+  account.runMode = mode
   return account
 }
 
@@ -4832,35 +5011,37 @@ function applyMailSyncAccountPayload(account, data) {
 
 function updateMailSyncStateFromRun(phase, data, kind) {
   var runID = data && data.run_id ? data.run_id : ""
-  var shouldReset = phase === "started" || (kind === "scheduled" && _mailSyncState.kind !== "scheduled") || (runID && _mailSyncState.runID && _mailSyncState.runID !== runID)
+  var manualMerge = kind === "manual" && _mailSyncHasActiveManualRun()
+  var shouldReset = !manualMerge && (phase === "started" || (kind === "scheduled" && _mailSyncState.kind !== "scheduled") || (runID && _mailSyncState.runID && _mailSyncState.runID !== runID))
   if (shouldReset) {
     resetMailSyncProgressState(runID, kind)
   } else if (runID && !_mailSyncState.runID) {
     _mailSyncState.runID = runID
   }
-  _mailSyncState.kind = kind
-
-  _mailSyncState.active = phase !== "complete"
-  _mailSyncState.status = phase === "complete" ? (data.status || "ok") : "syncing"
-  _mailSyncState.total = _mailSyncCount(data.accounts_total) || _mailSyncState.total
-  _mailSyncState.done = _mailSyncCount(data.accounts_done)
-  _mailSyncState.parallelism = _mailSyncCount(data.parallelism) || _mailSyncState.parallelism
-  _mailSyncState.failures = _mailSyncCount(data.failures)
-  _mailSyncState.skipped = _mailSyncCount(data.skipped)
-  _mailSyncState.cancelled = _mailSyncCount(data.cancelled)
-  _mailSyncState.notDone = _mailSyncCount(data.not_done)
+  var run = ensureMailSyncRun(data || {}, kind)
+  run.active = phase !== "complete"
+  run.status = phase === "complete" ? (data.status || "ok") : "syncing"
+  run.total = _mailSyncCount(data.accounts_total) || run.total
+  run.done = _mailSyncCount(data.accounts_done)
+  run.parallelism = _mailSyncCount(data.parallelism) || run.parallelism
+  run.failures = _mailSyncCount(data.failures)
+  run.skipped = _mailSyncCount(data.skipped)
+  run.cancelled = _mailSyncCount(data.cancelled)
+  run.notDone = _mailSyncCount(data.not_done)
+  if (phase === "complete") run.completedAt = Date.now()
   if (!_mailSyncState.startedAt) _mailSyncState.startedAt = Date.now()
-  if (phase === "complete") _mailSyncState.completedAt = Date.now()
   populateMailSyncRunAccounts(data)
 
   if (data.account_id) {
-    var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
+    var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index), runID, run.mode)
     account.status = data.status || account.status
     account.error = data.error || account.error || ""
     applyMailSyncAccountPayload(account, data)
     if (!account.totalFolders) account.totalFolders = _mailSyncAccountFolderTotal(data.account_id)
     if (account.status === "synced" && account.totalFolders) account.syncedFolders = account.totalFolders
   }
+  updateMailSyncAggregateFromRuns()
+  if (!_mailSyncState.active) _mailSyncState.completedAt = Date.now()
   renderMailSyncProgressDialog()
 }
 
@@ -4874,8 +5055,8 @@ function updateMailSyncStateFromScheduled(phase, data) {
 
 function updateMailSyncFolderProgress(phase, data) {
   if (!data || !data.account_id || !data.folder_id) return
-  if (_mailSyncIsScheduledEvent(data) && _mailSyncState.kind === "manual" && _mailSyncState.active) return
-  if (!_mailSyncIsScheduledEvent(data) && !(_mailSyncState.kind === "manual" && _mailSyncState.active)) return
+  if (_mailSyncIsScheduledEvent(data) && _mailSyncHasActiveManualRun()) return
+  if (!_mailSyncIsScheduledEvent(data) && !data.run_id && !_mailSyncHasActiveManualRun()) return
   var scheduledEvent = ensureMailScheduledRunFromEvent(data)
   if (!_mailSyncState.active) {
     _mailSyncActive = true
@@ -4883,8 +5064,9 @@ function updateMailSyncFolderProgress(phase, data) {
     _setMailSyncButtonBusy(true)
   }
   if (data.kind && _mailSyncCanAdoptAccountKind()) _mailSyncState.kind = data.kind
-  var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
+  var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index), data.run_id || "", _mailSyncModeFromData(data))
   if (account.status === "queued") account.status = "syncing"
+  if (data.account_name || data.account_email) account.label = data.account_name || data.account_email || account.label
   applyMailSyncAccountPayload(account, data)
   if (!_mailSyncHasField(data, "account_folders_total") && !account.totalFolders) account.totalFolders = _mailSyncAccountFolderTotal(data.account_id)
   var folder = account.folders[data.folder_id]
@@ -4896,6 +5078,8 @@ function updateMailSyncFolderProgress(phase, data) {
       status: "syncing",
       current: 0,
       total: 0,
+      refreshOnly: !!data.refresh_only,
+      totalEstimated: !!data.total_estimated,
       updatedAt: Date.now(),
     }
     account.folders[data.folder_id] = folder
@@ -4905,6 +5089,8 @@ function updateMailSyncFolderProgress(phase, data) {
   folder.status = phase === "complete" ? "complete" : "syncing"
   folder.current = _mailSyncCount(data.current)
   folder.total = _mailSyncCount(data.total) || folder.total
+  folder.refreshOnly = !!data.refresh_only
+  folder.totalEstimated = !!data.total_estimated
   folder.updatedAt = Date.now()
   account.currentFolderLabel = folder.label
   if (!_mailSyncHasField(data, "account_folders_done")) account.syncedFolders = _mailSyncCompletedFolderCount(account)
@@ -4919,7 +5105,7 @@ function updateMailSyncFolderProgress(phase, data) {
     _mailSyncState.done = _mailSyncState.accountOrder.length
     _mailSyncState.total = _mailSyncState.accountOrder.length
     _mailSyncState.completedAt = Date.now()
-    _setMailSyncButtonBusy(false)
+    _setMailSyncButtonBusy(_mailSyncState.active)
   }
   renderMailSyncProgressDialog()
 }
@@ -4927,9 +5113,9 @@ function updateMailSyncFolderProgress(phase, data) {
 function handleAccountSyncStatus(data) {
   if (!data || !data.account_id) return
   applyMailSyncIssueStatus(data)
-  if (_mailSyncIsScheduledEvent(data) && _mailSyncState.kind === "manual" && _mailSyncState.active) return
+  if (_mailSyncIsScheduledEvent(data) && _mailSyncHasActiveManualRun()) return
   var status = data.status || ""
-  if (!_mailSyncIsScheduledEvent(data) && !(_mailSyncState.kind === "manual" && _mailSyncState.active)) {
+  if (!_mailSyncIsScheduledEvent(data) && !data.run_id && !_mailSyncHasActiveManualRun()) {
     if (status !== "syncing") {
       refreshSidebarAccountForSync(data.account_id)
       refreshActiveMailListAfterAccountSyncForSync(data)
@@ -4945,7 +5131,7 @@ function handleAccountSyncStatus(data) {
     } else if (data.kind && _mailSyncCanAdoptAccountKind()) {
       _mailSyncState.kind = data.kind
     }
-    var syncingAccount = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
+    var syncingAccount = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index), data.run_id || "", _mailSyncModeFromData(data))
     syncingAccount.status = "syncing"
     syncingAccount.error = ""
     applyMailSyncAccountPayload(syncingAccount, data)
@@ -4961,7 +5147,7 @@ function handleAccountSyncStatus(data) {
     return
   }
 
-  var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index))
+  var account = ensureMailSyncAccount(data.account_id, _mailSyncCount(data.account_index), data.run_id || "", _mailSyncModeFromData(data))
   applyMailSyncAccountPayload(account, data)
   if (status === "error") {
     account.status = "error"
@@ -5031,6 +5217,50 @@ function closeMailSyncProgressDialog() {
   if (content && content.open) content.close()
 }
 
+function _mailSyncModeLabel(mode) {
+  return mode === "repair" ? "Repairing Gmail" : "Regular sync"
+}
+
+function _mailSyncModeDescription(mode, total, done, active) {
+  if (mode === "repair") {
+    if (active) return total ? "Repairing " + done + " of " + total + " accounts" : "Repairing Gmail account"
+    return total ? "Repaired " + done + " of " + total + " accounts" : "Repair complete"
+  }
+  if (active) return total ? "Syncing " + done + " of " + total + " accounts" : "Syncing available accounts"
+  return total ? "Synced " + done + " of " + total + " accounts" : "Sync complete"
+}
+
+function _mailSyncRunTotalsForMode(mode) {
+  var out = { total: 0, done: 0, active: false, failures: 0, skipped: 0, cancelled: 0 }
+  var keys = _mailSyncState.runOrder || []
+  for (var i = 0; i < keys.length; i++) {
+    var run = _mailSyncState.runs[keys[i]]
+    if (!run || _mailSyncRunMode(run) !== mode) continue
+    out.total += _mailSyncCount(run.total)
+    out.done += _mailSyncCount(run.done)
+    out.failures += _mailSyncCount(run.failures)
+    out.skipped += _mailSyncCount(run.skipped)
+    out.cancelled += _mailSyncCount(run.cancelled)
+    if (run.active) out.active = true
+  }
+  return out
+}
+
+function _mailSyncAccountCardHTML(account) {
+  var accountPct = _mailSyncAccountProgressPercent(account)
+  var folderMeta = _mailSyncAccountFolderMeta(account)
+  return '<div class="rounded-lg border border-border bg-background/45 p-3">' +
+    '<div class="flex items-center justify-between gap-3">' +
+      '<div class="min-w-0"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
+      '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(folderMeta) + '</div>' +
+      (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">Current: ' + _escapeComposeHTML(account.currentFolderLabel) + '</div>' : '') +
+      (account.error ? '<div class="mt-1 truncate text-xs text-destructive">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
+      '<div class="shrink-0 text-xs font-medium ' + _mailSyncStatusClass(account.status) + '">' + _mailSyncStatusLabel(account.status) + '</div>' +
+    '</div>' +
+    '<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div class="h-full rounded-full bg-primary transition-all" style="width:' + accountPct + '%"></div></div>' +
+  '</div>'
+}
+
 function renderMailSyncProgressDialog() {
   updateMailSyncSidebarTooltip()
   var dialog = document.getElementById("mail-sync-progress-dialog")
@@ -5080,20 +5310,30 @@ function renderMailSyncProgressDialog() {
     return
   }
   var html = ""
-  for (var i = 0; i < ids.length; i++) {
-    var account = _mailSyncState.accounts[ids[i]]
-    var accountPct = _mailSyncAccountProgressPercent(account)
-    var folderMeta = _mailSyncAccountFolderMeta(account)
-    html += '<div class="rounded-lg border border-border bg-background/45 p-3">' +
+  var modes = ["repair", "sync"]
+  for (var modeIndex = 0; modeIndex < modes.length; modeIndex++) {
+    var mode = modes[modeIndex]
+    var sectionIDs = ids.filter(function (id) {
+      var account = _mailSyncState.accounts[id]
+      return account && (account.runMode || "sync") === mode
+    })
+    if (!sectionIDs.length) continue
+    var totals = _mailSyncRunTotalsForMode(mode)
+    var sectionPct = totals.total > 0 ? Math.min(100, Math.round((totals.done / totals.total) * 100)) : (totals.active ? 8 : 100)
+    html += '<section class="space-y-2 rounded-lg border border-border/80 bg-background/25 p-3">' +
       '<div class="flex items-center justify-between gap-3">' +
-        '<div class="min-w-0"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
-        '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(folderMeta) + '</div>' +
-        (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">Current: ' + _escapeComposeHTML(account.currentFolderLabel) + '</div>' : '') +
-        (account.error ? '<div class="mt-1 truncate text-xs text-destructive">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
-        '<div class="shrink-0 text-xs font-medium ' + _mailSyncStatusClass(account.status) + '">' + _mailSyncStatusLabel(account.status) + '</div>' +
+        '<div class="min-w-0">' +
+          '<div class="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">' + _escapeComposeHTML(_mailSyncModeLabel(mode)) + '</div>' +
+          '<div class="mt-0.5 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(_mailSyncModeDescription(mode, totals.total, totals.done, totals.active)) + '</div>' +
+        '</div>' +
+        '<div class="shrink-0 text-xs font-medium text-muted-foreground">' + sectionPct + '%</div>' +
       '</div>' +
-      '<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div class="h-full rounded-full bg-primary transition-all" style="width:' + accountPct + '%"></div></div>'
-    html += '</div>'
+      '<div class="h-1.5 overflow-hidden rounded-full bg-muted"><div class="h-full rounded-full bg-primary transition-all" style="width:' + sectionPct + '%"></div></div>' +
+      '<div class="space-y-2">'
+    for (var i = 0; i < sectionIDs.length; i++) {
+      html += _mailSyncAccountCardHTML(_mailSyncState.accounts[sectionIDs[i]])
+    }
+    html += '</div></section>'
   }
   accountsEl.innerHTML = html
 }
@@ -5108,15 +5348,17 @@ function _setMailSyncButtonBusy(busy) {
   updateMailSyncSidebarTooltip()
 }
 
-function handleMailSidebarSyncStart() {
-  _mailSyncRunID = ""
+function handleMailSidebarSyncStart(mode) {
+  mode = mode === "repair" ? "repair" : "sync"
   _mailSyncActive = true
-  resetMailSyncProgressState("", "manual")
+  if (!_mailSyncState.active && !_mailSyncState.runOrder.length) {
+    resetMailSyncProgressState("", "manual")
+  }
   _setMailSyncButtonBusy(true)
   showMailSyncToast({
     id: "mail-sync-toast",
-    title: "Syncing mail",
-    description: "Checking connected mailboxes...",
+    title: _mailSyncRunningTitle({ mode: mode }),
+    description: mode === "repair" ? "Preparing Gmail repair..." : "Checking connected mailboxes...",
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -5130,11 +5372,14 @@ function handleMailSidebarSyncResult(event) {
   var xhr = event && event.detail ? event.detail.xhr : null
   var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
   var message = _goferResponseText(xhr, "Mail sync started.")
+  var mode = xhr ? (xhr.getResponseHeader("X-Gofer-Mail-Sync-Mode") || "") : ""
+  if (mode) _mailSyncState.mode = _mailSyncModeFromData({ mode: mode })
   if (!ok) {
-    _mailSyncActive = false
-    _mailSyncRunID = ""
-    stopMailSyncProgressState("error")
-    _setMailSyncButtonBusy(false)
+    if (!_mailSyncState.active) {
+      _mailSyncRunID = ""
+      stopMailSyncProgressState("error")
+    }
+    _setMailSyncButtonBusy(_mailSyncState.active)
     showGoferToast({
       id: "mail-sync-toast",
       title: "Mail sync failed",
@@ -5149,10 +5394,11 @@ function handleMailSidebarSyncResult(event) {
   }
 
   if (xhr && xhr.getResponseHeader("X-Gofer-Mail-Sync-Running") === "true") {
-    _mailSyncActive = false
-    _mailSyncRunID = ""
-    stopMailSyncProgressState("already-running")
-    _setMailSyncButtonBusy(false)
+    if (!_mailSyncState.active) {
+      _mailSyncRunID = ""
+      stopMailSyncProgressState("already-running")
+    }
+    _setMailSyncButtonBusy(_mailSyncState.active)
     showGoferToast({
       id: "mail-sync-toast",
       title: "Mail sync already running",
@@ -5168,9 +5414,11 @@ function handleMailSidebarSyncResult(event) {
 
   _mailSyncRunID = xhr ? (xhr.getResponseHeader("X-Gofer-Mail-Sync-Run-ID") || "") : ""
   if (_mailSyncRunID) _mailSyncState.runID = _mailSyncRunID
+  ensureMailSyncRun({ run_id: _mailSyncRunID, mode: mode }, "manual")
+  updateMailSyncAggregateFromRuns()
   showMailSyncToast({
     id: "mail-sync-toast",
-    title: "Syncing mail",
+    title: _mailSyncRunningTitle({ mode: mode }),
     description: message,
     variant: "info",
     icon: "spinner",
@@ -5184,9 +5432,7 @@ function handleMailSidebarSyncResult(event) {
 function handleMailManualSyncEvent(phase, data) {
   if (!data) return
   var runID = data.run_id || ""
-  if (!_mailSyncActive && phase !== "started") return
-  if (_mailSyncRunID && runID && _mailSyncRunID !== runID) return
-  if (!_mailSyncRunID && runID) _mailSyncRunID = runID
+  if (!_mailSyncActive && phase !== "started" && !runID) return
   _mailSyncActive = true
   _setMailSyncButtonBusy(true)
   updateMailSyncStateFromManual(phase, data)
@@ -5202,12 +5448,13 @@ function handleMailManualSyncEvent(phase, data) {
 
   if (phase === "complete") {
     var status = data.status || "ok"
-    var title = status === "cancelled" ? "Mail sync cancelled" : (status === "error" ? "Mail sync failed" : (status === "partial" ? "Mail sync partly finished" : "Mail synced"))
+    var title = _mailSyncCompleteTitle(status, data)
     var variant = status === "error" ? "error" : (status === "partial" || status === "cancelled" ? "warning" : "success")
     var icon = status === "error" ? "error" : (status === "partial" || status === "cancelled" ? "warning" : "success")
-    var description = "Checked " + _mailSyncAccountsLabel(total || done) + "."
-    if (status === "cancelled" && total) description = "Stopped after checking " + done + " of " + total + " accounts."
-    else if (status === "cancelled") description = "Mail sync was stopped."
+    var repairMode = _mailSyncModeFromData(data) === "repair"
+    var description = (repairMode ? "Repaired " : "Checked ") + _mailSyncAccountsLabel(total || done) + "."
+    if (status === "cancelled" && total) description = "Stopped after " + (repairMode ? "repairing " : "checking ") + done + " of " + total + " accounts."
+    else if (status === "cancelled") description = repairMode ? "Gmail repair was stopped." : "Mail sync was stopped."
     if (failures > 0 && skipped > 0) description += " " + failures + " failed, " + skipped + " already running."
     else if (failures > 0) description += " " + failures + " failed."
     else if (skipped > 0) description += " " + skipped + " already running."
@@ -5215,8 +5462,22 @@ function handleMailManualSyncEvent(phase, data) {
     if (notDone > 0) description += " " + notDone + " did not finish."
     _mailSyncActive = false
     _mailSyncCancelRequested = false
-    _mailSyncRunID = ""
-    _setMailSyncButtonBusy(false)
+    updateMailSyncAggregateFromRuns()
+    _setMailSyncButtonBusy(_mailSyncState.active)
+    if (_mailSyncState.active) {
+      showMailSyncToast({
+        id: "mail-sync-toast",
+        title: _mailSyncRunningTitle(data),
+        description: "Another mail activity is still running.",
+        variant: "info",
+        icon: "spinner",
+        position: "bottom-right",
+        duration: 0,
+        dismissible: false,
+        cancelable: true,
+      })
+      return
+    }
     showMailSyncToast({
       id: "mail-sync-toast",
       title: title,
@@ -5230,19 +5491,20 @@ function handleMailManualSyncEvent(phase, data) {
     return
   }
 
-  var message = "Checking " + _mailSyncAccountsLabel(total || 1) + "..."
+  var repairMode = _mailSyncModeFromData(data) === "repair"
+  var message = (repairMode ? "Repairing " : "Checking ") + _mailSyncAccountsLabel(total || 1) + "..."
   if (phase === "started" && parallelism > 1 && total > 1) {
-    message = "Checking " + _mailSyncAccountsLabel(total) + ", up to " + parallelism + " at a time..."
+    message = (repairMode ? "Repairing " : "Checking ") + _mailSyncAccountsLabel(total) + ", up to " + parallelism + " at a time..."
   }
   if (phase === "progress") {
-    if (data.status === "syncing" && index && total) message = "Checking account " + index + " of " + total + "..."
+    if (data.status === "syncing" && index && total) message = (repairMode ? "Repairing account " : "Checking account ") + index + " of " + total + "..."
     else if (data.status === "skipped") message = "Account already syncing (" + done + " / " + total + ")."
     else if (data.status === "error") message = "Account failed (" + done + " / " + total + ")."
     else if (done && total) message = "Checked " + done + " of " + total + " accounts."
   }
   showMailSyncToast({
     id: "mail-sync-toast",
-    title: _mailSyncCancelRequested ? "Cancelling mail sync" : "Syncing mail",
+    title: _mailSyncCancelRequested ? (repairMode ? "Cancelling Gmail repair" : "Cancelling mail sync") : _mailSyncRunningTitle(data),
     description: _mailSyncCancelRequested ? "Stopping the foreground sync..." : message,
     variant: "info",
     icon: "spinner",
@@ -5256,7 +5518,7 @@ function handleMailManualSyncEvent(phase, data) {
 function handleMailScheduledSyncEvent(phase, data) {
   if (!data) return
   var runID = data.run_id || ""
-  if (_mailSyncState.kind === "manual" && _mailSyncState.active) return
+  if (_mailSyncHasActiveManualRun()) return
   if (_mailSyncState.kind === "scheduled" && _mailSyncState.active && _mailSyncState.runID && runID && _mailSyncState.runID !== runID && phase !== "started") return
 
   _mailSyncActive = phase !== "complete"

@@ -20,6 +20,8 @@ import (
 const (
 	manualSyncMaxParallelAccounts     = 0
 	backgroundSyncMaxParallelAccounts = 0
+	manualSyncTimeout                 = 30 * time.Minute
+	manualRepairSyncTimeout           = 6 * time.Hour
 )
 
 type manualSyncJob struct {
@@ -27,9 +29,13 @@ type manualSyncJob struct {
 	accountID string
 }
 
+type manualSyncOperation func(context.Context, string) error
+
 type manualSyncRun struct {
-	runID  string
-	cancel context.CancelFunc
+	runID      string
+	mode       string
+	accountIDs []string
+	cancel     context.CancelFunc
 }
 
 type accountSyncKind string
@@ -41,6 +47,7 @@ const (
 
 type accountSyncProgressScope struct {
 	kind          string
+	mode          string
 	userID        string
 	runID         string
 	accountIDs    []string
@@ -53,6 +60,7 @@ type accountSyncProgressScopeKey struct{}
 
 type accountSyncRun struct {
 	kind   accountSyncKind
+	mode   string
 	cancel context.CancelFunc
 	done   chan struct{}
 	once   sync.Once
@@ -73,6 +81,10 @@ type TokenProvider interface {
 	GetOAuthTokenForAccount(ctx context.Context, accountID string) (string, error)
 }
 
+type refreshingTokenProvider interface {
+	RefreshOAuthTokenForAccount(ctx context.Context, accountID string) (string, error)
+}
+
 type graphMailTokenProvider interface {
 	GetMicrosoftGraphMailTokenForAccount(ctx context.Context, accountID string) (string, error)
 }
@@ -89,7 +101,7 @@ type SyncOrchestrator struct {
 	events              *EventBus
 	mu                  sync.Mutex
 	running             map[string]*accountSyncRun
-	manualRuns          map[string]*manualSyncRun
+	manualRuns          map[string]map[string]*manualSyncRun
 	backgroundSyncSlots chan struct{}
 	idleWatchers        map[string][]*imap.IdleWatcher
 	cancelFuncs         map[string]*accountWorker
@@ -136,6 +148,9 @@ func accountSyncProgressPayload(ctx context.Context, fallbackKind accountSyncKin
 	if scope.kind != "" {
 		payload["kind"] = scope.kind
 	}
+	if scope.mode != "" {
+		payload["mode"] = scope.mode
+	}
 	if scope.userID != "" {
 		payload["user_id"] = scope.userID
 	}
@@ -175,6 +190,30 @@ func (o *SyncOrchestrator) accountSyncStatusPayload(ctx context.Context, account
 	return payload
 }
 
+func (o *SyncOrchestrator) folderSyncProgressPayload(ctx context.Context, accountID, folderName, provider string, payload map[string]any) map[string]any {
+	if payload == nil {
+		payload = make(map[string]any)
+	}
+	if folderName = strings.TrimSpace(folderName); folderName != "" {
+		payload["current_folder"] = folderName
+		payload["folder_name"] = folderName
+	}
+	if provider = strings.TrimSpace(provider); provider != "" {
+		payload["provider"] = provider
+	}
+	return o.accountSyncStatusPayload(ctx, accountID, "", payload)
+}
+
+func (o *SyncOrchestrator) refreshOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	if o == nil || o.tokenProvider == nil {
+		return "", errProviderLabelAuth
+	}
+	if refresher, ok := o.tokenProvider.(refreshingTokenProvider); ok {
+		return refresher.RefreshOAuthTokenForAccount(ctx, accountID)
+	}
+	return "", errProviderLabelAuth
+}
+
 func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blobStore *store.BlobStore, tokenProvider TokenProvider) *SyncOrchestrator {
 	return &SyncOrchestrator{
 		db:                  db,
@@ -183,7 +222,7 @@ func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blob
 		tokenProvider:       tokenProvider,
 		events:              NewEventBus(),
 		running:             make(map[string]*accountSyncRun),
-		manualRuns:          make(map[string]*manualSyncRun),
+		manualRuns:          make(map[string]map[string]*manualSyncRun),
 		backgroundSyncSlots: newAccountSyncSlots(backgroundSyncMaxParallelAccounts),
 		idleWatchers:        make(map[string][]*imap.IdleWatcher),
 		cancelFuncs:         make(map[string]*accountWorker),
@@ -827,15 +866,15 @@ func (o *SyncOrchestrator) senderAvatarURL(ctx context.Context, email string) st
 
 func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID, accountProvider string, folder storage.FolderSyncInfo, folderIndex, folderTotal, idleExcluded int) error {
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folder.ID)
+	folderName := displayName(folder.RemoteID, folder.Role)
 	startPayload := map[string]any{
 		"account_folders_total": folderTotal,
 		"account_folders_done":  folderIndex - 1,
-		"current_folder":        displayName(folder.RemoteID, folder.Role),
 	}
 	if idleExcluded > 0 {
 		startPayload["idle_folders_excluded"] = idleExcluded
 	}
-	startPayload = accountSyncProgressPayload(ctx, "", startPayload)
+	startPayload = o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, startPayload)
 	o.events.Publish(Event{
 		Type:       EventSyncStarted,
 		AccountID:  accountID,
@@ -851,12 +890,11 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		completePayload := map[string]any{
 			"account_folders_total": folderTotal,
 			"account_folders_done":  folderIndex,
-			"current_folder":        displayName(folder.RemoteID, folder.Role),
 		}
 		if idleExcluded > 0 {
 			completePayload["idle_folders_excluded"] = idleExcluded
 		}
-		completePayload = accountSyncProgressPayload(ctx, "", completePayload)
+		completePayload = o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, completePayload)
 		o.events.Publish(Event{
 			Type:       EventSyncComplete,
 			AccountID:  accountID,
@@ -996,6 +1034,10 @@ func (o *SyncOrchestrator) acquireBackgroundSyncSlot(ctx context.Context) (func(
 }
 
 func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID string, kind accountSyncKind) (context.Context, func(), bool) {
+	return o.beginAccountSyncWithMode(ctx, accountID, kind, "")
+}
+
+func (o *SyncOrchestrator) beginAccountSyncWithMode(ctx context.Context, accountID string, kind accountSyncKind, mode string) (context.Context, func(), bool) {
 	releaseSlot := func() {}
 	if kind == accountSyncBackground {
 		var ok bool
@@ -1008,6 +1050,7 @@ func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID strin
 	syncCtx, cancel := context.WithCancel(ctx)
 	run := &accountSyncRun{
 		kind:   kind,
+		mode:   strings.TrimSpace(mode),
 		cancel: cancel,
 		done:   make(chan struct{}),
 	}
@@ -1041,9 +1084,19 @@ func (o *SyncOrchestrator) beginAccountSync(ctx context.Context, accountID strin
 	return syncCtx, finish, true
 }
 
-func (o *SyncOrchestrator) beginManualAccountSync(ctx context.Context, accountID string) (context.Context, func(), bool) {
+func (o *SyncOrchestrator) accountManualMode(accountID string) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	run := o.running[accountID]
+	if run == nil || run.kind != accountSyncManual {
+		return ""
+	}
+	return strings.TrimSpace(run.mode)
+}
+
+func (o *SyncOrchestrator) beginManualAccountSync(ctx context.Context, accountID, mode string) (context.Context, func(), bool) {
 	for {
-		syncCtx, finish, ok := o.beginAccountSync(ctx, accountID, accountSyncManual)
+		syncCtx, finish, ok := o.beginAccountSyncWithMode(ctx, accountID, accountSyncManual, mode)
 		if ok {
 			return syncCtx, finish, true
 		}
@@ -1087,46 +1140,191 @@ func (o *SyncOrchestrator) clearAccountWorker(accountID string, worker *accountW
 	o.mu.Unlock()
 }
 
-func (o *SyncOrchestrator) markManualRunning(userID string, run *manualSyncRun) bool {
+func (o *SyncOrchestrator) markManualRunning(userID, mode string, run *manualSyncRun) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.manualRuns[userID] != nil {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		mode = "sync"
+	}
+	if o.manualRuns[userID] == nil {
+		o.manualRuns[userID] = make(map[string]*manualSyncRun)
+	}
+	if o.manualRuns[userID][mode] != nil {
 		return false
 	}
-	o.manualRuns[userID] = run
+	run.mode = mode
+	o.manualRuns[userID][mode] = run
 	return true
 }
 
 func (o *SyncOrchestrator) clearManualRunning(userID string, run *manualSyncRun) {
 	o.mu.Lock()
-	if o.manualRuns[userID] == run {
-		delete(o.manualRuns, userID)
+	mode := strings.TrimSpace(run.mode)
+	if mode == "" {
+		mode = "sync"
+	}
+	if runs := o.manualRuns[userID]; runs != nil && runs[mode] == run {
+		delete(runs, mode)
+		if len(runs) == 0 {
+			delete(o.manualRuns, userID)
+		}
 	}
 	o.mu.Unlock()
 }
 
 func (o *SyncOrchestrator) CancelManualSync(userID string) bool {
 	o.mu.Lock()
-	run := o.manualRuns[userID]
+	runs := o.manualRuns[userID]
+	toCancel := make([]*manualSyncRun, 0, len(runs))
+	for _, run := range runs {
+		if run != nil {
+			toCancel = append(toCancel, run)
+		}
+	}
 	o.mu.Unlock()
-	if run == nil {
+	if len(toCancel) == 0 {
 		return false
 	}
-	run.cancel()
+	for _, run := range toCancel {
+		run.cancel()
+	}
 	return true
 }
 
+func (o *SyncOrchestrator) ActiveManualSyncSnapshot(ctx context.Context, userID string) []Event {
+	if o == nil {
+		return nil
+	}
+	type runSnapshot struct {
+		runID      string
+		mode       string
+		accountIDs []string
+		active     map[string]bool
+	}
+
+	o.mu.Lock()
+	runs := o.manualRuns[userID]
+	snapshots := make([]runSnapshot, 0, len(runs))
+	for mode, run := range runs {
+		if run == nil {
+			continue
+		}
+		snap := runSnapshot{
+			runID:      run.runID,
+			mode:       strings.TrimSpace(mode),
+			accountIDs: append([]string(nil), run.accountIDs...),
+			active:     make(map[string]bool),
+		}
+		if snap.mode == "" {
+			snap.mode = strings.TrimSpace(run.mode)
+		}
+		if snap.mode == "" {
+			snap.mode = "sync"
+		}
+		for _, accountID := range snap.accountIDs {
+			accountRun := o.running[accountID]
+			if accountRun != nil && accountRun.kind == accountSyncManual && strings.TrimSpace(accountRun.mode) == snap.mode {
+				snap.active[accountID] = true
+			}
+		}
+		snapshots = append(snapshots, snap)
+	}
+	o.mu.Unlock()
+
+	var events []Event
+	for _, snap := range snapshots {
+		total := len(snap.accountIDs)
+		parallelism := accountSyncParallelism(total, manualSyncMaxParallelAccounts)
+		events = append(events, Event{Type: EventManualSyncStarted, Payload: map[string]any{
+			"user_id":        userID,
+			"run_id":         snap.runID,
+			"mode":           snap.mode,
+			"accounts_total": total,
+			"accounts_done":  0,
+			"account_ids":    append([]string(nil), snap.accountIDs...),
+			"parallelism":    parallelism,
+		}})
+		for index, accountID := range snap.accountIDs {
+			if !snap.active[accountID] {
+				continue
+			}
+			scope := accountSyncProgressScope{
+				kind:          string(accountSyncManual),
+				mode:          snap.mode,
+				userID:        userID,
+				runID:         snap.runID,
+				accountIDs:    snap.accountIDs,
+				accountsTotal: total,
+				accountIndex:  index + 1,
+				parallelism:   parallelism,
+			}
+			accountCtx := withAccountSyncProgressScope(ctx, scope)
+			events = append(events, Event{Type: EventManualSyncProgress, AccountID: accountID, Payload: o.accountSyncStatusPayload(accountCtx, accountID, accountSyncManual, map[string]any{
+				"status": "syncing",
+			})})
+			events = append(events, Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: o.accountSyncStatusPayload(accountCtx, accountID, accountSyncManual, map[string]any{
+				"status": "syncing",
+			})})
+			if snap.mode == "repair" && o.db != nil {
+				folders, err := o.db.GetFoldersForAccount(ctx, accountID)
+				if err != nil {
+					log.Printf("manual repair snapshot account=%s: folders: %v", accountID, err)
+					continue
+				}
+				for _, folder := range folders {
+					providerID := strings.TrimSpace(folder.ProviderRemoteID)
+					if providerID == "" {
+						continue
+					}
+					events = append(events, Event{
+						Type:       EventSyncStarted,
+						AccountID:  accountID,
+						FolderID:   folder.ID,
+						FolderRole: folder.Role,
+						Payload:    o.gmailAPIFolderRefreshPayload(accountCtx, accountID, displayName(folder.RemoteID, folder.Role), true),
+					})
+				}
+			}
+		}
+	}
+	return events
+}
+
 func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, accountIDs []string) (string, bool) {
+	return o.syncAccountsWithOperation(ctx, userID, accountIDs, manualSyncTimeout, "sync", func(accountCtx context.Context, accountID string) error {
+		return o.syncAccount(accountCtx, accountID, true)
+	})
+}
+
+func (o *SyncOrchestrator) RepairGmailAPIAccount(ctx context.Context, userID, accountID string) (string, bool) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return "", false
+	}
+	return o.syncAccountsWithOperation(ctx, userID, []string{accountID}, manualRepairSyncTimeout, "repair", func(accountCtx context.Context, accountID string) error {
+		return o.repairGmailAPIAccount(accountCtx, accountID)
+	})
+}
+
+func (o *SyncOrchestrator) syncAccountsWithOperation(ctx context.Context, userID string, accountIDs []string, timeout time.Duration, mode string, operation manualSyncOperation) (string, bool) {
 	if len(accountIDs) == 0 {
 		return "", false
+	}
+	if timeout <= 0 {
+		timeout = manualSyncTimeout
+	}
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		mode = "sync"
 	}
 
 	accountIDs = append([]string(nil), accountIDs...)
 	runAccountIDs := append([]string(nil), accountIDs...)
 	runID := userID + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	run := &manualSyncRun{runID: runID, cancel: cancel}
-	if !o.markManualRunning(userID, run) {
+	syncCtx, cancel := context.WithTimeout(ctx, timeout)
+	run := &manualSyncRun{runID: runID, mode: mode, accountIDs: append([]string(nil), runAccountIDs...), cancel: cancel}
+	if !o.markManualRunning(userID, mode, run) {
 		cancel()
 		return "", false
 	}
@@ -1147,6 +1345,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 		o.events.Publish(Event{Type: EventManualSyncStarted, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         runID,
+			"mode":           mode,
 			"accounts_total": total,
 			"accounts_done":  0,
 			"account_ids":    append([]string(nil), runAccountIDs...),
@@ -1174,6 +1373,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 					o.events.Publish(Event{Type: EventManualSyncProgress, AccountID: job.accountID, Payload: map[string]any{
 						"user_id":        userID,
 						"run_id":         runID,
+						"mode":           mode,
 						"account_ids":    append([]string(nil), runAccountIDs...),
 						"accounts_total": total,
 						"accounts_done":  done,
@@ -1189,6 +1389,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 					errorText := ""
 					accountRunCtx := withAccountSyncProgressScope(syncCtx, accountSyncProgressScope{
 						kind:          string(accountSyncManual),
+						mode:          mode,
 						userID:        userID,
 						runID:         runID,
 						accountIDs:    runAccountIDs,
@@ -1196,15 +1397,25 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 						accountIndex:  job.index + 1,
 						parallelism:   parallelism,
 					})
-					accountCtx, finish, ok := o.beginManualAccountSync(accountRunCtx, job.accountID)
-					if !ok {
+					var accountCtx context.Context
+					var finish func()
+					var ok bool
+					if mode == "sync" && o.accountManualMode(job.accountID) == "repair" {
+						status = "skipped"
+						errorText = "account is being repaired"
+					} else {
+						accountCtx, finish, ok = o.beginManualAccountSync(accountRunCtx, job.accountID, mode)
+					}
+					if status == "skipped" {
+						// Account is intentionally omitted from this regular sync because a repair run owns it.
+					} else if !ok {
 						status = "cancelled"
 						errorText = "manual sync could not start"
 						if err := syncCtx.Err(); err != nil {
 							errorText = err.Error()
 						}
 					} else {
-						err := o.syncAccount(accountCtx, job.accountID, true)
+						err := operation(accountCtx, job.accountID)
 						if err != nil {
 							if syncCtx.Err() != nil {
 								status = "cancelled"
@@ -1212,7 +1423,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 								status = "error"
 							}
 							errorText = err.Error()
-							log.Printf("manual sync account %s: %v", job.accountID, err)
+							log.Printf("manual %s account %s: %v", mode, job.accountID, err)
 							o.markAccountSyncError(accountCtx, job.accountID, err)
 						} else {
 							o.clearAccountSyncError(accountCtx, job.accountID)
@@ -1238,6 +1449,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 					payload := map[string]any{
 						"user_id":        userID,
 						"run_id":         runID,
+						"mode":           mode,
 						"account_ids":    append([]string(nil), runAccountIDs...),
 						"accounts_total": total,
 						"accounts_done":  done,
@@ -1290,6 +1502,7 @@ func (o *SyncOrchestrator) SyncAccounts(ctx context.Context, userID string, acco
 		o.events.Publish(Event{Type: EventManualSyncComplete, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         runID,
+			"mode":           mode,
 			"account_ids":    append([]string(nil), runAccountIDs...),
 			"accounts_total": total,
 			"accounts_done":  finalCompleted,
@@ -1489,11 +1702,12 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.Client, accountID, accountProvider, folderID, remoteName string) {
 	folderRole, _ := o.db.GetFolderRole(ctx, folderID)
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folderID)
-	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", nil)})
+	folderName := displayName(remoteName, folderRole)
+	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 	fetched := 0
 	result, err := client.SyncFolder(ctx, folderID, remoteName, 500, func(msgs []storage.SyncMessage) error {
 		fetched += len(msgs)
-		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: totalHint, Payload: accountSyncProgressPayload(ctx, "", nil)})
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 		return o.db.UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, remoteName, folderRole))
 	})
 	if err != nil {
@@ -1509,11 +1723,11 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client *imap.
 		if total <= 0 {
 			total = int(result.NumMessages)
 		}
-		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total, Payload: accountSyncProgressPayload(ctx, "", nil)})
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 	}
 	o.db.RefreshFolderUnreadCount(ctx, folderID)
 	log.Printf("synced %s/%s: %d messages", accountID, remoteName, result.TotalFetched)
-	o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Payload: accountSyncProgressPayload(ctx, "", nil)})
+	o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 }
 
 func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folderID, remoteName string) {

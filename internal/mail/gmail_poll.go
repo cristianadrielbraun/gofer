@@ -272,7 +272,7 @@ func (o *SyncOrchestrator) checkGmailAPIProfile(ctx context.Context, accountID s
 		return false, profileHistoryID, err
 	}
 	cursor := strings.TrimSpace(state.Cursor)
-	changed := cursor == "" || !state.LastFullSyncAt.Valid || newerGmailHistoryID(cursor, profileHistoryID) != cursor
+	changed := cursor == "" || !state.LastSuccessAt.Valid || newerGmailHistoryID(cursor, profileHistoryID) != cursor
 	o.markGmailPollCheck(ctx, accountID, profileHistoryID, changed, nil)
 	return changed, profileHistoryID, nil
 }

@@ -31,6 +31,29 @@ func (labelSyncTestTokens) GetMicrosoftLegacyOutlookMailTokenForAccount(context.
 	return "legacy-outlook-token", nil
 }
 
+type refreshingLabelSyncTestTokens struct {
+	initial   string
+	refreshed string
+	refreshes *int
+}
+
+func (t refreshingLabelSyncTestTokens) GetOAuthTokenForAccount(context.Context, string) (string, error) {
+	if strings.TrimSpace(t.initial) != "" {
+		return t.initial, nil
+	}
+	return "gmail-token", nil
+}
+
+func (t refreshingLabelSyncTestTokens) RefreshOAuthTokenForAccount(context.Context, string) (string, error) {
+	if t.refreshes != nil {
+		(*t.refreshes)++
+	}
+	if strings.TrimSpace(t.refreshed) != "" {
+		return t.refreshed, nil
+	}
+	return "gmail-token-refreshed", nil
+}
+
 func newLabelSyncTestDB(t *testing.T) *storage.DB {
 	t.Helper()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))

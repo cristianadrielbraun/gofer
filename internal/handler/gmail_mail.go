@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
@@ -30,12 +29,7 @@ type gmailAPIDraftResponse struct {
 }
 
 func gmailAPIMailRuntimeEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("GOFER_GMAIL_API_SYNC"))) {
-	case "0", "false", "off", "no":
-		return false
-	default:
-		return true
-	}
+	return true
 }
 
 func (h *Handler) shouldUseGmailAPIMailRuntime(provider string) bool {

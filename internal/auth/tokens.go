@@ -42,6 +42,25 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 	return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider, false)
 }
 
+func (m *Manager) RefreshOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	var accountProvider, providerAccountID string
+	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider, provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider, &providerAccountID); err != nil {
+		return "", fmt.Errorf("query account oauth identity: %w", err)
+	}
+	oauthProvider, err := oauthProviderForAccountProvider(accountProvider)
+	if err != nil {
+		return "", err
+	}
+	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider, providerAccountID != "")
+	if err != nil {
+		return "", err
+	}
+	if record.RefreshToken == "" {
+		return "", fmt.Errorf("no refresh token available for account %s", accountID)
+	}
+	return m.refreshToken(ctx, oauthProvider, record.ID, record.RefreshToken)
+}
+
 func (m *Manager) GetMicrosoftLegacyOutlookMailTokenForAccount(ctx context.Context, accountID string) (string, error) {
 	var providerAccountID string
 	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider_account_id FROM accounts WHERE id = ? AND provider = ?`, accountID, providers.ProviderOutlook).Scan(&providerAccountID); err != nil {

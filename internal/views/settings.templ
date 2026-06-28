@@ -1679,6 +1679,18 @@ templ SettingsAccountCard(account models.Account) {
 						</button>
 						if account.Provider == "gmail" {
 							@GmailReauthForm(account)
+							if account.EmailSyncEnabled {
+								@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("repair-account-%s", account.ID)}) {
+									<button
+										type="button"
+										data-mail-account-sync-button={ account.ID }
+										class="account-action-btn inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+									>
+										@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+										Repair
+									</button>
+								}
+							}
 						} else if account.Provider == "outlook" {
 							@OutlookReauthForm(account)
 						}
@@ -1705,6 +1717,51 @@ templ SettingsAccountCard(account models.Account) {
 				</div>
 			</div>
 		</div>
+		if account.Provider == "gmail" && account.EmailSyncEnabled && !account.IsDeleting {
+			@dialog.Dialog(dialog.Props{ID: fmt.Sprintf("repair-account-%s", account.ID)}) {
+				@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+					@dialog.Header() {
+						@dialog.Title() {
+							Repair and Full Resync
+						}
+						@dialog.Description() {
+							This will re-list Gmail folders and re-check Gmail metadata for <strong>{ account.Email }</strong>. It can take a while on large mailboxes.
+						}
+					}
+					<div class="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
+						<div class="account-color-marker size-5 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
+						<div class="min-w-0 flex-1">
+							<p class="truncate text-sm font-medium">{ account.Name }</p>
+							<p class="truncate text-xs text-muted-foreground">{ account.Email }</p>
+						</div>
+					</div>
+					@dialog.Footer() {
+						@dialog.Close() {
+							<button
+								type="button"
+								class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent"
+							>
+								Cancel
+							</button>
+						}
+						<button
+							type="button"
+							class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+							hx-post={ fmt.Sprintf("/api/mail/sync/accounts/%s/repair", account.ID) }
+							hx-swap="none"
+							hx-on::before-request="handleMailSidebarSyncStart('repair')"
+							hx-on::after-request="handleMailSidebarSyncResult(event)"
+							data-mail-account-sync-button={ account.ID }
+							data-repair-account-action="true"
+							data-account-id={ account.ID }
+						>
+							@icon.RefreshCw(icon.Props{Class: "size-4"})
+							Start Repair
+						</button>
+					}
+				}
+			}
+		}
 		@dialog.Dialog(dialog.Props{ID: fmt.Sprintf("delete-account-%s", account.ID)}) {
 			@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
 				@dialog.Header() {

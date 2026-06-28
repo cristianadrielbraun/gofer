@@ -2,16 +2,17 @@ package mail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"mime"
 	"net/http"
 	"net/mail"
 	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
@@ -22,6 +23,12 @@ import (
 )
 
 const gmailAPIMessagePageSize = 500
+const gmailAPIRecentCatchupMaxPages = 2
+const gmailAPIRecentCatchupScope = "messages_recent_catchup"
+const gmailAPIHistoricalMetadataWorkers = 6
+const gmailAPIHistoricalMetadataPerMinute = 240
+const gmailAPIHistoricalMetadataBatchSize = 100
+const gmailAPIMessageMetadataMaxAttempts = 5
 
 var gmailAPIMessageMetadataHeaders = []string{
 	"Message-ID",
@@ -105,13 +112,26 @@ type gmailAPIMessageSyncResult struct {
 	Skipped           bool
 }
 
+type gmailAPIMessageFetchResult struct {
+	ProviderMessageID string
+	Message           gmailAPIMessage
+	Err               error
+}
+
+type gmailAPISharedToken struct {
+	mu       sync.Mutex
+	token    string
+	external *string
+}
+
+type gmailAPIMetadataLimiter struct {
+	tokens chan struct{}
+	once   sync.Once
+	stop   func()
+}
+
 func gmailAPIMailEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("GOFER_GMAIL_API_SYNC"))) {
-	case "0", "false", "off", "no":
-		return false
-	default:
-		return true
-	}
+	return true
 }
 
 func (o *SyncOrchestrator) shouldUseGmailAPIMail(cfg *models.AccountConfig) bool {
@@ -127,7 +147,7 @@ func (o *SyncOrchestrator) syncGmailAPIAccount(ctx context.Context, accountID st
 		return err
 	}
 
-	targets, labelsByID, err := o.syncGmailAPIFolders(ctx, accountID, token)
+	targets, labelsByID, err := o.syncGmailAPIFoldersWithAuthRetry(ctx, accountID, &token)
 	if err != nil {
 		return err
 	}
@@ -140,24 +160,145 @@ func (o *SyncOrchestrator) syncGmailAPIAccount(ctx context.Context, accountID st
 		return nil
 	}
 
-	o.backfillGmailAPIMessageIDs(ctx, accountID, token, 250)
-
-	var syncErr error
-	if !includeIDLEFolders {
-		state, err := o.db.GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, "messages")
-		if err == nil && strings.TrimSpace(state.Cursor) != "" && state.LastFullSyncAt.Valid {
-			syncErr = o.syncGmailAPIHistoryChanges(ctx, accountID, token, labelsByID, targets, state.Cursor)
-			if syncErr != nil {
-				return syncErr
+	state, err := o.db.GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, "messages")
+	if err != nil {
+		return err
+	}
+	cursor, seeded, err := o.ensureGmailAPILiveCursor(ctx, accountID, &token, state)
+	if err != nil {
+		return err
+	}
+	if !state.LastFullSyncAt.Valid {
+		shouldImport, err := o.shouldRunGmailAPIInitialImport(ctx, accountID, state)
+		if err != nil {
+			return err
+		}
+		if shouldImport {
+			if err := o.syncGmailAPIHistoricalImport(ctx, accountID, &token, labelsByID, targets, false); err != nil {
+				return err
+			}
+			if seeded {
+				if err := o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, false); err != nil {
+					return err
+				}
 			}
 			return o.db.RefreshAccountFolderThreadState(ctx, accountID)
 		}
+		shouldCatchup, err := o.shouldRunGmailAPIRecentCatchup(ctx, accountID, state)
+		if err != nil {
+			return err
+		}
+		if shouldCatchup {
+			if err := o.syncGmailAPIRecentCatchup(ctx, accountID, &token, labelsByID, targets); err != nil {
+				return err
+			}
+			if err := o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope, "", false); err != nil {
+				return err
+			}
+		}
 	}
-	syncErr = o.syncGmailAPIFull(ctx, accountID, token, labelsByID, targets)
-	if syncErr != nil {
-		return syncErr
+	if seeded {
+		if err := o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, false); err != nil {
+			return err
+		}
+		return o.db.RefreshAccountFolderThreadState(ctx, accountID)
+	}
+
+	if err := o.syncGmailAPIHistoryChanges(ctx, accountID, token, labelsByID, targets, cursor); err != nil {
+		return err
 	}
 	return o.db.RefreshAccountFolderThreadState(ctx, accountID)
+}
+
+func (o *SyncOrchestrator) repairGmailAPIAccount(ctx context.Context, accountID string) error {
+	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
+		return nil
+	}
+	cfg, err := o.accountStore.GetConfig(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if !o.shouldUseGmailAPIMail(cfg) {
+		return fmt.Errorf("full mail repair is only available for Gmail accounts")
+	}
+	token, err := o.tokenProvider.GetOAuthTokenForAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	targets, labelsByID, err := o.syncGmailAPIFoldersWithAuthRetry(ctx, accountID, &token)
+	if err != nil {
+		return err
+	}
+	if len(targets) == 0 {
+		o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, accountSyncManual, map[string]any{
+			"status":                "ok",
+			"account_folders_total": 0,
+			"provider":              "gmail_api",
+			"mode":                  "repair",
+		})})
+		return nil
+	}
+	if err := o.syncGmailAPIHistoricalImport(ctx, accountID, &token, labelsByID, targets, true); err != nil {
+		return err
+	}
+	cursor, err := o.getGmailProfileHistoryIDWithAuthRetry(ctx, accountID, &token)
+	if err != nil {
+		return err
+	}
+	if err := o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, true); err != nil {
+		return err
+	}
+	if err := o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope, "", false); err != nil {
+		return err
+	}
+	return o.db.RefreshAccountFolderThreadState(ctx, accountID)
+}
+
+func (o *SyncOrchestrator) syncGmailAPIFoldersWithAuthRetry(ctx context.Context, accountID string, token *string) ([]gmailAPIFolderSyncTarget, map[string]gmailAPILabel, error) {
+	current := ""
+	if token != nil {
+		current = *token
+	}
+	targets, labelsByID, err := o.syncGmailAPIFolders(ctx, accountID, current)
+	refreshed, ok := o.refreshGmailTokenAfterUnauthorized(ctx, accountID, token, err)
+	if !ok {
+		return targets, labelsByID, err
+	}
+	return o.syncGmailAPIFolders(ctx, accountID, refreshed)
+}
+
+func (o *SyncOrchestrator) ensureGmailAPILiveCursor(ctx context.Context, accountID string, token *string, state storage.LabelSyncState) (string, bool, error) {
+	cursor := strings.TrimSpace(state.Cursor)
+	if cursor != "" && state.LastSuccessAt.Valid {
+		return cursor, false, nil
+	}
+	cursor, err := o.getGmailProfileHistoryIDWithAuthRetry(ctx, accountID, token)
+	if err != nil {
+		return "", false, err
+	}
+	return cursor, true, nil
+}
+
+func (o *SyncOrchestrator) shouldRunGmailAPIInitialImport(ctx context.Context, accountID string, state storage.LabelSyncState) (bool, error) {
+	if state.LastFullSyncAt.Valid {
+		return false, nil
+	}
+	count, err := o.db.CountProviderBackedMessages(ctx, accountID)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
+
+func (o *SyncOrchestrator) shouldRunGmailAPIRecentCatchup(ctx context.Context, accountID string, state storage.LabelSyncState) (bool, error) {
+	if state.LastFullSyncAt.Valid {
+		return false, nil
+	}
+	catchupState, err := o.db.GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope)
+	if err != nil {
+		return false, err
+	}
+	return !catchupState.LastSuccessAt.Valid, nil
 }
 
 func (o *SyncOrchestrator) syncGmailAPIFolders(ctx context.Context, accountID, token string) ([]gmailAPIFolderSyncTarget, map[string]gmailAPILabel, error) {
@@ -241,7 +382,7 @@ func (o *SyncOrchestrator) syncGmailAPIFolders(ctx context.Context, accountID, t
 	return targets, labelsByID, nil
 }
 
-func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, token string, labelsByID map[string]gmailAPILabel, targets []gmailAPIFolderSyncTarget) (retErr error) {
+func (o *SyncOrchestrator) syncGmailAPIHistoricalImport(ctx context.Context, accountID string, token *string, labelsByID map[string]gmailAPILabel, targets []gmailAPIFolderSyncTarget, refreshKnown bool) (retErr error) {
 	stats := storage.LabelSyncRunStats{
 		AccountID:    accountID,
 		ProviderType: storage.LabelProviderGmail,
@@ -254,49 +395,55 @@ func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, toke
 	}()
 
 	targetsByLabelID := gmailAPITargetsByLabelID(targets)
+	targetsByFolderID := gmailAPITargetsByFolderID(targets)
 	seenProviderIDs := map[string]bool{}
+	seenProviderIDsByFolder := make(map[string]map[string]bool, len(targets))
 	touchedFolders := map[string]bool{}
 	syncedFolders := map[string]bool{}
 	failed := 0
 	processed := 0
 	totalEstimate := 0
-	for _, target := range targets {
-		if err := ctx.Err(); err != nil {
-			return err
+	sharedToken := newGmailAPISharedToken(token)
+	metadataLimiter := newGmailAPIMetadataLimiter(gmailAPIHistoricalMetadataPerMinute, gmailAPIHistoricalMetadataWorkers)
+	defer metadataLimiter.Stop()
+	publishProgress := func() {
+		total := totalEstimate
+		if total < processed {
+			total = processed
 		}
-		pageToken := ""
-		estimateRecorded := false
-		for {
-			page, err := listGmailAPIMessageIDPage(ctx, token, target.LabelID, pageToken)
+		o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, targetsByFolderID, processed, total, true, true)
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, Current: processed, Total: total, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
+			"provider": "gmail_api",
+		})})
+	}
+	processProviderIDs := func(providerIDs []string) error {
+		for _, batch := range gmailAPIProviderIDChunks(providerIDs, gmailAPIHistoricalMetadataBatchSize) {
+			fetched := o.fetchGmailAPIMessageMetadataBatch(ctx, accountID, sharedToken, metadataLimiter, batch)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			messages := make([]gmailAPIMessage, 0, len(fetched))
+			for _, result := range fetched {
+				if result.Err == nil {
+					messages = append(messages, result.Message)
+					continue
+				}
+				if providerLabelSyncShouldStop(result.Err) {
+					stats.FailedMessages++
+					return result.Err
+				}
+				failed++
+				stats.FailedMessages++
+				if providerMessageNotFound(result.Err) {
+					stats.MissingProviderMessages++
+				}
+				log.Printf("gmail api sync message account=%s provider_message=%s: %v", accountID, result.ProviderMessageID, result.Err)
+			}
+			results, err := o.upsertGmailAPIProviderMessageBatch(ctx, accountID, messages, labelsByID, targetsByLabelID)
 			if err != nil {
 				return err
 			}
-			if !estimateRecorded && page.ResultSize > 0 {
-				totalEstimate += page.ResultSize
-				estimateRecorded = true
-			}
-			for _, ref := range page.Messages {
-				providerID := strings.TrimSpace(ref.ID)
-				if providerID == "" || seenProviderIDs[providerID] {
-					continue
-				}
-				seenProviderIDs[providerID] = true
-				processed++
-				result, err := o.syncGmailAPIProviderMessage(ctx, accountID, token, providerID, labelsByID, targetsByLabelID)
-				if err != nil {
-					if providerLabelSyncShouldStop(err) {
-						stats.FailedMessages++
-						return err
-					}
-					failed++
-					stats.FailedMessages++
-					if providerMessageNotFound(err) {
-						stats.MissingProviderMessages++
-					}
-					log.Printf("gmail api sync message account=%s provider_message=%s: %v", accountID, providerID, err)
-					continue
-				}
-				stats.Cursor = newerGmailHistoryID(stats.Cursor, result.HistoryID)
+			for _, result := range results {
 				if result.Skipped {
 					stats.SkippedMessages++
 					continue
@@ -305,15 +452,162 @@ func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, toke
 				stats.WithLabels++
 				recordGmailAPITouchedFolders(touchedFolders, result.FolderIDs)
 				recordGmailAPITouchedFolders(syncedFolders, result.FolderIDs)
-				if processed%25 == 0 {
-					total := totalEstimate
-					if total < processed {
-						total = processed
+			}
+			publishProgress()
+		}
+		return nil
+	}
+	for _, target := range targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if gmailAPIHistoricalImportIsRepair(ctx) {
+			o.events.Publish(Event{
+				Type:       EventSyncStarted,
+				AccountID:  accountID,
+				FolderID:   target.Folder.ID,
+				FolderRole: target.Folder.Role,
+				Payload:    o.gmailAPIFolderRefreshPayload(ctx, accountID, displayName(target.Folder.RemoteID, target.Folder.Role), true),
+			})
+		}
+		if strings.TrimSpace(target.Folder.ID) != "" && seenProviderIDsByFolder[target.Folder.ID] == nil {
+			seenProviderIDsByFolder[target.Folder.ID] = map[string]bool{}
+		}
+		pageToken := ""
+		estimateRecorded := false
+		for {
+			page, err := o.listGmailAPIMessageIDPageWithAuthRetry(ctx, accountID, token, target.LabelID, pageToken)
+			if err != nil {
+				return err
+			}
+			if !estimateRecorded && page.ResultSize > 0 {
+				totalEstimate += page.ResultSize
+				estimateRecorded = true
+			}
+			pageProviderIDs := gmailAPIMessageRefIDs(page.Messages)
+			if folderSeen := seenProviderIDsByFolder[target.Folder.ID]; folderSeen != nil {
+				for _, providerID := range pageProviderIDs {
+					folderSeen[providerID] = true
+				}
+			}
+			existingByProvider, err := o.db.UpsertExistingProviderFolderStates(ctx, accountID, target.Folder.ID, pageProviderIDs)
+			if err != nil {
+				return err
+			}
+			if len(existingByProvider) > 0 {
+				touchedFolders[target.Folder.ID] = true
+				syncedFolders[target.Folder.ID] = true
+			}
+			pendingProviderIDs := make([]string, 0, len(page.Messages))
+			for _, ref := range page.Messages {
+				providerID := strings.TrimSpace(ref.ID)
+				if providerID == "" || seenProviderIDs[providerID] {
+					continue
+				}
+				seenProviderIDs[providerID] = true
+				processed++
+				if _, ok := existingByProvider[providerID]; ok && !refreshKnown {
+					stats.SyncedMessages++
+					recordGmailAPITouchedFolders(touchedFolders, []string{target.Folder.ID})
+					recordGmailAPITouchedFolders(syncedFolders, []string{target.Folder.ID})
+					if processed%25 == 0 {
+						publishProgress()
 					}
-					o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
-					o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, Current: processed, Total: total, Payload: accountSyncProgressPayload(ctx, "", map[string]any{
-						"provider": "gmail_api",
-					})})
+					continue
+				}
+				pendingProviderIDs = append(pendingProviderIDs, providerID)
+			}
+			if err := processProviderIDs(pendingProviderIDs); err != nil {
+				return err
+			}
+			pageToken = strings.TrimSpace(page.NextPageToken)
+			if pageToken == "" {
+				break
+			}
+		}
+	}
+	for folderID, providerIDs := range seenProviderIDsByFolder {
+		if err := o.db.ReconcileProviderFolderSeen(ctx, accountID, folderID, gmailAPIProviderIDSetValues(providerIDs)); err != nil {
+			return err
+		}
+	}
+	stats.TotalMessages = len(seenProviderIDs)
+	total := totalEstimate
+	if total < processed {
+		total = processed
+	}
+	stats.Cursor = ""
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, targetsByFolderID, processed, total, true, true)
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncComplete, accountID, syncedFolders, targetsByFolderID, processed, total, false, true)
+	currentToken := ""
+	if token != nil {
+		currentToken = *token
+	}
+	o.replayGmailLabelMutationQueue(ctx, accountID, currentToken)
+	if failed > 0 {
+		return fmt.Errorf("%d Gmail API message import(s) failed", failed)
+	}
+	return nil
+}
+
+func (o *SyncOrchestrator) syncGmailAPIRecentCatchup(ctx context.Context, accountID string, token *string, labelsByID map[string]gmailAPILabel, targets []gmailAPIFolderSyncTarget) error {
+	targetsByLabelID := gmailAPITargetsByLabelID(targets)
+	targetsByFolderID := gmailAPITargetsByFolderID(targets)
+	seenProviderIDs := map[string]bool{}
+	touchedFolders := map[string]bool{}
+	syncedFolders := map[string]bool{}
+	processed := 0
+	failed := 0
+
+	for _, target := range targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		pageToken := ""
+		for pageIndex := 0; pageIndex < gmailAPIRecentCatchupMaxPages; pageIndex++ {
+			page, err := o.listGmailAPIMessageIDPageWithAuthRetry(ctx, accountID, token, target.LabelID, pageToken)
+			if err != nil {
+				return err
+			}
+			pageProviderIDs := gmailAPIMessageRefIDs(page.Messages)
+			existingByProvider, err := o.db.UpsertExistingProviderFolderStates(ctx, accountID, target.Folder.ID, pageProviderIDs)
+			if err != nil {
+				return err
+			}
+			if len(existingByProvider) > 0 {
+				touchedFolders[target.Folder.ID] = true
+				syncedFolders[target.Folder.ID] = true
+			}
+			for _, ref := range page.Messages {
+				providerID := strings.TrimSpace(ref.ID)
+				if providerID == "" || seenProviderIDs[providerID] {
+					continue
+				}
+				seenProviderIDs[providerID] = true
+				if _, ok := existingByProvider[providerID]; ok {
+					continue
+				}
+				processed++
+				result, err := o.syncGmailAPIProviderMessageWithAuthRetry(ctx, accountID, token, providerID, labelsByID, targetsByLabelID)
+				if err != nil {
+					if providerLabelSyncShouldStop(err) {
+						return err
+					}
+					failed++
+					log.Printf("gmail api recent catch-up account=%s provider_message=%s: %v", accountID, providerID, err)
+					continue
+				}
+				if result.Skipped {
+					continue
+				}
+				recordGmailAPITouchedFolders(touchedFolders, result.FolderIDs)
+				recordGmailAPITouchedFolders(syncedFolders, result.FolderIDs)
+				if processed%25 == 0 {
+					total := processed
+					if total == 0 {
+						total = len(seenProviderIDs)
+					}
+					o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, targetsByFolderID, processed, total, true, true)
 				}
 			}
 			pageToken = strings.TrimSpace(page.NextPageToken)
@@ -322,25 +616,26 @@ func (o *SyncOrchestrator) syncGmailAPIFull(ctx context.Context, accountID, toke
 			}
 		}
 	}
-	stats.TotalMessages = len(seenProviderIDs)
-	total := totalEstimate
-	if total < processed {
-		total = processed
+	total := processed
+	if total == 0 {
+		total = len(seenProviderIDs)
 	}
-	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
-	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncComplete, accountID, syncedFolders, processed, total, false)
-	o.replayGmailLabelMutationQueue(ctx, accountID, token)
-	if cursor, err := getGmailProfileHistoryID(ctx, token); err == nil {
-		stats.Cursor = newerGmailHistoryID(stats.Cursor, cursor)
-	} else if ctx.Err() != nil {
-		return ctx.Err()
-	} else {
-		log.Printf("gmail api sync profile cursor account=%s: %v", accountID, err)
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, targetsByFolderID, processed, total, true, true)
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncComplete, accountID, syncedFolders, targetsByFolderID, processed, total, false, true)
+	currentToken := ""
+	if token != nil {
+		currentToken = *token
 	}
+	o.replayGmailLabelMutationQueue(ctx, accountID, currentToken)
 	if failed > 0 {
-		return fmt.Errorf("%d Gmail API message import(s) failed", failed)
+		return fmt.Errorf("%d Gmail API recent message catch-up import(s) failed", failed)
 	}
 	return nil
+}
+
+func gmailAPIHistoricalImportIsRepair(ctx context.Context) bool {
+	scope, ok := ctx.Value(accountSyncProgressScopeKey{}).(accountSyncProgressScope)
+	return ok && strings.TrimSpace(scope.mode) == "repair"
 }
 
 func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accountID, token string, labelsByID map[string]gmailAPILabel, targets []gmailAPIFolderSyncTarget, cursor string) (retErr error) {
@@ -360,18 +655,19 @@ func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accou
 		retErr = o.completeProviderLabelSyncRun(stats, retErr)
 	}()
 
-	providerIDs, latestCursor, err := gmailHistoryChangedMessageIDs(ctx, token, cursor)
+	providerIDs, latestCursor, err := o.gmailHistoryChangedMessageIDsWithAuthRetry(ctx, accountID, &token, cursor)
 	if err != nil {
 		if status, ok := providerAPIStatus(err); ok && status == http.StatusNotFound {
-			log.Printf("gmail api sync account=%s history cursor expired, running full reconciliation", accountID)
+			log.Printf("gmail api sync account=%s history cursor expired, reseeding cursor and running recent catch-up", accountID)
 			fallbackFull = true
-			return o.syncGmailAPIFull(ctx, accountID, token, labelsByID, targets)
+			return o.recoverGmailAPIExpiredHistory(ctx, accountID, &token, labelsByID, targets)
 		}
 		return err
 	}
 	stats.Cursor = newerGmailHistoryID(stats.Cursor, latestCursor)
 	stats.TotalMessages = len(providerIDs)
 	targetsByLabelID := gmailAPITargetsByLabelID(targets)
+	targetsByFolderID := gmailAPITargetsByFolderID(targets)
 
 	failed := 0
 	processed := 0
@@ -382,7 +678,7 @@ func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accou
 			return err
 		}
 		processed++
-		result, err := o.syncGmailAPIProviderMessage(ctx, accountID, token, providerID, labelsByID, targetsByLabelID)
+		result, err := o.syncGmailAPIProviderMessageWithAuthRetry(ctx, accountID, &token, providerID, labelsByID, targetsByLabelID)
 		if err != nil {
 			if providerLabelSyncShouldStop(err) {
 				stats.FailedMessages++
@@ -410,20 +706,48 @@ func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accou
 			if total < processed {
 				total = processed
 			}
-			o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
+			o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, targetsByFolderID, processed, total, true, false)
 		}
 	}
 	total := stats.TotalMessages
 	if total < processed {
 		total = processed
 	}
-	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, processed, total, true)
-	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncComplete, accountID, syncedFolders, processed, total, false)
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncProgress, accountID, touchedFolders, targetsByFolderID, processed, total, true, false)
+	o.publishGmailAPIFolderSyncEvent(ctx, EventSyncComplete, accountID, syncedFolders, targetsByFolderID, processed, total, false, false)
 	o.replayGmailLabelMutationQueue(ctx, accountID, token)
 	if failed > 0 {
 		return fmt.Errorf("%d Gmail API message change import(s) failed", failed)
 	}
 	return nil
+}
+
+func (o *SyncOrchestrator) recoverGmailAPIExpiredHistory(ctx context.Context, accountID string, token *string, labelsByID map[string]gmailAPILabel, targets []gmailAPIFolderSyncTarget) error {
+	cursor, err := o.getGmailProfileHistoryIDWithAuthRetry(ctx, accountID, token)
+	if err != nil {
+		return err
+	}
+	state, err := o.db.GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, "messages")
+	if err != nil {
+		return err
+	}
+	shouldImport, err := o.shouldRunGmailAPIInitialImport(ctx, accountID, state)
+	if err != nil {
+		return err
+	}
+	if shouldImport {
+		if err := o.syncGmailAPIHistoricalImport(ctx, accountID, token, labelsByID, targets, false); err != nil {
+			return err
+		}
+	} else {
+		if err := o.syncGmailAPIRecentCatchup(ctx, accountID, token, labelsByID, targets); err != nil {
+			return err
+		}
+		if err := o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope, "", false); err != nil {
+			return err
+		}
+	}
+	return o.db.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, false)
 }
 
 func (o *SyncOrchestrator) syncGmailAPIProviderMessage(ctx context.Context, accountID, token, providerMessageID string, labelsByID map[string]gmailAPILabel, targetsByLabelID map[string]gmailAPIFolderSyncTarget) (gmailAPIMessageSyncResult, error) {
@@ -447,6 +771,342 @@ func (o *SyncOrchestrator) syncGmailAPIProviderMessage(ctx context.Context, acco
 	return gmailAPIMessageSyncResult{ProviderMessageID: msg.ID, LocalMessageID: localID, HistoryID: msg.HistoryID, FolderIDs: folderIDs, Synced: true}, nil
 }
 
+func (o *SyncOrchestrator) syncGmailAPIProviderMessageWithAuthRetry(ctx context.Context, accountID string, token *string, providerMessageID string, labelsByID map[string]gmailAPILabel, targetsByLabelID map[string]gmailAPIFolderSyncTarget) (gmailAPIMessageSyncResult, error) {
+	current := ""
+	if token != nil {
+		current = *token
+	}
+	result, err := o.syncGmailAPIProviderMessage(ctx, accountID, current, providerMessageID, labelsByID, targetsByLabelID)
+	if !providerAPIUnauthorized(err) {
+		return result, err
+	}
+	refreshed, refreshErr := o.refreshOAuthTokenForAccount(ctx, accountID)
+	if refreshErr != nil {
+		return result, err
+	}
+	if token != nil {
+		*token = refreshed
+	}
+	return o.syncGmailAPIProviderMessage(ctx, accountID, refreshed, providerMessageID, labelsByID, targetsByLabelID)
+}
+
+func (o *SyncOrchestrator) upsertGmailAPIProviderMessageBatch(ctx context.Context, accountID string, messages []gmailAPIMessage, labelsByID map[string]gmailAPILabel, targetsByLabelID map[string]gmailAPIFolderSyncTarget) ([]gmailAPIMessageSyncResult, error) {
+	type messagePlan struct {
+		providerID string
+		historyID  string
+		folderIDs  []string
+		skipped    bool
+	}
+
+	plans := make([]messagePlan, 0, len(messages))
+	upserts := make([]storage.ProviderSyncMessage, 0, len(messages))
+	for _, msg := range messages {
+		providerID := strings.TrimSpace(msg.ID)
+		if providerID == "" {
+			continue
+		}
+		messageUpserts := gmailAPIMessageToProviderSyncs(accountID, msg, labelsByID, targetsByLabelID)
+		plan := messagePlan{
+			providerID: providerID,
+			historyID:  msg.HistoryID,
+			folderIDs:  gmailAPIProviderSyncFolderIDs(messageUpserts),
+			skipped:    len(messageUpserts) == 0,
+		}
+		plans = append(plans, plan)
+		upserts = append(upserts, messageUpserts...)
+	}
+
+	idsByProvider, err := o.db.UpsertProviderSyncMessages(ctx, upserts)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]gmailAPIMessageSyncResult, 0, len(plans))
+	for _, plan := range plans {
+		if plan.skipped {
+			results = append(results, gmailAPIMessageSyncResult{ProviderMessageID: plan.providerID, HistoryID: plan.historyID, Skipped: true})
+			continue
+		}
+		localID := idsByProvider[plan.providerID]
+		if localID == 0 {
+			results = append(results, gmailAPIMessageSyncResult{ProviderMessageID: plan.providerID, HistoryID: plan.historyID, Skipped: true})
+			continue
+		}
+		results = append(results, gmailAPIMessageSyncResult{
+			ProviderMessageID: plan.providerID,
+			LocalMessageID:    localID,
+			HistoryID:         plan.historyID,
+			FolderIDs:         plan.folderIDs,
+			Synced:            true,
+		})
+	}
+	return results, nil
+}
+
+func (o *SyncOrchestrator) fetchGmailAPIMessageMetadataBatch(ctx context.Context, accountID string, token *gmailAPISharedToken, limiter *gmailAPIMetadataLimiter, providerIDs []string) []gmailAPIMessageFetchResult {
+	providerIDs = compactGmailAPIProviderIDs(providerIDs)
+	if len(providerIDs) == 0 {
+		return nil
+	}
+	workers := gmailAPIHistoricalMetadataWorkers
+	if workers > len(providerIDs) {
+		workers = len(providerIDs)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	jobs := make(chan string)
+	results := make(chan gmailAPIMessageFetchResult, len(providerIDs))
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for providerID := range jobs {
+				msg, err := o.getGmailAPIMessageMetadataWithRetry(ctx, accountID, token, limiter, providerID)
+				results <- gmailAPIMessageFetchResult{ProviderMessageID: providerID, Message: msg, Err: err}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, providerID := range providerIDs {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- providerID:
+			}
+		}
+	}()
+	wg.Wait()
+	close(results)
+
+	out := make([]gmailAPIMessageFetchResult, 0, len(providerIDs))
+	for result := range results {
+		if result.Err == nil || result.ProviderMessageID != "" {
+			out = append(out, result)
+		}
+	}
+	return out
+}
+
+func (o *SyncOrchestrator) getGmailAPIMessageMetadataWithRetry(ctx context.Context, accountID string, token *gmailAPISharedToken, limiter *gmailAPIMetadataLimiter, providerMessageID string) (gmailAPIMessage, error) {
+	var lastErr error
+	for attempt := 0; attempt < gmailAPIMessageMetadataMaxAttempts; attempt++ {
+		if err := limiter.Wait(ctx); err != nil {
+			return gmailAPIMessage{}, err
+		}
+		currentToken := token.Get()
+		msg, err := getGmailAPIMessageMetadata(ctx, currentToken, providerMessageID)
+		if err == nil {
+			return msg, nil
+		}
+		lastErr = err
+		if providerAPIUnauthorized(err) {
+			refreshed, refreshErr := token.RefreshIfCurrent(ctx, o, accountID, currentToken)
+			if refreshErr != nil {
+				return gmailAPIMessage{}, err
+			}
+			if refreshed != "" {
+				continue
+			}
+			return gmailAPIMessage{}, err
+		}
+		if !gmailAPIShouldRetryMessageMetadata(err) {
+			return gmailAPIMessage{}, err
+		}
+		if attempt == gmailAPIMessageMetadataMaxAttempts-1 {
+			break
+		}
+		if err := gmailAPIWaitBeforeRetry(ctx, attempt); err != nil {
+			return gmailAPIMessage{}, err
+		}
+	}
+	if lastErr != nil {
+		return gmailAPIMessage{}, lastErr
+	}
+	return gmailAPIMessage{}, context.Canceled
+}
+
+func newGmailAPISharedToken(token *string) *gmailAPISharedToken {
+	shared := &gmailAPISharedToken{external: token}
+	if token != nil {
+		shared.token = *token
+	}
+	return shared
+}
+
+func (t *gmailAPISharedToken) Get() string {
+	if t == nil {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.external != nil && strings.TrimSpace(*t.external) != "" && *t.external != t.token {
+		t.token = *t.external
+	}
+	return t.token
+}
+
+func (t *gmailAPISharedToken) RefreshIfCurrent(ctx context.Context, o *SyncOrchestrator, accountID, failedToken string) (string, error) {
+	if t == nil {
+		return "", fmt.Errorf("gmail api token unavailable")
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.token != "" && failedToken != "" && t.token != failedToken {
+		return t.token, nil
+	}
+	refreshed, err := o.refreshOAuthTokenForAccount(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	t.token = refreshed
+	if t.external != nil {
+		*t.external = refreshed
+	}
+	return refreshed, nil
+}
+
+func newGmailAPIMetadataLimiter(perMinute, burst int) *gmailAPIMetadataLimiter {
+	if perMinute <= 0 {
+		perMinute = gmailAPIHistoricalMetadataPerMinute
+	}
+	if burst <= 0 {
+		burst = 1
+	}
+	tokens := make(chan struct{}, burst)
+	for i := 0; i < burst; i++ {
+		tokens <- struct{}{}
+	}
+	interval := time.Minute / time.Duration(perMinute)
+	if interval < time.Millisecond {
+		interval = time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	done := make(chan struct{})
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				select {
+				case tokens <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+	return &gmailAPIMetadataLimiter{
+		tokens: tokens,
+		stop: func() {
+			close(done)
+		},
+	}
+}
+
+func (l *gmailAPIMetadataLimiter) Wait(ctx context.Context) error {
+	if l == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-l.tokens:
+		return nil
+	}
+}
+
+func (l *gmailAPIMetadataLimiter) Stop() {
+	if l != nil && l.stop != nil {
+		l.once.Do(l.stop)
+	}
+}
+
+func gmailAPIShouldRetryMessageMetadata(err error) bool {
+	status, ok := providerAPIStatus(err)
+	if !ok {
+		return false
+	}
+	if status == http.StatusTooManyRequests || status >= http.StatusInternalServerError {
+		return true
+	}
+	if status != http.StatusForbidden {
+		return false
+	}
+	body := strings.ToLower(providerAPIErrorBody(err))
+	return strings.Contains(body, "ratelimit") ||
+		strings.Contains(body, "rate limit") ||
+		strings.Contains(body, "userratelimit") ||
+		strings.Contains(body, "quota")
+}
+
+func providerAPIErrorBody(err error) string {
+	var apiErr *providerAPIError
+	if errors.As(err, &apiErr) && apiErr != nil {
+		return apiErr.Body
+	}
+	return ""
+}
+
+func gmailAPIWaitBeforeRetry(ctx context.Context, attempt int) error {
+	delay := 500 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		delay *= 2
+		if delay >= 30*time.Second {
+			delay = 30 * time.Second
+			break
+		}
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func gmailAPIProviderIDChunks(providerIDs []string, size int) [][]string {
+	if size <= 0 {
+		size = gmailAPIHistoricalMetadataBatchSize
+	}
+	providerIDs = compactGmailAPIProviderIDs(providerIDs)
+	if len(providerIDs) == 0 {
+		return nil
+	}
+	chunks := make([][]string, 0, (len(providerIDs)+size-1)/size)
+	for len(providerIDs) > 0 {
+		n := size
+		if n > len(providerIDs) {
+			n = len(providerIDs)
+		}
+		chunks = append(chunks, providerIDs[:n])
+		providerIDs = providerIDs[n:]
+	}
+	return chunks
+}
+
+func compactGmailAPIProviderIDs(providerIDs []string) []string {
+	if len(providerIDs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(providerIDs))
+	seen := map[string]bool{}
+	for _, providerID := range providerIDs {
+		providerID = strings.TrimSpace(providerID)
+		if providerID == "" || seen[providerID] {
+			continue
+		}
+		seen[providerID] = true
+		out = append(out, providerID)
+	}
+	return out
+}
+
 func recordGmailAPITouchedFolders(touched map[string]bool, folderIDs []string) {
 	for _, folderID := range folderIDs {
 		folderID = strings.TrimSpace(folderID)
@@ -456,7 +1116,7 @@ func recordGmailAPITouchedFolders(touched map[string]bool, folderIDs []string) {
 	}
 }
 
-func (o *SyncOrchestrator) publishGmailAPIFolderSyncEvent(ctx context.Context, eventType EventType, accountID string, touched map[string]bool, current, total int, clearTouched bool) {
+func (o *SyncOrchestrator) publishGmailAPIFolderSyncEvent(ctx context.Context, eventType EventType, accountID string, touched map[string]bool, targetsByFolderID map[string]gmailAPIFolderSyncTarget, current, total int, clearTouched, totalEstimated bool) {
 	if len(touched) == 0 {
 		return
 	}
@@ -471,17 +1131,23 @@ func (o *SyncOrchestrator) publishGmailAPIFolderSyncEvent(ctx context.Context, e
 			continue
 		}
 		folderRole, _ := o.db.GetFolderRole(ctx, folderID)
-		o.events.Publish(Event{Type: eventType, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: current, Total: total, Payload: gmailAPIFolderRefreshPayload(ctx)})
+		folderName := displayName(folderID, folderRole)
+		if target, ok := targetsByFolderID[folderID]; ok {
+			folderRole = target.Folder.Role
+			folderName = displayName(target.Folder.RemoteID, target.Folder.Role)
+		}
+		o.events.Publish(Event{Type: eventType, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: current, Total: total, Payload: o.gmailAPIFolderRefreshPayload(ctx, accountID, folderName, totalEstimated)})
 	}
 	if clearTouched {
 		clear(touched)
 	}
 }
 
-func gmailAPIFolderRefreshPayload(ctx context.Context) map[string]any {
-	return accountSyncProgressPayload(ctx, "", map[string]any{
-		"provider":     "gmail_api",
-		"refresh_only": true,
+func (o *SyncOrchestrator) gmailAPIFolderRefreshPayload(ctx context.Context, accountID, folderName string, totalEstimated bool) map[string]any {
+	return o.folderSyncProgressPayload(ctx, accountID, folderName, "gmail_api", map[string]any{
+		"provider":        "gmail_api",
+		"refresh_only":    true,
+		"total_estimated": totalEstimated,
 	})
 }
 
@@ -498,6 +1164,32 @@ func gmailAPIProviderSyncFolderIDs(upserts []storage.ProviderSyncMessage) []stri
 	}
 	sort.Strings(folderIDs)
 	return folderIDs
+}
+
+func gmailAPIMessageRefIDs(refs []gmailAPIMessageRef) []string {
+	ids := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		providerID := strings.TrimSpace(ref.ID)
+		if providerID == "" || seen[providerID] {
+			continue
+		}
+		seen[providerID] = true
+		ids = append(ids, providerID)
+	}
+	return ids
+}
+
+func gmailAPIProviderIDSetValues(set map[string]bool) []string {
+	ids := make([]string, 0, len(set))
+	for providerID := range set {
+		providerID = strings.TrimSpace(providerID)
+		if providerID != "" {
+			ids = append(ids, providerID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func listGmailAPIMessageIDPage(ctx context.Context, token, labelID, pageToken string) (gmailAPIMessageListResponse, error) {
@@ -518,6 +1210,19 @@ func listGmailAPIMessageIDPage(ctx context.Context, token, labelID, pageToken st
 		return gmailAPIMessageListResponse{}, err
 	}
 	return response, nil
+}
+
+func (o *SyncOrchestrator) listGmailAPIMessageIDPageWithAuthRetry(ctx context.Context, accountID string, token *string, labelID, pageToken string) (gmailAPIMessageListResponse, error) {
+	current := ""
+	if token != nil {
+		current = *token
+	}
+	page, err := listGmailAPIMessageIDPage(ctx, current, labelID, pageToken)
+	refreshed, ok := o.refreshGmailTokenAfterUnauthorized(ctx, accountID, token, err)
+	if !ok {
+		return page, err
+	}
+	return listGmailAPIMessageIDPage(ctx, refreshed, labelID, pageToken)
 }
 
 func getGmailAPIMessageMetadata(ctx context.Context, token, providerMessageID string) (gmailAPIMessage, error) {
@@ -749,6 +1454,18 @@ func gmailAPITargetsByLabelID(targets []gmailAPIFolderSyncTarget) map[string]gma
 	return out
 }
 
+func gmailAPITargetsByFolderID(targets []gmailAPIFolderSyncTarget) map[string]gmailAPIFolderSyncTarget {
+	out := make(map[string]gmailAPIFolderSyncTarget, len(targets))
+	for _, target := range targets {
+		folderID := strings.TrimSpace(target.Folder.ID)
+		if folderID == "" {
+			continue
+		}
+		out[folderID] = target
+	}
+	return out
+}
+
 func gmailAPILabelSet(labelIDs []string) map[string]bool {
 	out := make(map[string]bool, len(labelIDs))
 	for _, labelID := range labelIDs {
@@ -852,38 +1569,4 @@ func gmailAPIInternalDate(value string, fallback time.Time) time.Time {
 		return fallback.UTC()
 	}
 	return time.UnixMilli(ms).UTC()
-}
-
-func (o *SyncOrchestrator) backfillGmailAPIMessageIDs(ctx context.Context, accountID, token string, limit int) {
-	candidates, err := o.db.ListProviderMessageIDBackfillCandidates(ctx, accountID, limit)
-	if err != nil {
-		log.Printf("gmail api id backfill %s: list candidates: %v", accountID, err)
-		return
-	}
-	var resolved, missing, failed int
-	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
-			log.Printf("gmail api id backfill %s: context ended after %d resolved, %d missing, %d failed", accountID, resolved, missing, failed)
-			return
-		}
-		providerID, err := gmailMessageIDForInternetID(ctx, token, candidate.InternetMessageID)
-		if err != nil {
-			failed++
-			log.Printf("gmail api id backfill %s message=%d: %v", accountID, candidate.MessageID, err)
-			continue
-		}
-		if providerID == "" {
-			missing++
-			continue
-		}
-		if err := o.db.SetMessageProviderMessageID(ctx, candidate.MessageID, providerID); err != nil {
-			failed++
-			log.Printf("gmail api id backfill %s message=%d cache: %v", accountID, candidate.MessageID, err)
-			continue
-		}
-		resolved++
-	}
-	if resolved > 0 || missing > 0 || failed > 0 {
-		log.Printf("gmail api id backfill %s: %d resolved, %d missing, %d failed", accountID, resolved, missing, failed)
-	}
 }
