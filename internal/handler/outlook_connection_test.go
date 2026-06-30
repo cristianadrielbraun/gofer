@@ -28,8 +28,8 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, display_name, imap_host, imap_port, imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode, username, auth_method)
-		VALUES ('acc', 'default', ?, 'subject-id', 'user@example.com', 'Outlook', 'outlook.office365.com', 993, 'tls', 'smtp-mail.outlook.com', 587, 'starttls', 'user@example.com', 'oauth2')`, providers.ProviderOutlook); err != nil {
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, display_name, auth_method)
+		VALUES ('acc', 'default', ?, 'subject-id', 'user@example.com', 'Outlook', 'oauth2')`, providers.ProviderOutlook); err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
 	expires := time.Now().Add(-time.Hour)
@@ -90,7 +90,7 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 		t.Fatal("Graph mailFolders probe was not observed")
 	}
 	if strings.Contains(tokenScope, "outlook.office.com/IMAP") || strings.Contains(tokenScope, "outlook.office.com/SMTP") {
-		t.Fatalf("scope = %q, must not request legacy Outlook IMAP/SMTP scopes", tokenScope)
+		t.Fatalf("scope = %q, must not request Outlook IMAP/SMTP scopes", tokenScope)
 	}
 	var payload struct {
 		Results []struct {

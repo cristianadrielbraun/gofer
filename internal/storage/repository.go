@@ -219,6 +219,9 @@ type UpsertFolderInput struct {
 	Role             string
 	Selectable       bool
 	SortOrder        int
+	CountsKnown      bool
+	TotalCount       int
+	UnreadCount      int
 }
 
 func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) error {
@@ -229,8 +232,8 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO folders (id, account_id, parent_id, remote_id, provider_remote_id, name, icon, role, selectable, sort_order)
-		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO folders (id, account_id, parent_id, remote_id, provider_remote_id, name, icon, role, selectable, sort_order, total_count, unread_count)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? ELSE 0 END, CASE WHEN ? THEN ? ELSE 0 END)
 		ON CONFLICT(id) DO UPDATE SET
 			parent_id = NULL,
 			remote_id = excluded.remote_id,
@@ -240,6 +243,8 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 			role = excluded.role,
 			selectable = excluded.selectable,
 			sort_order = excluded.sort_order,
+			total_count = CASE WHEN ? THEN ? ELSE folders.total_count END,
+			unread_count = CASE WHEN ? THEN ? ELSE folders.unread_count END,
 			updated_at = CURRENT_TIMESTAMP`)
 	if err != nil {
 		return fmt.Errorf("prepare upsert: %w", err)
@@ -247,7 +252,12 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	defer stmt.Close()
 
 	for _, f := range folders {
-		if _, err := stmt.ExecContext(ctx, f.ID, f.AccountID, f.RemoteID, f.ProviderRemoteID, f.Name, f.Icon, f.Role, boolInt(f.Selectable), f.SortOrder); err != nil {
+		countsKnown := boolInt(f.CountsKnown)
+		if _, err := stmt.ExecContext(ctx,
+			f.ID, f.AccountID, f.RemoteID, f.ProviderRemoteID, f.Name, f.Icon, f.Role, boolInt(f.Selectable), f.SortOrder,
+			countsKnown, clampNonNegative(f.TotalCount), countsKnown, clampNonNegative(f.UnreadCount),
+			countsKnown, clampNonNegative(f.TotalCount), countsKnown, clampNonNegative(f.UnreadCount),
+		); err != nil {
 			return fmt.Errorf("upsert folder %s: %w", f.ID, err)
 		}
 	}
@@ -3179,7 +3189,14 @@ func (db *DB) UpdateProviderFolderSyncState(ctx context.Context, folderID, curso
 	if full {
 		_, err := db.Write().ExecContext(ctx,
 			`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
-			 last_full_sync_at = CURRENT_TIMESTAMP, sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+			 last_full_sync_at = CURRENT_TIMESTAMP, sync_error = NULL,
+			 provider_count_drift_first_seen_at = NULL,
+			 provider_count_drift_last_seen_at = NULL,
+			 provider_count_drift_local_count = 0,
+			 provider_count_drift_remote_count = 0,
+			 provider_count_drift_cursor = '',
+			 provider_count_drift_confirmations = 0,
+			 updated_at = CURRENT_TIMESTAMP
 			 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), folderID)
 		if err != nil {
 			return err
@@ -3194,6 +3211,82 @@ func (db *DB) UpdateProviderFolderSyncState(ctx context.Context, folderID, curso
 		return err
 	}
 	return db.RefreshFolderThreadState(ctx, folderID)
+}
+
+func (db *DB) UpdateProviderFolderPageCursor(ctx context.Context, folderID, cursor string, totalCount, unreadCount int) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
+		 sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), folderID)
+	return err
+}
+
+func (db *DB) GetProviderFolderMessageCount(ctx context.Context, accountID, folderID string) (int, error) {
+	accountID = strings.TrimSpace(accountID)
+	folderID = strings.TrimSpace(folderID)
+	if accountID == "" || folderID == "" {
+		return 0, nil
+	}
+	var count int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM message_folder_state mfs
+		JOIN messages m ON m.id = mfs.message_id
+		WHERE mfs.folder_id = ?
+		  AND mfs.is_deleted = 0
+		  AND m.account_id = ?
+		  AND COALESCE(m.remote_message_id, '') != ''`, folderID, accountID).Scan(&count)
+	return count, err
+}
+
+func (db *DB) ClearProviderFolderCountDrift(ctx context.Context, folderID string) error {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return nil
+	}
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE folders SET
+		 provider_count_drift_first_seen_at = NULL,
+		 provider_count_drift_last_seen_at = NULL,
+		 provider_count_drift_local_count = 0,
+		 provider_count_drift_remote_count = 0,
+		 provider_count_drift_cursor = '',
+		 provider_count_drift_confirmations = 0,
+		 updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, folderID)
+	return err
+}
+
+func (db *DB) RecordProviderFolderCountDrift(ctx context.Context, folderID string, localCount, remoteCount int, cursor string) (int, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return 0, nil
+	}
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE folders SET
+		 provider_count_drift_first_seen_at = CASE
+		   WHEN COALESCE(provider_count_drift_confirmations, 0) > 0
+		   THEN provider_count_drift_first_seen_at
+		   ELSE CURRENT_TIMESTAMP
+		 END,
+		 provider_count_drift_last_seen_at = CURRENT_TIMESTAMP,
+		 provider_count_drift_local_count = ?,
+		 provider_count_drift_remote_count = ?,
+		 provider_count_drift_cursor = ?,
+		 provider_count_drift_confirmations = CASE
+		   WHEN COALESCE(provider_count_drift_confirmations, 0) > 0
+		   THEN provider_count_drift_confirmations + 1
+		   ELSE 1
+		 END,
+		 updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`,
+		clampNonNegative(localCount), clampNonNegative(remoteCount), strings.TrimSpace(cursor), folderID)
+	if err != nil {
+		return 0, err
+	}
+	var confirmations int
+	err = db.Write().QueryRowContext(ctx, `SELECT COALESCE(provider_count_drift_confirmations, 0) FROM folders WHERE id = ?`, folderID).Scan(&confirmations)
+	return confirmations, err
 }
 
 func (db *DB) MarkProviderMessageRemovedFromFolder(ctx context.Context, accountID, folderID, providerMessageID string) error {
@@ -3213,6 +3306,72 @@ func (db *DB) MarkProviderMessageRemovedFromFolder(ctx context.Context, accountI
 			LIMIT 1
 		  )`, folderID, accountID, providerMessageID)
 	return err
+}
+
+func (db *DB) MarkProviderMessagesMissingFromFolder(ctx context.Context, accountID, folderID string, seenProviderIDs map[string]bool) (int64, error) {
+	accountID = strings.TrimSpace(accountID)
+	folderID = strings.TrimSpace(folderID)
+	if accountID == "" || folderID == "" {
+		return 0, nil
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin provider folder reconciliation tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `CREATE TEMP TABLE IF NOT EXISTS tmp_provider_folder_seen (provider_message_id TEXT PRIMARY KEY)`); err != nil {
+		return 0, fmt.Errorf("create provider seen temp table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tmp_provider_folder_seen`); err != nil {
+		return 0, fmt.Errorf("clear provider seen temp table: %w", err)
+	}
+
+	if len(seenProviderIDs) > 0 {
+		insertSeen, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO tmp_provider_folder_seen (provider_message_id) VALUES (?)`)
+		if err != nil {
+			return 0, fmt.Errorf("prepare provider seen insert: %w", err)
+		}
+		defer insertSeen.Close()
+		for providerMessageID, seen := range seenProviderIDs {
+			providerMessageID = strings.TrimSpace(providerMessageID)
+			if !seen || providerMessageID == "" {
+				continue
+			}
+			if _, err := insertSeen.ExecContext(ctx, providerMessageID); err != nil {
+				return 0, fmt.Errorf("insert provider seen id: %w", err)
+			}
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE message_folder_state
+		SET is_deleted = 1, synced_at = CURRENT_TIMESTAMP
+		WHERE folder_id = ?
+		  AND is_deleted = 0
+		  AND message_id IN (
+			SELECT m.id
+			FROM messages m
+			WHERE m.account_id = ?
+			  AND COALESCE(m.remote_message_id, '') != ''
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM tmp_provider_folder_seen seen
+				WHERE seen.provider_message_id = m.remote_message_id
+			  )
+		  )`, folderID, accountID)
+	if err != nil {
+		return 0, fmt.Errorf("mark missing provider messages: %w", err)
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("missing provider messages affected rows: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return removed, nil
 }
 
 func (db *DB) GetHighestSeenUID(ctx context.Context, folderID string) (uint32, error) {
@@ -3412,13 +3571,29 @@ func (db *DB) GetFolderRole(ctx context.Context, folderID string) (string, error
 }
 
 func (db *DB) RefreshFolderUnreadCount(ctx context.Context, folderID string) (int, error) {
-	var count int
+	var count, localTotal, storedUnread, providerTotal int
+	var accountProvider, providerRemoteID string
 	err := db.Read().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM message_folder_state
-		 WHERE folder_id = ? AND is_read = 0 AND is_deleted = 0`, folderID,
-	).Scan(&count)
+		`SELECT
+			COUNT(mfs.message_id),
+			COALESCE(SUM(CASE WHEN mfs.is_read = 0 THEN 1 ELSE 0 END), 0),
+			COALESCE(MAX(f.unread_count), 0),
+			COALESCE(MAX(f.total_count), 0),
+			COALESCE(MAX(a.provider), ''),
+			COALESCE(MAX(f.provider_remote_id), '')
+		 FROM folders f
+		 JOIN accounts a ON a.id = f.account_id
+		 LEFT JOIN message_folder_state mfs ON mfs.folder_id = f.id AND mfs.is_deleted = 0
+		 WHERE f.id = ?`, folderID,
+	).Scan(&localTotal, &count, &storedUnread, &providerTotal, &accountProvider, &providerRemoteID)
 	if err != nil {
 		return 0, err
+	}
+	if strings.TrimSpace(accountProvider) == "outlook" && strings.TrimSpace(providerRemoteID) != "" && providerTotal > 0 && localTotal < providerTotal {
+		if err := db.RefreshFolderThreadState(ctx, folderID); err != nil {
+			return storedUnread, err
+		}
+		return storedUnread, nil
 	}
 	_, err = db.Write().ExecContext(ctx,
 		`UPDATE folders SET unread_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -3570,14 +3745,31 @@ func (db *DB) GetAllFolderUnreadCounts(ctx context.Context, userID string) (map[
 
 	unifiedSettings := db.GetUISettings(ctx, userID)
 	unifiedRows, err := db.Read().QueryContext(ctx,
-		`SELECT f.role, a.id, COUNT(*)
-		 FROM message_folder_state mfs
-		 JOIN folders f ON mfs.folder_id = f.id
-		 JOIN accounts a ON f.account_id = a.id
-		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
-		 AND f.role IN ('inbox', 'sent', 'drafts', 'archive', 'spam', 'junk', 'trash')
-		 AND mfs.is_read = 0 AND mfs.is_deleted = 0
-		 GROUP BY f.role, a.id`, userID)
+		`WITH folder_counts AS (
+			SELECT f.id, f.role, a.id AS account_id,
+			       COALESCE(f.unread_count, 0) AS provider_unread,
+			       COALESCE(f.total_count, 0) AS provider_total,
+			       COALESCE(a.provider, '') AS account_provider,
+			       COALESCE(f.provider_remote_id, '') AS provider_remote_id,
+			       COUNT(mfs.message_id) AS local_total,
+			       COALESCE(SUM(CASE WHEN mfs.is_read = 0 THEN 1 ELSE 0 END), 0) AS local_unread
+			FROM folders f
+			JOIN accounts a ON f.account_id = a.id
+			LEFT JOIN message_folder_state mfs ON mfs.folder_id = f.id AND mfs.is_deleted = 0
+			WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
+			  AND f.role IN ('inbox', 'sent', 'drafts', 'archive', 'spam', 'junk', 'trash')
+			GROUP BY f.id
+		)
+		SELECT role, account_id,
+		       CASE
+		         WHEN account_provider = 'outlook'
+		              AND provider_remote_id != ''
+		              AND provider_total > 0
+		              AND local_total < provider_total
+		         THEN provider_unread
+		         ELSE local_unread
+		       END
+		FROM folder_counts`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -3854,6 +4046,13 @@ func (db *DB) GetFolderEmailCountForUser(ctx context.Context, userID, folderID s
 }
 
 func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, folderID string, filters models.EmailFilters) (int, error) {
+	if emailFiltersEmpty(filters) {
+		if isUnifiedFolderID(folderID) {
+			return db.GetFolderEmailCountUnfilteredForUser(ctx, userID, folderID)
+		}
+		return db.GetFolderEmailCountUnfiltered(ctx, folderID)
+	}
+
 	if !isUnifiedFolderID(folderID) {
 		return db.GetFolderEmailCountFiltered(ctx, folderID, filters)
 	}
@@ -3907,6 +4106,10 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 }
 
 func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, filters models.EmailFilters) (int, error) {
+	if emailFiltersEmpty(filters) {
+		return db.GetFolderEmailCountUnfiltered(ctx, folderID)
+	}
+
 	filterSQL := emailFilterSQL(filters)
 	if isStarredFolder(folderID) {
 		var count int
@@ -3946,23 +4149,7 @@ func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, 
 
 func (db *DB) GetFolderEmailCountUnfilteredForUser(ctx context.Context, userID, folderID string) (int, error) {
 	if folderID != "starred" && folderID != "scheduled" {
-		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
-			return 0, err
-		}
-		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
-		if err != nil {
-			return 0, err
-		}
-		args := append([]any{userID}, roleArgs...)
-		args = append(args, accountArgs...)
-		var count int
-		err = db.Read().QueryRowContext(ctx, `SELECT COUNT(*)
-			FROM folder_thread_state fts
-			JOIN folders f ON fts.folder_id = f.id
-			JOIN accounts a ON f.account_id = a.id
-			WHERE a.user_id = ? AND `+rolePredicate+accountFilter, args...).Scan(&count)
-		return count, err
+		return db.getUnifiedFolderLocalThreadCount(ctx, userID, folderID)
 	}
 	fromWhere, args, err := db.unifiedMailListFromWhere(ctx, userID, folderID)
 	if err != nil {
@@ -3971,14 +4158,38 @@ func (db *DB) GetFolderEmailCountUnfilteredForUser(ctx context.Context, userID, 
 	return db.countVisibleThreads(ctx, fromWhere, args)
 }
 
+func (db *DB) getUnifiedFolderLocalThreadCount(ctx context.Context, userID, folderID string) (int, error) {
+	if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
+		return 0, err
+	}
+	rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+	accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
+	if err != nil {
+		return 0, err
+	}
+	args := append([]any{userID}, roleArgs...)
+	args = append(args, accountArgs...)
+	var count int
+	err = db.Read().QueryRowContext(ctx, `SELECT COUNT(*)
+		FROM folder_thread_state fts
+		JOIN folders f ON fts.folder_id = f.id
+		JOIN accounts a ON f.account_id = a.id
+		WHERE a.user_id = ? AND `+rolePredicate+accountFilter, args...).Scan(&count)
+	return count, err
+}
+
+func (db *DB) getFolderThreadStateCount(ctx context.Context, folderID string) (int, error) {
+	var count int
+	err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM folder_thread_state WHERE folder_id = ?`, folderID).Scan(&count)
+	return count, err
+}
+
 func (db *DB) GetFolderEmailCountUnfiltered(ctx context.Context, folderID string) (int, error) {
 	if !isStarredFolder(folderID) {
 		if err := db.ensureFolderThreadState(ctx, folderID); err != nil {
 			return 0, err
 		}
-		var count int
-		err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM folder_thread_state WHERE folder_id = ?`, folderID).Scan(&count)
-		return count, err
+		return db.getFolderThreadStateCount(ctx, folderID)
 	}
 	fromWhere, args := accountMailListFromWhere(folderID)
 	return db.countVisibleThreads(ctx, fromWhere, args)
@@ -4013,8 +4224,13 @@ func (db *DB) GetEmailsRangeFilteredForUserWithTotal(ctx context.Context, userID
 	}
 
 	totalCount := knownTotal
-	if totalCount < 0 {
-		var err error
+	var err error
+	if emailFiltersEmpty(filters) && folderID != "starred" && folderID != "scheduled" {
+		totalCount, err = db.getUnifiedFolderLocalThreadCount(ctx, userID, folderID)
+		if err != nil {
+			return nil, err
+		}
+	} else if totalCount < 0 {
 		if emailFiltersEmpty(filters) {
 			totalCount, err = db.GetFolderEmailCountUnfilteredForUser(ctx, userID, folderID)
 		} else {
@@ -4024,12 +4240,12 @@ func (db *DB) GetEmailsRangeFilteredForUserWithTotal(ctx context.Context, userID
 			return nil, err
 		}
 	}
+	displayTotalCount := totalCount
 	if start >= totalCount {
-		return &models.EmailPage{TotalCount: totalCount, WindowStart: start, WindowEnd: start}, nil
+		return &models.EmailPage{TotalCount: totalCount, DisplayTotalCount: displayTotalCount, WindowStart: start, WindowEnd: start}, nil
 	}
 
 	var emails []models.Email
-	var err error
 	if emailFiltersEmpty(filters) {
 		emails, err = db.listEmailsUnfilteredForUser(ctx, userID, folderID, start, limit)
 	} else {
@@ -4039,19 +4255,20 @@ func (db *DB) GetEmailsRangeFilteredForUserWithTotal(ctx context.Context, userID
 		return nil, err
 	}
 	end := start + len(emails)
-	hasMore := end < totalCount
+	hasMore := len(emails) > 0 && end < totalCount
 	nextCursor := ""
 	if len(emails) > 0 && hasMore {
 		nextCursor = emails[len(emails)-1].ID
 	}
 
 	return &models.EmailPage{
-		Emails:      emails,
-		TotalCount:  totalCount,
-		WindowStart: start,
-		WindowEnd:   end - 1,
-		NextCursor:  nextCursor,
-		HasMore:     hasMore,
+		Emails:            emails,
+		TotalCount:        totalCount,
+		DisplayTotalCount: displayTotalCount,
+		WindowStart:       start,
+		WindowEnd:         end - 1,
+		NextCursor:        nextCursor,
+		HasMore:           hasMore,
 	}, nil
 }
 
@@ -4061,8 +4278,16 @@ func (db *DB) GetEmailsRangeFiltered(ctx context.Context, folderID string, start
 
 func (db *DB) GetEmailsRangeFilteredWithTotal(ctx context.Context, folderID string, start, limit int, filters models.EmailFilters, knownTotal int) (*models.EmailPage, error) {
 	totalCount := knownTotal
-	if totalCount < 0 {
-		var err error
+	var err error
+	if emailFiltersEmpty(filters) && !isStarredFolder(folderID) {
+		if err := db.ensureFolderThreadState(ctx, folderID); err != nil {
+			return nil, err
+		}
+		totalCount, err = db.getFolderThreadStateCount(ctx, folderID)
+		if err != nil {
+			return nil, err
+		}
+	} else if totalCount < 0 {
 		if emailFiltersEmpty(filters) {
 			totalCount, err = db.GetFolderEmailCountUnfiltered(ctx, folderID)
 		} else {
@@ -4072,13 +4297,13 @@ func (db *DB) GetEmailsRangeFilteredWithTotal(ctx context.Context, folderID stri
 			return nil, err
 		}
 	}
+	displayTotalCount := totalCount
 
 	if start >= totalCount {
-		return &models.EmailPage{TotalCount: totalCount, WindowStart: start, WindowEnd: start}, nil
+		return &models.EmailPage{TotalCount: totalCount, DisplayTotalCount: displayTotalCount, WindowStart: start, WindowEnd: start}, nil
 	}
 
 	var emails []models.Email
-	var err error
 	if emailFiltersEmpty(filters) {
 		emails, err = db.listEmailsUnfiltered(ctx, folderID, start, limit)
 	} else {
@@ -4089,19 +4314,20 @@ func (db *DB) GetEmailsRangeFilteredWithTotal(ctx context.Context, folderID stri
 	}
 
 	end := start + len(emails)
-	hasMore := end < totalCount
+	hasMore := len(emails) > 0 && end < totalCount
 	nextCursor := ""
 	if len(emails) > 0 && hasMore {
 		nextCursor = emails[len(emails)-1].ID
 	}
 
 	return &models.EmailPage{
-		Emails:      emails,
-		TotalCount:  totalCount,
-		WindowStart: start,
-		WindowEnd:   end - 1,
-		NextCursor:  nextCursor,
-		HasMore:     hasMore,
+		Emails:            emails,
+		TotalCount:        totalCount,
+		DisplayTotalCount: displayTotalCount,
+		WindowStart:       start,
+		WindowEnd:         end - 1,
+		NextCursor:        nextCursor,
+		HasMore:           hasMore,
 	}, nil
 }
 
@@ -6016,17 +6242,25 @@ func (db *DB) SyncGmailInboxMembership(ctx context.Context, messageID int64, acc
 }
 
 type FolderSyncInfo struct {
-	ID                string
-	AccountID         string
-	RemoteID          string
-	ProviderRemoteID  string
-	Role              string
-	UIDValidity       uint32
-	HighestSeenUID    uint32
-	LastFullSyncAt    sqliteNullTime
-	LastIncrementalAt sqliteNullTime
-	SyncCursor        string
-	TotalCount        int
+	ID                              string
+	AccountID                       string
+	RemoteID                        string
+	ProviderRemoteID                string
+	Role                            string
+	UIDValidity                     uint32
+	HighestSeenUID                  uint32
+	LastFullSyncAt                  sqliteNullTime
+	LastIncrementalAt               sqliteNullTime
+	SyncCursor                      string
+	TotalCount                      int
+	LocalMessageCount               int
+	ProviderMessageCount            int
+	ProviderCountDriftFirstSeenAt   sqliteNullTime
+	ProviderCountDriftLastSeenAt    sqliteNullTime
+	ProviderCountDriftLocalCount    int
+	ProviderCountDriftRemoteCount   int
+	ProviderCountDriftCursor        string
+	ProviderCountDriftConfirmations int
 }
 
 func (db *DB) GetSetting(ctx context.Context, userID string, key string) (string, error) {
@@ -6477,7 +6711,22 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		`SELECT f.id, f.account_id, f.remote_id, COALESCE(f.provider_remote_id, ''), f.role,
 		        COALESCE(f.uid_validity, 0), COALESCE(f.highest_seen_uid, 0),
 		        f.last_full_sync_at, f.last_incremental_sync_at, COALESCE(f.sync_cursor, ''),
-		        COALESCE(f.total_count, 0)
+		        COALESCE(f.total_count, 0),
+		        COALESCE((SELECT COUNT(*) FROM message_folder_state mfs WHERE mfs.folder_id = f.id AND mfs.is_deleted = 0), 0),
+		        COALESCE((
+		          SELECT COUNT(*)
+		          FROM message_folder_state mfs
+		          JOIN messages m ON m.id = mfs.message_id
+		          WHERE mfs.folder_id = f.id
+		            AND mfs.is_deleted = 0
+		            AND COALESCE(m.remote_message_id, '') != ''
+		        ), 0),
+		        f.provider_count_drift_first_seen_at,
+		        f.provider_count_drift_last_seen_at,
+		        COALESCE(f.provider_count_drift_local_count, 0),
+		        COALESCE(f.provider_count_drift_remote_count, 0),
+		        COALESCE(f.provider_count_drift_cursor, ''),
+		        COALESCE(f.provider_count_drift_confirmations, 0)
 		 FROM folders f
 		 JOIN accounts a ON a.id = f.account_id
 		 WHERE f.account_id = ?
@@ -6499,7 +6748,10 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.ProviderRemoteID, &f.Role,
 			&f.UIDValidity, &f.HighestSeenUID,
 			&f.LastFullSyncAt, &f.LastIncrementalAt, &f.SyncCursor,
-			&f.TotalCount); err != nil {
+			&f.TotalCount, &f.LocalMessageCount, &f.ProviderMessageCount,
+			&f.ProviderCountDriftFirstSeenAt, &f.ProviderCountDriftLastSeenAt,
+			&f.ProviderCountDriftLocalCount, &f.ProviderCountDriftRemoteCount,
+			&f.ProviderCountDriftCursor, &f.ProviderCountDriftConfirmations); err != nil {
 			return nil, fmt.Errorf("scan folder: %w", err)
 		}
 		folders = append(folders, f)

@@ -152,12 +152,13 @@ type Attachment struct {
 }
 
 type EmailPage struct {
-	Emails      []Email
-	TotalCount  int
-	WindowStart int
-	WindowEnd   int
-	NextCursor  string
-	HasMore     bool
+	Emails            []Email
+	TotalCount        int
+	DisplayTotalCount int
+	WindowStart       int
+	WindowEnd         int
+	NextCursor        string
+	HasMore           bool
 }
 
 type EmailFilters struct {

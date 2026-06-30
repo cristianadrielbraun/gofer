@@ -82,3 +82,68 @@ func TestSpamActionFallsBackToLocalMoveWhenRemoteReportFails(t *testing.T) {
 		t.Fatalf("folder rows inbox=%d spam=%d spamNullUIDs=%d, want 0, 1, 1", inboxRows, spamRows, spamNullUIDs)
 	}
 }
+
+func TestOutlookSpamActionDoesNotFallbackToLocalMoveWhenGraphFails(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@outlook.com')`, providers.ProviderOutlook); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", Name: "Inbox", RemoteID: "Inbox", ProviderRemoteID: "folder-inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_junk", AccountID: "acc", Name: "Junk Email", RemoteID: "Junk Email", ProviderRemoteID: "folder-junk", Role: "junk", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	ids, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<outlook-spam@example.com>",
+		Subject:           "Outlook spam",
+		FromEmail:         "sender@example.com",
+		DateSent:          time.Now(),
+		DateReceived:      time.Now(),
+		IsRead:            true,
+	}})
+	if err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	msgID := ids["graph-message-1"]
+	if msgID == 0 {
+		t.Fatal("provider message was not inserted")
+	}
+
+	h := &Handler{db: db, syncer: mail.NewSyncOrchestrator(db, nil, nil, nil)}
+	body := `{"targets":[{"id":"` + strings.TrimSpace(strconv.FormatInt(msgID, 10)) + `"}],"folder_id":"acc_inbox"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/messages/spam", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.handleMarkMessagesSpam(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadGateway, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "microsoft oauth not configured") {
+		t.Fatalf("body = %q, want Graph auth error", rec.Body.String())
+	}
+
+	var inboxRows, junkRows int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_inbox'`, msgID).Scan(&inboxRows); err != nil {
+		t.Fatalf("count inbox rows: %v", err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_junk'`, msgID).Scan(&junkRows); err != nil {
+		t.Fatalf("count junk rows: %v", err)
+	}
+	if inboxRows != 1 || junkRows != 0 {
+		t.Fatalf("folder rows inbox=%d junk=%d, want Outlook Graph failure to leave message in place", inboxRows, junkRows)
+	}
+}

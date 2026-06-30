@@ -14,6 +14,7 @@ class VirtualMailList {
     this.indexById = new Map()
     this.loadedRanges = []
     this.totalCount = 0
+    this.displayTotalCount = 0
     this.effectiveCount = 0
     this.windowStart = 0
     this.selectedEmailId = null
@@ -948,6 +949,7 @@ class VirtualMailList {
   maybeLoadAtEdges(first, last) {
     if (this.navigationMode === "pagination") return
     if (this.activeChunkFetches.size > 0) return
+    if (!this.hasMore) return
     if (this.effectiveCount >= this.totalCount) return
 
     var viewportBottom = this.container.scrollTop + this.container.clientHeight
@@ -1202,6 +1204,9 @@ class VirtualMailList {
 
     var tc = parseInt(wrapper.dataset.totalCount)
     if (!isNaN(tc)) this.totalCount = tc
+    var displayTotal = parseInt(wrapper.dataset.displayTotalCount)
+    if (!isNaN(displayTotal)) this.displayTotalCount = displayTotal
+    else if (!isNaN(tc)) this.displayTotalCount = tc
 
     if (wrapper.dataset.nextCursor) {
       this.nextCursor = wrapper.dataset.nextCursor
@@ -1354,6 +1359,7 @@ class VirtualMailList {
     this.windowStart = this.pageStart
     this.container.dataset.windowStart = String(this.pageStart)
     this.container.dataset.totalCount = String(this.totalCount)
+    this.container.dataset.displayTotalCount = String(this.displayTotalCount)
     this.container.dataset.viewMode = this.viewMode
     this.container.dataset.navigationMode = "pagination"
     if (this.root) this.root.dataset.mailListView = this.viewMode
@@ -1513,6 +1519,9 @@ class VirtualMailList {
     this.setViewMode(scrollEl.dataset.viewMode || this.viewMode, true)
     var totalCount = parseInt(scrollEl.dataset.totalCount)
     if (!isNaN(totalCount)) this.totalCount = totalCount
+    var displayTotalCount = parseInt(scrollEl.dataset.displayTotalCount)
+    if (!isNaN(displayTotalCount)) this.displayTotalCount = displayTotalCount
+    else if (!isNaN(totalCount)) this.displayTotalCount = totalCount
     if (scrollEl.dataset.folderId) {
       this.folderID = scrollEl.dataset.folderId
     }
@@ -1788,6 +1797,7 @@ class VirtualMailList {
     this.indexById.clear()
     this.loadedRanges = []
     this.totalCount = 0
+    this.displayTotalCount = 0
     this.effectiveCount = 0
     this.windowStart = 0
     this.selectedEmailId = null
@@ -2209,7 +2219,7 @@ class VirtualMailList {
     }
     var countEl = document.getElementById("mail-folder-count")
     if (countEl) {
-      countEl.textContent = String(this.totalCount)
+      countEl.textContent = String(this.displayTotalCount)
     }
   }
 

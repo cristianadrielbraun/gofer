@@ -150,10 +150,10 @@ func (h *Handler) userID(ctx context.Context) string {
 }
 
 func (h *Handler) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
+	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
+		return "", fmt.Errorf("outlook mail uses Microsoft Graph; IMAP/SMTP credential resolution is disabled")
+	}
 	if cfg.AuthMethod == "oauth2" && h.auth != nil {
-		if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
-			return h.auth.GetMicrosoftLegacyOutlookMailTokenForAccount(ctx, accountID)
-		}
 		token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
 		if err != nil {
 			return "", err
@@ -340,20 +340,20 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		ctx = h.contextWithUserTimezone(ctx, userID)
 		window := h.loadMailWindow(ctx, userID, folderID, filters, emailID, 50)
 		w.Header().Set("Content-Type", "text/html")
-		views.MailAppPartial(accounts, folderID, window.emails, window.selectedEmail, window.totalCount, uiSettings, nil, emailID, window.windowStart, scheduledCount, filters).Render(ctx, w)
+		views.MailAppPartial(accounts, folderID, window.emails, window.selectedEmail, window.totalCount, window.scrollCount, uiSettings, nil, emailID, window.windowStart, scheduledCount, filters).Render(ctx, w)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "app-shell" {
 		w.Header().Set("Content-Type", "text/html")
-		views.MailShell(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount, filters).Render(ctx, w)
+		views.MailShell(accounts, folderID, nil, nil, -1, -1, uiSettings, nil, emailID, scheduledCount, filters).Render(ctx, w)
 		return
 	}
 	if emailID == "" {
-		views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, "", scheduledCount, filters).Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, -1, uiSettings, nil, "", scheduledCount, filters).Render(ctx, w)
 		return
 	}
 
-	views.Layout(accounts, folderID, nil, nil, -1, uiSettings, nil, emailID, scheduledCount, filters).Render(ctx, w)
+	views.Layout(accounts, folderID, nil, nil, -1, -1, uiSettings, nil, emailID, scheduledCount, filters).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) {
@@ -367,7 +367,7 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	userID := h.userID(ctx)
 	accounts, _ := h.db.GetAccounts(ctx, userID)
-	views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID), parseEmailFilters(r)).Render(ctx, w)
+	views.Layout(accounts, folderID, nil, nil, -1, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID), parseEmailFilters(r)).Render(ctx, w)
 }
 
 func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
@@ -1611,23 +1611,26 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 	filters := parseEmailFilters(r)
 	if r.Header.Get("HX-Request") != "true" {
-		views.Layout(accounts, folderID, nil, nil, -1, h.db.GetUISettings(ctx, userID), nil, "", h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, -1, h.db.GetUISettings(ctx, userID), nil, "", h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
 		return
 	}
 
 	totalCount, _ := h.db.GetFolderEmailCountFilteredForUser(ctx, userID, folderID, filters)
 
-	page, _ := h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, 0, 50, filters, totalCount)
+	page, _ := h.db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, 0, 50, filters)
 	var emails []models.Email
+	scrollCount := totalCount
 	if page != nil {
 		emails = page.Emails
+		scrollCount = page.TotalCount
+		totalCount = page.DisplayTotalCount
 	}
 
 	var selectedEmail *models.Email
 	var selectedThread []models.ThreadItem
 
 	w.Header().Set("Content-Type", "text/html")
-	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, selectedThread, h.db.GetUISettings(ctx, userID), filters).Render(ctx, w)
+	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, scrollCount, selectedThread, h.db.GetUISettings(ctx, userID), filters).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
@@ -1645,13 +1648,14 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	window := h.loadMailWindow(ctx, h.userID(ctx), folderID, filters, selectedEmailID, 50)
 
 	w.Header().Set("Content-Type", "text/html")
-	views.MailContentPartial(accounts, window.emails, folderID, window.selectedEmail, window.totalCount, nil, h.db.GetUISettings(ctx, h.userID(ctx)), selectedEmailID, window.windowStart).Render(ctx, w)
+	views.MailContentPartial(accounts, window.emails, folderID, window.selectedEmail, window.totalCount, window.scrollCount, nil, h.db.GetUISettings(ctx, h.userID(ctx)), selectedEmailID, window.windowStart).Render(ctx, w)
 }
 
 type mailWindow struct {
 	emails        []models.Email
 	selectedEmail *models.Email
 	totalCount    int
+	scrollCount   int
 	windowStart   int
 }
 
@@ -1676,15 +1680,18 @@ func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, f
 		page, _ = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit)
 	}
 	if page == nil {
-		page, _ = h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, 0, limit, filters, totalCount)
+		page, _ = h.db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, 0, limit, filters)
 	}
 
-	window := mailWindow{totalCount: totalCount}
+	window := mailWindow{totalCount: totalCount, scrollCount: totalCount}
 	if page != nil {
 		window.emails = page.Emails
 		window.windowStart = page.WindowStart
 		if page.TotalCount >= 0 {
-			window.totalCount = page.TotalCount
+			window.scrollCount = page.TotalCount
+		}
+		if page.DisplayTotalCount >= 0 {
+			window.totalCount = page.DisplayTotalCount
 		}
 	}
 	if selectedEmailID != "" {
@@ -1771,7 +1778,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	}
 	views.MailListItemsFragment(
 		accounts, page.Emails, folderID,
-		page.WindowStart, page.WindowEnd, page.TotalCount,
+		page.WindowStart, page.WindowEnd, page.TotalCount, page.DisplayTotalCount,
 		page.NextCursor, page.HasMore,
 		selectedEmailId,
 		uiSettings["sender_display"],
@@ -1863,7 +1870,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 		accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
-		views.MailListEmails(accounts, nil, "", nil, 0, 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(ctx, w)
+		views.MailListEmails(accounts, nil, "", nil, 0, 0, 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(ctx, w)
 		return
 	}
 
@@ -1876,7 +1883,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
-	views.MailListEmails(accounts, emails, "", nil, len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(ctx, w)
+	views.MailListEmails(accounts, emails, "", nil, len(emails), len(emails), 0, uiSettings["sender_display"], uiSettings["mail_list_view"], uiSettings["mail_list_navigation"]).Render(ctx, w)
 }
 
 func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) {
@@ -2015,7 +2022,13 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		SmtpPassword: r.FormValue("smtp_password"),
 	}
 
-	if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" {
+	if strings.EqualFold(strings.TrimSpace(req.Provider), providers.ProviderOutlook) {
+		if strings.TrimSpace(req.EmailAddress) == "" {
+			w.Header().Set("Content-Type", "text/html")
+			views.AccountFormError("Email address is required").Render(r.Context(), w)
+			return
+		}
+	} else if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" {
 		w.Header().Set("Content-Type", "text/html")
 		views.AccountFormError("All required fields must be filled in").Render(r.Context(), w)
 		return
@@ -2474,6 +2487,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 		status.AccountID = account.ID
 		status.AccountName = account.Name
 		status.AccountEmail = account.Email
+		status.Provider = account.Provider
 		status.Color = account.Color
 		status.Initials = account.Initials
 
@@ -5435,15 +5449,6 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		"provider":      provider,
 		"email_address": r.FormValue("email_address"),
 		"display_name":  r.FormValue("display_name"),
-		"imap_host":     r.FormValue("imap_host"),
-		"imap_port":     r.FormValue("imap_port"),
-		"imap_tls_mode": r.FormValue("imap_tls_mode"),
-		"smtp_host":     r.FormValue("smtp_host"),
-		"smtp_port":     r.FormValue("smtp_port"),
-		"smtp_tls_mode": r.FormValue("smtp_tls_mode"),
-		"username":      r.FormValue("username"),
-		"smtp_username": r.FormValue("smtp_username"),
-		"smtp_password": r.FormValue("smtp_password"),
 	}
 
 	jsonData, _ := json.Marshal(formData)

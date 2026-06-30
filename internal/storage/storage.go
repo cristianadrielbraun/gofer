@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 53
+	const targetSchemaVersion = 54
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -462,6 +462,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 52 {
 		if err := migrateV52ToV53(tx); err != nil {
 			return fmt.Errorf("migrate v52 to v53: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 53 {
+		if err := migrateV53ToV54(tx); err != nil {
+			return fmt.Errorf("migrate v53 to v54: %w", err)
 		}
 	}
 
@@ -2040,6 +2046,40 @@ func migrateV52ToV53(tx *sql.Tx) error {
 		}
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (53)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateV53ToV54(tx *sql.Tx) error {
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{"provider_count_drift_first_seen_at", `ALTER TABLE folders ADD COLUMN provider_count_drift_first_seen_at DATETIME`},
+		{"provider_count_drift_last_seen_at", `ALTER TABLE folders ADD COLUMN provider_count_drift_last_seen_at DATETIME`},
+		{"provider_count_drift_local_count", `ALTER TABLE folders ADD COLUMN provider_count_drift_local_count INTEGER NOT NULL DEFAULT 0`},
+		{"provider_count_drift_remote_count", `ALTER TABLE folders ADD COLUMN provider_count_drift_remote_count INTEGER NOT NULL DEFAULT 0`},
+		{"provider_count_drift_cursor", `ALTER TABLE folders ADD COLUMN provider_count_drift_cursor TEXT NOT NULL DEFAULT ''`},
+		{"provider_count_drift_confirmations", `ALTER TABLE folders ADD COLUMN provider_count_drift_confirmations INTEGER NOT NULL DEFAULT 0`},
+	}
+	if ok, err := tableExistsTx(tx, "folders"); err != nil {
+		return err
+	} else if ok {
+		for _, column := range columns {
+			exists, err := columnExistsTx(tx, "folders", column.name)
+			if err != nil {
+				return err
+			}
+			if exists {
+				continue
+			}
+			if _, err := tx.Exec(column.sql); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (54)`); err != nil {
 		return err
 	}
 	return nil

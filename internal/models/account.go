@@ -71,6 +71,7 @@ type AccountSyncStatus struct {
 	AccountID    string
 	AccountName  string
 	AccountEmail string
+	Provider     string
 	Color        string
 	Initials     string
 	Folders      []FolderSyncStatus

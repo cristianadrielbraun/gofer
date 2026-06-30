@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -19,7 +18,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-const outlookGraphMessagePageSize = 50
+const (
+	outlookGraphMessagePageSize               = 50
+	outlookGraphCountDriftRepairConfirmations = 2
+)
 
 type outlookGraphFolder struct {
 	ID               string `json:"id"`
@@ -115,24 +117,8 @@ type outlookGraphFolderSyncTarget struct {
 	Graph  outlookGraphFolder
 }
 
-func outlookGraphMailEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("GOFER_OUTLOOK_GRAPH_SYNC"))) {
-	case "0", "false", "off", "no":
-		return false
-	default:
-		return true
-	}
-}
-
 func (o *SyncOrchestrator) shouldUseOutlookGraphMail(cfg *models.AccountConfig) bool {
-	if cfg == nil || strings.TrimSpace(cfg.Provider) != providers.ProviderOutlook || !outlookGraphMailEnabled() {
-		return false
-	}
-	if o == nil || o.tokenProvider == nil {
-		return false
-	}
-	_, ok := o.tokenProvider.(graphMailTokenProvider)
-	return ok
+	return cfg != nil && strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook
 }
 
 func (o *SyncOrchestrator) syncOutlookGraphAccount(ctx context.Context, accountID string, includeIDLEFolders bool) error {
@@ -288,6 +274,9 @@ func (o *SyncOrchestrator) syncOutlookGraphFolders(ctx context.Context, accountI
 			Role:             role,
 			Selectable:       true,
 			SortOrder:        order,
+			CountsKnown:      true,
+			TotalCount:       graphFolderCount(folder.TotalItemCount),
+			UnreadCount:      graphFolderCount(folder.UnreadItemCount),
 		})
 	}
 	if len(inputs) > 0 {
@@ -414,15 +403,20 @@ func outlookGraphWellKnownFolderEndpoint(wellKnown string) string {
 	return outlookGraphBaseURL + "/me/mailFolders/" + url.PathEscape(wellKnown) + "?" + values.Encode()
 }
 
-func outlookGraphMessagesDeltaEndpoint(folderID string) string {
+func outlookGraphFolderEndpoint(folderID string) string {
 	values := url.Values{}
-	values.Set("$select", outlookGraphMessageSelect())
-	values.Set("$top", fmt.Sprintf("%d", outlookGraphMessagePageSize))
+	values.Set("$select", "id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount,isHidden")
+	return outlookGraphBaseURL + "/me/mailFolders/" + url.PathEscape(folderID) + "?" + values.Encode()
+}
+
+func outlookGraphMessagesDeltaEndpoint(folderID string, includeBody bool) string {
+	values := url.Values{}
+	values.Set("$select", outlookGraphMessageSelect(includeBody))
 	return outlookGraphBaseURL + "/me/mailFolders/" + url.PathEscape(folderID) + "/messages/delta?" + values.Encode()
 }
 
-func outlookGraphMessageSelect() string {
-	return strings.Join([]string{
+func outlookGraphMessageSelect(includeBody bool) string {
+	fields := []string{
 		"id",
 		"internetMessageId",
 		"conversationId",
@@ -436,14 +430,17 @@ func outlookGraphMessageSelect() string {
 		"receivedDateTime",
 		"sentDateTime",
 		"bodyPreview",
-		"body",
 		"categories",
 		"isRead",
 		"isDraft",
 		"flag",
 		"hasAttachments",
 		"internetMessageHeaders",
-	}, ",")
+	}
+	if includeBody {
+		fields = append(fields, "body")
+	}
+	return strings.Join(fields, ",")
 }
 
 func outlookGraphHeaders(pageSize int) map[string]string {
@@ -537,6 +534,23 @@ func outlookGraphFolderSortOrder(role string, fallback int) int {
 	}
 }
 
+func graphFolderCount(count int) int {
+	if count < 0 {
+		return 0
+	}
+	return count
+}
+
+func fetchOutlookGraphFolder(ctx context.Context, token, folderID string) (outlookGraphFolder, error) {
+	var folder outlookGraphFolder
+	if err := providerJSON(ctx, http.MethodGet, outlookGraphFolderEndpoint(folderID), token, outlookGraphHeaders(0), nil, &folder); err != nil {
+		return outlookGraphFolder{}, err
+	}
+	folder.ID = strings.TrimSpace(folder.ID)
+	folder.DisplayName = strings.TrimSpace(folder.DisplayName)
+	return folder, nil
+}
+
 func outlookGraphParentFolder(folders []outlookGraphFolder, parentID string) *outlookGraphFolder {
 	parentID = strings.TrimSpace(parentID)
 	if parentID == "" {
@@ -601,10 +615,16 @@ func sortOutlookGraphFolders(folders []outlookGraphFolder) {
 func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID, token string, target outlookGraphFolderSyncTarget, categoriesByName map[string]outlookCategory, folderIndex, folderTotal int) error {
 	folder := target.Folder
 	graphFolder := target.Graph
-	full := strings.TrimSpace(folder.SyncCursor) == ""
+	full := outlookGraphFolderNeedsFullReconcile(folder, graphFolder)
 	endpoint := strings.TrimSpace(folder.SyncCursor)
-	if endpoint == "" {
-		endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID)
+	resumingFull := full && outlookGraphDeltaNextLink(endpoint)
+	fullStartedFromBaseline := full && !resumingFull
+	if full {
+		if !resumingFull {
+			endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, false)
+		}
+	} else if endpoint == "" {
+		endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, true)
 	}
 
 	totalHint := graphFolder.TotalItemCount
@@ -624,6 +644,8 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 	}()
 
 	fetched := 0
+	seenProviderIDs := map[string]bool{}
+	var postPageErr error
 	for endpoint != "" {
 		var response outlookGraphMessagesDeltaResponse
 		err := providerJSON(ctx, http.MethodGet, endpoint, token, outlookGraphHeaders(outlookGraphMessagePageSize), nil, &response)
@@ -632,50 +654,196 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 				if status, ok := providerAPIStatus(err); ok && status == http.StatusGone {
 					log.Printf("outlook graph delta cursor expired for %s/%s, restarting full delta", accountID, graphFolder.DisplayName)
 					full = true
-					endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID)
+					fullStartedFromBaseline = true
+					seenProviderIDs = map[string]bool{}
+					endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, false)
 					continue
 				}
 			}
 			return err
 		}
 
+		persistCtx := context.WithoutCancel(ctx)
 		upserts := make([]storage.ProviderSyncMessage, 0, len(response.Value))
 		bodySources := make([]outlookGraphMessage, 0, len(response.Value))
+		folderStateDirty := false
 		for _, msg := range response.Value {
 			msg.ID = strings.TrimSpace(msg.ID)
 			if msg.ID == "" {
 				continue
 			}
 			if msg.Removed != nil {
-				if err := o.db.MarkProviderMessageRemovedFromFolder(ctx, accountID, folder.ID, msg.ID); err != nil {
-					log.Printf("outlook graph delta remove %s/%s message=%s: %v", accountID, graphFolder.DisplayName, msg.ID, err)
+				if err := o.db.MarkProviderMessageRemovedFromFolder(persistCtx, accountID, folder.ID, msg.ID); err != nil {
+					return fmt.Errorf("outlook graph delta remove %s/%s message=%s: %w", accountID, graphFolder.DisplayName, msg.ID, err)
 				}
+				folderStateDirty = true
 				continue
+			}
+			if full {
+				seenProviderIDs[msg.ID] = true
 			}
 			upserts = append(upserts, outlookGraphMessageToProviderSync(accountID, folder.ID, msg, categoriesByName))
 			bodySources = append(bodySources, msg)
 		}
 		if len(upserts) > 0 {
-			idsByProvider, err := o.db.UpsertProviderSyncMessages(ctx, upserts)
+			idsByProvider, err := o.db.UpsertProviderSyncMessages(persistCtx, upserts)
 			if err != nil {
 				return err
 			}
-			o.syncOutlookGraphAttachmentMetadata(ctx, token, idsByProvider, bodySources)
-			o.storeOutlookGraphBodies(ctx, accountID, idsByProvider, bodySources)
+			folderStateDirty = true
+			if err := o.db.RefreshFolderThreadState(persistCtx, folder.ID); err != nil {
+				return fmt.Errorf("refresh outlook graph folder page %s/%s: %w", accountID, graphFolder.DisplayName, err)
+			}
+			if !full {
+				if err := o.syncOutlookGraphAttachmentMetadata(ctx, token, idsByProvider, bodySources); err != nil {
+					if postPageErr == nil {
+						postPageErr = err
+					}
+					log.Printf("outlook graph folder metadata side effect %s/%s: %v", accountID, graphFolder.DisplayName, err)
+				}
+				if err := o.storeOutlookGraphBodies(ctx, accountID, idsByProvider, bodySources); err != nil {
+					if postPageErr == nil {
+						postPageErr = err
+					}
+					log.Printf("outlook graph folder body side effect %s/%s: %v", accountID, graphFolder.DisplayName, err)
+				}
+			}
 			fetched += len(upserts)
 			o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Current: fetched, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", nil)})
+		}
+		if folderStateDirty && len(upserts) == 0 {
+			if err := o.db.RefreshFolderThreadState(persistCtx, folder.ID); err != nil {
+				return fmt.Errorf("refresh outlook graph folder removals %s/%s: %w", accountID, graphFolder.DisplayName, err)
+			}
 		}
 
 		if strings.TrimSpace(response.NextLink) != "" {
 			endpoint = strings.TrimSpace(response.NextLink)
+			if full {
+				if err := o.db.UpdateProviderFolderPageCursor(persistCtx, folder.ID, endpoint, graphFolder.TotalItemCount, graphFolder.UnreadItemCount); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if strings.TrimSpace(response.DeltaLink) != "" {
-			return o.db.UpdateProviderFolderSyncState(ctx, folder.ID, response.DeltaLink, graphFolder.TotalItemCount, graphFolder.UnreadItemCount, full)
+			deltaLink := strings.TrimSpace(response.DeltaLink)
+			if postPageErr != nil {
+				if err := o.db.RefreshFolderThreadState(persistCtx, folder.ID); err != nil {
+					return fmt.Errorf("refresh folder after partial outlook graph sync %s/%s: %w", accountID, graphFolder.DisplayName, err)
+				}
+				return postPageErr
+			}
+			if !full {
+				refreshedFolder, repair, err := o.updateOutlookGraphCountDriftAfterDelta(persistCtx, token, accountID, folder, graphFolder, deltaLink)
+				if err != nil {
+					return err
+				}
+				graphFolder = refreshedFolder
+				if err := o.db.UpdateProviderFolderSyncState(persistCtx, folder.ID, deltaLink, graphFolder.TotalItemCount, graphFolder.UnreadItemCount, false); err != nil {
+					return err
+				}
+				if repair {
+					log.Printf("outlook graph count drift confirmed for %s/%s, restarting full baseline", accountID, graphFolder.DisplayName)
+					full = true
+					fullStartedFromBaseline = true
+					seenProviderIDs = map[string]bool{}
+					postPageErr = nil
+					fetched = 0
+					endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, false)
+					continue
+				}
+				return nil
+			}
+			if full && fullStartedFromBaseline {
+				if _, err := o.db.MarkProviderMessagesMissingFromFolder(persistCtx, accountID, folder.ID, seenProviderIDs); err != nil {
+					return err
+				}
+			}
+			return o.db.UpdateProviderFolderSyncState(persistCtx, folder.ID, deltaLink, graphFolder.TotalItemCount, graphFolder.UnreadItemCount, full)
 		}
 		endpoint = ""
 	}
 	return nil
+}
+
+func (o *SyncOrchestrator) updateOutlookGraphCountDriftAfterDelta(ctx context.Context, token, accountID string, folder storage.FolderSyncInfo, graphFolder outlookGraphFolder, deltaLink string) (outlookGraphFolder, bool, error) {
+	if o.db == nil {
+		return graphFolder, false, nil
+	}
+	providerTotal := graphFolderCount(graphFolder.TotalItemCount)
+	if providerTotal == 0 {
+		providerTotal = folder.TotalCount
+	}
+	localCount, err := o.db.GetProviderFolderMessageCount(ctx, accountID, folder.ID)
+	if err != nil {
+		return graphFolder, false, fmt.Errorf("outlook graph count drift local count %s/%s: %w", accountID, graphFolder.DisplayName, err)
+	}
+	if providerTotal > 0 && localCount < providerTotal {
+		refreshed, err := fetchOutlookGraphFolder(ctx, token, graphFolder.ID)
+		if err != nil {
+			if ctx.Err() != nil {
+				return graphFolder, false, err
+			}
+			log.Printf("outlook graph count drift folder count refresh %s/%s: %v", accountID, graphFolder.DisplayName, err)
+		} else if strings.TrimSpace(refreshed.ID) != "" {
+			if strings.TrimSpace(refreshed.DisplayName) == "" {
+				refreshed.DisplayName = graphFolder.DisplayName
+			}
+			if strings.TrimSpace(refreshed.ParentFolderID) == "" {
+				refreshed.ParentFolderID = graphFolder.ParentFolderID
+			}
+			refreshed.Role = graphFolder.Role
+			graphFolder = refreshed
+			providerTotal = graphFolderCount(graphFolder.TotalItemCount)
+		}
+	}
+	if providerTotal > 0 && localCount < providerTotal {
+		confirmations, err := o.db.RecordProviderFolderCountDrift(ctx, folder.ID, localCount, providerTotal, deltaLink)
+		if err != nil {
+			return graphFolder, false, fmt.Errorf("outlook graph count drift record %s/%s: %w", accountID, graphFolder.DisplayName, err)
+		}
+		return graphFolder, confirmations >= outlookGraphCountDriftRepairConfirmations, nil
+	}
+	if err := o.db.ClearProviderFolderCountDrift(ctx, folder.ID); err != nil {
+		return graphFolder, false, fmt.Errorf("outlook graph count drift clear %s/%s: %w", accountID, graphFolder.DisplayName, err)
+	}
+	return graphFolder, false, nil
+}
+
+func outlookGraphFolderNeedsFullReconcile(folder storage.FolderSyncInfo, graphFolder outlookGraphFolder) bool {
+	if strings.TrimSpace(folder.SyncCursor) == "" {
+		return true
+	}
+	if outlookGraphDeltaNextLink(folder.SyncCursor) {
+		return true
+	}
+	if !folder.LastFullSyncAt.Valid || folder.LastFullSyncAt.Time.IsZero() {
+		return true
+	}
+	providerTotal := graphFolderCount(graphFolder.TotalItemCount)
+	if providerTotal == 0 {
+		providerTotal = folder.TotalCount
+	}
+	return providerTotal > 0 &&
+		folder.ProviderMessageCount < providerTotal &&
+		folder.ProviderCountDriftConfirmations >= outlookGraphCountDriftRepairConfirmations
+}
+
+func outlookGraphDeltaNextLink(cursor string) bool {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return false
+	}
+	parsed, err := url.Parse(cursor)
+	if err == nil {
+		query := parsed.Query()
+		if query.Get("$skiptoken") != "" || query.Get("skiptoken") != "" {
+			return true
+		}
+	}
+	lower := strings.ToLower(cursor)
+	return strings.Contains(lower, "$skiptoken=") || strings.Contains(lower, "%24skiptoken=")
 }
 
 func outlookGraphMessageToProviderSync(accountID, folderID string, msg outlookGraphMessage, categoriesByName map[string]outlookCategory) storage.ProviderSyncMessage {
@@ -711,9 +879,9 @@ func outlookGraphMessageToProviderSync(accountID, folderID string, msg outlookGr
 	}
 }
 
-func (o *SyncOrchestrator) syncOutlookGraphAttachmentMetadata(ctx context.Context, token string, idsByProvider map[string]int64, messages []outlookGraphMessage) {
+func (o *SyncOrchestrator) syncOutlookGraphAttachmentMetadata(ctx context.Context, token string, idsByProvider map[string]int64, messages []outlookGraphMessage) error {
 	if o.db == nil {
-		return
+		return nil
 	}
 	for _, msg := range messages {
 		providerMessageID := strings.TrimSpace(msg.ID)
@@ -723,14 +891,13 @@ func (o *SyncOrchestrator) syncOutlookGraphAttachmentMetadata(ctx context.Contex
 		}
 		if !msg.HasAttachments {
 			if err := o.db.ReplaceAttachments(ctx, localID, nil); err != nil {
-				log.Printf("outlook graph attachment metadata clear message=%s local=%d: %v", providerMessageID, localID, err)
+				return fmt.Errorf("outlook graph attachment metadata clear message=%s local=%d: %w", providerMessageID, localID, err)
 			}
 			continue
 		}
 		attachments, err := listOutlookGraphMessageAttachments(ctx, token, providerMessageID)
 		if err != nil {
-			log.Printf("outlook graph attachment metadata message=%s local=%d: %v", providerMessageID, localID, err)
-			continue
+			return fmt.Errorf("outlook graph attachment metadata message=%s local=%d: %w", providerMessageID, localID, err)
 		}
 		rows := make([]storage.AttachmentRow, 0, len(attachments))
 		for _, att := range attachments {
@@ -757,9 +924,10 @@ func (o *SyncOrchestrator) syncOutlookGraphAttachmentMetadata(ctx context.Contex
 			})
 		}
 		if err := o.db.ReplaceAttachments(ctx, localID, rows); err != nil {
-			log.Printf("outlook graph attachment metadata store message=%s local=%d: %v", providerMessageID, localID, err)
+			return fmt.Errorf("outlook graph attachment metadata store message=%s local=%d: %w", providerMessageID, localID, err)
 		}
 	}
+	return nil
 }
 
 func listOutlookGraphMessageAttachments(ctx context.Context, token, providerMessageID string) ([]outlookGraphAttachment, error) {
@@ -773,13 +941,44 @@ func listOutlookGraphMessageAttachments(ctx context.Context, token, providerMess
 		out = append(out, response.Value...)
 		endpoint = strings.TrimSpace(response.NextLink)
 	}
+	if err := enrichOutlookGraphFileAttachmentContentIDs(ctx, token, providerMessageID, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
 func outlookGraphMessageAttachmentsEndpoint(providerMessageID string) string {
 	values := url.Values{}
-	values.Set("$select", "id,name,contentType,size,isInline,contentId")
+	values.Set("$select", "id,name,contentType,size,isInline")
 	return outlookGraphBaseURL + "/me/messages/" + url.PathEscape(providerMessageID) + "/attachments?" + values.Encode()
+}
+
+func enrichOutlookGraphFileAttachmentContentIDs(ctx context.Context, token, providerMessageID string, attachments []outlookGraphAttachment) error {
+	for i := range attachments {
+		if !attachments[i].IsInline || strings.TrimSpace(attachments[i].ContentID) != "" || !outlookGraphAttachmentMayHaveContentID(attachments[i]) {
+			continue
+		}
+		var detail outlookGraphAttachment
+		if err := providerJSON(ctx, http.MethodGet, outlookGraphAttachmentContentIDEndpoint(providerMessageID, attachments[i].ID), token, outlookGraphHeaders(0), nil, &detail); err != nil {
+			if status, ok := providerAPIStatus(err); ok && (status == http.StatusBadRequest || status == http.StatusNotFound) {
+				continue
+			}
+			return fmt.Errorf("outlook graph inline attachment content id message=%s attachment=%s: %w", providerMessageID, attachments[i].ID, err)
+		}
+		attachments[i].ContentID = strings.TrimSpace(detail.ContentID)
+	}
+	return nil
+}
+
+func outlookGraphAttachmentMayHaveContentID(att outlookGraphAttachment) bool {
+	odataType := strings.Trim(strings.TrimSpace(att.ODataType), "#")
+	return odataType == "" || strings.EqualFold(odataType, "microsoft.graph.fileAttachment")
+}
+
+func outlookGraphAttachmentContentIDEndpoint(providerMessageID, attachmentID string) string {
+	values := url.Values{}
+	values.Set("$select", "id,contentId")
+	return outlookGraphBaseURL + "/me/messages/" + url.PathEscape(providerMessageID) + "/attachments/" + url.PathEscape(attachmentID) + "?" + values.Encode()
 }
 
 func outlookGraphHeaderValue(headers []outlookGraphHeader, name string) string {
@@ -806,9 +1005,9 @@ func outlookGraphRecipients(recipients []outlookGraphRecipient) []storage.Recipi
 	return out
 }
 
-func (o *SyncOrchestrator) storeOutlookGraphBodies(ctx context.Context, accountID string, idsByProvider map[string]int64, messages []outlookGraphMessage) {
+func (o *SyncOrchestrator) storeOutlookGraphBodies(ctx context.Context, accountID string, idsByProvider map[string]int64, messages []outlookGraphMessage) error {
 	if o.blobStore == nil || o.db == nil {
-		return
+		return nil
 	}
 	for _, msg := range messages {
 		localID := idsByProvider[strings.TrimSpace(msg.ID)]
@@ -824,38 +1023,48 @@ func (o *SyncOrchestrator) storeOutlookGraphBodies(ctx context.Context, accountI
 		switch strings.ToLower(strings.TrimSpace(msg.Body.ContentType)) {
 		case "html":
 			htmlBody := []byte(msg.Body.Content)
-			if p, err := o.blobStore.StoreBodyOriginalHTML(ctx, accountID, localID, htmlBody); err == nil {
-				originalHTMLPath = p
+			p, err := o.blobStore.StoreBodyOriginalHTML(ctx, accountID, localID, htmlBody)
+			if err != nil {
+				return fmt.Errorf("outlook graph body original html store message=%d: %w", localID, err)
 			}
+			originalHTMLPath = p
 			sanitized := message.SanitizeHTML(htmlBody)
 			sanitized = message.RewriteCIDReferences(sanitized, o.outlookGraphCIDURLMap(ctx, localID))
-			if p, err := o.blobStore.StoreBodyHTML(ctx, accountID, localID, sanitized); err == nil {
-				htmlPath = p
+			p, err = o.blobStore.StoreBodyHTML(ctx, accountID, localID, sanitized)
+			if err != nil {
+				return fmt.Errorf("outlook graph body html store message=%d: %w", localID, err)
 			}
+			htmlPath = p
 		default:
 			text := strings.TrimSpace(msg.Body.Content)
-			if p, err := o.blobStore.StoreBodyText(ctx, accountID, localID, []byte(text)); err == nil {
-				textPath = p
+			p, err := o.blobStore.StoreBodyText(ctx, accountID, localID, []byte(text))
+			if err != nil {
+				return fmt.Errorf("outlook graph body text store message=%d: %w", localID, err)
 			}
+			textPath = p
 			if text != "" {
 				wrapped := "<pre style=\"white-space:pre-wrap;word-wrap:break-word;font-family:inherit;margin:0;padding:8px\">" +
 					template.HTMLEscapeString(text) + "</pre>"
-				if p, err := o.blobStore.StoreBodyHTML(ctx, accountID, localID, []byte(wrapped)); err == nil {
-					htmlPath = p
+				p, err := o.blobStore.StoreBodyHTML(ctx, accountID, localID, []byte(wrapped))
+				if err != nil {
+					return fmt.Errorf("outlook graph body html wrapper store message=%d: %w", localID, err)
 				}
+				htmlPath = p
 			}
 		}
 		if textPath == "" && htmlPath == "" {
 			continue
 		}
-		if err := o.db.UpdateMessageBody(ctx, localID, textPath, htmlPath, "", snippet); err != nil {
-			log.Printf("outlook graph body update message=%d: %v", localID, err)
-			continue
-		}
 		if originalHTMLPath != "" {
-			_ = o.db.UpdateMessageOriginalHTMLPath(ctx, localID, originalHTMLPath)
+			if err := o.db.UpdateMessageOriginalHTMLPath(ctx, localID, originalHTMLPath); err != nil {
+				return fmt.Errorf("outlook graph body original html update message=%d: %w", localID, err)
+			}
+		}
+		if err := o.db.UpdateMessageBody(ctx, localID, textPath, htmlPath, "", snippet); err != nil {
+			return fmt.Errorf("outlook graph body update message=%d: %w", localID, err)
 		}
 	}
+	return nil
 }
 
 func (o *SyncOrchestrator) outlookGraphCIDURLMap(ctx context.Context, localID int64) map[string]string {

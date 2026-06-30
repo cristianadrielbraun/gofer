@@ -14,7 +14,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func TestMicrosoftGraphContactsTokenUsesGraphScopeAndDoesNotReplaceMailToken(t *testing.T) {
+func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
@@ -55,7 +55,7 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndDoesNotReplaceMailToken(t *
 		},
 	}, db)
 	expiresAt := time.Now().Add(time.Hour)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "outlook-opaque-token", "refresh-token", "Bearer", &expiresAt, "https://outlook.office.com/IMAP.AccessAsUser.All"); err != nil {
+	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "cached-mail-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphMailScope); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -74,15 +74,15 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndDoesNotReplaceMailToken(t *
 	if err := db.Read().QueryRowContext(ctx, `SELECT access_token, refresh_token FROM oauth_accounts WHERE provider = ? AND provider_account_id = ?`, providers.OAuthMicrosoft, "subject-id").Scan(&storedAccessToken, &storedRefreshToken); err != nil {
 		t.Fatalf("query stored token: %v", err)
 	}
-	if storedAccessToken != "outlook-opaque-token" {
-		t.Fatalf("stored access token = %q, want Outlook mail token preserved", storedAccessToken)
+	if storedAccessToken != "cached-mail-token" {
+		t.Fatalf("stored access token = %q, want cached access token preserved", storedAccessToken)
 	}
 	if storedRefreshToken != "rotated-refresh-token" {
 		t.Fatalf("stored refresh token = %q, want rotated refresh token", storedRefreshToken)
 	}
 }
 
-func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndDoesNotReplaceMailToken(t *testing.T) {
+func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndPreservesCachedAccessToken(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
@@ -123,7 +123,7 @@ func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndDoes
 		},
 	}, db)
 	expiresAt := time.Now().Add(time.Hour)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "outlook-opaque-token", "refresh-token", "Bearer", &expiresAt, strings.Join(microsoftOutlookMailScopes(), " ")); err != nil {
+	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "cached-contacts-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphContactsScope); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -151,8 +151,8 @@ func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndDoes
 	if err := db.Read().QueryRowContext(ctx, `SELECT access_token, refresh_token FROM oauth_accounts WHERE provider = ? AND provider_account_id = ?`, providers.OAuthMicrosoft, "subject-id").Scan(&storedAccessToken, &storedRefreshToken); err != nil {
 		t.Fatalf("query stored token: %v", err)
 	}
-	if storedAccessToken != "outlook-opaque-token" {
-		t.Fatalf("stored access token = %q, want Outlook mail token preserved", storedAccessToken)
+	if storedAccessToken != "cached-contacts-token" {
+		t.Fatalf("stored access token = %q, want cached access token preserved", storedAccessToken)
 	}
 	if storedRefreshToken != "rotated-refresh-token" {
 		t.Fatalf("stored refresh token = %q, want rotated refresh token", storedRefreshToken)
@@ -255,60 +255,6 @@ func TestGetOAuthTokenForOutlookUsesGraphMailScopesAndPreservesStoredAccess(t *t
 	}
 	if storedScopes != microsoftGraphContactsScope {
 		t.Fatalf("stored scopes = %q, want existing scopes preserved", storedScopes)
-	}
-}
-
-func TestMicrosoftLegacyOutlookMailTokenUsesOutlookScopesAndStoresMailToken(t *testing.T) {
-	ctx := context.Background()
-	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
-	if err != nil {
-		t.Fatalf("storage.New() error = %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
-		VALUES ('acc', 'default', 'outlook', 'subject-id', 'person@outlook.com')`); err != nil {
-		t.Fatalf("insert account: %v", err)
-	}
-
-	var gotScope string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm() error = %v", err)
-		}
-		gotScope = r.FormValue("scope")
-		if got := r.FormValue("refresh_token"); got != "refresh-token" {
-			t.Fatalf("refresh_token = %q, want refresh-token", got)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"outlook-mail-token","refresh_token":"rotated-mail-refresh-token","token_type":"Bearer","expires_in":3600,"scope":"https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send"}`))
-	}))
-	defer server.Close()
-
-	manager := NewManager(&Config{
-		MicrosoftClient: &oauth2.Config{
-			ClientID:     "client-id",
-			ClientSecret: "client-secret",
-			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
-		},
-	}, db)
-	expiresAt := time.Now().Add(time.Hour)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "graph-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphContactsScope); err != nil {
-		t.Fatalf("UpsertOAuthAccount() error = %v", err)
-	}
-
-	token, err := manager.GetMicrosoftLegacyOutlookMailTokenForAccount(ctx, "acc")
-	if err != nil {
-		t.Fatalf("GetMicrosoftLegacyOutlookMailTokenForAccount() error = %v", err)
-	}
-	if token != "outlook-mail-token" {
-		t.Fatalf("token = %q, want Outlook mail token", token)
-	}
-	if gotScope != strings.Join(microsoftOutlookMailScopes(), " ") {
-		t.Fatalf("scope = %q, want Outlook mail scopes", gotScope)
 	}
 }
 

@@ -16,16 +16,16 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 )
 
-templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, windowStart int, width string, senderDisplayMode string, viewMode string, navigationMode string) {
+templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, width string, senderDisplayMode string, viewMode string, navigationMode string) {
 	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) }>
 		@MailListHeader(activeFolder, totalCount)
 		@MailListToolbar(accounts, activeFolder, mailListViewMode(viewMode))
 		@MailFilterAdvancedDialog(accounts)
 		@MailCardLayoutDialog()
 		<hr class="divider-etched"/>
-		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, windowStart, senderDisplayMode, mailListViewMode(viewMode), mailListNavigationMode(navigationMode))
-		if mailListNavigationMode(navigationMode) == "pagination" && totalCount >= 0 {
-			@MailListPagination(totalCount, windowStart, len(emails), mailListPaginationPageSize())
+		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, senderDisplayMode, mailListViewMode(viewMode), mailListNavigationMode(navigationMode))
+		if mailListNavigationMode(navigationMode) == "pagination" && scrollCount >= 0 {
+			@MailListPagination(scrollCount, windowStart, len(emails), mailListPaginationPageSize())
 		}
 	</div>
 }
@@ -422,12 +422,13 @@ templ MailFilterCalendarField(name string, id string, placeholder string) {
 	}
 }
 
-templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, windowStart int, senderDisplayMode string, viewMode string, navigationMode string) {
+templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, senderDisplayMode string, viewMode string, navigationMode string) {
 	<div
 		id="mail-list-scroll"
 		class="flex-1 overflow-y-auto px-2 py-2"
 		data-hydrate-dropin
-		data-total-count={ fmt.Sprintf("%d", totalCount) }
+		data-total-count={ fmt.Sprintf("%d", scrollCount) }
+		data-display-total-count={ fmt.Sprintf("%d", totalCount) }
 		data-folder-id={ folderID }
 		data-view-mode={ mailListViewMode(viewMode) }
 		data-navigation-mode={ mailListNavigationMode(navigationMode) }
@@ -435,9 +436,9 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 		data-page-size={ fmt.Sprintf("%d", mailListPaginationPageSize()) }
 		data-account-marker-style={ accountMarkerStyle(accounts) }
 		data-autoload-first-email?={ selectedEmail == nil && len(emails) > 0 }
-		data-load-folder?={ totalCount < 0 }
+		data-load-folder?={ totalCount < 0 || scrollCount < 0 }
 	>
-		if totalCount < 0 {
+		if totalCount < 0 || scrollCount < 0 {
 			<div class="flex h-full items-center justify-center">
 				<div class="flex items-center gap-2 text-sm text-muted-foreground">
 					<div class="size-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>
@@ -447,7 +448,7 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 		} else if mailListViewMode(viewMode) == "table" {
 			@MailListTableHeader(accountMarkerStyle(accounts))
 		}
-		if totalCount >= 0 {
+		if scrollCount >= 0 {
 			for i, email := range emails {
 				@MailListItem(accounts, email, windowStart+i, selectedEmail, senderDisplayMode, mailListViewMode(viewMode))
 			}
@@ -847,9 +848,10 @@ templ MailListEmpty() {
 	</div>
 }
 
-templ MailListItemsFragment(accounts []models.Account, emails []models.Email, folderID string, windowStart, windowEnd, totalCount int, nextCursor string, hasMore bool, selectedEmailId string, senderDisplayMode string, viewMode string) {
+templ MailListItemsFragment(accounts []models.Account, emails []models.Email, folderID string, windowStart, windowEnd, totalCount int, displayTotalCount int, nextCursor string, hasMore bool, selectedEmailId string, senderDisplayMode string, viewMode string) {
 	<div
 		data-total-count={ fmt.Sprintf("%d", totalCount) }
+		data-display-total-count={ fmt.Sprintf("%d", displayTotalCount) }
 		data-window-start={ fmt.Sprintf("%d", windowStart) }
 		data-window-end={ fmt.Sprintf("%d", windowEnd) }
 		data-next-cursor={ nextCursor }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -161,6 +162,102 @@ func TestUpsertFoldersPreservesRemoteIDWhenProviderRemoteIDChanges(t *testing.T)
 	}
 }
 
+func TestGetFoldersForAccountCountsProviderBackedMessagesSeparately(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'outlook', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "Inbox",
+		ProviderRemoteID: "graph-inbox",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "acc_inbox",
+		RemoteUID: 100,
+		MessageID: "<legacy@example.com>",
+		Subject:   "Legacy",
+		FromEmail: "sender@example.com",
+		DateSent:  time.Now(),
+		IsRead:    true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<graph@example.com>",
+		Subject:           "Graph",
+		FromEmail:         "sender@example.com",
+		DateSent:          time.Now(),
+		IsRead:            true,
+	}}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+
+	folders, err := db.GetFoldersForAccount(ctx, "acc")
+	if err != nil {
+		t.Fatalf("GetFoldersForAccount() error = %v", err)
+	}
+	if len(folders) != 1 {
+		t.Fatalf("GetFoldersForAccount() = %#v, want one folder", folders)
+	}
+	if folders[0].LocalMessageCount != 2 || folders[0].ProviderMessageCount != 1 {
+		t.Fatalf("folder counts local=%d provider=%d, want local 2 and provider-backed 1", folders[0].LocalMessageCount, folders[0].ProviderMessageCount)
+	}
+}
+
+func TestUpsertFoldersPersistsKnownProviderCounts(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'outlook', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "Inbox",
+		ProviderRemoteID: "graph-inbox",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+		CountsKnown:      true,
+		TotalCount:       2000,
+		UnreadCount:      1089,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders(counts known) error = %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "Inbox",
+		ProviderRemoteID: "graph-inbox",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders(counts unknown) error = %v", err)
+	}
+	var total, unread int
+	if err := db.Read().QueryRowContext(ctx, `SELECT total_count, unread_count FROM folders WHERE id = 'acc_inbox'`).Scan(&total, &unread); err != nil {
+		t.Fatalf("query counts: %v", err)
+	}
+	if total != 2000 || unread != 1089 {
+		t.Fatalf("counts total=%d unread=%d, want preserved provider counts 2000/1089", total, unread)
+	}
+}
+
 func TestUpsertProviderSyncMessagesHydratesExistingIMAPMessage(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -237,6 +334,95 @@ func TestUpsertProviderSyncMessagesHydratesExistingIMAPMessage(t *testing.T) {
 	}
 }
 
+func TestMarkProviderMessagesMissingFromFolderMarksOnlyAbsentProviderRows(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'outlook', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "Inbox",
+		ProviderRemoteID: "folder-inbox",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	now := time.Now()
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{
+		{
+			AccountID:         "acc",
+			FolderID:          "acc_inbox",
+			ProviderMessageID: "graph-current",
+			InternetMessageID: "<graph-current@example.com>",
+			Subject:           "Current",
+			FromEmail:         "sender@example.com",
+			DateSent:          now,
+			DateReceived:      now,
+			IsRead:            true,
+		},
+		{
+			AccountID:         "acc",
+			FolderID:          "acc_inbox",
+			ProviderMessageID: "graph-stale",
+			InternetMessageID: "<graph-stale@example.com>",
+			Subject:           "Stale",
+			FromEmail:         "sender@example.com",
+			DateSent:          now,
+			DateReceived:      now,
+			IsRead:            true,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "acc_inbox",
+		RemoteUID: 99,
+		MessageID: "<legacy@example.com>",
+		Subject:   "Legacy",
+		FromEmail: "sender@example.com",
+		DateSent:  now,
+		IsRead:    true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+
+	removed, err := db.MarkProviderMessagesMissingFromFolder(ctx, "acc", "acc_inbox", map[string]bool{"graph-current": true})
+	if err != nil {
+		t.Fatalf("MarkProviderMessagesMissingFromFolder() error = %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d, want one stale provider row", removed)
+	}
+
+	deletedByMessageID := func(messageID string) int {
+		t.Helper()
+		var deleted int
+		if err := db.Read().QueryRowContext(ctx, `
+			SELECT mfs.is_deleted
+			FROM messages m
+			JOIN message_folder_state mfs ON mfs.message_id = m.id
+			WHERE m.account_id = 'acc' AND m.internet_message_id = ? AND mfs.folder_id = 'acc_inbox'`, messageID).Scan(&deleted); err != nil {
+			t.Fatalf("query deleted state for %s: %v", messageID, err)
+		}
+		return deleted
+	}
+	if deletedByMessageID("<graph-current@example.com>") != 0 {
+		t.Fatal("current provider message was marked deleted")
+	}
+	if deletedByMessageID("<graph-stale@example.com>") != 1 {
+		t.Fatal("stale provider message was not marked deleted")
+	}
+	if deletedByMessageID("<legacy@example.com>") != 0 {
+		t.Fatal("legacy non-provider message was marked deleted")
+	}
+}
+
 func TestRefreshAccountFolderThreadStateMakesProviderMessagesVisible(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -309,6 +495,187 @@ func TestRefreshAccountFolderThreadStateMakesProviderMessagesVisible(t *testing.
 	}
 	if page.Emails[0].Subject != "New inbox message" || page.Emails[1].Subject != "Old inbox message" {
 		t.Fatalf("refreshed unified inbox order = %#v, want new then old", page.Emails)
+	}
+}
+
+func TestOutlookProviderUnreadCountPreservedWhileImportIncomplete(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'outlook', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "Inbox",
+		ProviderRemoteID: "graph-inbox",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET total_count = 2000, unread_count = 1089 WHERE id = 'acc_inbox'`); err != nil {
+		t.Fatalf("seed provider counts: %v", err)
+	}
+
+	now := time.Now()
+	msgs := make([]ProviderSyncMessage, 0, 24)
+	for i := 0; i < 24; i++ {
+		msgs = append(msgs, ProviderSyncMessage{
+			AccountID:         "acc",
+			FolderID:          "acc_inbox",
+			ProviderMessageID: fmt.Sprintf("graph-message-%02d", i),
+			InternetMessageID: fmt.Sprintf("<graph-message-%02d@example.com>", i),
+			Subject:           fmt.Sprintf("Message %02d", i),
+			FromEmail:         "sender@example.com",
+			DateSent:          now.Add(time.Duration(i) * time.Second),
+			DateReceived:      now.Add(time.Duration(i) * time.Second),
+			IsRead:            false,
+		})
+	}
+	if _, err := db.UpsertProviderSyncMessages(ctx, msgs); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+
+	refreshed, err := db.RefreshFolderUnreadCount(ctx, "acc_inbox")
+	if err != nil {
+		t.Fatalf("RefreshFolderUnreadCount() error = %v", err)
+	}
+	if refreshed != 1089 {
+		t.Fatalf("RefreshFolderUnreadCount() = %d, want provider unread 1089 while import is incomplete", refreshed)
+	}
+
+	counts, err := db.GetAllFolderUnreadCounts(ctx, "default")
+	if err != nil {
+		t.Fatalf("GetAllFolderUnreadCounts() error = %v", err)
+	}
+	if counts["acc_inbox"] != 1089 {
+		t.Fatalf("per-folder unread = %d, want provider unread 1089", counts["acc_inbox"])
+	}
+	if counts["inbox"] != 1089 {
+		t.Fatalf("unified inbox unread = %d, want provider unread 1089", counts["inbox"])
+	}
+
+	count, err := db.GetFolderEmailCountFilteredForUser(ctx, "default", "inbox", models.EmailFilters{})
+	if err != nil {
+		t.Fatalf("GetFolderEmailCountFilteredForUser() error = %v", err)
+	}
+	if count != 24 {
+		t.Fatalf("unfiltered unified inbox count = %d, want local count 24 while import is incomplete", count)
+	}
+
+	filteredCount, err := db.GetFolderEmailCountFilteredForUser(ctx, "default", "inbox", models.EmailFilters{Unread: true})
+	if err != nil {
+		t.Fatalf("GetFolderEmailCountFilteredForUser(unread) error = %v", err)
+	}
+	if filteredCount != 24 {
+		t.Fatalf("filtered unread unified inbox count = %d, want local count 24", filteredCount)
+	}
+
+	page, err := db.GetEmailsRangeForUser(ctx, "default", "inbox", 0, 50)
+	if err != nil {
+		t.Fatalf("GetEmailsRangeForUser() error = %v", err)
+	}
+	if page.TotalCount != 24 || page.DisplayTotalCount != 24 || len(page.Emails) != 24 || page.HasMore {
+		t.Fatalf("unified inbox page total=%d display=%d len=%d hasMore=%v, want local total/display 24 and no local rows pending", page.TotalCount, page.DisplayTotalCount, len(page.Emails), page.HasMore)
+	}
+
+	concretePage, err := db.GetEmailsRange(ctx, "acc_inbox", 0, 50)
+	if err != nil {
+		t.Fatalf("GetEmailsRange() error = %v", err)
+	}
+	if concretePage.TotalCount != 24 || concretePage.DisplayTotalCount != 24 || len(concretePage.Emails) != 24 {
+		t.Fatalf("concrete inbox page total=%d display=%d len=%d, want local total/display 24", concretePage.TotalCount, concretePage.DisplayTotalCount, len(concretePage.Emails))
+	}
+
+	staleKnownTotalPage, err := db.GetEmailsRangeFilteredForUserWithTotal(ctx, "default", "inbox", 0, 50, models.EmailFilters{}, 49)
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUserWithTotal(stale known total) error = %v", err)
+	}
+	if staleKnownTotalPage.TotalCount != 24 || staleKnownTotalPage.DisplayTotalCount != 24 {
+		t.Fatalf("page totals with stale known_total local=%d display=%d, want local total/display 24", staleKnownTotalPage.TotalCount, staleKnownTotalPage.DisplayTotalCount)
+	}
+
+	nextPage, err := db.GetEmailsAfterCursorForUser(ctx, "default", "inbox", page.Emails[len(page.Emails)-1].ID, 50)
+	if err != nil {
+		t.Fatalf("GetEmailsAfterCursorForUser() error = %v", err)
+	}
+	if nextPage.TotalCount != 24 || nextPage.DisplayTotalCount != 24 || len(nextPage.Emails) != 0 || nextPage.HasMore {
+		t.Fatalf("empty follow-up page total=%d display=%d len=%d hasMore=%v, want local total/display 24 and no repeated empty loads", nextPage.TotalCount, nextPage.DisplayTotalCount, len(nextPage.Emails), nextPage.HasMore)
+	}
+}
+
+func TestOutlookProviderTotalUsesLocalThreadCountWhenImportComplete(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'outlook', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{
+		ID:               "acc_inbox",
+		AccountID:        "acc",
+		RemoteID:         "Inbox",
+		ProviderRemoteID: "graph-inbox",
+		Name:             "Inbox",
+		Role:             "inbox",
+		Selectable:       true,
+		CountsKnown:      true,
+		TotalCount:       2,
+		UnreadCount:      0,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	now := time.Now()
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{
+		{
+			AccountID:         "acc",
+			FolderID:          "acc_inbox",
+			ProviderMessageID: "graph-root",
+			InternetMessageID: "<graph-root@example.com>",
+			Subject:           "Threaded message",
+			FromEmail:         "sender@example.com",
+			DateSent:          now,
+			DateReceived:      now,
+			IsRead:            true,
+		},
+		{
+			AccountID:         "acc",
+			FolderID:          "acc_inbox",
+			ProviderMessageID: "graph-reply",
+			InternetMessageID: "<graph-reply@example.com>",
+			InReplyTo:         "<graph-root@example.com>",
+			References:        "<graph-root@example.com>",
+			Subject:           "Re: Threaded message",
+			FromEmail:         "sender@example.com",
+			DateSent:          now.Add(time.Minute),
+			DateReceived:      now.Add(time.Minute),
+			IsRead:            true,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	if _, err := db.RefreshFolderUnreadCount(ctx, "acc_inbox"); err != nil {
+		t.Fatalf("RefreshFolderUnreadCount() error = %v", err)
+	}
+
+	count, err := db.GetFolderEmailCountFilteredForUser(ctx, "default", "inbox", models.EmailFilters{})
+	if err != nil {
+		t.Fatalf("GetFolderEmailCountFilteredForUser() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("complete provider folder count = %d, want local thread count 1", count)
+	}
+
+	page, err := db.GetEmailsRangeForUser(ctx, "default", "inbox", 0, 50)
+	if err != nil {
+		t.Fatalf("GetEmailsRangeForUser() error = %v", err)
+	}
+	if page.TotalCount != 1 || page.DisplayTotalCount != 1 || len(page.Emails) != 1 || page.Emails[0].ThreadCount != 2 {
+		t.Fatalf("complete provider page total=%d display=%d len=%d first=%#v, want one visible thread containing two messages", page.TotalCount, page.DisplayTotalCount, len(page.Emails), page.Emails)
 	}
 }
 
@@ -1618,8 +1985,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 53 {
-		t.Fatalf("schema version = %d, want 53", version)
+	if version != 54 {
+		t.Fatalf("schema version = %d, want 54", version)
 	}
 }
 
@@ -1668,8 +2035,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 53 {
-		t.Fatalf("schema version = %d, want 53", version)
+	if version != 54 {
+		t.Fatalf("schema version = %d, want 54", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

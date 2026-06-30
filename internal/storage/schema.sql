@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS folders (
     sync_error TEXT,
     total_count INTEGER NOT NULL DEFAULT 0,
     unread_count INTEGER NOT NULL DEFAULT 0,
+    provider_count_drift_first_seen_at DATETIME,
+    provider_count_drift_last_seen_at DATETIME,
+    provider_count_drift_local_count INTEGER NOT NULL DEFAULT 0,
+    provider_count_drift_remote_count INTEGER NOT NULL DEFAULT 0,
+    provider_count_drift_cursor TEXT NOT NULL DEFAULT '',
+    provider_count_drift_confirmations INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -901,4 +907,4 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (53);
+INSERT OR REPLACE INTO schema_version (version) VALUES (54);

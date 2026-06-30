@@ -96,7 +96,7 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 	if !strings.Contains(values.Get("scope"), microsoftGraphMailboxSettingsScope) {
 		t.Fatalf("scope = %q, want Graph mailbox settings scope", values.Get("scope"))
 	}
-	if strings.Contains(values.Get("scope"), microsoftOutlookIMAPScope) || strings.Contains(values.Get("scope"), microsoftOutlookSMTPScope) {
+	if strings.Contains(values.Get("scope"), "outlook.office.com/IMAP") || strings.Contains(values.Get("scope"), "outlook.office.com/SMTP") {
 		t.Fatalf("scope = %q, must not request Outlook IMAP/SMTP scopes", values.Get("scope"))
 	}
 }
@@ -145,7 +145,7 @@ func TestExchangeMicrosoftAccountCodeRequestsGraphMailScopes(t *testing.T) {
 			t.Fatalf("scope = %q, want Graph scope %q during code exchange", gotScope, graphScope)
 		}
 	}
-	if strings.Contains(gotScope, microsoftOutlookIMAPScope) || strings.Contains(gotScope, microsoftOutlookSMTPScope) {
+	if strings.Contains(gotScope, "outlook.office.com/IMAP") || strings.Contains(gotScope, "outlook.office.com/SMTP") {
 		t.Fatalf("scope = %q, must not request Outlook IMAP/SMTP scopes during code exchange", gotScope)
 	}
 }

@@ -81,6 +81,66 @@ func TestCreateAccountPurgesPendingDeletingAccount(t *testing.T) {
 	}
 }
 
+func TestOutlookAccountCreateAndUpdateClearMailTransportSettings(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+
+	account, err := store.CreateAccount(ctx, "default", &models.CreateAccountRequest{
+		Provider:     "outlook",
+		EmailAddress: "person@outlook.com",
+		DisplayName:  "Person Outlook",
+		IMAPHost:     "outlook.office365.com",
+		IMAPPort:     993,
+		IMAPTLSMode:  "tls",
+		SMTPHost:     "smtp-mail.outlook.com",
+		SMTPPort:     587,
+		SMTPTLSMode:  "starttls",
+		Username:     "person@outlook.com",
+		Password:     "_oauth2_",
+		AuthMethod:   "oauth2",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccount() error = %v", err)
+	}
+
+	var imapHost, imapTLS, smtpHost, smtpTLS, username, smtpUsername, authMethod string
+	var imapPort, smtpPort int
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT imap_host, imap_port, imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode, username, smtp_username, auth_method
+		FROM accounts WHERE id = ?`, account.ID,
+	).Scan(&imapHost, &imapPort, &imapTLS, &smtpHost, &smtpPort, &smtpTLS, &username, &smtpUsername, &authMethod); err != nil {
+		t.Fatalf("query created account: %v", err)
+	}
+	if imapHost != "" || imapPort != 0 || imapTLS != "" || smtpHost != "" || smtpPort != 0 || smtpTLS != "" || username != "" || smtpUsername != "" || authMethod != "oauth2" {
+		t.Fatalf("created Outlook transport fields = imap %q/%d/%q smtp %q/%d/%q user %q smtp_user %q auth %q, want Graph-only fields", imapHost, imapPort, imapTLS, smtpHost, smtpPort, smtpTLS, username, smtpUsername, authMethod)
+	}
+
+	if err := store.UpdateAccount(ctx, account.ID, &models.CreateAccountRequest{
+		Provider:     "outlook",
+		IMAPHost:     "legacy-imap.example.com",
+		IMAPPort:     993,
+		IMAPTLSMode:  "tls",
+		SMTPHost:     "legacy-smtp.example.com",
+		SMTPPort:     587,
+		SMTPTLSMode:  "starttls",
+		Username:     "legacy-user",
+		SmtpUsername: "legacy-smtp-user",
+		AuthMethod:   "plain",
+	}); err != nil {
+		t.Fatalf("UpdateAccount() error = %v", err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT imap_host, imap_port, imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode, username, smtp_username, auth_method
+		FROM accounts WHERE id = ?`, account.ID,
+	).Scan(&imapHost, &imapPort, &imapTLS, &smtpHost, &smtpPort, &smtpTLS, &username, &smtpUsername, &authMethod); err != nil {
+		t.Fatalf("query updated account: %v", err)
+	}
+	if imapHost != "" || imapPort != 0 || imapTLS != "" || smtpHost != "" || smtpPort != 0 || smtpTLS != "" || username != "" || smtpUsername != "" || authMethod != "oauth2" {
+		t.Fatalf("updated Outlook transport fields = imap %q/%d/%q smtp %q/%d/%q user %q smtp_user %q auth %q, want Graph-only fields", imapHost, imapPort, imapTLS, smtpHost, smtpPort, smtpTLS, username, smtpUsername, authMethod)
+	}
+}
+
 func TestGetAccountByIDIgnoresDeletingAccount(t *testing.T) {
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)

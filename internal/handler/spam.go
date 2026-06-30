@@ -70,9 +70,18 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 
 		targetUpdated := false
 		for _, info := range infos {
+			accountProvider := h.spamAccountProvider(ctx, info.MessageMutationInfo)
 			destUID, remoteErr := h.reportMessageSpamRemote(ctx, disposition, info.MessageID, info.MessageMutationInfo, destRemoteID)
 			if remoteErr != nil {
 				remoteFailedMessages++
+				if strings.EqualFold(accountProvider, providers.ProviderOutlook) {
+					if firstErr == nil {
+						firstErr = remoteErr
+					}
+					failedMessages++
+					log.Printf("spam action %s Outlook Graph report failed for account=%s message=%d: %v", disposition, info.AccountID, info.MessageID, remoteErr)
+					continue
+				}
 				log.Printf("spam action %s remote report failed for account=%s message=%d; falling back to local folder move: %v", disposition, info.AccountID, info.MessageID, remoteErr)
 			}
 			if err := h.moveMessageToSpamDestinationLocal(ctx, info, destFolderID, destUID); err != nil {
@@ -173,9 +182,21 @@ func (h *Handler) spamDestinationFolder(ctx context.Context, accountID string, d
 	return "", "", fmt.Errorf("no spam folder found")
 }
 
+func (h *Handler) spamAccountProvider(ctx context.Context, info storage.MessageMutationInfo) string {
+	provider := strings.TrimSpace(info.AccountProvider)
+	if provider != "" || h.db == nil || strings.TrimSpace(info.AccountID) == "" {
+		return provider
+	}
+	resolved, err := h.db.GetAccountProvider(ctx, info.AccountID)
+	if err != nil {
+		return provider
+	}
+	return strings.TrimSpace(resolved)
+}
+
 func (h *Handler) reportMessageSpamRemote(ctx context.Context, disposition spamDisposition, messageID int64, info storage.MessageMutationInfo, destRemoteID string) (uint32, error) {
 	var providerErr error
-	switch strings.ToLower(strings.TrimSpace(info.AccountProvider)) {
+	switch strings.ToLower(h.spamAccountProvider(ctx, info)) {
 	case providers.ProviderGmail:
 		if err := h.reportGmailMessageSpam(ctx, disposition, messageID, info); err == nil {
 			return 0, nil
@@ -189,7 +210,7 @@ func (h *Handler) reportMessageSpamRemote(ctx context.Context, disposition spamD
 		if err := h.reportOutlookMessageSpam(ctx, disposition, messageID, info); err == nil {
 			return 0, nil
 		} else {
-			providerErr = err
+			return 0, err
 		}
 	}
 

@@ -85,8 +85,8 @@ func providerLabelSyncShouldFailAccount(providerType string, err error) bool {
 	if !providerLabelSyncShouldStop(err) {
 		return false
 	}
-	// Outlook Graph category access is separate from IMAP XOAUTH2 mail access.
-	// Keep category failures in label_sync_state instead of marking mail sync broken.
+	// Outlook category reconciliation is Graph mail metadata; keep category
+	// failures in label_sync_state instead of marking mail sync broken.
 	return providerType != storage.LabelProviderOutlook
 }
 

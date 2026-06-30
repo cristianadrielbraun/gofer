@@ -27,10 +27,6 @@ func (labelSyncTestTokens) GetMicrosoftGraphMailTokenForAccount(context.Context,
 	return "graph-token", nil
 }
 
-func (labelSyncTestTokens) GetMicrosoftLegacyOutlookMailTokenForAccount(context.Context, string) (string, error) {
-	return "legacy-outlook-token", nil
-}
-
 type refreshingLabelSyncTestTokens struct {
 	initial   string
 	refreshed string

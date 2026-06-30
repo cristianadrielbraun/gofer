@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -87,10 +88,6 @@ type refreshingTokenProvider interface {
 
 type graphMailTokenProvider interface {
 	GetMicrosoftGraphMailTokenForAccount(ctx context.Context, accountID string) (string, error)
-}
-
-type legacyOutlookMailTokenProvider interface {
-	GetMicrosoftLegacyOutlookMailTokenForAccount(ctx context.Context, accountID string) (string, error)
 }
 
 type SyncOrchestrator struct {
@@ -378,12 +375,10 @@ func (o *SyncOrchestrator) getInterval() int {
 }
 
 func (o *SyncOrchestrator) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
+	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
+		return "", fmt.Errorf("outlook mail uses Microsoft Graph; IMAP credential resolution is disabled")
+	}
 	if cfg.AuthMethod == "oauth2" && o.tokenProvider != nil {
-		if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
-			if legacy, ok := o.tokenProvider.(legacyOutlookMailTokenProvider); ok {
-				return legacy.GetMicrosoftLegacyOutlookMailTokenForAccount(ctx, accountID)
-			}
-		}
 		return o.tokenProvider.GetOAuthTokenForAccount(ctx, accountID)
 	}
 	return o.accountStore.DecryptPassword(ctx, accountID)
@@ -1559,11 +1554,6 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return nil
 	}
-	var idleFolderIDs map[string]bool
-	if !includeIDLEFolders {
-		idleFolderIDs = o.getIdleFolderIDsForAccount(ctx, accountID)
-		o.publishAutomaticSyncScope(ctx, accountID, idleFolderIDs)
-	}
 	cfg, err := o.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
 		return err
@@ -1574,6 +1564,12 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	}
 	if o.shouldUseGmailAPIMail(cfg) {
 		return o.syncGmailAPIAccount(ctx, accountID, includeIDLEFolders)
+	}
+
+	var idleFolderIDs map[string]bool
+	if !includeIDLEFolders {
+		idleFolderIDs = o.getIdleFolderIDsForAccount(ctx, accountID)
+		o.publishAutomaticSyncScope(ctx, accountID, idleFolderIDs)
 	}
 
 	password, err := o.resolvePassword(ctx, cfg, accountID)

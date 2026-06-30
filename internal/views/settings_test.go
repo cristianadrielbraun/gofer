@@ -105,3 +105,124 @@ func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
 		t.Fatalf("rendered sync folder should prefer remote path over role/name label: %s", html)
 	}
 }
+
+func TestSettingsSyncTabRendersGmailAPIInfoInsteadOfFolderModes(t *testing.T) {
+	settings := models.SyncSettings{
+		SyncIntervalMinutes: 5,
+		Accounts: []models.AccountSyncStatus{
+			{
+				AccountID:    "acc-gmail",
+				AccountName:  "Gmail",
+				AccountEmail: "user@gmail.com",
+				Provider:     "gmail",
+				Folders: []models.FolderSyncStatus{
+					{ID: "acc_gmail_inbox", Name: "INBOX", RemoteID: "INBOX", Role: "inbox", Icon: "inbox", IsIDLE: true},
+				},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Gmail API sync",
+		"Gmail sync uses Gmail API history changes instead of per-folder IMAP IDLE.",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered Gmail sync card missing %q: %s", want, html)
+		}
+	}
+	for _, notWant := range []string{
+		`data-idle-zone="acc-gmail"`,
+		`data-poll-zone="acc-gmail"`,
+		`data-folder-id="acc_gmail_inbox"`,
+		"Real-time note",
+		"Each real-time folder holds open a persistent IMAP connection.",
+	} {
+		if strings.Contains(html, notWant) {
+			t.Fatalf("Gmail sync card should not render folder mode control %q: %s", notWant, html)
+		}
+	}
+}
+
+func TestSettingsSyncTabRendersOutlookGraphInfoInsteadOfFolderModes(t *testing.T) {
+	settings := models.SyncSettings{
+		SyncIntervalMinutes: 5,
+		Accounts: []models.AccountSyncStatus{
+			{
+				AccountID:    "acc-outlook",
+				AccountName:  "Outlook",
+				AccountEmail: "user@outlook.com",
+				Provider:     "outlook",
+				Folders: []models.FolderSyncStatus{
+					{ID: "acc_outlook_inbox", Name: "Inbox", RemoteID: "Inbox", Role: "inbox", Icon: "inbox", IsIDLE: true},
+				},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Outlook Graph sync",
+		"Outlook sync uses Microsoft Graph delta changes instead of per-folder IMAP IDLE.",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered Outlook sync card missing %q: %s", want, html)
+		}
+	}
+	for _, notWant := range []string{
+		`data-idle-zone="acc-outlook"`,
+		`data-poll-zone="acc-outlook"`,
+		`data-folder-id="acc_outlook_inbox"`,
+		"Real-time note",
+		"Each real-time folder holds open a persistent IMAP connection.",
+	} {
+		if strings.Contains(html, notWant) {
+			t.Fatalf("Outlook sync card should not render folder mode control %q: %s", notWant, html)
+		}
+	}
+}
+
+func TestEditAccountDialogRendersOutlookGraphMailPanels(t *testing.T) {
+	data := models.EditAccountData{
+		AccountID:    "acc-outlook",
+		Provider:     "outlook",
+		EmailAddress: "user@outlook.com",
+		DisplayName:  "Outlook",
+	}
+
+	var out bytes.Buffer
+	if err := EditAccountDialog(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("EditAccountDialog.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`name="provider" value="outlook"`,
+		"Microsoft Graph",
+		"Outlook mail is read through Microsoft Graph delta sync.",
+		"Outlook messages and drafts are sent through Microsoft Graph.",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered Outlook edit dialog missing %q: %s", want, html)
+		}
+	}
+	for _, notWant := range []string{
+		`name="imap_host"`,
+		`name="smtp_host"`,
+		"IMAP Host",
+		"SMTP Host",
+		"(IMAP)",
+		"(SMTP)",
+	} {
+		if strings.Contains(html, notWant) {
+			t.Fatalf("Outlook edit dialog should not render mail transport field %q: %s", notWant, html)
+		}
+	}
+}

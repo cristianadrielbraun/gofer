@@ -126,7 +126,7 @@ GOFER_VAPID_PRIVATE_KEY=optional_web_push_private_key
 GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 ```
 
-Google OAuth is only needed for Google login, Gmail OAuth accounts, and Google Contacts sync. Microsoft OAuth is only needed for Outlook mail and contact sync. Plain IMAP/SMTP accounts do not need it.
+Google OAuth is only needed for Google login, Gmail OAuth accounts, and Google Contacts sync. Microsoft OAuth is only needed for Outlook mail and contact sync through Microsoft Graph. Plain IMAP/SMTP accounts do not need it.
 
 ## warning
 

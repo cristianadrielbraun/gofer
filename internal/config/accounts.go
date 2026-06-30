@@ -369,6 +369,10 @@ func boolInt(value bool) int {
 	return 0
 }
 
+func accountProviderUsesGraphMail(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), "outlook")
+}
+
 func isBuiltinContactProvider(provider string) bool {
 	switch strings.TrimSpace(provider) {
 	case "gmail", "outlook":
@@ -389,23 +393,36 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 		return nil, fmt.Errorf("encrypt password: %w", err)
 	}
 
-	if req.IMAPPort == 0 {
-		req.IMAPPort = 993
-	}
-	if req.SMTPPort == 0 {
-		req.SMTPPort = 465
-	}
-	if req.IMAPTLSMode == "" {
-		req.IMAPTLSMode = "tls"
-	}
-	if req.SMTPTLSMode == "" {
-		req.SMTPTLSMode = "tls"
-	}
-	if req.AuthMethod == "" {
-		req.AuthMethod = "plain"
-	}
 	if req.Provider == "" {
 		req.Provider = "imap"
+	}
+	if accountProviderUsesGraphMail(req.Provider) {
+		req.IMAPHost = ""
+		req.IMAPPort = 0
+		req.IMAPTLSMode = ""
+		req.SMTPHost = ""
+		req.SMTPPort = 0
+		req.SMTPTLSMode = ""
+		req.Username = ""
+		req.SmtpUsername = ""
+		req.SmtpPassword = ""
+		req.AuthMethod = "oauth2"
+	} else {
+		if req.IMAPPort == 0 {
+			req.IMAPPort = 993
+		}
+		if req.SMTPPort == 0 {
+			req.SMTPPort = 465
+		}
+		if req.IMAPTLSMode == "" {
+			req.IMAPTLSMode = "tls"
+		}
+		if req.SMTPTLSMode == "" {
+			req.SMTPTLSMode = "tls"
+		}
+		if req.AuthMethod == "" {
+			req.AuthMethod = "plain"
+		}
 	}
 
 	var encryptedSmtpPw []byte
@@ -464,33 +481,50 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 		setClauses = append(setClauses, "provider_account_id = ?")
 		args = append(args, req.ProviderAccountID)
 	}
-	if req.IMAPHost != "" {
-		setClauses = append(setClauses, "imap_host = ?")
-		args = append(args, req.IMAPHost)
-	}
-	if req.IMAPPort != 0 {
-		setClauses = append(setClauses, "imap_port = ?")
-		args = append(args, req.IMAPPort)
-	}
-	if req.IMAPTLSMode != "" {
-		setClauses = append(setClauses, "imap_tls_mode = ?")
-		args = append(args, req.IMAPTLSMode)
-	}
-	if req.SMTPHost != "" {
-		setClauses = append(setClauses, "smtp_host = ?")
-		args = append(args, req.SMTPHost)
-	}
-	if req.SMTPPort != 0 {
-		setClauses = append(setClauses, "smtp_port = ?")
-		args = append(args, req.SMTPPort)
-	}
-	if req.SMTPTLSMode != "" {
-		setClauses = append(setClauses, "smtp_tls_mode = ?")
-		args = append(args, req.SMTPTLSMode)
-	}
-	if req.Username != "" {
-		setClauses = append(setClauses, "username = ?")
-		args = append(args, req.Username)
+	if accountProviderUsesGraphMail(req.Provider) {
+		setClauses = append(setClauses,
+			"imap_host = ?", "imap_port = ?", "imap_tls_mode = ?",
+			"smtp_host = ?", "smtp_port = ?", "smtp_tls_mode = ?",
+			"username = ?", "smtp_username = ?", "auth_method = ?",
+		)
+		args = append(args, "", 0, "", "", 0, "", "", "", "oauth2")
+	} else {
+		if req.IMAPHost != "" {
+			setClauses = append(setClauses, "imap_host = ?")
+			args = append(args, req.IMAPHost)
+		}
+		if req.IMAPPort != 0 {
+			setClauses = append(setClauses, "imap_port = ?")
+			args = append(args, req.IMAPPort)
+		}
+		if req.IMAPTLSMode != "" {
+			setClauses = append(setClauses, "imap_tls_mode = ?")
+			args = append(args, req.IMAPTLSMode)
+		}
+		if req.SMTPHost != "" {
+			setClauses = append(setClauses, "smtp_host = ?")
+			args = append(args, req.SMTPHost)
+		}
+		if req.SMTPPort != 0 {
+			setClauses = append(setClauses, "smtp_port = ?")
+			args = append(args, req.SMTPPort)
+		}
+		if req.SMTPTLSMode != "" {
+			setClauses = append(setClauses, "smtp_tls_mode = ?")
+			args = append(args, req.SMTPTLSMode)
+		}
+		if req.Username != "" {
+			setClauses = append(setClauses, "username = ?")
+			args = append(args, req.Username)
+		}
+		if req.AuthMethod != "" {
+			setClauses = append(setClauses, "auth_method = ?")
+			args = append(args, req.AuthMethod)
+		}
+		if req.SmtpUsername != "" {
+			setClauses = append(setClauses, "smtp_username = ?")
+			args = append(args, req.SmtpUsername)
+		}
 	}
 	if req.Password != "" {
 		encrypted, err := s.encrypt(req.Password)
@@ -500,15 +534,7 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 		setClauses = append(setClauses, "encrypted_password = ?")
 		args = append(args, encrypted)
 	}
-	if req.AuthMethod != "" {
-		setClauses = append(setClauses, "auth_method = ?")
-		args = append(args, req.AuthMethod)
-	}
-	if req.SmtpUsername != "" {
-		setClauses = append(setClauses, "smtp_username = ?")
-		args = append(args, req.SmtpUsername)
-	}
-	if req.SmtpPassword != "" {
+	if !accountProviderUsesGraphMail(req.Provider) && req.SmtpPassword != "" {
 		encrypted, err := s.encrypt(req.SmtpPassword)
 		if err != nil {
 			return fmt.Errorf("encrypt smtp password: %w", err)
@@ -537,13 +563,10 @@ func (s *AccountStore) FindProviderAccountID(ctx context.Context, userID, provid
 		   AND (
 		     (provider = ? AND provider_account_id = ? AND provider_account_id != '')
 		     OR (provider = ? AND email_address = ? AND auth_method = 'oauth2')
-		     OR (email_address = ? AND auth_method = 'oauth2' AND (
-		       (? = 'gmail' AND imap_host = 'imap.gmail.com')
-		       OR (? = 'outlook' AND imap_host = 'outlook.office365.com')
-		     ))
+		     OR (email_address = ? AND auth_method = 'oauth2' AND ? = 'gmail' AND imap_host = 'imap.gmail.com')
 		   )
 		 LIMIT 1`,
-		userID, provider, providerAccountID, provider, email, email, provider, provider,
+		userID, provider, providerAccountID, provider, email, email, provider,
 	).Scan(&id)
 	if err == sql.ErrNoRows {
 		return "", nil
