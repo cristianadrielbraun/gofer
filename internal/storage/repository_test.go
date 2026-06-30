@@ -334,6 +334,56 @@ func TestUpsertProviderSyncMessagesHydratesExistingIMAPMessage(t *testing.T) {
 	}
 }
 
+func TestUpsertProviderSyncMessagesDoesNotBlankExistingHeaders(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "graph-inbox", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	now := time.Now()
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<shared@example.com>",
+		Subject:           "Loaded subject",
+		FromName:          "Loaded Sender",
+		FromEmail:         "sender@example.com",
+		DateSent:          now,
+		DateReceived:      now,
+		IsRead:            false,
+	}}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages(initial) error = %v", err)
+	}
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<shared@example.com>",
+		DateSent:          now,
+		DateReceived:      now,
+		IsRead:            true,
+	}}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages(partial) error = %v", err)
+	}
+
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<shared@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if email.Subject != "Loaded subject" || email.From.Name != "Loaded Sender" || email.From.Email != "sender@example.com" || !email.IsRead {
+		t.Fatalf("email = %#v, want headers preserved and read state updated", email)
+	}
+}
+
 func TestMarkProviderMessagesMissingFromFolderMarksOnlyAbsentProviderRows(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

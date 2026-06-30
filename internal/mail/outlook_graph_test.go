@@ -48,6 +48,25 @@ func TestOutlookGraphMessagesDeltaEndpointUsesPreferHeaderPagingOnly(t *testing.
 	}
 }
 
+func TestOutlookGraphMessageToProviderSyncFallsBackToInternetHeaders(t *testing.T) {
+	msg := outlookGraphMessage{
+		ID:                "graph-message-1",
+		InternetMessageID: "<message@example.com>",
+		ConversationID:    "conversation-1",
+		ReceivedDateTime:  time.Now(),
+		SentDateTime:      time.Now(),
+		InternetMessageHeaders: []outlookGraphHeader{
+			{Name: "Subject", Value: "=?UTF-8?Q?Loaded_subject?="},
+			{Name: "From", Value: "Loaded Sender <sender@example.com>"},
+		},
+	}
+
+	syncMessage := outlookGraphMessageToProviderSync("acc", "acc_inbox", msg, nil)
+	if syncMessage.Subject != "Loaded subject" || syncMessage.FromName != "Loaded Sender" || syncMessage.FromEmail != "sender@example.com" {
+		t.Fatalf("sync message = %#v, want subject/from from internet headers", syncMessage)
+	}
+}
+
 func TestSyncOutlookGraphFoldersImportsNestedFolders(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)
@@ -746,6 +765,77 @@ func TestSyncOutlookGraphFolderCountDriftRequiresSecondCompletedDelta(t *testing
 	}
 	if got := queryOutlookGraphFolderCursor(t, ctx, db); got != fullDelta {
 		t.Fatalf("sync_cursor after repair = %q, want recovered delta link %q", got, fullDelta)
+	}
+}
+
+func TestSyncOutlookGraphFolderFullReconcilesMissingSenderMetadata(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	seedOutlookGraphFolder(t, ctx, db)
+	now := time.Now()
+	if _, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
+		AccountID:         "acc",
+		FolderID:          "acc_inbox",
+		ProviderMessageID: "graph-message-1",
+		InternetMessageID: "<graph-message-1@example.com>",
+		DateSent:          now,
+		DateReceived:      now,
+		IsRead:            true,
+	}}); err != nil {
+		t.Fatalf("seed incomplete provider message: %v", err)
+	}
+
+	deltaLink := "https://graph.test/delta/repaired"
+	var baselineRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/delta/current":
+			t.Fatalf("incremental cursor should not be used while sender metadata is missing")
+		case r.Method == http.MethodGet && r.URL.Path == "/me/mailFolders/folder-inbox/messages/delta":
+			baselineRequests++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"value": []map[string]any{{
+					"id":                "graph-message-1",
+					"internetMessageId": "<graph-message-1@example.com>",
+					"internetMessageHeaders": []map[string]string{
+						{"name": "Subject", "value": "Recovered subject"},
+						{"name": "From", "value": "Recovered Sender <sender@example.com>"},
+					},
+				}},
+				"@odata.deltaLink": deltaLink,
+			})
+		default:
+			t.Fatalf("unexpected Graph request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET total_count = 1, sync_cursor = ?, last_full_sync_at = CURRENT_TIMESTAMP WHERE id = 'acc_inbox'`, server.URL+"/delta/current"); err != nil {
+		t.Fatalf("set folder state: %v", err)
+	}
+
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if err := orchestrator.syncOutlookGraphFolder(ctx, "acc", "graph-token", outlookGraphInboxTargetFromDB(t, ctx, db), nil, 1, 1); err != nil {
+		t.Fatalf("syncOutlookGraphFolder() error = %v", err)
+	}
+	if baselineRequests != 1 {
+		t.Fatalf("baseline requests = %d, want 1", baselineRequests)
+	}
+
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<graph-message-1@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if email.Subject != "Recovered subject" || email.From.Name != "Recovered Sender" || email.From.Email != "sender@example.com" {
+		t.Fatalf("email = %#v, want recovered subject/from after metadata reconcile", email)
 	}
 }
 

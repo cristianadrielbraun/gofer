@@ -1422,10 +1422,18 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 				ELSE internet_message_id
 			END,
 			message_id_normalized = CASE WHEN ? != '' THEN ? ELSE message_id_normalized END,
-			subject = ?,
-			normalized_subject = ?,
-			from_name = ?,
-			from_email = ?,
+			subject = CASE
+				WHEN ? != '' AND ? != '(no subject)' THEN ?
+				WHEN COALESCE(subject, '') = '' THEN ?
+				ELSE subject
+			END,
+			normalized_subject = CASE
+				WHEN ? != '' AND ? != ? THEN ?
+				WHEN COALESCE(normalized_subject, '') = '' THEN ?
+				ELSE normalized_subject
+			END,
+			from_name = CASE WHEN ? != '' THEN ? ELSE from_name END,
+			from_email = CASE WHEN ? != '' THEN ? ELSE from_email END,
 			date_sent = ?,
 			date_received = ?,
 			in_reply_to = ?,
@@ -1544,7 +1552,9 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 				m.ProviderMessageID, m.ProviderMessageID,
 				m.InternetMessageID, m.InternetMessageID, m.InternetMessageID, m.InternetMessageID,
 				messageIDNorm, messageIDNorm,
-				m.Subject, normalizedSubject, m.FromName, m.FromEmail,
+				m.Subject, m.Subject, m.Subject, m.Subject,
+				normalizedSubject, normalizedSubject, normalizeSubject("(no subject)"), normalizedSubject, normalizedSubject,
+				m.FromName, m.FromName, m.FromEmail, m.FromEmail,
 				formatDBTime(dateSent), formatDBTime(dateReceived), inReplyTo, m.References, snippet, snippet,
 				m.ProviderThreadID, m.ProviderThreadID, boolInt(m.HasAttachments), msgID); err != nil {
 				return nil, fmt.Errorf("update provider message: %w", err)
@@ -3237,6 +3247,32 @@ func (db *DB) GetProviderFolderMessageCount(ctx context.Context, accountID, fold
 		  AND m.account_id = ?
 		  AND COALESCE(m.remote_message_id, '') != ''`, folderID, accountID).Scan(&count)
 	return count, err
+}
+
+func (db *DB) HasProviderFolderMessagesMissingSender(ctx context.Context, accountID, folderID string) (bool, error) {
+	accountID = strings.TrimSpace(accountID)
+	folderID = strings.TrimSpace(folderID)
+	if accountID == "" || folderID == "" {
+		return false, nil
+	}
+	var exists int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT 1
+		FROM message_folder_state mfs
+		JOIN messages m ON m.id = mfs.message_id
+		WHERE mfs.folder_id = ?
+		  AND mfs.is_deleted = 0
+		  AND m.account_id = ?
+		  AND COALESCE(m.remote_message_id, '') != ''
+		  AND trim(COALESCE(m.from_email, '')) = ''
+		LIMIT 1`, folderID, accountID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return exists == 1, nil
 }
 
 func (db *DB) ClearProviderFolderCountDrift(ctx context.Context, folderID string) error {

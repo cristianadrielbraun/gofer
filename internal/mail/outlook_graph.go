@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	netmail "net/mail"
 	"net/url"
 	"sort"
 	"strings"
@@ -616,6 +617,16 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 	folder := target.Folder
 	graphFolder := target.Graph
 	full := outlookGraphFolderNeedsFullReconcile(folder, graphFolder)
+	if !full && o.db != nil {
+		missingHeaders, err := o.db.HasProviderFolderMessagesMissingSender(ctx, accountID, folder.ID)
+		if err != nil {
+			return fmt.Errorf("outlook graph metadata completeness check %s/%s: %w", accountID, graphFolder.DisplayName, err)
+		}
+		if missingHeaders {
+			log.Printf("outlook graph metadata incomplete for %s/%s, restarting full baseline", accountID, graphFolder.DisplayName)
+			full = true
+		}
+	}
 	endpoint := strings.TrimSpace(folder.SyncCursor)
 	resumingFull := full && outlookGraphDeltaNextLink(endpoint)
 	fullStartedFromBaseline := full && !resumingFull
@@ -851,6 +862,13 @@ func outlookGraphMessageToProviderSync(accountID, folderID string, msg outlookGr
 	if strings.TrimSpace(from.Address) == "" {
 		from = msg.Sender.EmailAddress
 	}
+	if strings.TrimSpace(from.Address) == "" {
+		from = outlookGraphAddressHeaderValue(msg.InternetMessageHeaders, "From")
+	}
+	subject := strings.TrimSpace(msg.Subject)
+	if subject == "" {
+		subject = strings.TrimSpace(message.DecodeHeader(outlookGraphHeaderValue(msg.InternetMessageHeaders, "Subject")))
+	}
 	return storage.ProviderSyncMessage{
 		AccountID:         accountID,
 		FolderID:          folderID,
@@ -859,7 +877,7 @@ func outlookGraphMessageToProviderSync(accountID, folderID string, msg outlookGr
 		ProviderThreadID:  strings.TrimSpace(msg.ConversationID),
 		InReplyTo:         outlookGraphHeaderValue(msg.InternetMessageHeaders, "In-Reply-To"),
 		References:        outlookGraphHeaderValue(msg.InternetMessageHeaders, "References"),
-		Subject:           strings.TrimSpace(msg.Subject),
+		Subject:           subject,
 		FromName:          strings.TrimSpace(from.Name),
 		FromEmail:         strings.TrimSpace(from.Address),
 		DateSent:          msg.SentDateTime,
@@ -988,6 +1006,21 @@ func outlookGraphHeaderValue(headers []outlookGraphHeader, name string) string {
 		}
 	}
 	return ""
+}
+
+func outlookGraphAddressHeaderValue(headers []outlookGraphHeader, name string) outlookGraphEmailAddress {
+	value := outlookGraphHeaderValue(headers, name)
+	if value == "" {
+		return outlookGraphEmailAddress{}
+	}
+	addresses, err := netmail.ParseAddressList(value)
+	if err != nil || len(addresses) == 0 {
+		return outlookGraphEmailAddress{}
+	}
+	return outlookGraphEmailAddress{
+		Name:    strings.TrimSpace(message.DecodeHeader(addresses[0].Name)),
+		Address: strings.TrimSpace(addresses[0].Address),
+	}
 }
 
 func outlookGraphRecipients(recipients []outlookGraphRecipient) []storage.Recipient {
