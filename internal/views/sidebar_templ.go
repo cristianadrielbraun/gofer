@@ -1446,7 +1446,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 				}
 				ctx = templ.InitializeContext(ctx)
 				if activeApp == "contacts" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "<button type=\"button\" hx-post=\"/api/settings/contacts/accounts/sync\" hx-swap=\"none\" hx-on::before-request=\"handleContactSidebarSyncStart()\" hx-on::after-request=\"handleContactSidebarSyncResult(event)\" data-contact-sidebar-sync-button class=\"inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground\" aria-label=\"Sync all contacts\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "<button type=\"button\" hx-post=\"/api/settings/contacts/accounts/sync\" hx-swap=\"none\" hx-on::before-request=\"handleContactSidebarSyncStart(event)\" hx-on::after-request=\"handleContactSidebarSyncResult(event)\" data-contact-sidebar-sync-button class=\"inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground\" aria-label=\"Sync all contacts\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1459,7 +1459,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "<button type=\"button\" hx-post=\"/api/mail/sync\" hx-swap=\"none\" hx-on::before-request=\"handleMailSidebarSyncStart()\" hx-on::after-request=\"handleMailSidebarSyncResult(event)\" data-mail-sidebar-sync-button class=\"inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground\" aria-label=\"Force sync all mail, including IDLE folders\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "<button type=\"button\" hx-post=\"/api/mail/sync\" hx-swap=\"none\" hx-on::before-request=\"handleMailSidebarSyncStart(event)\" hx-on::after-request=\"handleMailSidebarSyncResult(event)\" data-mail-sidebar-sync-button class=\"inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground\" aria-label=\"Force sync all mail, including IDLE folders\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1595,7 +1595,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "\" hx-swap=\"none\" hx-on::before-request=\"handleContactSidebarSyncStart()\" hx-on::after-request=\"handleContactSidebarSyncResult(event)\" data-contact-account-sync-button=\"")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "\" hx-swap=\"none\" hx-on::before-request=\"handleContactSidebarSyncStart(event)\" hx-on::after-request=\"handleContactSidebarSyncResult(event)\" data-contact-account-sync-button=\"")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -1685,7 +1685,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "\" hx-swap=\"none\" hx-on::before-request=\"handleMailSidebarSyncStart()\" hx-on::after-request=\"handleMailSidebarSyncResult(event)\" data-mail-account-sync-button=\"")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "\" hx-swap=\"none\" hx-on::before-request=\"handleMailSidebarSyncStart(event)\" hx-on::after-request=\"handleMailSidebarSyncResult(event)\" data-mail-account-sync-button=\"")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}

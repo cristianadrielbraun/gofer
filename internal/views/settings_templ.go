@@ -5243,7 +5243,7 @@ func SettingsAccountCard(account models.Account) templ.Component {
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 312, "\" hx-swap=\"none\" hx-on::before-request=\"handleMailSidebarSyncStart('repair')\" hx-on::after-request=\"handleMailSidebarSyncResult(event)\" data-mail-account-sync-button=\"")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 312, "\" hx-swap=\"none\" hx-on::before-request=\"handleMailSidebarSyncStart(event, 'repair')\" hx-on::after-request=\"handleMailSidebarSyncResult(event)\" data-mail-account-sync-button=\"")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}

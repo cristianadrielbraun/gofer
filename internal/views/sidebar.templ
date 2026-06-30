@@ -393,7 +393,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 							type="button"
 							hx-post="/api/settings/contacts/accounts/sync"
 							hx-swap="none"
-							hx-on::before-request="handleContactSidebarSyncStart()"
+							hx-on::before-request="handleContactSidebarSyncStart(event)"
 							hx-on::after-request="handleContactSidebarSyncResult(event)"
 							data-contact-sidebar-sync-button
 							class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
@@ -406,7 +406,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 							type="button"
 							hx-post="/api/mail/sync"
 							hx-swap="none"
-							hx-on::before-request="handleMailSidebarSyncStart()"
+							hx-on::before-request="handleMailSidebarSyncStart(event)"
 							hx-on::after-request="handleMailSidebarSyncResult(event)"
 							data-mail-sidebar-sync-button
 							class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[syncing=true]:text-sidebar-accent-foreground"
@@ -445,7 +445,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 										hx-post="/api/settings/contacts/accounts/sync"
 										hx-vals={ sidebarContactSyncValues(account.ID) }
 										hx-swap="none"
-										hx-on::before-request="handleContactSidebarSyncStart()"
+										hx-on::before-request="handleContactSidebarSyncStart(event)"
 										hx-on::after-request="handleContactSidebarSyncResult(event)"
 										data-contact-account-sync-button={ account.ID }
 										class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -469,7 +469,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 										type="button"
 										hx-post={ "/api/mail/sync/accounts/" + account.ID }
 										hx-swap="none"
-										hx-on::before-request="handleMailSidebarSyncStart()"
+										hx-on::before-request="handleMailSidebarSyncStart(event)"
 										hx-on::after-request="handleMailSidebarSyncResult(event)"
 										data-mail-account-sync-button={ account.ID }
 										class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"

@@ -4674,9 +4674,15 @@ function populateMailSyncRunAccounts(data) {
   }
 }
 
+function _mailSyncSingleAccountIDFromData(data) {
+  if (!data || !Array.isArray(data.account_ids) || data.account_ids.length !== 1) return ""
+  return String(data.account_ids[0] || "").trim()
+}
+
 function ensureMailScheduledRunFromEvent(data) {
   if (!_mailSyncIsScheduledEvent(data)) return false
   if (_mailSyncHasActiveManualRun()) return false
+  _mailSyncScopedBusyAccountID = ""
   var runID = data.run_id || ""
   if (_mailSyncState.kind !== "scheduled" || (runID && _mailSyncState.runID && _mailSyncState.runID !== runID)) {
     resetMailSyncProgressState(runID, "scheduled")
@@ -5356,23 +5362,61 @@ function renderMailSyncProgressDialog() {
   accountsEl.innerHTML = html
 }
 
-function _setMailSyncButtonBusy(busy) {
+var _mailSyncScopedBusyAccountID = ""
+
+function _mailSyncButtonFromContext(context) {
+  var node = context && context.target ? context.target : context
+  if (!node || !node.closest) return null
+  return node.closest("[data-mail-sidebar-sync-button], [data-mail-account-sync-button]")
+}
+
+function _mailSyncAccountIDFromButton(button) {
+  if (!button || !button.hasAttribute("data-mail-account-sync-button")) return ""
+  return String(button.getAttribute("data-mail-account-sync-button") || "").trim()
+}
+
+function _setMailSyncButtonNodeBusy(button, busy) {
+  if (!button) return
+  button.dataset.syncing = busy ? "true" : "false"
+  var icon = button.querySelector("svg")
+  if (icon) icon.classList.toggle("animate-spin", !!busy)
+}
+
+function _clearMailSyncButtons() {
   var buttons = document.querySelectorAll("[data-mail-sidebar-sync-button], [data-mail-account-sync-button]")
   for (var i = 0; i < buttons.length; i++) {
-    buttons[i].dataset.syncing = busy ? "true" : "false"
-    var icon = buttons[i].querySelector("svg")
-    if (icon) icon.classList.toggle("animate-spin", !!busy)
+    _setMailSyncButtonNodeBusy(buttons[i], false)
+  }
+}
+
+function _setMailSyncButtonBusy(busy, accountID) {
+  var scopedAccountID = typeof accountID === "string" ? accountID : _mailSyncScopedBusyAccountID
+  var buttons = document.querySelectorAll("[data-mail-sidebar-sync-button], [data-mail-account-sync-button]")
+  for (var i = 0; i < buttons.length; i++) {
+    var buttonAccountID = _mailSyncAccountIDFromButton(buttons[i])
+    if (scopedAccountID && buttonAccountID !== scopedAccountID) {
+      _setMailSyncButtonNodeBusy(buttons[i], false)
+      continue
+    }
+    _setMailSyncButtonNodeBusy(buttons[i], busy)
   }
   updateMailSyncSidebarTooltip()
 }
 
-function handleMailSidebarSyncStart(mode) {
+function handleMailSidebarSyncStart(context, mode) {
+  if (context === "repair") {
+    mode = "repair"
+    context = null
+  }
   mode = mode === "repair" ? "repair" : "sync"
+  var button = _mailSyncButtonFromContext(context)
+  _mailSyncScopedBusyAccountID = _mailSyncAccountIDFromButton(button)
   _mailSyncActive = true
   if (!_mailSyncState.active && !_mailSyncState.runOrder.length) {
     resetMailSyncProgressState("", "manual")
   }
-  _setMailSyncButtonBusy(true)
+  _clearMailSyncButtons()
+  _setMailSyncButtonBusy(true, _mailSyncScopedBusyAccountID)
   showMailSyncToast({
     id: "mail-sync-toast",
     title: _mailSyncRunningTitle({ mode: mode }),
@@ -5398,6 +5442,7 @@ function handleMailSidebarSyncResult(event) {
       stopMailSyncProgressState("error")
     }
     _setMailSyncButtonBusy(_mailSyncState.active)
+    if (!_mailSyncState.active) _mailSyncScopedBusyAccountID = ""
     showGoferToast({
       id: "mail-sync-toast",
       title: "Mail sync failed",
@@ -5417,6 +5462,7 @@ function handleMailSidebarSyncResult(event) {
       stopMailSyncProgressState("already-running")
     }
     _setMailSyncButtonBusy(_mailSyncState.active)
+    if (!_mailSyncState.active) _mailSyncScopedBusyAccountID = ""
     showGoferToast({
       id: "mail-sync-toast",
       title: "Mail sync already running",
@@ -5452,6 +5498,11 @@ function handleMailManualSyncEvent(phase, data) {
   var runID = data.run_id || ""
   if (!_mailSyncActive && phase !== "started" && !runID) return
   _mailSyncActive = true
+  if (phase === "started" && _mailSyncCount(data.accounts_total) > 1) {
+    _mailSyncScopedBusyAccountID = ""
+  } else if (!_mailSyncScopedBusyAccountID) {
+    _mailSyncScopedBusyAccountID = _mailSyncSingleAccountIDFromData(data)
+  }
   _setMailSyncButtonBusy(true)
   updateMailSyncStateFromManual(phase, data)
 
@@ -5482,6 +5533,7 @@ function handleMailManualSyncEvent(phase, data) {
     _mailSyncCancelRequested = false
     updateMailSyncAggregateFromRuns()
     _setMailSyncButtonBusy(_mailSyncState.active)
+    if (!_mailSyncState.active) _mailSyncScopedBusyAccountID = ""
     if (_mailSyncState.active) {
       showMailSyncToast({
         id: "mail-sync-toast",
@@ -5539,6 +5591,7 @@ function handleMailScheduledSyncEvent(phase, data) {
   if (_mailSyncHasActiveManualRun()) return
   if (_mailSyncState.kind === "scheduled" && _mailSyncState.active && _mailSyncState.runID && runID && _mailSyncState.runID !== runID && phase !== "started") return
 
+  _mailSyncScopedBusyAccountID = ""
   _mailSyncActive = phase !== "complete"
   _setMailSyncButtonBusy(phase !== "complete")
   updateMailSyncStateFromScheduled(phase, data)
@@ -5551,11 +5604,46 @@ function handleMailScheduledSyncEvent(phase, data) {
   }
 }
 
-function handleContactSidebarSyncStart() {
+var _contactSidebarSyncActiveButton = null
+
+function _contactSidebarSyncButtonFromContext(context) {
+  var node = context && context.target ? context.target : context
+  if (!node || !node.closest) return null
+  return node.closest("[data-contact-sidebar-sync-button], [data-contact-account-sync-button]")
+}
+
+function _setContactSidebarSyncButtonBusy(button, busy) {
+  if (!button) return
+  button.dataset.syncing = busy ? "true" : "false"
+  var icon = button.querySelector("svg")
+  if (icon) icon.classList.toggle("animate-spin", !!busy)
+}
+
+function _clearContactSidebarSyncButtons() {
+  var buttons = document.querySelectorAll("[data-contact-sidebar-sync-button], [data-contact-account-sync-button]")
+  for (var i = 0; i < buttons.length; i++) {
+    _setContactSidebarSyncButtonBusy(buttons[i], false)
+  }
+}
+
+function _contactSidebarSyncButtonLabel(button) {
+  if (!button || !button.hasAttribute("data-contact-account-sync-button")) return ""
+  var label = button.querySelector(".font-medium")
+  return label && label.textContent ? label.textContent.trim() : ""
+}
+
+function handleContactSidebarSyncStart(event) {
+  var button = _contactSidebarSyncButtonFromContext(event)
+  _clearContactSidebarSyncButtons()
+  if (button) {
+    _contactSidebarSyncActiveButton = button
+    _setContactSidebarSyncButtonBusy(button, true)
+  }
+  var label = _contactSidebarSyncButtonLabel(button)
   showGoferToast({
     id: "contact-sync-toast",
     title: "Syncing contacts",
-    description: "Checking connected address books...",
+    description: label ? "Checking " + label + " address books..." : "Checking connected address books...",
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -5566,6 +5654,9 @@ function handleContactSidebarSyncStart() {
 
 function handleContactSidebarSyncResult(event) {
   var xhr = event && event.detail ? event.detail.xhr : null
+  var button = _contactSidebarSyncButtonFromContext(event) || _contactSidebarSyncActiveButton
+  _setContactSidebarSyncButtonBusy(button, false)
+  _contactSidebarSyncActiveButton = null
   var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
   var message = "Contact sync finished."
   if (xhr && xhr.responseText) {

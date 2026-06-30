@@ -1753,7 +1753,7 @@ templ SettingsAccountCard(account models.Account) {
 							class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
 							hx-post={ fmt.Sprintf("/api/mail/sync/accounts/%s/repair", account.ID) }
 							hx-swap="none"
-							hx-on::before-request="handleMailSidebarSyncStart('repair')"
+							hx-on::before-request="handleMailSidebarSyncStart(event, 'repair')"
 							hx-on::after-request="handleMailSidebarSyncResult(event)"
 							data-mail-account-sync-button={ account.ID }
 							data-repair-account-action="true"
