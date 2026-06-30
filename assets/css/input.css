@@ -1217,7 +1217,7 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 
 .mail-list-item[data-mail-selected] > a,
 .mail-list-item > a[data-mail-selected] {
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
   box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
@@ -1236,7 +1236,7 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
 
 [data-view-mode="table"] .mail-list-item[data-mail-selected] > a,
 [data-view-mode="table"] .mail-list-item > a[data-mail-selected] {
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 .mail-list-item[data-mail-read-optimistic] .font-semibold,

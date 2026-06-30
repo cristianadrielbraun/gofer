@@ -301,19 +301,9 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 							}
 						}
 						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search languages..."}) {
-							@selectbox.Item(selectbox.ItemProps{Value: "en", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "en"}) { English }
-							@selectbox.Item(selectbox.ItemProps{Value: "cs", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "cs"}) { Czech }
-							@selectbox.Item(selectbox.ItemProps{Value: "de", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "de"}) { German }
-							@selectbox.Item(selectbox.ItemProps{Value: "es", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "es"}) { Spanish }
-							@selectbox.Item(selectbox.ItemProps{Value: "fr", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "fr"}) { French }
-							@selectbox.Item(selectbox.ItemProps{Value: "it", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "it"}) { Italian }
-							@selectbox.Item(selectbox.ItemProps{Value: "nl", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "nl"}) { Dutch }
-							@selectbox.Item(selectbox.ItemProps{Value: "pl", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "pl"}) { Polish }
-							@selectbox.Item(selectbox.ItemProps{Value: "pt", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "pt"}) { Portuguese }
-							@selectbox.Item(selectbox.ItemProps{Value: "uk", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "uk"}) { Ukrainian }
-							@selectbox.Item(selectbox.ItemProps{Value: "zh-CN", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "zh-CN"}) { Chinese }
-							@selectbox.Item(selectbox.ItemProps{Value: "ja", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "ja"}) { Japanese }
-							@selectbox.Item(selectbox.ItemProps{Value: "ko", Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == "ko"}) { Korean }
+							for _, language := range translationLanguageOptions() {
+								@selectbox.Item(selectbox.ItemProps{Value: language.Value, Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == language.Value}) { { language.Label } }
+							}
 						}
 					}
 				</div>

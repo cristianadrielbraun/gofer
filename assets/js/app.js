@@ -417,26 +417,29 @@ document.addEventListener("DOMContentLoaded", function () {
       return setting("translation_target_language", "en") || "en"
     }
 
+    var translationLanguages = [
+      { code: "en", label: "English" },
+      { code: "cs", label: "Czech" },
+      { code: "de", label: "German" },
+      { code: "es", label: "Spanish" },
+      { code: "fr", label: "French" },
+      { code: "it", label: "Italian" },
+      { code: "nl", label: "Dutch" },
+      { code: "pl", label: "Polish" },
+      { code: "pt", label: "Portuguese" },
+      { code: "uk", label: "Ukrainian" },
+      { code: "zh-cn", label: "Chinese" },
+      { code: "ja", label: "Japanese" },
+      { code: "ko", label: "Korean" }
+    ]
+
     function languageLabel(code) {
-      switch (String(code || "").toLowerCase()) {
-        case "ar": return "Arabic"
-        case "cs": return "Czech"
-        case "de": return "German"
-        case "en": return "English"
-        case "es": return "Spanish"
-        case "fr": return "French"
-        case "it": return "Italian"
-        case "ja": return "Japanese"
-        case "ko": return "Korean"
-        case "nl": return "Dutch"
-        case "pl": return "Polish"
-        case "pt": return "Portuguese"
-        case "ru": return "Russian"
-        case "uk": return "Ukrainian"
-        case "zh":
-        case "zh-cn": return "Chinese"
-        default: return code || "selected language"
+      var normalized = String(code || "").toLowerCase()
+      if (normalized === "zh") normalized = "zh-cn"
+      for (var i = 0; i < translationLanguages.length; i++) {
+        if (translationLanguages[i].code === normalized) return translationLanguages[i].label
       }
+      return code || "selected language"
     }
 
     function translationEnabled() {
@@ -460,10 +463,16 @@ document.addEventListener("DOMContentLoaded", function () {
       return target ? "Translate to " + languageLabel(target) : "Translate"
     }
 
+    function activeTargetLanguage(emailId) {
+      var frame = frameForEmail(emailId)
+      return frame && frame.dataset.translationTargetLanguage ? frame.dataset.translationTargetLanguage : targetLanguage()
+    }
+
     function setButtonState(emailId, state, data) {
       var button = buttonForEmail(emailId)
       if (!button) return
       var label = button.querySelector("[data-translate-email-label]")
+      var shell = button.closest("[data-email-translation-button]")
       var text = idleButtonLabel()
       var translated = state === "translated"
       if (state === "loading") text = "Translating..."
@@ -473,11 +482,12 @@ document.addEventListener("DOMContentLoaded", function () {
       button.disabled = state === "loading"
       button.dataset.translationState = state
       button.dataset.translated = translated ? "true" : "false"
+      if (shell) shell.dataset.translated = translated ? "true" : "false"
       button.setAttribute("aria-pressed", translated ? "true" : "false")
       button.setAttribute("aria-label", translated ? "Show original email" : idleButtonLabel())
       button.classList.toggle("opacity-60", state === "loading")
       if (translated && data) {
-        button.title = "Translated to " + languageLabel(targetLanguage())
+        button.title = "Translated to " + languageLabel(activeTargetLanguage(emailId))
       } else {
         button.removeAttribute("title")
       }
@@ -534,19 +544,19 @@ document.addEventListener("DOMContentLoaded", function () {
       }, message ? 3000 : 1800)
     }
 
-    function translateEmail(emailId, button) {
+    function translateEmail(emailId, button, targetOverride) {
       var frame = frameForEmail(emailId)
       if (!frame) {
         setTranslationError(emailId)
         return
       }
-      if (frame && frame.dataset.translationActive === "true") {
+      if (frame && frame.dataset.translationActive === "true" && !targetOverride) {
         showOriginal(emailId)
         return
       }
 
       var currentProvider = provider()
-      var target = targetLanguage()
+      var target = targetOverride || targetLanguage()
       var cacheKey = currentProvider + "|" + target
       frame.dataset.translationActive = "true"
       frame.dataset.translationProvider = currentProvider
@@ -575,6 +585,14 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("click", function (e) {
+      var language = e.target.closest("[data-translate-email-language]")
+      if (language) {
+        e.preventDefault()
+        if (!translationEnabled()) return
+        translateEmail(language.dataset.translateEmailLanguage, buttonForEmail(language.dataset.translateEmailLanguage), language.dataset.translationLanguage)
+        return
+      }
+
       var translate = e.target.closest("[data-translate-email]")
       if (translate) {
         e.preventDefault()

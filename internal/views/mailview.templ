@@ -824,10 +824,36 @@ templ MailViewBodyByID(emailID string) {
 	</div>
 	<div data-email-translation-shell={ emailID } class="mb-3">
 		<div class="flex items-center justify-end gap-2">
-			<button type="button" data-translate-email={ emailID } data-translated="false" aria-pressed="false" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.02] px-2.5 text-xs font-medium text-ink/50 transition-colors hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/70 data-[translated=true]:border-copper/40 data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper data-[translated=true]:hover:border-copper/50 data-[translated=true]:hover:bg-copper/15">
-				@icon.Languages(icon.Props{Class: "size-3.5"})
-				<span data-translate-email-label={ emailID }>Translate</span>
-			</button>
+			<div data-email-translation-button={ emailID } data-translated="false" class="inline-flex h-8 overflow-hidden rounded-md border border-ink/10 bg-ink/[0.02] text-xs font-medium text-ink/50 transition-colors hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/70 data-[translated=true]:border-copper/40 data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper data-[translated=true]:hover:border-copper/50 data-[translated=true]:hover:bg-copper/15">
+				<button type="button" data-translate-email={ emailID } data-translated="false" aria-pressed="false" class="inline-flex h-full items-center gap-1.5 px-2.5 transition-colors data-[translated=true]:text-copper">
+					@icon.Languages(icon.Props{Class: "size-3.5"})
+					<span data-translate-email-label={ emailID }>Translate</span>
+				</button>
+				@dropdown.Dropdown() {
+					@dropdown.Trigger() {
+						<button type="button" class="inline-flex h-full w-7 items-center justify-center border-l border-ink/10 transition-colors hover:bg-ink/[0.04]" aria-label="Choose translation language">
+							@icon.ChevronDown(icon.Props{Class: "size-3"})
+						</button>
+					}
+					@dropdown.Content(dropdown.ContentProps{
+						Placement: dropdown.PlacementBottomEnd,
+						Class:     "w-40 normal-case tracking-normal",
+					}) {
+						@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { Translate to }
+						for _, language := range translationLanguageOptions() {
+							@dropdown.Item(dropdown.ItemProps{
+								Class: "text-xs",
+								Attributes: templ.Attributes{
+									"data-translate-email-language": emailID,
+									"data-translation-language":      language.Value,
+								},
+							}) {
+								<span>{ language.Label }</span>
+							}
+						}
+					}
+				}
+			</div>
 		</div>
 	</div>
 	<div data-email-body-loading={ emailID } class="space-y-3 py-2" aria-label="Loading email body">

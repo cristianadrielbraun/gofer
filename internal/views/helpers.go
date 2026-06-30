@@ -608,6 +608,29 @@ func translationLanguageSettingLabel(value string) string {
 	}
 }
 
+type translationLanguageOption struct {
+	Value string
+	Label string
+}
+
+func translationLanguageOptions() []translationLanguageOption {
+	return []translationLanguageOption{
+		{Value: "en", Label: "English"},
+		{Value: "cs", Label: "Czech"},
+		{Value: "de", Label: "German"},
+		{Value: "es", Label: "Spanish"},
+		{Value: "fr", Label: "French"},
+		{Value: "it", Label: "Italian"},
+		{Value: "nl", Label: "Dutch"},
+		{Value: "pl", Label: "Polish"},
+		{Value: "pt", Label: "Portuguese"},
+		{Value: "uk", Label: "Ukrainian"},
+		{Value: "zh-CN", Label: "Chinese"},
+		{Value: "ja", Label: "Japanese"},
+		{Value: "ko", Label: "Korean"},
+	}
+}
+
 func notificationModeSettingLabel(mode string) string {
 	switch mode {
 	case "web_push":
