@@ -1384,6 +1384,9 @@ document.addEventListener("DOMContentLoaded", function () {
   function setupMailFilters() {
     var searchTimer = null
     var committedQuery = ""
+    var activePillOverflowFrame = null
+    var filterResultsTimer = null
+    var activePillAnimationDelay = 190
 
     function emptyFilters() {
       return {
@@ -1521,38 +1524,63 @@ document.addEventListener("DOMContentLoaded", function () {
       summary.classList.toggle("hidden", false)
     }
 
-    function ensureSearchTokenboxStyle() {
-      if (document.getElementById("mail-search-tokenbox-style")) return
-      var style = document.createElement("style")
-      style.id = "mail-search-tokenbox-style"
-      style.textContent =
-        '[data-mail-search-tokenbox]{min-height:2.25rem;display:flex;align-items:center;flex-wrap:wrap;gap:.25rem;padding:.25rem .5rem .25rem 2rem;border:1px solid color-mix(in srgb,var(--border) 50%,transparent);background:var(--background);border-radius:var(--radius);}' +
-        '[data-mail-search-tokenbox]:focus-within{box-shadow:0 0 0 2px var(--ring);}' +
-        '[data-mail-search-tokenbox] [data-mail-search-input]{height:1.65rem!important;min-width:7rem!important;flex:1 1 8rem!important;width:auto!important;border:0!important;background:transparent!important;padding:0!important;box-shadow:none!important;outline:0!important;}' +
-        '[data-mail-search-tokenbox] [data-mail-active-filter-pills]{display:contents;}' +
-        '[data-mail-search-tokenbox] [data-mail-active-filter-pills].hidden{display:none;}'
-      document.head.appendChild(style)
+    function scheduleActivePillOverflow(bar) {
+      if (activePillOverflowFrame) cancelAnimationFrame(activePillOverflowFrame)
+      activePillOverflowFrame = requestAnimationFrame(function () {
+        activePillOverflowFrame = requestAnimationFrame(function () {
+          activePillOverflowFrame = null
+          syncActivePillOverflow(bar)
+        })
+      })
+    }
+
+    function retryActivePillOverflow(bar) {
+      if (!bar || bar._mailPillOverflowRetry) return
+      bar._mailPillOverflowRetry = window.setTimeout(function () {
+        bar._mailPillOverflowRetry = null
+        syncActivePillOverflow(bar)
+      }, 80)
+    }
+
+    function setupActivePillResizeObserver(box, bar) {
+      if (!box || box._mailPillResizeBound) return
+      box._mailPillResizeBound = true
+      if (typeof ResizeObserver === "function") {
+        box._mailPillResizeObserver = new ResizeObserver(function () {
+          scheduleActivePillOverflow(bar)
+        })
+        box._mailPillResizeObserver.observe(box)
+      } else {
+        window.addEventListener("resize", function () {
+          scheduleActivePillOverflow(bar)
+        })
+      }
+    }
+
+    function ensureActivePillOverflowPanel(box) {
+      if (!box) return null
+      var existing = box.querySelector("[data-mail-active-filter-overflow-panel]")
+      if (existing) return existing
+      var panel = document.createElement("div")
+      panel.setAttribute("data-mail-active-filter-overflow-panel", "")
+      panel.className = "mail-active-filter-overflow-panel hidden"
+      box.appendChild(panel)
+      return panel
     }
 
     function ensureActivePillBar() {
-      var input = document.querySelector("[data-mail-search-input]")
-      if (!input) return null
-      ensureSearchTokenboxStyle()
-      var box = input.closest(".groove") || input.parentElement
-      if (!box) return null
-      box.setAttribute("data-mail-search-tokenbox", "")
-      var existing = box.querySelector("[data-mail-active-filter-pills]")
-      if (existing) return existing
-      var bar = document.createElement("div")
-      bar.setAttribute("data-mail-active-filter-pills", "")
-      bar.className = "hidden"
-      box.insertBefore(bar, input)
+      var bar = document.querySelector("[data-mail-active-filter-pills]")
+      if (!bar) return null
+      ensureActivePillOverflowPanel(bar)
+      setupActivePillResizeObserver(bar, bar)
       return bar
     }
 
     function activePillDefs(filters) {
+      filters = filters || emptyFilters()
       var pills = []
-      if (committedQuery) pills.push({ name: "q", label: "Search", value: committedQuery })
+      var query = (filters.query || committedQuery || "").trim()
+      if (query) pills.push({ name: "q", label: "Search", value: query })
       if (filters.unread) pills.push({ name: "unread", label: "Status", value: "Unread" })
       if (filters.read) pills.push({ name: "read", label: "Status", value: "Read" })
       if (filters.starred) pills.push({ name: "starred", label: "Starred" })
@@ -1573,24 +1601,149 @@ document.addEventListener("DOMContentLoaded", function () {
       return pills
     }
 
-    function renderActivePills() {
-      var bar = ensureActivePillBar()
+    function activePillText(pill) {
+      return pill.value ? (pill.label + ": " + pill.value) : pill.label
+    }
+
+    function activePillKey(pill) {
+      return JSON.stringify([pill.name || "", pill.value || ""])
+    }
+
+    function activePillButtonHTML(pill, attrs, className) {
+      return '<button type="button" ' + (attrs || "") + ' data-mail-active-filter-remove="' + escapeHTML(pill.name) + '" class="' + (className || "mail-active-filter-pill") + '">' +
+        '<span class="mail-active-filter-pill-label">' + escapeHTML(activePillText(pill)) + '</span><span class="mail-active-filter-pill-remove">x</span></button>'
+    }
+
+    function closeActivePillOverflow() {
+      document.querySelectorAll("[data-mail-active-filter-overflow]").forEach(function (button) {
+        button.setAttribute("aria-expanded", "false")
+      })
+      document.querySelectorAll("[data-mail-active-filter-overflow-panel]").forEach(function (panel) {
+        panel.classList.add("hidden")
+      })
+    }
+
+    function renderActivePillOverflowPanel(panel, hiddenPills) {
+      if (!panel) return
+      var html = ""
+      for (var i = 0; i < hiddenPills.length; i++) {
+        html += activePillButtonHTML(hiddenPills[i], "", "mail-active-filter-panel-pill")
+      }
+      panel.innerHTML = html
+      if (!hiddenPills.length) panel.classList.add("hidden")
+    }
+
+    function hideActivePillBar(bar, panel) {
       if (!bar) return
-      var pills = activePillDefs(readFilters())
-      if (!pills.length) {
-        bar.innerHTML = ""
-        bar.classList.add("hidden")
+      if (bar._mailPillClearTimer) clearTimeout(bar._mailPillClearTimer)
+      closeActivePillOverflow()
+      renderActivePillOverflowPanel(panel, [])
+      bar.classList.add("hidden")
+      bar._mailPillClearTimer = window.setTimeout(function () {
+        bar._mailPillClearTimer = null
+        if (bar.classList.contains("hidden")) bar.innerHTML = ""
+      }, activePillAnimationDelay)
+    }
+
+    function syncActivePillOverflow(bar) {
+      if (!bar || bar.classList.contains("hidden")) return
+      var panel = ensureActivePillOverflowPanel(bar)
+      var visible = bar.querySelector("[data-mail-active-filter-visible]")
+      var pillButtons = Array.prototype.slice.call(bar.querySelectorAll("[data-mail-active-filter-pill]"))
+      var overflow = bar.querySelector("[data-mail-active-filter-overflow]")
+      if (!visible || !overflow || !pillButtons.length) return
+
+      for (var i = 0; i < pillButtons.length; i++) pillButtons[i].classList.remove("hidden")
+      overflow.classList.add("hidden")
+      overflow.setAttribute("aria-expanded", "false")
+      if (panel) panel.classList.add("hidden")
+
+      var barStyle = window.getComputedStyle(bar)
+      var visibleStyle = window.getComputedStyle(visible)
+      var barGap = parseFloat(barStyle.columnGap || barStyle.gap) || 0
+      var pillGap = parseFloat(visibleStyle.columnGap || visibleStyle.gap) || 0
+      var barWidth = Math.max(0, Math.floor(bar.getBoundingClientRect().width || bar.clientWidth || 0))
+      var available = Math.max(0, Math.floor(visible.getBoundingClientRect().width || visible.clientWidth || 0))
+      var overflowOnly = visibleStyle.display === "none"
+      var widths = pillButtons.map(function (button) { return button.offsetWidth })
+      if (barWidth <= 1 || (!overflowOnly && widths.some(function (width) { return width <= 1 }))) {
+        retryActivePillOverflow(bar)
+        renderActivePillOverflowPanel(panel, [])
         return
       }
-      var html = ""
+      if (overflowOnly) available = 0
+      var total = 0
+      for (var t = 0; t < widths.length; t++) total += widths[t] + (t > 0 ? pillGap : 0)
+      if (total <= available) {
+        renderActivePillOverflowPanel(panel, [])
+        return
+      }
+
+      overflow.textContent = "+" + pillButtons.length
+      overflow.classList.remove("hidden")
+      overflow.style.visibility = "hidden"
+      var overflowWidth = Math.max(0, Math.ceil(overflow.getBoundingClientRect().width || overflow.offsetWidth || 0))
+      overflow.style.visibility = ""
+      available = Math.max(0, barWidth - overflowWidth - barGap)
+      var visibleCount = 0
+      var used = 0
+      for (var p = 0; p < widths.length; p++) {
+        var nextUsed = used + (visibleCount > 0 ? pillGap : 0) + widths[p]
+        if (nextUsed <= available) {
+          used = nextUsed
+          visibleCount++
+        } else {
+          break
+        }
+      }
+
+      var hiddenPills = []
+      for (var h = 0; h < pillButtons.length; h++) {
+        var hidden = h >= visibleCount
+        pillButtons[h].classList.toggle("hidden", hidden)
+        if (hidden) {
+          var pillData = pillButtons[h].getAttribute("data-mail-active-filter-pill")
+          if (pillData) {
+            try { hiddenPills.push(JSON.parse(pillData)) } catch (_) {}
+          }
+        }
+      }
+      overflow.textContent = "+" + hiddenPills.length
+      overflow.classList.toggle("hidden", hiddenPills.length === 0)
+      renderActivePillOverflowPanel(panel, hiddenPills)
+    }
+
+    function renderActivePills(filters) {
+      var bar = ensureActivePillBar()
+      if (!bar) return
+      filters = filters || readFilters()
+      var pills = activePillDefs(filters)
+      var panel = ensureActivePillOverflowPanel(bar)
+      var existingKeys = Object.create(null)
+      var hadOverflow = !!bar.querySelector("[data-mail-active-filter-overflow]")
+      bar.querySelectorAll("[data-mail-active-filter-key]").forEach(function (pill) {
+        existingKeys[pill.getAttribute("data-mail-active-filter-key") || ""] = true
+      })
+      if (!pills.length) {
+        hideActivePillBar(bar, panel)
+        return
+      }
+      if (bar._mailPillClearTimer) {
+        clearTimeout(bar._mailPillClearTimer)
+        bar._mailPillClearTimer = null
+      }
+      var html = '<div data-mail-active-filter-visible class="mail-active-filter-visible">'
       for (var i = 0; i < pills.length; i++) {
         var pill = pills[i]
-        var text = pill.value ? (pill.label + ": " + pill.value) : pill.label
-        html += '<button type="button" data-mail-active-filter-remove="' + escapeHTML(pill.name) + '" class="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground shadow-sm hover:bg-accent">' +
-          '<span class="truncate">' + escapeHTML(text) + '</span><span class="text-muted-foreground">x</span></button>'
+        var key = activePillKey(pill)
+        var pillClass = existingKeys[key] ? "mail-active-filter-pill mail-active-filter-pill-stable" : "mail-active-filter-pill"
+        html += activePillButtonHTML(pill, 'data-mail-active-filter-pill="' + escapeHTML(JSON.stringify(pill)) + '" data-mail-active-filter-key="' + escapeHTML(key) + '"', pillClass)
       }
+      html += '</div><button type="button" data-mail-active-filter-overflow class="mail-active-filter-overflow ' + (hadOverflow ? "mail-active-filter-overflow-stable " : "") + 'hidden" aria-expanded="false" aria-label="Show hidden filters">+0</button>'
       bar.innerHTML = html
       bar.classList.remove("hidden")
+      ensureActivePillOverflowPanel(bar)
+      scheduleActivePillOverflow(bar)
     }
 
     function clearInputs(selector) {
@@ -1694,6 +1847,8 @@ document.addEventListener("DOMContentLoaded", function () {
       setInputValue("account_id", filters.accountId || "")
       setInputValue("after_date", filters.afterDate || "")
       setInputValue("before_date", filters.beforeDate || "")
+      renderActivePills(filters)
+      syncFilterButton(filters)
     }
 
     function clearAdvancedFilter(name) {
@@ -1731,11 +1886,25 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    function applyCurrentFilters() {
+    function applyFiltersToResults(filters, delay) {
+      if (filterResultsTimer) {
+        clearTimeout(filterResultsTimer)
+        filterResultsTimer = null
+      }
+      var run = function () {
+        filterResultsTimer = null
+        if (virtualMailList) virtualMailList.applyFilters(filters).catch(function () {})
+      }
+      if (delay > 0) filterResultsTimer = window.setTimeout(run, delay)
+      else run()
+    }
+
+    function applyCurrentFilters(options) {
+      options = options || {}
       var filters = readFilters()
       syncFilterButton(filters)
       renderActivePills()
-      if (virtualMailList) virtualMailList.applyFilters(filters).catch(function () {})
+      applyFiltersToResults(filters, options.delayResults === false ? 0 : activePillAnimationDelay)
     }
 
     function splitSearchTokens(text) {
@@ -1849,7 +2018,8 @@ document.addEventListener("DOMContentLoaded", function () {
       return true
     }
 
-    function clearActiveFilter(name) {
+    function clearActiveFilter(name, options) {
+      options = options || {}
       if (name === "q") {
         committedQuery = ""
         var search = document.querySelector("[data-mail-search-input]")
@@ -1870,7 +2040,22 @@ document.addEventListener("DOMContentLoaded", function () {
       else if (name === "threads_only") setQuickBoolean("threads_only", false)
       else clearAdvancedFilter(name)
       renderAdvancedSummary()
-      applyCurrentFilters()
+      applyCurrentFilters(options)
+    }
+
+    function removeActiveFilterWithAnimation(remove) {
+      if (!remove) return
+      var name = remove.getAttribute("data-mail-active-filter-remove")
+      var pill = remove.closest(".mail-active-filter-pill")
+      var canAnimate = pill && !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      if (!canAnimate) {
+        clearActiveFilter(name)
+        return
+      }
+      pill.classList.add("mail-active-filter-pill-exiting")
+      window.setTimeout(function () {
+        clearActiveFilter(name, { delayResults: false })
+      }, 145)
     }
 
     function initSearchStateFromInput() {
@@ -1957,10 +2142,28 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("click", function (e) {
+      var overflow = e.target && e.target.closest && e.target.closest("[data-mail-active-filter-overflow]")
+      if (overflow) {
+        e.preventDefault()
+        var summary = overflow.closest("[data-mail-active-filter-pills]")
+        var panel = summary && summary.querySelector("[data-mail-active-filter-overflow-panel]")
+        var open = panel && panel.classList.contains("hidden")
+        closeActivePillOverflow()
+        if (panel && open) {
+          panel.classList.remove("hidden")
+          overflow.setAttribute("aria-expanded", "true")
+        }
+        return
+      }
+      if (e.target && e.target.closest && e.target.closest("[data-mail-active-filter-overflow-panel]")) return
+      closeActivePillOverflow()
+    })
+
+    document.addEventListener("click", function (e) {
       var remove = e.target && e.target.closest && e.target.closest("[data-mail-active-filter-remove]")
       if (!remove) return
       e.preventDefault()
-      clearActiveFilter(remove.getAttribute("data-mail-active-filter-remove"))
+      removeActiveFilterWithAnimation(remove)
     })
 
     document.addEventListener("submit", function (e) {
@@ -1983,6 +2186,7 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeActivePillOverflow()
       if (!e.target || !e.target.matches || !e.target.matches("[data-mail-search-input]")) return
       if (e.key !== "Enter") return
       e.preventDefault()
@@ -3438,11 +3642,16 @@ document.addEventListener("DOMContentLoaded", function () {
       '</div>' +
       '<div class="h-8 w-8 rounded-md bg-muted/50"></div>' +
       '</div>' +
-      '<div class="flex items-center gap-2">' +
-      '<div class="relative groove rounded-lg flex-1 min-w-0">' +
+      '<div class="mail-list-search-section">' +
+      '<div class="mail-list-search-primary">' +
+      '<div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
       '<input type="text" placeholder="Quick search" disabled class="h-9 w-full pl-3 pr-3 rounded-lg text-sm bg-background border border-border/50 opacity-60" />' +
       '</div>' +
-      '<button type="button" disabled class="inline-flex h-9 shrink-0 items-center rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground opacity-60">Advanced filters</button>' +
+      '<div class="mail-list-search-actions">' +
+      '<button type="button" disabled class="mail-list-quick-filter-button inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-muted-foreground opacity-60">' + pendingIcon("size-3.5") + '</button>' +
+      '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground opacity-60">Advanced filters</button>' +
+      '</div>' +
+      '</div>' +
       '</div>' +
       '</div>' +
       '<div class="flex items-center gap-1 px-4 py-1.5 border-y border-border/70">' +
@@ -3669,11 +3878,13 @@ document.addEventListener("DOMContentLoaded", function () {
   function mailPendingHeaderHTML() {
     return '<div class="mail-list-header px-4 py-4 space-y-3">' +
       '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2><span id="mail-folder-count" class="h-5 w-10 rounded-full bg-muted animate-pulse"></span></div></div>' +
-      '<div class="mail-list-search-row flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
-        '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
-        '<input type="text" disabled placeholder="Quick search" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
-      '</div>' + pendingFilterButton("Filter messages", "mail-list-quick-filter-button relative inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-foreground opacity-70") +
-      '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Advanced filters</span>' + pendingIcon("size-3.5") + '</button></div>' +
+      '<div class="mail-list-search-section"><div class="mail-list-search-primary"><div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
+          '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
+          '<input type="text" disabled placeholder="Quick search" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
+        '</div><div class="mail-list-search-actions">' +
+          pendingFilterButton("Filter messages", "mail-list-quick-filter-button relative inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-foreground opacity-70") +
+          '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Advanced filters</span>' + pendingIcon("size-3.5") + '</button>' +
+        '</div></div></div>' +
     '</div>'
   }
 
