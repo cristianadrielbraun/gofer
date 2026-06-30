@@ -1719,6 +1719,202 @@ func TestEmailQueryFilterMatchesThreadWhenOlderMessageMatches(t *testing.T) {
 	}
 }
 
+func TestEmailQueryFilterSearchesBeyondInitialWindow(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	base := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	msgs := make([]SyncMessage, 0, 61)
+	for i := 0; i < 60; i++ {
+		msgs = append(msgs, SyncMessage{
+			AccountID: "acc",
+			FolderID:  "inbox",
+			RemoteUID: uint32(i + 1),
+			MessageID: fmt.Sprintf("<recent-%02d@example.com>", i),
+			Subject:   fmt.Sprintf("Recent message %02d", i),
+			FromEmail: "recent@example.com",
+			DateSent:  base.Add(time.Duration(i) * time.Minute),
+			Snippet:   "ordinary visible-window message",
+			IsRead:    true,
+		})
+	}
+	msgs = append(msgs, SyncMessage{
+		AccountID: "acc",
+		FolderID:  "inbox",
+		RemoteUID: 100,
+		MessageID: "<deep-search@example.com>",
+		Subject:   "Archive candidate",
+		FromEmail: "deep@example.com",
+		DateSent:  base.Add(-time.Hour),
+		Snippet:   "contains deepsearchneedle outside the initial page",
+		IsRead:    true,
+	})
+	if err := db.UpsertSyncMessages(ctx, msgs); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	targetID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<deep-search@example.com>")
+	if err != nil || targetID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID(target) = %d, %v", targetID, err)
+	}
+
+	firstPage, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 10, models.EmailFilters{})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser(first page) error = %v", err)
+	}
+	for _, email := range firstPage.Emails {
+		if email.ID == strconv.FormatInt(targetID, 10) {
+			t.Fatalf("target unexpectedly appeared in first unfiltered page")
+		}
+	}
+
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 10, models.EmailFilters{Query: "deepsearchneedle"})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser(query) error = %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Emails) != 1 || page.Emails[0].ID != strconv.FormatInt(targetID, 10) {
+		t.Fatalf("query page total=%d emails=%#v, want hidden target %d", page.TotalCount, page.Emails, targetID)
+	}
+}
+
+func TestEmailFiltersCoverStructuredSearchFields(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address) VALUES
+			('acc_a', 'default', 'outlook', 'a@example.com'),
+			('acc_b', 'default', 'outlook', 'b@example.com')`); err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_a_inbox", AccountID: "acc_a", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_b_inbox", AccountID: "acc_b", Name: "Inbox", Role: "inbox", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	targetDate := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	otherDate := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{
+		{
+			AccountID:         "acc_a",
+			FolderID:          "acc_a_inbox",
+			ProviderMessageID: "target-provider",
+			InternetMessageID: "<filter-target@example.com>",
+			Subject:           "Quarterly Budget",
+			FromName:          "Alice Finance",
+			FromEmail:         "alice@finance.example.com",
+			DateSent:          targetDate,
+			DateReceived:      targetDate,
+			Snippet:           "budget planning preview",
+			IsRead:            false,
+			IsStarred:         true,
+			ToRecipients:      []Recipient{{Name: "Bob", Email: "bob@example.net"}},
+			CCRecipients:      []Recipient{{Name: "Carol", Email: "carol@example.net"}},
+			BCCRecipients:     []Recipient{{Name: "Hidden", Email: "hidden@example.net"}},
+		},
+		{
+			AccountID:         "acc_a",
+			FolderID:          "acc_a_inbox",
+			ProviderMessageID: "target-child-provider",
+			InternetMessageID: "<filter-target-child@example.com>",
+			InReplyTo:         "<filter-target@example.com>",
+			References:        "<filter-target@example.com>",
+			Subject:           "Re: Quarterly Budget",
+			FromName:          "Thread Child",
+			FromEmail:         "child@example.com",
+			DateSent:          targetDate.Add(-time.Minute),
+			DateReceived:      targetDate.Add(-time.Minute),
+			Snippet:           "thread child without the specific filters",
+			IsRead:            true,
+		},
+		{
+			AccountID:         "acc_b",
+			FolderID:          "acc_b_inbox",
+			ProviderMessageID: "other-provider",
+			InternetMessageID: "<filter-other@example.com>",
+			Subject:           "Casual note",
+			FromName:          "Other Sender",
+			FromEmail:         "other@else.example.com",
+			DateSent:          otherDate,
+			DateReceived:      otherDate,
+			Snippet:           "plain read message",
+			IsRead:            true,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+
+	targetID, err := db.GetMessageLocalIDByInternetID(ctx, "acc_a", "<filter-target@example.com>")
+	if err != nil || targetID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID(target) = %d, %v", targetID, err)
+	}
+	otherID, err := db.GetMessageLocalIDByInternetID(ctx, "acc_b", "<filter-other@example.com>")
+	if err != nil || otherID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID(other) = %d, %v", otherID, err)
+	}
+	bodyPath := filepath.Join(t.TempDir(), "target-body.txt")
+	if err := os.WriteFile(bodyPath, []byte("body contains bodyneedle for full text search"), 0600); err != nil {
+		t.Fatalf("write body: %v", err)
+	}
+	if err := db.UpdateMessageBody(ctx, targetID, bodyPath, "", "", "budget planning preview"); err != nil {
+		t.Fatalf("UpdateMessageBody() error = %v", err)
+	}
+	if err := db.ReplaceAttachments(ctx, targetID, []AttachmentRow{{Filename: "receipt-deep.pdf", ContentType: "application/pdf", SizeBytes: 1024}}); err != nil {
+		t.Fatalf("ReplaceAttachments() error = %v", err)
+	}
+	if _, err := db.AddMessageLabel(ctx, targetID, "acc_a", LabelInput{AccountID: "acc_a", Name: "ProjectX", ProviderID: "ProjectX", ProviderType: LabelProviderLocal}); err != nil {
+		t.Fatalf("AddMessageLabel() error = %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		filters models.EmailFilters
+		wantID  int64
+	}{
+		{name: "query sender", filters: models.EmailFilters{Query: "alice"}, wantID: targetID},
+		{name: "query bcc recipient", filters: models.EmailFilters{Query: "hidden@example.net"}, wantID: targetID},
+		{name: "query attachment filename", filters: models.EmailFilters{Query: "receipt-deep"}, wantID: targetID},
+		{name: "from", filters: models.EmailFilters{From: "Alice"}, wantID: targetID},
+		{name: "from domain", filters: models.EmailFilters{FromDomain: "finance.example.com"}, wantID: targetID},
+		{name: "recipient includes bcc", filters: models.EmailFilters{To: "hidden@example.net"}, wantID: targetID},
+		{name: "subject", filters: models.EmailFilters{Subject: "Quarterly"}, wantID: targetID},
+		{name: "body", filters: models.EmailFilters{Body: "bodyneedle"}, wantID: targetID},
+		{name: "attachment", filters: models.EmailFilters{Attachment: "receipt-deep.pdf"}, wantID: targetID},
+		{name: "tag", filters: models.EmailFilters{Tag: "ProjectX", TagAccountID: "acc_a"}, wantID: targetID},
+		{name: "account", filters: models.EmailFilters{AccountID: "acc_a"}, wantID: targetID},
+		{name: "unread", filters: models.EmailFilters{Unread: true}, wantID: targetID},
+		{name: "starred", filters: models.EmailFilters{Starred: true}, wantID: targetID},
+		{name: "attachments", filters: models.EmailFilters{Attachments: true}, wantID: targetID},
+		{name: "has tags", filters: models.EmailFilters{HasTags: true}, wantID: targetID},
+		{name: "threads only", filters: models.EmailFilters{ThreadsOnly: true}, wantID: targetID},
+		{name: "after", filters: models.EmailFilters{After: "2026-06-01"}, wantID: targetID},
+		{name: "read", filters: models.EmailFilters{Read: true}, wantID: otherID},
+		{name: "no attachments", filters: models.EmailFilters{NoAttach: true}, wantID: otherID},
+		{name: "before", filters: models.EmailFilters{Before: "2026-05-15"}, wantID: otherID},
+		{name: "unread wins read conflict", filters: models.EmailFilters{Unread: true, Read: true}, wantID: targetID},
+		{name: "attachments wins no-attachments conflict", filters: models.EmailFilters{Attachments: true, NoAttach: true}, wantID: targetID},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 10, tt.filters)
+			if err != nil {
+				t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
+			}
+			if page.TotalCount != 1 || len(page.Emails) != 1 || page.Emails[0].ID != strconv.FormatInt(tt.wantID, 10) {
+				t.Fatalf("filtered page total=%d emails=%#v, want only %d", page.TotalCount, page.Emails, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestEmailBodyFilterUsesMaintainedSearchIndex(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

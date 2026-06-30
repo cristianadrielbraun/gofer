@@ -4402,8 +4402,7 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	var args []any
 	if filters.Unread {
 		outerParts = append(outerParts, "thread_is_read = 0")
-	}
-	if filters.Read {
+	} else if filters.Read {
 		outerParts = append(outerParts, "thread_is_read = 1")
 	}
 	if filters.Starred {
@@ -4411,8 +4410,7 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	}
 	if filters.Attachments {
 		outerParts = append(outerParts, "thread_has_attachments = 1")
-	}
-	if filters.NoAttach {
+	} else if filters.NoAttach {
 		outerParts = append(outerParts, "thread_has_attachments = 0")
 	}
 	if filters.ThreadsOnly {
@@ -4445,7 +4443,7 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		args = append(args, "%@"+domain)
 	}
 	if filters.To != "" {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_recipients mr WHERE mr.message_id = m.id AND mr.kind IN ('to', 'cc') AND (mr.name LIKE ? OR mr.email LIKE ?))")
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_recipients mr WHERE mr.message_id = m.id AND mr.kind IN ('to', 'cc', 'bcc') AND (mr.name LIKE ? OR mr.email LIKE ?))")
 		like := "%" + filters.To + "%"
 		args = append(args, like, like)
 	}

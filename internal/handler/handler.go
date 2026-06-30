@@ -1797,7 +1797,7 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 		tagProviderID = strings.TrimSpace(q.Get("tag_provider_id"))
 		tagProviderType = strings.TrimSpace(q.Get("tag_provider_type"))
 	}
-	return models.EmailFilters{
+	filters := models.EmailFilters{
 		Unread:          q.Get("unread") == "1",
 		Starred:         q.Get("starred") == "1",
 		Attachments:     q.Get("attachments") == "1",
@@ -1820,6 +1820,13 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 		After:           strings.TrimSpace(q.Get("after_date")),
 		Before:          strings.TrimSpace(q.Get("before_date")),
 	}
+	if filters.Unread {
+		filters.Read = false
+	}
+	if filters.Attachments {
+		filters.NoAttach = false
+	}
+	return filters
 }
 
 func emailFiltersActive(filters models.EmailFilters) bool {

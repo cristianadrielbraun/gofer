@@ -1144,6 +1144,7 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
     align-items: stretch;
   }
 
+  .mail-list-quick-filter-button,
   .mail-list-advanced-filter-button {
     width: 100%;
     justify-content: center;

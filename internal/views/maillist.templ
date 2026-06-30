@@ -54,6 +54,7 @@ templ MailListHeader(activeFolder string, totalCount int) {
 					autocomplete="off"
 				/>
 			</div>
+			@MailQuickFilterDropdown()
 			<button type="button" data-mail-advanced-filter-open class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground hover:bg-accent">
 				<span>Advanced filters</span>
 				@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
@@ -62,68 +63,61 @@ templ MailListHeader(activeFolder string, totalCount int) {
 	</div>
 }
 
+templ MailQuickFilterDropdown() {
+	@dropdown.Dropdown() {
+		@dropdown.Trigger() {
+			<button type="button" aria-label="Filter messages" data-mail-filter-button class="mail-list-quick-filter-button relative inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-foreground hover:bg-accent data-[active=true]:bg-accent data-[active=true]:text-foreground">
+				@icon.ListFilter(icon.Props{Class: "size-3.5"})
+				<span data-mail-filter-count class="hidden absolute -right-1 -top-1 min-w-4 h-4 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground font-semibold"></span>
+			</button>
+		}
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-64 normal-case tracking-normal p-2"}) {
+			<form data-mail-filter-form class="space-y-2 pb-2">
+				<div class="flex items-center justify-between gap-2 px-2 py-1.5">
+					<div class="text-xs font-semibold text-muted-foreground">Quick filters</div>
+					<button type="button" data-mail-filter-clear class="text-[11px] font-medium text-muted-foreground hover:text-foreground">Clear</button>
+				</div>
+				<div class="grid gap-2 px-2">
+					<div class="space-y-1">
+						<div class="text-[11px] font-medium text-muted-foreground">Status</div>
+						<div class="mail-filter-tristate relative inline-grid h-7 w-full grid-cols-3 overflow-hidden border border-border bg-background p-0.5 text-[11px]" data-mail-tristate="status" data-mail-tristate-value="">
+							<div class="mail-filter-tristate-indicator" data-mail-tristate-indicator></div>
+							<button type="button" data-mail-tristate-option="unread" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">Unread</button>
+							<button type="button" data-mail-tristate-option="" class="relative z-10 px-1.5 text-foreground">Any</button>
+							<button type="button" data-mail-tristate-option="read" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">Read</button>
+						</div>
+					</div>
+					<div class="space-y-1">
+						<div class="text-[11px] font-medium text-muted-foreground">Attachments</div>
+						<div class="mail-filter-tristate relative inline-grid h-7 w-full grid-cols-3 overflow-hidden border border-border bg-background p-0.5 text-[11px]" data-mail-tristate="attachments" data-mail-tristate-value="">
+							<div class="mail-filter-tristate-indicator" data-mail-tristate-indicator></div>
+							<button type="button" data-mail-tristate-option="no" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">No</button>
+							<button type="button" data-mail-tristate-option="" class="relative z-10 px-1.5 text-foreground">Any</button>
+							<button type="button" data-mail-tristate-option="yes" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">Yes</button>
+						</div>
+					</div>
+					<div class="grid grid-cols-3 gap-6 pt-0.5 text-center">
+						<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
+							<div class="w-full truncate">Starred</div>
+							@switchcomp.Switch(switchcomp.Props{Name: "starred", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
+						</div>
+						<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
+							<div class="w-full truncate">Tags</div>
+							@switchcomp.Switch(switchcomp.Props{Name: "has_tags", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
+						</div>
+						<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
+							<div class="w-full truncate">Threads</div>
+							@switchcomp.Switch(switchcomp.Props{Name: "threads_only", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
+						</div>
+					</div>
+				</div>
+			</form>
+		}
+	}
+}
+
 templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode string) {
 	<div class="mail-list-toolbar flex items-center gap-1 px-4 py-1.5">
-		@dropdown.Dropdown() {
-			@dropdown.Trigger() {
-				@button.Button(button.Props{
-					Variant:    button.VariantGhost,
-					Size:       button.SizeIcon,
-					Class:      "h-7 w-7 relative data-[active=true]:bg-accent data-[active=true]:text-foreground",
-					Attributes: templ.Attributes{"aria-label": "Filter messages", "data-mail-filter-button": ""},
-				}) {
-					@icon.ListFilter(icon.Props{Class: "size-3.5"})
-					<span data-mail-filter-count class="hidden absolute -right-1 -top-1 min-w-4 h-4 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground font-semibold"></span>
-				}
-			}
-			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomStart, Class: "w-64 normal-case tracking-normal p-2"}) {
-				<form data-mail-filter-form class="space-y-2">
-					<div class="flex items-center justify-between gap-2 px-2 py-1.5">
-						<div class="text-xs font-semibold text-muted-foreground">Quick filters</div>
-						<button type="button" data-mail-filter-clear class="text-[11px] font-medium text-muted-foreground hover:text-foreground">Clear</button>
-					</div>
-					<div class="grid gap-2 px-2">
-						<div class="space-y-1">
-							<div class="text-[11px] font-medium text-muted-foreground">Status</div>
-							<div class="mail-filter-tristate relative inline-grid h-7 w-full grid-cols-3 overflow-hidden border border-border bg-background p-0.5 text-[11px]" data-mail-tristate="status" data-mail-tristate-value="">
-								<div class="mail-filter-tristate-indicator" data-mail-tristate-indicator></div>
-								<button type="button" data-mail-tristate-option="unread" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">Unread</button>
-								<button type="button" data-mail-tristate-option="" class="relative z-10 px-1.5 text-foreground">Any</button>
-								<button type="button" data-mail-tristate-option="read" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">Read</button>
-							</div>
-						</div>
-						<div class="space-y-1">
-							<div class="text-[11px] font-medium text-muted-foreground">Attachments</div>
-							<div class="mail-filter-tristate relative inline-grid h-7 w-full grid-cols-3 overflow-hidden border border-border bg-background p-0.5 text-[11px]" data-mail-tristate="attachments" data-mail-tristate-value="">
-								<div class="mail-filter-tristate-indicator" data-mail-tristate-indicator></div>
-								<button type="button" data-mail-tristate-option="no" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">No</button>
-								<button type="button" data-mail-tristate-option="" class="relative z-10 px-1.5 text-foreground">Any</button>
-								<button type="button" data-mail-tristate-option="yes" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">Yes</button>
-							</div>
-						</div>
-						<div class="grid grid-cols-3 gap-6 pt-0.5 text-center">
-							<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
-								<div class="w-full truncate">Starred</div>
-								@switchcomp.Switch(switchcomp.Props{Name: "starred", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
-							</div>
-							<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
-								<div class="w-full truncate">Tags</div>
-								@switchcomp.Switch(switchcomp.Props{Name: "has_tags", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
-							</div>
-							<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
-								<div class="w-full truncate">Threads</div>
-								@switchcomp.Switch(switchcomp.Props{Name: "threads_only", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
-							</div>
-						</div>
-					</div>
-					<div class="my-1 h-px bg-border/70"></div>
-					<button type="button" data-mail-advanced-filter-open class="flex h-8 w-full items-center justify-between rounded-md px-2 text-sm hover:bg-accent">
-						<span>Advanced filters</span>
-						@icon.SlidersHorizontal(icon.Props{Class: "size-3.5 text-muted-foreground"})
-					</button>
-				</form>
-			}
-		}
 		<div class="relative inline-flex h-7 rounded-lg border border-border bg-background p-0.5 gap-0.5" data-mail-list-view-toggle>
 			<div
 				data-mail-list-view-indicator
@@ -328,7 +322,7 @@ templ MailFilterAdvancedDialog(accounts []models.Account) {
 									@input.Input(input.Props{Name: "from_domain", Placeholder: "example.com", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 								</label>
 								<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-									To / Cc
+									Recipients
 									@input.Input(input.Props{Name: "to", Placeholder: "name or email", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 								</label>
 							</div>

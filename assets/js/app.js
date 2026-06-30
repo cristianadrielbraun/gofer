@@ -1432,8 +1432,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       var advanced = document.querySelector("[data-mail-advanced-filter-form]")
       if (advanced) {
-        filters.read = filters.read || !!advanced.querySelector('input[name="read"]:checked')
-        filters.noAttachments = filters.noAttachments || !!advanced.querySelector('input[name="no_attachments"]:checked')
+        filters.read = filters.read || (!!advanced.querySelector('input[name="read"]:checked') && !filters.unread)
+        filters.noAttachments = filters.noAttachments || (!!advanced.querySelector('input[name="no_attachments"]:checked') && !filters.attachments)
         filters.hasTags = filters.hasTags || !!advanced.querySelector('input[name="has_tags"]:checked')
         filters.threadsOnly = filters.threadsOnly || !!advanced.querySelector('input[name="threads_only"]:checked')
         filters.from = (advanced.querySelector('input[name="from"]') || {}).value || ""
@@ -1447,7 +1447,9 @@ document.addEventListener("DOMContentLoaded", function () {
         filters.afterDate = (advanced.querySelector('input[name="after_date"]') || {}).value || ""
         filters.beforeDate = (advanced.querySelector('input[name="before_date"]') || {}).value || ""
       }
-      filters.query = committedQuery || ""
+      var search = document.querySelector("[data-mail-search-input]")
+      var pendingQuery = search ? (search.value || "").trim() : ""
+      filters.query = [committedQuery, pendingQuery].filter(Boolean).join(" ")
       return filters
     }
 
@@ -1482,7 +1484,7 @@ document.addEventListener("DOMContentLoaded", function () {
         { key: "beforeDate", name: "before_date", label: "Before" },
         { key: "from", name: "from", label: "From" },
         { key: "fromDomain", name: "from_domain", label: "From domain" },
-        { key: "to", name: "to", label: "To / Cc" },
+        { key: "to", name: "to", label: "Recipients" },
         { key: "subject", name: "subject", label: "Subject" },
         { key: "body", name: "body", label: "Body" },
         { key: "attachment", name: "attachment", label: "Attachment" },
@@ -1550,7 +1552,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function activePillDefs(filters) {
       var pills = []
-      if (filters.query) pills.push({ name: "q", label: "Search", value: filters.query })
+      if (committedQuery) pills.push({ name: "q", label: "Search", value: committedQuery })
       if (filters.unread) pills.push({ name: "unread", label: "Status", value: "Unread" })
       if (filters.read) pills.push({ name: "read", label: "Status", value: "Read" })
       if (filters.starred) pills.push({ name: "starred", label: "Starred" })
@@ -1563,7 +1565,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (filters.beforeDate) pills.push({ name: "before_date", label: "Before", value: filters.beforeDate })
       if (filters.from) pills.push({ name: "from", label: "From", value: filters.from })
       if (filters.fromDomain) pills.push({ name: "from_domain", label: "From domain", value: filters.fromDomain })
-      if (filters.to) pills.push({ name: "to", label: "To / Cc", value: filters.to })
+      if (filters.to) pills.push({ name: "to", label: "Recipients", value: filters.to })
       if (filters.subject) pills.push({ name: "subject", label: "Subject", value: filters.subject })
       if (filters.body) pills.push({ name: "body", label: "Body", value: filters.body })
       if (filters.attachment) pills.push({ name: "attachment", label: "Attachment", value: filters.attachment })
@@ -1622,6 +1624,78 @@ document.addEventListener("DOMContentLoaded", function () {
       renderActivePills()
     }
 
+    function setBooleanFilterControl(name, value) {
+      var inputs = document.querySelectorAll('[data-mail-filter-form] input[name="' + name + '"], [data-mail-advanced-filter-form] input[name="' + name + '"]')
+      for (var i = 0; i < inputs.length; i++) inputs[i].checked = !!value
+    }
+
+    function setAdvancedBooleanFilterControl(name, value) {
+      var input = document.querySelector('[data-mail-advanced-filter-form] input[name="' + name + '"]')
+      if (input) input.checked = !!value
+    }
+
+    function setFilterTriState(name, value) {
+      var control = document.querySelector('[data-mail-tristate="' + name + '"]')
+      setTriState(control, value)
+      if (name === "status") setAdvancedBooleanFilterControl("read", value === "read")
+      if (name === "attachments") setAdvancedBooleanFilterControl("no_attachments", value === "no")
+    }
+
+    function syncAdvancedDuplicateFilterInput(input) {
+      if (!input || !input.name) return
+      var checked = !!input.checked
+      if (input.name === "read") {
+        var status = document.querySelector('[data-mail-tristate="status"]')
+        if (checked) setTriState(status, "read")
+        else if (status && status.getAttribute("data-mail-tristate-value") === "read") setTriState(status, "")
+      } else if (input.name === "no_attachments") {
+        var attachments = document.querySelector('[data-mail-tristate="attachments"]')
+        if (checked) setTriState(attachments, "no")
+        else if (attachments && attachments.getAttribute("data-mail-tristate-value") === "no") setTriState(attachments, "")
+      } else if (input.name === "has_tags" || input.name === "threads_only") {
+        setBooleanFilterControl(input.name, checked)
+      }
+    }
+
+    function syncQuickDuplicateFilterInput(input) {
+      if (!input || !input.name) return
+      if (input.name === "has_tags" || input.name === "threads_only") setBooleanFilterControl(input.name, !!input.checked)
+    }
+
+    function syncAdvancedDuplicateFiltersToQuick() {
+      var form = document.querySelector("[data-mail-advanced-filter-form]")
+      if (!form) return
+      var names = ["read", "no_attachments", "has_tags", "threads_only"]
+      for (var i = 0; i < names.length; i++) syncAdvancedDuplicateFilterInput(form.querySelector('input[name="' + names[i] + '"]'))
+    }
+
+    function syncFilterControls(filters) {
+      filters = filters || emptyFilters()
+      committedQuery = (filters.query || "").trim()
+      var search = document.querySelector("[data-mail-search-input]")
+      if (search) {
+        search.dataset.mailCommittedQuery = committedQuery
+        search.value = ""
+      }
+      setFilterTriState("status", filters.unread ? "unread" : (filters.read ? "read" : ""))
+      setFilterTriState("attachments", filters.attachments ? "yes" : (filters.noAttachments ? "no" : ""))
+      setBooleanFilterControl("starred", !!filters.starred)
+      setBooleanFilterControl("has_tags", !!filters.hasTags)
+      setBooleanFilterControl("threads_only", !!filters.threadsOnly)
+      setAdvancedBooleanFilterControl("read", !!filters.read && !filters.unread)
+      setAdvancedBooleanFilterControl("no_attachments", !!filters.noAttachments && !filters.attachments)
+      setInputValue("from", filters.from || "")
+      setInputValue("from_domain", filters.fromDomain || "")
+      setInputValue("to", filters.to || "")
+      setInputValue("subject", filters.subject || "")
+      setInputValue("body", filters.body || "")
+      setInputValue("attachment", filters.attachment || "")
+      setInputValue("tag", filters.tag || "")
+      setInputValue("account_id", filters.accountId || "")
+      setInputValue("after_date", filters.afterDate || "")
+      setInputValue("before_date", filters.beforeDate || "")
+    }
+
     function clearAdvancedFilter(name) {
       var form = document.querySelector("[data-mail-advanced-filter-form]")
       if (!form) return
@@ -1641,6 +1715,7 @@ document.addEventListener("DOMContentLoaded", function () {
           for (var i = 0; i < selectedItems.length; i++) selectedItems[i].setAttribute("data-tui-selectbox-selected", "false")
         }
       }
+      if (name === "read" || name === "no_attachments" || name === "has_tags" || name === "threads_only") syncAdvancedDuplicateFilterInput(input)
       renderAdvancedSummary()
       renderActivePills()
     }
@@ -1703,12 +1778,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function setQuickBoolean(name, value) {
-      var quick = document.querySelector("[data-mail-filter-form]")
-      var advanced = document.querySelector("[data-mail-advanced-filter-form]")
-      var input = quick && quick.querySelector('[name="' + name + '"]')
-      if (input) input.checked = !!value
-      var advInput = advanced && advanced.querySelector('[name="' + name + '"]')
-      if (advInput && advInput.type === "checkbox") advInput.checked = !!value
+      setBooleanFilterControl(name, value)
     }
 
     function applyKeywordToken(key, value) {
@@ -1720,7 +1790,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return true
       }
       if (key === "from") return setInputValue("from", value)
-      if (key === "to" || key === "cc" || key === "recipient") return setInputValue("to", value)
+      if (key === "to" || key === "cc" || key === "bcc" || key === "recipient" || key === "recipients") return setInputValue("to", value)
       if (key === "subject" || key === "subj") return setInputValue("subject", value)
       if (key === "body") return setInputValue("body", value)
       if (key === "attachment" || key === "attach" || key === "filename") return setInputValue("attachment", value)
@@ -1730,14 +1800,14 @@ document.addEventListener("DOMContentLoaded", function () {
       if (key === "before") return setInputValue("before_date", value)
       if (key === "from-domain" || key === "fromdomain" || key === "domain") return setInputValue("from_domain", value)
       if (key === "is") {
-        if (value === "unread") setTriState(document.querySelector('[data-mail-tristate="status"]'), "unread")
-        else if (value === "read") setTriState(document.querySelector('[data-mail-tristate="status"]'), "read")
+        if (value === "unread") setFilterTriState("status", "unread")
+        else if (value === "read") setFilterTriState("status", "read")
         else if (value === "starred") setQuickBoolean("starred", true)
         else return false
         return true
       }
       if (key === "has") {
-        if (value === "attachment" || value === "attachments") setTriState(document.querySelector('[data-mail-tristate="attachments"]'), "yes")
+        if (value === "attachment" || value === "attachments") setFilterTriState("attachments", "yes")
         else if (value === "tag" || value === "tags") setQuickBoolean("has_tags", true)
         else if (value === "thread" || value === "threads") setQuickBoolean("threads_only", true)
         else return false
@@ -1749,6 +1819,10 @@ document.addEventListener("DOMContentLoaded", function () {
     function commitSearchInput(input) {
       var raw = (input && input.value ? input.value : "").trim()
       if (!raw) return false
+      if (searchTimer) {
+        clearTimeout(searchTimer)
+        searchTimer = null
+      }
       var tokens = splitSearchTokens(raw)
       var plain = []
       for (var i = 0; i < tokens.length; i++) {
@@ -1760,10 +1834,10 @@ document.addEventListener("DOMContentLoaded", function () {
           if (value && applyKeywordToken(key, value)) continue
         } else {
           var lower = token.toLowerCase()
-          if (lower === "unread") { setTriState(document.querySelector('[data-mail-tristate="status"]'), "unread"); continue }
-          if (lower === "read") { setTriState(document.querySelector('[data-mail-tristate="status"]'), "read"); continue }
+          if (lower === "unread") { setFilterTriState("status", "unread"); continue }
+          if (lower === "read") { setFilterTriState("status", "read"); continue }
           if (lower === "starred") { setQuickBoolean("starred", true); continue }
-          if (lower === "attachments") { setTriState(document.querySelector('[data-mail-tristate="attachments"]'), "yes"); continue }
+          if (lower === "attachments") { setFilterTriState("attachments", "yes"); continue }
           if (lower === "threads") { setQuickBoolean("threads_only", true); continue }
         }
         plain.push(token)
@@ -1776,12 +1850,19 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function clearActiveFilter(name) {
-      if (name === "q") committedQuery = ""
+      if (name === "q") {
+        committedQuery = ""
+        var search = document.querySelector("[data-mail-search-input]")
+        if (search) {
+          search.value = ""
+          search.dataset.mailCommittedQuery = ""
+        }
+      }
       else if (name === "unread" || name === "read") {
-        setTriState(document.querySelector('[data-mail-tristate="status"]'), "")
+        setFilterTriState("status", "")
         setQuickBoolean("read", false)
       } else if (name === "attachments" || name === "no_attachments") {
-        setTriState(document.querySelector('[data-mail-tristate="attachments"]'), "")
+        setFilterTriState("attachments", "")
         setQuickBoolean("no_attachments", false)
       }
       else if (name === "starred") setQuickBoolean("starred", false)
@@ -1793,15 +1874,19 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function initSearchStateFromInput() {
+      if (virtualMailList && virtualMailList.filters) syncFilterControls(virtualMailList.filters)
       var search = document.querySelector("[data-mail-search-input]")
-      committedQuery = search ? (search.value || "").trim() : ""
+      committedQuery = search ? (search.dataset.mailCommittedQuery || search.value || "").trim() : ""
       if (search) {
+        search.dataset.mailCommittedQuery = committedQuery
         search.value = ""
         search.placeholder = "Search, or use from: subject: body: then Enter"
       }
       renderActivePills()
       syncFilterButton(readFilters())
     }
+
+    window.syncMailFilterControls = syncFilterControls
 
     document.addEventListener("submit", function (e) {
       var form = e.target && e.target.closest && e.target.closest("[data-mail-filter-form]")
@@ -1812,6 +1897,7 @@ document.addEventListener("DOMContentLoaded", function () {
     document.addEventListener("change", function (e) {
       var input = e.target && e.target.closest && e.target.closest("[data-mail-filter-input]")
       if (!input) return
+      syncQuickDuplicateFilterInput(input)
       applyCurrentFilters()
     })
 
@@ -1843,7 +1929,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (tristateOption) {
         e.preventDefault()
         var control = tristateOption.closest("[data-mail-tristate]")
-        setTriState(control, tristateOption.getAttribute("data-mail-tristate-option") || "")
+        setFilterTriState(control ? control.getAttribute("data-mail-tristate") : "", tristateOption.getAttribute("data-mail-tristate-option") || "")
         applyCurrentFilters()
         return
       }
@@ -1863,7 +1949,10 @@ document.addEventListener("DOMContentLoaded", function () {
       clearInputs("[data-mail-advanced-filter-form]")
       committedQuery = ""
       var search = document.querySelector("[data-mail-search-input]")
-      if (search) search.value = ""
+      if (search) {
+        search.value = ""
+        search.dataset.mailCommittedQuery = ""
+      }
       applyCurrentFilters()
     })
 
@@ -1878,6 +1967,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var form = e.target && e.target.closest && e.target.closest("[data-mail-advanced-filter-form]")
       if (!form) return
       e.preventDefault()
+      syncAdvancedDuplicateFiltersToQuick()
       applyCurrentFilters()
       if (window.tui && window.tui.dialog) window.tui.dialog.close("mail-advanced-filter-dialog")
     })
@@ -1887,6 +1977,9 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!clear) return
       e.preventDefault()
       clearInputs("[data-mail-advanced-filter-form]")
+      syncAdvancedDuplicateFiltersToQuick()
+      renderAdvancedSummary()
+      renderActivePills()
     })
 
     document.addEventListener("keydown", function (e) {
@@ -1897,7 +1990,14 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("input", function (e) {
-      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) return
+      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) {
+        if (searchTimer) clearTimeout(searchTimer)
+        searchTimer = setTimeout(function () {
+          searchTimer = null
+          applyCurrentFilters()
+        }, 250)
+        return
+      }
       if (!e.target || !e.target.closest || !e.target.closest("[data-mail-advanced-filter-form]")) return
       renderAdvancedSummary()
     })
@@ -1909,6 +2009,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.addEventListener("change", function (e) {
       if (!e.target || !e.target.closest || !e.target.closest("[data-mail-advanced-filter-form]")) return
+      syncAdvancedDuplicateFilterInput(e.target)
       renderAdvancedSummary()
     })
 
@@ -3550,8 +3651,8 @@ document.addEventListener("DOMContentLoaded", function () {
     return '<span class="inline-block ' + (className || "size-3.5") + ' rounded-sm bg-current opacity-30"></span>'
   }
 
-  function pendingFilterButton(label) {
-    return '<button type="button" disabled aria-label="' + label + '" class="relative inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-75">' + pendingIcon("size-3.5") + '</button>'
+  function pendingFilterButton(label, className) {
+    return '<button type="button" disabled aria-label="' + label + '" class="' + (className || "relative inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-75") + '">' + pendingIcon("size-3.5") + '</button>'
   }
 
   function pendingViewToggleHTML(viewMode) {
@@ -3571,7 +3672,8 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-search-row flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
         '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
         '<input type="text" disabled placeholder="Quick search" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
-      '</div><button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Advanced filters</span>' + pendingIcon("size-3.5") + '</button></div>' +
+      '</div>' + pendingFilterButton("Filter messages", "mail-list-quick-filter-button relative inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-foreground opacity-70") +
+      '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Advanced filters</span>' + pendingIcon("size-3.5") + '</button></div>' +
     '</div>'
   }
 
@@ -3587,7 +3689,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mailPendingToolbarHTML(viewMode) {
     return '<div class="mail-list-toolbar flex items-center gap-1 px-4 py-1.5">' +
-      pendingFilterButton("Filter messages") +
       pendingViewToggleHTML(viewMode) +
       '<div class="mail-list-toolbar-spacer flex-1"></div>' +
       '<button type="button" disabled class="h-7 w-7 rounded-md text-muted-foreground opacity-50">' + pendingIcon("mx-auto size-3.5") + '</button>' +

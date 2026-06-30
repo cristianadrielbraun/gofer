@@ -2049,7 +2049,11 @@ class VirtualMailList {
 
   syncFilterInputs() {
     var search = document.querySelector("[data-mail-search-input]")
-    if (search) search.value = this.filters.query || ""
+    if (search) {
+      search.dataset.mailCommittedQuery = this.filters.query || ""
+      search.value = this.filters.query || ""
+    }
+    if (typeof window.syncMailFilterControls === "function") window.syncMailFilterControls(this.filters || this.emptyFilters())
   }
 
   filterQueryString() {
@@ -3304,6 +3308,7 @@ window.addEventListener("popstate", function (e) {
   var folderID = e.state.folder
   var oldNavigationState = JSON.stringify({ filters: vml.filters || {}, tag: vml.sidebarTag || {} })
   vml.filters = vml.readFiltersFromURL()
+  vml.syncFilterInputs()
   vml.setSidebarTag(vml.readSidebarTagFromURL())
   var navigationStateChanged = oldNavigationState !== JSON.stringify({ filters: vml.filters || {}, tag: vml.sidebarTag || {} })
   var sidebarTag = vml.sidebarTag || vml.emptySidebarTag()
