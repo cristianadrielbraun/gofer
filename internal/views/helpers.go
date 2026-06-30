@@ -412,18 +412,18 @@ func sidebarTagActive(activeFolder string, folderID string, filters models.Email
 	if strings.TrimSpace(activeFolder) != sidebarTagBaseFolder(folderID) {
 		return false
 	}
-	if !strings.EqualFold(strings.TrimSpace(filters.SidebarTag), strings.TrimSpace(label.Name)) {
+	if !strings.EqualFold(strings.TrimSpace(filters.Tag), strings.TrimSpace(label.Name)) {
 		return false
 	}
-	return strings.TrimSpace(filters.SidebarTagAccountID) == strings.TrimSpace(accountID)
+	return strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
 }
 
 func sidebarAccountHasActiveTag(accountID string, filters models.EmailFilters) bool {
-	return strings.TrimSpace(filters.SidebarTag) != "" && strings.TrimSpace(filters.SidebarTagAccountID) == strings.TrimSpace(accountID)
+	return strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
 }
 
 func sidebarUnifiedHasActiveTag(filters models.EmailFilters) bool {
-	return strings.TrimSpace(filters.SidebarTag) != "" && strings.TrimSpace(filters.SidebarTagAccountID) == ""
+	return strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == ""
 }
 
 func sidebarTagGroupActive(filters models.EmailFilters, accountID string) bool {

@@ -1788,43 +1788,42 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 
 func parseEmailFilters(r *http.Request) models.EmailFilters {
 	q := r.URL.Query()
-	sidebarTag := strings.TrimSpace(q.Get("tag"))
-	sidebarTagAccountID := ""
-	sidebarTagProviderID := ""
-	sidebarTagProviderType := ""
-	if sidebarTag != "" {
-		sidebarTagAccountID = strings.TrimSpace(q.Get("tag_account_id"))
-		sidebarTagProviderID = strings.TrimSpace(q.Get("tag_provider_id"))
-		sidebarTagProviderType = strings.TrimSpace(q.Get("tag_provider_type"))
+	tag := strings.TrimSpace(q.Get("tag"))
+	tagAccountID := ""
+	tagProviderID := ""
+	tagProviderType := ""
+	if tag != "" {
+		tagAccountID = strings.TrimSpace(q.Get("tag_account_id"))
+		tagProviderID = strings.TrimSpace(q.Get("tag_provider_id"))
+		tagProviderType = strings.TrimSpace(q.Get("tag_provider_type"))
 	}
 	return models.EmailFilters{
-		Unread:                 q.Get("unread") == "1",
-		Starred:                q.Get("starred") == "1",
-		Attachments:            q.Get("attachments") == "1",
-		Read:                   q.Get("read") == "1",
-		NoAttach:               q.Get("no_attachments") == "1",
-		HasLabels:              q.Get("has_labels") == "1",
-		ThreadsOnly:            q.Get("threads_only") == "1",
-		From:                   strings.TrimSpace(q.Get("from")),
-		To:                     strings.TrimSpace(q.Get("to")),
-		Subject:                strings.TrimSpace(q.Get("subject")),
-		Body:                   strings.TrimSpace(q.Get("body")),
-		FromDomain:             strings.TrimSpace(q.Get("from_domain")),
-		Attachment:             strings.TrimSpace(q.Get("attachment")),
-		Label:                  strings.TrimSpace(q.Get("label")),
-		AccountID:              strings.TrimSpace(q.Get("account_id")),
-		SidebarTag:             sidebarTag,
-		SidebarTagAccountID:    sidebarTagAccountID,
-		SidebarTagProviderID:   sidebarTagProviderID,
-		SidebarTagProviderType: sidebarTagProviderType,
-		Query:                  strings.TrimSpace(q.Get("q")),
-		After:                  strings.TrimSpace(q.Get("after_date")),
-		Before:                 strings.TrimSpace(q.Get("before_date")),
+		Unread:          q.Get("unread") == "1",
+		Starred:         q.Get("starred") == "1",
+		Attachments:     q.Get("attachments") == "1",
+		Read:            q.Get("read") == "1",
+		NoAttach:        q.Get("no_attachments") == "1",
+		HasTags:         q.Get("has_tags") == "1",
+		ThreadsOnly:     q.Get("threads_only") == "1",
+		From:            strings.TrimSpace(q.Get("from")),
+		To:              strings.TrimSpace(q.Get("to")),
+		Subject:         strings.TrimSpace(q.Get("subject")),
+		Body:            strings.TrimSpace(q.Get("body")),
+		FromDomain:      strings.TrimSpace(q.Get("from_domain")),
+		Attachment:      strings.TrimSpace(q.Get("attachment")),
+		Tag:             tag,
+		AccountID:       strings.TrimSpace(q.Get("account_id")),
+		TagAccountID:    tagAccountID,
+		TagProviderID:   tagProviderID,
+		TagProviderType: tagProviderType,
+		Query:           strings.TrimSpace(q.Get("q")),
+		After:           strings.TrimSpace(q.Get("after_date")),
+		Before:          strings.TrimSpace(q.Get("before_date")),
 	}
 }
 
 func emailFiltersActive(filters models.EmailFilters) bool {
-	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasLabels || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Label != "" || filters.AccountID != "" || filters.SidebarTag != "" || filters.Query != "" || filters.After != "" || filters.Before != ""
+	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != ""
 }
 
 func (h *Handler) resolveFolderID(requested string) string {

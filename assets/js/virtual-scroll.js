@@ -1930,7 +1930,7 @@ class VirtualMailList {
       ["attachments", filters.attachments ? "1" : ""],
       ["read", filters.read ? "1" : ""],
       ["no_attachments", filters.noAttachments ? "1" : ""],
-      ["has_labels", filters.hasLabels ? "1" : ""],
+      ["has_tags", filters.hasTags ? "1" : ""],
       ["threads_only", filters.threadsOnly ? "1" : ""],
       ["from", filters.from || ""],
       ["to", filters.to || ""],
@@ -1938,7 +1938,6 @@ class VirtualMailList {
       ["body", filters.body || ""],
       ["from_domain", filters.fromDomain || ""],
       ["attachment", filters.attachment || ""],
-      ["label", filters.label || ""],
       ["account_id", filters.accountId || ""],
       ["q", filters.query || ""],
       ["after_date", filters.afterDate || ""],
@@ -1950,19 +1949,20 @@ class VirtualMailList {
       sep = "&"
     }
     var tag = this.sidebarTag || this.emptySidebarTag()
-    if (tag.label) {
-      url += sep + "tag=" + encodeURIComponent(tag.label)
+    var filterTag = (filters.tag || tag.label || "").trim()
+    if (filterTag) {
+      url += sep + "tag=" + encodeURIComponent(filterTag)
       sep = "&"
     }
-    if (tag.accountId) {
+    if (tag.label === filterTag && tag.accountId) {
       url += sep + "tag_account_id=" + encodeURIComponent(tag.accountId)
       sep = "&"
     }
-    if (tag.providerId) {
+    if (tag.label === filterTag && tag.providerId) {
       url += sep + "tag_provider_id=" + encodeURIComponent(tag.providerId)
       sep = "&"
     }
-    if (tag.providerId && tag.providerType) {
+    if (tag.label === filterTag && tag.providerId && tag.providerType) {
       url += sep + "tag_provider_type=" + encodeURIComponent(tag.providerType)
       sep = "&"
     }
@@ -1976,7 +1976,7 @@ class VirtualMailList {
       attachments: false,
       read: false,
       noAttachments: false,
-      hasLabels: false,
+      hasTags: false,
       threadsOnly: false,
       from: "",
       to: "",
@@ -1984,7 +1984,7 @@ class VirtualMailList {
       body: "",
       fromDomain: "",
       attachment: "",
-      label: "",
+      tag: "",
       accountId: "",
       query: "",
       afterDate: "",
@@ -2000,7 +2000,7 @@ class VirtualMailList {
     filters.attachments = params.get("attachments") === "1"
     filters.read = params.get("read") === "1"
     filters.noAttachments = params.get("no_attachments") === "1"
-    filters.hasLabels = params.get("has_labels") === "1"
+    filters.hasTags = params.get("has_tags") === "1"
     filters.threadsOnly = params.get("threads_only") === "1"
     filters.from = (params.get("from") || "").trim()
     filters.to = (params.get("to") || "").trim()
@@ -2008,7 +2008,7 @@ class VirtualMailList {
     filters.body = (params.get("body") || "").trim()
     filters.fromDomain = (params.get("from_domain") || "").trim()
     filters.attachment = (params.get("attachment") || "").trim()
-    filters.label = (params.get("label") || "").trim()
+    filters.tag = (params.get("tag") || "").trim()
     filters.accountId = (params.get("account_id") || "").trim()
     filters.query = (params.get("q") || "").trim()
     filters.afterDate = (params.get("after_date") || "").trim()
@@ -2060,7 +2060,7 @@ class VirtualMailList {
     if (filters.attachments) params.set("attachments", "1")
     if (filters.read) params.set("read", "1")
     if (filters.noAttachments) params.set("no_attachments", "1")
-    if (filters.hasLabels) params.set("has_labels", "1")
+    if (filters.hasTags) params.set("has_tags", "1")
     if (filters.threadsOnly) params.set("threads_only", "1")
     if (filters.from) params.set("from", filters.from)
     if (filters.to) params.set("to", filters.to)
@@ -2068,26 +2068,26 @@ class VirtualMailList {
     if (filters.body) params.set("body", filters.body)
     if (filters.fromDomain) params.set("from_domain", filters.fromDomain)
     if (filters.attachment) params.set("attachment", filters.attachment)
-    if (filters.label) params.set("label", filters.label)
+    var tag = this.sidebarTag || this.emptySidebarTag()
+    var filterTag = (filters.tag || tag.label || "").trim()
+    if (filterTag) params.set("tag", filterTag)
     if (filters.accountId) params.set("account_id", filters.accountId)
     if (filters.query) params.set("q", filters.query)
     if (filters.afterDate) params.set("after_date", filters.afterDate)
     if (filters.beforeDate) params.set("before_date", filters.beforeDate)
-    var tag = this.sidebarTag || this.emptySidebarTag()
-    if (tag.label) params.set("tag", tag.label)
-    if (tag.accountId) params.set("tag_account_id", tag.accountId)
-    if (tag.providerId) params.set("tag_provider_id", tag.providerId)
-    if (tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
+    if (tag.label === filterTag && tag.accountId) params.set("tag_account_id", tag.accountId)
+    if (tag.label === filterTag && tag.providerId) params.set("tag_provider_id", tag.providerId)
+    if (tag.label === filterTag && tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
     return params.toString()
   }
 
   filterCount() {
     var filters = this.filters || this.emptyFilters()
     return (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
-      (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasLabels ? 1 : 0) +
+      (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) +
       (filters.threadsOnly ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
       (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
-      (filters.attachment ? 1 : 0) + (filters.label ? 1 : 0) + (filters.accountId ? 1 : 0) +
+      (filters.attachment ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
       (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
   }
 

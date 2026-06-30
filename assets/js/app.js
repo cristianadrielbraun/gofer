@@ -1392,7 +1392,7 @@ document.addEventListener("DOMContentLoaded", function () {
         attachments: false,
         read: false,
         noAttachments: false,
-        hasLabels: false,
+        hasTags: false,
         threadsOnly: false,
         from: "",
         to: "",
@@ -1400,7 +1400,7 @@ document.addEventListener("DOMContentLoaded", function () {
         body: "",
         fromDomain: "",
         attachment: "",
-        label: "",
+        tag: "",
         accountId: "",
         query: "",
         afterDate: "",
@@ -1427,14 +1427,14 @@ document.addEventListener("DOMContentLoaded", function () {
         filters.attachments = attachmentValue === "yes"
         filters.noAttachments = attachmentValue === "no"
         filters.starred = !!form.querySelector('input[name="starred"]:checked')
-        filters.hasLabels = !!form.querySelector('input[name="has_labels"]:checked')
+        filters.hasTags = !!form.querySelector('input[name="has_tags"]:checked')
         filters.threadsOnly = !!form.querySelector('input[name="threads_only"]:checked')
       }
       var advanced = document.querySelector("[data-mail-advanced-filter-form]")
       if (advanced) {
         filters.read = filters.read || !!advanced.querySelector('input[name="read"]:checked')
         filters.noAttachments = filters.noAttachments || !!advanced.querySelector('input[name="no_attachments"]:checked')
-        filters.hasLabels = filters.hasLabels || !!advanced.querySelector('input[name="has_labels"]:checked')
+        filters.hasTags = filters.hasTags || !!advanced.querySelector('input[name="has_tags"]:checked')
         filters.threadsOnly = filters.threadsOnly || !!advanced.querySelector('input[name="threads_only"]:checked')
         filters.from = (advanced.querySelector('input[name="from"]') || {}).value || ""
         filters.to = (advanced.querySelector('input[name="to"]') || {}).value || ""
@@ -1442,7 +1442,7 @@ document.addEventListener("DOMContentLoaded", function () {
         filters.body = (advanced.querySelector('input[name="body"]') || {}).value || ""
         filters.fromDomain = (advanced.querySelector('input[name="from_domain"]') || {}).value || ""
         filters.attachment = (advanced.querySelector('input[name="attachment"]') || {}).value || ""
-        filters.label = (advanced.querySelector('input[name="label"]') || {}).value || ""
+        filters.tag = (advanced.querySelector('input[name="tag"]') || {}).value || ""
         filters.accountId = (advanced.querySelector('input[name="account_id"]') || {}).value || ""
         filters.afterDate = (advanced.querySelector('input[name="after_date"]') || {}).value || ""
         filters.beforeDate = (advanced.querySelector('input[name="before_date"]') || {}).value || ""
@@ -1457,10 +1457,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function syncFilterButton(filters) {
       var count = (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
-        (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasLabels ? 1 : 0) +
+        (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) +
         (filters.threadsOnly ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
         (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
-        (filters.attachment ? 1 : 0) + (filters.label ? 1 : 0) + (filters.accountId ? 1 : 0) +
+        (filters.attachment ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
         (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
       var button = document.querySelector("[data-mail-filter-button]")
       var badge = document.querySelector("[data-mail-filter-count]")
@@ -1486,10 +1486,10 @@ document.addEventListener("DOMContentLoaded", function () {
         { key: "subject", name: "subject", label: "Subject" },
         { key: "body", name: "body", label: "Body" },
         { key: "attachment", name: "attachment", label: "Attachment" },
-        { key: "label", name: "label", label: "Label" },
+        { key: "tag", name: "tag", label: "Tag" },
         { key: "read", name: "read", label: "Read" },
         { key: "noAttachments", name: "no_attachments", label: "No attachments" },
-        { key: "hasLabels", name: "has_labels", label: "Has labels" },
+        { key: "hasTags", name: "has_tags", label: "Has tags" },
         { key: "threadsOnly", name: "threads_only", label: "Threads only" },
       ]
     }
@@ -1556,7 +1556,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (filters.starred) pills.push({ name: "starred", label: "Starred" })
       if (filters.attachments) pills.push({ name: "attachments", label: "Attachments", value: "Yes" })
       if (filters.noAttachments) pills.push({ name: "no_attachments", label: "Attachments", value: "No" })
-      if (filters.hasLabels) pills.push({ name: "has_labels", label: "Has labels" })
+      if (filters.hasTags) pills.push({ name: "has_tags", label: "Has tags" })
       if (filters.threadsOnly) pills.push({ name: "threads_only", label: "Threads only" })
       if (filters.accountId) pills.push({ name: "account_id", label: "Account", value: displayValueForAdvanced("account_id", filters.accountId) })
       if (filters.afterDate) pills.push({ name: "after_date", label: "After", value: filters.afterDate })
@@ -1567,7 +1567,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (filters.subject) pills.push({ name: "subject", label: "Subject", value: filters.subject })
       if (filters.body) pills.push({ name: "body", label: "Body", value: filters.body })
       if (filters.attachment) pills.push({ name: "attachment", label: "Attachment", value: filters.attachment })
-      if (filters.label) pills.push({ name: "label", label: "Label", value: filters.label })
+      if (filters.tag) pills.push({ name: "tag", label: "Tag", value: filters.tag })
       return pills
     }
 
@@ -1724,7 +1724,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (key === "subject" || key === "subj") return setInputValue("subject", value)
       if (key === "body") return setInputValue("body", value)
       if (key === "attachment" || key === "attach" || key === "filename") return setInputValue("attachment", value)
-      if (key === "label") return setInputValue("label", value)
+      if (key === "tag") return setInputValue("tag", value)
       if (key === "account" || key === "account-id") return setInputValue("account_id", value)
       if (key === "after") return setInputValue("after_date", value)
       if (key === "before") return setInputValue("before_date", value)
@@ -1738,7 +1738,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       if (key === "has") {
         if (value === "attachment" || value === "attachments") setTriState(document.querySelector('[data-mail-tristate="attachments"]'), "yes")
-        else if (value === "label" || value === "labels") setQuickBoolean("has_labels", true)
+        else if (value === "tag" || value === "tags") setQuickBoolean("has_tags", true)
         else if (value === "thread" || value === "threads") setQuickBoolean("threads_only", true)
         else return false
         return true
@@ -1785,7 +1785,7 @@ document.addEventListener("DOMContentLoaded", function () {
         setQuickBoolean("no_attachments", false)
       }
       else if (name === "starred") setQuickBoolean("starred", false)
-      else if (name === "has_labels") setQuickBoolean("has_labels", false)
+      else if (name === "has_tags") setQuickBoolean("has_tags", false)
       else if (name === "threads_only") setQuickBoolean("threads_only", false)
       else clearAdvancedFilter(name)
       renderAdvancedSummary()

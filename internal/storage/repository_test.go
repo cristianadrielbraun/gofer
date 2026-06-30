@@ -1789,8 +1789,8 @@ func TestSidebarTagFilterMatchesAliasedIMAPKeywordLabels(t *testing.T) {
 	}
 
 	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{
-		SidebarTag:          "Work",
-		SidebarTagAccountID: "acc",
+		Tag:          "Work",
+		TagAccountID: "acc",
 	})
 	if err != nil {
 		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
@@ -1837,10 +1837,10 @@ func TestSidebarTagFilterMatchesLegacyRawIMAPKeywordRows(t *testing.T) {
 		t.Fatalf("insert legacy label: %v", err)
 	}
 	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{
-		SidebarTag:             "Work",
-		SidebarTagAccountID:    "acc",
-		SidebarTagProviderID:   "$label2",
-		SidebarTagProviderType: LabelProviderIMAPKeyword,
+		Tag:             "Work",
+		TagAccountID:    "acc",
+		TagProviderID:   "$label2",
+		TagProviderType: LabelProviderIMAPKeyword,
 	})
 	if err != nil {
 		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
@@ -1855,8 +1855,8 @@ func TestSidebarTagFilterMatchesLegacyRawIMAPKeywordRows(t *testing.T) {
 		t.Fatalf("insert alias: %v", err)
 	}
 	page, err = db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{
-		SidebarTag:          "Work",
-		SidebarTagAccountID: "acc",
+		Tag:          "Work",
+		TagAccountID: "acc",
 	})
 	if err != nil {
 		t.Fatalf("GetEmailsRangeFilteredForUser(alias) error = %v", err)

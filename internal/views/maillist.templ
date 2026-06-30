@@ -107,8 +107,8 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 								@switchcomp.Switch(switchcomp.Props{Name: "starred", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
 							</div>
 							<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
-								<div class="w-full truncate">Labels</div>
-								@switchcomp.Switch(switchcomp.Props{Name: "has_labels", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
+								<div class="w-full truncate">Tags</div>
+								@switchcomp.Switch(switchcomp.Props{Name: "has_tags", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}})
 							</div>
 							<div class="flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground">
 								<div class="w-full truncate">Threads</div>
@@ -349,8 +349,8 @@ templ MailFilterAdvancedDialog(accounts []models.Account) {
 									@input.Input(input.Props{Name: "attachment", Placeholder: "receipt.pdf", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 								</label>
 								<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-									Label
-									@input.Input(input.Props{Name: "label", Placeholder: "work, invoices...", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
+									Tag
+									@input.Input(input.Props{Name: "tag", Placeholder: "work, invoices...", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 								</label>
 							</div>
 						</section>
@@ -366,8 +366,8 @@ templ MailFilterAdvancedDialog(accounts []models.Account) {
 									<span>No attachments</span>
 								</label>
 								<label class="flex items-center gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-sm">
-									@checkbox.Checkbox(checkbox.Props{Name: "has_labels", Value: "1", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
-									<span>Has labels</span>
+									@checkbox.Checkbox(checkbox.Props{Name: "has_tags", Value: "1", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
+									<span>Has tags</span>
 								</label>
 							</div>
 						</section>

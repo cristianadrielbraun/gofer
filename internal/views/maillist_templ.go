@@ -322,11 +322,11 @@ func MailListToolbar(accounts []models.Account, activeFolder string, viewMode st
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</div><div class=\"flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground\"><div class=\"w-full truncate\">Labels</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</div><div class=\"flex flex-col items-center gap-1 text-[11px] font-medium text-muted-foreground\"><div class=\"w-full truncate\">Tags</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = switchcomp.Switch(switchcomp.Props{Name: "has_labels", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = switchcomp.Switch(switchcomp.Props{Name: "has_tags", Value: "1", Class: "h-4 w-8 after:h-3 after:w-3 peer-checked:after:translate-x-4", Attributes: templ.Attributes{"data-mail-filter-input": ""}}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1275,11 +1275,11 @@ func MailFilterAdvancedDialog(accounts []models.Account) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</label> <label class=\"space-y-1.5 text-xs font-medium text-muted-foreground\">Label")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</label> <label class=\"space-y-1.5 text-xs font-medium text-muted-foreground\">Tag")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = input.Input(input.Props{Name: "label", Placeholder: "work, invoices...", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = input.Input(input.Props{Name: "tag", Placeholder: "work, invoices...", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1303,11 +1303,11 @@ func MailFilterAdvancedDialog(accounts []models.Account) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = checkbox.Checkbox(checkbox.Props{Name: "has_labels", Value: "1", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = checkbox.Checkbox(checkbox.Props{Name: "has_tags", Value: "1", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<span>Has labels</span></label></div></section><section data-mail-filter-panel=\"threads\" class=\"hidden space-y-4\"><h3 class=\"text-sm font-semibold text-foreground\">Threads</h3><label class=\"flex items-center gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-sm\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<span>Has tags</span></label></div></section><section data-mail-filter-panel=\"threads\" class=\"hidden space-y-4\"><h3 class=\"text-sm font-semibold text-foreground\">Threads</h3><label class=\"flex items-center gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-sm\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

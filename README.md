@@ -33,7 +33,7 @@ This is the stuff that is implemented enough to use locally:
 - scheduled send, with scheduled messages shown as a virtual folder
 - drafts and compose autosave
 - folders, unread state, starred messages, archive, move, spam, trash, and delete actions
-- quick search plus advanced filters for status, attachments, threads, labels, accounts, dates, people, subject, body, domains, and attachment names
+- quick search plus advanced filters for status, attachments, threads, tags, accounts, dates, people, subject, body, domains, and attachment names
 - contacts, including manually saved contacts and observed contacts from mail
 - contact import/export with vCard files
 - Google Contacts sync through the People API

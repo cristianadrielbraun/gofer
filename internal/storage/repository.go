@@ -4377,7 +4377,7 @@ type emailFilterParts struct {
 }
 
 func emailFiltersEmpty(filters models.EmailFilters) bool {
-	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasLabels && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Label == "" && filters.AccountID == "" && filters.SidebarTag == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
+	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
 }
 
 func ftsQuery(input string) string {
@@ -4418,16 +4418,16 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	if filters.ThreadsOnly {
 		outerParts = append(outerParts, "thread_count > 1")
 	}
-	if filters.HasLabels {
+	if filters.HasTags {
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = m.id)")
 	}
 	if filters.AccountID != "" {
 		cteParts = append(cteParts, "m.account_id = ?")
 		args = append(args, filters.AccountID)
 	}
-	if filters.SidebarTag != "" && filters.SidebarTagAccountID != "" {
+	if filters.Tag != "" && filters.TagAccountID != "" {
 		cteParts = append(cteParts, "m.account_id = ?")
-		args = append(args, filters.SidebarTagAccountID)
+		args = append(args, filters.TagAccountID)
 	}
 	if filters.Query != "" {
 		if query := ftsQuery(filters.Query); query != "" {
@@ -4462,11 +4462,7 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND att.filename LIKE ?)")
 		args = append(args, "%"+filters.Attachment+"%")
 	}
-	if filters.Label != "" {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml JOIN labels l ON ml.label_id = l.id WHERE ml.message_id = m.id AND l.name LIKE ?)")
-		args = append(args, "%"+filters.Label+"%")
-	}
-	if filters.SidebarTag != "" {
+	if filters.Tag != "" {
 		predicate := `
 			l.name = ? COLLATE NOCASE
 			OR EXISTS (
@@ -4477,11 +4473,11 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 				  AND la.display_name = ? COLLATE NOCASE
 			)
 		`
-		args = append(args, filters.SidebarTag, filters.SidebarTag)
-		if strings.TrimSpace(filters.SidebarTagProviderID) != "" && strings.TrimSpace(filters.SidebarTagProviderType) != "" {
+		args = append(args, filters.Tag, filters.Tag)
+		if strings.TrimSpace(filters.TagProviderID) != "" && strings.TrimSpace(filters.TagProviderType) != "" {
 			predicate += `
 			OR (l.provider_type = ? AND l.provider_id = ?)`
-			args = append(args, strings.TrimSpace(filters.SidebarTagProviderType), strings.TrimSpace(filters.SidebarTagProviderID))
+			args = append(args, strings.TrimSpace(filters.TagProviderType), strings.TrimSpace(filters.TagProviderID))
 		}
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml JOIN labels l ON ml.label_id = l.id WHERE ml.message_id = m.id AND ("+predicate+"))")
 	}

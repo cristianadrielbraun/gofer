@@ -271,7 +271,7 @@ func TestSidebarFolderTreeRendersUnifiedAndAccountTags(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := SidebarFolderTree(accounts, "inbox", nil, 0, models.EmailFilters{SidebarTag: "Projects"}).Render(context.Background(), &buf); err != nil {
+	if err := SidebarFolderTree(accounts, "inbox", nil, 0, models.EmailFilters{Tag: "Projects"}).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
 	}
 	html := buf.String()
@@ -312,7 +312,7 @@ func TestSidebarFolderTreeMarksAccountTagActive(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	filters := models.EmailFilters{SidebarTag: "Projects", SidebarTagAccountID: "acc"}
+	filters := models.EmailFilters{Tag: "Projects", TagAccountID: "acc"}
 	if err := SidebarFolderTree(accounts, "acc-inbox", nil, 0, filters).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
 	}
@@ -358,7 +358,7 @@ func TestSidebarFolderTreeIncludesProviderIdentityForAccountTag(t *testing.T) {
 	}
 }
 
-func TestSidebarFolderTreeDoesNotMarkAdvancedLabelFilterAsTagActive(t *testing.T) {
+func TestSidebarFolderTreeMarksTagFilterAsUnifiedTagActive(t *testing.T) {
 	accounts := []models.Account{{
 		ID:               "acc",
 		Name:             "Personal",
@@ -373,16 +373,16 @@ func TestSidebarFolderTreeDoesNotMarkAdvancedLabelFilterAsTagActive(t *testing.T
 	}}
 
 	var buf bytes.Buffer
-	filters := models.EmailFilters{Label: "Projects", AccountID: "acc"}
-	if err := SidebarFolderTree(accounts, "unrelated-folder", nil, 0, filters).Render(context.Background(), &buf); err != nil {
+	filters := models.EmailFilters{Tag: "Projects", AccountID: "acc"}
+	if err := SidebarFolderTree(accounts, "inbox", nil, 0, filters).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
 	}
 	html := buf.String()
 	if strings.Contains(html, `data-sidebar-account="acc" data-sidebar-account-active`) {
-		t.Fatalf("advanced label filter should not mark account tag section active: %s", html)
+		t.Fatalf("unscoped tag filter should not mark account tag section active: %s", html)
 	}
-	if strings.Contains(html, `data-sidebar-account="__unified__" data-sidebar-account-active`) {
-		t.Fatalf("advanced label filter should not mark unified tag section active: %s", html)
+	if !strings.Contains(html, `data-sidebar-account="__unified__" data-sidebar-account-active`) {
+		t.Fatalf("unscoped tag filter should mark unified tag section active: %s", html)
 	}
 }
 
@@ -414,7 +414,7 @@ func TestSidebarFolderTreeCollapsesInactiveTagsFromSettings(t *testing.T) {
 	}
 
 	var active bytes.Buffer
-	filters := models.EmailFilters{SidebarTag: "Projects", SidebarTagAccountID: "acc"}
+	filters := models.EmailFilters{Tag: "Projects", TagAccountID: "acc"}
 	if err := SidebarFolderTree(accounts, "inbox", settings, 0, filters).Render(context.Background(), &active); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() active error = %v", err)
 	}

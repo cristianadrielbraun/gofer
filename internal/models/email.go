@@ -162,28 +162,27 @@ type EmailPage struct {
 }
 
 type EmailFilters struct {
-	Unread                 bool
-	Starred                bool
-	Attachments            bool
-	Read                   bool
-	NoAttach               bool
-	HasLabels              bool
-	ThreadsOnly            bool
-	From                   string
-	To                     string
-	Subject                string
-	Body                   string
-	FromDomain             string
-	Attachment             string
-	Label                  string
-	AccountID              string
-	SidebarTag             string
-	SidebarTagAccountID    string
-	SidebarTagProviderID   string
-	SidebarTagProviderType string
-	Query                  string
-	After                  string
-	Before                 string
+	Unread          bool
+	Starred         bool
+	Attachments     bool
+	Read            bool
+	NoAttach        bool
+	HasTags         bool
+	ThreadsOnly     bool
+	From            string
+	To              string
+	Subject         string
+	Body            string
+	FromDomain      string
+	Attachment      string
+	Tag             string
+	AccountID       string
+	TagAccountID    string
+	TagProviderID   string
+	TagProviderType string
+	Query           string
+	After           string
+	Before          string
 }
 
 type ThreadItem struct {
