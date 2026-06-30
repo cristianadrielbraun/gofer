@@ -1215,6 +1215,12 @@ html[data-theme="classic"] .mail-list-search-row > .groove {
   box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
+[data-theme="minimal"].dark [data-contact-list-shell] .mail-list-item > a.envelope-active {
+  background: color-mix(in srgb, var(--color-foreground) 7%, var(--color-background));
+  border-color: var(--color-border);
+  box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 42%, transparent);
+}
+
 .mail-list-item[data-mail-selected] > a,
 .mail-list-item > a[data-mail-selected] {
   background: color-mix(in srgb, var(--color-primary) 6%, transparent);
