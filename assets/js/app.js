@@ -1,5 +1,3 @@
-var suppressNextAutoloadFirstEmail = false
-
 document.addEventListener("DOMContentLoaded", function () {
   if (!document.getElementById("mail-sync-indeterminate-style")) {
     var style = document.createElement("style")
@@ -1111,7 +1109,7 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
 
-        if (e.key === "Escape" && selectedMailIds.size > 0) {
+        if (e.key === "Escape" && (selectedMailIds.size > 0 || selectedMailIdForKeyboard())) {
           e.preventDefault()
           clearKeyboardMailSelection()
           return
@@ -1203,6 +1201,24 @@ document.addEventListener("DOMContentLoaded", function () {
       return (scroll && scroll._virtualMailList) || virtualMailList
     }
 
+    function clearActiveMailSelection() {
+      var vml = currentMailListController()
+      var activeRows = document.querySelectorAll("#mail-list-scroll .envelope-active")
+      var hadActive = !!(vml && vml.selectedEmailId) || activeRows.length > 0
+      if (vml) {
+        vml.selectedEmailId = null
+        if (typeof vml.syncSelectionClasses === "function") vml.syncSelectionClasses(vml.itemsContainer || vml.container)
+        if (typeof vml.replaceUrl === "function") vml.replaceUrl()
+      } else {
+        for (var i = 0; i < activeRows.length; i++) {
+          activeRows[i].classList.remove("envelope-active")
+          if (activeRows[i].closest(".mail-list-item")) activeRows[i].classList.add("envelope")
+        }
+      }
+      if (hadActive && typeof setMailViewEmpty === "function") setMailViewEmpty()
+      return hadActive
+    }
+
     function sortedRenderedMailRows() {
       return renderedMailRows().sort(function (a, b) {
         return (parseInt(a.dataset.position, 10) || 0) - (parseInt(b.dataset.position, 10) || 0)
@@ -1243,9 +1259,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function clearKeyboardMailSelection() {
+      var hadSelection = selectedMailIds.size > 0
       clearMailSelection()
+      var hadActive = clearActiveMailSelection()
       var active = document.activeElement
       if (active && active.closest && active.closest("#mail-list-scroll")) active.blur()
+      return hadSelection || hadActive
     }
 
     function moveKeyboardMailSelection(delta) {
@@ -3359,7 +3378,6 @@ document.addEventListener("DOMContentLoaded", function () {
     container._virtualMailList = virtualMailList
     flushPendingSyncEvents()
     applyActiveFolderSyncState()
-    autoloadFirstEmail(container)
     bindThreadToggle(container)
 
     virtualMailList.replaceUrl()
@@ -3410,26 +3428,6 @@ document.addEventListener("DOMContentLoaded", function () {
       var vml = container._virtualMailList || virtualMailList
       if (vml && emailId) vml.toggleThreadExpand(emailId)
     })
-  }
-
-  function autoloadFirstEmail(container) {
-    if (!container || !container.hasAttribute("data-autoload-first-email")) return
-    container.removeAttribute("data-autoload-first-email")
-    if (suppressNextAutoloadFirstEmail) {
-      suppressNextAutoloadFirstEmail = false
-      return
-    }
-    var first = container.querySelector(".mail-list-item[data-email-id]")
-    if (!first || !first.dataset.emailId || typeof htmx === "undefined") return
-
-    if (virtualMailList) {
-      virtualMailList.selectedEmailId = first.dataset.emailId
-      virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
-      virtualMailList.pushUrl()
-    }
-    if (typeof showMailViewLoading === "function") showMailViewLoading()
-    suppressEmailUrlPushFor = first.dataset.emailId
-    htmx.ajax("GET", "/email/" + first.dataset.emailId, "#mail-view")
   }
 
   function setupFolderClickInterception() {
@@ -4440,7 +4438,6 @@ document.addEventListener("DOMContentLoaded", function () {
     scroll._virtualMailList = virtualMailList
     flushPendingSyncEvents()
     applyActiveFolderSyncState()
-    autoloadFirstEmail(scroll)
     bindThreadToggle(scroll)
 
     virtualMailList.replaceUrl()
@@ -9107,8 +9104,6 @@ function mergeFolderShellBehindCompose(folderID, fullWidth) {
       var nextHandle = tmp.querySelector('[data-panel="maillist"]')
       var currentMailList = document.querySelector("#main-content > #mail-list")
       var currentHandle = document.querySelector('#main-content > [data-panel="maillist"]')
-      var scroll = nextMailList && nextMailList.querySelector("#mail-list-scroll")
-      if (scroll) scroll.removeAttribute("data-autoload-first-email")
       if (nextMailList && currentMailList) currentMailList.replaceWith(nextMailList)
       if (nextHandle && currentHandle) currentHandle.replaceWith(nextHandle)
       if (typeof initResizeHandles === "function") initResizeHandles()
@@ -9167,16 +9162,9 @@ function openComposeInMain(fullWidth, instantFullWidth) {
     openWhenReady()
   }
 
-  function afterMainContentSettle(evt) {
-    if (!evt.target || evt.target.id !== "main-content") return
-    document.body.removeEventListener("htmx:afterSettle", afterMainContentSettle)
-    suppressNextAutoloadFirstEmail = false
-  }
-
   if (!fullWidth) {
     document.body.addEventListener("htmx:beforeSwap", beforeMainContentSwap)
     document.body.addEventListener("htmx:afterSwap", afterMainContentSwap)
-    document.body.addEventListener("htmx:afterSettle", afterMainContentSettle)
   }
   showComposeOpeningContent()
   fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
@@ -9185,13 +9173,10 @@ function openComposeInMain(fullWidth, instantFullWidth) {
   }).catch(function () {
     document.body.removeEventListener("htmx:beforeSwap", beforeMainContentSwap)
     document.body.removeEventListener("htmx:afterSwap", afterMainContentSwap)
-    document.body.removeEventListener("htmx:afterSettle", afterMainContentSettle)
-    suppressNextAutoloadFirstEmail = false
   })
   if (fullWidth) {
     mergeFolderShellBehindCompose("inbox", true)
   } else {
-    suppressNextAutoloadFirstEmail = true
     htmx.ajax("GET", "/folder/inbox/full", { target: "#main-content", swap: "outerHTML" })
   }
 }

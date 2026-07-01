@@ -434,7 +434,6 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 		data-window-start={ fmt.Sprintf("%d", windowStart) }
 		data-page-size={ fmt.Sprintf("%d", mailListPaginationPageSize()) }
 		data-account-marker-style={ accountMarkerStyle(accounts) }
-		data-autoload-first-email?={ selectedEmail == nil && len(emails) > 0 }
 		data-load-folder?={ totalCount < 0 || scrollCount < 0 }
 	>
 		if totalCount < 0 || scrollCount < 0 {

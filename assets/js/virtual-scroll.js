@@ -1485,7 +1485,7 @@ class VirtualMailList {
       if (options.preserveScroll) this.restoreScrollAnchor(scrollAnchor)
       else this.container.scrollTop = 0
       if (selected && this.indexById.has(selected)) this.selectedEmailId = selected
-      else if (!options.keepSelection) this.selectedEmailId = this.firstEmailId()
+      else if (!options.keepSelection) this.selectedEmailId = null
       this.prevFirst = null
       this.prevLast = null
       this.render()
@@ -1668,33 +1668,18 @@ class VirtualMailList {
     if (this.navigationMode === "pagination") {
       this.folderID = folderID
       this.selectedEmailId = null
+      if (typeof setMailViewEmpty === "function") setMailViewEmpty()
       this.pageStart = 0
       await this.loadPage(0, { loadSelected: false, knownTotal: false, animation: { enterFrom: -8, exitTo: 14 } })
-      var first = this.firstEmailId()
-      if (first) {
-        this.selectedEmailId = first
-        this.prevFirst = null
-        this.prevLast = null
-        this.render()
-        this.syncSelectionClasses(this.itemsContainer)
-        if (typeof htmx !== "undefined") {
-          if (typeof showMailViewLoading === "function") showMailViewLoading()
-          htmx.ajax("GET", "/email/" + first, "#mail-view")
-        }
-      } else if (typeof setMailViewEmpty === "function") {
-        setMailViewEmpty()
-      }
       this.updateHeader()
       this.updateSyncHeader()
       if (pushState) this.pushUrl()
       return
     }
     var transition = this.captureListTransition()
-    var previousSelected = this.selectedEmailId
+    this.selectedEmailId = null
+    if (typeof setMailViewEmpty === "function") setMailViewEmpty()
     var params = "limit=" + this.mailListFetchLimit()
-    if (previousSelected) {
-      params += "&selected=" + encodeURIComponent(previousSelected)
-    }
     var url = "/mail/folder/" + folderID + "/items?" + params
     url += "&view=" + encodeURIComponent(this.viewMode)
     url = this.withFilterParams(url)
@@ -1703,19 +1688,6 @@ class VirtualMailList {
     this.reset()
     this.folderID = folderID
     this.ingestHTML(html)
-
-    if (this.cache.size > 0) {
-      var firstItem = this.cache.get(0)
-      if (firstItem) {
-        this.selectedEmailId = firstItem.id
-        if (typeof htmx !== "undefined") {
-          if (typeof showMailViewLoading === "function") showMailViewLoading()
-          htmx.ajax("GET", "/email/" + firstItem.id, "#mail-view")
-        }
-      }
-    } else {
-      if (typeof setMailViewEmpty === "function") setMailViewEmpty()
-    }
 
     this.render()
     if (transition) this.animateListTransition(transition, { enterFrom: -8, exitTo: 14 })
@@ -2107,7 +2079,7 @@ class VirtualMailList {
       var previousSelectedPaginated = this.selectedEmailId
       await this.loadPage(0, { preserveSelection: true, loadSelected: false, knownTotal: false, animation: { enterFrom: -8, exitTo: 14 } })
       if (previousSelectedPaginated && this.indexById.has(previousSelectedPaginated)) this.selectedEmailId = previousSelectedPaginated
-      else this.selectedEmailId = this.firstEmailId()
+      else this.selectedEmailId = null
       this.prevFirst = null
       this.prevLast = null
       this.render()
@@ -2127,9 +2099,8 @@ class VirtualMailList {
     this.ingestHTML(html)
     if (previousSelected && this.indexById.has(previousSelected)) {
       this.selectedEmailId = previousSelected
-    } else if (this.cache.size > 0) {
-      var firstItem = this.cache.get(0)
-      if (firstItem) this.selectedEmailId = firstItem.id
+    } else {
+      this.selectedEmailId = null
     }
     this.render()
     this.animateListTransition(transition, { enterFrom: -8, exitTo: 14 })
