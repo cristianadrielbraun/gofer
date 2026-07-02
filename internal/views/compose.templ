@@ -62,22 +62,26 @@ templ ComposeDialog(accounts []models.Account) {
 						<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">From</label>
 						@dropdown.Dropdown() {
 							@dropdown.Trigger() {
-								<button type="button" id="compose-from-trigger" class="flex items-center gap-1 text-sm text-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent">
+								<button type="button" id="compose-from-trigger" class="compose-from-trigger flex items-center gap-1 text-sm text-foreground transition-colors px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
 									<span id="compose-from-display">{ composeDefaultName(accounts) } &lt;{ composeDefaultEmail(accounts) }&gt;</span>
 									@icon.ChevronDown(icon.Props{Class: "size-3 text-muted-foreground"})
 								</button>
 							}
-							@dropdown.Content() {
+							@dropdown.Content(dropdown.ContentProps{Class: "compose-from-menu w-80 normal-case tracking-normal"}) {
 								for _, acc := range accounts {
 									@dropdown.Item(dropdown.ItemProps{
+										Class: "compose-from-item select-item group relative justify-start pr-8 font-light outline-none transition-colors duration-150",
 										Attributes: templ.Attributes{
-											"data-account-id":    acc.ID,
-											"data-account-email": acc.Email,
-											"data-account-name":  acc.Name,
-											"onclick":            "selectComposeAccount(this)",
+											"data-compose-account-item":     "",
+											"data-compose-account-scope":    "dialog",
+											"data-compose-account-selected": fmt.Sprintf("%t", acc.ID == composeDefaultAccountID(accounts)),
+											"data-account-id":               acc.ID,
+											"data-account-email":            acc.Email,
+											"data-account-name":             acc.Name,
+											"onclick":                       "selectComposeAccount(this)",
 										},
 									}) {
-										<span class="text-sm">{ acc.Name } &lt;{ acc.Email }&gt;</span>
+										<span class="truncate select-item-text">{ acc.Name } &lt;{ acc.Email }&gt;</span>
 									}
 								}
 							}
@@ -514,22 +518,26 @@ templ ComposePane(accounts []models.Account) {
 							<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">From</label>
 							@dropdown.Dropdown() {
 								@dropdown.Trigger() {
-									<button type="button" id="compose-pane-from-trigger" class="flex items-center gap-1 text-sm text-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent">
+									<button type="button" id="compose-pane-from-trigger" class="compose-from-trigger flex items-center gap-1 text-sm text-foreground transition-colors px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
 										<span id="compose-pane-from-display">{ composeDefaultName(accounts) } &lt;{ composeDefaultEmail(accounts) }&gt;</span>
 										@icon.ChevronDown(icon.Props{Class: "size-3 text-muted-foreground"})
 									</button>
 								}
-								@dropdown.Content() {
+								@dropdown.Content(dropdown.ContentProps{Class: "compose-from-menu w-80 normal-case tracking-normal"}) {
 									for _, acc := range accounts {
 										@dropdown.Item(dropdown.ItemProps{
+											Class: "compose-from-item select-item group relative justify-start pr-8 font-light outline-none transition-colors duration-150",
 											Attributes: templ.Attributes{
-												"data-account-id":    acc.ID,
-												"data-account-email": acc.Email,
-												"data-account-name":  acc.Name,
-												"onclick":            "selectComposeAccount(this, true)",
+												"data-compose-account-item":     "",
+												"data-compose-account-scope":    "pane",
+												"data-compose-account-selected": fmt.Sprintf("%t", acc.ID == composeDefaultAccountID(accounts)),
+												"data-account-id":               acc.ID,
+												"data-account-email":            acc.Email,
+												"data-account-name":             acc.Name,
+												"onclick":                       "selectComposeAccount(this, true)",
 											},
 										}) {
-											<span class="text-sm">{ acc.Name } &lt;{ acc.Email }&gt;</span>
+											<span class="truncate select-item-text">{ acc.Name } &lt;{ acc.Email }&gt;</span>
 										}
 									}
 								}

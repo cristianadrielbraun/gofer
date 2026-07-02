@@ -431,9 +431,14 @@ document.addEventListener("DOMContentLoaded", function () {
       { code: "ko", label: "Korean" }
     ]
 
-    function languageLabel(code) {
+    function normalizeTranslationLanguageCode(code) {
       var normalized = String(code || "").toLowerCase()
       if (normalized === "zh") normalized = "zh-cn"
+      return normalized
+    }
+
+    function languageLabel(code) {
+      var normalized = normalizeTranslationLanguageCode(code)
       for (var i = 0; i < translationLanguages.length; i++) {
         if (translationLanguages[i].code === normalized) return translationLanguages[i].label
       }
@@ -466,6 +471,15 @@ document.addEventListener("DOMContentLoaded", function () {
       return frame && frame.dataset.translationTargetLanguage ? frame.dataset.translationTargetLanguage : targetLanguage()
     }
 
+    function syncTranslationLanguageItems(emailId) {
+      if (!emailId) return
+      var active = normalizeTranslationLanguageCode(activeTargetLanguage(emailId))
+      var items = document.querySelectorAll(emailSelector("data-translate-email-language", emailId))
+      for (var i = 0; i < items.length; i++) {
+        items[i].dataset.translationLanguageSelected = normalizeTranslationLanguageCode(items[i].dataset.translationLanguage) === active ? "true" : "false"
+      }
+    }
+
     function setButtonState(emailId, state, data) {
       var button = buttonForEmail(emailId)
       if (!button) return
@@ -484,6 +498,7 @@ document.addEventListener("DOMContentLoaded", function () {
       button.setAttribute("aria-pressed", translated ? "true" : "false")
       button.setAttribute("aria-label", translated ? "Show original email" : idleButtonLabel())
       button.classList.toggle("opacity-60", state === "loading")
+      syncTranslationLanguageItems(emailId)
       if (translated && data) {
         button.title = "Translated to " + languageLabel(activeTargetLanguage(emailId))
       } else {
@@ -6016,8 +6031,17 @@ function selectComposeAccount(el, fromPane) {
   var display = document.getElementById(prefix + "from-display")
   if (idField) idField.value = accountId
   if (display) display.innerHTML = (name ? name + " &lt;" : "") + email + (name ? "&gt;" : "")
+  syncComposeAccountItems(fromPane ? "pane" : "dialog", accountId)
   _markComposeDirty(document.getElementById(prefix + "form"))
   applyDefaultComposeSignature(document.getElementById(prefix + "form"), true)
+}
+
+function syncComposeAccountItems(scope, accountId) {
+  if (!scope || !accountId) return
+  var items = document.querySelectorAll('[data-compose-account-scope="' + scope + '"][data-compose-account-item]')
+  for (var i = 0; i < items.length; i++) {
+    items[i].dataset.composeAccountSelected = items[i].dataset.accountId === accountId ? "true" : "false"
+  }
 }
 
 function resetComposeForm(fromPane, skipCleanup) {
@@ -8849,6 +8873,7 @@ function setComposeAccount(form, accountId) {
   var prefix = pane ? "compose-pane-" : "compose-"
   var idField = document.getElementById(prefix + "account-id")
   if (idField) idField.value = accountId
+  syncComposeAccountItems(pane ? "pane" : "dialog", accountId)
   var options = document.querySelectorAll("[data-account-id]")
   for (var i = 0; i < options.length; i++) {
     if (options[i].dataset.accountId !== accountId) continue
@@ -9743,6 +9768,7 @@ function _writeComposeFormValues(form, vals, prefix) {
   } else if (vals.account_id) {
     setComposeAccount(form, vals.account_id)
   }
+  if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id)
   _setComposeEditorValue(form, vals.body || "", vals.html_body || "", vals.inline_images || [])
   renderComposeAttachments(form, vals.attachments || [])
   form.dataset.composeUploadsPending = "0"

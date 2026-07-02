@@ -477,28 +477,28 @@ templ MailViewHeader(email *models.Email) {
 				}) {
 					{ threadAwareLabel("Delete", "Delete thread", email) }
 				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
+				}
+				@tooltip.Tooltip() {
+					@tooltip.Trigger() {
 						if mailEmailIsSpam(email) {
 							@button.Button(button.Props{
 								Variant:    button.VariantGhost,
 								Size:       button.SizeIcon,
-								Class:      "h-8 w-8 border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-emerald-500/15 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200",
+								Class:      "h-8 w-8 border border-amber-500/35 bg-amber-500/12 text-amber-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-amber-500/20 hover:text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-300 dark:hover:text-amber-200",
 								Attributes: templ.Attributes{"onclick": threadAwareAction("markNotSpam", "markThreadNotSpam", email)},
 							}) {
 								@icon.ShieldCheck(icon.Props{Class: "size-4"})
+							}
+						} else {
+							@button.Button(button.Props{
+								Variant:    button.VariantGhost,
+								Size:       button.SizeIcon,
+								Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
+								Attributes: templ.Attributes{"onclick": threadAwareAction("markSpam", "markThreadSpam", email)},
+							}) {
+								@icon.ShieldAlert(icon.Props{Class: "size-4"})
+							}
 						}
-					} else {
-						@button.Button(button.Props{
-							Variant:    button.VariantGhost,
-							Size:       button.SizeIcon,
-							Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
-							Attributes: templ.Attributes{"onclick": threadAwareAction("markSpam", "markThreadSpam", email)},
-						}) {
-							@icon.ShieldAlert(icon.Props{Class: "size-4"})
-						}
-					}
 				}
 				@tooltip.Content(tooltip.ContentProps{
 					Position:  tooltip.PositionBottom,
@@ -822,40 +822,41 @@ templ MailViewBodyByID(emailID string) {
 			}
 		</div>
 	</div>
-	<div data-email-translation-shell={ emailID } class="mb-3">
-		<div class="flex items-center justify-end gap-2">
-			<div data-email-translation-button={ emailID } data-translated="false" class="inline-flex h-8 overflow-hidden rounded-md border border-ink/10 bg-ink/[0.02] text-xs font-medium text-ink/50 transition-colors hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/70 data-[translated=true]:border-copper/40 data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper data-[translated=true]:hover:border-copper/50 data-[translated=true]:hover:bg-copper/15">
-				<button type="button" data-translate-email={ emailID } data-translated="false" aria-pressed="false" class="inline-flex h-full items-center gap-1.5 px-2.5 transition-colors data-[translated=true]:text-copper">
-					@icon.Languages(icon.Props{Class: "size-3.5"})
-					<span data-translate-email-label={ emailID }>Translate</span>
-				</button>
-				@dropdown.Dropdown() {
-					@dropdown.Trigger() {
-						<button type="button" class="inline-flex h-full w-7 items-center justify-center border-l border-ink/10 transition-colors hover:bg-ink/[0.04]" aria-label="Choose translation language">
-							@icon.ChevronDown(icon.Props{Class: "size-3"})
-						</button>
-					}
-					@dropdown.Content(dropdown.ContentProps{
-						Placement: dropdown.PlacementBottomEnd,
-						Class:     "w-40 normal-case tracking-normal",
-					}) {
-						@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { Translate to }
-						for _, language := range translationLanguageOptions() {
-							@dropdown.Item(dropdown.ItemProps{
-								Class: "text-xs",
-								Attributes: templ.Attributes{
-									"data-translate-email-language": emailID,
-									"data-translation-language":      language.Value,
-								},
-							}) {
-								<span>{ language.Label }</span>
+		<div data-email-translation-shell={ emailID } class="mb-3">
+			<div class="flex items-center justify-end gap-2">
+				<div data-email-translation-button={ emailID } data-translated="false" class="inline-flex h-8 overflow-hidden rounded-md border border-ink/10 bg-ink/[0.02] text-xs font-medium text-ink/50 transition-colors hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/70 data-[translated=true]:border-copper/40 data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper data-[translated=true]:hover:border-copper/50 data-[translated=true]:hover:bg-copper/15">
+					<button type="button" data-translate-email={ emailID } data-translated="false" aria-pressed="false" class="inline-flex h-full items-center gap-1.5 px-2.5 transition-colors data-[translated=true]:text-copper">
+						@icon.Languages(icon.Props{Class: "size-3.5"})
+						<span data-translate-email-label={ emailID }>Translate</span>
+					</button>
+					@dropdown.Dropdown() {
+						@dropdown.Trigger() {
+							<button type="button" class="email-translation-language-trigger inline-flex h-full w-7 items-center justify-center border-l border-ink/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background" aria-label="Choose translation language">
+								@icon.ChevronDown(icon.Props{Class: "size-3"})
+							</button>
+						}
+						@dropdown.Content(dropdown.ContentProps{
+							Placement: dropdown.PlacementBottomEnd,
+							Class:     "email-translation-language-menu w-40 normal-case tracking-normal",
+						}) {
+							@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { Translate to }
+							for _, language := range translationLanguageOptions() {
+								@dropdown.Item(dropdown.ItemProps{
+									Class: "email-translation-language-item text-xs group relative justify-start pr-8 font-light outline-none transition-colors duration-150",
+									Attributes: templ.Attributes{
+										"data-translate-email-language":     emailID,
+										"data-translation-language":          language.Value,
+										"data-translation-language-selected": "false",
+									},
+								}) {
+									<span>{ language.Label }</span>
+								}
 							}
 						}
 					}
-				}
+				</div>
 			</div>
 		</div>
-	</div>
 	<div data-email-body-loading={ emailID } class="space-y-3 py-2" aria-label="Loading email body">
 		<div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div>
 		<div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div>

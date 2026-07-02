@@ -263,7 +263,20 @@
   background: var(--secondary);
 }
 
+[data-theme="minimal"]:not(.dark) .compose-from-trigger:hover,
+[data-theme="minimal"]:not(.dark) .compose-from-trigger:focus-visible,
+[data-theme="minimal"]:not(.dark) .email-translation-language-trigger:hover,
+[data-theme="minimal"]:not(.dark) .email-translation-language-trigger:focus-visible {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
 [data-theme="minimal"]:not(.dark) .settings-select .select-content {
+  background: var(--background);
+}
+
+[data-theme="minimal"]:not(.dark) .compose-from-menu,
+[data-theme="minimal"]:not(.dark) .email-translation-language-menu {
   background: var(--background);
 }
 
@@ -288,6 +301,16 @@
 [data-theme="minimal"]:not(.dark) .settings-select .select-item:hover,
 [data-theme="minimal"]:not(.dark) .settings-select .select-item:focus-visible,
 [data-theme="minimal"]:not(.dark) .settings-select .select-item[data-tui-selectbox-selected="true"] {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+[data-theme="minimal"]:not(.dark) .compose-from-menu .compose-from-item:hover,
+[data-theme="minimal"]:not(.dark) .compose-from-menu .compose-from-item:focus-visible,
+[data-theme="minimal"]:not(.dark) .compose-from-menu .compose-from-item[data-compose-account-selected="true"],
+[data-theme="minimal"]:not(.dark) .email-translation-language-menu .email-translation-language-item:hover,
+[data-theme="minimal"]:not(.dark) .email-translation-language-menu .email-translation-language-item:focus-visible,
+[data-theme="minimal"]:not(.dark) .email-translation-language-menu .email-translation-language-item[data-translation-language-selected="true"] {
   background: var(--secondary);
   color: var(--foreground);
 }
