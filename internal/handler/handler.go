@@ -294,6 +294,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 func setupAssetsRoutes(mux *http.ServeMux) {
 	isDevelopment := os.Getenv("GO_ENV") != "production"
+	assetServer := http.FileServer(assetFileSystem())
 
 	assetHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isDevelopment {
@@ -301,7 +302,7 @@ func setupAssetsRoutes(mux *http.ServeMux) {
 		} else {
 			w.Header().Set("Cache-Control", "public, max-age=31536000")
 		}
-		http.FileServer(http.Dir("./assets")).ServeHTTP(w, r)
+		assetServer.ServeHTTP(w, r)
 	})
 
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", assetHandler))
@@ -312,7 +313,7 @@ func setupAssetsRoutes(mux *http.ServeMux) {
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 		}
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		http.ServeFile(w, r, "./assets/js/sw.js")
+		serveServiceWorker(w, r)
 	})
 }
 

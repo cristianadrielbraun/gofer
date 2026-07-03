@@ -16,15 +16,33 @@ tasks:
     cmds:
       - task --parallel tailwind templ
 
-  build:
-    desc: Build for production
+  generate:
+    desc: Generate templ views and compiled CSS
     cmds:
       - templ generate
-      - |
-        tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css
+      - tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css
+
+  build:
+    desc: Build for production
+    deps:
+      - generate
+    cmds:
       - go build -o ./tmp/main .
+
+  release:
+    desc: Build a self-contained release binary with embedded assets
+    deps:
+      - generate
+    cmds:
+      - mkdir -p ./dist
+      - go build -tags embedded_assets -trimpath -o ./dist/gofer .
+
+  release:all:
+    desc: Build cross-platform release archives with embedded assets
+    cmds:
+      - ./scripts/release-build.sh
 
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -rf tmp/ assets/css/output.css
+      - rm -rf tmp/ dist/ assets/css/output.css
