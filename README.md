@@ -11,58 +11,63 @@
 
 <br>
 
-Small local email client thing I am building for myself.
+Gofer is a local-first email client I work on as a side project. It's built with Go, templ views, HTMX-style interactions, and SQLite storage.
 
-It is still a personal project, but it has slowly become a lot more usable. I am using it for my emails as a daily driver already.
-Stuff is missing, some things are messy, and I am still figuring out the shape of it.
+It is meant to run on your own machine, keep mail and related data local, and talk directly to mail and contact providers. Generic accounts use IMAP/SMTP. Gmail uses the Gmail API and Google People API. Outlook uses Microsoft Graph.
 
-Right now it is a Go app with templ views, HTMX-ish interactions, SQLite storage, IMAP/SMTP support, Gmail OAuth, and some contact sync stuff. The idea is to have a fast local mail client that stores mail locally and talks directly to normal mail/contact providers.
+The project is in alpha, but it is already useful for real local mail. It started as a small mail thing and then, predictably, became a slightly larger mail thing. I'm keeping it light for now, so expect things to keep changing as the app settles.
 
-A bunch of the UI bits are built with [templUI](https://templui.io). I recommend you to check it out.
+Offering a more complete, multi-user, hosted version in the future is not off the table, it can be an interesting path
 
-## what works
+For reference, I'm using it actively with 6 configured accounts and about 100k emails in total. So far not a single performance issue or increased memory consumption
 
-This is the stuff that is implemented enough to use locally:
+## features
+
+Things that already work (well, they work on my machine):
 
 - adding generic IMAP/SMTP accounts
-- connecting Gmail accounts with Google OAuth
-- syncing mail into SQLite, with polling and optional IMAP IDLE per folder
+- connecting Gmail accounts through Google OAuth, with mail handled by the Gmail API
+- connecting Outlook accounts through Microsoft OAuth, with mail handled by Microsoft Graph
+- syncing mail into SQLite, with provider-native sync for Gmail and Outlook and polling/optional IMAP IDLE for generic accounts
 - reading messages, threads, cached bodies, inline content, and attachments
 - blocking remote content by default, then allowing it per message or sender
-- sending mail over SMTP, including attachments and account signatures
+- sending mail, including attachments and account signatures
 - scheduled send, with scheduled messages shown as a virtual folder
 - drafts and compose autosave
-- folders, unread state, starred messages, archive, move, spam, trash, and delete actions
+- folders, unread state, starred messages, archive, move, spam/not-spam, trash, and delete actions
 - quick search plus advanced filters for status, attachments, threads, tags, accounts, dates, people, subject, body, domains, and attachment names
 - contacts, including manually saved contacts and observed contacts from mail
 - contact import/export with vCard files
 - Google Contacts sync through the People API
+- Outlook contact sync through Microsoft Graph
 - CardDAV contact sync with discovery, multiple address books, pull, push, update, and delete paths
+- the Contacts area, in general, aims to offer a "centralized" contacts solution, where you can use Gofer as a source of truth and syncronize with the accounts you want. Interesting idea, I'm not so sure about the execution. We'll see how it progress
 - account colors, account testing, account service toggles, and encrypted stored passwords/tokens
-- local mode by default, with optional Google login/session auth when configured
+- local mode by default, with optional Google login/session auth when configured (I recommend you not to use this for now, very very alpha stage)
 - optional browser-tab notifications and Web Push notifications for new mail
 - theme, layout, list navigation, compose, signature, contact, sync, timezone, and notification settings
 - local cached blobs for message bodies, remote assets, and attachments
+- Live translation using the Google Translate public API, for now
+- I'm sure I'm forgetting a lot of stuff
 
-## planned / half done
+## still moving
 
-Things I still want to improve or finish:
+Things I'm still improving, in no especially noble order:
 
-- labels/tags UI beyond filtering
-- calendar support; the sidebar button is still disabled
-- richer regional settings, probably language next
-- better account setup, diagnostics, and reconnect flows
-- better handling for edge-case IMAP servers
-- more keyboard shortcuts
-- more bulk actions and cleanup flows
-- more tests around the scary parts
-- general UI polish
+- smoother first-run setup and OAuth credential guidance
+- proper, public implementation of the oauth integration, so you as end user don't need to create your own provider
+- clearer diagnostics and reconnect flows
+- broader test coverage around provider sync behavior
+- deeper labels/tags workflows beyond filtering
+- calendar support
+- richer regional and language settings
+- more keyboard shortcuts, bulk actions, and cleanup flows
 
-There are tests now, but not enough to call this boring software yet. Do not run this on a public server.
+Gofer is meant for local use. Please do not expose it directly on a public server. That's a different kind of adventure, meant for future chapters in this story
 
 ## running it
 
-You need Go, `templ`, `tailwindcss`, and `task` if you want to use the task commands.
+Downloaded release binaries include the generated web assets. For development from source, you need Go, `templ`, `tailwindcss`, and `task`.
 
 For development with hot reload:
 
@@ -78,11 +83,11 @@ tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css
 go run .
 ```
 
-Then open `http://localhost:8090`.
+Then open `http://local.localhost:8090`.
 
 ## building it
 
-For a normal local build:
+For a normal local development build:
 
 ```sh
 task build
@@ -100,9 +105,48 @@ Then run it with whatever env vars you need:
 GO_ENV=production ./tmp/main
 ```
 
-This is not a polished release process. It is just the boring local binary I use when I do not want the dev watchers running.
+For a self-contained release binary with embedded assets:
 
-## data
+```sh
+task release
+```
+
+That writes:
+
+```sh
+./dist/gofer
+```
+
+For cross-platform release archives:
+
+```sh
+VERSION=v0.1.0-alpha.1 task release:all
+```
+
+That writes Linux, macOS, and Windows archives plus `dist/checksums.txt`.
+
+## OAuth credentials
+
+Generic IMAP/SMTP accounts do not need OAuth application credentials. Gmail and Outlook do.
+
+For now, alpha builds expect you to provide your own OAuth client ID and client secret for Google and Microsoft. Create credentials in the provider console, configure callback URLs for your `GOFER_BASE_URL`, and keep the generated secrets private. For Google, enable the Gmail API and People API in the same project.
+
+Official provider docs:
+
+- [Google OAuth 2.0 for web server applications](https://developers.google.com/identity/protocols/oauth2/web-server)
+- [Microsoft Entra app registration](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)
+
+Default local callback URLs:
+
+```text
+http://local.localhost:8090/auth/google/account/callback
+http://local.localhost:8090/auth/google/callback
+http://local.localhost:8090/auth/microsoft/account/callback
+```
+
+The Google login callback is only needed if you enable Gofer's optional Google-backed app login (again please don't do this). Gmail account setup uses the Google account callback.
+
+## configuration
 
 Runtime data lives in `data/` by default. That includes the SQLite DB, cached emails, attachments, and the local secret key used for encrypted account passwords.
 
@@ -126,10 +170,26 @@ GOFER_VAPID_PRIVATE_KEY=optional_web_push_private_key
 GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 ```
 
-Google OAuth is only needed for Google login, Gmail OAuth accounts, and Google Contacts sync. Microsoft OAuth is only needed for Outlook mail and contact sync through Microsoft Graph. Plain IMAP/SMTP accounts do not need it.
+Google OAuth is used for optional Google login, Gmail mail through the Gmail API, and Google Contacts sync through the People API. Microsoft OAuth is used for Outlook mail and contact sync through Microsoft Graph.
 
-## warning
+## local security model
 
-This is a personal WIP project, not a finished mail client. It has sharp edges and the security model is basically "run it locally and don't expose it".
+Gofer stores mail, cached blobs, account credentials, OAuth tokens, and runtime state locally. The practical security model is simple and very glamorous: run it on a trusted local machine, keep `data/` private, keep OAuth client secrets out of git, and avoid exposing the app directly to the public Internet.
 
-If you try it anyway, expect weirdness.
+## admin panel
+
+There is also a small `/admin` area for operational bits I did not want to hide in logs forever. It currently has pages for avatar checks, contact sync/backfill status, and label/provider diagnostics, including Gmail API and Outlook Graph parity checks. It is mostly a local debugging cockpit, not a grand enterprise command center, but it is useful when sync feels suspicious.
+
+## built with
+
+Some of the main libraries and tools Gofer leans on, because pretending I wrote the whole mail stack from scratch would be absurd:
+
+- [templ](https://templ.guide/) for Go-based views
+- [templUI](https://templui.io/) for several UI components
+- [HTMX](https://htmx.org/) for server-driven interactions
+- [Tailwind CSS](https://tailwindcss.com/) for styling
+- [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) for SQLite storage
+- [emersion](https://github.com/emersion)'s Go mail libraries, including [go-imap](https://github.com/emersion/go-imap), [go-smtp](https://github.com/emersion/go-smtp), [go-message](https://github.com/emersion/go-message), [go-sasl](https://github.com/emersion/go-sasl), and [go-vcard](https://github.com/emersion/go-vcard), which provide much of Gofer's mail, MIME, auth, and contact-format foundation
+- [golang.org/x/oauth2](https://pkg.go.dev/golang.org/x/oauth2) for OAuth flows
+- [webpush-go](https://github.com/SherClockHolmes/webpush-go) for Web Push notifications
+- [Lucide](https://lucide.dev/) icons through templUI's icon component
