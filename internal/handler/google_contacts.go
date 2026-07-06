@@ -40,6 +40,7 @@ type googlePerson struct {
 	PhoneNumbers   []googlePhoneNumber  `json:"phoneNumbers,omitempty"`
 	Organizations  []googleOrganization `json:"organizations,omitempty"`
 	Biographies    []googleBiography    `json:"biographies,omitempty"`
+	Photos         []googlePhoto        `json:"photos,omitempty"`
 }
 
 type googleName struct {
@@ -65,6 +66,11 @@ type googleOrganization struct {
 
 type googleBiography struct {
 	Value string `json:"value,omitempty"`
+}
+
+type googlePhoto struct {
+	URL     string `json:"url,omitempty"`
+	Default bool   `json:"default,omitempty"`
 }
 
 var googlePeopleAPIBaseURL = "https://people.googleapis.com/v1"
@@ -308,11 +314,11 @@ func googlePersonName(person googlePerson) string {
 }
 
 func googleContactPersonFields() string {
-	return "names,emailAddresses,phoneNumbers,organizations,biographies,metadata"
+	return "names,emailAddresses,phoneNumbers,organizations,biographies,photos,metadata"
 }
 
 func googleContactFromPerson(person googlePerson) models.Contact {
-	contact := models.Contact{Name: googlePersonName(person)}
+	contact := models.Contact{Name: googlePersonName(person), AvatarURL: googleContactPhotoURL(person.Photos)}
 	for _, email := range normalizedGoogleEmailValues(person.EmailAddresses) {
 		if contact.Email == "" {
 			contact.Email = email.Value
@@ -349,6 +355,19 @@ func googleContactFromPerson(person googlePerson) models.Contact {
 		}
 	}
 	return contact
+}
+
+func googleContactPhotoURL(photos []googlePhoto) string {
+	for _, photo := range photos {
+		rawURL := strings.TrimSpace(photo.URL)
+		if rawURL == "" {
+			continue
+		}
+		if !photo.Default {
+			return rawURL
+		}
+	}
+	return ""
 }
 
 func normalizedGoogleEmailValues(values []googleEmail) []googleEmail {

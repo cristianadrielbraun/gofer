@@ -245,16 +245,23 @@ func (db *DB) hydrateContactAvatar(ctx context.Context, contact *models.Contact)
 	if contact == nil || contact.AvatarHash == "" {
 		return
 	}
+	providerAvatarURL := strings.TrimSpace(contact.AvatarURL)
+	if providerAvatarURL != "" {
+		contact.AvatarSource = "provider_contact"
+		return
+	}
 	rec, err := db.GetSenderAvatarByHash(ctx, contact.AvatarHash)
 	if err != nil || rec == nil {
 		contact.AvatarStatus = "unknown"
 		return
 	}
 	contact.AvatarStatus = rec.Status
-	contact.AvatarSource = rec.Source
 	if rec.Status == "found" && (rec.StoragePath != "" || len(rec.ImageData) > 0) && (!rec.ExpiresAtValid || time.Now().Before(rec.ExpiresAt)) {
+		contact.AvatarSource = rec.Source
 		contact.AvatarURL = senderAvatarURL(rec.EmailHash, rec.FetchedAtVersion())
+		return
 	}
+	contact.AvatarSource = rec.Source
 }
 
 func (r SenderAvatarRecord) FetchedAtVersion() int64 {
@@ -699,6 +706,110 @@ func (db *DB) GetAvatarProviderNames(ctx context.Context) ([]string, error) {
 		providers = append(providers, provider)
 	}
 	return providers, rows.Err()
+}
+
+func (db *DB) GetProviderContactAvatarsByEmail(ctx context.Context, userID string, emails []string) (map[string]string, error) {
+	out := map[string]string{}
+	normalized := make([]string, 0, len(emails))
+	seen := map[string]bool{}
+	for _, email := range emails {
+		email = normalizeContactEmail(email)
+		if email == "" || seen[email] {
+			continue
+		}
+		seen[email] = true
+		normalized = append(normalized, email)
+	}
+	if userID == "" || len(normalized) == 0 {
+		return out, nil
+	}
+	args := []any{userID}
+	args = append(args, stringsToAny(normalized)...)
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT ci.normalized_value, cp.avatar_url
+		FROM contact_identities ci
+		JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
+		WHERE ci.user_id = ?
+		  AND ci.kind = 'email'
+		  AND ci.normalized_value IN (`+sqlPlaceholders(len(normalized))+`)
+		  AND cp.is_deleted = 0
+		  AND cp.avatar_url != ''
+		ORDER BY cp.updated_at DESC`, args...)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var email, avatarURL string
+		if err := rows.Scan(&email, &avatarURL); err != nil {
+			return out, err
+		}
+		email = normalizeContactEmail(email)
+		avatarURL = strings.TrimSpace(avatarURL)
+		if email != "" && avatarURL != "" && strings.TrimSpace(out[email]) == "" {
+			out[email] = avatarURL
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+
+	missing := make([]string, 0, len(normalized))
+	for _, email := range normalized {
+		if strings.TrimSpace(out[email]) == "" {
+			missing = append(missing, email)
+		}
+	}
+	if len(missing) == 0 {
+		return out, nil
+	}
+
+	args = []any{userID}
+	args = append(args, stringsToAny(missing)...)
+	fallbackRows, err := db.Read().QueryContext(ctx, `
+		SELECT current_identity.normalized_value, source_profile.avatar_url
+		FROM contact_identities current_identity
+		JOIN contact_profiles current_profile ON current_profile.id = current_identity.profile_id
+		  AND current_profile.user_id = current_identity.user_id
+		JOIN contact_cards current_card ON current_card.user_id = current_identity.user_id
+		  AND current_card.profile_id = current_identity.profile_id
+		  AND current_card.provider != ''
+		  AND current_card.remote_id != ''
+		JOIN accounts current_account ON current_account.user_id = current_card.user_id
+		  AND current_account.id = current_card.account_id
+		  AND current_account.provider = current_card.provider
+		  AND current_account.provider_account_id != ''
+		JOIN contact_cards source_card ON source_card.provider = current_card.provider
+		  AND source_card.remote_id = current_card.remote_id
+		JOIN accounts source_account ON source_account.user_id = source_card.user_id
+		  AND source_account.id = source_card.account_id
+		  AND source_account.provider = current_account.provider
+		  AND source_account.provider_account_id = current_account.provider_account_id
+		JOIN contact_profiles source_profile ON source_profile.id = source_card.profile_id
+		  AND source_profile.user_id = source_card.user_id
+		WHERE current_identity.user_id = ?
+		  AND current_identity.kind = 'email'
+		  AND current_identity.normalized_value IN (`+sqlPlaceholders(len(missing))+`)
+		  AND current_profile.is_deleted = 0
+		  AND source_profile.is_deleted = 0
+		  AND source_profile.avatar_url != ''
+		ORDER BY source_profile.updated_at DESC`, args...)
+	if err != nil {
+		return out, err
+	}
+	defer fallbackRows.Close()
+	for fallbackRows.Next() {
+		var email, avatarURL string
+		if err := fallbackRows.Scan(&email, &avatarURL); err != nil {
+			return out, err
+		}
+		email = normalizeContactEmail(email)
+		avatarURL = strings.TrimSpace(avatarURL)
+		if email != "" && avatarURL != "" && strings.TrimSpace(out[email]) == "" {
+			out[email] = avatarURL
+		}
+	}
+	return out, fallbackRows.Err()
 }
 
 func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -37,6 +38,7 @@ const (
 	avatarWarmupAttemptLimit    = 12
 	avatarMissingTTL            = 24 * time.Hour
 	avatarErrorRetryAfter       = 6 * time.Hour
+	providerAvatarMaxBytes      = 5 * 1024 * 1024
 )
 
 type avatarWarmupRequest struct {
@@ -60,6 +62,14 @@ type avatarActiveCheck struct {
 	provider string
 	started  time.Time
 	updated  time.Time
+}
+
+func isAllowedProviderAvatarHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "googleusercontent.com" ||
+		strings.HasSuffix(host, ".googleusercontent.com") ||
+		host == "ggpht.com" ||
+		strings.HasSuffix(host, ".ggpht.com")
 }
 
 func (h *Handler) StartAvatarBackfill(ctx context.Context) {
@@ -975,6 +985,59 @@ func (h *Handler) handleAvatarImage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
+func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Request) {
+	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || !isAllowedProviderAvatarHost(parsed.Hostname()) {
+		http.Error(w, "unsupported provider avatar", http.StatusBadRequest)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		http.Error(w, "invalid provider avatar", http.StatusBadRequest)
+		return
+	}
+	req.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8")
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		http.Error(w, "failed to fetch provider avatar", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		http.Error(w, "provider avatar unavailable", http.StatusBadGateway)
+		return
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+	switch contentType {
+	case "image/avif", "image/gif", "image/jpeg", "image/png", "image/webp":
+	default:
+		http.Error(w, "provider avatar is not a supported image", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, providerAvatarMaxBytes+1))
+	if err != nil {
+		http.Error(w, "failed to read provider avatar", http.StatusBadGateway)
+		return
+	}
+	if len(data) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	if len(data) > providerAvatarMaxBytes {
+		http.Error(w, "provider avatar is too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	_, _ = w.Write(data)
+}
+
 func (h *Handler) handleAvatarWarmup(w http.ResponseWriter, r *http.Request) {
 	var req avatarWarmupRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
@@ -1189,8 +1252,18 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	providers = orderedAvatarProviderNames(providers)
+	emails := make([]string, 0, len(rows))
+	for _, row := range rows {
+		emails = append(emails, row.Email)
+	}
+	providerContactAvatars, err := h.db.GetProviderContactAvatarsByEmail(r.Context(), h.userID(r.Context()), emails)
+	if err != nil {
+		http.Error(w, "failed to get provider contact avatars", http.StatusInternalServerError)
+		return
+	}
 	items := make([]models.AvatarSenderRow, 0, len(rows))
 	for _, row := range rows {
+		providerContactAvatarURL := providerContactAvatars[strings.ToLower(strings.TrimSpace(row.Email))]
 		item := models.AvatarSenderRow{
 			Email:     row.Email,
 			EmailHash: row.EmailHash,
@@ -1204,7 +1277,12 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 			Error:     row.Error,
 			UpdatedAt: row.UpdatedAt,
 		}
-		if row.Status == "found" && (row.StoragePath != "" || len(row.ImageData) > 0) {
+		if providerContactAvatarURL != "" {
+			item.InUse.Status = "found"
+			item.InUse.Source = "provider_contact"
+			item.InUse.AvatarURL = providerContactAvatarURL
+			item.AvatarURL = providerContactAvatarURL
+		} else if row.Status == "found" && (row.StoragePath != "" || len(row.ImageData) > 0) {
 			item.AvatarURL = storage.SenderAvatarURL(row.EmailHash, row.ExpiresAt)
 			item.InUse.AvatarURL = item.AvatarURL
 		}

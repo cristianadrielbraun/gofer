@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -428,6 +429,7 @@ func TestUpsertSyncedContactFromContactPersistsProviderFields(t *testing.T) {
 		Organization:     "Example Inc.",
 		Title:            "Product Lead",
 		Notes:            "Provider note",
+		AvatarURL:        "https://photos.example/jane.jpg",
 	})
 	if err != nil {
 		t.Fatalf("UpsertSyncedContactFromContact() error = %v", err)
@@ -462,6 +464,42 @@ func TestUpsertSyncedContactFromContactPersistsProviderFields(t *testing.T) {
 	if len(got.AdditionalPhones) != 1 || got.AdditionalPhones[0] != "+1 555 0101" {
 		t.Fatalf("synced AdditionalPhones = %#v, want second phone", got.AdditionalPhones)
 	}
+	if got.AvatarURL != "https://photos.example/jane.jpg" || got.AvatarSource != "provider_contact" {
+		t.Fatalf("synced avatar = %q source=%q, want provider avatar", got.AvatarURL, got.AvatarSource)
+	}
+	matches, err := db.SearchContacts(ctx, "default", "jane@example.com", 5)
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("SearchContacts() = %#v, %v; want synced contact", matches, err)
+	}
+	if matches[0].AvatarURL != "https://photos.example/jane.jpg" || matches[0].AvatarSource != "provider_contact" {
+		t.Fatalf("search avatar = %q source=%q, want provider avatar", matches[0].AvatarURL, matches[0].AvatarSource)
+	}
+
+	hash := avatarresolver.GravatarHash("jane@example.com")
+	if err := db.SaveSenderAvatarFound(ctx, hash, "jane@example.com", "gravatar", "image/png", "", []byte("png"), time.Now().Add(time.Hour), "found", "skipped"); err != nil {
+		t.Fatalf("SaveSenderAvatarFound() error = %v", err)
+	}
+	got, err = db.GetContact(ctx, "default", contactID)
+	if err != nil {
+		t.Fatalf("GetContact() with sender avatar error = %v", err)
+	}
+	if got.AvatarURL != "https://photos.example/jane.jpg" || got.AvatarSource != "provider_contact" {
+		t.Fatalf("avatar with sender cache = %q source=%q, want provider avatar priority", got.AvatarURL, got.AvatarSource)
+	}
+	matches, err = db.SearchContacts(ctx, "default", "jane@example.com", 5)
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("SearchContacts() with sender avatar = %#v, %v; want synced contact", matches, err)
+	}
+	if matches[0].AvatarURL != "https://photos.example/jane.jpg" || matches[0].AvatarSource != "provider_contact" {
+		t.Fatalf("search avatar with sender cache = %q source=%q, want provider avatar priority", matches[0].AvatarURL, matches[0].AvatarSource)
+	}
+	providerAvatars, err := db.GetProviderContactAvatarsByEmail(ctx, "default", []string{"jane@example.com"})
+	if err != nil {
+		t.Fatalf("GetProviderContactAvatarsByEmail() error = %v", err)
+	}
+	if providerAvatars["jane@example.com"] != "https://photos.example/jane.jpg" {
+		t.Fatalf("provider avatars = %#v, want synced provider avatar", providerAvatars)
+	}
 
 	if _, err := db.SaveContact(ctx, "default", models.Contact{ID: contactID, Name: "Manual Jane", Email: "jane@example.com", Phone: "+1 555 9999"}); err != nil {
 		t.Fatalf("SaveContact() error = %v", err)
@@ -472,6 +510,9 @@ func TestUpsertSyncedContactFromContactPersistsProviderFields(t *testing.T) {
 	}
 	if got.Phone != "+1 555 9999" {
 		t.Fatalf("manual Phone = %q, want manual value", got.Phone)
+	}
+	if got.AvatarURL != "https://photos.example/jane.jpg" || got.AvatarSource != "provider_contact" {
+		t.Fatalf("avatar after manual edit = %q source=%q, want provider avatar preserved", got.AvatarURL, got.AvatarSource)
 	}
 	profile, err = db.GetContactProfile(ctx, "default", contactID)
 	if err != nil {
@@ -485,6 +526,52 @@ func TestUpsertSyncedContactFromContactPersistsProviderFields(t *testing.T) {
 	}
 	if !foundSynced {
 		t.Fatalf("synced phone was not preserved after manual edit: %#v", profile.Fields)
+	}
+}
+
+func TestContactProfileUsesProviderAvatarFromSameRemoteContact(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, email, name) VALUES ('user_b', 'user-b@example.com', 'User B');
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, auth_method)
+		VALUES
+			('gmail_a', 'default', 'gmail', 'google-subject-1', 'owner@example.com', 'oauth2'),
+			('gmail_b', 'user_b', 'gmail', 'google-subject-1', 'owner@example.com', 'oauth2')`); err != nil {
+		t.Fatalf("insert users/accounts: %v", err)
+	}
+
+	avatarURL := "https://lh3.googleusercontent.com/a-/photo=s100"
+	contactA, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "gmail_a", models.Contact{Name: "Provider Photo Contact", Email: "photo-contact@example.com", AvatarURL: avatarURL})
+	if err != nil {
+		t.Fatalf("UpsertSyncedContactFromContact(default) error = %v", err)
+	}
+	if err := db.UpsertContactSource(ctx, ContactSource{ContactID: contactA, UserID: "default", Provider: "gmail", AccountID: "gmail_a", RemoteID: "people/123"}); err != nil {
+		t.Fatalf("UpsertContactSource(default) error = %v", err)
+	}
+
+	contactB, _, err := db.UpsertSyncedContactFromContact(ctx, "user_b", "gmail_b", models.Contact{Name: "Provider Photo Contact", Email: "photo-contact@example.com"})
+	if err != nil {
+		t.Fatalf("UpsertSyncedContactFromContact(user_b) error = %v", err)
+	}
+	if err := db.UpsertContactSource(ctx, ContactSource{ContactID: contactB, UserID: "user_b", Provider: "gmail", AccountID: "gmail_b", RemoteID: "people/123"}); err != nil {
+		t.Fatalf("UpsertContactSource(user_b) error = %v", err)
+	}
+
+	got, err := db.GetContact(ctx, "user_b", contactB)
+	if err != nil {
+		t.Fatalf("GetContact() error = %v", err)
+	}
+	if got.AvatarURL != avatarURL || got.AvatarSource != "provider_contact" {
+		t.Fatalf("fallback avatar = %q source=%q, want provider remote avatar", got.AvatarURL, got.AvatarSource)
+	}
+
+	providerAvatars, err := db.GetProviderContactAvatarsByEmail(ctx, "user_b", []string{"photo-contact@example.com"})
+	if err != nil {
+		t.Fatalf("GetProviderContactAvatarsByEmail() error = %v", err)
+	}
+	if providerAvatars["photo-contact@example.com"] != avatarURL {
+		t.Fatalf("provider avatar fallback = %#v, want provider remote avatar", providerAvatars)
 	}
 }
 

@@ -79,6 +79,28 @@ func TestAvatarProviderSpecsThrottleSharedProvidersOnly(t *testing.T) {
 	}
 }
 
+func TestAllowedProviderAvatarHost(t *testing.T) {
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{"lh3.googleusercontent.com", true},
+		{"googleusercontent.com", true},
+		{"example.googleusercontent.com", true},
+		{"lh3.ggpht.com", true},
+		{"ggpht.com", true},
+		{"evilgoogleusercontent.com", false},
+		{"googleusercontent.com.evil.example", false},
+		{"example.com", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := isAllowedProviderAvatarHost(tt.host); got != tt.want {
+			t.Fatalf("isAllowedProviderAvatarHost(%q) = %v, want %v", tt.host, got, tt.want)
+		}
+	}
+}
+
 func TestAvatarProviderPlanForEmail(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -8,7 +8,12 @@ package views
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/cristianadrielbraun/gofer/internal/models"
+import (
+	"net/url"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
 
 func contactAvatarFallbackClass(contact models.Contact, fallbackClass string) string {
 	base := "flex h-full w-full items-center justify-center rounded-full "
@@ -26,6 +31,22 @@ func contactAvatarImageClass(contact models.Contact) string {
 	default:
 		return base
 	}
+}
+
+func contactAvatarRenderURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" || strings.HasPrefix(rawURL, "/") || strings.HasPrefix(strings.ToLower(rawURL), "data:") {
+		return rawURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return rawURL
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "googleusercontent.com" || strings.HasSuffix(host, ".googleusercontent.com") || host == "ggpht.com" || strings.HasSuffix(host, ".ggpht.com") {
+		return "/api/provider-avatar?url=" + url.QueryEscape(rawURL)
+	}
+	return rawURL
 }
 
 func ContactAvatar(contact models.Contact, class string, fallbackClass string) templ.Component {
@@ -74,7 +95,7 @@ func ContactAvatar(contact models.Contact, class string, fallbackClass string) t
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(contact.AvatarHash)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 24, Col: 109}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 45, Col: 109}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -87,7 +108,7 @@ func ContactAvatar(contact models.Contact, class string, fallbackClass string) t
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Email)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 24, Col: 145}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 45, Col: 145}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -122,7 +143,7 @@ func ContactAvatar(contact models.Contact, class string, fallbackClass string) t
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(contact.Initials)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 25, Col: 108}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 46, Col: 108}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -143,9 +164,9 @@ func ContactAvatar(contact models.Contact, class string, fallbackClass string) t
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var10 string
-			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(contact.AvatarURL)
+			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(contactAvatarRenderURL(contact.AvatarURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 28, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 49, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
@@ -158,7 +179,7 @@ func ContactAvatar(contact models.Contact, class string, fallbackClass string) t
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(contactDisplay(contact))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 29, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 50, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -171,7 +192,7 @@ func ContactAvatar(contact models.Contact, class string, fallbackClass string) t
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(contact.AvatarSource)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 32, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/avatar.templ`, Line: 53, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {

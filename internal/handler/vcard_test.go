@@ -97,6 +97,7 @@ func TestParseVCardContacts(t *testing.T) {
 		"ORG:Example Inc.",
 		"TITLE:Product Lead",
 		"NOTE:Important contact",
+		"PHOTO;MEDIATYPE=image/png:iVBORw0KGgo=",
 		"END:VCARD",
 		"BEGIN:VCARD",
 		"VERSION:4.0",
@@ -114,6 +115,9 @@ func TestParseVCardContacts(t *testing.T) {
 	}
 	if contacts[0].Name != "Jane Doe" || contacts[0].Email != "jane@example.com" || contacts[0].Phone != "+1 555 0100" || contacts[0].Organization != "Example Inc." || contacts[0].Title != "Product Lead" || contacts[0].Notes != "Important contact" {
 		t.Fatalf("parseVCardContacts() contact = %#v, want extra fields", contacts[0])
+	}
+	if contacts[0].AvatarURL != "data:image/png;base64,iVBORw0KGgo=" {
+		t.Fatalf("AvatarURL = %q, want vCard PHOTO data URL", contacts[0].AvatarURL)
 	}
 	if len(contacts[0].AdditionalEmails) != 1 || contacts[0].AdditionalEmails[0] != "jane@work.example" {
 		t.Fatalf("AdditionalEmails = %#v, want work email", contacts[0].AdditionalEmails)

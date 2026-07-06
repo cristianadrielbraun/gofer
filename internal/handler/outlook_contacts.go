@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,8 @@ import (
 )
 
 var outlookGraphBaseURL = "https://graph.microsoft.com/v1.0"
+
+const outlookContactPhotoMaxBytes = 1024 * 1024
 
 type outlookContactsResponse struct {
 	Contacts []outlookContact `json:"value"`
@@ -75,6 +78,9 @@ func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, ac
 		}
 		for _, remote := range page.Contacts {
 			contact := outlookContactFromGraph(remote)
+			if photoURL, err := h.fetchOutlookContactPhotoDataURL(ctx, accessToken, remote.ID); err == nil {
+				contact.AvatarURL = photoURL
+			}
 			if strings.TrimSpace(contact.Email) == "" {
 				continue
 			}
@@ -99,6 +105,49 @@ func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, ac
 		endpoint = page.NextLink
 	}
 	return imported, nil
+}
+
+func (h *Handler) fetchOutlookContactPhotoDataURL(ctx context.Context, accessToken, remoteID string) (string, error) {
+	remoteID = strings.TrimSpace(remoteID)
+	if remoteID == "" {
+		return "", nil
+	}
+	endpoint := outlookGraphBaseURL + "/me/contacts/" + url.PathEscape(remoteID) + "/photo/$value"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		return "", nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", outlookAPIError{Status: resp.StatusCode, Body: string(body)}
+	}
+	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	if !strings.HasPrefix(strings.ToLower(contentType), "image/") {
+		return "", fmt.Errorf("graph contact photo returned non-image content type %q", contentType)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, outlookContactPhotoMaxBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) == 0 {
+		return "", nil
+	}
+	if len(data) > outlookContactPhotoMaxBytes {
+		return "", fmt.Errorf("graph contact photo exceeds %d bytes", outlookContactPhotoMaxBytes)
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 func outlookContactListQuery() url.Values {

@@ -19,6 +19,69 @@ func contactFormAction(contact *models.Contact) string {
 	return "/api/contacts"
 }
 
+func contactAvatarPreviewDialogID(contact models.Contact) string {
+	id := strings.TrimSpace(contact.ID)
+	if id == "" {
+		id = "selected"
+	}
+	return "contact-avatar-preview-" + id
+}
+
+func contactAvatarPreviewURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" || strings.HasPrefix(strings.ToLower(rawURL), "data:") {
+		return rawURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return rawURL
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "googleusercontent.com" || strings.HasSuffix(host, ".googleusercontent.com") || host == "ggpht.com" || strings.HasSuffix(host, ".ggpht.com") {
+		parsed.Path = contactGoogleAvatarPreviewPath(parsed.Path)
+		values := parsed.Query()
+		values.Set("sz", "1024")
+		parsed.RawQuery = values.Encode()
+		return parsed.String()
+	}
+	return rawURL
+}
+
+func contactGoogleAvatarPreviewPath(path string) string {
+	if path == "" {
+		return path
+	}
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if len(segment) < 2 || segment[0] != 's' && segment[0] != 'S' || !isASCIIDigit(segment[1]) {
+			continue
+		}
+		j := 1
+		for j < len(segment) && isASCIIDigit(segment[j]) {
+			j++
+		}
+		segments[i] = "s1024" + segment[j:]
+		return strings.Join(segments, "/")
+	}
+
+	idx := strings.LastIndex(path, "=s")
+	if idx < 0 {
+		idx = strings.LastIndex(path, "=S")
+	}
+	if idx < 0 || idx+2 >= len(path) || !isASCIIDigit(path[idx+2]) {
+		return path
+	}
+	j := idx + 2
+	for j < len(path) && isASCIIDigit(path[j]) {
+		j++
+	}
+	return path[:idx+2] + "1024" + path[j:]
+}
+
+func isASCIIDigit(value byte) bool {
+	return value >= '0' && value <= '9'
+}
+
 func contactFormName(contact *models.Contact) string {
 	if contact == nil {
 		return ""
@@ -1640,7 +1703,7 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 		<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
 			<div class="flex min-w-0 items-start gap-4">
 				if contact != nil {
-					@ContactAvatar(*contact, "size-14 rounded-full text-base font-bold shrink-0 shadow-[0_8px_22px_rgba(0,0,0,0.16)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
+					@ContactHeaderAvatar(*contact)
 				} else {
 					<div class="flex size-14 shrink-0 items-center justify-center rounded-full bg-ink/[0.06] text-ink/40 shadow-[0_8px_22px_rgba(0,0,0,0.12)]">
 						@icon.UserPlus(icon.Props{Class: "size-6"})
@@ -1683,6 +1746,66 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 			</div>
 		</div>
 	</div>
+}
+
+templ ContactHeaderAvatar(contact models.Contact) {
+	if strings.TrimSpace(contact.AvatarURL) != "" {
+		{{ dialogID := contactAvatarPreviewDialogID(contact) }}
+		@dialog.Trigger(dialog.TriggerProps{For: dialogID, Class: "inline-flex shrink-0"}) {
+			<button
+				type="button"
+				class="group relative inline-flex size-14 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/25 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+				aria-label="View profile picture"
+				data-contact-avatar-preview-trigger
+				data-contact-avatar-preview-dialog={ dialogID }
+				data-contact-avatar-preview-alt={ contactDisplay(contact) + " profile picture" }
+				data-contact-avatar-preview-src={ contactAvatarRenderURL(contactAvatarPreviewURL(contact.AvatarURL)) }
+			>
+				<span class="relative block size-14 overflow-hidden rounded-full text-base font-bold shadow-[0_8px_22px_rgba(0,0,0,0.16)] ring-1 ring-ink/0 transition group-hover:ring-ink/20 group-focus-visible:ring-ink/25" data-contact-avatar data-avatar-hash={ contact.AvatarHash } data-avatar-email={ contact.Email }>
+					<span class={ contactAvatarFallbackClass(contact, "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100") } data-avatar-fallback>{ contact.Initials }</span>
+					<img
+						src={ contactAvatarRenderURL(contact.AvatarURL) }
+						alt={ contactDisplay(contact) }
+						decoding="async"
+						data-avatar-image
+						data-avatar-source={ contact.AvatarSource }
+						class={ contactAvatarImageClass(contact) }
+					/>
+					<span class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-ink/0 text-white opacity-0 transition group-hover:bg-ink/25 group-hover:opacity-100 group-focus-visible:bg-ink/25 group-focus-visible:opacity-100">
+						@icon.Search(icon.Props{Class: "size-4 drop-shadow"})
+					</span>
+				</span>
+			</button>
+		}
+		@ContactAvatarPreviewDialog(contact, dialogID)
+	} else {
+		@ContactAvatar(contact, "size-14 rounded-full text-base font-bold shrink-0 shadow-[0_8px_22px_rgba(0,0,0,0.16)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
+	}
+}
+
+templ ContactAvatarPreviewDialog(contact models.Contact, dialogID string) {
+	@dialog.Dialog(dialog.Props{ID: dialogID}) {
+		@dialog.Content(dialog.ContentProps{HideCloseButton: true, Class: "aspect-square w-[min(92vw,72vh,42rem)] max-w-[min(92vw,72vh,42rem)] overflow-visible border-0 bg-transparent p-0 text-ink shadow-none sm:max-w-[min(92vw,72vh,42rem)] [&_[data-tui-dialog-panel]]:!size-full [&_[data-tui-dialog-panel]]:!gap-0 [&_[data-tui-dialog-panel]]:!p-0"}) {
+			@dialog.Title(dialog.TitleProps{Class: "sr-only"}) {
+				Profile picture
+			}
+			<div class="relative size-full">
+				<div class="size-full overflow-hidden rounded-full bg-ink/5 shadow-[0_18px_45px_rgba(0,0,0,0.22)] ring-1 ring-ink/10">
+					<img
+						alt={ contactDisplay(contact) + " profile picture" }
+						decoding="async"
+						data-contact-avatar-preview-image
+						class="block size-full object-cover"
+					/>
+				</div>
+				@dialog.Close(dialog.CloseProps{For: dialogID}) {
+					<button type="button" class="absolute right-4 top-4 z-10 flex size-9 shrink-0 items-center justify-center rounded-full bg-paper/90 text-ink/55 shadow-sm ring-1 ring-ink/10 backdrop-blur transition-colors hover:bg-paper hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20" aria-label="Close profile picture preview">
+						@icon.X(icon.Props{Class: "size-4"})
+					</button>
+				}
+			</div>
+		}
+	}
 }
 
 templ ContactEditorSaveActions() {

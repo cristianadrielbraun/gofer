@@ -282,6 +282,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/avatars/status", h.handleAvatarStatus)
 	mux.HandleFunc("GET /api/admin/contacts/status", h.handleContactAdminStatus)
 	mux.HandleFunc("GET /api/admin/labels/status", h.handleLabelAdminStatus)
+	mux.HandleFunc("GET /api/provider-avatar", h.handleProviderAvatarImage)
 	mux.HandleFunc("GET /api/avatars/{hash}", h.handleAvatarImage)
 	mux.HandleFunc("GET /api/avatars/attempts", h.handleAvatarAttempts)
 	mux.HandleFunc("GET /api/avatars/senders", h.handleAvatarSenders)

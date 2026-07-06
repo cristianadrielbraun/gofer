@@ -77,11 +77,16 @@ func TestSyncOutlookContactsImportsGraphContacts(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/me/contacts" {
-			t.Fatalf("path = %q, want /me/contacts", r.URL.Path)
-		}
 		if got := r.Header.Get("Authorization"); got != "Bearer token" {
 			t.Fatalf("Authorization = %q, want bearer token", got)
+		}
+		if r.URL.Path == "/me/contacts/remote-1/photo/$value" {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("png-bytes"))
+			return
+		}
+		if r.URL.Path != "/me/contacts" {
+			t.Fatalf("path = %q, want /me/contacts", r.URL.Path)
 		}
 		if !strings.Contains(r.URL.RawQuery, "%24select=") {
 			t.Fatalf("query = %q, want selected fields", r.URL.RawQuery)
@@ -121,6 +126,9 @@ func TestSyncOutlookContactsImportsGraphContacts(t *testing.T) {
 	}
 	if contact[0].Name != "Jane Doe" {
 		t.Fatalf("contact name = %q, want Jane Doe", contact[0].Name)
+	}
+	if !strings.HasPrefix(contact[0].AvatarURL, "data:image/png;base64,") {
+		t.Fatalf("AvatarURL = %q, want imported Graph contact photo", contact[0].AvatarURL)
 	}
 	source, err := db.GetContactSourceByRemoteID(ctx, "default", providers.ProviderOutlook, "outlook_acc", "remote-1")
 	if err != nil {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"strings"
@@ -190,8 +191,59 @@ func contactFromVCard(card emersionvcard.Card, saveTargets []string) (models.Con
 		Organization:          cleanVCardText(card.PreferredValue(emersionvcard.FieldOrganization)),
 		Title:                 cleanVCardText(card.PreferredValue(emersionvcard.FieldTitle)),
 		Notes:                 cleanVCardText(card.PreferredValue(emersionvcard.FieldNote)),
+		AvatarURL:             contactVCardPhotoURL(card),
 		SaveTargets:           saveTargets,
 	}, true
+}
+
+func contactVCardPhotoURL(card emersionvcard.Card) string {
+	for _, field := range card[emersionvcard.FieldPhoto] {
+		if field == nil {
+			continue
+		}
+		value := strings.TrimSpace(field.Value)
+		if value == "" {
+			continue
+		}
+		lower := strings.ToLower(value)
+		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "data:image/") {
+			return value
+		}
+		mediaType := strings.TrimSpace(field.Params.Get(emersionvcard.ParamMediaType))
+		if mediaType == "" {
+			mediaType = vCardPhotoMediaType(field.Params.Get(emersionvcard.ParamType))
+		}
+		if mediaType == "" || !strings.HasPrefix(strings.ToLower(mediaType), "image/") {
+			continue
+		}
+		encoding := strings.ToLower(strings.TrimSpace(field.Params.Get("ENCODING")))
+		if encoding != "" && encoding != "b" && encoding != "base64" {
+			continue
+		}
+		if _, err := base64.StdEncoding.DecodeString(value); err != nil {
+			continue
+		}
+		return "data:" + mediaType + ";base64," + value
+	}
+	return ""
+}
+
+func vCardPhotoMediaType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "jpeg", "jpg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "gif":
+		return "image/gif"
+	case "webp":
+		return "image/webp"
+	default:
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "image/") {
+			return strings.ToLower(strings.TrimSpace(value))
+		}
+		return ""
+	}
 }
 
 func cleanVCardFields(fields []*emersionvcard.Field, primary string) ([]string, []string) {

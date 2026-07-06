@@ -10200,3 +10200,58 @@ function collapseComposeFullWidth() {
   initThreadDetails(document.body)
   new MutationObserver(function () { initThreadDetails(document.body) }).observe(document.body, { childList: true, subtree: true })
 })()
+
+;(function () {
+  document.addEventListener('error', function (event) {
+    var image = event.target
+    if (!image || !image.matches || !image.matches('[data-avatar-image]')) return
+
+    image.classList.add('hidden')
+    var avatar = image.closest('[data-contact-avatar]')
+    var fallback = avatar ? avatar.querySelector('[data-avatar-fallback]') : null
+    if (!fallback) return
+
+    fallback.classList.remove('hidden')
+    fallback.classList.add('flex')
+  }, true)
+
+  document.addEventListener('click', function (event) {
+    var trigger = event.target && event.target.closest ? event.target.closest('[data-contact-avatar-preview-trigger]') : null
+    if (!trigger) return
+
+    var dialogID = trigger.getAttribute('data-contact-avatar-preview-dialog') || ''
+    var root = dialogID ? document.getElementById(dialogID) : null
+    if (!root) return
+
+    var source = trigger.querySelector('[data-avatar-image]')
+    var preview = root.querySelector('[data-contact-avatar-preview-image]')
+    if (!source || !preview) return
+
+    var originalURL = source.currentSrc || source.getAttribute('src') || ''
+    var sourceURL = trigger.getAttribute('data-contact-avatar-preview-src') || originalURL
+    if (!sourceURL) return
+
+    preview.src = sourceURL
+    preview.alt = trigger.getAttribute('data-contact-avatar-preview-alt') || source.alt || 'Profile picture'
+    if (window.console && window.console.info) {
+      window.console.info('[Gofer] contact avatar preview', {
+        originalURL: originalURL,
+        previewURL: sourceURL,
+        upgraded: !!originalURL && sourceURL !== originalURL,
+      })
+    }
+  })
+
+  document.addEventListener('close', function (event) {
+    var content = event.target
+    if (!content || !content.matches || !content.matches('[data-tui-dialog-content]')) return
+
+    var root = content.closest('[data-tui-dialog]')
+    if (!root) return
+
+    var preview = root.querySelector('[data-contact-avatar-preview-image]')
+    if (!preview) return
+
+    preview.removeAttribute('src')
+  }, true)
+})()

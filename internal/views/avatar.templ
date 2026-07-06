@@ -1,6 +1,11 @@
 package views
 
-import "github.com/cristianadrielbraun/gofer/internal/models"
+import (
+	"net/url"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
 
 func contactAvatarFallbackClass(contact models.Contact, fallbackClass string) string {
 	base := "flex h-full w-full items-center justify-center rounded-full "
@@ -20,12 +25,28 @@ func contactAvatarImageClass(contact models.Contact) string {
 	}
 }
 
+func contactAvatarRenderURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" || strings.HasPrefix(rawURL, "/") || strings.HasPrefix(strings.ToLower(rawURL), "data:") {
+		return rawURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return rawURL
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "googleusercontent.com" || strings.HasSuffix(host, ".googleusercontent.com") || host == "ggpht.com" || strings.HasSuffix(host, ".ggpht.com") {
+		return "/api/provider-avatar?url=" + url.QueryEscape(rawURL)
+	}
+	return rawURL
+}
+
 templ ContactAvatar(contact models.Contact, class string, fallbackClass string) {
 	<div class={ "relative overflow-hidden " + class } data-contact-avatar data-avatar-hash={ contact.AvatarHash } data-avatar-email={ contact.Email }>
 		<span class={ contactAvatarFallbackClass(contact, fallbackClass) } data-avatar-fallback>{ contact.Initials }</span>
 		if contact.AvatarURL != "" {
 			<img
-				src={ contact.AvatarURL }
+				src={ contactAvatarRenderURL(contact.AvatarURL) }
 				alt={ contactDisplay(contact) }
 				decoding="async"
 				data-avatar-image

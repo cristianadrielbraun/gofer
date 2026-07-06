@@ -20,10 +20,14 @@ func TestGoogleContactFromPersonMapsExpandedFields(t *testing.T) {
 		PhoneNumbers:   []googlePhoneNumber{{Value: "+1 555 0100", Type: "mobile"}},
 		Organizations:  []googleOrganization{{Name: "Example Inc.", Title: "Product Lead"}},
 		Biographies:    []googleBiography{{Value: "Important contact"}},
+		Photos:         []googlePhoto{{URL: "https://photos.example/default.jpg", Default: true}, {URL: "https://photos.example/jane.jpg"}},
 	})
 
 	if contact.Name != "Jane Doe" || contact.Email != "jane@example.com" || contact.Phone != "+1 555 0100" || contact.Organization != "Example Inc." || contact.Title != "Product Lead" || contact.Notes != "Important contact" {
 		t.Fatalf("googleContactFromPerson() = %#v, want expanded fields", contact)
+	}
+	if contact.AvatarURL != "https://photos.example/jane.jpg" {
+		t.Fatalf("AvatarURL = %q, want non-default People photo", contact.AvatarURL)
 	}
 	if contact.EmailLabel != "work" || len(contact.AdditionalEmails) != 1 || contact.AdditionalEmails[0] != "jane@home.example" || contact.AdditionalEmailLabels[0] != "home" {
 		t.Fatalf("AdditionalEmails = %#v, want work email", contact.AdditionalEmails)
@@ -68,7 +72,7 @@ func TestGoogleContactPersonFieldsIncludesExpandedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryUnescape() error = %v", err)
 	}
-	for _, want := range []string{"phoneNumbers", "organizations", "biographies"} {
+	for _, want := range []string{"phoneNumbers", "organizations", "biographies", "photos"} {
 		if !strings.Contains(fields, want) {
 			t.Fatalf("googleContactPersonFields() = %q, missing %q", fields, want)
 		}
@@ -90,7 +94,7 @@ func TestSyncGooglePeopleConnectionsUsesPeopleAPIAndStoresSource(t *testing.T) {
 		if got := r.URL.Query().Get("pageSize"); got != "1000" {
 			t.Fatalf("pageSize = %q, want 1000", got)
 		}
-		if fields := r.URL.Query().Get("personFields"); !strings.Contains(fields, "emailAddresses") || !strings.Contains(fields, "metadata") {
+		if fields := r.URL.Query().Get("personFields"); !strings.Contains(fields, "emailAddresses") || !strings.Contains(fields, "metadata") || !strings.Contains(fields, "photos") {
 			t.Fatalf("personFields = %q, want People API contact fields", fields)
 		}
 		sawConnections = true
@@ -103,6 +107,12 @@ func TestSyncGooglePeopleConnectionsUsesPeopleAPIAndStoresSource(t *testing.T) {
 				"emailAddresses": []map[string]string{{
 					"value": "jane@example.com",
 					"type":  "work",
+				}},
+				"photos": []map[string]any{{
+					"url":     "https://photos.example/default.jpg",
+					"default": true,
+				}, {
+					"url": "https://photos.example/jane.jpg",
 				}},
 			}},
 		})
@@ -122,6 +132,9 @@ func TestSyncGooglePeopleConnectionsUsesPeopleAPIAndStoresSource(t *testing.T) {
 	contacts, err := db.SearchContacts(ctx, "default", "jane", 10)
 	if err != nil || len(contacts) != 1 {
 		t.Fatalf("SearchContacts() = %#v, %v; want one imported contact", contacts, err)
+	}
+	if contacts[0].AvatarURL != "https://photos.example/jane.jpg" {
+		t.Fatalf("AvatarURL = %q, want imported People photo", contacts[0].AvatarURL)
 	}
 	source, err := db.GetContactSource(ctx, "default", contacts[0].ID, providers.ProviderGmail, "acc")
 	if err != nil || source == nil {

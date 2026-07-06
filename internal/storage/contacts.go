@@ -480,7 +480,7 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 	where, args := contactProfileFilterSQL(userID, filters)
 	args = append(args, limit)
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT p.id, p.display_name, COALESCE(email.value, p.primary_email), p.is_deleted,
+		SELECT p.id, p.display_name, COALESCE(email.value, p.primary_email), p.avatar_url, p.is_deleted,
 		       CASE
 		         WHEN EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual') THEN 'manual'
 		         WHEN EXISTS (SELECT 1 FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0) THEN 'observed'
@@ -597,7 +597,7 @@ func scanProfileContactRow(scanner interface{ Scan(dest ...any) error }, loc *ti
 	var messageCount int
 	var source string
 	var lastSeen, createdAt, updatedAt sql.NullString
-	if err := scanner.Scan(&c.ID, &c.Name, &c.Email, &isDeleted, &source, &isManual, &messageCount, &lastSeen, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&c.ID, &c.Name, &c.Email, &c.AvatarURL, &isDeleted, &source, &isManual, &messageCount, &lastSeen, &createdAt, &updatedAt); err != nil {
 		return c, err
 	}
 	c.Source = source
@@ -606,6 +606,9 @@ func scanProfileContactRow(scanner interface{ Scan(dest ...any) error }, loc *ti
 	c.MessageCount = messageCount
 	c.Initials = initials(contactDisplayName(c.Name, c.Email))
 	c.AvatarHash = avatarresolver.GravatarHash(c.Email)
+	if strings.TrimSpace(c.AvatarURL) != "" {
+		c.AvatarSource = "provider_contact"
+	}
 	if lastSeen.Valid {
 		c.LastSeenAt = formatContactTime(lastSeen.String, loc)
 	}
@@ -693,6 +696,12 @@ func (db *DB) hydrateContactAvatars(ctx context.Context, contacts []models.Conta
 	indexesByHash := make(map[string][]int)
 	var hashes []string
 	for i := range contacts {
+		if strings.TrimSpace(contacts[i].AvatarURL) != "" {
+			if strings.TrimSpace(contacts[i].AvatarSource) == "" {
+				contacts[i].AvatarSource = "provider_contact"
+			}
+			continue
+		}
 		hash := strings.ToLower(strings.TrimSpace(contacts[i].AvatarHash))
 		if hash == "" {
 			continue
@@ -843,6 +852,7 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 		ID:        profile.ID,
 		Name:      profile.DisplayName,
 		Email:     profile.PrimaryEmail,
+		AvatarURL: strings.TrimSpace(profile.AvatarURL),
 		Source:    "manual",
 		IsDeleted: profile.IsDeleted,
 	}
@@ -852,6 +862,9 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 	emailField := bestContactProfileField(profile.Fields, "email")
 	if contact.Email == "" {
 		contact.Email = strings.TrimSpace(emailField.Value)
+	}
+	if strings.TrimSpace(contact.AvatarURL) == "" {
+		contact.AvatarURL = db.providerContactAvatarFallback(ctx, userID, profile, contact.Email)
 	}
 	contact.EmailLabel = contactStoredFieldLabel(emailField.Label, "primary")
 	phoneField := bestContactProfileField(profile.Fields, "phone")
@@ -906,7 +919,64 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 	}
 	contact.Initials = initials(contactDisplayName(contact.Name, contact.Email))
 	contact.AvatarHash = avatarresolver.GravatarHash(contact.Email)
+	if strings.TrimSpace(contact.AvatarURL) != "" {
+		contact.AvatarSource = "provider_contact"
+	}
 	return contact, nil
+}
+
+func (db *DB) providerContactAvatarFallback(ctx context.Context, userID string, profile models.ContactProfile, email string) string {
+	normalized := normalizeContactEmail(email)
+	if userID == "" {
+		return ""
+	}
+	if normalized != "" {
+		var avatarURL string
+		err := db.Read().QueryRowContext(ctx, `
+			SELECT cp.avatar_url
+			FROM contact_identities ci
+			JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
+			WHERE ci.user_id = ?
+			  AND ci.kind = 'email'
+			  AND ci.normalized_value = ?
+			  AND cp.is_deleted = 0
+			  AND cp.avatar_url != ''
+			ORDER BY CASE WHEN cp.id = ? THEN 0 ELSE 1 END, cp.updated_at DESC
+			LIMIT 1`, userID, normalized, profile.ID).Scan(&avatarURL)
+		if err == nil && strings.TrimSpace(avatarURL) != "" {
+			return strings.TrimSpace(avatarURL)
+		}
+	}
+	for _, card := range profile.Cards {
+		if card.IsDeleted || strings.TrimSpace(card.Provider) == "" || strings.TrimSpace(card.AccountID) == "" || strings.TrimSpace(card.RemoteID) == "" {
+			continue
+		}
+		var providerAccountID string
+		if err := db.Read().QueryRowContext(ctx, `
+			SELECT provider_account_id
+			FROM accounts
+			WHERE user_id = ? AND id = ? AND provider = ?`, userID, card.AccountID, card.Provider).Scan(&providerAccountID); err != nil || strings.TrimSpace(providerAccountID) == "" {
+			continue
+		}
+		var avatarURL string
+		err := db.Read().QueryRowContext(ctx, `
+			SELECT cp.avatar_url
+			FROM contact_cards cc
+			JOIN contact_profiles cp ON cp.id = cc.profile_id AND cp.user_id = cc.user_id
+			JOIN accounts a ON a.id = cc.account_id AND a.user_id = cc.user_id
+			WHERE cc.provider = ?
+			  AND cc.remote_id = ?
+			  AND a.provider_account_id = ?
+			  AND a.provider = ?
+			  AND cp.is_deleted = 0
+			  AND cp.avatar_url != ''
+			ORDER BY cp.updated_at DESC
+			LIMIT 1`, card.Provider, card.RemoteID, providerAccountID, card.Provider).Scan(&avatarURL)
+		if err == nil && strings.TrimSpace(avatarURL) != "" {
+			return strings.TrimSpace(avatarURL)
+		}
+	}
+	return ""
 }
 
 func (db *DB) hydrateContactSyncState(ctx context.Context, userID string, contact *models.Contact) error {
@@ -1760,6 +1830,9 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 			Source:    "manual",
 		}},
 	}
+	if existingProfile != nil {
+		profile.AvatarURL = existingProfile.AvatarURL
+	}
 	if phone := strings.TrimSpace(contact.Phone); phone != "" {
 		profile.Fields = append(profile.Fields, models.ContactField{Kind: "phone", Label: contactStoredFieldLabel(contact.PhoneLabel, "primary"), Value: phone, IsPrimary: true, Source: "manual"})
 	}
@@ -1839,6 +1912,7 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 		return "", false, nil
 	}
 	display := contactDisplayName(name, email)
+	avatarURL := strings.TrimSpace(contact.AvatarURL)
 	source := "synced:" + accountID
 
 	tx, err := db.Write().BeginTx(ctx, nil)
@@ -1873,8 +1947,8 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 	if contactID == "" {
 		contactID = uuid.NewString()
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, is_deleted)
-			VALUES (?, ?, ?, ?, ?, 0)`, contactID, userID, display, display, email); err != nil {
+			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, is_deleted)
+			VALUES (?, ?, ?, ?, ?, ?, 0)`, contactID, userID, display, display, email, avatarURL); err != nil {
 			return "", false, err
 		}
 		created = true
@@ -1886,14 +1960,15 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 			display = currentDisplay
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, is_deleted)
-			VALUES (?, ?, ?, ?, ?, 0)
+			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, is_deleted)
+			VALUES (?, ?, ?, ?, ?, ?, 0)
 			ON CONFLICT(id) DO UPDATE SET
 				display_name = excluded.display_name,
 				sort_name = excluded.sort_name,
 				primary_email = CASE WHEN contact_profiles.primary_email = '' THEN excluded.primary_email ELSE contact_profiles.primary_email END,
+				avatar_url = CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE contact_profiles.avatar_url END,
 				is_deleted = 0,
-				updated_at = CURRENT_TIMESTAMP`, contactID, userID, display, display, email); err != nil {
+				updated_at = CURRENT_TIMESTAMP`, contactID, userID, display, display, email, avatarURL); err != nil {
 			return "", false, err
 		}
 	}
