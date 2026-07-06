@@ -416,6 +416,12 @@ func outlookGraphMessagesDeltaEndpoint(folderID string, includeBody bool) string
 	return outlookGraphBaseURL + "/me/mailFolders/" + url.PathEscape(folderID) + "/messages/delta?" + values.Encode()
 }
 
+func outlookGraphMessageEndpoint(providerMessageID string, includeBody bool) string {
+	values := url.Values{}
+	values.Set("$select", outlookGraphMessageSelect(includeBody))
+	return outlookGraphBaseURL + "/me/messages/" + url.PathEscape(providerMessageID) + "?" + values.Encode()
+}
+
 func outlookGraphMessageSelect(includeBody bool) string {
 	fields := []string{
 		"id",
@@ -693,6 +699,14 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 			if full {
 				seenProviderIDs[msg.ID] = true
 			}
+			hydrated, found, err := fetchOutlookGraphMessageDetailIfNeeded(ctx, token, msg, !full)
+			if err != nil {
+				return fmt.Errorf("outlook graph message detail %s/%s message=%s: %w", accountID, graphFolder.DisplayName, msg.ID, err)
+			}
+			if !found {
+				continue
+			}
+			msg = hydrated
 			upserts = append(upserts, outlookGraphMessageToProviderSync(accountID, folder.ID, msg, categoriesByName))
 			bodySources = append(bodySources, msg)
 		}
@@ -891,10 +905,112 @@ func outlookGraphMessageToProviderSync(accountID, folderID string, msg outlookGr
 		Labels:            outlookCategoryLabelInputs(accountID, msg.Categories, categoriesByName),
 		LabelsKnown:       true,
 		LabelProvider:     storage.LabelProviderOutlook,
-		ToRecipients:      outlookGraphRecipients(msg.ToRecipients),
-		CCRecipients:      outlookGraphRecipients(msg.CCRecipients),
-		BCCRecipients:     outlookGraphRecipients(msg.BCCRecipients),
+		ToRecipients:      outlookGraphRecipientsWithHeaderFallback(msg.ToRecipients, msg.InternetMessageHeaders, "To"),
+		CCRecipients:      outlookGraphRecipientsWithHeaderFallback(msg.CCRecipients, msg.InternetMessageHeaders, "Cc"),
+		BCCRecipients:     outlookGraphRecipientsWithHeaderFallback(msg.BCCRecipients, msg.InternetMessageHeaders, "Bcc"),
 	}
+}
+
+func fetchOutlookGraphMessageDetailIfNeeded(ctx context.Context, token string, msg outlookGraphMessage, includeBody bool) (outlookGraphMessage, bool, error) {
+	if !outlookGraphMessageNeedsDetailFetch(msg, includeBody) {
+		return msg, true, nil
+	}
+	providerMessageID := strings.TrimSpace(msg.ID)
+	if providerMessageID == "" {
+		return msg, false, nil
+	}
+	var detail outlookGraphMessage
+	err := providerJSON(ctx, http.MethodGet, outlookGraphMessageEndpoint(providerMessageID, includeBody), token, outlookGraphHeaders(0), nil, &detail)
+	if err != nil {
+		if status, ok := providerAPIStatus(err); ok && status == http.StatusNotFound {
+			return msg, false, nil
+		}
+		return msg, false, err
+	}
+	if strings.TrimSpace(detail.ID) == "" {
+		detail.ID = providerMessageID
+	}
+	return mergeOutlookGraphMessageDetail(msg, detail), true, nil
+}
+
+func outlookGraphMessageNeedsDetailFetch(msg outlookGraphMessage, includeBody bool) bool {
+	if strings.TrimSpace(msg.InternetMessageID) == "" {
+		return true
+	}
+	if strings.TrimSpace(msg.Subject) == "" && strings.TrimSpace(outlookGraphHeaderValue(msg.InternetMessageHeaders, "Subject")) == "" {
+		return true
+	}
+	if strings.TrimSpace(msg.From.EmailAddress.Address) == "" &&
+		strings.TrimSpace(msg.Sender.EmailAddress.Address) == "" &&
+		strings.TrimSpace(outlookGraphHeaderValue(msg.InternetMessageHeaders, "From")) == "" {
+		return true
+	}
+	if includeBody && msg.ReceivedDateTime.IsZero() {
+		return true
+	}
+	if includeBody &&
+		!msg.IsDraft &&
+		len(msg.ToRecipients) == 0 &&
+		len(msg.CCRecipients) == 0 &&
+		len(msg.BCCRecipients) == 0 &&
+		strings.TrimSpace(outlookGraphHeaderValue(msg.InternetMessageHeaders, "To")) == "" &&
+		strings.TrimSpace(outlookGraphHeaderValue(msg.InternetMessageHeaders, "Cc")) == "" &&
+		strings.TrimSpace(outlookGraphHeaderValue(msg.InternetMessageHeaders, "Bcc")) == "" {
+		return true
+	}
+	return false
+}
+
+func mergeOutlookGraphMessageDetail(delta, detail outlookGraphMessage) outlookGraphMessage {
+	if strings.TrimSpace(detail.ID) == "" {
+		detail.ID = delta.ID
+	}
+	if strings.TrimSpace(detail.InternetMessageID) == "" {
+		detail.InternetMessageID = delta.InternetMessageID
+	}
+	if strings.TrimSpace(detail.ConversationID) == "" {
+		detail.ConversationID = delta.ConversationID
+	}
+	if strings.TrimSpace(detail.ParentFolderID) == "" {
+		detail.ParentFolderID = delta.ParentFolderID
+	}
+	if strings.TrimSpace(detail.Subject) == "" {
+		detail.Subject = delta.Subject
+	}
+	if strings.TrimSpace(detail.BodyPreview) == "" {
+		detail.BodyPreview = delta.BodyPreview
+	}
+	if strings.TrimSpace(detail.Body.Content) == "" {
+		detail.Body = delta.Body
+	}
+	if len(detail.Categories) == 0 {
+		detail.Categories = delta.Categories
+	}
+	if strings.TrimSpace(detail.From.EmailAddress.Address) == "" {
+		detail.From = delta.From
+	}
+	if strings.TrimSpace(detail.Sender.EmailAddress.Address) == "" {
+		detail.Sender = delta.Sender
+	}
+	if len(detail.ToRecipients) == 0 {
+		detail.ToRecipients = delta.ToRecipients
+	}
+	if len(detail.CCRecipients) == 0 {
+		detail.CCRecipients = delta.CCRecipients
+	}
+	if len(detail.BCCRecipients) == 0 {
+		detail.BCCRecipients = delta.BCCRecipients
+	}
+	if detail.ReceivedDateTime.IsZero() {
+		detail.ReceivedDateTime = delta.ReceivedDateTime
+	}
+	if detail.SentDateTime.IsZero() {
+		detail.SentDateTime = delta.SentDateTime
+	}
+	if len(detail.InternetMessageHeaders) == 0 {
+		detail.InternetMessageHeaders = delta.InternetMessageHeaders
+	}
+	return detail
 }
 
 func (o *SyncOrchestrator) syncOutlookGraphAttachmentMetadata(ctx context.Context, token string, idsByProvider map[string]int64, messages []outlookGraphMessage) error {
@@ -1033,6 +1149,32 @@ func outlookGraphRecipients(recipients []outlookGraphRecipient) []storage.Recipi
 		out = append(out, storage.Recipient{
 			Name:  strings.TrimSpace(recipient.EmailAddress.Name),
 			Email: email,
+		})
+	}
+	return out
+}
+
+func outlookGraphRecipientsWithHeaderFallback(recipients []outlookGraphRecipient, headers []outlookGraphHeader, headerName string) []storage.Recipient {
+	out := outlookGraphRecipients(recipients)
+	if len(out) > 0 {
+		return out
+	}
+	value := outlookGraphHeaderValue(headers, headerName)
+	if value == "" {
+		return out
+	}
+	addresses, err := netmail.ParseAddressList(value)
+	if err != nil {
+		return out
+	}
+	out = make([]storage.Recipient, 0, len(addresses))
+	for _, address := range addresses {
+		if strings.TrimSpace(address.Address) == "" {
+			continue
+		}
+		out = append(out, storage.Recipient{
+			Name:  strings.TrimSpace(message.DecodeHeader(address.Name)),
+			Email: strings.TrimSpace(address.Address),
 		})
 	}
 	return out

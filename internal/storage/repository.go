@@ -1434,8 +1434,16 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 			END,
 			from_name = CASE WHEN ? != '' THEN ? ELSE from_name END,
 			from_email = CASE WHEN ? != '' THEN ? ELSE from_email END,
-			date_sent = ?,
-			date_received = ?,
+			date_sent = CASE
+				WHEN ? = 1 THEN ?
+				WHEN COALESCE(date_sent, '') = '' THEN ?
+				ELSE date_sent
+			END,
+			date_received = CASE
+				WHEN ? = 1 THEN ?
+				WHEN COALESCE(date_received, '') = '' THEN ?
+				ELSE date_received
+			END,
 			in_reply_to = ?,
 			"references" = ?,
 			snippet = ?,
@@ -1516,6 +1524,8 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 			m.Subject = "(no subject)"
 		}
 		normalizedSubject := normalizeSubject(m.Subject)
+		hasDateSent := !m.DateSent.IsZero()
+		hasDateReceived := !m.DateReceived.IsZero()
 		dateSent := m.DateSent.UTC()
 		if dateSent.IsZero() {
 			dateSent = m.DateReceived.UTC()
@@ -1527,6 +1537,8 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		if dateReceived.IsZero() {
 			dateReceived = dateSent
 		}
+		dateSentDB := formatDBTime(dateSent)
+		dateReceivedDB := formatDBTime(dateReceived)
 		snippet := truncatePreview(m.Snippet)
 		if snippet == "" {
 			snippet = truncatePreview(m.Subject)
@@ -1536,10 +1548,11 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		if err != nil {
 			return nil, err
 		}
-		if msgID == 0 {
+		wasNew := msgID == 0
+		if wasNew {
 			result, err := insertStmt.ExecContext(ctx,
 				m.AccountID, m.ProviderMessageID, m.InternetMessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
-				m.FromName, m.FromEmail, formatDBTime(dateSent), formatDBTime(dateReceived), snippet, snippet, m.ProviderThreadID, boolInt(m.HasAttachments))
+				m.FromName, m.FromEmail, dateSentDB, dateReceivedDB, snippet, snippet, m.ProviderThreadID, boolInt(m.HasAttachments))
 			if err != nil {
 				return nil, fmt.Errorf("insert provider message: %w", err)
 			}
@@ -1555,7 +1568,9 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 				m.Subject, m.Subject, m.Subject, m.Subject,
 				normalizedSubject, normalizedSubject, normalizeSubject("(no subject)"), normalizedSubject, normalizedSubject,
 				m.FromName, m.FromName, m.FromEmail, m.FromEmail,
-				formatDBTime(dateSent), formatDBTime(dateReceived), inReplyTo, m.References, snippet, snippet,
+				boolInt(hasDateSent), dateSentDB, dateSentDB,
+				boolInt(hasDateReceived), dateReceivedDB, dateReceivedDB,
+				inReplyTo, m.References, snippet, snippet,
 				m.ProviderThreadID, m.ProviderThreadID, boolInt(m.HasAttachments), msgID); err != nil {
 				return nil, fmt.Errorf("update provider message: %w", err)
 			}
@@ -1580,22 +1595,25 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 			}
 		}
 
-		if _, err := delRecipStmt.ExecContext(ctx, msgID); err != nil {
-			return nil, fmt.Errorf("delete provider recipients: %w", err)
-		}
-		for _, r := range m.ToRecipients {
-			if _, err := recipStmt.ExecContext(ctx, msgID, "to", r.Name, r.Email); err != nil {
-				return nil, fmt.Errorf("insert provider to: %w", err)
+		hasRecipients := len(m.ToRecipients) > 0 || len(m.CCRecipients) > 0 || len(m.BCCRecipients) > 0
+		if wasNew || hasRecipients {
+			if _, err := delRecipStmt.ExecContext(ctx, msgID); err != nil {
+				return nil, fmt.Errorf("delete provider recipients: %w", err)
 			}
-		}
-		for _, r := range m.CCRecipients {
-			if _, err := recipStmt.ExecContext(ctx, msgID, "cc", r.Name, r.Email); err != nil {
-				return nil, fmt.Errorf("insert provider cc: %w", err)
+			for _, r := range m.ToRecipients {
+				if _, err := recipStmt.ExecContext(ctx, msgID, "to", r.Name, r.Email); err != nil {
+					return nil, fmt.Errorf("insert provider to: %w", err)
+				}
 			}
-		}
-		for _, r := range m.BCCRecipients {
-			if _, err := recipStmt.ExecContext(ctx, msgID, "bcc", r.Name, r.Email); err != nil {
-				return nil, fmt.Errorf("insert provider bcc: %w", err)
+			for _, r := range m.CCRecipients {
+				if _, err := recipStmt.ExecContext(ctx, msgID, "cc", r.Name, r.Email); err != nil {
+					return nil, fmt.Errorf("insert provider cc: %w", err)
+				}
+			}
+			for _, r := range m.BCCRecipients {
+				if _, err := recipStmt.ExecContext(ctx, msgID, "bcc", r.Name, r.Email); err != nil {
+					return nil, fmt.Errorf("insert provider bcc: %w", err)
+				}
 			}
 		}
 

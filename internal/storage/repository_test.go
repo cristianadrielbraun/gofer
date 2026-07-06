@@ -344,7 +344,8 @@ func TestUpsertProviderSyncMessagesDoesNotBlankExistingHeaders(t *testing.T) {
 	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "graph-inbox", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
-	now := time.Now()
+	now := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	receivedAt := now.Add(2 * time.Minute)
 	if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
 		AccountID:         "acc",
 		FolderID:          "acc_inbox",
@@ -354,8 +355,9 @@ func TestUpsertProviderSyncMessagesDoesNotBlankExistingHeaders(t *testing.T) {
 		FromName:          "Loaded Sender",
 		FromEmail:         "sender@example.com",
 		DateSent:          now,
-		DateReceived:      now,
+		DateReceived:      receivedAt,
 		IsRead:            false,
+		ToRecipients:      []Recipient{{Name: "Loaded Recipient", Email: "to@example.com"}},
 	}}); err != nil {
 		t.Fatalf("UpsertProviderSyncMessages(initial) error = %v", err)
 	}
@@ -364,8 +366,6 @@ func TestUpsertProviderSyncMessagesDoesNotBlankExistingHeaders(t *testing.T) {
 		FolderID:          "acc_inbox",
 		ProviderMessageID: "graph-message-1",
 		InternetMessageID: "<shared@example.com>",
-		DateSent:          now,
-		DateReceived:      now,
 		IsRead:            true,
 	}}); err != nil {
 		t.Fatalf("UpsertProviderSyncMessages(partial) error = %v", err)
@@ -381,6 +381,24 @@ func TestUpsertProviderSyncMessagesDoesNotBlankExistingHeaders(t *testing.T) {
 	}
 	if email.Subject != "Loaded subject" || email.From.Name != "Loaded Sender" || email.From.Email != "sender@example.com" || !email.IsRead {
 		t.Fatalf("email = %#v, want headers preserved and read state updated", email)
+	}
+	if len(email.To) != 1 || email.To[0].Email != "to@example.com" {
+		t.Fatalf("email.To = %#v, want existing recipients preserved on partial update", email.To)
+	}
+	var dateSentRaw, dateReceivedRaw string
+	if err := db.Read().QueryRowContext(ctx, `SELECT date_sent, date_received FROM messages WHERE id = ?`, msgID).Scan(&dateSentRaw, &dateReceivedRaw); err != nil {
+		t.Fatalf("query dates: %v", err)
+	}
+	dateSent, ok := parseSQLiteDateTime(dateSentRaw)
+	if !ok {
+		t.Fatalf("parse date_sent %q failed", dateSentRaw)
+	}
+	dateReceived, ok := parseSQLiteDateTime(dateReceivedRaw)
+	if !ok {
+		t.Fatalf("parse date_received %q failed", dateReceivedRaw)
+	}
+	if !dateSent.Equal(now) || !dateReceived.Equal(receivedAt) {
+		t.Fatalf("stored dates sent=%v received=%v, want sent=%v received=%v", dateSent, dateReceived, now, receivedAt)
 	}
 }
 

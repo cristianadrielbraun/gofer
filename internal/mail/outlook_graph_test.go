@@ -58,12 +58,17 @@ func TestOutlookGraphMessageToProviderSyncFallsBackToInternetHeaders(t *testing.
 		InternetMessageHeaders: []outlookGraphHeader{
 			{Name: "Subject", Value: "=?UTF-8?Q?Loaded_subject?="},
 			{Name: "From", Value: "Loaded Sender <sender@example.com>"},
+			{Name: "To", Value: "Loaded Recipient <recipient@example.com>"},
+			{Name: "Cc", Value: "Loaded Carbon <carbon@example.com>"},
 		},
 	}
 
 	syncMessage := outlookGraphMessageToProviderSync("acc", "acc_inbox", msg, nil)
 	if syncMessage.Subject != "Loaded subject" || syncMessage.FromName != "Loaded Sender" || syncMessage.FromEmail != "sender@example.com" {
 		t.Fatalf("sync message = %#v, want subject/from from internet headers", syncMessage)
+	}
+	if len(syncMessage.ToRecipients) != 1 || syncMessage.ToRecipients[0].Email != "recipient@example.com" || len(syncMessage.CCRecipients) != 1 || syncMessage.CCRecipients[0].Email != "carbon@example.com" {
+		t.Fatalf("sync recipients to=%#v cc=%#v, want recipients from internet headers", syncMessage.ToRecipients, syncMessage.CCRecipients)
 	}
 }
 
@@ -839,6 +844,79 @@ func TestSyncOutlookGraphFolderFullReconcilesMissingSenderMetadata(t *testing.T)
 	}
 }
 
+func TestSyncOutlookGraphFolderHydratesIncompleteDeltaMessage(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	seedOutlookGraphFolder(t, ctx, db)
+
+	deltaLink := "https://graph.test/delta/hydrated"
+	var detailRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/delta/current":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"value": []map[string]any{{
+					"id":     "graph-message-1",
+					"isRead": true,
+				}},
+				"@odata.deltaLink": deltaLink,
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/me/messages/graph-message-1":
+			detailRequests++
+			if !strings.Contains(r.URL.Query().Get("$select"), "body") {
+				t.Fatalf("detail $select = %q, want body for incremental hydration", r.URL.Query().Get("$select"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                "graph-message-1",
+				"internetMessageId": "<graph-message-1@example.com>",
+				"conversationId":    "conversation-1",
+				"subject":           "Hydrated subject",
+				"bodyPreview":       "Hydrated preview",
+				"body":              map[string]string{"contentType": "text", "content": "Hydrated body"},
+				"from":              map[string]any{"emailAddress": map[string]string{"name": "Hydrated Sender", "address": "sender@example.com"}},
+				"toRecipients":      []map[string]any{{"emailAddress": map[string]string{"name": "Hydrated Recipient", "address": "recipient@example.com"}}},
+				"receivedDateTime":  "2026-06-22T10:00:00Z",
+				"sentDateTime":      "2026-06-22T09:59:00Z",
+				"isRead":            true,
+			})
+		default:
+			t.Fatalf("unexpected Graph request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET total_count = 1, sync_cursor = ?, last_full_sync_at = CURRENT_TIMESTAMP WHERE id = 'acc_inbox'`, server.URL+"/delta/current"); err != nil {
+		t.Fatalf("set incremental folder state: %v", err)
+	}
+
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if err := orchestrator.syncOutlookGraphFolder(ctx, "acc", "graph-token", outlookGraphInboxTargetFromDB(t, ctx, db), nil, 1, 1); err != nil {
+		t.Fatalf("syncOutlookGraphFolder() error = %v", err)
+	}
+	if detailRequests != 1 {
+		t.Fatalf("detail requests = %d, want 1", detailRequests)
+	}
+
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<graph-message-1@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+	}
+	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	if err != nil {
+		t.Fatalf("GetEmailByID() error = %v", err)
+	}
+	if email.Subject != "Hydrated subject" || email.From.Email != "sender@example.com" || len(email.To) != 1 || email.To[0].Email != "recipient@example.com" {
+		t.Fatalf("email = %#v, want hydrated metadata from detail fetch", email)
+	}
+	if got := queryOutlookGraphFolderCursor(t, ctx, db); got != deltaLink {
+		t.Fatalf("sync_cursor = %q, want %q", got, deltaLink)
+	}
+}
+
 func TestSyncOutlookGraphFolderExpiredCursorRestartsFullAndPrunes(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)
@@ -905,6 +983,9 @@ func TestSyncOutlookGraphFolderIncrementalHydratesAttachmentMetadataAndStoresBod
 					"body":              map[string]string{"contentType": "html", "content": `<p>Hello <img src="cid:logo@example.com"></p>`},
 					"hasAttachments":    true,
 					"from":              map[string]any{"emailAddress": map[string]string{"address": "sender@example.com"}},
+					"toRecipients":      []map[string]any{{"emailAddress": map[string]string{"address": "recipient@example.com"}}},
+					"receivedDateTime":  "2026-06-22T10:00:00Z",
+					"sentDateTime":      "2026-06-22T09:59:00Z",
 				}},
 				"@odata.deltaLink": deltaLink,
 			})
@@ -992,6 +1073,9 @@ func TestSyncOutlookGraphFolderAttachmentFailureDoesNotCheckpoint(t *testing.T) 
 					"subject":           "Attachment",
 					"hasAttachments":    true,
 					"from":              map[string]any{"emailAddress": map[string]string{"address": "sender@example.com"}},
+					"toRecipients":      []map[string]any{{"emailAddress": map[string]string{"address": "recipient@example.com"}}},
+					"receivedDateTime":  "2026-06-22T10:00:00Z",
+					"sentDateTime":      "2026-06-22T09:59:00Z",
 				}},
 				"@odata.nextLink": server.URL + "/delta/page-2",
 			})
@@ -1002,6 +1086,9 @@ func TestSyncOutlookGraphFolderAttachmentFailureDoesNotCheckpoint(t *testing.T) 
 					"internetMessageId": "<graph-page-2@example.com>",
 					"subject":           "Second page",
 					"from":              map[string]any{"emailAddress": map[string]string{"address": "sender@example.com"}},
+					"toRecipients":      []map[string]any{{"emailAddress": map[string]string{"address": "recipient@example.com"}}},
+					"receivedDateTime":  "2026-06-22T10:01:00Z",
+					"sentDateTime":      "2026-06-22T10:00:00Z",
 				}},
 				"@odata.deltaLink": "https://graph.test/delta/inbox",
 			})
