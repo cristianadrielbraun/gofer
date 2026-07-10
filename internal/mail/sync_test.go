@@ -2,6 +2,8 @@ package mail
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,15 @@ type lifecycleIdleWatcher struct {
 	started     chan struct{}
 	stopped     chan struct{}
 	closed      chan struct{}
+}
+
+type folderMessageSyncerStub struct {
+	result *imap.SyncResult
+	err    error
+}
+
+func (s folderMessageSyncerStub) SyncFolder(context.Context, string, string, int, func([]storage.SyncMessage) error) (*imap.SyncResult, error) {
+	return s.result, s.err
 }
 
 func newLifecycleIdleWatcher() *lifecycleIdleWatcher {
@@ -49,6 +60,41 @@ func waitForLifecycleCondition(t *testing.T, condition func() bool, description 
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", description)
+}
+
+func newFolderMessageSyncTestOrchestrator(t *testing.T) (*SyncOrchestrator, *storage.DB, chan Event) {
+	t.Helper()
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'imap', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{
+		ID:         "acc_inbox",
+		AccountID:  "acc",
+		RemoteID:   "INBOX",
+		Name:       "Inbox",
+		Role:       "inbox",
+		Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	orchestrator := NewSyncOrchestrator(db, nil, nil, nil)
+	events := orchestrator.events.Subscribe()
+	t.Cleanup(func() { orchestrator.events.Unsubscribe(events) })
+	return orchestrator, db, events
+}
+
+func drainSyncEvents(events <-chan Event) []Event {
+	var drained []Event
+	for {
+		select {
+		case event := <-events:
+			drained = append(drained, event)
+		default:
+			return drained
+		}
+	}
 }
 
 func TestAccountSyncParallelismTreatsZeroAsUnlimited(t *testing.T) {
@@ -96,6 +142,127 @@ func TestFolderUIDStateNeedsReset(t *testing.T) {
 				t.Fatalf("folderUIDStateNeedsReset(%d, %d, %d) = %v, want %v", tt.expected, tt.current, tt.highestUID, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSyncFolderMessagesReturnsFetchErrorWithoutCompleting(t *testing.T) {
+	orchestrator, db, events := newFolderMessageSyncTestOrchestrator(t)
+	fetchErr := errors.New("server disconnected")
+
+	err := orchestrator.syncFolderMessages(
+		context.Background(),
+		folderMessageSyncerStub{err: fetchErr},
+		"acc",
+		"imap",
+		"acc_inbox",
+		"INBOX",
+	)
+	if !errors.Is(err, fetchErr) {
+		t.Fatalf("syncFolderMessages() error = %v, want server disconnect", err)
+	}
+
+	var storedError string
+	var lastFullSyncIsNull int
+	if err := db.Read().QueryRow(`SELECT COALESCE(sync_error, ''), last_full_sync_at IS NULL FROM folders WHERE id = 'acc_inbox'`).Scan(&storedError, &lastFullSyncIsNull); err != nil {
+		t.Fatalf("query folder sync state: %v", err)
+	}
+	if !strings.Contains(storedError, fetchErr.Error()) {
+		t.Fatalf("sync_error = %q, want fetch error", storedError)
+	}
+	if lastFullSyncIsNull != 1 {
+		t.Fatal("last_full_sync_at was set after a failed fetch")
+	}
+
+	var started, completed bool
+	for _, event := range drainSyncEvents(events) {
+		started = started || event.Type == EventSyncStarted
+		completed = completed || event.Type == EventSyncComplete
+	}
+	if !started {
+		t.Fatal("failed folder sync did not publish its start event")
+	}
+	if completed {
+		t.Fatal("failed folder sync published a completion event")
+	}
+}
+
+func TestSyncFolderMessagesReturnsStateWriteErrorWithoutCompleting(t *testing.T) {
+	orchestrator, db, events := newFolderMessageSyncTestOrchestrator(t)
+	if _, err := db.Write().Exec(`
+		CREATE TRIGGER fail_folder_sync_state
+		BEFORE UPDATE OF highest_seen_uid ON folders
+		WHEN NEW.id = 'acc_inbox'
+		BEGIN
+			SELECT RAISE(ABORT, 'forced sync state failure');
+		END;
+	`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	err := orchestrator.syncFolderMessages(
+		context.Background(),
+		folderMessageSyncerStub{result: &imap.SyncResult{HighestUID: 40, UIDValidity: 200, NumMessages: 40}},
+		"acc",
+		"imap",
+		"acc_inbox",
+		"INBOX",
+	)
+	if err == nil || !strings.Contains(err.Error(), "save sync state") || !strings.Contains(err.Error(), "forced sync state failure") {
+		t.Fatalf("syncFolderMessages() error = %v, want state write failure", err)
+	}
+
+	var storedError string
+	if err := db.Read().QueryRow(`SELECT COALESCE(sync_error, '') FROM folders WHERE id = 'acc_inbox'`).Scan(&storedError); err != nil {
+		t.Fatalf("query folder sync_error: %v", err)
+	}
+	if !strings.Contains(storedError, "save sync state") {
+		t.Fatalf("sync_error = %q, want state write error", storedError)
+	}
+	for _, event := range drainSyncEvents(events) {
+		if event.Type == EventSyncComplete {
+			t.Fatal("folder sync published completion after its state write failed")
+		}
+	}
+}
+
+func TestSyncFolderMessagesCompletesAfterStateIsSaved(t *testing.T) {
+	orchestrator, db, events := newFolderMessageSyncTestOrchestrator(t)
+	if _, err := db.Write().Exec(`UPDATE folders SET sync_error = 'old error' WHERE id = 'acc_inbox'`); err != nil {
+		t.Fatalf("seed folder sync_error: %v", err)
+	}
+
+	err := orchestrator.syncFolderMessages(
+		context.Background(),
+		folderMessageSyncerStub{result: &imap.SyncResult{HighestUID: 40, UIDValidity: 200, NumMessages: 40}},
+		"acc",
+		"imap",
+		"acc_inbox",
+		"INBOX",
+	)
+	if err != nil {
+		t.Fatalf("syncFolderMessages() error = %v", err)
+	}
+
+	var highestUID, uidValidity, totalCount int
+	var lastFullSyncIsSet, syncErrorIsEmpty int
+	if err := db.Read().QueryRow(`
+		SELECT highest_seen_uid, uid_validity, total_count,
+		       last_full_sync_at IS NOT NULL, COALESCE(sync_error, '') = ''
+		FROM folders WHERE id = 'acc_inbox'`).Scan(
+		&highestUID, &uidValidity, &totalCount, &lastFullSyncIsSet, &syncErrorIsEmpty,
+	); err != nil {
+		t.Fatalf("query folder sync state: %v", err)
+	}
+	if highestUID != 40 || uidValidity != 200 || totalCount != 40 || lastFullSyncIsSet != 1 || syncErrorIsEmpty != 1 {
+		t.Fatalf("saved folder state = highest:%d validity:%d total:%d last full:%d error empty:%d", highestUID, uidValidity, totalCount, lastFullSyncIsSet, syncErrorIsEmpty)
+	}
+
+	var completed bool
+	for _, event := range drainSyncEvents(events) {
+		completed = completed || event.Type == EventSyncComplete
+	}
+	if !completed {
+		t.Fatal("successful folder sync did not publish completion")
 	}
 }
 
