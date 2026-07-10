@@ -4820,7 +4820,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				if err := h.db.AddMessageToFolder(ctx, info.MessageID, archiveFolderID, 0, info.IsRead, info.IsStarred); err != nil {
+				if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, archiveFolderID, info.IsRead, info.IsStarred); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
@@ -4857,7 +4857,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := h.db.AddMessageToFolder(ctx, msgID, archiveFolderID, 0, isRead, isStarred); err != nil {
+		if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, archiveFolderID, isRead, isStarred); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -4916,7 +4916,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				if err := h.db.AddMessageToFolder(ctx, info.MessageID, trashFolderID, 0, info.IsRead, info.IsStarred); err != nil {
+				if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, trashFolderID, info.IsRead, info.IsStarred); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
@@ -4963,7 +4963,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if err := h.db.AddMessageToFolder(ctx, msgID, trashFolderID, 0, isRead, isStarred); err != nil {
+			if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, trashFolderID, isRead, isStarred); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -5018,7 +5018,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				if err := h.db.AddMessageToFolder(ctx, info.MessageID, destFolderID, 0, info.IsRead, info.IsStarred); err != nil {
+				if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, destFolderID, info.IsRead, info.IsStarred); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
@@ -5051,7 +5051,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := h.db.AddMessageToFolder(ctx, msgID, destFolderID, 0, isRead, isStarred); err != nil {
+		if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, destFolderID, isRead, isStarred); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -5193,7 +5193,7 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 
 	for _, threadInfo := range infos {
 		h.db.RemoveMessageFromFolder(ctx, threadInfo.MessageID, threadInfo.FolderID)
-		h.db.AddMessageToFolder(ctx, threadInfo.MessageID, archiveFolderID, 0, threadInfo.IsRead, threadInfo.IsStarred)
+		h.db.AddMessageToFolderWithoutRemoteUID(ctx, threadInfo.MessageID, archiveFolderID, threadInfo.IsRead, threadInfo.IsStarred)
 	}
 	h.publishThreadMutation(infos)
 	h.publishMutation(email.AccountID, archiveFolderID)
@@ -5253,7 +5253,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, info := range moveInfos {
 		h.db.RemoveMessageFromFolder(ctx, info.MessageID, info.FolderID)
-		h.db.AddMessageToFolder(ctx, info.MessageID, trashFolderID, 0, info.IsRead, info.IsStarred)
+		h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, trashFolderID, info.IsRead, info.IsStarred)
 	}
 	h.publishThreadMutation(infos)
 	h.publishMutation(email.AccountID, trashFolderID)
@@ -5297,7 +5297,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		go h.moveRemoteMessage(context.Background(), msgID, *info, trashFolderID, trashRemoteID)
 
 		h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID)
-		h.db.AddMessageToFolder(ctx, msgID, trashFolderID, 0, isRead, isStarred)
+		h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, trashFolderID, isRead, isStarred)
 	}
 
 	h.publishMutation(info.AccountID, info.FolderID)
@@ -5350,7 +5350,7 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 	go h.moveRemoteMessage(context.Background(), msgID, *info, destFolderID, destRemoteID)
 
 	h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID)
-	h.db.AddMessageToFolder(ctx, msgID, destFolderID, 0, isRead, isStarred)
+	h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, destFolderID, isRead, isStarred)
 
 	h.publishMutation(info.AccountID, info.FolderID)
 

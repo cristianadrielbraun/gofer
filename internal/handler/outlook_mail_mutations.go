@@ -60,8 +60,15 @@ func (h *Handler) moveRemoteMessage(ctx context.Context, messageID int64, info s
 	if strings.TrimSpace(destinationIMAPRemoteID) == "" {
 		return
 	}
-	if err := h.moveIMAPMessage(ctx, info, destinationIMAPRemoteID); err != nil {
+	destinationUID, err := h.moveIMAPMessage(ctx, info, destinationIMAPRemoteID)
+	if err != nil {
 		log.Printf("imap move account=%s message=%d: %v", info.AccountID, messageID, err)
+		return
+	}
+	if destinationUID > 0 {
+		if err := h.db.SetMessageFolderRemoteUID(ctx, messageID, destinationFolderID, destinationUID); err != nil {
+			log.Printf("imap move destination uid account=%s message=%d: %v", info.AccountID, messageID, err)
+		}
 	}
 }
 
@@ -191,22 +198,22 @@ func (h *Handler) storeIMAPMessageFlags(ctx context.Context, info storage.Messag
 	return client.StoreFlags(ctx, sourceRemoteID, uid, op, flags)
 }
 
-func (h *Handler) moveIMAPMessage(ctx context.Context, info storage.MessageMutationInfo, destinationRemoteID string) error {
+func (h *Handler) moveIMAPMessage(ctx context.Context, info storage.MessageMutationInfo, destinationRemoteID string) (uint32, error) {
 	sourceRemoteID := strings.TrimSpace(info.FolderRemoteID)
 	if sourceRemoteID == "" {
-		return fmt.Errorf("message has no remote IMAP folder identity")
+		return 0, fmt.Errorf("message has no remote IMAP folder identity")
 	}
 	client, err := h.connectIMAP(ctx, info.AccountID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer client.Close()
 
 	uid, err := h.imapUIDForMutation(ctx, client, info)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return client.MoveMessage(ctx, sourceRemoteID, uid, destinationRemoteID)
+	return client.MoveMessageWithDestUID(ctx, sourceRemoteID, uid, destinationRemoteID)
 }
 
 func (h *Handler) deleteIMAPMessage(ctx context.Context, info storage.MessageMutationInfo) error {

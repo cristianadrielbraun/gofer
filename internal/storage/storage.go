@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 54
+	const targetSchemaVersion = 55
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -468,6 +468,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 53 {
 		if err := migrateV53ToV54(tx); err != nil {
 			return fmt.Errorf("migrate v53 to v54: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 54 {
+		if err := migrateV54ToV55(tx); err != nil {
+			return fmt.Errorf("migrate v54 to v55: %w", err)
 		}
 	}
 
@@ -2080,6 +2086,20 @@ func migrateV53ToV54(tx *sql.Tx) error {
 		}
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (54)`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateV54ToV55(tx *sql.Tx) error {
+	if ok, err := tableExistsTx(tx, "message_folder_state"); err != nil {
+		return err
+	} else if ok {
+		if _, err := tx.Exec(`UPDATE message_folder_state SET remote_uid = NULL WHERE remote_uid = 0`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (55)`); err != nil {
 		return err
 	}
 	return nil

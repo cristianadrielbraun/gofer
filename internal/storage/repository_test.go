@@ -2080,7 +2080,7 @@ func TestSidebarTagFilterMatchesLegacyRawIMAPKeywordRows(t *testing.T) {
 	}
 }
 
-func TestAddMessageToFolderWithoutRemoteUIDAllowsMultipleUnknownUIDs(t *testing.T) {
+func TestUnknownRemoteUIDAllowsMultipleFolderMemberships(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
 
@@ -2100,8 +2100,8 @@ func TestAddMessageToFolderWithoutRemoteUIDAllowsMultipleUnknownUIDs(t *testing.
 	if err := db.AddMessageToFolderWithoutRemoteUID(ctx, 1, "spam", true, false); err != nil {
 		t.Fatalf("AddMessageToFolderWithoutRemoteUID(1) error = %v", err)
 	}
-	if err := db.AddMessageToFolderWithoutRemoteUID(ctx, 2, "spam", false, true); err != nil {
-		t.Fatalf("AddMessageToFolderWithoutRemoteUID(2) error = %v", err)
+	if err := db.AddMessageToFolder(ctx, 2, "spam", 0, false, true); err != nil {
+		t.Fatalf("AddMessageToFolder(2, uid=0) error = %v", err)
 	}
 
 	var count, nullUIDs int
@@ -2110,6 +2110,29 @@ func TestAddMessageToFolderWithoutRemoteUIDAllowsMultipleUnknownUIDs(t *testing.
 	}
 	if count != 2 || nullUIDs != 2 {
 		t.Fatalf("folder state count=%d nullUIDs=%d, want 2 and 2", count, nullUIDs)
+	}
+
+	if err := db.SetMessageFolderRemoteUID(ctx, 2, "spam", 55); err != nil {
+		t.Fatalf("SetMessageFolderRemoteUID() error = %v", err)
+	}
+	var remoteUID sql.NullInt64
+	var isRead, isStarred int
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT remote_uid, is_read, is_starred
+		FROM message_folder_state
+		WHERE message_id = 2 AND folder_id = 'spam'`).Scan(&remoteUID, &isRead, &isStarred); err != nil {
+		t.Fatalf("query updated folder state: %v", err)
+	}
+	if !remoteUID.Valid || remoteUID.Int64 != 55 || isRead != 0 || isStarred != 1 {
+		t.Fatalf("updated state uid=%v read=%d starred=%d, want uid=55 read=0 starred=1", remoteUID, isRead, isStarred)
+	}
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT remote_uid FROM message_folder_state
+		WHERE message_id = 1 AND folder_id = 'spam'`).Scan(&remoteUID); err != nil {
+		t.Fatalf("query remaining provisional state: %v", err)
+	}
+	if remoteUID.Valid {
+		t.Fatalf("first provisional remote uid = %d, want NULL", remoteUID.Int64)
 	}
 }
 
@@ -2309,8 +2332,54 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 54 {
-		t.Fatalf("schema version = %d, want 54", version)
+	if version != 55 {
+		t.Fatalf("schema version = %d, want 55", version)
+	}
+}
+
+func TestMigrateV54ConvertsZeroRemoteUIDsToNull(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gofer.db")
+	raw, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB() error = %v", err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO schema_version (version) VALUES (54);
+		CREATE TABLE message_folder_state (
+			message_id INTEGER NOT NULL,
+			folder_id TEXT NOT NULL,
+			remote_uid INTEGER,
+			PRIMARY KEY (message_id, folder_id)
+		);
+		INSERT INTO message_folder_state (message_id, folder_id, remote_uid) VALUES (1, 'sent', 0);
+	`); err != nil {
+		raw.Close()
+		t.Fatalf("seed v54 database: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	db, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	var remoteUID sql.NullInt64
+	if err := db.Read().QueryRow(`SELECT remote_uid FROM message_folder_state WHERE message_id = 1`).Scan(&remoteUID); err != nil {
+		t.Fatalf("query migrated remote uid: %v", err)
+	}
+	if remoteUID.Valid {
+		t.Fatalf("remote_uid = %d, want NULL", remoteUID.Int64)
+	}
+	var version int
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("query schema version: %v", err)
+	}
+	if version != 55 {
+		t.Fatalf("schema version = %d, want 55", version)
 	}
 }
 
@@ -2359,8 +2428,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 54 {
-		t.Fatalf("schema version = %d, want 54", version)
+	if version != 55 {
+		t.Fatalf("schema version = %d, want 55", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

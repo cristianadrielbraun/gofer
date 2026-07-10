@@ -1338,11 +1338,15 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			return fmt.Errorf("query upserted message: %w", err)
 		}
 
-		if _, err := dupUIDStmt.ExecContext(ctx, m.FolderID, m.RemoteUID, msgID); err != nil {
-			return fmt.Errorf("delete dup uid: %w", err)
+		var remoteUID any
+		if m.RemoteUID > 0 {
+			remoteUID = m.RemoteUID
+			if _, err := dupUIDStmt.ExecContext(ctx, m.FolderID, m.RemoteUID, msgID); err != nil {
+				return fmt.Errorf("delete dup uid: %w", err)
+			}
 		}
 
-		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, m.RemoteUID,
+		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, remoteUID,
 			m.IsRead, m.IsStarred, time.Now().UTC()); err != nil {
 			return fmt.Errorf("upsert state: %w", err)
 		}
@@ -6235,6 +6239,9 @@ func (db *DB) RemoveMessageFromFolder(ctx context.Context, messageID int64, fold
 }
 
 func (db *DB) AddMessageToFolder(ctx context.Context, messageID int64, folderID string, remoteUID uint32, isRead, isStarred bool) error {
+	if remoteUID == 0 {
+		return db.AddMessageToFolderWithoutRemoteUID(ctx, messageID, folderID, isRead, isStarred)
+	}
 	_, err := db.Write().ExecContext(ctx,
 		`DELETE FROM message_folder_state WHERE folder_id = ? AND remote_uid = ? AND message_id != ?`,
 		folderID, remoteUID, messageID)
@@ -6270,6 +6277,37 @@ func (db *DB) AddMessageToFolderWithoutRemoteUID(ctx context.Context, messageID 
 	}
 	db.RefreshFolderUnreadCount(ctx, folderID)
 	return nil
+}
+
+func (db *DB) SetMessageFolderRemoteUID(ctx context.Context, messageID int64, folderID string, remoteUID uint32) error {
+	if messageID == 0 || strings.TrimSpace(folderID) == "" || remoteUID == 0 {
+		return fmt.Errorf("message, folder, and remote uid are required")
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM message_folder_state
+		WHERE folder_id = ? AND remote_uid = ? AND message_id != ?`, folderID, remoteUID, messageID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE message_folder_state
+		SET remote_uid = ?, synced_at = ?
+		WHERE message_id = ? AND folder_id = ?`, remoteUID, time.Now().UTC(), messageID, folderID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
 }
 
 func (db *DB) SyncGmailInboxMembership(ctx context.Context, messageID int64, accountID string, labelIDs []string) error {
