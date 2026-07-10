@@ -19,6 +19,7 @@ type IdleWatcher struct {
 
 	mu     sync.Mutex
 	client *imapclient.Client
+	closed bool
 }
 
 func NewIdleWatcher(cfg *models.AccountConfig, password, remoteName string, onNotify func()) *IdleWatcher {
@@ -35,6 +36,9 @@ func (w *IdleWatcher) Run(ctx context.Context) {
 	maxBackoff := 5 * time.Minute
 
 	for {
+		if w.isClosed() {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -42,7 +46,7 @@ func (w *IdleWatcher) Run(ctx context.Context) {
 		}
 
 		err := w.run(ctx)
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || w.isClosed() {
 			return
 		}
 		if err != nil {
@@ -85,6 +89,11 @@ func (w *IdleWatcher) run(ctx context.Context) error {
 	}
 
 	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		c.Close()
+		return context.Canceled
+	}
 	w.client = c
 	w.mu.Unlock()
 
@@ -170,6 +179,19 @@ func (w *IdleWatcher) closeConnection() {
 	}
 }
 
+func (w *IdleWatcher) isClosed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.closed
+}
+
 func (w *IdleWatcher) Close() {
-	w.closeConnection()
+	w.mu.Lock()
+	w.closed = true
+	client := w.client
+	w.client = nil
+	w.mu.Unlock()
+	if client != nil {
+		client.Close()
+	}
 }

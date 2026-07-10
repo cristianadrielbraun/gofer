@@ -1,7 +1,9 @@
 package imap
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -64,5 +66,21 @@ func TestIdleUnilateralDataHandlerNotifiesForMailboxAndExpunge(t *testing.T) {
 	handler.Expunge(7)
 	if notifications != 2 {
 		t.Fatalf("notifications = %d, want 2", notifications)
+	}
+}
+
+func TestIdleWatcherCloseIsTerminalBeforeRun(t *testing.T) {
+	watcher := NewIdleWatcher(nil, "", "INBOX", nil)
+	watcher.Close()
+	done := make(chan struct{})
+	go func() {
+		watcher.Run(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("closed watcher tried to connect or reconnect")
 	}
 }

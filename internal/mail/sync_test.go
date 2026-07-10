@@ -6,9 +6,50 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
+
+type lifecycleIdleWatcher struct {
+	startedOnce sync.Once
+	stoppedOnce sync.Once
+	closedOnce  sync.Once
+	started     chan struct{}
+	stopped     chan struct{}
+	closed      chan struct{}
+}
+
+func newLifecycleIdleWatcher() *lifecycleIdleWatcher {
+	return &lifecycleIdleWatcher{
+		started: make(chan struct{}),
+		stopped: make(chan struct{}),
+		closed:  make(chan struct{}),
+	}
+}
+
+func (w *lifecycleIdleWatcher) Run(ctx context.Context) {
+	w.startedOnce.Do(func() { close(w.started) })
+	<-ctx.Done()
+	w.stoppedOnce.Do(func() { close(w.stopped) })
+}
+
+func (w *lifecycleIdleWatcher) Close() {
+	w.closedOnce.Do(func() { close(w.closed) })
+}
+
+func waitForLifecycleCondition(t *testing.T, condition func() bool, description string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", description)
+}
 
 func TestAccountSyncParallelismTreatsZeroAsUnlimited(t *testing.T) {
 	if got := accountSyncParallelism(4, 0); got != 4 {
@@ -33,6 +74,163 @@ func TestBackgroundSyncSlotsTreatsZeroAsUnlimited(t *testing.T) {
 		t.Fatal("acquire returned false for unlimited slots")
 	}
 	release()
+}
+
+func TestAccountLifecycleBaselinesBeforeIDLEAndRestartsWatchers(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address, display_name)
+		VALUES ('acc', 'default', 'imap', 'user@example.com', 'User')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("NewAccountStore() error = %v", err)
+	}
+	orchestrator := NewSyncOrchestrator(db, accountStore, nil, nil)
+	appCtx, cancelApp := context.WithCancel(context.Background())
+	defer cancelApp()
+	orchestrator.lifecycleCtx = appCtx
+
+	includeIDLE := make(chan bool, 1)
+	orchestrator.syncAccountOverride = func(syncCtx context.Context, accountID string, includeIDLEFolders bool) error {
+		if err := db.UpsertFolders(syncCtx, []storage.UpsertFolderInput{{
+			ID:         "acc_inbox",
+			AccountID:  accountID,
+			RemoteID:   "INBOX",
+			Name:       "Inbox",
+			Role:       "inbox",
+			Selectable: true,
+		}}); err != nil {
+			return err
+		}
+		includeIDLE <- includeIDLEFolders
+		return nil
+	}
+
+	var watcherMu sync.Mutex
+	var watchers []*lifecycleIdleWatcher
+	orchestrator.idleWatcherFactory = func(*models.AccountConfig, string, string, func()) idleWatcher {
+		watcher := newLifecycleIdleWatcher()
+		watcherMu.Lock()
+		watchers = append(watchers, watcher)
+		watcherMu.Unlock()
+		return watcher
+	}
+
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	orchestrator.StartAccount(requestCtx, "acc")
+	cancelRequest()
+
+	select {
+	case include := <-includeIDLE:
+		if !include {
+			t.Fatal("initial generic IMAP sync excluded IDLE folders")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("initial account sync did not start")
+	}
+	waitForLifecycleCondition(t, func() bool {
+		watcherMu.Lock()
+		defer watcherMu.Unlock()
+		return len(watchers) == 1
+	}, "first IDLE watcher")
+	watcherMu.Lock()
+	first := watchers[0]
+	watcherMu.Unlock()
+	select {
+	case <-first.started:
+	case <-time.After(time.Second):
+		t.Fatal("first IDLE watcher did not start")
+	}
+	if active := orchestrator.activeIdleFolderIDs("acc"); !active["acc_inbox"] || len(active) != 1 {
+		t.Fatalf("active IDLE folders = %#v, want acc_inbox", active)
+	}
+	select {
+	case <-first.stopped:
+		t.Fatal("request cancellation stopped the account-owned IDLE watcher")
+	case <-time.After(50 * time.Millisecond):
+	}
+	waitForLifecycleCondition(t, func() bool {
+		orchestrator.mu.Lock()
+		defer orchestrator.mu.Unlock()
+		worker := orchestrator.cancelFuncs["acc"]
+		return worker != nil && worker.ready
+	}, "account worker readiness")
+
+	orchestrator.RestartIDLEWatchers([]string{"acc"})
+	select {
+	case <-first.closed:
+	case <-time.After(time.Second):
+		t.Fatal("old IDLE watcher connection was not closed")
+	}
+	select {
+	case <-first.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("old IDLE watcher generation did not stop")
+	}
+	waitForLifecycleCondition(t, func() bool {
+		watcherMu.Lock()
+		defer watcherMu.Unlock()
+		return len(watchers) == 2
+	}, "replacement IDLE watcher")
+	watcherMu.Lock()
+	second := watchers[1]
+	watcherMu.Unlock()
+	select {
+	case <-second.started:
+	case <-time.After(time.Second):
+		t.Fatal("replacement IDLE watcher did not start")
+	}
+
+	orchestrator.RestartAccount("acc")
+	select {
+	case include := <-includeIDLE:
+		if !include {
+			t.Fatal("restarted generic IMAP account excluded IDLE folders from its baseline")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restarted account did not run a baseline sync")
+	}
+	select {
+	case <-second.closed:
+	case <-time.After(time.Second):
+		t.Fatal("account restart did not close the previous watcher")
+	}
+	select {
+	case <-second.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("account restart did not stop the previous watcher generation")
+	}
+	waitForLifecycleCondition(t, func() bool {
+		watcherMu.Lock()
+		defer watcherMu.Unlock()
+		return len(watchers) == 3
+	}, "account restart IDLE watcher")
+	watcherMu.Lock()
+	third := watchers[2]
+	watcherMu.Unlock()
+	select {
+	case <-third.started:
+	case <-time.After(time.Second):
+		t.Fatal("account restart IDLE watcher did not start")
+	}
+
+	cancelApp()
+	select {
+	case <-third.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("application cancellation did not stop the restarted watcher")
+	}
+	waitForLifecycleCondition(t, func() bool {
+		orchestrator.mu.Lock()
+		defer orchestrator.mu.Unlock()
+		return orchestrator.cancelFuncs["acc"] == nil && orchestrator.idleWatchers["acc"] == nil
+	}, "account lifecycle cleanup")
+	if active := orchestrator.activeIdleFolderIDs("acc"); len(active) != 0 {
+		t.Fatalf("active IDLE folders after shutdown = %#v, want none", active)
+	}
 }
 
 func TestAccountSyncProgressPayloadCarriesRunAccountIDs(t *testing.T) {

@@ -1987,7 +1987,7 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.syncer.SyncAccount(r.Context(), account.ID)
+	h.syncer.StartAccount(r.Context(), account.ID)
 	go func() {
 		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -2071,6 +2071,8 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		views.AccountFormError(fmt.Sprintf("Failed to update account: %v", err)).Render(r.Context(), w)
 		return
 	}
+	h.closeBodyClient(accountID)
+	h.syncer.RestartAccount(accountID)
 
 	w.Header().Set("Content-Type", "text/html")
 	views.WizardStepSuccess("Account updated", accountID, "edit").Render(r.Context(), w)
@@ -2102,6 +2104,7 @@ func (h *Handler) handleUpdateAccountService(w http.ResponseWriter, r *http.Requ
 		if enabled {
 			h.syncer.StartAccount(context.Background(), accountID)
 		} else {
+			h.closeBodyClient(accountID)
 			h.syncer.StopAccount(accountID)
 		}
 	case "contacts":
@@ -2362,6 +2365,7 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.closeBodyClient(accountID)
 	h.syncer.StopAccount(accountID)
 	if err := h.accountStore.MarkAccountDeleting(r.Context(), accountID); err != nil {
 		http.Error(w, fmt.Sprintf("mark account deleting: %v", err), http.StatusInternalServerError)
@@ -2655,7 +2659,12 @@ func (h *Handler) handleSaveSyncSettings(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.syncer.UpdateInterval(n)
-	h.syncer.RestartIDLEWatchers(ctx)
+	accountIDs, err := h.db.GetEmailSyncAccountIDs(ctx, h.userID(ctx))
+	if err != nil {
+		http.Error(w, "restart idle watchers failed", http.StatusInternalServerError)
+		return
+	}
+	h.syncer.RestartIDLEWatchers(accountIDs)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -5606,7 +5615,8 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		log.Printf("warning: failed to store oauth tokens for account %s: %v", accountID, err)
 	}
 
-	h.syncer.SyncAccount(context.Background(), accountID)
+	h.closeBodyClient(accountID)
+	h.syncer.RestartAccount(accountID)
 	go func() {
 		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -5684,7 +5694,8 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 		log.Printf("warning: failed to store microsoft oauth tokens for account %s: %v", accountID, err)
 	}
 
-	h.syncer.SyncAccount(context.Background(), accountID)
+	h.closeBodyClient(accountID)
+	h.syncer.RestartAccount(accountID)
 	go func() {
 		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -5773,6 +5784,7 @@ func (h *Handler) cleanupDeletingAccountForCreate(ctx context.Context, userID, e
 	if accountID == "" {
 		return nil
 	}
+	h.closeBodyClient(accountID)
 	if h.syncer != nil {
 		h.syncer.StopAccount(accountID)
 	}

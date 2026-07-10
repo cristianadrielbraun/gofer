@@ -69,6 +69,21 @@ type accountSyncRun struct {
 
 type accountWorker struct {
 	cancel context.CancelFunc
+	ctx    context.Context
+	done   chan struct{}
+	ready  bool
+}
+
+type idleWatcher interface {
+	Run(context.Context)
+	Close()
+}
+
+type idleWatcherGroup struct {
+	cancel    context.CancelFunc
+	done      chan struct{}
+	watchers  []idleWatcher
+	folderIDs map[string]bool
 }
 
 type newMailSummary struct {
@@ -100,8 +115,12 @@ type SyncOrchestrator struct {
 	running             map[string]*accountSyncRun
 	manualRuns          map[string]map[string]*manualSyncRun
 	backgroundSyncSlots chan struct{}
-	idleWatchers        map[string][]*imap.IdleWatcher
+	idleWatchers        map[string]*idleWatcherGroup
+	idleWatcherFactory  func(*models.AccountConfig, string, string, func()) idleWatcher
+	idleMu              sync.Mutex
 	cancelFuncs         map[string]*accountWorker
+	lifecycleCtx        context.Context
+	syncAccountOverride func(context.Context, string, bool) error
 	gmailPollMu         sync.Mutex
 	activeUsers         map[string]int
 	gmailPollRuntime    map[string]gmailPollRuntimeState
@@ -221,12 +240,15 @@ func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blob
 		running:             make(map[string]*accountSyncRun),
 		manualRuns:          make(map[string]map[string]*manualSyncRun),
 		backgroundSyncSlots: newAccountSyncSlots(backgroundSyncMaxParallelAccounts),
-		idleWatchers:        make(map[string][]*imap.IdleWatcher),
-		cancelFuncs:         make(map[string]*accountWorker),
-		activeUsers:         make(map[string]int),
-		gmailPollRuntime:    make(map[string]gmailPollRuntimeState),
-		interval:            5,
-		intervalChanged:     make(chan struct{}, 1),
+		idleWatchers:        make(map[string]*idleWatcherGroup),
+		idleWatcherFactory: func(cfg *models.AccountConfig, password, remoteName string, onNotify func()) idleWatcher {
+			return imap.NewIdleWatcher(cfg, password, remoteName, onNotify)
+		},
+		cancelFuncs:      make(map[string]*accountWorker),
+		activeUsers:      make(map[string]int),
+		gmailPollRuntime: make(map[string]gmailPollRuntimeState),
+		interval:         5,
+		intervalChanged:  make(chan struct{}, 1),
 	}
 }
 
@@ -249,27 +271,37 @@ func (o *SyncOrchestrator) UpdateInterval(minutes int) {
 }
 
 func (o *SyncOrchestrator) StopAccount(accountID string) {
-	var cancels []context.CancelFunc
-	var watchers []*imap.IdleWatcher
+	o.stopAccount(accountID)
+}
 
+func (o *SyncOrchestrator) stopAccount(accountID string) (<-chan struct{}, <-chan struct{}) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, nil
+	}
 	o.mu.Lock()
-	if worker, ok := o.cancelFuncs[accountID]; ok {
-		cancels = append(cancels, worker.cancel)
+	worker := o.cancelFuncs[accountID]
+	if worker != nil {
 		delete(o.cancelFuncs, accountID)
 	}
-	if run := o.running[accountID]; run != nil {
-		cancels = append(cancels, run.cancel)
-	}
-	watchers = append(watchers, o.idleWatchers[accountID]...)
-	delete(o.idleWatchers, accountID)
+	run := o.running[accountID]
 	o.mu.Unlock()
 
-	for _, cancel := range cancels {
-		cancel()
+	if worker != nil {
+		worker.cancel()
 	}
-	for _, w := range watchers {
-		w.Close()
+	if run != nil {
+		run.cancel()
 	}
+	o.stopIDLEWatchers(accountID)
+	var workerDone, runDone <-chan struct{}
+	if worker != nil {
+		workerDone = worker.done
+	}
+	if run != nil {
+		runDone = run.done
+	}
+	return workerDone, runDone
 }
 
 func (o *SyncOrchestrator) IsAccountSyncRunning(accountID string) bool {
@@ -282,38 +314,99 @@ func (o *SyncOrchestrator) IsAccountSyncRunning(accountID string) bool {
 }
 
 func (o *SyncOrchestrator) StartAccount(ctx context.Context, accountID string) {
+	ctx = o.accountLifecycleContext(ctx)
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return
 	}
-	o.mu.Lock()
-	_, running := o.cancelFuncs[accountID]
-	o.mu.Unlock()
-	if running {
-		return
-	}
-	go o.startAccount(ctx, accountID)
+	o.startAccount(ctx, accountID)
 }
 
-func (o *SyncOrchestrator) RestartIDLEWatchers(ctx context.Context) {
-	o.mu.Lock()
-	for accountID, watchers := range o.idleWatchers {
-		for _, w := range watchers {
-			w.Close()
+func (o *SyncOrchestrator) RestartAccount(accountID string) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return
+	}
+	workerDone, runDone := o.stopAccount(accountID)
+	ctx := o.accountLifecycleContext(context.Background())
+	go func() {
+		for _, done := range []<-chan struct{}{workerDone, runDone} {
+			if done == nil {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+			}
 		}
-		delete(o.idleWatchers, accountID)
-	}
-	o.mu.Unlock()
+		o.StartAccount(ctx, accountID)
+	}()
+}
 
-	accounts, err := o.db.GetAllEmailSyncAccountIDs(ctx)
-	if err != nil {
-		return
-	}
+func (o *SyncOrchestrator) RestartIDLEWatchers(accountIDs []string) {
+	seen := make(map[string]bool, len(accountIDs))
+	for _, accountID := range accountIDs {
+		accountID = strings.TrimSpace(accountID)
+		if accountID == "" || seen[accountID] {
+			continue
+		}
+		seen[accountID] = true
 
-	for _, accountID := range accounts {
-		o.startIDLEWatchers(ctx, accountID)
+		o.mu.Lock()
+		worker := o.cancelFuncs[accountID]
+		ready := worker != nil && worker.ready
+		o.mu.Unlock()
+		if worker == nil {
+			o.StartAccount(o.accountLifecycleContext(context.Background()), accountID)
+			continue
+		}
+		if !ready {
+			continue
+		}
+		o.startIDLEWatchers(worker.ctx, accountID)
 	}
 }
+
+func (o *SyncOrchestrator) stopIDLEWatchers(accountID string) {
+	o.idleMu.Lock()
+	defer o.idleMu.Unlock()
+	o.stopIDLEWatchersLocked(accountID)
+}
+
+func (o *SyncOrchestrator) stopIDLEWatchersLocked(accountID string) {
+	o.mu.Lock()
+	group := o.idleWatchers[accountID]
+	delete(o.idleWatchers, accountID)
+	o.mu.Unlock()
+	if group == nil {
+		return
+	}
+	group.cancel()
+	for _, watcher := range group.watchers {
+		watcher.Close()
+	}
+	<-group.done
+}
+
+func (o *SyncOrchestrator) activeIdleFolderIDs(accountID string) map[string]bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	group := o.idleWatchers[accountID]
+	if group == nil {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool, len(group.folderIDs))
+	for folderID := range group.folderIDs {
+		result[folderID] = true
+	}
+	return result
+}
+
 func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID string) {
+	o.idleMu.Lock()
+	defer o.idleMu.Unlock()
+	o.stopIDLEWatchersLocked(accountID)
+
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return
 	}
@@ -340,38 +433,81 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 	}
 
 	idleFolderIDs := o.getIdleFolderIDsForAccount(ctx, accountID)
-	var watchers []*imap.IdleWatcher
-
 	folders, err := o.db.GetFoldersForAccount(ctx, accountID)
 	if err != nil {
 		log.Printf("idle %s: folders: %v", accountID, err)
 		o.markAccountSyncError(ctx, accountID, err)
 		return
 	}
+	watcherCtx, cancel := context.WithCancel(ctx)
+	var watchers []idleWatcher
+	folderIDs := make(map[string]bool)
+	factory := o.idleWatcherFactory
+	if factory == nil {
+		factory = func(cfg *models.AccountConfig, password, remoteName string, onNotify func()) idleWatcher {
+			return imap.NewIdleWatcher(cfg, password, remoteName, onNotify)
+		}
+	}
 
 	for _, folder := range folders {
-		if !idleFolderIDs[folder.ID] {
+		if !idleFolderIDs[folder.ID] || strings.TrimSpace(folder.RemoteID) == "" {
 			continue
 		}
 
 		folderID := folder.ID
 		remoteName := folder.RemoteID
-		watcher := imap.NewIdleWatcher(cfg, password, remoteName, func() {
-			o.syncIncremental(ctx, accountID, folderID, remoteName)
+		watcher := factory(cfg, password, remoteName, func() {
+			o.syncIncremental(watcherCtx, accountID, folderID, remoteName)
 		})
 		watchers = append(watchers, watcher)
-		go watcher.Run(ctx)
+		folderIDs[folderID] = true
 	}
 
+	if len(watchers) == 0 {
+		cancel()
+		return
+	}
+	group := &idleWatcherGroup{
+		cancel:    cancel,
+		done:      make(chan struct{}),
+		watchers:  watchers,
+		folderIDs: folderIDs,
+	}
 	o.mu.Lock()
-	o.idleWatchers[accountID] = watchers
+	o.idleWatchers[accountID] = group
 	o.mu.Unlock()
+
+	var wg sync.WaitGroup
+	wg.Add(len(watchers))
+	for _, watcher := range watchers {
+		go func(w idleWatcher) {
+			defer wg.Done()
+			w.Run(watcherCtx)
+		}(watcher)
+	}
+	go func() {
+		wg.Wait()
+		close(group.done)
+	}()
 }
 
 func (o *SyncOrchestrator) getInterval() int {
 	o.intervalMu.RLock()
 	defer o.intervalMu.RUnlock()
 	return o.interval
+}
+
+func (o *SyncOrchestrator) accountLifecycleContext(fallback context.Context) context.Context {
+	if fallback == nil {
+		fallback = context.Background()
+	}
+	o.mu.Lock()
+	ctx := o.lifecycleCtx
+	o.mu.Unlock()
+	if ctx != nil {
+		return ctx
+	}
+	return fallback
 }
 
 func (o *SyncOrchestrator) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
@@ -487,6 +623,12 @@ func (o *SyncOrchestrator) publishAutomaticSyncScope(ctx context.Context, accoun
 }
 
 func (o *SyncOrchestrator) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	o.mu.Lock()
+	o.lifecycleCtx = ctx
+	o.mu.Unlock()
 	log.Printf("sync: startup scan started")
 	accounts, err := o.db.GetAllEmailSyncAccountIDs(ctx)
 	if err != nil {
@@ -523,7 +665,7 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 		return
 	}
 	accountCtx, cancel := context.WithCancel(ctx)
-	worker := &accountWorker{cancel: cancel}
+	worker := &accountWorker{cancel: cancel, ctx: accountCtx, done: make(chan struct{})}
 	o.mu.Lock()
 	if _, running := o.cancelFuncs[accountID]; running {
 		o.mu.Unlock()
@@ -532,16 +674,30 @@ func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
 	}
 	o.cancelFuncs[accountID] = worker
 	o.mu.Unlock()
+	go o.runAccountWorker(accountCtx, accountID, worker)
+}
 
-	if accountCtx.Err() != nil {
-		o.clearAccountWorker(accountID, worker)
+func (o *SyncOrchestrator) runAccountWorker(ctx context.Context, accountID string, worker *accountWorker) {
+	defer close(worker.done)
+	defer o.clearAccountWorker(accountID, worker)
+	if ctx.Err() != nil {
 		return
 	}
 
-	o.startIDLEWatchers(accountCtx, accountID)
-	log.Printf("sync: account %s IDLE watchers started", accountID)
+	o.runInitialAccountSync(ctx, accountID)
+	if ctx.Err() != nil {
+		return
+	}
+	o.startIDLEWatchers(ctx, accountID)
+	o.mu.Lock()
+	if o.cancelFuncs[accountID] == worker {
+		worker.ready = true
+	}
+	o.mu.Unlock()
+	log.Printf("sync: account %s IDLE watchers started after baseline sync", accountID)
 
-	go o.runInitialAccountSync(accountCtx, accountID)
+	<-ctx.Done()
+	o.stopIDLEWatchers(accountID)
 }
 
 func (o *SyncOrchestrator) runInitialAccountSync(ctx context.Context, accountID string) {
@@ -553,7 +709,15 @@ func (o *SyncOrchestrator) runInitialAccountSync(ctx context.Context, accountID 
 	}
 	defer finish()
 
-	if err := o.syncAccount(syncCtx, accountID, false); err != nil {
+	includeIDLEFolders := false
+	if cfg, err := o.accountStore.GetConfig(syncCtx, accountID); err == nil {
+		includeIDLEFolders = !o.shouldUseOutlookGraphMail(cfg) && !o.shouldUseGmailAPIMail(cfg)
+	}
+	syncAccount := o.syncAccount
+	if o.syncAccountOverride != nil {
+		syncAccount = o.syncAccountOverride
+	}
+	if err := syncAccount(syncCtx, accountID, includeIDLEFolders); err != nil {
 		log.Printf("sync account %s: %v", accountID, err)
 		o.markAccountSyncError(syncCtx, accountID, err)
 	} else {
@@ -1568,7 +1732,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 
 	var idleFolderIDs map[string]bool
 	if !includeIDLEFolders {
-		idleFolderIDs = o.getIdleFolderIDsForAccount(ctx, accountID)
+		idleFolderIDs = o.activeIdleFolderIDs(accountID)
 		o.publishAutomaticSyncScope(ctx, accountID, idleFolderIDs)
 	}
 
@@ -1638,7 +1802,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		folderInfoByRemote[folder.RemoteID] = folder
 	}
 	if !includeIDLEFolders {
-		idleFolderIDs = o.getIdleFolderIDsForAccount(ctx, accountID)
+		idleFolderIDs = o.activeIdleFolderIDs(accountID)
 	}
 	idleRemoteNames := idleRemoteNamesFromFolders(folderInfos, idleFolderIDs)
 
