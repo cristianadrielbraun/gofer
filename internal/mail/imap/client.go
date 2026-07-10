@@ -2,6 +2,7 @@ package imap
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/emersion/go-sasl"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/oauth2sasl"
+	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -45,25 +47,23 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 }
 
 func ConnectWithConfig(cfg *models.AccountConfig, password string, options *imapclient.Options) (*imapclient.Client, error) {
-	if options == nil {
-		options = &imapclient.Options{}
+	tlsMode, err := mailtransport.RequireTLSMode("IMAP", cfg.IMAPTLSMode)
+	if err != nil {
+		return nil, err
 	}
-	if options.Dialer == nil {
-		options.Dialer = &net.Dialer{Timeout: 15 * time.Second}
-	}
+	options = secureClientOptions(cfg.IMAPHost, options)
 
 	addr := fmt.Sprintf("%s:%d", cfg.IMAPHost, cfg.IMAPPort)
 
 	var c *imapclient.Client
-	var err error
 
-	switch cfg.IMAPTLSMode {
-	case "tls":
+	switch tlsMode {
+	case mailtransport.TLSModeImplicit:
 		c, err = imapclient.DialTLS(addr, options)
-	case "starttls":
+	case mailtransport.TLSModeStartTLS:
 		c, err = imapclient.DialStartTLS(addr, options)
 	default:
-		c, err = imapclient.DialInsecure(addr, options)
+		return nil, fmt.Errorf("unsupported IMAP TLS mode %q", tlsMode)
 	}
 
 	if err != nil {
@@ -93,6 +93,28 @@ func ConnectWithConfig(cfg *models.AccountConfig, password string, options *imap
 	}
 
 	return c, nil
+}
+
+func secureClientOptions(host string, options *imapclient.Options) *imapclient.Options {
+	if options == nil {
+		options = &imapclient.Options{}
+	}
+	clientOptions := *options
+	tlsConfig := &tls.Config{}
+	if options.TLSConfig != nil {
+		tlsConfig = options.TLSConfig.Clone()
+	}
+	tlsConfig.ServerName = host
+	tlsConfig.InsecureSkipVerify = false
+	if tlsConfig.MinVersion < tls.VersionTLS12 {
+		tlsConfig.MinVersion = tls.VersionTLS12
+	}
+	clientOptions.TLSConfig = tlsConfig
+	options = &clientOptions
+	if options.Dialer == nil {
+		options.Dialer = &net.Dialer{Timeout: 15 * time.Second}
+	}
+	return options
 }
 
 func (c *Client) Close() error {

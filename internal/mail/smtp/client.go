@@ -12,6 +12,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/mail/oauth2sasl"
+	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -57,6 +58,10 @@ func configureTimeouts(client *smtp.Client) {
 }
 
 func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) (*Client, error) {
+	tlsMode, err := mailtransport.RequireTLSMode("SMTP", cfg.SMTPTLSMode)
+	if err != nil {
+		return nil, err
+	}
 	ctx = nonNilContext(ctx)
 	setupCtx, cancelSetup := context.WithTimeout(ctx, setupTimeout)
 	defer cancelSetup()
@@ -69,10 +74,9 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 
 	var conn net.Conn
 	var client *smtp.Client
-	var err error
 
-	switch cfg.SMTPTLSMode {
-	case "tls":
+	switch tlsMode {
+	case mailtransport.TLSModeImplicit:
 		tlsConfig := &tls.Config{
 			ServerName: cfg.SMTPHost,
 			MinVersion: tls.VersionTLS12,
@@ -84,7 +88,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 		}
 		client = smtp.NewClient(conn)
 
-	case "starttls":
+	case mailtransport.TLSModeStartTLS:
 		conn, err = dialer.DialContext(setupCtx, "tcp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
@@ -102,11 +106,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 		}
 
 	default:
-		conn, err = dialer.DialContext(setupCtx, "tcp", addr)
-		if err != nil {
-			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
-		}
-		client = smtp.NewClient(conn)
+		return nil, fmt.Errorf("unsupported SMTP TLS mode %q", tlsMode)
 	}
 	stopCancellation := context.AfterFunc(setupCtx, func() { _ = conn.Close() })
 	defer stopCancellation()

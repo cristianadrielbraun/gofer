@@ -92,6 +92,33 @@ func TestParseConfigXMLMapsIMAPSMTPSettings(t *testing.T) {
 	}
 }
 
+func TestParseConfigXMLDropsUnencryptedMailServers(t *testing.T) {
+	xml := []byte(`<?xml version="1.0"?>
+<clientConfig version="1.1">
+  <emailProvider id="example.com">
+    <incomingServer type="imap">
+      <hostname>imap.example.com</hostname>
+      <port>143</port>
+      <socketType>plain</socketType>
+      <username>%EMAILADDRESS%</username>
+      <authentication>password-cleartext</authentication>
+    </incomingServer>
+    <outgoingServer type="smtp">
+      <hostname>smtp.example.com</hostname>
+      <port>25</port>
+      <socketType>plain</socketType>
+      <username>%EMAILADDRESS%</username>
+      <authentication>password-cleartext</authentication>
+    </outgoingServer>
+  </emailProvider>
+</clientConfig>`)
+
+	candidates, err := ParseConfigXML(xml, "me@example.com", SourceProviderXML)
+	if err == nil {
+		t.Fatalf("ParseConfigXML() candidates = %#v, want plaintext configuration rejected", candidates)
+	}
+}
+
 func TestParseConfigXMLReturnsKnownOAuthProviderCandidate(t *testing.T) {
 	xml := []byte(`<?xml version="1.0"?>
 <clientConfig version="1.1">

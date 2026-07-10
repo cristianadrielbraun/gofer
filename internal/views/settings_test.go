@@ -226,3 +226,31 @@ func TestEditAccountDialogRendersOutlookGraphMailPanels(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountDialogsOnlyOfferEncryptedMailTransports(t *testing.T) {
+	var addOut bytes.Buffer
+	if err := AddAccountDialog().Render(context.Background(), &addOut); err != nil {
+		t.Fatalf("AddAccountDialog.Render() error = %v", err)
+	}
+	var editOut bytes.Buffer
+	if err := EditAccountDialog(models.EditAccountData{
+		AccountID:    "acc-imap",
+		Provider:     "imap",
+		EmailAddress: "user@example.com",
+		IMAPTLSMode:  "tls",
+		SMTPTLSMode:  "starttls",
+	}).Render(context.Background(), &editOut); err != nil {
+		t.Fatalf("EditAccountDialog.Render() error = %v", err)
+	}
+
+	for name, html := range map[string]string{"add": addOut.String(), "edit": editOut.String()} {
+		if strings.Contains(html, `value="none"`) {
+			t.Fatalf("%s account dialog still offers an unencrypted mail transport: %s", name, html)
+		}
+		for _, want := range []string{`value="tls"`, `value="starttls"`} {
+			if !strings.Contains(html, want) {
+				t.Fatalf("%s account dialog missing secure transport %q: %s", name, want, html)
+			}
+		}
+	}
+}

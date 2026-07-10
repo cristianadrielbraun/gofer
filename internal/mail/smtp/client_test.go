@@ -29,6 +29,24 @@ func waitForSMTPServer(t *testing.T, serverErr <-chan error) {
 	}
 }
 
+func TestNewClientRejectsUnencryptedTLSModes(t *testing.T) {
+	for _, mode := range []string{"none", "", "optional"} {
+		t.Run(mode, func(t *testing.T) {
+			client, err := NewClient(context.Background(), &models.AccountConfig{
+				SMTPHost:    "127.0.0.1",
+				SMTPPort:    1,
+				SMTPTLSMode: mode,
+			}, "secret")
+			if client != nil {
+				_ = client.Close()
+			}
+			if err == nil || !strings.Contains(err.Error(), "requires an encrypted connection") {
+				t.Fatalf("NewClient(mode=%q) error = %v, want TLS requirement", mode, err)
+			}
+		})
+	}
+}
+
 func TestNewClientStopsWhenGreetingContextExpires(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -58,7 +76,7 @@ func TestNewClientStopsWhenGreetingContextExpires(t *testing.T) {
 	cfg := &models.AccountConfig{
 		SMTPHost:    host,
 		SMTPPort:    port,
-		SMTPTLSMode: "none",
+		SMTPTLSMode: "starttls",
 		Username:    "user@example.com",
 		AuthMethod:  "plain",
 	}

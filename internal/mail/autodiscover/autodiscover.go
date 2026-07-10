@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -468,7 +469,7 @@ func parseConfigXML(data []byte, parts emailParts, source string, confidence int
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("no supported authentication method")
+		return nil, fmt.Errorf("no supported secure mail configuration")
 	}
 	return out, nil
 }
@@ -505,14 +506,18 @@ func candidateFromXMLServers(imapServer, smtpServer mailServer, parts emailParts
 	}
 	imapTLS := socketTypeToTLSMode(imapServer.SocketType, imapServer.Port)
 	smtpTLS := socketTypeToTLSMode(smtpServer.SocketType, smtpServer.Port)
+	imapTLS, err := mailtransport.RequireTLSMode("IMAP", imapTLS)
+	if err != nil {
+		return Candidate{}, false
+	}
+	smtpTLS, err = mailtransport.RequireTLSMode("SMTP", smtpTLS)
+	if err != nil {
+		return Candidate{}, false
+	}
 	username := expandPlaceholders(firstNonEmpty(imapServer.Username, "%EMAILADDRESS%"), parts)
 	smtpUsername := expandPlaceholders(smtpServer.Username, parts)
 	if smtpUsername == username {
 		smtpUsername = ""
-	}
-	if auth == "plain" && (imapTLS == "none" || smtpTLS == "none") {
-		confidence -= 20
-		notes = append(notes, "Provider advertises password authentication without mandatory TLS.")
 	}
 	return Candidate{
 		Source:       source,
@@ -596,7 +601,7 @@ func socketTypeToTLSMode(socketType string, port int) string {
 	case "STARTTLS":
 		return "starttls"
 	case "PLAIN", "NONE":
-		return "none"
+		return ""
 	}
 	switch port {
 	case 993, 995, 465:
@@ -760,6 +765,11 @@ type protocolProbe struct {
 }
 
 func probeMailEndpoint(ctx context.Context, protocol, host string, port int, tlsMode string, timeout time.Duration) protocolProbe {
+	secureTLSMode, err := mailtransport.RequireTLSMode(protocol, tlsMode)
+	if err != nil {
+		return protocolProbe{}
+	}
+	tlsMode = secureTLSMode
 	if timeout <= 0 {
 		timeout = 1500 * time.Millisecond
 	}
@@ -767,7 +777,6 @@ func probeMailEndpoint(ctx context.Context, protocol, host string, port int, tls
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
 	var conn net.Conn
-	var err error
 	if tlsMode == "tls" {
 		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
 			ServerName: host,
@@ -911,6 +920,11 @@ func authNotesFromCapabilities(protocol, upper string) []string {
 }
 
 func endpointReachable(ctx context.Context, host string, port int, tlsMode string, timeout time.Duration) bool {
+	secureTLSMode, err := mailtransport.RequireTLSMode("mail", tlsMode)
+	if err != nil {
+		return false
+	}
+	tlsMode = secureTLSMode
 	if timeout <= 0 {
 		timeout = 900 * time.Millisecond
 	}
@@ -974,6 +988,12 @@ func dedupeCandidates(candidates []Candidate) []Candidate {
 	out := make([]Candidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		if candidate.IMAPHost == "" || candidate.SMTPHost == "" || candidate.Username == "" || candidate.AuthMethod == "" {
+			continue
+		}
+		if _, err := mailtransport.RequireTLSMode("IMAP", candidate.IMAPTLSMode); err != nil {
+			continue
+		}
+		if _, err := mailtransport.RequireTLSMode("SMTP", candidate.SMTPTLSMode); err != nil {
 			continue
 		}
 		key := strings.Join([]string{

@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/google/uuid"
@@ -104,6 +105,16 @@ func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models
 		&cfg.Username, &cfg.AuthMethod, &cfg.SmtpUsername)
 	if err != nil {
 		return nil, fmt.Errorf("query account config: %w", err)
+	}
+	if !accountProviderUsesGraphMail(cfg.Provider) {
+		cfg.IMAPTLSMode, err = mailtransport.RequireTLSMode("IMAP", cfg.IMAPTLSMode)
+		if err != nil {
+			return nil, fmt.Errorf("account %s: %w", accountID, err)
+		}
+		cfg.SMTPTLSMode, err = mailtransport.RequireTLSMode("SMTP", cfg.SMTPTLSMode)
+		if err != nil {
+			return nil, fmt.Errorf("account %s: %w", accountID, err)
+		}
 	}
 	return &cfg, nil
 }
@@ -373,6 +384,33 @@ func accountProviderUsesGraphMail(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "outlook")
 }
 
+func normalizeAccountMailTLSModes(req *models.CreateAccountRequest, fillDefaults bool) error {
+	if accountProviderUsesGraphMail(req.Provider) {
+		return nil
+	}
+	if fillDefaults && strings.TrimSpace(req.IMAPTLSMode) == "" {
+		req.IMAPTLSMode = mailtransport.TLSModeImplicit
+	}
+	if fillDefaults && strings.TrimSpace(req.SMTPTLSMode) == "" {
+		req.SMTPTLSMode = mailtransport.TLSModeImplicit
+	}
+	if strings.TrimSpace(req.IMAPTLSMode) != "" {
+		mode, err := mailtransport.RequireTLSMode("IMAP", req.IMAPTLSMode)
+		if err != nil {
+			return err
+		}
+		req.IMAPTLSMode = mode
+	}
+	if strings.TrimSpace(req.SMTPTLSMode) != "" {
+		mode, err := mailtransport.RequireTLSMode("SMTP", req.SMTPTLSMode)
+		if err != nil {
+			return err
+		}
+		req.SMTPTLSMode = mode
+	}
+	return nil
+}
+
 func isBuiltinContactProvider(provider string) bool {
 	switch strings.TrimSpace(provider) {
 	case "gmail", "outlook":
@@ -383,16 +421,6 @@ func isBuiltinContactProvider(provider string) bool {
 }
 
 func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *models.CreateAccountRequest) (*models.Account, error) {
-	id := generateAccountID(req.EmailAddress)
-	if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
-		return nil, fmt.Errorf("purge deleting account: %w", err)
-	}
-
-	encrypted, err := s.encrypt(req.Password)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt password: %w", err)
-	}
-
 	if req.Provider == "" {
 		req.Provider = "imap"
 	}
@@ -414,15 +442,22 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 		if req.SMTPPort == 0 {
 			req.SMTPPort = 465
 		}
-		if req.IMAPTLSMode == "" {
-			req.IMAPTLSMode = "tls"
-		}
-		if req.SMTPTLSMode == "" {
-			req.SMTPTLSMode = "tls"
-		}
 		if req.AuthMethod == "" {
 			req.AuthMethod = "plain"
 		}
+	}
+	if err := normalizeAccountMailTLSModes(req, true); err != nil {
+		return nil, err
+	}
+
+	id := generateAccountID(req.EmailAddress)
+	if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
+		return nil, fmt.Errorf("purge deleting account: %w", err)
+	}
+
+	encrypted, err := s.encrypt(req.Password)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt password: %w", err)
 	}
 
 	var encryptedSmtpPw []byte
@@ -462,6 +497,9 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 }
 
 func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req *models.CreateAccountRequest) error {
+	if err := normalizeAccountMailTLSModes(req, false); err != nil {
+		return err
+	}
 	setClauses := []string{}
 	args := []any{}
 

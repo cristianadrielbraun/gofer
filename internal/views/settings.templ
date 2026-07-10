@@ -3181,13 +3181,12 @@ templ AddAccountDialog() {
 								<div>
 									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Encryption</label>
 									@selectbox.SelectBox() {
-									@selectbox.Trigger(selectbox.TriggerProps{Name: "imap_tls_mode", DisableClear: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "imap_tls_mode", DisableClear: true}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: true}) { TLS }
 											@selectbox.Item(selectbox.ItemProps{Value: "starttls"}) { STARTTLS }
-											@selectbox.Item(selectbox.ItemProps{Value: "none"}) { None }
 										}
 									}
 								</div>
@@ -3273,13 +3272,12 @@ templ AddAccountDialog() {
 								<div>
 									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Encryption</label>
 									@selectbox.SelectBox() {
-									@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode", DisableClear: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode", DisableClear: true}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: true}) { TLS }
 											@selectbox.Item(selectbox.ItemProps{Value: "starttls"}) { STARTTLS }
-											@selectbox.Item(selectbox.ItemProps{Value: "none"}) { None }
 										}
 									}
 								</div>
@@ -3690,13 +3688,12 @@ templ EditAccountDialog(data models.EditAccountData) {
 									<div>
 										<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Encryption</label>
 										@selectbox.SelectBox() {
-										@selectbox.Trigger(selectbox.TriggerProps{Name: "imap_tls_mode", DisableClear: true}) {
+											@selectbox.Trigger(selectbox.TriggerProps{Name: "imap_tls_mode", DisableClear: true}) {
 												@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 											}
 											@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 												@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: data.IMAPTLSMode == "tls"}) { TLS }
 												@selectbox.Item(selectbox.ItemProps{Value: "starttls", Selected: data.IMAPTLSMode == "starttls"}) { STARTTLS }
-												@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: data.IMAPTLSMode == "none"}) { None }
 											}
 										}
 									</div>
@@ -3782,13 +3779,12 @@ templ EditAccountDialog(data models.EditAccountData) {
 								<div>
 									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Encryption</label>
 									@selectbox.SelectBox() {
-									@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode", DisableClear: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode", DisableClear: true}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: data.SMTPTLSMode == "tls"}) { TLS }
 											@selectbox.Item(selectbox.ItemProps{Value: "starttls", Selected: data.SMTPTLSMode == "starttls"}) { STARTTLS }
-											@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: data.SMTPTLSMode == "none"}) { None }
 										}
 									}
 								</div>

@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -28,6 +29,101 @@ func seedAccountStoreTestUser(t *testing.T, ctx context.Context, db *storage.DB)
 	t.Helper()
 	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
+	}
+}
+
+func secureAccountStoreTestRequest(email string) *models.CreateAccountRequest {
+	return &models.CreateAccountRequest{
+		Provider:     "imap",
+		EmailAddress: email,
+		DisplayName:  "Secure Mail",
+		IMAPHost:     "imap.example.com",
+		IMAPPort:     993,
+		IMAPTLSMode:  "tls",
+		SMTPHost:     "smtp.example.com",
+		SMTPPort:     465,
+		SMTPTLSMode:  "tls",
+		Username:     email,
+		Password:     "secret",
+		AuthMethod:   "plain",
+	}
+}
+
+func TestCreateAccountRejectsUnencryptedMailTransport(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*models.CreateAccountRequest)
+	}{
+		{name: "IMAP", edit: func(req *models.CreateAccountRequest) { req.IMAPTLSMode = "none" }},
+		{name: "SMTP", edit: func(req *models.CreateAccountRequest) { req.SMTPTLSMode = "none" }},
+		{name: "unknown mode", edit: func(req *models.CreateAccountRequest) { req.SMTPTLSMode = "optional" }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			db, store := newAccountStoreTestStore(t)
+			seedAccountStoreTestUser(t, ctx, db)
+			req := secureAccountStoreTestRequest(strings.ToLower(tt.name) + "@example.com")
+			tt.edit(req)
+
+			if _, err := store.CreateAccount(ctx, "default", req); err == nil || !strings.Contains(err.Error(), "requires an encrypted connection") {
+				t.Fatalf("CreateAccount() error = %v, want TLS requirement", err)
+			}
+			var accounts int
+			if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts`).Scan(&accounts); err != nil {
+				t.Fatalf("count accounts: %v", err)
+			}
+			if accounts != 0 {
+				t.Fatalf("accounts = %d, want rejected request not persisted", accounts)
+			}
+		})
+	}
+}
+
+func TestUpdateAccountRejectsUnencryptedMailTransport(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	account, err := store.CreateAccount(ctx, "default", secureAccountStoreTestRequest("update@example.com"))
+	if err != nil {
+		t.Fatalf("CreateAccount() error = %v", err)
+	}
+
+	err = store.UpdateAccount(ctx, account.ID, &models.CreateAccountRequest{Provider: "imap", SMTPTLSMode: "none"})
+	if err == nil || !strings.Contains(err.Error(), "requires an encrypted connection") {
+		t.Fatalf("UpdateAccount() error = %v, want TLS requirement", err)
+	}
+	var smtpTLSMode string
+	if err := db.Read().QueryRowContext(ctx, `SELECT smtp_tls_mode FROM accounts WHERE id = ?`, account.ID).Scan(&smtpTLSMode); err != nil {
+		t.Fatalf("query SMTP TLS mode: %v", err)
+	}
+	if smtpTLSMode != "tls" {
+		t.Fatalf("smtp_tls_mode = %q, want existing secure value preserved", smtpTLSMode)
+	}
+}
+
+func TestGetConfigBlocksStoredUnencryptedMailTransport(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (
+			id, user_id, provider, email_address,
+			imap_host, imap_port, imap_tls_mode,
+			smtp_host, smtp_port, smtp_tls_mode,
+			username, auth_method
+		) VALUES (
+			'unsafe', 'default', 'imap', 'unsafe@example.com',
+			'imap.example.com', 143, 'none',
+			'smtp.example.com', 25, 'none',
+			'unsafe@example.com', 'plain'
+		)`); err != nil {
+		t.Fatalf("insert unsafe account: %v", err)
+	}
+
+	if _, err := store.GetConfig(ctx, "unsafe"); err == nil || !strings.Contains(err.Error(), "requires an encrypted connection") {
+		t.Fatalf("GetConfig() error = %v, want TLS requirement", err)
 	}
 }
 
