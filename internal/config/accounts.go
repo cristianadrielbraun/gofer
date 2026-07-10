@@ -1089,8 +1089,25 @@ func (s *AccountStore) MarkAccountDeleting(ctx context.Context, accountID string
 }
 
 func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*models.Account, error) {
+	return s.getAccountByID(ctx, accountID, "")
+}
+
+func (s *AccountStore) GetAccountByIDForUser(ctx context.Context, userID, accountID string) (*models.Account, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(accountID) == "" {
+		return nil, nil
+	}
+	return s.getAccountByID(ctx, accountID, userID)
+}
+
+func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID string) (*models.Account, error) {
 	var a models.Account
 	var emailSyncEnabled, contactSyncEnabled int
+	where := "a.id = ?"
+	args := []any{accountID}
+	if userID != "" {
+		where += " AND a.user_id = ?"
+		args = append(args, userID)
+	}
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
@@ -1098,7 +1115,7 @@ func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*m
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
-		 WHERE a.id = ? AND COALESCE(a.is_deleting, 0) = 0`, accountID,
+		 WHERE `+where+` AND COALESCE(a.is_deleting, 0) = 0`, args...,
 	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider)
 	if err == sql.ErrNoRows {
 		return nil, nil

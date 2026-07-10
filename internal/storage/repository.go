@@ -5839,6 +5839,18 @@ func (db *DB) GetAttachmentFetchInfo(ctx context.Context, attachmentID int64) (*
 	return scanAttachmentFetchInfo(row)
 }
 
+func (db *DB) GetAttachmentFetchInfoForUser(ctx context.Context, attachmentID int64, userID string) (*AttachmentFetchInfo, error) {
+	row := db.Read().QueryRowContext(ctx, `
+		SELECT att.id, att.message_id, m.account_id, a.provider, m.remote_message_id,
+		       att.provider_remote_id, att.filename, att.content_type, COALESCE(att.content_id, ''), att.size_bytes, att.storage_path
+		FROM attachments att
+		JOIN messages m ON att.message_id = m.id
+		JOIN accounts a ON m.account_id = a.id
+		WHERE att.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`, attachmentID, userID,
+	)
+	return scanAttachmentFetchInfo(row)
+}
+
 func (db *DB) GetAttachmentFetchInfoByContentID(ctx context.Context, messageID int64, contentID string) (*AttachmentFetchInfo, error) {
 	contentID = strings.Trim(strings.TrimSpace(contentID), "<>")
 	if messageID == 0 || contentID == "" {
@@ -5852,6 +5864,24 @@ func (db *DB) GetAttachmentFetchInfoByContentID(ctx context.Context, messageID i
 		JOIN accounts a ON m.account_id = a.id
 		WHERE att.message_id = ? AND COALESCE(att.content_id, '') = ?
 		LIMIT 1`, messageID, contentID,
+	)
+	return scanAttachmentFetchInfo(row)
+}
+
+func (db *DB) GetAttachmentFetchInfoByContentIDForUser(ctx context.Context, messageID int64, contentID, userID string) (*AttachmentFetchInfo, error) {
+	contentID = strings.Trim(strings.TrimSpace(contentID), "<>")
+	if messageID == 0 || contentID == "" || strings.TrimSpace(userID) == "" {
+		return nil, nil
+	}
+	row := db.Read().QueryRowContext(ctx, `
+		SELECT att.id, att.message_id, m.account_id, a.provider, m.remote_message_id,
+		       att.provider_remote_id, att.filename, att.content_type, COALESCE(att.content_id, ''), att.size_bytes, att.storage_path
+		FROM attachments att
+		JOIN messages m ON att.message_id = m.id
+		JOIN accounts a ON m.account_id = a.id
+		WHERE att.message_id = ? AND COALESCE(att.content_id, '') = ?
+		  AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+		LIMIT 1`, messageID, contentID, userID,
 	)
 	return scanAttachmentFetchInfo(row)
 }

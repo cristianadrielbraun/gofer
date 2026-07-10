@@ -161,6 +161,47 @@ func TestGetAccountByIDIgnoresDeletingAccount(t *testing.T) {
 	}
 }
 
+func TestGetAccountByIDForUserScopesByUserAndDeletingState(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('other', 'other@example.com', 'Other')`); err != nil {
+		t.Fatalf("insert other user: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, email_address, is_deleting)
+		VALUES ('owned', 'default', 'owned@example.com', 0),
+		       ('foreign', 'other', 'foreign@example.com', 0),
+		       ('deleting', 'default', 'deleting@example.com', 1)`); err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		userID    string
+		accountID string
+		want      bool
+	}{
+		{name: "owned", userID: "default", accountID: "owned", want: true},
+		{name: "other user", userID: "default", accountID: "foreign", want: false},
+		{name: "deleting", userID: "default", accountID: "deleting", want: false},
+		{name: "missing", userID: "default", accountID: "missing", want: false},
+		{name: "blank user", userID: "", accountID: "owned", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			account, err := store.GetAccountByIDForUser(ctx, tt.userID, tt.accountID)
+			if err != nil {
+				t.Fatalf("GetAccountByIDForUser() error = %v", err)
+			}
+			got := account != nil
+			if got != tt.want {
+				t.Fatalf("GetAccountByIDForUser() found = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeleteAccountOnlyDeletesMarkedDeletingRows(t *testing.T) {
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)

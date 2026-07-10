@@ -2113,6 +2113,66 @@ func TestAddMessageToFolderWithoutRemoteUIDAllowsMultipleUnknownUIDs(t *testing.
 	}
 }
 
+func TestGetAttachmentFetchInfoForUserRejectsForeignAttachment(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('other', 'other@example.com', 'Other')`); err != nil {
+		t.Fatalf("insert other user: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('owned', 'default', 'imap', 'owned@example.com'),
+		       ('foreign', 'other', 'imap', 'foreign@example.com')`); err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO messages (id, account_id, internet_message_id, subject, from_email)
+		VALUES (1, 'foreign', '<foreign@example.com>', 'foreign', 'sender@example.com')`); err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+	result, err := db.Write().ExecContext(ctx, `
+		INSERT INTO attachments (message_id, filename, content_type, content_id, size_bytes, storage_path)
+		VALUES (1, 'secret.txt', 'text/plain', 'secret-content', 6, '/tmp/secret.txt')`)
+	if err != nil {
+		t.Fatalf("insert attachment: %v", err)
+	}
+	attachmentID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("attachment id: %v", err)
+	}
+
+	info, err := db.GetAttachmentFetchInfoForUser(ctx, attachmentID, "default")
+	if err != nil {
+		t.Fatalf("GetAttachmentFetchInfoForUser(default) error = %v", err)
+	}
+	if info != nil {
+		t.Fatalf("GetAttachmentFetchInfoForUser(default) = %#v, want nil", info)
+	}
+
+	info, err = db.GetAttachmentFetchInfoForUser(ctx, attachmentID, "other")
+	if err != nil {
+		t.Fatalf("GetAttachmentFetchInfoForUser(other) error = %v", err)
+	}
+	if info == nil || info.AccountID != "foreign" {
+		t.Fatalf("GetAttachmentFetchInfoForUser(other) = %#v, want foreign attachment", info)
+	}
+
+	info, err = db.GetAttachmentFetchInfoByContentIDForUser(ctx, 1, "secret-content", "default")
+	if err != nil {
+		t.Fatalf("GetAttachmentFetchInfoByContentIDForUser(default) error = %v", err)
+	}
+	if info != nil {
+		t.Fatalf("GetAttachmentFetchInfoByContentIDForUser(default) = %#v, want nil", info)
+	}
+	info, err = db.GetAttachmentFetchInfoByContentIDForUser(ctx, 1, "secret-content", "other")
+	if err != nil {
+		t.Fatalf("GetAttachmentFetchInfoByContentIDForUser(other) error = %v", err)
+	}
+	if info == nil || info.AccountID != "foreign" {
+		t.Fatalf("GetAttachmentFetchInfoByContentIDForUser(other) = %#v, want foreign attachment", info)
+	}
+}
+
 func TestSyncGmailInboxMembershipPreservesRealUIDAndRemovesOnlySyntheticRows(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

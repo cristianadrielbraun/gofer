@@ -112,6 +112,9 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 		htmlStatus(w, http.StatusBadRequest, "Account is required.")
 		return
 	}
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		htmlStatus(w, http.StatusBadRequest, "Invalid contact sync settings.")
 		return
@@ -258,6 +261,9 @@ func (h *Handler) handleTestAccountContactSync(w http.ResponseWriter, r *http.Re
 		htmlStatus(w, http.StatusBadRequest, "Account is required.")
 		return
 	}
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		htmlStatus(w, http.StatusBadRequest, "Invalid contact sync test.")
 		return
@@ -355,6 +361,9 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 	accountID := r.PathValue("id")
 	if accountID == "" {
 		writeJSONError(w, http.StatusBadRequest, "account is required")
+		return
+	}
+	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {

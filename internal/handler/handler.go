@@ -149,6 +149,24 @@ func (h *Handler) userID(ctx context.Context) string {
 	return "default"
 }
 
+func (h *Handler) ownedAccount(ctx context.Context, accountID string) (*models.Account, error) {
+	return h.accountStore.GetAccountByIDForUser(ctx, h.userID(ctx), accountID)
+}
+
+func (h *Handler) requireOwnedAccount(w http.ResponseWriter, r *http.Request, accountID string) bool {
+	account, err := h.ownedAccount(r.Context(), accountID)
+	if err != nil {
+		log.Printf("account ownership check account=%s user=%s: %v", accountID, h.userID(r.Context()), err)
+		http.Error(w, "failed to load account", http.StatusInternalServerError)
+		return false
+	}
+	if account == nil {
+		http.NotFound(w, r)
+		return false
+	}
+	return true
+}
+
 func (h *Handler) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
 	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
 		return "", fmt.Errorf("outlook mail uses Microsoft Graph; IMAP/SMTP credential resolution is disabled")
@@ -1988,6 +2006,9 @@ func (h *Handler) handleGetEditAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account id required", http.StatusBadRequest)
 		return
 	}
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 
 	data, err := h.accountStore.GetEditData(r.Context(), accountID)
 	if err != nil {
@@ -2004,6 +2025,9 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	if accountID == "" {
 		w.Header().Set("Content-Type", "text/html")
 		views.AccountFormError("Account ID is required").Render(r.Context(), w)
+		return
+	}
+	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 
@@ -2060,6 +2084,9 @@ func (h *Handler) handleUpdateAccountService(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "account id required", http.StatusBadRequest)
 		return
 	}
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -2096,7 +2123,7 @@ func (h *Handler) handleUpdateAccountService(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	account, err := h.accountStore.GetAccountByID(ctx, accountID)
+	account, err := h.ownedAccount(ctx, accountID)
 	if err != nil || account == nil {
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
@@ -2151,6 +2178,9 @@ func (h *Handler) handleAccountSignatures(w http.ResponseWriter, r *http.Request
 		http.Error(w, "account id required", http.StatusBadRequest)
 		return
 	}
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 	ctx := r.Context()
 	userID := h.userID(ctx)
 	settings, err := h.db.GetAccountSignatureSettings(ctx, userID, accountID)
@@ -2182,6 +2212,9 @@ func (h *Handler) handleManageAccountSignatures(w http.ResponseWriter, r *http.R
 		http.Error(w, "account id required", http.StatusBadRequest)
 		return
 	}
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 	ctx := r.Context()
 	userID := h.userID(ctx)
 	settings, err := h.db.GetAccountSignatureSettings(ctx, userID, accountID)
@@ -2189,7 +2222,7 @@ func (h *Handler) handleManageAccountSignatures(w http.ResponseWriter, r *http.R
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
-	account, err := h.accountStore.GetAccountByID(ctx, accountID)
+	account, err := h.ownedAccount(ctx, accountID)
 	if err != nil || account == nil {
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
@@ -2259,6 +2292,9 @@ func (h *Handler) handleDeleteSignature(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleSaveAccountSignatureSettings(w http.ResponseWriter, r *http.Request) {
+	if !h.requireOwnedAccount(w, r, r.PathValue("id")) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -2322,6 +2358,9 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account id required", http.StatusBadRequest)
 		return
 	}
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 
 	h.syncer.StopAccount(accountID)
 	if err := h.accountStore.MarkAccountDeleting(r.Context(), accountID); err != nil {
@@ -2350,6 +2389,9 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	accountID := r.PathValue("id")
 	if accountID == "" {
 		http.Error(w, "account id required", http.StatusBadRequest)
+		return
+	}
+	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 
@@ -2787,7 +2829,7 @@ func (h *Handler) handleAttachmentDownload(w http.ResponseWriter, r *http.Reques
 
 	ctx := r.Context()
 
-	info, err := h.db.GetAttachmentFetchInfo(ctx, attID)
+	info, err := h.db.GetAttachmentFetchInfoForUser(ctx, attID, h.userID(ctx))
 	if err != nil || info == nil {
 		http.NotFound(w, r)
 		return
@@ -2816,7 +2858,7 @@ func (h *Handler) handleAttachmentPreview(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	info, err := h.db.GetAttachmentFetchInfo(r.Context(), attID)
+	info, err := h.db.GetAttachmentFetchInfoForUser(r.Context(), attID, h.userID(r.Context()))
 	if err != nil || info == nil || !isPreviewableImage(info.ContentType, info.Filename) {
 		http.NotFound(w, r)
 		return
@@ -3006,7 +3048,7 @@ func (h *Handler) handleInlineContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	info, err := h.db.GetAttachmentFetchInfoByContentID(ctx, msgID, contentID)
+	info, err := h.db.GetAttachmentFetchInfoByContentIDForUser(ctx, msgID, contentID, h.userID(ctx))
 	if err != nil || info == nil {
 		http.NotFound(w, r)
 		return
@@ -3506,7 +3548,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: "no account configured"}
 	}
 
-	account, err := h.accountStore.GetAccountByID(ctx, accountID)
+	account, err := h.ownedAccount(ctx, accountID)
 	if err != nil || account == nil {
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "account not found"}
 	}
@@ -3527,7 +3569,10 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 	subject := r.FormValue("subject")
 	snippet := sentSnippet(body, subject)
-	outgoingAttachments, attachmentRows := h.collectComposeAttachments(r)
+	outgoingAttachments, attachmentRows, err := h.collectComposeAttachments(r)
+	if err != nil {
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: err.Error()}
+	}
 	if err := validateComposeMessageSize(outgoingAttachments, body, htmlBody); err != nil {
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: err.Error()}
 	}
@@ -3610,6 +3655,9 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	}
 	ctx := r.Context()
 	accountID := r.FormValue("account_id")
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
 	draftID := r.FormValue("draft_id")
 	draftPaths := h.composeDraftAttachmentPaths(ctx, accountID, draftID)
 	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, accountID, draftID)
@@ -3680,8 +3728,9 @@ func formatByteSize(size int64) string {
 	return fmt.Sprintf("%d B", size)
 }
 
-func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.OutgoingAttachment, []storage.AttachmentRow) {
+func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.OutgoingAttachment, []storage.AttachmentRow, error) {
 	ctx := r.Context()
+	userID := h.userID(ctx)
 	var outgoing []message.OutgoingAttachment
 	var rows []storage.AttachmentRow
 
@@ -3725,15 +3774,15 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 	for _, existingID := range r.Form["existing_attachment_id"] {
 		attID, err := strconv.ParseInt(existingID, 10, 64)
 		if err != nil {
-			continue
+			return nil, nil, fmt.Errorf("attachment not found")
 		}
-		info, err := h.db.GetAttachmentFetchInfo(ctx, attID)
+		info, err := h.db.GetAttachmentFetchInfoForUser(ctx, attID, userID)
 		if err != nil || info == nil {
-			continue
+			return nil, nil, fmt.Errorf("attachment not found")
 		}
 		storagePath, err := h.ensureAttachmentStorage(ctx, info)
 		if err != nil || strings.TrimSpace(storagePath) == "" {
-			continue
+			return nil, nil, fmt.Errorf("attachment not available")
 		}
 		outgoing = append(outgoing, message.OutgoingAttachment{Filename: info.Filename, ContentType: info.ContentType, Path: storagePath, Size: info.SizeBytes})
 		rows = append(rows, storage.AttachmentRow{Filename: info.Filename, ContentType: info.ContentType, SizeBytes: info.SizeBytes, StoragePath: storagePath})
@@ -3743,15 +3792,15 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 	for i, existingID := range r.Form["existing_inline_attachment_id"] {
 		attID, err := strconv.ParseInt(existingID, 10, 64)
 		if err != nil {
-			continue
+			return nil, nil, fmt.Errorf("attachment not found")
 		}
-		info, err := h.db.GetAttachmentFetchInfo(ctx, attID)
+		info, err := h.db.GetAttachmentFetchInfoForUser(ctx, attID, userID)
 		if err != nil || info == nil {
-			continue
+			return nil, nil, fmt.Errorf("attachment not found")
 		}
 		storagePath, err := h.ensureAttachmentStorage(ctx, info)
 		if err != nil || strings.TrimSpace(storagePath) == "" {
-			continue
+			return nil, nil, fmt.Errorf("attachment not available")
 		}
 		contentID := info.ContentID
 		if cid := cleanContentID(formValueAt(existingInlineCIDs, i, "")); cid != "" {
@@ -3764,7 +3813,7 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 		rows = append(rows, storage.AttachmentRow{Filename: info.Filename, ContentType: info.ContentType, SizeBytes: info.SizeBytes, ContentID: contentID, Inline: true, StoragePath: storagePath})
 	}
 
-	return outgoing, rows
+	return outgoing, rows, nil
 }
 
 func formValueAt(values []string, idx int, fallback string) string {
@@ -3780,6 +3829,9 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	messageID := q.Get("message_id")
 	if accountID == "" || messageID == "" {
 		http.Error(w, "missing message", http.StatusBadRequest)
+		return
+	}
+	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 	localID, err := h.db.GetMessageLocalIDByInternetID(r.Context(), accountID, messageID)
@@ -3944,7 +3996,7 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountStore.GetAccountByID(ctx, accountID)
+	account, err := h.ownedAccount(ctx, accountID)
 	if err != nil || account == nil {
 		writeComposeJSONError(w, http.StatusNotFound, "account not found")
 		return
@@ -3957,7 +4009,11 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	}
 	ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
 	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
-	attachments, _ := h.collectComposeAttachments(r)
+	attachments, _, err := h.collectComposeAttachments(r)
+	if err != nil {
+		writeComposeJSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err := validateComposeMessageSize(attachments, r.FormValue("body"), r.FormValue("html_body")); err != nil {
 		writeComposeJSONError(w, http.StatusBadRequest, err.Error())
 		return
