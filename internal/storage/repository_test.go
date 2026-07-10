@@ -2136,6 +2136,90 @@ func TestUnknownRemoteUIDAllowsMultipleFolderMemberships(t *testing.T) {
 	}
 }
 
+func TestResetFolderUIDStateStartsANewUIDGeneration(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "acc_archive", AccountID: "acc", RemoteID: "Archive", Name: "Archive", Role: "archive", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		UPDATE folders
+		SET uid_validity = 100,
+		    uid_next = 5001,
+		    highest_seen_uid = 5000,
+		    highest_modseq = 9000,
+		    total_count = 2,
+		    unread_count = 1,
+		    last_full_sync_at = CURRENT_TIMESTAMP,
+		    last_incremental_sync_at = CURRENT_TIMESTAMP,
+		    sync_error = 'old error'
+		WHERE id = 'acc_inbox';
+		INSERT INTO messages (id, account_id, internet_message_id, subject, from_email)
+		VALUES (1, 'acc', '<inbox-only@example.com>', 'Inbox only', 'sender@example.com'),
+		       (2, 'acc', '<shared@example.com>', 'Shared', 'sender@example.com');
+		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, synced_at)
+		VALUES (1, 'acc_inbox', 5000, 0, CURRENT_TIMESTAMP),
+		       (2, 'acc_inbox', 4999, 1, CURRENT_TIMESTAMP),
+		       (2, 'acc_archive', 42, 1, CURRENT_TIMESTAMP);
+		INSERT INTO folder_thread_state (folder_id, thread_key, head_message_id, account_id)
+		VALUES ('acc_inbox', 'thread-1', 1, 'acc');
+	`); err != nil {
+		t.Fatalf("seed folder UID state: %v", err)
+	}
+
+	if err := db.ResetFolderUIDState(ctx, "acc_inbox", 200); err != nil {
+		t.Fatalf("ResetFolderUIDState() error = %v", err)
+	}
+
+	var uidValidity, highestUID, totalCount, unreadCount int64
+	var uidNext, highestModseq sql.NullInt64
+	var lastFullIsNull, lastIncrementalIsNull, syncErrorIsNull int
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT uid_validity, highest_seen_uid, uid_next, highest_modseq,
+		       total_count, unread_count,
+		       last_full_sync_at IS NULL, last_incremental_sync_at IS NULL, sync_error IS NULL
+		FROM folders WHERE id = 'acc_inbox'`).Scan(
+		&uidValidity, &highestUID, &uidNext, &highestModseq,
+		&totalCount, &unreadCount,
+		&lastFullIsNull, &lastIncrementalIsNull, &syncErrorIsNull,
+	); err != nil {
+		t.Fatalf("query reset folder: %v", err)
+	}
+	if uidValidity != 200 || highestUID != 0 || uidNext.Valid || highestModseq.Valid || totalCount != 0 || unreadCount != 0 {
+		t.Fatalf("reset folder state = validity:%d highest:%d uidNext:%v modseq:%v total:%d unread:%d", uidValidity, highestUID, uidNext, highestModseq, totalCount, unreadCount)
+	}
+	if lastFullIsNull != 1 || lastIncrementalIsNull != 1 || syncErrorIsNull != 1 {
+		t.Fatalf("reset timestamps/error = full null:%d incremental null:%d error null:%d", lastFullIsNull, lastIncrementalIsNull, syncErrorIsNull)
+	}
+
+	var inboxStates, inboxThreads, inboxOnlyMessages, sharedMessages, archiveStates int
+	queries := []struct {
+		query string
+		value *int
+	}{
+		{query: `SELECT COUNT(*) FROM message_folder_state WHERE folder_id = 'acc_inbox'`, value: &inboxStates},
+		{query: `SELECT COUNT(*) FROM folder_thread_state WHERE folder_id = 'acc_inbox'`, value: &inboxThreads},
+		{query: `SELECT COUNT(*) FROM messages WHERE id = 1`, value: &inboxOnlyMessages},
+		{query: `SELECT COUNT(*) FROM messages WHERE id = 2`, value: &sharedMessages},
+		{query: `SELECT COUNT(*) FROM message_folder_state WHERE message_id = 2 AND folder_id = 'acc_archive'`, value: &archiveStates},
+	}
+	for _, query := range queries {
+		if err := db.Read().QueryRowContext(ctx, query.query).Scan(query.value); err != nil {
+			t.Fatalf("query reset contents: %v", err)
+		}
+	}
+	if inboxStates != 0 || inboxThreads != 0 || inboxOnlyMessages != 0 || sharedMessages != 1 || archiveStates != 1 {
+		t.Fatalf("reset contents = inbox states:%d threads:%d orphan:%d shared:%d archive states:%d", inboxStates, inboxThreads, inboxOnlyMessages, sharedMessages, archiveStates)
+	}
+}
+
 func TestGetAttachmentFetchInfoForUserRejectsForeignAttachment(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

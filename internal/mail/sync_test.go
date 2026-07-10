@@ -76,6 +76,29 @@ func TestBackgroundSyncSlotsTreatsZeroAsUnlimited(t *testing.T) {
 	release()
 }
 
+func TestFolderUIDStateNeedsReset(t *testing.T) {
+	tests := []struct {
+		name       string
+		expected   uint32
+		current    uint32
+		highestUID uint32
+		want       bool
+	}{
+		{name: "same generation", expected: 100, current: 100, highestUID: 5000},
+		{name: "new generation", expected: 100, current: 200, highestUID: 5000, want: true},
+		{name: "new folder without cursor", current: 200},
+		{name: "cursor without known generation", current: 200, highestUID: 5000, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := folderUIDStateNeedsReset(tt.expected, tt.current, tt.highestUID); got != tt.want {
+				t.Fatalf("folderUIDStateNeedsReset(%d, %d, %d) = %v, want %v", tt.expected, tt.current, tt.highestUID, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAccountLifecycleBaselinesBeforeIDLEAndRestartsWatchers(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)

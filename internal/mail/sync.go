@@ -1002,6 +1002,25 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 	})
 }
 
+func (o *SyncOrchestrator) resetFolderUIDStateAndSync(ctx context.Context, client *imap.Client, accountID, accountProvider string, folder storage.FolderSyncInfo, oldUIDValidity, newUIDValidity uint32) error {
+	log.Printf("UIDVALIDITY changed for %s/%s: %d -> %d, rebuilding local folder state", accountID, folder.RemoteID, oldUIDValidity, newUIDValidity)
+	if err := o.db.ResetFolderUIDState(ctx, folder.ID, newUIDValidity); err != nil {
+		return err
+	}
+	o.syncFolderMessages(ctx, client, accountID, accountProvider, folder.ID, folder.RemoteID)
+	return nil
+}
+
+func folderUIDStateNeedsReset(expectedUIDValidity, currentUIDValidity, highestUID uint32) bool {
+	if currentUIDValidity == 0 {
+		return false
+	}
+	if expectedUIDValidity > 0 {
+		return expectedUIDValidity != currentUIDValidity
+	}
+	return highestUID > 0
+}
+
 func (o *SyncOrchestrator) senderAvatarURL(ctx context.Context, email string) string {
 	if o == nil || o.db == nil {
 		return ""
@@ -1062,41 +1081,42 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 			Payload:    completePayload,
 		})
 	}()
-	storedValidity, _ := o.db.GetStoredUIDValidity(ctx, folder.ID)
-
-	if folder.LastFullSyncAt.Valid && storedValidity > 0 {
-		currentValidity, _, err := client.CheckUIDValidity(ctx, folder.RemoteID)
-		if err != nil {
-			return err
-		}
-		if currentValidity != storedValidity && currentValidity > 0 {
-			log.Printf("UIDVALIDITY changed for %s/%s: %d -> %d, clearing local state", accountID, folder.RemoteID, storedValidity, currentValidity)
-			if err := o.db.ClearFolderMessages(ctx, folder.ID); err != nil {
-				return err
-			}
-			o.syncFolderMessages(ctx, client, accountID, accountProvider, folder.ID, folder.RemoteID)
-			return nil
-		}
+	storedValidity, err := o.db.GetStoredUIDValidity(ctx, folder.ID)
+	if err != nil {
+		return err
 	}
-
-	if folder.LastFullSyncAt.Valid {
-		o.reconcileFolder(ctx, client, accountID, folder)
-	}
-
 	highestUID, err := o.db.GetHighestSeenUID(ctx, folder.ID)
 	if err != nil {
 		return err
 	}
+	expectedUIDValidity := storedValidity
+
+	if folder.LastFullSyncAt.Valid {
+		currentValidity, changed, err := o.reconcileFolder(ctx, client, accountID, folder, expectedUIDValidity, highestUID)
+		if err != nil {
+			return err
+		}
+		if changed {
+			return o.resetFolderUIDStateAndSync(ctx, client, accountID, accountProvider, folder, storedValidity, currentValidity)
+		}
+		if currentValidity > 0 {
+			expectedUIDValidity = currentValidity
+		}
+	}
 
 	if highestUID > 0 {
 		var summary newMailSummary
-		result, err := client.SyncFolderIncremental(ctx, folder.ID, folder.RemoteID, highestUID, func(msgs []storage.SyncMessage) error {
+		result, err := client.SyncFolderIncremental(ctx, folder.ID, folder.RemoteID, highestUID, expectedUIDValidity, func(msgs []storage.SyncMessage) error {
 			summary.Add(msgs)
 			return o.db.UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, folder.RemoteID, folder.Role))
 		})
 		if err != nil {
 			log.Printf("periodic incremental %s/%s: %v", accountID, folder.RemoteID, err)
 		} else if result != nil {
+			if result.UIDValidityChanged {
+				return o.resetFolderUIDStateAndSync(ctx, client, accountID, accountProvider, folder, expectedUIDValidity, result.UIDValidity)
+			}
+			expectedUIDValidity = result.UIDValidity
 			o.db.UpdateFolderIncrementalSync(ctx, folder.ID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
 			if result.TotalFetched > 0 {
 				log.Printf("periodic incremental %s/%s: %d new", accountID, folder.RemoteID, result.TotalFetched)
@@ -1105,26 +1125,34 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		}
 	} else {
 		o.syncFolderMessages(ctx, client, accountID, accountProvider, folder.ID, folder.RemoteID)
+		return nil
 	}
 
-	o.refreshFlags(ctx, client, accountID, folder)
+	currentValidity, changed, err := o.refreshFlags(ctx, client, accountID, folder, expectedUIDValidity)
+	if err != nil {
+		return err
+	}
+	if changed {
+		return o.resetFolderUIDStateAndSync(ctx, client, accountID, accountProvider, folder, expectedUIDValidity, currentValidity)
+	}
 
 	o.db.RefreshFolderUnreadCount(ctx, folder.ID)
 
 	return nil
 }
 
-func (o *SyncOrchestrator) reconcileFolder(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo) {
-	serverUIDs, err := client.FetchAllUIDs(ctx, folder.RemoteID)
+func (o *SyncOrchestrator) reconcileFolder(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, expectedUIDValidity, highestUID uint32) (uint32, bool, error) {
+	serverUIDs, currentUIDValidity, changed, err := client.FetchAllUIDs(ctx, folder.RemoteID, expectedUIDValidity)
 	if err != nil {
-		log.Printf("reconcile %s/%s: fetch uids: %v", accountID, folder.RemoteID, err)
-		return
+		return currentUIDValidity, false, fmt.Errorf("reconcile %s/%s: fetch uids: %w", accountID, folder.RemoteID, err)
+	}
+	if changed || folderUIDStateNeedsReset(expectedUIDValidity, currentUIDValidity, highestUID) {
+		return currentUIDValidity, true, nil
 	}
 
 	localUIDs, err := o.db.GetLocalUIDs(ctx, folder.ID)
 	if err != nil {
-		log.Printf("reconcile %s/%s: local uids: %v", accountID, folder.RemoteID, err)
-		return
+		return currentUIDValidity, false, fmt.Errorf("reconcile %s/%s: local uids: %w", accountID, folder.RemoteID, err)
 	}
 
 	serverSet := make(map[uint32]bool, len(serverUIDs))
@@ -1142,22 +1170,22 @@ func (o *SyncOrchestrator) reconcileFolder(ctx context.Context, client *imap.Cli
 	if len(expunged) > 0 {
 		removed, err := o.db.RemoveExpungedUIDs(ctx, folder.ID, expunged)
 		if err != nil {
-			log.Printf("reconcile %s/%s: remove: %v", accountID, folder.RemoteID, err)
+			return currentUIDValidity, false, fmt.Errorf("reconcile %s/%s: remove: %w", accountID, folder.RemoteID, err)
 		} else {
 			log.Printf("reconcile %s/%s: removed %d expunged messages", accountID, folder.RemoteID, removed)
 		}
 	}
+	return currentUIDValidity, false, nil
 }
 
-func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo) {
+func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, expectedUIDValidity uint32) (uint32, bool, error) {
 	localUIDs, err := o.db.GetLocalUIDs(ctx, folder.ID)
 	if err != nil {
-		log.Printf("flags %s/%s: local uids: %v", accountID, folder.RemoteID, err)
-		return
+		return expectedUIDValidity, false, fmt.Errorf("flags %s/%s: local uids: %w", accountID, folder.RemoteID, err)
 	}
 
 	if len(localUIDs) == 0 {
-		return
+		return expectedUIDValidity, false, nil
 	}
 
 	uids := make([]uint32, 0, len(localUIDs))
@@ -1165,19 +1193,22 @@ func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client
 		uids = append(uids, uid)
 	}
 
-	flagUpdates, err := client.FetchFlags(ctx, folder.RemoteID, uids)
+	flagUpdates, currentUIDValidity, changed, err := client.FetchFlags(ctx, folder.RemoteID, uids, expectedUIDValidity)
 	if err != nil {
-		log.Printf("flags %s/%s: fetch: %v", accountID, folder.RemoteID, err)
-		return
+		return currentUIDValidity, false, fmt.Errorf("flags %s/%s: fetch: %w", accountID, folder.RemoteID, err)
+	}
+	if changed {
+		return currentUIDValidity, true, nil
 	}
 
-	changed, err := o.db.BatchUpdateFlags(ctx, folder.ID, convertFlagUpdates(flagUpdates))
+	changedCount, err := o.db.BatchUpdateFlags(ctx, folder.ID, convertFlagUpdates(flagUpdates))
 	if err != nil {
-		log.Printf("flags %s/%s: update: %v", accountID, folder.RemoteID, err)
-	} else if changed > 0 {
-		log.Printf("flags %s/%s: %d changed", accountID, folder.RemoteID, changed)
+		return currentUIDValidity, false, fmt.Errorf("flags %s/%s: update: %w", accountID, folder.RemoteID, err)
+	} else if changedCount > 0 {
+		log.Printf("flags %s/%s: %d changed", accountID, folder.RemoteID, changedCount)
 		o.db.RefreshFolderUnreadCount(ctx, folder.ID)
 	}
+	return currentUIDValidity, false, nil
 }
 
 func (o *SyncOrchestrator) acquireBackgroundSyncSlot(ctx context.Context) (func(), bool) {
@@ -1897,6 +1928,13 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 	}
 	defer finish()
 
+	storedUIDValidity, err := o.db.GetStoredUIDValidity(syncCtx, folderID)
+	if err != nil {
+		log.Printf("incremental %s/%s: get UIDVALIDITY: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
+		return
+	}
+
 	highestUID, err := o.db.GetHighestSeenUID(syncCtx, folderID)
 	if err != nil {
 		log.Printf("incremental %s/%s: get uid: %v", accountID, remoteName, err)
@@ -1926,16 +1964,49 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 	}
 	defer client.Close()
 
-	o.reconcileAndRefresh(syncCtx, client, accountID, folderID, remoteName)
 	folderRole, _ := o.db.GetFolderRole(syncCtx, folderID)
+	folder := storage.FolderSyncInfo{
+		ID:        folderID,
+		AccountID: accountID,
+		RemoteID:  remoteName,
+		Role:      folderRole,
+	}
+
+	currentUIDValidity, changed, err := o.reconcileAndRefresh(syncCtx, client, accountID, folder, storedUIDValidity, highestUID)
+	if err != nil {
+		log.Printf("incremental %s/%s: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
+		return
+	}
+	if changed {
+		if err := o.resetFolderUIDStateAndSync(syncCtx, client, accountID, cfg.Provider, folder, storedUIDValidity, currentUIDValidity); err != nil {
+			log.Printf("incremental %s/%s: reset UID state: %v", accountID, remoteName, err)
+			o.markAccountSyncError(syncCtx, accountID, err)
+		}
+		return
+	}
+	if currentUIDValidity > 0 {
+		storedUIDValidity = currentUIDValidity
+	}
 
 	var summary newMailSummary
-	result, err := client.SyncFolderIncremental(syncCtx, folderID, remoteName, highestUID, func(msgs []storage.SyncMessage) error {
+	result, err := client.SyncFolderIncremental(syncCtx, folderID, remoteName, highestUID, storedUIDValidity, func(msgs []storage.SyncMessage) error {
 		summary.Add(msgs)
 		return o.db.UpsertSyncMessages(syncCtx, withFolderLabels(msgs, cfg.Provider, remoteName, folderRole))
 	})
 	if err != nil {
 		log.Printf("incremental %s/%s: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
+		return
+	}
+	if result == nil {
+		return
+	}
+	if result.UIDValidityChanged {
+		if err := o.resetFolderUIDStateAndSync(syncCtx, client, accountID, cfg.Provider, folder, storedUIDValidity, result.UIDValidity); err != nil {
+			log.Printf("incremental %s/%s: reset UID state: %v", accountID, remoteName, err)
+			o.markAccountSyncError(syncCtx, accountID, err)
+		}
 		return
 	}
 	o.clearAccountSyncError(syncCtx, accountID)
@@ -1944,8 +2015,10 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 		log.Printf("incremental %s/%s: %d new messages", accountID, remoteName, result.TotalFetched)
 	}
 
-	if result != nil {
-		o.db.UpdateFolderIncrementalSync(syncCtx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages))
+	if err := o.db.UpdateFolderIncrementalSync(syncCtx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages)); err != nil {
+		log.Printf("incremental %s/%s: update sync state: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
+		return
 	}
 
 	if err := o.syncProviderLabelChanges(syncCtx, accountID, cfg.Provider); err != nil {
@@ -1960,63 +2033,15 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 	_ = unread
 }
 
-func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap.Client, accountID, folderID, remoteName string) {
-	localUIDs, err := o.db.GetLocalUIDs(ctx, folderID)
-	if err != nil {
-		log.Printf("reconcile %s/%s: local uids: %v", accountID, remoteName, err)
-		return
+func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, expectedUIDValidity, highestUID uint32) (uint32, bool, error) {
+	currentUIDValidity, changed, err := o.reconcileFolder(ctx, client, accountID, folder, expectedUIDValidity, highestUID)
+	if err != nil || changed {
+		return currentUIDValidity, changed, err
 	}
-
-	if len(localUIDs) == 0 {
-		return
+	if currentUIDValidity > 0 {
+		expectedUIDValidity = currentUIDValidity
 	}
-
-	serverUIDs, err := client.FetchAllUIDs(ctx, remoteName)
-	if err != nil {
-		log.Printf("reconcile %s/%s: fetch uids: %v", accountID, remoteName, err)
-		return
-	}
-
-	serverSet := make(map[uint32]bool, len(serverUIDs))
-	for _, uid := range serverUIDs {
-		serverSet[uid] = true
-	}
-
-	var expunged []uint32
-	for uid := range localUIDs {
-		if !serverSet[uid] {
-			expunged = append(expunged, uid)
-		}
-	}
-
-	if len(expunged) > 0 {
-		removed, err := o.db.RemoveExpungedUIDs(ctx, folderID, expunged)
-		if err != nil {
-			log.Printf("reconcile %s/%s: remove: %v", accountID, remoteName, err)
-		} else if removed > 0 {
-			log.Printf("reconcile %s/%s: removed %d expunged", accountID, remoteName, removed)
-		}
-	}
-
-	uids := make([]uint32, 0, len(localUIDs))
-	for uid := range localUIDs {
-		if serverSet[uid] {
-			uids = append(uids, uid)
-		}
-	}
-
-	flagUpdates, err := client.FetchFlags(ctx, remoteName, uids)
-	if err != nil {
-		log.Printf("flags %s/%s: fetch: %v", accountID, remoteName, err)
-		return
-	}
-
-	changed, err := o.db.BatchUpdateFlags(ctx, folderID, convertFlagUpdates(flagUpdates))
-	if err != nil {
-		log.Printf("flags %s/%s: update: %v", accountID, remoteName, err)
-	} else if changed > 0 {
-		log.Printf("flags %s/%s: %d changed", accountID, remoteName, changed)
-	}
+	return o.refreshFlags(ctx, client, accountID, folder, expectedUIDValidity)
 }
 
 func folderIDFromRemote(accountID, remoteName string) string {

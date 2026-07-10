@@ -15,10 +15,11 @@ import (
 )
 
 type SyncResult struct {
-	TotalFetched int
-	HighestUID   uint32
-	UIDValidity  uint32
-	NumMessages  uint32
+	TotalFetched       int
+	HighestUID         uint32
+	UIDValidity        uint32
+	UIDValidityChanged bool
+	NumMessages        uint32
 }
 
 func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, chunkSize int, fn func([]storage.SyncMessage) error) (*SyncResult, error) {
@@ -195,7 +196,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 	return result, nil
 }
 
-func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName string, highestUID uint32, fn func([]storage.SyncMessage) error) (*SyncResult, error) {
+func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName string, highestUID, expectedUIDValidity uint32, fn func([]storage.SyncMessage) error) (*SyncResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -210,10 +211,14 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 	defer c.client.Unselect()
 
 	result := &SyncResult{
-		HighestUID:  highestUID,
 		UIDValidity: uint32(selectData.UIDValidity),
 		NumMessages: selectData.NumMessages,
 	}
+	if uidStateNeedsReset(expectedUIDValidity, result.UIDValidity, highestUID) {
+		result.UIDValidityChanged = true
+		return result, nil
+	}
+	result.HighestUID = highestUID
 
 	uidNext := uint32(selectData.UIDNext)
 	if highestUID+1 >= uidNext {
@@ -350,24 +355,36 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 	return result, nil
 }
 
-func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string) ([]uint32, error) {
+func uidValidityChanged(expected, current uint32) bool {
+	return expected > 0 && current > 0 && expected != current
+}
+
+func uidStateNeedsReset(expected, current, highestUID uint32) bool {
+	return uidValidityChanged(expected, current) || expected == 0 && current > 0 && highestUID > 0
+}
+
+func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string, expectedUIDValidity uint32) ([]uint32, uint32, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return nil, fmt.Errorf("client is closed")
+		return nil, 0, false, fmt.Errorf("client is closed")
 	}
 
-	_, err := c.client.Select(remoteName, nil).Wait()
+	selectData, err := c.client.Select(remoteName, nil).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("select %s: %w", remoteName, err)
+		return nil, 0, false, fmt.Errorf("select %s: %w", remoteName, err)
 	}
 	defer c.client.Unselect()
+	currentUIDValidity := uint32(selectData.UIDValidity)
+	if uidValidityChanged(expectedUIDValidity, currentUIDValidity) {
+		return nil, currentUIDValidity, true, nil
+	}
 
 	searchCmd := c.client.UIDSearch(&imap.SearchCriteria{}, nil)
 	searchData, err := searchCmd.Wait()
 	if err != nil {
-		return nil, fmt.Errorf("uid search %s: %w", remoteName, err)
+		return nil, currentUIDValidity, false, fmt.Errorf("uid search %s: %w", remoteName, err)
 	}
 
 	imapUIDs := searchData.AllUIDs()
@@ -375,7 +392,7 @@ func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string) ([]uint32,
 	for i, uid := range imapUIDs {
 		uids[i] = uint32(uid)
 	}
-	return uids, nil
+	return uids, currentUIDValidity, false, nil
 }
 
 func (c *Client) FindUIDByMessageID(ctx context.Context, remoteName, messageID string) (uint32, error) {
@@ -421,23 +438,27 @@ type FlagUpdate struct {
 	Labels    []storage.LabelInput
 }
 
-func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint32) ([]FlagUpdate, error) {
+func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint32, expectedUIDValidity uint32) ([]FlagUpdate, uint32, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return nil, fmt.Errorf("client is closed")
+		return nil, 0, false, fmt.Errorf("client is closed")
 	}
 
 	if len(uids) == 0 {
-		return nil, nil
+		return nil, expectedUIDValidity, false, nil
 	}
 
-	_, err := c.client.Select(remoteName, nil).Wait()
+	selectData, err := c.client.Select(remoteName, nil).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("select %s: %w", remoteName, err)
+		return nil, 0, false, fmt.Errorf("select %s: %w", remoteName, err)
 	}
 	defer c.client.Unselect()
+	currentUIDValidity := uint32(selectData.UIDValidity)
+	if uidValidityChanged(expectedUIDValidity, currentUIDValidity) {
+		return nil, currentUIDValidity, true, nil
+	}
 
 	var allUpdates []FlagUpdate
 	chunkSize := 500
@@ -491,11 +512,11 @@ func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint3
 		}
 
 		if err := cmd.Close(); err != nil {
-			return allUpdates, fmt.Errorf("fetch flags %s: %w", remoteName, err)
+			return allUpdates, currentUIDValidity, false, fmt.Errorf("fetch flags %s: %w", remoteName, err)
 		}
 	}
 
-	return allUpdates, nil
+	return allUpdates, currentUIDValidity, false, nil
 }
 
 func labelsFromFlags(flags []imap.Flag) []storage.LabelInput {
@@ -557,23 +578,6 @@ func isSystemOrStatusFlag(flag string) bool {
 	default:
 		return strings.HasPrefix(flag, "\\")
 	}
-}
-
-func (c *Client) CheckUIDValidity(ctx context.Context, remoteName string) (uint32, uint32, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed {
-		return 0, 0, fmt.Errorf("client is closed")
-	}
-
-	selectData, err := c.client.Select(remoteName, nil).Wait()
-	if err != nil {
-		return 0, 0, fmt.Errorf("select %s: %w", remoteName, err)
-	}
-	c.client.Unselect()
-
-	return uint32(selectData.UIDValidity), uint32(selectData.UIDNext), nil
 }
 
 func truncate(s string, maxLen int) string {

@@ -6956,7 +6956,7 @@ func (db *DB) RemoveExpungedUIDs(ctx context.Context, folderID string, expungedU
 	return int(removed), nil
 }
 
-func (db *DB) ClearFolderMessages(ctx context.Context, folderID string) error {
+func (db *DB) ResetFolderUIDState(ctx context.Context, folderID string, uidValidity uint32) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -6982,9 +6982,10 @@ func (db *DB) ClearFolderMessages(ctx context.Context, folderID string) error {
 	}
 
 	_, err = tx.ExecContext(ctx,
-		`UPDATE folders SET highest_seen_uid = 0, total_count = 0, unread_count = 0,
+		`UPDATE folders SET uid_validity = ?, highest_seen_uid = 0, uid_next = NULL, highest_modseq = NULL,
+		 total_count = 0, unread_count = 0,
 		 last_full_sync_at = NULL, last_incremental_sync_at = NULL, sync_error = NULL,
-		 updated_at = CURRENT_TIMESTAMP WHERE id = ?`, folderID)
+		 updated_at = CURRENT_TIMESTAMP WHERE id = ?`, uidValidity, folderID)
 	if err != nil {
 		return fmt.Errorf("reset folder state: %w", err)
 	}
