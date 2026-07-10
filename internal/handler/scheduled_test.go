@@ -1,9 +1,36 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestOutgoingSendContextIsBoundedAndKeepsParentCancellation(t *testing.T) {
+	started := time.Now()
+	parent, cancelParent := context.WithCancel(context.Background())
+	ctx, cancel := outgoingSendContext(parent)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("outgoingSendContext() has no deadline")
+	}
+	if remaining := deadline.Sub(started); remaining < outgoingSendTimeout-time.Second || remaining > outgoingSendTimeout+time.Second {
+		t.Fatalf("outgoing send deadline = %v, want about %v", remaining, outgoingSendTimeout)
+	}
+
+	cancelParent()
+	select {
+	case <-ctx.Done():
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatalf("outgoing send context error = %v, want parent cancellation", ctx.Err())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("outgoing send context did not follow parent cancellation")
+	}
+}
 
 func TestParseScheduledSendWallTimeUsesLocation(t *testing.T) {
 	loc, err := time.LoadLocation("Asia/Kolkata")

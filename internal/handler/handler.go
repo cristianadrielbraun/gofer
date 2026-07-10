@@ -70,7 +70,15 @@ const (
 	composeMessageMaxBytes        int64 = 35 << 20
 	contactImportMaxBytes         int64 = 5 << 20
 	composeStagedAttachmentMaxAge       = 24 * time.Hour
+	outgoingSendTimeout                 = 5 * time.Minute
 )
+
+func outgoingSendContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(parent, outgoingSendTimeout)
+}
 
 func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore, authManager *auth.Manager, vapidPublicKey string) *Handler {
 	h := &Handler{
@@ -4058,7 +4066,9 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	draftID := strings.TrimSpace(r.FormValue("draft_id"))
 
 	go func() {
-		status, sendErr := h.sendOutgoingMessage(context.Background(), accountID, msg, draftID)
+		sendCtx, cancelSend := outgoingSendContext(context.Background())
+		defer cancelSend()
+		status, sendErr := h.sendOutgoingMessage(sendCtx, accountID, msg, draftID)
 
 		evt := mail.Event{
 			Type:      mail.EventSendResult,
@@ -4305,7 +4315,9 @@ func (h *Handler) sendScheduledMessage(ctx context.Context, scheduled storage.Sc
 		Attachments: outgoingAttachmentsFromStored(email.Attachments),
 	}
 
-	status, errText := h.sendOutgoingMessage(ctx, email.AccountID, msg, email.InternetMessageID)
+	sendCtx, cancelSend := outgoingSendContext(ctx)
+	status, errText := h.sendOutgoingMessage(sendCtx, email.AccountID, msg, email.InternetMessageID)
+	cancelSend()
 	if status == "sent" {
 		if err := h.db.CompleteScheduledSend(ctx, scheduled.ID, msg.MessageID); err != nil {
 			return err

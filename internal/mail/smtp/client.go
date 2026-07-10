@@ -21,9 +21,51 @@ type Client struct {
 	client *smtp.Client
 }
 
+const (
+	connectTimeout         = 15 * time.Second
+	setupTimeout           = 30 * time.Second
+	commandTimeout         = 30 * time.Second
+	submissionTimeout      = 5 * time.Minute
+	outgoingMessageTimeout = 5 * time.Minute
+)
+
+func nonNilContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func contextError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
+}
+
+func deadlineForContext(ctx context.Context, fallback time.Duration) time.Time {
+	deadline := time.Now().Add(fallback)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		return ctxDeadline
+	}
+	return deadline
+}
+
+func configureTimeouts(client *smtp.Client) {
+	client.CommandTimeout = commandTimeout
+	client.SubmissionTimeout = submissionTimeout
+}
+
 func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) (*Client, error) {
+	ctx = nonNilContext(ctx)
+	setupCtx, cancelSetup := context.WithTimeout(ctx, setupTimeout)
+	defer cancelSetup()
+	if err := setupCtx.Err(); err != nil {
+		return nil, err
+	}
+
 	addr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
-	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	dialer := &net.Dialer{Timeout: connectTimeout}
 
 	var conn net.Conn
 	var client *smtp.Client
@@ -35,38 +77,44 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 			ServerName: cfg.SMTPHost,
 			MinVersion: tls.VersionTLS12,
 		}
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
+		tlsDialer := &tls.Dialer{NetDialer: dialer, Config: tlsConfig}
+		conn, err = tlsDialer.DialContext(setupCtx, "tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect to %s: %w", addr, err)
+			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
 		}
 		client = smtp.NewClient(conn)
 
 	case "starttls":
-		conn, err = dialer.DialContext(ctx, "tcp", addr)
+		conn, err = dialer.DialContext(setupCtx, "tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect to %s: %w", addr, err)
+			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
 		}
+		stopCancellation := context.AfterFunc(setupCtx, func() { _ = conn.Close() })
+		defer stopCancellation()
 		tlsConfig := &tls.Config{
 			ServerName: cfg.SMTPHost,
 			MinVersion: tls.VersionTLS12,
 		}
 		client, err = smtp.NewClientStartTLS(conn, tlsConfig)
 		if err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("starttls: %w", err)
+			_ = conn.Close()
+			return nil, fmt.Errorf("starttls: %w", contextError(setupCtx, err))
 		}
 
 	default:
-		conn, err = dialer.DialContext(ctx, "tcp", addr)
+		conn, err = dialer.DialContext(setupCtx, "tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect to %s: %w", addr, err)
+			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
 		}
 		client = smtp.NewClient(conn)
 	}
+	stopCancellation := context.AfterFunc(setupCtx, func() { _ = conn.Close() })
+	defer stopCancellation()
+	configureTimeouts(client)
 
 	if err := client.Hello("localhost"); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("ehlo: %w", err)
+		_ = conn.Close()
+		return nil, fmt.Errorf("ehlo: %w", contextError(setupCtx, err))
 	}
 
 	smtpUsername := cfg.SmtpUsername
@@ -87,8 +135,8 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 	}
 
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("authenticate: %w", err)
+		_ = conn.Close()
+		return nil, fmt.Errorf("authenticate: %w", contextError(setupCtx, err))
 	}
 
 	return &Client{
@@ -103,63 +151,52 @@ func (c *Client) Send(ctx context.Context, msg *message.OutgoingMessage) (models
 	if len(recipients) == 0 {
 		return models.SendFailed, fmt.Errorf("no recipients")
 	}
-
-	if err := c.client.Mail(msg.FromEmail, nil); err != nil {
-		return models.SendFailed, fmt.Errorf("mail from: %w", err)
-	}
-
-	for _, rcpt := range recipients {
-		if err := c.client.Rcpt(rcpt, nil); err != nil {
-			return models.SendFailed, fmt.Errorf("rcpt to %s: %w", rcpt, err)
-		}
-	}
-
-	dataw, err := c.client.Data()
-	if err != nil {
-		return models.SendFailed, fmt.Errorf("data: %w", err)
-	}
-
 	mimeData, err := message.BuildMIMEMessage(msg)
 	if err != nil {
-		dataw.Close()
 		return models.SendFailed, fmt.Errorf("build mime: %w", err)
 	}
-
-	if _, err := dataw.Write(mimeData); err != nil {
-		dataw.Close()
-		return models.SendAmbiguous, fmt.Errorf("write data: %w", err)
-	}
-
-	if err := dataw.Close(); err != nil {
-		return models.SendAmbiguous, fmt.Errorf("close data: %w", err)
-	}
-
-	return models.SendSuccess, nil
+	return c.SendRaw(ctx, msg.FromEmail, recipients, mimeData)
 }
 
 func (c *Client) SendRaw(ctx context.Context, from string, recipients []string, mimeData []byte) (models.SendResult, error) {
+	if len(recipients) == 0 {
+		return models.SendFailed, fmt.Errorf("no recipients")
+	}
+	ctx = nonNilContext(ctx)
+	sendCtx, cancelSend := context.WithTimeout(ctx, outgoingMessageTimeout)
+	defer cancelSend()
+	if err := sendCtx.Err(); err != nil {
+		return models.SendFailed, err
+	}
+	stopCancellation := context.AfterFunc(sendCtx, func() { _ = c.conn.Close() })
+	defer stopCancellation()
+
 	if err := c.client.Mail(from, nil); err != nil {
-		return models.SendFailed, fmt.Errorf("mail from: %w", err)
+		return models.SendFailed, fmt.Errorf("mail from: %w", contextError(sendCtx, err))
 	}
 
 	for _, rcpt := range recipients {
 		if err := c.client.Rcpt(rcpt, nil); err != nil {
-			return models.SendFailed, fmt.Errorf("rcpt to %s: %w", rcpt, err)
+			return models.SendFailed, fmt.Errorf("rcpt to %s: %w", rcpt, contextError(sendCtx, err))
 		}
 	}
 
 	dataw, err := c.client.Data()
 	if err != nil {
-		return models.SendFailed, fmt.Errorf("data: %w", err)
+		return models.SendFailed, fmt.Errorf("data: %w", contextError(sendCtx, err))
+	}
+	if err := c.conn.SetDeadline(deadlineForContext(sendCtx, submissionTimeout)); err != nil {
+		_ = c.conn.Close()
+		return models.SendFailed, fmt.Errorf("set data deadline: %w", contextError(sendCtx, err))
 	}
 
 	if _, err := dataw.Write(mimeData); err != nil {
-		dataw.Close()
-		return models.SendAmbiguous, fmt.Errorf("write data: %w", err)
+		_ = c.conn.Close()
+		return models.SendAmbiguous, fmt.Errorf("write data: %w", contextError(sendCtx, err))
 	}
 
 	if err := dataw.Close(); err != nil {
-		return models.SendAmbiguous, fmt.Errorf("close data: %w", err)
+		return models.SendAmbiguous, fmt.Errorf("close data: %w", contextError(sendCtx, err))
 	}
 
 	return models.SendSuccess, nil
