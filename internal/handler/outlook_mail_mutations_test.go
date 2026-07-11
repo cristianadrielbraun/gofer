@@ -123,7 +123,10 @@ func TestOutlookGraphMutationUsesProviderMessageIDAndCachesMovedID(t *testing.T)
 	if err != nil || info == nil {
 		t.Fatalf("GetMessageMutationInfo() = %#v, %v", info, err)
 	}
-	h.setRemoteMessageRead(ctx, msgID, *info, false)
+	if err := db.SetMessageReadAndQueue(ctx, msgID, false); err != nil {
+		t.Fatalf("SetMessageReadAndQueue() error = %v", err)
+	}
+	h.runDueMessageMutations(ctx)
 	h.moveRemoteMessage(ctx, msgID, *info, "acc_archive", "Archive")
 
 	if !sawReadPatch {

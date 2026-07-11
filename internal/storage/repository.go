@@ -1378,8 +1378,12 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			}
 		}
 
+		isRead, isStarred := m.IsRead, m.IsStarred
+		if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, &isRead, &isStarred); err != nil {
+			return fmt.Errorf("protect pending message mutation: %w", err)
+		}
 		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, remoteUID,
-			m.IsRead, m.IsStarred, m.IsDraft, time.Now().UTC()); err != nil {
+			isRead, isStarred, m.IsDraft, time.Now().UTC()); err != nil {
 			return fmt.Errorf("upsert state: %w", err)
 		}
 
@@ -1616,7 +1620,11 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 			}
 		}
 
-		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, m.IsRead, m.IsStarred, m.IsFlagged, m.IsDraft, time.Now().UTC()); err != nil {
+		isRead, isStarred := m.IsRead, m.IsStarred
+		if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, &isRead, &isStarred); err != nil {
+			return nil, fmt.Errorf("protect pending provider mutation: %w", err)
+		}
+		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, isRead, isStarred, m.IsFlagged, m.IsDraft, time.Now().UTC()); err != nil {
 			return nil, fmt.Errorf("upsert provider folder state: %w", err)
 		}
 		if desiredProviderFolders[msgID] == nil {
@@ -6008,6 +6016,14 @@ func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int
 	return db.GetMessageMutationInfo(ctx, messageID)
 }
 
+func (db *DB) GetMessageMutationInfoInFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return nil, nil
+	}
+	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID})
+}
+
 func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folderPredicate string, folderArgs []any) (*MessageMutationInfo, error) {
 	var info MessageMutationInfo
 	var remoteUID sql.NullInt64
@@ -7101,11 +7117,15 @@ func (db *DB) applyIMAPFlagUpdates(ctx context.Context, folderID string, expecte
 		}
 
 		newRead := 0
-		if u.IsRead {
+		incomingRead, incomingStarred := u.IsRead, u.IsStarred
+		if err := resolveMessageMutationTargetsTx(ctx, tx, messageID, folderID, &incomingRead, &incomingStarred); err != nil {
+			return 0, fmt.Errorf("protect pending IMAP flag mutation for UID %d: %w", u.UID, err)
+		}
+		if incomingRead {
 			newRead = 1
 		}
 		newStarred := 0
-		if u.IsStarred {
+		if incomingStarred {
 			newStarred = 1
 		}
 

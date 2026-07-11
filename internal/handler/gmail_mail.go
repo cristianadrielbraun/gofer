@@ -36,46 +36,6 @@ func (h *Handler) shouldUseGmailAPIMailRuntime(provider string) bool {
 	return strings.TrimSpace(provider) == providers.ProviderGmail && gmailAPIMailRuntimeEnabled()
 }
 
-func (h *Handler) trySetGmailMessageRead(ctx context.Context, messageID int64, info storage.MessageMutationInfo, read bool) bool {
-	if !h.shouldUseGmailAPIMailRuntime(info.AccountProvider) {
-		return false
-	}
-	token, providerMessageID, ok := h.gmailMessageIdentity(ctx, messageID, info, "read mutation")
-	if !ok {
-		return true
-	}
-	var addLabels, removeLabels []string
-	if read {
-		removeLabels = []string{"UNREAD"}
-	} else {
-		addLabels = []string{"UNREAD"}
-	}
-	if err := h.modifyGmailMessageLabels(ctx, token, providerMessageID, addLabels, removeLabels); err != nil {
-		log.Printf("gmail mark read account=%s message=%d: %v", info.AccountID, messageID, err)
-	}
-	return true
-}
-
-func (h *Handler) trySetGmailMessageStarred(ctx context.Context, messageID int64, info storage.MessageMutationInfo, starred bool) bool {
-	if !h.shouldUseGmailAPIMailRuntime(info.AccountProvider) {
-		return false
-	}
-	token, providerMessageID, ok := h.gmailMessageIdentity(ctx, messageID, info, "star mutation")
-	if !ok {
-		return true
-	}
-	var addLabels, removeLabels []string
-	if starred {
-		addLabels = []string{"STARRED"}
-	} else {
-		removeLabels = []string{"STARRED"}
-	}
-	if err := h.modifyGmailMessageLabels(ctx, token, providerMessageID, addLabels, removeLabels); err != nil {
-		log.Printf("gmail mark starred account=%s message=%d: %v", info.AccountID, messageID, err)
-	}
-	return true
-}
-
 func (h *Handler) tryMoveGmailMessage(ctx context.Context, messageID int64, info storage.MessageMutationInfo, destinationFolderID string) bool {
 	if !h.shouldUseGmailAPIMailRuntime(info.AccountProvider) {
 		return false

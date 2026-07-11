@@ -417,6 +417,8 @@ func TestDeleteAccountCleansAccountDataExplicitly(t *testing.T) {
 		 VALUES ('acc_delete', 'gmail', 'labels')`,
 		`INSERT INTO label_mutation_queue (account_id, message_id, provider_type, operation, label_name)
 		 VALUES ('acc_delete', 1001, 'gmail', 'add', 'Important')`,
+		`INSERT INTO message_mutations (id, account_id, message_id, provider_type, kind, target_value)
+		 VALUES ('mutation-delete', 'acc_delete', 1001, 'gmail', 'read', 1)`,
 		`INSERT INTO sync_state (account_id, folder_id)
 		 VALUES ('acc_delete', 'acc_delete_inbox')`,
 		`CREATE TABLE IF NOT EXISTS gmail_watch_state (
@@ -501,6 +503,7 @@ func TestDeleteAccountCleansAccountDataExplicitly(t *testing.T) {
 		{"message_labels", `SELECT COUNT(*) FROM message_labels WHERE label_id = 'acc_delete_label'`},
 		{"label_sync_state", `SELECT COUNT(*) FROM label_sync_state WHERE account_id = 'acc_delete'`},
 		{"label_mutation_queue", `SELECT COUNT(*) FROM label_mutation_queue WHERE account_id = 'acc_delete'`},
+		{"message_mutations", `SELECT COUNT(*) FROM message_mutations WHERE account_id = 'acc_delete'`},
 		{"sync_state", `SELECT COUNT(*) FROM sync_state WHERE account_id = 'acc_delete'`},
 		{"gmail_watch_state", `SELECT COUNT(*) FROM gmail_watch_state WHERE account_id = 'acc_delete'`},
 		{"gmail_poll_state", `SELECT COUNT(*) FROM gmail_poll_state WHERE account_id = 'acc_delete'`},

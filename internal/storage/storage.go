@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 60
+	const targetSchemaVersion = 61
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -504,6 +504,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 59 {
 		if err := migrateV59ToV60(tx); err != nil {
 			return fmt.Errorf("migrate v59 to v60: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 60 {
+		if err := migrateV60ToV61(tx); err != nil {
+			return fmt.Errorf("migrate v60 to v61: %w", err)
 		}
 	}
 
@@ -2337,6 +2343,39 @@ func migrateV59ToV60(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_imap_draft_operations_due
 		 ON imap_draft_operations(status, next_attempt_at, created_at)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (60)`,
+	}
+	for _, migration := range migrations {
+		if _, err := tx.Exec(migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV60ToV61(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS message_mutations (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+			folder_id TEXT NOT NULL DEFAULT '',
+			provider_type TEXT NOT NULL CHECK (provider_type IN ('gmail', 'outlook', 'imap')),
+			kind TEXT NOT NULL CHECK (kind IN ('read', 'starred')),
+			target_value INTEGER NOT NULL CHECK (target_value IN (0, 1)),
+			status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'failed', 'applied')),
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(message_id, kind, folder_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_message_mutations_due
+		 ON message_mutations(status, next_attempt_at, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_message_mutations_account
+		 ON message_mutations(account_id, status, next_attempt_at)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (61)`,
 	}
 	for _, migration := range migrations {
 		if _, err := tx.Exec(migration); err != nil {

@@ -36,34 +36,36 @@ import (
 )
 
 type Handler struct {
-	db                   *storage.DB
-	accountStore         *config.AccountStore
-	syncer               *mail.SyncOrchestrator
-	blobStore            *store.BlobStore
-	auth                 *auth.Manager
-	avatar               *avatarresolver.Resolver
-	bodyClientMu         sync.Mutex
-	bodyClients          map[string]*imap.Client
-	bodyFetchMu          sync.Mutex
-	bodyFetches          map[int64]chan struct{}
-	accountDeleteMu      sync.Mutex
-	avatarWarmupQueue    chan storage.SenderAvatarCandidate
-	avatarWarmupMu       sync.Mutex
-	avatarWarmupQueued   map[string]struct{}
-	avatarWarmupForced   map[string]time.Time
-	avatarBackfillMu     sync.RWMutex
-	avatarBackfillState  models.AvatarBackfillState
-	avatarBackfillCancel context.CancelFunc
-	avatarBackfillRunID  int64
-	contactBackfillMu    sync.RWMutex
-	contactBackfillState models.ContactBackfillState
-	contactSyncMu        sync.Mutex
-	contactSyncRunning   map[string]struct{}
-	contactSyncQueue     chan struct{}
-	googleTranslator     *translation.GoogleWebConnector
-	vapidPublicKey       string
-	outgoingWake         chan struct{}
-	sentCopyIMAPFactory  sentCopyIMAPClientFactory
+	db                         *storage.DB
+	accountStore               *config.AccountStore
+	syncer                     *mail.SyncOrchestrator
+	blobStore                  *store.BlobStore
+	auth                       *auth.Manager
+	avatar                     *avatarresolver.Resolver
+	bodyClientMu               sync.Mutex
+	bodyClients                map[string]*imap.Client
+	bodyFetchMu                sync.Mutex
+	bodyFetches                map[int64]chan struct{}
+	accountDeleteMu            sync.Mutex
+	avatarWarmupQueue          chan storage.SenderAvatarCandidate
+	avatarWarmupMu             sync.Mutex
+	avatarWarmupQueued         map[string]struct{}
+	avatarWarmupForced         map[string]time.Time
+	avatarBackfillMu           sync.RWMutex
+	avatarBackfillState        models.AvatarBackfillState
+	avatarBackfillCancel       context.CancelFunc
+	avatarBackfillRunID        int64
+	contactBackfillMu          sync.RWMutex
+	contactBackfillState       models.ContactBackfillState
+	contactSyncMu              sync.Mutex
+	contactSyncRunning         map[string]struct{}
+	contactSyncQueue           chan struct{}
+	googleTranslator           *translation.GoogleWebConnector
+	vapidPublicKey             string
+	outgoingWake               chan struct{}
+	sentCopyIMAPFactory        sentCopyIMAPClientFactory
+	messageMutationWake        chan struct{}
+	messageMutationIMAPFactory messageMutationIMAPClientFactory
 }
 
 const (
@@ -83,23 +85,27 @@ func outgoingSendContext(parent context.Context) (context.Context, context.Cance
 
 func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore, authManager *auth.Manager, vapidPublicKey string) *Handler {
 	h := &Handler{
-		db:                 db,
-		accountStore:       accountStore,
-		syncer:             syncer,
-		blobStore:          blobStore,
-		auth:               authManager,
-		avatar:             avatarresolver.NewResolver(),
-		bodyClients:        make(map[string]*imap.Client),
-		bodyFetches:        make(map[int64]chan struct{}),
-		avatarWarmupQueue:  make(chan storage.SenderAvatarCandidate, avatarWarmupQueueSize),
-		avatarWarmupQueued: make(map[string]struct{}),
-		avatarWarmupForced: make(map[string]time.Time),
-		contactSyncRunning: make(map[string]struct{}),
-		contactSyncQueue:   make(chan struct{}, 1),
-		googleTranslator:   translation.NewGoogleWebConnector(nil),
-		vapidPublicKey:     vapidPublicKey,
-		outgoingWake:       make(chan struct{}, 1),
+		db:                  db,
+		accountStore:        accountStore,
+		syncer:              syncer,
+		blobStore:           blobStore,
+		auth:                authManager,
+		avatar:              avatarresolver.NewResolver(),
+		bodyClients:         make(map[string]*imap.Client),
+		bodyFetches:         make(map[int64]chan struct{}),
+		avatarWarmupQueue:   make(chan storage.SenderAvatarCandidate, avatarWarmupQueueSize),
+		avatarWarmupQueued:  make(map[string]struct{}),
+		avatarWarmupForced:  make(map[string]time.Time),
+		contactSyncRunning:  make(map[string]struct{}),
+		contactSyncQueue:    make(chan struct{}, 1),
+		googleTranslator:    translation.NewGoogleWebConnector(nil),
+		vapidPublicKey:      vapidPublicKey,
+		outgoingWake:        make(chan struct{}, 1),
+		messageMutationWake: make(chan struct{}, 1),
 		sentCopyIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
+			return imap.NewClient(ctx, cfg, password)
+		},
+		messageMutationIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (messageMutationIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)
 		},
 	}
@@ -4538,12 +4544,11 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		targetRead = false
 	}
 
-	if err := h.db.SetMessageRead(ctx, msgID, targetRead); err != nil {
+	if err := h.db.SetMessageReadAndQueue(ctx, msgID, targetRead); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	go h.setRemoteMessageRead(context.Background(), msgID, *info, targetRead)
+	h.signalMessageMutationWorker()
 
 	h.publishMutation(info.AccountID, info.FolderID)
 
@@ -4589,17 +4594,16 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 			if len(infos) == 0 {
 				continue
 			}
-			if err := h.db.SetThreadRead(ctx, email.AccountID, email.ThreadID, true); err != nil {
+			messageIDs := make([]int64, 0, len(infos))
+			for _, info := range infos {
+				messageIDs = append(messageIDs, info.MessageID)
+			}
+			if err := h.db.SetMessagesReadAndQueue(ctx, messageIDs, true); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			updated++
-
-			go func(infos []storage.ThreadMessageMutationInfo) {
-				for _, info := range infos {
-					h.setRemoteMessageRead(context.Background(), info.MessageID, info.MessageMutationInfo, true)
-				}
-			}(infos)
+			h.signalMessageMutationWorker()
 
 			h.publishThreadMutation(infos)
 			continue
@@ -4614,13 +4618,13 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			continue
 		}
-		if err := h.db.SetMessageRead(ctx, msgID, true); err != nil {
+		if err := h.db.SetMessageReadAndQueue(ctx, msgID, true); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		updated++
 
-		go h.setRemoteMessageRead(context.Background(), msgID, *info, true)
+		h.signalMessageMutationWorker()
 
 		h.publishMutation(info.AccountID, info.FolderID)
 	}
@@ -4651,18 +4655,16 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			messageIDs := make([]int64, 0, len(infos))
 			for _, info := range infos {
-				if err := h.db.SetMessageStarred(ctx, info.MessageID, targetStarred); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
+				messageIDs = append(messageIDs, info.MessageID)
+			}
+			if err := h.db.SetMessagesStarredAndQueue(ctx, messageIDs, targetStarred); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			updated++
-			go func(infos []storage.ThreadMessageMutationInfo, starred bool) {
-				for _, info := range infos {
-					h.setRemoteMessageStarred(context.Background(), info.MessageID, info.MessageMutationInfo, starred)
-				}
-			}(infos, targetStarred)
+			h.signalMessageMutationWorker()
 			h.publishThreadMutation(infos)
 			continue
 		}
@@ -4671,12 +4673,12 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			continue
 		}
-		if err := h.db.SetMessageStarred(ctx, msgID, targetStarred); err != nil {
+		if err := h.db.SetMessageStarredAndQueue(ctx, msgID, targetStarred); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		updated++
-		go h.setRemoteMessageStarred(context.Background(), msgID, *info, targetStarred)
+		h.signalMessageMutationWorker()
 		h.publishMutation(info.AccountID, info.FolderID)
 	}
 
@@ -4979,12 +4981,12 @@ func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {
 		`SELECT is_starred FROM message_folder_state WHERE message_id = ? LIMIT 1`, msgID,
 	).Scan(&currentState)
 
-	if err := h.db.SetMessageStarred(ctx, msgID, !currentState); err != nil {
+	if err := h.db.SetMessageStarredAndQueue(ctx, msgID, !currentState); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	go h.setRemoteMessageStarred(context.Background(), msgID, *info, !currentState)
+	h.signalMessageMutationWorker()
 
 	h.publishMutation(info.AccountID, info.FolderID)
 
@@ -5025,16 +5027,16 @@ func (h *Handler) handleToggleThreadRead(w http.ResponseWriter, r *http.Request)
 	case "unread":
 		targetRead = false
 	}
-	if err := h.db.SetThreadRead(ctx, email.AccountID, email.ThreadID, targetRead); err != nil {
+	messageIDs := make([]int64, 0, len(infos))
+	for _, info := range infos {
+		messageIDs = append(messageIDs, info.MessageID)
+	}
+	if err := h.db.SetMessagesReadAndQueue(ctx, messageIDs, targetRead); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	go func(infos []storage.ThreadMessageMutationInfo, read bool) {
-		for _, info := range infos {
-			h.setRemoteMessageRead(context.Background(), info.MessageID, info.MessageMutationInfo, read)
-		}
-	}(infos, targetRead)
+	h.signalMessageMutationWorker()
 
 	h.publishThreadMutation(infos)
 

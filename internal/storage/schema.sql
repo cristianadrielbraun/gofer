@@ -240,6 +240,24 @@ CREATE TABLE IF NOT EXISTS label_mutation_queue (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS message_mutations (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    folder_id TEXT NOT NULL DEFAULT '',
+    provider_type TEXT NOT NULL CHECK (provider_type IN ('gmail', 'outlook', 'imap')),
+    kind TEXT NOT NULL CHECK (kind IN ('read', 'starred')),
+    target_value INTEGER NOT NULL CHECK (target_value IN (0, 1)),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'failed', 'applied')),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    locked_at DATETIME,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(message_id, kind, folder_id)
+);
+
 CREATE TABLE IF NOT EXISTS label_aliases (
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     provider_type TEXT NOT NULL,
@@ -398,6 +416,12 @@ ON label_mutation_queue(account_id, provider_type, next_attempt_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_label_mutation_queue_unique
 ON label_mutation_queue(message_id, provider_type, operation, label_name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_message_mutations_due
+ON message_mutations(status, next_attempt_at, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_message_mutations_account
+ON message_mutations(account_id, status, next_attempt_at);
 
 CREATE INDEX IF NOT EXISTS idx_label_aliases_display
 ON label_aliases(account_id, provider_type, display_name COLLATE NOCASE);
@@ -994,4 +1018,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (60);
+INSERT OR REPLACE INTO schema_version (version) VALUES (61);
