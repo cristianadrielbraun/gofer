@@ -8,6 +8,7 @@ import (
 	"html"
 	"html/template"
 	"log"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -6400,6 +6401,7 @@ type FolderSyncInfo struct {
 	Role                            string
 	UIDValidity                     uint32
 	HighestSeenUID                  uint32
+	HighestModSeq                   uint64
 	LastFullSyncAt                  sqliteNullTime
 	LastIncrementalAt               sqliteNullTime
 	SyncCursor                      string
@@ -6860,7 +6862,7 @@ func defaultUISettings() map[string]string {
 func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]FolderSyncInfo, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT f.id, f.account_id, f.remote_id, COALESCE(f.provider_remote_id, ''), f.role,
-		        COALESCE(f.uid_validity, 0), COALESCE(f.highest_seen_uid, 0),
+		        COALESCE(f.uid_validity, 0), COALESCE(f.highest_seen_uid, 0), COALESCE(f.highest_modseq, 0),
 		        f.last_full_sync_at, f.last_incremental_sync_at, COALESCE(f.sync_cursor, ''),
 		        COALESCE(f.total_count, 0),
 		        COALESCE((SELECT COUNT(*) FROM message_folder_state mfs WHERE mfs.folder_id = f.id AND mfs.is_deleted = 0), 0),
@@ -6897,7 +6899,7 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 	for rows.Next() {
 		var f FolderSyncInfo
 		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.ProviderRemoteID, &f.Role,
-			&f.UIDValidity, &f.HighestSeenUID,
+			&f.UIDValidity, &f.HighestSeenUID, &f.HighestModSeq,
 			&f.LastFullSyncAt, &f.LastIncrementalAt, &f.SyncCursor,
 			&f.TotalCount, &f.LocalMessageCount, &f.ProviderMessageCount,
 			&f.ProviderCountDriftFirstSeenAt, &f.ProviderCountDriftLastSeenAt,
@@ -6920,6 +6922,20 @@ func (db *DB) GetStoredUIDValidity(ctx context.Context, folderID string) (uint32
 	}
 	if uidValidity.Valid {
 		return uint32(uidValidity.Int64), nil
+	}
+	return 0, nil
+}
+
+func (db *DB) GetHighestModSeq(ctx context.Context, folderID string) (uint64, error) {
+	var highestModSeq sql.NullInt64
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT highest_modseq FROM folders WHERE id = ?`, folderID,
+	).Scan(&highestModSeq)
+	if err != nil {
+		return 0, err
+	}
+	if highestModSeq.Valid && highestModSeq.Int64 > 0 {
+		return uint64(highestModSeq.Int64), nil
 	}
 	return 0, nil
 }
@@ -7038,7 +7054,18 @@ type FlagUpdate struct {
 }
 
 func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []FlagUpdate) (int, error) {
-	if len(updates) == 0 {
+	return db.applyIMAPFlagUpdates(ctx, folderID, 0, updates, 0, false)
+}
+
+func (db *DB) ApplyIMAPFlagChanges(ctx context.Context, folderID string, expectedUIDValidity uint32, updates []FlagUpdate, highestModSeq uint64) (int, error) {
+	if expectedUIDValidity == 0 || highestModSeq == 0 || highestModSeq > math.MaxInt64 {
+		return 0, fmt.Errorf("IMAP flag checkpoint requires UIDVALIDITY and MODSEQ")
+	}
+	return db.applyIMAPFlagUpdates(ctx, folderID, expectedUIDValidity, updates, highestModSeq, true)
+}
+
+func (db *DB) applyIMAPFlagUpdates(ctx context.Context, folderID string, expectedUIDValidity uint32, updates []FlagUpdate, highestModSeq uint64, saveCheckpoint bool) (int, error) {
+	if len(updates) == 0 && !saveCheckpoint {
 		return 0, nil
 	}
 
@@ -7063,7 +7090,13 @@ func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []F
 		err := tx.QueryRow(
 			`SELECT message_id, is_read, is_starred FROM message_folder_state WHERE folder_id = ? AND remote_uid = ?`,
 			folderID, u.UID).Scan(&messageID, &isRead, &isStarred)
+		if err == sql.ErrNoRows {
+			continue
+		}
 		if err != nil {
+			if saveCheckpoint {
+				return 0, fmt.Errorf("load IMAP flag state for UID %d: %w", u.UID, err)
+			}
 			continue
 		}
 
@@ -7078,17 +7111,39 @@ func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []F
 
 		if isRead != newRead || isStarred != newStarred {
 			if _, err := stmt.ExecContext(ctx, newRead, newStarred, folderID, u.UID); err != nil {
+				if saveCheckpoint {
+					return 0, fmt.Errorf("update IMAP flags for UID %d: %w", u.UID, err)
+				}
 				continue
 			}
 			changed++
 		}
 		if u.LabelsKnown && strings.TrimSpace(u.LabelProvider) != "" {
 			var accountID string
-			if err := tx.QueryRowContext(ctx, `SELECT account_id FROM messages WHERE id = ?`, messageID).Scan(&accountID); err == nil {
-				if err := db.replaceMessageLabelsForProviderTx(ctx, tx, messageID, accountID, u.LabelProvider, u.Labels); err != nil {
-					return 0, err
+			if err := tx.QueryRowContext(ctx, `SELECT account_id FROM messages WHERE id = ?`, messageID).Scan(&accountID); err != nil {
+				if saveCheckpoint {
+					return 0, fmt.Errorf("load account for IMAP labels on UID %d: %w", u.UID, err)
 				}
+				continue
 			}
+			if err := db.replaceMessageLabelsForProviderTx(ctx, tx, messageID, accountID, u.LabelProvider, u.Labels); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if saveCheckpoint {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE folders SET highest_modseq = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND COALESCE(uid_validity, 0) = ?`, int64(highestModSeq), folderID, expectedUIDValidity)
+		if err != nil {
+			return 0, fmt.Errorf("save IMAP flag checkpoint: %w", err)
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf("check IMAP flag checkpoint: %w", err)
+		}
+		if updated != 1 {
+			return 0, fmt.Errorf("folder UIDVALIDITY changed before the IMAP flag checkpoint was saved")
 		}
 	}
 

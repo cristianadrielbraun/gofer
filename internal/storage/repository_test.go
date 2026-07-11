@@ -866,6 +866,92 @@ func TestSyncMessagesReplaceIMAPKeywordLabels(t *testing.T) {
 	}
 }
 
+func TestApplyIMAPFlagChangesAdvancesCheckpointAtomically(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET uid_validity = 100 WHERE id = 'acc_inbox'`); err != nil {
+		t.Fatalf("seed UIDVALIDITY: %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 42,
+		MessageID: "<condstore@example.com>", Subject: "CONDSTORE", FromEmail: "sender@example.com", DateSent: time.Now(),
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+
+	changed, err := db.ApplyIMAPFlagChanges(ctx, "acc_inbox", 100, []FlagUpdate{{UID: 42, IsRead: true}}, 900)
+	if err != nil || changed != 1 {
+		t.Fatalf("ApplyIMAPFlagChanges() changed=%d error=%v", changed, err)
+	}
+	var isRead int
+	var highestModSeq int64
+	if err := db.Read().QueryRow(`
+		SELECT mfs.is_read, f.highest_modseq
+		FROM message_folder_state mfs JOIN folders f ON f.id = mfs.folder_id
+		WHERE mfs.folder_id = 'acc_inbox' AND mfs.remote_uid = 42`).Scan(&isRead, &highestModSeq); err != nil {
+		t.Fatalf("query applied flags: %v", err)
+	}
+	if isRead != 1 || highestModSeq != 900 {
+		t.Fatalf("applied flags read=%d modseq=%d", isRead, highestModSeq)
+	}
+	if changed, err := db.ApplyIMAPFlagChanges(ctx, "acc_inbox", 100, nil, 901); err != nil || changed != 0 {
+		t.Fatalf("ApplyIMAPFlagChanges(no changes) changed=%d error=%v", changed, err)
+	}
+	if modseq, err := db.GetHighestModSeq(ctx, "acc_inbox"); err != nil || modseq != 901 {
+		t.Fatalf("GetHighestModSeq(no changes) = %d, %v", modseq, err)
+	}
+
+	if _, err := db.Write().Exec(`
+		UPDATE message_folder_state SET is_read = 0 WHERE folder_id = 'acc_inbox' AND remote_uid = 42;
+		CREATE TRIGGER fail_condstore_flag_update
+		BEFORE UPDATE OF is_read ON message_folder_state
+		BEGIN
+			SELECT RAISE(ABORT, 'forced flag write failure');
+		END;
+	`); err != nil {
+		t.Fatalf("seed failed flag update: %v", err)
+	}
+	if _, err := db.ApplyIMAPFlagChanges(ctx, "acc_inbox", 100, []FlagUpdate{{UID: 42, IsRead: true}}, 902); err == nil || !strings.Contains(err.Error(), "forced flag write failure") {
+		t.Fatalf("ApplyIMAPFlagChanges(failure) error = %v", err)
+	}
+	if err := db.Read().QueryRow(`
+		SELECT mfs.is_read, f.highest_modseq
+		FROM message_folder_state mfs JOIN folders f ON f.id = mfs.folder_id
+		WHERE mfs.folder_id = 'acc_inbox' AND mfs.remote_uid = 42`).Scan(&isRead, &highestModSeq); err != nil {
+		t.Fatalf("query rolled back flags: %v", err)
+	}
+	if isRead != 0 || highestModSeq != 901 {
+		t.Fatalf("failed update advanced state read=%d modseq=%d", isRead, highestModSeq)
+	}
+}
+
+func TestApplyIMAPFlagChangesRejectsStaleUIDValidity(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET uid_validity = 100, highest_modseq = 700 WHERE id = 'acc_inbox'`); err != nil {
+		t.Fatalf("seed folder state: %v", err)
+	}
+	if _, err := db.ApplyIMAPFlagChanges(ctx, "acc_inbox", 99, nil, 701); err == nil || !strings.Contains(err.Error(), "UIDVALIDITY changed") {
+		t.Fatalf("ApplyIMAPFlagChanges(stale validity) error = %v", err)
+	}
+	modseq, err := db.GetHighestModSeq(ctx, "acc_inbox")
+	if err != nil || modseq != 700 {
+		t.Fatalf("GetHighestModSeq() = %d, %v", modseq, err)
+	}
+}
+
 func TestSyncMessagesResolveIMAPKeywordAliases(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

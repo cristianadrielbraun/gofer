@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1221,25 +1222,35 @@ func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client
 	for uid := range localUIDs {
 		uids = append(uids, uid)
 	}
+	sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] })
 
-	flagUpdates, currentUIDValidity, changed, err := client.FetchFlags(ctx, folder.RemoteID, uids, expectedUIDValidity)
+	result, err := client.FetchFlagChanges(ctx, folder.RemoteID, uids, expectedUIDValidity, folder.HighestModSeq)
 	if err != nil {
-		return currentUIDValidity, false, fmt.Errorf("flags %s/%s: fetch: %w", accountID, folder.RemoteID, err)
+		return result.UIDValidity, false, fmt.Errorf("flags %s/%s: fetch: %w", accountID, folder.RemoteID, err)
 	}
-	if changed {
-		return currentUIDValidity, true, nil
+	if result.UIDValidityChanged {
+		return result.UIDValidity, true, nil
 	}
 
-	changedCount, err := o.db.BatchUpdateFlags(ctx, folder.ID, convertFlagUpdates(flagUpdates))
+	converted := convertFlagUpdates(result.Updates)
+	var changedCount int
+	if result.CheckpointValid {
+		changedCount, err = o.db.ApplyIMAPFlagChanges(ctx, folder.ID, result.UIDValidity, converted, result.HighestModSeq)
+	} else {
+		changedCount, err = o.db.BatchUpdateFlags(ctx, folder.ID, converted)
+	}
 	if err != nil {
-		return currentUIDValidity, false, fmt.Errorf("flags %s/%s: update: %w", accountID, folder.RemoteID, err)
+		return result.UIDValidity, false, fmt.Errorf("flags %s/%s: update: %w", accountID, folder.RemoteID, err)
 	} else if changedCount > 0 {
 		log.Printf("flags %s/%s: %d changed", accountID, folder.RemoteID, changedCount)
 		if _, err := o.db.RefreshFolderUnreadCount(ctx, folder.ID); err != nil {
-			return currentUIDValidity, false, fmt.Errorf("flags %s/%s: refresh unread count: %w", accountID, folder.RemoteID, err)
+			return result.UIDValidity, false, fmt.Errorf("flags %s/%s: refresh unread count: %w", accountID, folder.RemoteID, err)
 		}
 	}
-	return currentUIDValidity, false, nil
+	if result.UsedCondStore {
+		log.Printf("flags %s/%s: CONDSTORE advanced to %d", accountID, folder.RemoteID, result.HighestModSeq)
+	}
+	return result.UIDValidity, false, nil
 }
 
 func (o *SyncOrchestrator) acquireBackgroundSyncSlot(ctx context.Context) (func(), bool) {
@@ -1991,6 +2002,12 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 		o.markAccountSyncError(syncCtx, accountID, err)
 		return
 	}
+	highestModSeq, err := o.db.GetHighestModSeq(syncCtx, folderID)
+	if err != nil {
+		log.Printf("incremental %s/%s: get modseq: %v", accountID, remoteName, err)
+		o.markAccountSyncError(syncCtx, accountID, err)
+		return
+	}
 
 	cfg, err := o.accountStore.GetConfig(syncCtx, accountID)
 	if err != nil {
@@ -2016,10 +2033,11 @@ func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folde
 
 	folderRole, _ := o.db.GetFolderRole(syncCtx, folderID)
 	folder := storage.FolderSyncInfo{
-		ID:        folderID,
-		AccountID: accountID,
-		RemoteID:  remoteName,
-		Role:      folderRole,
+		ID:            folderID,
+		AccountID:     accountID,
+		RemoteID:      remoteName,
+		Role:          folderRole,
+		HighestModSeq: highestModSeq,
 	}
 
 	currentUIDValidity, changed, err := o.reconcileAndRefresh(syncCtx, client, accountID, folder, storedUIDValidity, highestUID)

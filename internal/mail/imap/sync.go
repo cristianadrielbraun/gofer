@@ -2,8 +2,10 @@ package imap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 
@@ -453,28 +455,89 @@ type FlagUpdate struct {
 	Labels    []storage.LabelInput
 }
 
+type FlagSyncResult struct {
+	Updates            []FlagUpdate
+	UIDValidity        uint32
+	UIDValidityChanged bool
+	HighestModSeq      uint64
+	CheckpointValid    bool
+	UsedCondStore      bool
+}
+
 func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint32, expectedUIDValidity uint32) ([]FlagUpdate, uint32, bool, error) {
+	result, err := c.FetchFlagChanges(ctx, remoteName, uids, expectedUIDValidity, 0)
+	return result.Updates, result.UIDValidity, result.UIDValidityChanged, err
+}
+
+func (c *Client) FetchFlagChanges(ctx context.Context, remoteName string, uids []uint32, expectedUIDValidity uint32, highestModSeq uint64) (FlagSyncResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		return FlagSyncResult{}, err
+	}
 	if c.closed {
-		return nil, 0, false, fmt.Errorf("client is closed")
+		return FlagSyncResult{}, fmt.Errorf("client is closed")
 	}
 
 	if len(uids) == 0 {
-		return nil, expectedUIDValidity, false, nil
+		return FlagSyncResult{UIDValidity: expectedUIDValidity}, nil
 	}
 
-	selectData, err := c.client.Select(remoteName, nil).Wait()
+	useCondStore := false
+	if caps := c.client.Caps(); caps != nil {
+		useCondStore = caps.Has(imap.CapCondStore)
+	}
+	var selectOptions *imap.SelectOptions
+	if useCondStore {
+		selectOptions = &imap.SelectOptions{CondStore: true}
+	}
+	selectData, err := c.client.Select(remoteName, selectOptions).Wait()
+	if err != nil && useCondStore && isIMAPCommandRejection(err) {
+		useCondStore = false
+		selectData, err = c.client.Select(remoteName, nil).Wait()
+	}
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("select %s: %w", remoteName, err)
+		return FlagSyncResult{}, fmt.Errorf("select %s: %w", remoteName, err)
 	}
 	defer c.client.Unselect()
 	currentUIDValidity := uint32(selectData.UIDValidity)
 	if uidValidityChanged(expectedUIDValidity, currentUIDValidity) {
-		return nil, currentUIDValidity, true, nil
+		return FlagSyncResult{UIDValidity: currentUIDValidity, UIDValidityChanged: true}, nil
 	}
 
+	checkpointValid := useCondStore && currentUIDValidity > 0 && selectData.HighestModSeq > 0 && selectData.HighestModSeq <= math.MaxInt64
+	changedSince := uint64(0)
+	if checkpointValid && highestModSeq > 0 && highestModSeq <= selectData.HighestModSeq {
+		changedSince = highestModSeq
+	}
+	updates, err := c.fetchFlagUpdatesLocked(remoteName, uids, changedSince, checkpointValid)
+	if err != nil && checkpointValid && isIMAPCommandRejection(err) {
+		updates, err = c.fetchFlagUpdatesLocked(remoteName, uids, 0, false)
+		checkpointValid = false
+		useCondStore = false
+	}
+	if err != nil {
+		return FlagSyncResult{UIDValidity: currentUIDValidity}, err
+	}
+	result := FlagSyncResult{
+		Updates:         updates,
+		UIDValidity:     currentUIDValidity,
+		CheckpointValid: checkpointValid,
+		UsedCondStore:   useCondStore && changedSince > 0,
+	}
+	if checkpointValid {
+		result.HighestModSeq = selectData.HighestModSeq
+	}
+	return result, nil
+}
+
+func isIMAPCommandRejection(err error) bool {
+	var statusErr *imap.Error
+	return errors.As(err, &statusErr) && (statusErr.Type == imap.StatusResponseTypeBad || statusErr.Type == imap.StatusResponseTypeNo)
+}
+
+func (c *Client) fetchFlagUpdatesLocked(remoteName string, uids []uint32, changedSince uint64, includeModSeq bool) ([]FlagUpdate, error) {
 	var allUpdates []FlagUpdate
 	chunkSize := 500
 
@@ -490,7 +553,7 @@ func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint3
 			uidSet.AddNum(imap.UID(uid))
 		}
 
-		fetchOpts := &imap.FetchOptions{UID: true, Flags: true}
+		fetchOpts := &imap.FetchOptions{UID: true, Flags: true, ModSeq: includeModSeq, ChangedSince: changedSince}
 		cmd := c.client.Fetch(uidSet, fetchOpts)
 
 		for {
@@ -527,11 +590,11 @@ func (c *Client) FetchFlags(ctx context.Context, remoteName string, uids []uint3
 		}
 
 		if err := cmd.Close(); err != nil {
-			return allUpdates, currentUIDValidity, false, fmt.Errorf("fetch flags %s: %w", remoteName, err)
+			return nil, fmt.Errorf("fetch flags %s: %w", remoteName, err)
 		}
 	}
 
-	return allUpdates, currentUIDValidity, false, nil
+	return allUpdates, nil
 }
 
 func labelsFromFlags(flags []imap.Flag) []storage.LabelInput {
