@@ -474,6 +474,19 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token
 CREATE INDEX IF NOT EXISTS idx_sessions_expires
     ON sessions(expires_at);
 
+CREATE TABLE IF NOT EXISTS oauth_account_flows (
+    state_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_token_hash TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    form_data TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_account_flows_expires
+    ON oauth_account_flows(expires_at);
+
 -- Shared compose signatures
 CREATE TABLE IF NOT EXISTS signatures (
     id TEXT PRIMARY KEY,
@@ -926,4 +939,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (56);
+INSERT OR REPLACE INTO schema_version (version) VALUES (57);

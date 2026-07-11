@@ -53,6 +53,9 @@ func (m *Manager) StartSessionCleanup(ctx context.Context) {
 				if err := m.CleanupExpiredSessions(ctx); err != nil {
 					log.Printf("session cleanup error: %v", err)
 				}
+				if err := m.CleanupExpiredAccountOAuthFlows(ctx); err != nil {
+					log.Printf("account OAuth flow cleanup error: %v", err)
+				}
 			}
 		}
 	}()

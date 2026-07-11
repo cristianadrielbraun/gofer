@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -5570,26 +5569,17 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		"display_name":  r.FormValue("display_name"),
 	}
 
-	jsonData, _ := json.Marshal(formData)
-	formEncoded := base64.StdEncoding.EncodeToString(jsonData)
-
-	state := h.auth.GenerateState()
-	http.SetCookie(w, &http.Cookie{
-		Name:     "oauth_account_state",
-		Value:    state,
-		Path:     "/",
-		MaxAge:   600,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "oauth_account_form",
-		Value:    formEncoded,
-		Path:     "/",
-		MaxAge:   600,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	user := auth.GetCurrentUser(r.Context())
+	if user == nil || strings.TrimSpace(user.ID) == "" {
+		http.Error(w, "authenticated user required", http.StatusUnauthorized)
+		return
+	}
+	state, err := h.auth.CreateAccountOAuthFlow(r.Context(), user.ID, auth.GetSessionToken(r), provider, formData)
+	if err != nil {
+		log.Printf("account oauth authorize: create flow failed: %v", err)
+		http.Error(w, "could not start account authorization", http.StatusInternalServerError)
+		return
+	}
 
 	switch provider {
 	case providers.ProviderGmail:
@@ -5607,10 +5597,11 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	formData, code, ok := h.readAccountOAuthCallback(w, r, "gmail callback")
+	flow, code, ok := h.readAccountOAuthCallback(w, r, "gmail callback", providers.ProviderGmail)
 	if !ok {
 		return
 	}
+	formData := flow.FormData
 
 	token, err := h.auth.ExchangeAccountCode(r.Context(), code)
 	if err != nil {
@@ -5641,7 +5632,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	req := providers.GmailAccountRequest(info.Email, displayName, info.Sub)
 	req.Password = "_oauth2_"
 
-	userID := h.userID(r.Context())
+	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(r.Context(), userID, req)
 	if err != nil {
 		log.Printf("gmail callback: create account failed: %v", err)
@@ -5681,10 +5672,11 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 		return
 	}
 
-	formData, code, ok := h.readAccountOAuthCallback(w, r, "microsoft callback")
+	flow, code, ok := h.readAccountOAuthCallback(w, r, "microsoft callback", providers.ProviderOutlook)
 	if !ok {
 		return
 	}
+	formData := flow.FormData
 
 	token, err := h.auth.ExchangeMicrosoftAccountCode(r.Context(), code)
 	if err != nil {
@@ -5720,7 +5712,7 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	req := providers.OutlookAccountRequest(outlookEmail, displayName, providerAccountID)
 	req.Password = "_oauth2_"
 
-	userID := h.userID(r.Context())
+	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(r.Context(), userID, req)
 	if err != nil {
 		log.Printf("microsoft callback: create account failed: %v", err)
@@ -5752,53 +5744,41 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	http.Redirect(w, r, "/settings/accounts", http.StatusSeeOther)
 }
 
-func (h *Handler) readAccountOAuthCallback(w http.ResponseWriter, r *http.Request, logPrefix string) (map[string]string, string, bool) {
-	stateCookie, err := r.Cookie("oauth_account_state")
-	if err != nil || stateCookie.Value == "" {
-		log.Printf("%s: missing state cookie: %v", logPrefix, err)
-		http.Redirect(w, r, "/settings/accounts?error=oauth_missing_state", http.StatusSeeOther)
+func (h *Handler) readAccountOAuthCallback(w http.ResponseWriter, r *http.Request, logPrefix, provider string) (*auth.AccountOAuthFlow, string, bool) {
+	user := auth.GetCurrentUser(r.Context())
+	if user == nil || strings.TrimSpace(user.ID) == "" {
+		log.Printf("%s: missing authenticated user", logPrefix)
+		http.Redirect(w, r, "/settings/accounts?error=oauth_session_mismatch", http.StatusSeeOther)
 		return nil, "", false
 	}
-
-	stateParam := r.URL.Query().Get("state")
-	if stateParam != stateCookie.Value {
-		log.Printf("%s: state mismatch", logPrefix)
-		http.Redirect(w, r, "/settings/accounts?error=oauth_invalid_state", http.StatusSeeOther)
-		return nil, "", false
-	}
-
-	formCookie, err := r.Cookie("oauth_account_form")
-	if err != nil || formCookie.Value == "" {
-		log.Printf("%s: missing form cookie: %v", logPrefix, err)
-		http.Redirect(w, r, "/settings/accounts?error=oauth_no_form", http.StatusSeeOther)
-		return nil, "", false
-	}
-
-	formBytes, err := base64.StdEncoding.DecodeString(formCookie.Value)
+	flow, err := h.auth.ConsumeAccountOAuthFlow(
+		r.Context(),
+		r.URL.Query().Get("state"),
+		user.ID,
+		auth.GetSessionToken(r),
+		provider,
+	)
 	if err != nil {
-		log.Printf("%s: base64 decode error: %v", logPrefix, err)
-		http.Redirect(w, r, "/settings/accounts?error=oauth_bad_form", http.StatusSeeOther)
+		log.Printf("%s: consume account oauth flow: %v", logPrefix, err)
+		code := "oauth_invalid_state"
+		switch {
+		case errors.Is(err, auth.ErrAccountOAuthFlowExpired):
+			code = "oauth_expired_state"
+		case errors.Is(err, auth.ErrAccountOAuthFlowUserMismatch),
+			errors.Is(err, auth.ErrAccountOAuthFlowSessionMismatch),
+			errors.Is(err, auth.ErrAccountOAuthFlowProviderMismatch):
+			code = "oauth_session_mismatch"
+		}
+		http.Redirect(w, r, "/settings/accounts?error="+code, http.StatusSeeOther)
 		return nil, "", false
 	}
-
-	var formData map[string]string
-	if err := json.Unmarshal(formBytes, &formData); err != nil {
-		log.Printf("%s: json unmarshal error: %v", logPrefix, err)
-		http.Redirect(w, r, "/settings/accounts?error=oauth_bad_form", http.StatusSeeOther)
-		return nil, "", false
-	}
-
-	http.SetCookie(w, &http.Cookie{Name: "oauth_account_state", Value: "", Path: "/", MaxAge: -1})
-	http.SetCookie(w, &http.Cookie{Name: "oauth_account_form", Value: "", Path: "/", MaxAge: -1})
-
-	code := r.URL.Query().Get("code")
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	if code == "" {
 		log.Printf("%s: no code in URL", logPrefix)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_no_code", http.StatusSeeOther)
 		return nil, "", false
 	}
-
-	return formData, code, true
+	return flow, code, true
 }
 
 func (h *Handler) createOrUpdateOAuthMailAccount(ctx context.Context, userID string, req *models.CreateAccountRequest) (string, error) {

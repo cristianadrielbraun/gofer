@@ -64,7 +64,7 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 }
 
 func isPublicPath(path string) bool {
-	public := []string{"/login", "/auth/google", "/auth/google/callback", "/auth/google/account/callback", "/auth/microsoft/account/callback"}
+	public := []string{"/login", "/auth/google", "/auth/google/callback"}
 	for _, p := range public {
 		if path == p {
 			return true

@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 56
+	const targetSchemaVersion = 57
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -480,6 +480,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 55 {
 		if err := migrateV55ToV56(tx); err != nil {
 			return fmt.Errorf("migrate v55 to v56: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 56 {
+		if err := migrateV56ToV57(tx); err != nil {
+			return fmt.Errorf("migrate v56 to v57: %w", err)
 		}
 	}
 
@@ -2131,6 +2137,29 @@ func migrateV55ToV56(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 		 ON mail_security_exceptions(kind, protocol, host, port)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (56)`,
+	}
+	for _, migration := range migrations {
+		if _, err := tx.Exec(migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV56ToV57(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS oauth_account_flows (
+			state_hash TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			session_token_hash TEXT NOT NULL,
+			provider TEXT NOT NULL,
+			form_data TEXT NOT NULL,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oauth_account_flows_expires
+		 ON oauth_account_flows(expires_at)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (57)`,
 	}
 	for _, migration := range migrations {
 		if _, err := tx.Exec(migration); err != nil {
