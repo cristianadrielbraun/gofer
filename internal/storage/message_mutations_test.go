@@ -111,6 +111,223 @@ func TestProviderMessageMutationUsesOneGlobalScope(t *testing.T) {
 	}
 }
 
+func seedMoveMutationTest(t *testing.T, provider string) (*DB, int64) {
+	t.Helper()
+	ctx := t.Context()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, provider); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "archive", AccountID: "acc", RemoteID: "Archive", ProviderRemoteID: "ARCHIVE", Name: "Archive", Role: "archive", Selectable: true},
+		{ID: "projects", AccountID: "acc", RemoteID: "Projects", ProviderRemoteID: "Label_Projects", Name: "Projects", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc", FolderID: "inbox", RemoteUID: 42,
+		MessageID: "<move@example.com>", Subject: "Move", FromEmail: "sender@example.com",
+		DateSent: time.Now(), IsRead: false, IsStarred: true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	messageID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<move@example.com>")
+	if err != nil || messageID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+	}
+	return db, messageID
+}
+
+func TestMoveMessageQueuesWithOptimisticFolderStateAtomically(t *testing.T) {
+	db, messageID := seedMoveMutationTest(t, "imap")
+	ctx := t.Context()
+	if err := db.MoveMessageAndQueue(ctx, messageID, "inbox", "archive"); err != nil {
+		t.Fatalf("MoveMessageAndQueue() error = %v", err)
+	}
+	var sourceDeleted, destinationDeleted, destinationRead, destinationStarred int
+	if err := db.Read().QueryRow(`SELECT is_deleted FROM message_folder_state WHERE message_id = ? AND folder_id = 'inbox'`, messageID).Scan(&sourceDeleted); err != nil {
+		t.Fatalf("query source state: %v", err)
+	}
+	if err := db.Read().QueryRow(`SELECT is_deleted, is_read, is_starred FROM message_folder_state WHERE message_id = ? AND folder_id = 'archive'`, messageID).
+		Scan(&destinationDeleted, &destinationRead, &destinationStarred); err != nil {
+		t.Fatalf("query destination state: %v", err)
+	}
+	if sourceDeleted != 1 || destinationDeleted != 0 || destinationRead != 0 || destinationStarred != 1 {
+		t.Fatalf("move states source_deleted=%d destination_deleted=%d read=%d starred=%d", sourceDeleted, destinationDeleted, destinationRead, destinationStarred)
+	}
+	var mutation MessageMutation
+	mutation, err := scanMessageMutation(db.Read().QueryRow(messageMutationSelect+` WHERE message_id = ? AND kind = ?`, messageID, MessageMutationMove))
+	if err != nil {
+		t.Fatalf("query move mutation: %v", err)
+	}
+	if mutation.FolderID != "inbox" || mutation.DestinationFolderID != "archive" || mutation.Status != MessageMutationPending {
+		t.Fatalf("queued move = %#v", mutation)
+	}
+}
+
+func TestMoveMessageRollsBackLocalStateWhenQueueFails(t *testing.T) {
+	db, messageID := seedMoveMutationTest(t, "imap")
+	ctx := t.Context()
+	if _, err := db.Write().Exec(`CREATE TRIGGER reject_move_queue BEFORE INSERT ON message_mutations WHEN NEW.kind = 'move' BEGIN SELECT RAISE(ABORT, 'reject move'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	if err := db.MoveMessageAndQueue(ctx, messageID, "inbox", "archive"); err == nil {
+		t.Fatal("MoveMessageAndQueue() error = nil, want rollback")
+	}
+	var sourceDeleted, destinationCount int
+	if err := db.Read().QueryRow(`SELECT is_deleted FROM message_folder_state WHERE message_id = ? AND folder_id = 'inbox'`, messageID).Scan(&sourceDeleted); err != nil {
+		t.Fatalf("query source state: %v", err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = 'archive'`, messageID).Scan(&destinationCount); err != nil {
+		t.Fatalf("query destination state: %v", err)
+	}
+	if sourceDeleted != 0 || destinationCount != 0 {
+		t.Fatalf("rolled back move source_deleted=%d destination_count=%d", sourceDeleted, destinationCount)
+	}
+}
+
+func TestMoveMessageKeepsLatestDestinationWhileProcessing(t *testing.T) {
+	db, messageID := seedMoveMutationTest(t, "imap")
+	ctx := t.Context()
+	if err := db.MoveMessageAndQueue(ctx, messageID, "inbox", "archive"); err != nil {
+		t.Fatalf("queue first move: %v", err)
+	}
+	claimed, err := db.ClaimDueMessageMutations(ctx, time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim first move = %#v, %v", claimed, err)
+	}
+	if err := db.MoveMessageAndQueue(ctx, messageID, "archive", "projects"); err != nil {
+		t.Fatalf("queue newer move: %v", err)
+	}
+	if err := db.AdvanceMessageMoveMutation(ctx, claimed[0].ID, "archive", "", 84); err != nil {
+		t.Fatalf("advance first move: %v", err)
+	}
+	if err := db.CompleteMessageMutation(ctx, claimed[0].ID); err != nil {
+		t.Fatalf("complete old move: %v", err)
+	}
+	mutation, err := db.GetMessageMutation(ctx, claimed[0].ID)
+	if err != nil {
+		t.Fatalf("GetMessageMutation() error = %v", err)
+	}
+	if mutation.FolderID != "archive" || mutation.DestinationFolderID != "projects" || mutation.Status != MessageMutationPending {
+		t.Fatalf("newer move = %#v", mutation)
+	}
+	var archiveDeleted int
+	var archiveUID sql.NullInt64
+	if err := db.Read().QueryRow(`SELECT is_deleted, remote_uid FROM message_folder_state WHERE message_id = ? AND folder_id = 'archive'`, messageID).Scan(&archiveDeleted, &archiveUID); err != nil {
+		t.Fatalf("query intermediate folder: %v", err)
+	}
+	if archiveDeleted != 1 || !archiveUID.Valid || archiveUID.Int64 != 84 {
+		t.Fatalf("intermediate state deleted=%d uid=%v", archiveDeleted, archiveUID)
+	}
+}
+
+func TestMoveMessageSurvivesRestart(t *testing.T) {
+	db, messageID := seedMoveMutationTest(t, "imap")
+	ctx := t.Context()
+	if err := db.MoveMessageAndQueue(ctx, messageID, "inbox", "archive"); err != nil {
+		t.Fatalf("MoveMessageAndQueue() error = %v", err)
+	}
+	claimed, err := db.ClaimDueMessageMutations(ctx, time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim move = %#v, %v", claimed, err)
+	}
+	if recovered, err := db.MarkInterruptedMessageMutationsPending(ctx); err != nil || recovered != 1 {
+		t.Fatalf("recover interrupted move = %d, %v", recovered, err)
+	}
+	reclaimed, err := db.ClaimDueMessageMutations(ctx, time.Now(), 1)
+	if err != nil || len(reclaimed) != 1 || reclaimed[0].ID != claimed[0].ID || reclaimed[0].AttemptCount != 2 {
+		t.Fatalf("reclaimed move = %#v, %v", reclaimed, err)
+	}
+}
+
+func TestIMAPMoveWaitsForDestinationSyncWithoutRevivingSource(t *testing.T) {
+	db, messageID := seedMoveMutationTest(t, "imap")
+	ctx := t.Context()
+	if err := db.MoveMessageAndQueue(ctx, messageID, "inbox", "archive"); err != nil {
+		t.Fatalf("MoveMessageAndQueue() error = %v", err)
+	}
+	claimed, err := db.ClaimDueMessageMutations(ctx, time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim move = %#v, %v", claimed, err)
+	}
+	if err := db.AdvanceMessageMoveMutation(ctx, claimed[0].ID, "archive", "", 84); err != nil {
+		t.Fatalf("advance move: %v", err)
+	}
+	if err := db.CompleteMessageMutation(ctx, claimed[0].ID); err != nil {
+		t.Fatalf("complete move: %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc", FolderID: "inbox", RemoteUID: 42, MessageID: "<move@example.com>",
+		Subject: "Move", FromEmail: "sender@example.com", DateSent: time.Now(),
+	}}); err != nil {
+		t.Fatalf("stale source sync: %v", err)
+	}
+	var sourceDeleted, remaining int
+	_ = db.Read().QueryRow(`SELECT is_deleted FROM message_folder_state WHERE message_id = ? AND folder_id = 'inbox'`, messageID).Scan(&sourceDeleted)
+	_ = db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE id = ?`, claimed[0].ID).Scan(&remaining)
+	if sourceDeleted != 1 || remaining != 1 {
+		t.Fatalf("stale source deleted=%d remaining=%d", sourceDeleted, remaining)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc", FolderID: "archive", RemoteUID: 84, MessageID: "<move@example.com>",
+		Subject: "Move", FromEmail: "sender@example.com", DateSent: time.Now(),
+	}}); err != nil {
+		t.Fatalf("destination sync: %v", err)
+	}
+	_ = db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE id = ?`, claimed[0].ID).Scan(&remaining)
+	if remaining != 0 {
+		t.Fatalf("confirmed move remaining=%d", remaining)
+	}
+}
+
+func TestProviderMoveIgnoresStaleSourceUntilDestinationIsConfirmed(t *testing.T) {
+	db, messageID := seedMoveMutationTest(t, MessageMutationProviderGmail)
+	ctx := t.Context()
+	if _, err := db.Write().Exec(`UPDATE messages SET remote_message_id = 'gmail-message' WHERE id = ?`, messageID); err != nil {
+		t.Fatalf("set provider identity: %v", err)
+	}
+	if err := db.MoveMessageAndQueue(ctx, messageID, "inbox", "archive"); err != nil {
+		t.Fatalf("MoveMessageAndQueue() error = %v", err)
+	}
+	claimed, err := db.ClaimDueMessageMutations(ctx, time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim move = %#v, %v", claimed, err)
+	}
+	if err := db.AdvanceMessageMoveMutation(ctx, claimed[0].ID, "archive", "gmail-message", 0); err != nil {
+		t.Fatalf("advance move: %v", err)
+	}
+	if err := db.CompleteMessageMutation(ctx, claimed[0].ID); err != nil {
+		t.Fatalf("complete move: %v", err)
+	}
+	upsert := func(folderID string) error {
+		_, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
+			AccountID: "acc", FolderID: folderID, ProviderMessageID: "gmail-message",
+			InternetMessageID: "<move@example.com>", Subject: "Move", FromEmail: "sender@example.com",
+			DateSent: time.Now(), DateReceived: time.Now(), IsStarred: true,
+		}})
+		return err
+	}
+	if err := upsert("inbox"); err != nil {
+		t.Fatalf("stale provider source sync: %v", err)
+	}
+	var sourceDeleted, destinationDeleted, remaining int
+	_ = db.Read().QueryRow(`SELECT is_deleted FROM message_folder_state WHERE message_id = ? AND folder_id = 'inbox'`, messageID).Scan(&sourceDeleted)
+	_ = db.Read().QueryRow(`SELECT is_deleted FROM message_folder_state WHERE message_id = ? AND folder_id = 'archive'`, messageID).Scan(&destinationDeleted)
+	_ = db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE id = ?`, claimed[0].ID).Scan(&remaining)
+	if sourceDeleted != 1 || destinationDeleted != 0 || remaining != 1 {
+		t.Fatalf("stale provider move source=%d destination=%d remaining=%d", sourceDeleted, destinationDeleted, remaining)
+	}
+	if err := upsert("archive"); err != nil {
+		t.Fatalf("provider destination sync: %v", err)
+	}
+	_ = db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE id = ?`, claimed[0].ID).Scan(&remaining)
+	if remaining != 0 {
+		t.Fatalf("confirmed provider move remaining=%d", remaining)
+	}
+}
+
 func TestMessageMutationSurvivesRestartAndWaitsForRemoteConfirmation(t *testing.T) {
 	db, messageID := seedMessageMutationTest(t, "imap", []UpsertFolderInput{{
 		ID: "inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true,

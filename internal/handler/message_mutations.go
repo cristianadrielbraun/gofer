@@ -19,6 +19,7 @@ import (
 
 type messageMutationIMAPClient interface {
 	StoreFlags(ctx context.Context, folderRemoteName string, uid uint32, op goimap.StoreFlagsOp, flags []goimap.Flag) error
+	MoveMessageWithDestUID(ctx context.Context, folderRemoteName string, uid uint32, destFolderRemoteName string) (uint32, error)
 	FindUIDByMessageID(ctx context.Context, remoteName, messageID string) (uint32, error)
 	Close() error
 }
@@ -30,6 +31,20 @@ func (h *Handler) signalMessageMutationWorker() {
 	case h.messageMutationWake <- struct{}{}:
 	default:
 	}
+}
+
+func (h *Handler) queueMessageMoves(ctx context.Context, infos []storage.ThreadMessageMutationInfo, destinationFolderID string) error {
+	bySource := make(map[string][]int64)
+	for _, info := range infos {
+		bySource[info.FolderID] = append(bySource[info.FolderID], info.MessageID)
+	}
+	for sourceFolderID, messageIDs := range bySource {
+		if err := h.db.MoveMessagesAndQueue(ctx, messageIDs, sourceFolderID, destinationFolderID); err != nil {
+			return err
+		}
+	}
+	h.signalMessageMutationWorker()
+	return nil
 }
 
 func (h *Handler) StartMessageMutationWorker(ctx context.Context) {
@@ -97,7 +112,9 @@ func (h *Handler) applyQueuedMessageMutation(parent context.Context, mutation st
 func (h *Handler) applyRemoteMessageMutation(ctx context.Context, mutation storage.MessageMutation) error {
 	var info *storage.MessageMutationInfo
 	var err error
-	if mutation.FolderID != "" {
+	if mutation.Kind == storage.MessageMutationMove {
+		info, err = h.db.GetMessageMutationInfoIncludingDeletedInFolder(ctx, mutation.MessageID, mutation.FolderID)
+	} else if mutation.FolderID != "" {
 		info, err = h.db.GetMessageMutationInfoInFolder(ctx, mutation.MessageID, mutation.FolderID)
 	} else {
 		info, err = h.db.GetMessageMutationInfo(ctx, mutation.MessageID)
@@ -157,6 +174,8 @@ func (h *Handler) applyGmailMessageMutation(ctx context.Context, mutation storag
 	}
 	var addLabels, removeLabels []string
 	switch mutation.Kind {
+	case storage.MessageMutationMove:
+		return h.applyGmailMessageMove(ctx, mutation, info, token, providerMessageID)
 	case storage.MessageMutationRead:
 		if mutation.TargetValue {
 			removeLabels = []string{"UNREAD"}
@@ -195,6 +214,32 @@ func (h *Handler) applyOutlookMessageMutation(ctx context.Context, mutation stor
 	}
 	endpoint := outlookGraphBaseURL + "/me/messages/" + url.PathEscape(providerMessageID)
 	switch mutation.Kind {
+	case storage.MessageMutationMove:
+		destinationProviderID, err := h.db.GetFolderProviderRemoteID(ctx, mutation.DestinationFolderID)
+		if err != nil {
+			return fmt.Errorf("load Outlook destination: %w", err)
+		}
+		destinationProviderID = strings.TrimSpace(destinationProviderID)
+		if destinationProviderID == "" {
+			return fmt.Errorf("Outlook destination has no provider identity")
+		}
+		var moved outlookMessageMoveResponse
+		err = h.doOutlookJSON(ctx, http.MethodPost, endpoint+"/move", token, map[string]string{"destinationId": destinationProviderID}, &moved)
+		if outlookAPIStatus(err, http.StatusNotFound) {
+			providerMessageID, err = h.resolveOutlookMessageID(ctx, token, mutation.MessageID, info)
+			if err == nil {
+				endpoint = outlookGraphBaseURL + "/me/messages/" + url.PathEscape(providerMessageID)
+				err = h.doOutlookJSON(ctx, http.MethodPost, endpoint+"/move", token, map[string]string{"destinationId": destinationProviderID}, &moved)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		movedID := strings.TrimSpace(moved.ID)
+		if movedID == "" {
+			movedID = providerMessageID
+		}
+		return h.db.AdvanceMessageMoveMutation(ctx, mutation.ID, mutation.DestinationFolderID, movedID, 0)
 	case storage.MessageMutationRead:
 		return h.doOutlookJSON(ctx, http.MethodPatch, endpoint, token, map[string]bool{"isRead": mutation.TargetValue}, nil)
 	case storage.MessageMutationStarred:
@@ -234,6 +279,9 @@ func (h *Handler) applyIMAPMessageMutation(ctx context.Context, mutation storage
 		return err
 	}
 	defer client.Close()
+	if mutation.Kind == storage.MessageMutationMove {
+		return h.applyIMAPMessageMove(ctx, client, mutation, info)
+	}
 	uid := info.RemoteUID
 	if uid == 0 {
 		uid, err = client.FindUIDByMessageID(ctx, info.FolderRemoteID, info.InternetMessageID)
@@ -258,4 +306,85 @@ func (h *Handler) applyIMAPMessageMutation(ctx context.Context, mutation storage
 		return fmt.Errorf("unsupported IMAP mutation %q", mutation.Kind)
 	}
 	return client.StoreFlags(ctx, info.FolderRemoteID, uid, op, []goimap.Flag{flag})
+}
+
+func (h *Handler) applyGmailMessageMove(ctx context.Context, mutation storage.MessageMutation, info storage.MessageMutationInfo, token, providerMessageID string) error {
+	destinationProviderID, destinationRole, err := h.db.GetFolderProviderRemoteInfo(ctx, mutation.DestinationFolderID)
+	if err != nil {
+		return fmt.Errorf("load Gmail destination: %w", err)
+	}
+	destinationProviderID = strings.TrimSpace(destinationProviderID)
+	destinationRole = strings.TrimSpace(destinationRole)
+	if destinationRole == "" {
+		return fmt.Errorf("Gmail destination has no role")
+	}
+	if strings.TrimSpace(info.FolderRole) == "trash" && destinationRole != "trash" {
+		if err := h.untrashGmailMessage(ctx, token, providerMessageID); err != nil {
+			return err
+		}
+	}
+	removeLabels := []string{}
+	if sourceLabelID, err := h.db.GetFolderProviderRemoteID(ctx, mutation.FolderID); err == nil {
+		removeLabels = append(removeLabels, gmailSourceMoveRemoveLabels(info.FolderRole, sourceLabelID, destinationProviderID)...)
+	}
+	switch destinationRole {
+	case "trash":
+		err = h.trashGmailMessage(ctx, token, providerMessageID)
+	case "inbox":
+		removeLabels = append(removeLabels, "SPAM", "TRASH")
+		err = h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{"INBOX"}, removeLabels)
+	case "junk", "spam":
+		removeLabels = append(removeLabels, "INBOX", "TRASH")
+		err = h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{"SPAM"}, removeLabels)
+	case "archive":
+		removeLabels = append(removeLabels, "INBOX")
+		err = h.modifyGmailMessageLabels(ctx, token, providerMessageID, nil, removeLabels)
+	case "starred":
+		removeLabels = append(removeLabels, "INBOX")
+		err = h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{"STARRED"}, removeLabels)
+	default:
+		if destinationProviderID == "" || destinationProviderID == "ARCHIVE" {
+			return fmt.Errorf("Gmail destination has no provider identity")
+		}
+		removeLabels = append(removeLabels, "INBOX")
+		err = h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{destinationProviderID}, removeLabels)
+	}
+	if err != nil {
+		return err
+	}
+	return h.db.AdvanceMessageMoveMutation(ctx, mutation.ID, mutation.DestinationFolderID, providerMessageID, 0)
+}
+
+func (h *Handler) applyIMAPMessageMove(ctx context.Context, client messageMutationIMAPClient, mutation storage.MessageMutation, info storage.MessageMutationInfo) error {
+	destinationRemoteID, err := h.db.GetFolderRemoteID(ctx, mutation.DestinationFolderID)
+	if err != nil {
+		return fmt.Errorf("load IMAP destination: %w", err)
+	}
+	destinationRemoteID = strings.TrimSpace(destinationRemoteID)
+	if destinationRemoteID == "" {
+		return fmt.Errorf("IMAP destination has no remote identity")
+	}
+	uid := info.RemoteUID
+	if uid == 0 {
+		uid, err = client.FindUIDByMessageID(ctx, info.FolderRemoteID, info.InternetMessageID)
+		if err != nil {
+			return err
+		}
+	}
+	if uid == 0 {
+		destinationUID, findErr := client.FindUIDByMessageID(ctx, destinationRemoteID, info.InternetMessageID)
+		if findErr == nil && destinationUID > 0 {
+			return h.db.AdvanceMessageMoveMutation(ctx, mutation.ID, mutation.DestinationFolderID, "", destinationUID)
+		}
+		return fmt.Errorf("message has no remote IMAP identity")
+	}
+	destinationUID, err := client.MoveMessageWithDestUID(ctx, info.FolderRemoteID, uid, destinationRemoteID)
+	if err != nil {
+		recoveredUID, findErr := client.FindUIDByMessageID(ctx, destinationRemoteID, info.InternetMessageID)
+		if findErr != nil || recoveredUID == 0 {
+			return err
+		}
+		destinationUID = recoveredUID
+	}
+	return h.db.AdvanceMessageMoveMutation(ctx, mutation.ID, mutation.DestinationFolderID, "", destinationUID)
 }

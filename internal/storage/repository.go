@@ -1503,13 +1503,13 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 
 	stateStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
-		VALUES (?, ?, NULL, ?, ?, ?, ?, 0, ?)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(message_id, folder_id) DO UPDATE SET
 			is_read = excluded.is_read,
 			is_starred = excluded.is_starred,
 			is_flagged = excluded.is_flagged,
 			is_draft = excluded.is_draft,
-			is_deleted = 0,
+			is_deleted = excluded.is_deleted,
 			synced_at = excluded.synced_at`)
 	if err != nil {
 		return nil, fmt.Errorf("prepare provider state upsert: %w", err)
@@ -1542,6 +1542,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 	observed := make([]observedMessage, 0, len(msgs))
 	msgIDs := make([]int64, 0, len(msgs))
 	desiredProviderFolders := map[int64]map[string]bool{}
+	observedProviderFolders := map[int64]map[string]bool{}
 	messageAccounts := map[int64]string{}
 
 	for _, m := range msgs {
@@ -1624,13 +1625,23 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, &isRead, &isStarred); err != nil {
 			return nil, fmt.Errorf("protect pending provider mutation: %w", err)
 		}
-		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, isRead, isStarred, m.IsFlagged, m.IsDraft, time.Now().UTC()); err != nil {
+		visible, err := protectProviderMoveFolderTx(ctx, tx, msgID, m.FolderID)
+		if err != nil {
+			return nil, fmt.Errorf("protect pending provider move: %w", err)
+		}
+		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, isRead, isStarred, m.IsFlagged, m.IsDraft, boolInt(!visible), time.Now().UTC()); err != nil {
 			return nil, fmt.Errorf("upsert provider folder state: %w", err)
 		}
+		if observedProviderFolders[msgID] == nil {
+			observedProviderFolders[msgID] = map[string]bool{}
+		}
+		observedProviderFolders[msgID][m.FolderID] = true
 		if desiredProviderFolders[msgID] == nil {
 			desiredProviderFolders[msgID] = map[string]bool{}
 		}
-		desiredProviderFolders[msgID][m.FolderID] = true
+		if visible {
+			desiredProviderFolders[msgID][m.FolderID] = true
+		}
 		messageAccounts[msgID] = m.AccountID
 
 		if m.LabelsKnown && strings.TrimSpace(m.LabelProvider) != "" {
@@ -1682,6 +1693,9 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 	}
 
 	for msgID, folderSet := range desiredProviderFolders {
+		if err := resolveProviderMoveFoldersTx(ctx, tx, msgID, observedProviderFolders[msgID], folderSet); err != nil {
+			return nil, fmt.Errorf("reconcile pending provider move: %w", err)
+		}
 		if err := reconcileProviderFolderStatesTx(ctx, tx, msgID, messageAccounts[msgID], folderSet); err != nil {
 			return nil, err
 		}
@@ -1754,9 +1768,9 @@ func (db *DB) UpsertExistingProviderFolderStates(ctx context.Context, accountID,
 
 	stateStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
-		VALUES (?, ?, NULL, ?, ?, ?, ?, 0, ?)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(message_id, folder_id) DO UPDATE SET
-			is_deleted = 0,
+			is_deleted = excluded.is_deleted,
 			synced_at = excluded.synced_at`)
 	if err != nil {
 		return nil, fmt.Errorf("prepare existing provider state upsert: %w", err)
@@ -1796,7 +1810,12 @@ func (db *DB) UpsertExistingProviderFolderStates(ctx context.Context, accountID,
 			if providerID == "" {
 				continue
 			}
-			if _, err := stateStmt.ExecContext(ctx, msgID, folderID, isRead, isStarred, isFlagged, isDraft, syncedAt); err != nil {
+			visible, err := protectProviderMoveFolderTx(ctx, tx, msgID, folderID)
+			if err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("protect existing provider move: %w", err)
+			}
+			if _, err := stateStmt.ExecContext(ctx, msgID, folderID, isRead, isStarred, isFlagged, isDraft, boolInt(!visible), syncedAt); err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("upsert existing provider state: %w", err)
 			}
@@ -1864,7 +1883,11 @@ func (db *DB) ReconcileProviderFolderSeen(ctx context.Context, accountID, folder
 		        SELECT 1 FROM temp_provider_folder_seen seen
 		        WHERE seen.provider_id = m.remote_message_id
 		      )
-		  )`, time.Now().UTC(), folderID, accountID)
+		      AND NOT EXISTS (
+		        SELECT 1 FROM message_mutations mm
+		        WHERE mm.message_id = m.id AND mm.kind = 'move' AND mm.destination_folder_id = ?
+		      )
+		  )`, time.Now().UTC(), folderID, accountID, folderID)
 	if err != nil {
 		return fmt.Errorf("mark unseen provider folder messages deleted: %w", err)
 	}
@@ -3406,7 +3429,12 @@ func (db *DB) MarkProviderMessageRemovedFromFolder(ctx context.Context, accountI
 			SELECT id FROM messages
 			WHERE account_id = ? AND remote_message_id = ?
 			LIMIT 1
-		  )`, folderID, accountID, providerMessageID)
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM message_mutations mm
+			WHERE mm.message_id = message_folder_state.message_id
+			  AND mm.kind = 'move' AND mm.destination_folder_id = ?
+		  )`, folderID, accountID, providerMessageID, folderID)
 	return err
 }
 
@@ -3462,7 +3490,11 @@ func (db *DB) MarkProviderMessagesMissingFromFolder(ctx context.Context, account
 				FROM tmp_provider_folder_seen seen
 				WHERE seen.provider_message_id = m.remote_message_id
 			  )
-		  )`, folderID, accountID)
+			  AND NOT EXISTS (
+				SELECT 1 FROM message_mutations mm
+				WHERE mm.message_id = m.id AND mm.kind = 'move' AND mm.destination_folder_id = ?
+			  )
+		  )`, folderID, accountID, folderID)
 	if err != nil {
 		return 0, fmt.Errorf("mark missing provider messages: %w", err)
 	}
@@ -3640,6 +3672,19 @@ func (db *DB) GetFolderProviderRemoteID(ctx context.Context, folderID string) (s
 		return "", err
 	}
 	return strings.TrimSpace(providerRemoteID.String), nil
+}
+
+func (db *DB) GetFolderRemoteID(ctx context.Context, folderID string) (string, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return "", nil
+	}
+	var remoteID string
+	err := db.Read().QueryRowContext(ctx, `SELECT remote_id FROM folders WHERE id = ?`, folderID).Scan(&remoteID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return strings.TrimSpace(remoteID), err
 }
 
 func (db *DB) GetFolderProviderRemoteInfo(ctx context.Context, folderID string) (string, string, error) {
@@ -5991,7 +6036,7 @@ type ThreadMessageMutationInfo struct {
 }
 
 func (db *DB) GetMessageMutationInfo(ctx context.Context, messageID int64) (*MessageMutationInfo, error) {
-	return db.getMessageMutationInfo(ctx, messageID, "", nil)
+	return db.getMessageMutationInfo(ctx, messageID, "", nil, false)
 }
 
 func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
@@ -6000,14 +6045,14 @@ func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int
 		return db.GetMessageMutationInfo(ctx, messageID)
 	}
 
-	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID})
+	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, false)
 	if err != nil || info != nil {
 		return info, err
 	}
 
 	if isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
 		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs)
+		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs, false)
 		if err != nil || info != nil {
 			return info, err
 		}
@@ -6021,10 +6066,18 @@ func (db *DB) GetMessageMutationInfoInFolder(ctx context.Context, messageID int6
 	if folderID == "" {
 		return nil, nil
 	}
-	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID})
+	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, false)
 }
 
-func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folderPredicate string, folderArgs []any) (*MessageMutationInfo, error) {
+func (db *DB) GetMessageMutationInfoIncludingDeletedInFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return nil, nil
+	}
+	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, true)
+}
+
+func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folderPredicate string, folderArgs []any, includeDeleted bool) (*MessageMutationInfo, error) {
 	var info MessageMutationInfo
 	var remoteUID sql.NullInt64
 	var role string
@@ -6036,8 +6089,11 @@ func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folde
 			  JOIN accounts a ON m.account_id = a.id
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
 			  JOIN folders f ON mfs.folder_id = f.id
-			  WHERE m.id = ? AND mfs.is_deleted = 0`
+			  WHERE m.id = ?`
 	args := []any{messageID}
+	if !includeDeleted {
+		query += ` AND mfs.is_deleted = 0`
+	}
 	if strings.TrimSpace(folderPredicate) != "" {
 		query += ` AND (` + folderPredicate + `)`
 		args = append(args, folderArgs...)
@@ -6998,7 +7054,13 @@ func (db *DB) RemoveExpungedUIDs(ctx context.Context, folderID string, expungedU
 	}
 
 	query := fmt.Sprintf(
-		`DELETE FROM message_folder_state WHERE folder_id = ? AND remote_uid IN (%s)`,
+		`DELETE FROM message_folder_state
+		 WHERE folder_id = ? AND remote_uid IN (%s)
+		   AND NOT EXISTS (
+		     SELECT 1 FROM message_mutations mm
+		     WHERE mm.message_id = message_folder_state.message_id
+		       AND mm.kind = 'move' AND mm.destination_folder_id = message_folder_state.folder_id
+		   )`,
 		strings.Join(placeholders, ","))
 
 	res, err := tx.ExecContext(ctx, query, args...)
@@ -7030,10 +7092,25 @@ func (db *DB) ResetFolderUIDState(ctx context.Context, folderID string, uidValid
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx,
-		`DELETE FROM message_folder_state WHERE folder_id = ?`, folderID)
+	_, err = tx.ExecContext(ctx, `
+		DELETE FROM message_folder_state
+		WHERE folder_id = ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM message_mutations mm
+			WHERE mm.message_id = message_folder_state.message_id
+			  AND mm.kind = 'move' AND mm.destination_folder_id = ?
+		  )`, folderID, folderID)
 	if err != nil {
 		return fmt.Errorf("delete states: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE message_folder_state SET remote_uid = NULL, synced_at = CURRENT_TIMESTAMP
+		WHERE folder_id = ? AND EXISTS (
+			SELECT 1 FROM message_mutations mm
+			WHERE mm.message_id = message_folder_state.message_id
+			  AND mm.kind = 'move' AND mm.destination_folder_id = ?
+		)`, folderID, folderID); err != nil {
+		return fmt.Errorf("reset pending move UIDs: %w", err)
 	}
 
 	_, err = tx.ExecContext(ctx,

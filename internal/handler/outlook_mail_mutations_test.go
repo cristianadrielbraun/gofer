@@ -119,15 +119,14 @@ func TestOutlookGraphMutationUsesProviderMessageIDAndCachesMovedID(t *testing.T)
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
 
 	h := &Handler{db: db, auth: manager}
-	info, err := db.GetMessageMutationInfo(ctx, msgID)
-	if err != nil || info == nil {
-		t.Fatalf("GetMessageMutationInfo() = %#v, %v", info, err)
-	}
 	if err := db.SetMessageReadAndQueue(ctx, msgID, false); err != nil {
 		t.Fatalf("SetMessageReadAndQueue() error = %v", err)
 	}
 	h.runDueMessageMutations(ctx)
-	h.moveRemoteMessage(ctx, msgID, *info, "acc_archive", "Archive")
+	if err := db.MoveMessageAndQueue(ctx, msgID, "acc_inbox", "acc_archive"); err != nil {
+		t.Fatalf("MoveMessageAndQueue() error = %v", err)
+	}
+	h.runDueMessageMutations(ctx)
 
 	if !sawReadPatch {
 		t.Fatal("Graph read PATCH was not observed")

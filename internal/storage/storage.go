@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 61
+	const targetSchemaVersion = 62
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -510,6 +510,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 60 {
 		if err := migrateV60ToV61(tx); err != nil {
 			return fmt.Errorf("migrate v60 to v61: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 61 {
+		if err := migrateV61ToV62(tx); err != nil {
+			return fmt.Errorf("migrate v61 to v62: %w", err)
 		}
 	}
 
@@ -2376,6 +2382,60 @@ func migrateV60ToV61(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_message_mutations_account
 		 ON message_mutations(account_id, status, next_attempt_at)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (61)`,
+	}
+	for _, migration := range migrations {
+		if _, err := tx.Exec(migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV61ToV62(tx *sql.Tx) error {
+	messagesExist, err := tableExistsTx(tx, "messages")
+	if err != nil {
+		return err
+	}
+	if !messagesExist {
+		if _, err := tx.Exec(`ALTER TABLE message_mutations ADD COLUMN destination_folder_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (62)`)
+		return err
+	}
+	migrations := []string{
+		`CREATE TABLE message_mutations_v62 (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+			folder_id TEXT NOT NULL DEFAULT '',
+			provider_type TEXT NOT NULL CHECK (provider_type IN ('gmail', 'outlook', 'imap')),
+			kind TEXT NOT NULL CHECK (kind IN ('read', 'starred', 'move')),
+			target_value INTEGER NOT NULL CHECK (target_value IN (0, 1)),
+			destination_folder_id TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'failed', 'applied')),
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(message_id, kind, folder_id)
+		)`,
+		`INSERT INTO message_mutations_v62 (
+			id, account_id, message_id, folder_id, provider_type, kind, target_value,
+			status, attempt_count, last_error, locked_at, next_attempt_at, created_at, updated_at
+		) SELECT
+			id, account_id, message_id, folder_id, provider_type, kind, target_value,
+			status, attempt_count, last_error, locked_at, next_attempt_at, created_at, updated_at
+		  FROM message_mutations`,
+		`DROP TABLE message_mutations`,
+		`ALTER TABLE message_mutations_v62 RENAME TO message_mutations`,
+		`CREATE INDEX idx_message_mutations_due
+		 ON message_mutations(status, next_attempt_at, created_at)`,
+		`CREATE INDEX idx_message_mutations_account
+		 ON message_mutations(account_id, status, next_attempt_at)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (62)`,
 	}
 	for _, migration := range migrations {
 		if _, err := tx.Exec(migration); err != nil {

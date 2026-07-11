@@ -115,15 +115,14 @@ func TestGmailAPIMutationUsesProviderMessageIDAndLabels(t *testing.T) {
 	gmailAPIBaseURL = server.URL
 	t.Cleanup(func() { gmailAPIBaseURL = previousBase })
 
-	info, err := db.GetMessageMutationInfo(ctx, msgID)
-	if err != nil || info == nil {
-		t.Fatalf("GetMessageMutationInfo() = %#v, %v", info, err)
-	}
 	if err := db.SetMessageReadAndQueue(ctx, msgID, false); err != nil {
 		t.Fatalf("SetMessageReadAndQueue() error = %v", err)
 	}
 	h.runDueMessageMutations(ctx)
-	h.moveRemoteMessage(ctx, msgID, *info, "acc_projects", "Projects")
+	if err := db.MoveMessageAndQueue(ctx, msgID, "acc_inbox", "acc_projects"); err != nil {
+		t.Fatalf("MoveMessageAndQueue() error = %v", err)
+	}
+	h.runDueMessageMutations(ctx)
 
 	if !sawUnread {
 		t.Fatal("Gmail unread mutation was not observed")

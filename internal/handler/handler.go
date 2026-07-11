@@ -4706,7 +4706,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 			if err != nil || email == nil || email.ThreadID == "" {
 				continue
 			}
-			archiveFolderID, archiveRemoteID, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "archive")
+			archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "archive")
 			if err != nil || archiveFolderID == "" || archiveFolderID == currentInfo.FolderID {
 				continue
 			}
@@ -4715,24 +4715,13 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			for _, info := range infos {
-				if err := h.db.RemoveMessageFromFolder(ctx, info.MessageID, info.FolderID); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, archiveFolderID, info.IsRead, info.IsStarred); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
+			if err := h.queueMessageMoves(ctx, infos, archiveFolderID); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			updated++
 			h.publishThreadMutation(infos)
 			h.publishMutation(email.AccountID, archiveFolderID)
-			go func(infos []storage.ThreadMessageMutationInfo, archiveFolderID, archiveRemoteID string) {
-				for _, info := range infos {
-					h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, archiveFolderID, archiveRemoteID)
-				}
-			}(infos, archiveFolderID, archiveRemoteID)
 			continue
 		}
 
@@ -4740,31 +4729,18 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		if err != nil || info.FolderRole == "archive" || info.FolderRole == "trash" {
 			continue
 		}
-		archiveFolderID, archiveRemoteID, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "archive")
+		archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "archive")
 		if err != nil || archiveFolderID == "" || archiveFolderID == info.FolderID {
 			continue
 		}
-		states, _ := h.db.GetMessageAllFolderStates(ctx, msgID)
-		var isRead, isStarred bool
-		for _, s := range states {
-			if s.FolderID == info.FolderID {
-				isRead = s.IsRead
-				isStarred = s.IsStarred
-				break
-			}
-		}
-		if err := h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID); err != nil {
+		if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, archiveFolderID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, archiveFolderID, isRead, isStarred); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		h.signalMessageMutationWorker()
 		updated++
 		h.publishMutation(info.AccountID, info.FolderID)
 		h.publishMutation(info.AccountID, archiveFolderID)
-		go h.moveRemoteMessage(context.Background(), msgID, *info, archiveFolderID, archiveRemoteID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -4891,8 +4867,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.WithoutCancel(r.Context())
-	var destRemoteID string
-	if err := h.db.Read().QueryRowContext(ctx, `SELECT remote_id FROM folders WHERE id = ?`, destFolderID).Scan(&destRemoteID); err != nil {
+	if remoteID, err := h.db.GetFolderRemoteID(ctx, destFolderID); err != nil || remoteID == "" {
 		http.Error(w, "destination folder not found", http.StatusBadRequest)
 		return
 	}
@@ -4913,24 +4888,13 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			for _, info := range infos {
-				if err := h.db.RemoveMessageFromFolder(ctx, info.MessageID, info.FolderID); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, destFolderID, info.IsRead, info.IsStarred); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
+			if err := h.queueMessageMoves(ctx, infos, destFolderID); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			updated++
 			h.publishThreadMutation(infos)
 			h.publishMutation(email.AccountID, destFolderID)
-			go func(infos []storage.ThreadMessageMutationInfo, destFolderID, destRemoteID string) {
-				for _, info := range infos {
-					h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, destFolderID, destRemoteID)
-				}
-			}(infos, destFolderID, destRemoteID)
 			continue
 		}
 
@@ -4938,27 +4902,14 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		if err != nil || info.FolderID == destFolderID {
 			continue
 		}
-		states, _ := h.db.GetMessageAllFolderStates(ctx, msgID)
-		var isRead, isStarred bool
-		for _, s := range states {
-			if s.FolderID == info.FolderID {
-				isRead = s.IsRead
-				isStarred = s.IsStarred
-				break
-			}
-		}
-		if err := h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID); err != nil {
+		if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, destFolderID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, destFolderID, isRead, isStarred); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		h.signalMessageMutationWorker()
 		updated++
 		h.publishMutation(info.AccountID, info.FolderID)
 		h.publishMutation(info.AccountID, destFolderID)
-		go h.moveRemoteMessage(context.Background(), msgID, *info, destFolderID, destRemoteID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -5065,7 +5016,7 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	archiveFolderID, archiveRemoteID, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "archive")
+	archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "archive")
 	if err != nil || archiveFolderID == "" {
 		http.Error(w, "no archive folder found", http.StatusBadRequest)
 		return
@@ -5085,15 +5036,9 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func(infos []storage.ThreadMessageMutationInfo, archiveFolderID, archiveRemoteID string) {
-		for _, info := range infos {
-			h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, archiveFolderID, archiveRemoteID)
-		}
-	}(infos, archiveFolderID, archiveRemoteID)
-
-	for _, threadInfo := range infos {
-		h.db.RemoveMessageFromFolder(ctx, threadInfo.MessageID, threadInfo.FolderID)
-		h.db.AddMessageToFolderWithoutRemoteUID(ctx, threadInfo.MessageID, archiveFolderID, threadInfo.IsRead, threadInfo.IsStarred)
+	if err := h.queueMessageMoves(ctx, infos, archiveFolderID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	h.publishThreadMutation(infos)
 	h.publishMutation(email.AccountID, archiveFolderID)
@@ -5228,29 +5173,17 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var destRemoteID string
-	err = h.db.Read().QueryRowContext(ctx,
-		`SELECT remote_id FROM folders WHERE id = ?`, destFolderID,
-	).Scan(&destRemoteID)
-	if err != nil {
+	destRemoteID, err := h.db.GetFolderRemoteID(ctx, destFolderID)
+	if err != nil || destRemoteID == "" {
 		http.Error(w, "destination folder not found", http.StatusBadRequest)
 		return
 	}
 
-	states, _ := h.db.GetMessageAllFolderStates(ctx, msgID)
-	var isRead, isStarred bool
-	for _, s := range states {
-		if s.FolderID == info.FolderID {
-			isRead = s.IsRead
-			isStarred = s.IsStarred
-			break
-		}
+	if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, destFolderID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-
-	go h.moveRemoteMessage(context.Background(), msgID, *info, destFolderID, destRemoteID)
-
-	h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID)
-	h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, destFolderID, isRead, isStarred)
+	h.signalMessageMutationWorker()
 
 	h.publishMutation(info.AccountID, info.FolderID)
 
