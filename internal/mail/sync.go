@@ -92,6 +92,12 @@ type idleWatcherGroup struct {
 	folderIDs map[string]bool
 }
 
+type dirtyIMAPFolder struct {
+	ctx        context.Context
+	folderID   string
+	remoteName string
+}
+
 type newMailSummary struct {
 	Count       int
 	UnreadCount int
@@ -124,9 +130,13 @@ type SyncOrchestrator struct {
 	idleWatchers        map[string]*idleWatcherGroup
 	idleWatcherFactory  func(*models.AccountConfig, string, string, func()) idleWatcher
 	idleMu              sync.Mutex
+	dirtyIMAPFolders    map[string]map[string]dirtyIMAPFolder
+	dirtyIMAPDraining   map[string]bool
+	dirtyIMAPDrainDone  map[string]chan struct{}
 	cancelFuncs         map[string]*accountWorker
 	lifecycleCtx        context.Context
 	syncAccountOverride func(context.Context, string, bool) error
+	incrementalOverride func(context.Context, string, string, string)
 	gmailPollMu         sync.Mutex
 	activeUsers         map[string]int
 	gmailPollRuntime    map[string]gmailPollRuntimeState
@@ -247,6 +257,9 @@ func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blob
 		manualRuns:          make(map[string]map[string]*manualSyncRun),
 		backgroundSyncSlots: newAccountSyncSlots(backgroundSyncMaxParallelAccounts),
 		idleWatchers:        make(map[string]*idleWatcherGroup),
+		dirtyIMAPFolders:    make(map[string]map[string]dirtyIMAPFolder),
+		dirtyIMAPDraining:   make(map[string]bool),
+		dirtyIMAPDrainDone:  make(map[string]chan struct{}),
 		idleWatcherFactory: func(cfg *models.AccountConfig, password, remoteName string, onNotify func()) idleWatcher {
 			return imap.NewIdleWatcher(cfg, password, remoteName, onNotify)
 		},
@@ -280,10 +293,10 @@ func (o *SyncOrchestrator) StopAccount(accountID string) {
 	o.stopAccount(accountID)
 }
 
-func (o *SyncOrchestrator) stopAccount(accountID string) (<-chan struct{}, <-chan struct{}) {
+func (o *SyncOrchestrator) stopAccount(accountID string) (<-chan struct{}, <-chan struct{}, <-chan struct{}) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	o.mu.Lock()
 	worker := o.cancelFuncs[accountID]
@@ -300,6 +313,7 @@ func (o *SyncOrchestrator) stopAccount(accountID string) (<-chan struct{}, <-cha
 		run.cancel()
 	}
 	o.stopIDLEWatchers(accountID)
+	drainDone := o.clearDirtyIMAPFolders(accountID)
 	var workerDone, runDone <-chan struct{}
 	if worker != nil {
 		workerDone = worker.done
@@ -307,7 +321,7 @@ func (o *SyncOrchestrator) stopAccount(accountID string) (<-chan struct{}, <-cha
 	if run != nil {
 		runDone = run.done
 	}
-	return workerDone, runDone
+	return workerDone, runDone, drainDone
 }
 
 func (o *SyncOrchestrator) IsAccountSyncRunning(accountID string) bool {
@@ -332,10 +346,10 @@ func (o *SyncOrchestrator) RestartAccount(accountID string) {
 	if accountID == "" {
 		return
 	}
-	workerDone, runDone := o.stopAccount(accountID)
+	workerDone, runDone, drainDone := o.stopAccount(accountID)
 	ctx := o.accountLifecycleContext(context.Background())
 	go func() {
-		for _, done := range []<-chan struct{}{workerDone, runDone} {
+		for _, done := range []<-chan struct{}{workerDone, runDone, drainDone} {
 			if done == nil {
 				continue
 			}
@@ -408,6 +422,109 @@ func (o *SyncOrchestrator) activeIdleFolderIDs(accountID string) map[string]bool
 	return result
 }
 
+func (o *SyncOrchestrator) markIMAPFolderDirty(ctx context.Context, accountID, folderID, remoteName string) {
+	accountID = strings.TrimSpace(accountID)
+	folderID = strings.TrimSpace(folderID)
+	remoteName = strings.TrimSpace(remoteName)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == "" || folderID == "" || remoteName == "" || ctx.Err() != nil {
+		return
+	}
+
+	o.mu.Lock()
+	if o.dirtyIMAPFolders == nil {
+		o.dirtyIMAPFolders = make(map[string]map[string]dirtyIMAPFolder)
+	}
+	if o.dirtyIMAPDraining == nil {
+		o.dirtyIMAPDraining = make(map[string]bool)
+	}
+	if o.dirtyIMAPDrainDone == nil {
+		o.dirtyIMAPDrainDone = make(map[string]chan struct{})
+	}
+	folders := o.dirtyIMAPFolders[accountID]
+	if folders == nil {
+		folders = make(map[string]dirtyIMAPFolder)
+		o.dirtyIMAPFolders[accountID] = folders
+	}
+	folders[folderID] = dirtyIMAPFolder{
+		ctx:        ctx,
+		folderID:   folderID,
+		remoteName: remoteName,
+	}
+	if o.dirtyIMAPDraining[accountID] {
+		o.mu.Unlock()
+		return
+	}
+	o.dirtyIMAPDraining[accountID] = true
+	done := make(chan struct{})
+	o.dirtyIMAPDrainDone[accountID] = done
+	o.mu.Unlock()
+
+	go o.drainDirtyIMAPFolders(accountID, done)
+}
+
+func (o *SyncOrchestrator) clearDirtyIMAPFolders(accountID string) <-chan struct{} {
+	o.mu.Lock()
+	accountID = strings.TrimSpace(accountID)
+	delete(o.dirtyIMAPFolders, accountID)
+	done := o.dirtyIMAPDrainDone[accountID]
+	o.mu.Unlock()
+	return done
+}
+
+func (o *SyncOrchestrator) drainDirtyIMAPFolders(accountID string, done chan struct{}) {
+	for {
+		o.mu.Lock()
+		folders := o.dirtyIMAPFolders[accountID]
+		folderIDs := make([]string, 0, len(folders))
+		for folderID, folder := range folders {
+			if folder.ctx.Err() != nil {
+				delete(folders, folderID)
+				continue
+			}
+			folderIDs = append(folderIDs, folderID)
+		}
+		if len(folderIDs) == 0 {
+			delete(o.dirtyIMAPFolders, accountID)
+			if o.dirtyIMAPDrainDone[accountID] == done {
+				delete(o.dirtyIMAPDraining, accountID)
+				delete(o.dirtyIMAPDrainDone, accountID)
+			}
+			o.mu.Unlock()
+			close(done)
+			return
+		}
+		if run := o.running[accountID]; run != nil {
+			done := run.done
+			o.mu.Unlock()
+			<-done
+			continue
+		}
+		sort.Strings(folderIDs)
+		folder := folders[folderIDs[0]]
+		delete(folders, folder.folderID)
+		o.mu.Unlock()
+
+		if folder.ctx.Err() != nil {
+			continue
+		}
+		if !o.trySyncIncremental(folder.ctx, accountID, folder.folderID, folder.remoteName) && folder.ctx.Err() == nil {
+			o.mu.Lock()
+			folders := o.dirtyIMAPFolders[accountID]
+			if folders == nil {
+				folders = make(map[string]dirtyIMAPFolder)
+				o.dirtyIMAPFolders[accountID] = folders
+			}
+			if _, alreadyDirty := folders[folder.folderID]; !alreadyDirty {
+				folders[folder.folderID] = folder
+			}
+			o.mu.Unlock()
+		}
+	}
+}
+
 func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID string) {
 	o.idleMu.Lock()
 	defer o.idleMu.Unlock()
@@ -463,7 +580,7 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 		folderID := folder.ID
 		remoteName := folder.RemoteID
 		watcher := factory(cfg, password, remoteName, func() {
-			o.syncIncremental(watcherCtx, accountID, folderID, remoteName)
+			o.markIMAPFolderDirty(watcherCtx, accountID, folderID, remoteName)
 		})
 		watchers = append(watchers, watcher)
 		folderIDs[folderID] = true
@@ -1982,13 +2099,21 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client folder
 	return nil
 }
 
-func (o *SyncOrchestrator) syncIncremental(ctx context.Context, accountID, folderID, remoteName string) {
+func (o *SyncOrchestrator) trySyncIncremental(ctx context.Context, accountID, folderID, remoteName string) bool {
 	syncCtx, finish, ok := o.beginAccountSync(ctx, accountID, accountSyncBackground)
 	if !ok {
-		return
+		return false
 	}
 	defer finish()
+	if o.incrementalOverride != nil {
+		o.incrementalOverride(syncCtx, accountID, folderID, remoteName)
+		return true
+	}
+	o.syncIncremental(syncCtx, accountID, folderID, remoteName)
+	return true
+}
 
+func (o *SyncOrchestrator) syncIncremental(syncCtx context.Context, accountID, folderID, remoteName string) {
 	storedUIDValidity, err := o.db.GetStoredUIDValidity(syncCtx, folderID)
 	if err != nil {
 		log.Printf("incremental %s/%s: get UIDVALIDITY: %v", accountID, remoteName, err)

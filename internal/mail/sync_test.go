@@ -423,6 +423,158 @@ func TestAccountLifecycleBaselinesBeforeIDLEAndRestartsWatchers(t *testing.T) {
 	}
 }
 
+func TestDirtyIMAPFolderWaitsForActiveSyncAndCoalescesNotifications(t *testing.T) {
+	orchestrator := NewSyncOrchestrator(nil, nil, nil, nil)
+	calls := make(chan string, 3)
+	orchestrator.incrementalOverride = func(_ context.Context, _ string, folderID, remoteName string) {
+		calls <- folderID + ":" + remoteName
+	}
+
+	_, finishBusySync, ok := orchestrator.beginAccountSync(context.Background(), "acc", accountSyncBackground)
+	if !ok {
+		t.Fatal("failed to start the busy account sync")
+	}
+	orchestrator.markIMAPFolderDirty(context.Background(), "acc", "acc_inbox", "INBOX")
+	orchestrator.markIMAPFolderDirty(context.Background(), "acc", "acc_inbox", "INBOX")
+	orchestrator.markIMAPFolderDirty(context.Background(), "acc", "acc_sent", "Sent")
+
+	select {
+	case call := <-calls:
+		t.Fatalf("incremental sync started while account was busy: %q", call)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	finishBusySync()
+	wantCalls := []string{"acc_inbox:INBOX", "acc_sent:Sent"}
+	for _, want := range wantCalls {
+		select {
+		case call := <-calls:
+			if call != want {
+				t.Fatalf("incremental sync call = %q, want %q", call, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("dirty IMAP folder %q was not synced after the busy sync finished", want)
+		}
+	}
+
+	waitForLifecycleCondition(t, func() bool {
+		orchestrator.mu.Lock()
+		defer orchestrator.mu.Unlock()
+		return len(orchestrator.dirtyIMAPFolders["acc"]) == 0 && !orchestrator.dirtyIMAPDraining["acc"] && orchestrator.running["acc"] == nil
+	}, "dirty IMAP queue to drain")
+	select {
+	case call := <-calls:
+		t.Fatalf("duplicate notification started another sync: %q", call)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestDirtyIMAPFolderRunsAgainWhenNotifiedDuringIncrementalSync(t *testing.T) {
+	orchestrator := NewSyncOrchestrator(nil, nil, nil, nil)
+	calls := make(chan string, 2)
+	releaseFirst := make(chan struct{})
+	var callMu sync.Mutex
+	callCount := 0
+	orchestrator.incrementalOverride = func(ctx context.Context, _ string, folderID, _ string) {
+		callMu.Lock()
+		callCount++
+		currentCall := callCount
+		callMu.Unlock()
+		calls <- folderID
+		if currentCall == 1 {
+			select {
+			case <-ctx.Done():
+			case <-releaseFirst:
+			}
+		}
+	}
+
+	orchestrator.markIMAPFolderDirty(context.Background(), "acc", "acc_inbox", "INBOX")
+	select {
+	case <-calls:
+	case <-time.After(time.Second):
+		t.Fatal("first incremental sync did not start")
+	}
+	orchestrator.markIMAPFolderDirty(context.Background(), "acc", "acc_inbox", "INBOX")
+
+	select {
+	case <-calls:
+		t.Fatal("second incremental sync started before the first finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseFirst)
+	select {
+	case folderID := <-calls:
+		if folderID != "acc_inbox" {
+			t.Fatalf("second incremental folder = %q", folderID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("notification received during incremental sync was lost")
+	}
+	waitForLifecycleCondition(t, func() bool {
+		orchestrator.mu.Lock()
+		defer orchestrator.mu.Unlock()
+		return len(orchestrator.dirtyIMAPFolders["acc"]) == 0 && !orchestrator.dirtyIMAPDraining["acc"] && orchestrator.running["acc"] == nil
+	}, "requeued dirty IMAP folder to drain")
+}
+
+func TestDirtyIMAPFolderDropsCancelledWatcherGeneration(t *testing.T) {
+	orchestrator := NewSyncOrchestrator(nil, nil, nil, nil)
+	calls := make(chan struct{}, 1)
+	orchestrator.incrementalOverride = func(context.Context, string, string, string) {
+		calls <- struct{}{}
+	}
+
+	_, finishBusySync, ok := orchestrator.beginAccountSync(context.Background(), "acc", accountSyncBackground)
+	if !ok {
+		t.Fatal("failed to start the busy account sync")
+	}
+	watcherCtx, cancelWatcher := context.WithCancel(context.Background())
+	orchestrator.markIMAPFolderDirty(watcherCtx, "acc", "acc_inbox", "INBOX")
+	cancelWatcher()
+	finishBusySync()
+
+	waitForLifecycleCondition(t, func() bool {
+		orchestrator.mu.Lock()
+		defer orchestrator.mu.Unlock()
+		return len(orchestrator.dirtyIMAPFolders["acc"]) == 0 && !orchestrator.dirtyIMAPDraining["acc"]
+	}, "cancelled watcher notification cleanup")
+	select {
+	case <-calls:
+		t.Fatal("cancelled watcher generation started an incremental sync")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestStopAccountTracksDirtyIMAPDrainCompletion(t *testing.T) {
+	orchestrator := NewSyncOrchestrator(nil, nil, nil, nil)
+	calls := make(chan struct{}, 1)
+	orchestrator.incrementalOverride = func(context.Context, string, string, string) {
+		calls <- struct{}{}
+	}
+
+	_, finishBusySync, ok := orchestrator.beginAccountSync(context.Background(), "acc", accountSyncBackground)
+	if !ok {
+		t.Fatal("failed to start the busy account sync")
+	}
+	orchestrator.markIMAPFolderDirty(context.Background(), "acc", "acc_inbox", "INBOX")
+	_, _, drainDone := orchestrator.stopAccount("acc")
+	finishBusySync()
+	if drainDone == nil {
+		t.Fatal("stopAccount() did not return the active dirty-queue completion")
+	}
+	select {
+	case <-drainDone:
+	case <-time.After(time.Second):
+		t.Fatal("dirty IMAP queue did not stop with the account")
+	}
+	select {
+	case <-calls:
+		t.Fatal("stopped account ran a queued incremental sync")
+	default:
+	}
+}
+
 func TestAccountSyncProgressPayloadCarriesRunAccountIDs(t *testing.T) {
 	accountIDs := []string{"acc-a", "acc-b"}
 	ctx := withAccountSyncProgressScope(context.Background(), accountSyncProgressScope{
