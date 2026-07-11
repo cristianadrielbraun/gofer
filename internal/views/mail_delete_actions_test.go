@@ -18,7 +18,7 @@ func TestTrashDeleteActionsLookDestructiveAndSayPermanent(t *testing.T) {
 	if err := MailListToolbar(accounts, "acc-trash", "cards").Render(context.Background(), &list); err != nil {
 		t.Fatalf("MailListToolbar.Render() error = %v", err)
 	}
-	for _, want := range []string{"Permanently delete", "Permanently delete selected messages", "border-red-500/35", "bg-red-500/12", "text-red-700"} {
+	for _, want := range []string{"Permanently delete", "Permanently delete selected messages", "data-mail-delete-permanent=\"true\"", "data-mail-delete-tooltip", "border-red-500/35", "bg-red-500/12", "text-red-700"} {
 		if !strings.Contains(list.String(), want) {
 			t.Fatalf("Trash toolbar missing %q: %s", want, list.String())
 		}
@@ -29,10 +29,19 @@ func TestTrashDeleteActionsLookDestructiveAndSayPermanent(t *testing.T) {
 	if err := MailViewHeader(email).Render(context.Background(), &message); err != nil {
 		t.Fatalf("MailViewHeader.Render() error = %v", err)
 	}
-	for _, want := range []string{"Permanently delete thread", "border-red-500/35", "bg-red-500/12", "text-red-700"} {
+	for _, want := range []string{"Permanently delete thread", "deleteThread", "border-red-500/35", "bg-red-500/12", "text-red-700"} {
 		if !strings.Contains(message.String(), want) {
 			t.Fatalf("Trash message action missing %q: %s", want, message.String())
 		}
+	}
+}
+
+func TestMailViewLinksKeepTheirFolderContext(t *testing.T) {
+	if got := string(mailViewPartialURL("42", "acc-trash", false)); got != "/email/42?folder_id=acc-trash" {
+		t.Fatalf("mailViewPartialURL() = %q", got)
+	}
+	if got := string(mailViewPartialURL("42", "acc-trash", true)); got != "/email/42?folder_id=acc-trash&single=1" {
+		t.Fatalf("mailViewPartialURL(single) = %q", got)
 	}
 }
 

@@ -4679,6 +4679,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 		        COALESCE((SELECT is_read FROM message_folder_state WHERE message_id = m.id LIMIT 1), 1),
 		        COALESCE((SELECT is_starred FROM message_folder_state WHERE message_id = m.id LIMIT 1), 0),
 		        COALESCE((SELECT f.name FROM message_folder_state mfs JOIN folders f ON mfs.folder_id = f.id WHERE mfs.message_id = m.id AND mfs.is_deleted = 0 LIMIT 1), ''),
+		        COALESCE((SELECT mfs.folder_id FROM message_folder_state mfs WHERE mfs.message_id = m.id AND mfs.is_deleted = 0 LIMIT 1), ''),
 		        COALESCE((SELECT f.role FROM message_folder_state mfs JOIN folders f ON mfs.folder_id = f.id WHERE mfs.message_id = m.id AND mfs.is_deleted = 0 LIMIT 1), ''),
 		        m.internet_message_id, m."references", m.body_text_path
 		 FROM messages m
@@ -4705,7 +4706,7 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 			bodyTextPath  sql.NullString
 		)
 		if err := rows.Scan(&item.ID, &item.AccountID, &item.AccountColor, &item.Subject, &fromName, &fromEmail, &item.Preview,
-			&dateReceived, &hasAttach, &isRead, &isStarred, &item.FolderName, &item.FolderRole,
+			&dateReceived, &hasAttach, &isRead, &isStarred, &item.FolderName, &item.FolderID, &item.FolderRole,
 			&internetMsgID, &refs, &bodyTextPath); err != nil {
 			continue
 		}
@@ -4905,6 +4906,53 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 	email.Attachments, _ = db.GetAttachments(ctx, msgID)
 
 	return &email, nil
+}
+
+func (db *DB) GetEmailByIDForFolder(ctx context.Context, id, folderID string) (*models.Email, error) {
+	email, err := db.GetEmailByID(ctx, id)
+	if err != nil || email == nil {
+		return email, err
+	}
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return email, nil
+	}
+	messageID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return email, nil
+	}
+
+	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, false)
+	if err != nil {
+		return nil, err
+	}
+	if info == nil && isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if info == nil {
+		return email, nil
+	}
+
+	var isRead, isStarred, isDraft int
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT is_read, is_starred, is_draft
+		FROM message_folder_state
+		WHERE message_id = ? AND folder_id = ? AND is_deleted = 0`, messageID, info.FolderID).
+		Scan(&isRead, &isStarred, &isDraft); err != nil {
+		return nil, err
+	}
+	email.FolderID = info.FolderID
+	email.FolderRole = info.FolderRole
+	if email.ThreadCount <= 1 {
+		email.IsRead = isRead == 1
+	}
+	email.IsStarred = isStarred == 1
+	email.IsDraft = isDraft == 1
+	return email, nil
 }
 
 func (db *DB) GetEmailsAfterCursor(ctx context.Context, folderID, cursor string, limit int) (*models.EmailPage, error) {

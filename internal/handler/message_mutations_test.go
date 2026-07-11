@@ -432,3 +432,50 @@ func TestDeleteThreadOnlyQueuesMessagesFromTheViewedTrashFolder(t *testing.T) {
 		t.Fatalf("folder-scoped delete trash_ops=%d inbox_ops=%d inbox_deleted=%d", trashDeletes, inboxDeletes, inboxDeleted)
 	}
 }
+
+func TestEmailPartialUsesViewedFolderForDeleteAction(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{
+		{ID: "victim-inbox", AccountID: "victim-account", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "victim-trash", AccountID: "victim-account", RemoteID: "Trash", Name: "Trash", Role: "trash", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(t.Context(), []storage.SyncMessage{
+		{AccountID: "victim-account", FolderID: "victim-inbox", RemoteUID: 1, MessageID: "<viewed-folder@example.com>", Subject: "Folder context", FromEmail: "sender@example.com", DateSent: time.Now()},
+		{AccountID: "victim-account", FolderID: "victim-trash", RemoteUID: 2, MessageID: "<viewed-folder@example.com>", Subject: "Folder context", FromEmail: "sender@example.com", DateSent: time.Now()},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	messageID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<viewed-folder@example.com>")
+	if err != nil || messageID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+	}
+
+	render := func(folderID string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/email/"+strconv.FormatInt(messageID, 10)+"?folder_id="+folderID, nil)
+		req.SetPathValue("id", strconv.FormatInt(messageID, 10))
+		recorder := httptest.NewRecorder()
+		h.handleEmailPartial(recorder, req)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("email partial for %s status=%d body=%s", folderID, recorder.Code, recorder.Body.String())
+		}
+		return recorder.Body.String()
+	}
+
+	trashHTML := render("victim-trash")
+	for _, want := range []string{"Permanently delete", "border-red-500/35", "deleteMessage"} {
+		if !strings.Contains(trashHTML, want) {
+			t.Fatalf("Trash email partial missing %q: %s", want, trashHTML)
+		}
+	}
+	unifiedTrashHTML := render("trash")
+	if !strings.Contains(unifiedTrashHTML, "Permanently delete") || !strings.Contains(unifiedTrashHTML, "border-red-500/35") {
+		t.Fatalf("unified Trash email partial lost permanent-delete treatment: %s", unifiedTrashHTML)
+	}
+	inboxHTML := render("victim-inbox")
+	if strings.Contains(inboxHTML, "Permanently delete") || strings.Contains(inboxHTML, "border-red-500/35") {
+		t.Fatalf("Inbox email partial kept Trash delete treatment: %s", inboxHTML)
+	}
+}

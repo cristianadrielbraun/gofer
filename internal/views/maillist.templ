@@ -189,6 +189,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 					Disabled: true,
 					Attributes: templ.Attributes{
 						"data-mail-selection-action": "delete",
+						"data-mail-delete-permanent": fmt.Sprintf("%t", mailFolderIDIsTrash(activeFolder, accounts)),
 						"aria-label": mailDeleteSelectionLabel(mailFolderIDIsTrash(activeFolder, accounts)),
 					},
 				}) {
@@ -199,11 +200,13 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				if mailFolderIDIsTrash(activeFolder, accounts) {
-					Permanently delete
-				} else {
-					Delete
-				}
+				<span data-mail-delete-tooltip>
+					if mailFolderIDIsTrash(activeFolder, accounts) {
+						Permanently delete
+					} else {
+						Delete
+					}
+				</span>
 			}
 		}
 		@tooltip.Tooltip() {
@@ -666,7 +669,7 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 	<div class="mail-list-item" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) }>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
-			hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
+			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }
 			hx-target="#mail-view"
 			hx-swap="innerHTML"
 			class={
@@ -773,7 +776,7 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) }>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
-			hx-get={ templ.URL(fmt.Sprintf("/email/%s", email.ID)) }
+			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }
 			hx-target="#mail-view"
 			hx-swap="innerHTML"
 			class={
@@ -876,7 +879,7 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 			<div class="thread-sub-item" data-sub-email-id={ item.ID }>
 				<a
 					href={ templ.URL(fmt.Sprintf("/?email=%s", item.ID)) }
-					hx-get={ templ.URL(fmt.Sprintf("/email/%s?single=1", item.ID)) }
+					hx-get={ mailViewPartialURL(item.ID, item.FolderID, true) }
 					hx-target="#mail-view"
 					hx-swap="innerHTML"
 					class="flex items-start gap-2.5 px-3 py-1.5 cursor-pointer transition-colors hover:bg-muted/50"

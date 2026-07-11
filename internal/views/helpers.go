@@ -124,6 +124,21 @@ func mailDeleteSelectionLabel(permanent bool) string {
 	return "Delete selected messages"
 }
 
+func mailViewPartialURL(emailID, folderID string, single bool) templ.SafeURL {
+	values := url.Values{}
+	if folderID = strings.TrimSpace(folderID); folderID != "" {
+		values.Set("folder_id", folderID)
+	}
+	if single {
+		values.Set("single", "1")
+	}
+	path := "/email/" + url.PathEscape(strings.TrimSpace(emailID))
+	if query := values.Encode(); query != "" {
+		path += "?" + query
+	}
+	return templ.URL(path)
+}
+
 func composeDefaultAccountID(accounts []models.Account) string {
 	if len(accounts) > 0 {
 		return accounts[0].ID

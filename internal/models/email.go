@@ -201,6 +201,7 @@ type ThreadItem struct {
 	IsStarred         bool
 	HasAttachment     bool
 	FolderName        string
+	FolderID          string
 	FolderRole        string
 	Labels            []Label
 	Attachments       []Attachment

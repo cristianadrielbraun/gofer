@@ -1499,7 +1499,7 @@ class VirtualMailList {
       else if (options.animateInitial) this.animateRenderedRows({ enterFrom: -8 })
       if (options.loadSelected !== false && this.selectedEmailId && this.selectedEmailId !== selected && typeof htmx !== "undefined") {
         if (typeof showMailViewLoading === "function") showMailViewLoading()
-        htmx.ajax("GET", "/email/" + this.selectedEmailId, "#mail-view")
+        htmx.ajax("GET", typeof mailViewRequestURL === "function" ? mailViewRequestURL(this.selectedEmailId) : "/email/" + this.selectedEmailId, "#mail-view")
       }
     } finally {
       this.setPaginationLoading(false)
@@ -2112,7 +2112,7 @@ class VirtualMailList {
   updateFilteredSelection(previousSelected) {
     if (this.selectedEmailId && this.selectedEmailId !== previousSelected && typeof htmx !== "undefined") {
       if (typeof showMailViewLoading === "function") showMailViewLoading()
-      htmx.ajax("GET", "/email/" + this.selectedEmailId, "#mail-view")
+      htmx.ajax("GET", typeof mailViewRequestURL === "function" ? mailViewRequestURL(this.selectedEmailId) : "/email/" + this.selectedEmailId, "#mail-view")
       return
     }
     if (!this.selectedEmailId) {
@@ -2196,6 +2196,7 @@ class VirtualMailList {
     if (countEl) {
       countEl.textContent = String(this.displayTotalCount)
     }
+    if (typeof syncMailDeleteActionState === "function") syncMailDeleteActionState()
   }
 
   updateSyncHeader() {
@@ -3371,7 +3372,7 @@ window.addEventListener("popstate", function (e) {
     vml.render()
     if (typeof htmx !== "undefined") {
       if (typeof showMailViewLoading === "function") showMailViewLoading()
-      htmx.ajax("GET", "/email/" + e.state.email, "#mail-view")
+      htmx.ajax("GET", typeof mailViewRequestURL === "function" ? mailViewRequestURL(e.state.email) : "/email/" + e.state.email, "#mail-view")
     }
   }
 })

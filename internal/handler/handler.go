@@ -437,7 +437,7 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
 
-	email, err := h.db.GetEmailByID(ctx, emailID)
+	email, err := h.db.GetEmailByIDForFolder(ctx, emailID, r.URL.Query().Get("folder_id"))
 	if err != nil || email == nil {
 		http.NotFound(w, r)
 		return

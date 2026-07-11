@@ -787,6 +787,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function setupMailListActions() {
     window.syncMailSelectionControls = syncMailSelectionControls
     window.clearMailSelection = clearMailSelection
+    window.applyOptimisticMailRemove = applyOptimisticRemove
 
     document.addEventListener("click", function (e) {
       var rowLink = e.target.closest && e.target.closest(".mail-list-item[data-email-id] > a")
@@ -865,10 +866,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.body.addEventListener("htmx:afterSettle", function () {
       seedMailSelectionFromActive()
+      syncMailDeleteActionState()
       syncMailSelectionControls()
     })
 
     seedMailSelectionFromActive()
+    syncMailDeleteActionState()
     syncMailSelectionControls()
     setupMailKeyboardShortcuts()
 
@@ -983,10 +986,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function currentMailListFolderID() {
-      if (virtualMailList && virtualMailList.folderID) return virtualMailList.folderID
-      var scroll = document.getElementById("mail-list-scroll")
-      if (scroll && scroll._virtualMailList && scroll._virtualMailList.folderID) return scroll._virtualMailList.folderID
-      return scroll && scroll.dataset.folderId ? scroll.dataset.folderId : ""
+      return mailActionCurrentFolderID()
     }
 
     function markSelectedReadInBackground(ids) {
@@ -1038,7 +1038,7 @@ document.addEventListener("DOMContentLoaded", function () {
           }
           var currentEmail = virtualMailList && virtualMailList.selectedEmailId
           if (currentEmail && ids.indexOf(currentEmail) !== -1 && window.htmx) {
-            htmx.ajax("GET", "/email/" + encodeURIComponent(currentEmail), { target: "#mail-view", swap: "innerHTML" })
+            htmx.ajax("GET", mailViewRequestURL(currentEmail), { target: "#mail-view", swap: "innerHTML" })
           }
         })
         return
@@ -1054,7 +1054,7 @@ document.addEventListener("DOMContentLoaded", function () {
           }
           var currentEmail = virtualMailList && virtualMailList.selectedEmailId
           if (currentEmail && ids.indexOf(currentEmail) !== -1 && window.htmx) {
-            htmx.ajax("GET", "/email/" + encodeURIComponent(currentEmail), { target: "#mail-view", swap: "innerHTML" })
+            htmx.ajax("GET", mailViewRequestURL(currentEmail), { target: "#mail-view", swap: "innerHTML" })
           }
         })
         return
@@ -3419,7 +3419,7 @@ document.addEventListener("DOMContentLoaded", function () {
           if (!evt.target || evt.target.id !== "main-content") return
           document.body.removeEventListener("htmx:afterSettle", loadEmailAfterShell)
           preserveMailListSelectionFor = initialEmailId
-          htmx.ajax("GET", "/email/" + initialEmailId, "#mail-view")
+          htmx.ajax("GET", mailViewRequestURL(initialEmailId), "#mail-view")
         }
         document.body.addEventListener("htmx:afterSettle", loadEmailAfterShell)
       }
@@ -9270,26 +9270,54 @@ function toggleStar(emailId) {
 }
 
 function mailDeleteFolderQuery() {
-  var folderID = currentMailListFolderID()
+  var folderID = mailActionCurrentFolderID()
   return folderID ? "?folder_id=" + encodeURIComponent(folderID) : ""
 }
 
+function beginOptimisticMailRemoval(emailId) {
+  if (typeof window.applyOptimisticMailRemove === "function") {
+    window.applyOptimisticMailRemove([String(emailId)])
+  }
+  if (typeof setMailViewEmpty === "function") setMailViewEmpty()
+  var container = document.getElementById("mail-list-scroll")
+  var vml = container && container._virtualMailList
+  if (vml && String(vml.selectedEmailId || "") === String(emailId)) {
+    vml.selectedEmailId = null
+    if (typeof vml.syncSelectionClasses === "function") vml.syncSelectionClasses(vml.itemsContainer || vml.container)
+    if (typeof vml.replaceUrl === "function") vml.replaceUrl()
+  }
+  return vml
+}
+
+function finishOptimisticMailRemoval(vml) {
+  if (vml && typeof vml.refreshCurrentFolder === "function") {
+    vml.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+  }
+  refreshSidebarUnread()
+}
+
+function restoreOptimisticMailRemoval(emailId, vml) {
+  var row = document.querySelector('.mail-list-item[data-email-id="' + String(emailId).replace(/"/g, '\\"') + '"]')
+  if (row) {
+    row.style.opacity = ""
+    row.style.pointerEvents = ""
+  }
+  if (vml) {
+    vml.selectedEmailId = String(emailId)
+    if (typeof vml.syncSelectionClasses === "function") vml.syncSelectionClasses(vml.itemsContainer || vml.container)
+    if (typeof vml.replaceUrl === "function") vml.replaceUrl()
+  }
+  if (window.htmx) htmx.ajax("GET", mailViewRequestURL(emailId), { target: "#mail-view", swap: "innerHTML" })
+}
+
 function deleteMessage(emailId) {
-  fetch("/api/messages/" + emailId + mailDeleteFolderQuery(), { method: "DELETE" })
-    .then(function () {
-      var mailView = document.getElementById("mail-view")
-      if (mailView) setMailViewEmpty()
-      var container = document.getElementById("mail-list-scroll")
-      if (container && container._virtualMailList) {
-        var vml = container._virtualMailList
-        if (vml.selectedEmailId === emailId) vml.selectedEmailId = null
-        vml.reset()
-        vml.hydrateFromDOM()
-        vml.switchFolder(vml.folderID)
-      }
-      refreshSidebarUnread()
+  var vml = beginOptimisticMailRemoval(emailId)
+  fetch("/api/messages/" + encodeURIComponent(emailId) + mailDeleteFolderQuery(), { method: "DELETE" })
+    .then(function (response) {
+      if (!response.ok) throw new Error("delete failed")
+      finishOptimisticMailRemoval(vml)
     })
-    .catch(function () {})
+    .catch(function () { restoreOptimisticMailRemoval(emailId, vml) })
 }
 
 function archiveThread(emailId) {
@@ -9311,21 +9339,13 @@ function archiveThread(emailId) {
 }
 
 function deleteThread(emailId) {
-  fetch("/api/messages/" + emailId + "/thread" + mailDeleteFolderQuery(), { method: "DELETE" })
-    .then(function () {
-      var mailView = document.getElementById("mail-view")
-      if (mailView) setMailViewEmpty()
-      var container = document.getElementById("mail-list-scroll")
-      if (container && container._virtualMailList) {
-        var vml = container._virtualMailList
-        if (vml.selectedEmailId === emailId) vml.selectedEmailId = null
-        vml.reset()
-        vml.hydrateFromDOM()
-        vml.switchFolder(vml.folderID)
-      }
-      refreshSidebarUnread()
+  var vml = beginOptimisticMailRemoval(emailId)
+  fetch("/api/messages/" + encodeURIComponent(emailId) + "/thread" + mailDeleteFolderQuery(), { method: "DELETE" })
+    .then(function (response) {
+      if (!response.ok) throw new Error("delete thread failed")
+      finishOptimisticMailRemoval(vml)
     })
-    .catch(function () {})
+    .catch(function () { restoreOptimisticMailRemoval(emailId, vml) })
 }
 
 function markSpam(emailId) {
@@ -9350,6 +9370,55 @@ function mailActionCurrentFolderID() {
   if (container && container.dataset.folderId) return container.dataset.folderId
   var active = document.querySelector('aside a[hx-get^="/folder/"].bg-sidebar-accent')
   return active ? (active.getAttribute("hx-get") || "").replace("/folder/", "") : ""
+}
+
+var mailPermanentDeleteClasses = [
+  "border",
+  "border-red-500/35",
+  "bg-red-500/12",
+  "text-red-700",
+  "shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+  "hover:bg-red-500/20",
+  "hover:text-red-800",
+  "dark:border-red-300/20",
+  "dark:bg-red-300/10",
+  "dark:text-red-300",
+  "dark:hover:text-red-200"
+]
+
+function mailFolderIsTrash(folderID) {
+  folderID = String(folderID || "").trim()
+  if (!folderID) return false
+  if (folderID.toLowerCase() === "trash") return true
+  var links = document.querySelectorAll('aside a[hx-get^="/folder/"]')
+  for (var i = 0; i < links.length; i++) {
+    if ((links[i].getAttribute("hx-get") || "") !== "/folder/" + folderID) continue
+    return String(links[i].dataset.folderRole || "").toLowerCase() === "trash"
+  }
+  return false
+}
+
+function syncMailDeleteActionState() {
+  var button = document.querySelector('[data-mail-selection-action="delete"]')
+  if (!button) return
+  var permanent = mailFolderIsTrash(mailActionCurrentFolderID())
+  for (var i = 0; i < mailPermanentDeleteClasses.length; i++) {
+    button.classList.toggle(mailPermanentDeleteClasses[i], permanent)
+  }
+  button.dataset.mailDeletePermanent = permanent ? "true" : "false"
+  button.setAttribute("aria-label", permanent ? "Permanently delete selected messages" : "Delete selected messages")
+  var root = button.closest("[data-tui-popover-root]")
+  var tooltip = root && root.querySelector("[data-mail-delete-tooltip]")
+  if (tooltip) tooltip.textContent = permanent ? "Permanently delete" : "Delete"
+}
+
+function mailViewRequestURL(emailID, single) {
+  var params = new URLSearchParams()
+  var folderID = mailActionCurrentFolderID()
+  if (folderID) params.set("folder_id", folderID)
+  if (single) params.set("single", "1")
+  var query = params.toString()
+  return "/email/" + encodeURIComponent(emailID) + (query ? "?" + query : "")
 }
 
 function markSpamState(emailId, notSpam, thread) {
@@ -9407,7 +9476,7 @@ function refreshAfterLabelMutation(emailId) {
   if (container && container._virtualMailList && typeof container._virtualMailList.refreshCurrentFolder === "function") {
     container._virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
   }
-  if (window.htmx) htmx.ajax("GET", "/email/" + encodeURIComponent(emailId), { target: "#mail-view", swap: "innerHTML" })
+  if (window.htmx) htmx.ajax("GET", mailViewRequestURL(emailId), { target: "#mail-view", swap: "innerHTML" })
 }
 
 function moveMessage(emailId, folderId) {
@@ -9682,7 +9751,7 @@ function refetchBody(emailId) {
     .then(function (r) { return r.json() })
     .then(function (data) {
       if (data.status === "refetched" && typeof htmx !== "undefined") {
-        htmx.ajax("GET", "/email/" + emailId, { target: "#mail-view", swap: "innerHTML" })
+        htmx.ajax("GET", mailViewRequestURL(emailId), { target: "#mail-view", swap: "innerHTML" })
       }
     })
     .catch(function () {})
