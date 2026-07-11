@@ -19,27 +19,42 @@ const (
 )
 
 const (
+	SentCopyNotRequired = "not_required"
+	SentCopyPending     = "pending"
+	SentCopyCopying     = "copying"
+	SentCopyComplete    = "complete"
+	SentCopyFailed      = "failed"
+	SentCopyAmbiguous   = "ambiguous"
+)
+
+const (
 	OutgoingTransportSMTP    = "smtp"
 	OutgoingTransportGmail   = "gmail"
 	OutgoingTransportOutlook = "outlook"
 )
 
 type OutgoingSend struct {
-	ID                 string
-	AccountID          string
-	MessageID          int64
-	DraftID            string
-	Transport          string
-	EnvelopeFrom       string
-	EnvelopeRecipients []string
-	MIMEData           []byte
-	MessageJSON        []byte
-	SendAfter          time.Time
-	IsScheduled        bool
-	Status             string
-	AttemptCount       int
-	LastError          string
-	SentMessageID      string
+	ID                  string
+	AccountID           string
+	MessageID           int64
+	DraftID             string
+	Transport           string
+	EnvelopeFrom        string
+	EnvelopeRecipients  []string
+	MIMEData            []byte
+	MessageJSON         []byte
+	SendAfter           time.Time
+	IsScheduled         bool
+	Status              string
+	AttemptCount        int
+	LastError           string
+	SentMessageID       string
+	SentCopyStatus      string
+	SentCopyAttempts    int
+	SentCopyLastError   string
+	SentCopyNextTry     time.Time
+	SentCopyUID         uint32
+	SentCopyUIDValidity uint32
 }
 
 type QueueOutgoingSendInput struct {
@@ -97,6 +112,13 @@ func (db *DB) QueueOutgoingSend(ctx context.Context, input QueueOutgoingSendInpu
 			last_error = '',
 			locked_at = NULL,
 			sent_message_id = '',
+			sent_copy_status = 'not_required',
+			sent_copy_attempt_count = 0,
+			sent_copy_last_error = '',
+			sent_copy_locked_at = NULL,
+			sent_copy_next_attempt_at = CURRENT_TIMESTAMP,
+			sent_copy_uid = 0,
+			sent_copy_uid_validity = 0,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE outgoing_sends.status != ?`,
 		input.ID, input.AccountID, messageID, input.DraftID, input.Transport, input.EnvelopeFrom,
@@ -193,12 +215,24 @@ func (db *DB) ClaimDueOutgoingSends(ctx context.Context, now time.Time, limit in
 	return sends, nil
 }
 
-func (db *DB) CompleteOutgoingSend(ctx context.Context, id, sentMessageID string) error {
-	result, err := db.Write().ExecContext(ctx, `
-		UPDATE outgoing_sends
+func (db *DB) CompleteOutgoingSend(ctx context.Context, id, sentMessageID string, needsSentCopy bool) error {
+	query := `UPDATE outgoing_sends
 		SET status = ?, sent_message_id = ?, last_error = '', locked_at = NULL,
-			envelope_recipients = '[]', mime_data = NULL, message_json = '', updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND status = ?`, OutgoingSendSent, sentMessageID, id, OutgoingSendSending)
+			sent_copy_status = ?, sent_copy_attempt_count = 0, sent_copy_last_error = '',
+			sent_copy_locked_at = NULL, sent_copy_next_attempt_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ?`
+	sentCopyStatus := SentCopyPending
+	if !needsSentCopy {
+		sentCopyStatus = SentCopyNotRequired
+		query = `UPDATE outgoing_sends
+			SET status = ?, sent_message_id = ?, last_error = '', locked_at = NULL,
+				sent_copy_status = ?, sent_copy_attempt_count = 0, sent_copy_last_error = '',
+				sent_copy_locked_at = NULL, sent_copy_next_attempt_at = CURRENT_TIMESTAMP,
+				envelope_recipients = '[]', mime_data = NULL, message_json = '', updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND status = ?`
+	}
+	result, err := db.Write().ExecContext(ctx, query, OutgoingSendSent, sentMessageID, sentCopyStatus, id, OutgoingSendSending)
 	if err != nil {
 		return err
 	}
@@ -206,6 +240,102 @@ func (db *DB) CompleteOutgoingSend(ctx context.Context, id, sentMessageID string
 		return fmt.Errorf("outgoing send %s is no longer marked sending", id)
 	}
 	return nil
+}
+
+func (db *DB) ClaimDueSentCopies(ctx context.Context, now time.Time, limit int) ([]OutgoingSend, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	now = now.UTC()
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin sent copy claim: %w", err)
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, outgoingSendSelect+`
+		WHERE status = ?
+		  AND sent_copy_status IN (?, ?, ?)
+		  AND sent_copy_next_attempt_at <= ?
+		  AND mime_data IS NOT NULL AND length(mime_data) > 0
+		ORDER BY sent_copy_next_attempt_at ASC, updated_at ASC
+		LIMIT ?`, OutgoingSendSent, SentCopyPending, SentCopyFailed, SentCopyAmbiguous, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("select due sent copies: %w", err)
+	}
+	var sends []OutgoingSend
+	for rows.Next() {
+		send, err := scanOutgoingSend(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		sends = append(sends, send)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range sends {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE outgoing_sends
+			SET sent_copy_status = ?, sent_copy_locked_at = ?,
+				sent_copy_attempt_count = sent_copy_attempt_count + 1, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND sent_copy_status = ?`, SentCopyCopying, now, sends[i].ID, sends[i].SentCopyStatus)
+		if err != nil {
+			return nil, err
+		}
+		if changed, _ := result.RowsAffected(); changed != 1 {
+			return nil, fmt.Errorf("sent copy %s was claimed concurrently", sends[i].ID)
+		}
+		sends[i].SentCopyAttempts++
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return sends, nil
+}
+
+func (db *DB) CompleteSentCopy(ctx context.Context, id string, uid, uidValidity uint32) error {
+	result, err := db.Write().ExecContext(ctx, `
+		UPDATE outgoing_sends
+		SET sent_copy_status = ?, sent_copy_last_error = '', sent_copy_locked_at = NULL,
+			sent_copy_uid = ?, sent_copy_uid_validity = ?,
+			envelope_recipients = '[]', mime_data = NULL, message_json = '', updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ? AND sent_copy_status = ?`,
+		SentCopyComplete, uid, uidValidity, id, OutgoingSendSent, SentCopyCopying)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return fmt.Errorf("sent copy %s is no longer being copied", id)
+	}
+	return nil
+}
+
+func (db *DB) FinishSentCopyWithError(ctx context.Context, id, status, errText string, nextAttempt time.Time) error {
+	if status != SentCopyAmbiguous {
+		status = SentCopyFailed
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		UPDATE outgoing_sends
+		SET sent_copy_status = ?, sent_copy_last_error = ?, sent_copy_locked_at = NULL,
+			sent_copy_next_attempt_at = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ? AND sent_copy_status = ?`,
+		status, errText, nextAttempt.UTC(), id, OutgoingSendSent, SentCopyCopying)
+	return err
+}
+
+func (db *DB) MarkInterruptedSentCopiesAmbiguous(ctx context.Context, reason string) (int64, error) {
+	result, err := db.Write().ExecContext(ctx, `
+		UPDATE outgoing_sends
+		SET sent_copy_status = ?, sent_copy_last_error = ?, sent_copy_locked_at = NULL,
+			sent_copy_next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		WHERE status = ? AND sent_copy_status = ?`,
+		SentCopyAmbiguous, reason, OutgoingSendSent, SentCopyCopying)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (db *DB) FinishOutgoingSendWithError(ctx context.Context, id, status, errText string) error {
@@ -275,7 +405,9 @@ func (db *DB) PrepareOutgoingSend(ctx context.Context, id, draftID, transport, e
 
 const outgoingSendSelect = `SELECT id, account_id, message_id, draft_id, transport, envelope_from,
 	envelope_recipients, mime_data, message_json, send_after, is_scheduled,
-	status, attempt_count, last_error, sent_message_id
+	status, attempt_count, last_error, sent_message_id,
+	sent_copy_status, sent_copy_attempt_count, sent_copy_last_error,
+	sent_copy_next_attempt_at, sent_copy_uid, sent_copy_uid_validity
 	FROM outgoing_sends`
 
 type rowScanner interface {
@@ -287,11 +419,15 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 	var messageID sql.NullInt64
 	var recipientsJSON string
 	var sendAfter sqliteNullTime
+	var sentCopyNextTry sqliteNullTime
 	var scheduled int
+	var sentCopyUID, sentCopyUIDValidity int64
 	if err := row.Scan(
 		&send.ID, &send.AccountID, &messageID, &send.DraftID, &send.Transport, &send.EnvelopeFrom,
 		&recipientsJSON, &send.MIMEData, &send.MessageJSON, &sendAfter, &scheduled,
 		&send.Status, &send.AttemptCount, &send.LastError, &send.SentMessageID,
+		&send.SentCopyStatus, &send.SentCopyAttempts, &send.SentCopyLastError,
+		&sentCopyNextTry, &sentCopyUID, &sentCopyUIDValidity,
 	); err != nil {
 		return OutgoingSend{}, err
 	}
@@ -302,6 +438,15 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 		send.SendAfter = sendAfter.Time
 	}
 	send.IsScheduled = scheduled != 0
+	if sentCopyNextTry.Valid {
+		send.SentCopyNextTry = sentCopyNextTry.Time
+	}
+	if sentCopyUID > 0 {
+		send.SentCopyUID = uint32(sentCopyUID)
+	}
+	if sentCopyUIDValidity > 0 {
+		send.SentCopyUIDValidity = uint32(sentCopyUIDValidity)
+	}
 	if recipientsJSON != "" {
 		if err := json.Unmarshal([]byte(recipientsJSON), &send.EnvelopeRecipients); err != nil {
 			return OutgoingSend{}, fmt.Errorf("decode outgoing recipients: %w", err)

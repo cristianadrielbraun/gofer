@@ -915,6 +915,13 @@ CREATE TABLE IF NOT EXISTS outgoing_sends (
     last_error TEXT NOT NULL DEFAULT '',
     locked_at DATETIME,
     sent_message_id TEXT NOT NULL DEFAULT '',
+    sent_copy_status TEXT NOT NULL DEFAULT 'not_required' CHECK (sent_copy_status IN ('not_required', 'pending', 'copying', 'complete', 'failed', 'ambiguous')),
+    sent_copy_attempt_count INTEGER NOT NULL DEFAULT 0,
+    sent_copy_last_error TEXT NOT NULL DEFAULT '',
+    sent_copy_locked_at DATETIME,
+    sent_copy_next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sent_copy_uid INTEGER NOT NULL DEFAULT 0,
+    sent_copy_uid_validity INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(message_id)
@@ -925,6 +932,9 @@ ON outgoing_sends(status, send_after);
 
 CREATE INDEX IF NOT EXISTS idx_outgoing_sends_account
 ON outgoing_sends(account_id, status, send_after);
+
+CREATE INDEX IF NOT EXISTS idx_outgoing_sends_sent_copy
+ON outgoing_sends(status, sent_copy_status, sent_copy_next_attempt_at);
 
 CREATE TABLE IF NOT EXISTS mail_security_exceptions (
     id TEXT PRIMARY KEY,
@@ -946,4 +956,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (58);
+INSERT OR REPLACE INTO schema_version (version) VALUES (59);

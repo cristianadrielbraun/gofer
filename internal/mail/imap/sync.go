@@ -396,22 +396,28 @@ func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string, expectedUI
 }
 
 func (c *Client) FindUIDByMessageID(ctx context.Context, remoteName, messageID string) (uint32, error) {
+	uid, _, err := c.FindUIDByMessageIDWithValidity(ctx, remoteName, messageID)
+	return uid, err
+}
+
+func (c *Client) FindUIDByMessageIDWithValidity(ctx context.Context, remoteName, messageID string) (uint32, uint32, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	messageID = strings.TrimSpace(messageID)
 	if messageID == "" {
-		return 0, nil
+		return 0, 0, nil
 	}
 	if c.closed {
-		return 0, fmt.Errorf("client is closed")
+		return 0, 0, fmt.Errorf("client is closed")
 	}
 
-	_, err := c.client.Select(remoteName, nil).Wait()
+	selectData, err := c.client.Select(remoteName, nil).Wait()
 	if err != nil {
-		return 0, fmt.Errorf("select %s: %w", remoteName, err)
+		return 0, 0, fmt.Errorf("select %s: %w", remoteName, err)
 	}
 	defer c.client.Unselect()
+	uidValidity := uint32(selectData.UIDValidity)
 
 	searchCmd := c.client.UIDSearch(&imap.SearchCriteria{
 		Header: []imap.SearchCriteriaHeaderField{{
@@ -421,14 +427,14 @@ func (c *Client) FindUIDByMessageID(ctx context.Context, remoteName, messageID s
 	}, nil)
 	searchData, err := searchCmd.Wait()
 	if err != nil {
-		return 0, fmt.Errorf("uid search %s message-id %s: %w", remoteName, messageID, err)
+		return 0, uidValidity, fmt.Errorf("uid search %s message-id %s: %w", remoteName, messageID, err)
 	}
 
 	uids := searchData.AllUIDs()
 	if len(uids) == 0 {
-		return 0, nil
+		return 0, uidValidity, nil
 	}
-	return uint32(uids[0]), nil
+	return uint32(uids[0]), uidValidity, nil
 }
 
 type FlagUpdate struct {

@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	goimap "github.com/emersion/go-imap/v2"
+
 	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
+	imapclient "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -48,6 +51,14 @@ type outgoingMessageSnapshot struct {
 	Date        time.Time                    `json:"date"`
 	Attachments []outgoingAttachmentSnapshot `json:"attachments,omitempty"`
 }
+
+type sentCopyIMAPClient interface {
+	AppendMessage(ctx context.Context, remoteName string, raw []byte, flags []goimap.Flag, date time.Time) (imapclient.AppendResult, error)
+	FindUIDByMessageIDWithValidity(ctx context.Context, remoteName, messageID string) (uint32, uint32, error)
+	Close() error
+}
+
+type sentCopyIMAPClientFactory func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error)
 
 func snapshotOutgoingMessage(msg *message.OutgoingMessage) outgoingMessageSnapshot {
 	return outgoingMessageSnapshot{
@@ -190,8 +201,14 @@ func (h *Handler) StartOutgoingSendWorker(ctx context.Context) {
 		} else if count > 0 {
 			log.Printf("outgoing-send: marked %d interrupted send(s) ambiguous", count)
 		}
+		if count, err := h.db.MarkInterruptedSentCopiesAmbiguous(ctx, "Gofer stopped while copying this message to Sent. The remote copy may already exist."); err != nil {
+			log.Printf("outgoing-send: recover interrupted Sent copies: %v", err)
+		} else if count > 0 {
+			log.Printf("outgoing-send: marked %d interrupted Sent copy operation(s) ambiguous", count)
+		}
 		h.prepareMigratedOutgoingSends(ctx)
 		h.runDueOutgoingSends(ctx)
+		h.runDueSentCopies(ctx)
 
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -201,8 +218,10 @@ func (h *Handler) StartOutgoingSendWorker(ctx context.Context) {
 				return
 			case <-h.outgoingWake:
 				h.runDueOutgoingSends(ctx)
+				h.runDueSentCopies(ctx)
 			case <-ticker.C:
 				h.runDueOutgoingSends(ctx)
+				h.runDueSentCopies(ctx)
 			}
 		}
 	}()
@@ -302,12 +321,155 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	if send.Transport == storage.OutgoingTransportOutlook {
 		h.cacheOutlookSentMessageID(parent, send.AccountID, msg, providerToken)
 	}
-	if err := h.db.CompleteOutgoingSend(parent, send.ID, msg.MessageID); err != nil {
+	needsSentCopy := send.Transport == storage.OutgoingTransportSMTP
+	if err := h.db.CompleteOutgoingSend(parent, send.ID, msg.MessageID, needsSentCopy); err != nil {
 		log.Printf("outgoing-send: complete %s: %v", send.ID, err)
 		return
 	}
 	h.cleanupDeliveredDraft(parent, send)
 	h.publishOutgoingResult(send, "sent", "")
+}
+
+func (h *Handler) runDueSentCopies(ctx context.Context) {
+	for {
+		sends, err := h.db.ClaimDueSentCopies(ctx, time.Now(), 5)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				log.Printf("outgoing-send: claim due Sent copies: %v", err)
+			}
+			return
+		}
+		if len(sends) == 0 {
+			return
+		}
+		for _, send := range sends {
+			h.reconcileSentCopy(ctx, send)
+		}
+	}
+}
+
+func (h *Handler) reconcileSentCopy(parent context.Context, send storage.OutgoingSend) {
+	folderID, remoteName, err := h.db.GetFolderIDByRole(parent, send.AccountID, "sent")
+	if err != nil {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("load Sent folder: %w", err))
+		return
+	}
+	if folderID == "" || remoteName == "" {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("remote Sent folder is not available"))
+		return
+	}
+	cfg, err := h.accountStore.GetConfig(parent, send.AccountID)
+	if err != nil {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("account not found"))
+		return
+	}
+	password, err := h.resolvePassword(parent, cfg, send.AccountID)
+	if err != nil {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("get IMAP credentials: %w", err))
+		return
+	}
+	factory := h.sentCopyIMAPFactory
+	if factory == nil {
+		factory = func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
+			return imapclient.NewClient(ctx, cfg, password)
+		}
+	}
+	client, err := factory(parent, cfg, password)
+	if err != nil {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("connect to IMAP for Sent copy: %w", err))
+		return
+	}
+	defer client.Close()
+
+	var snapshot outgoingMessageSnapshot
+	if err := json.Unmarshal(send.MessageJSON, &snapshot); err != nil {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("decode Sent copy message: %w", err))
+		return
+	}
+	messageID := strings.TrimSpace(snapshot.MessageID)
+	if messageID == "" {
+		messageID = strings.TrimSpace(send.SentMessageID)
+	}
+
+	if send.SentCopyStatus == storage.SentCopyAmbiguous {
+		uid, uidValidity, err := client.FindUIDByMessageIDWithValidity(parent, remoteName, messageID)
+		if err != nil {
+			h.finishSentCopy(send, storage.SentCopyAmbiguous, fmt.Errorf("check ambiguous Sent copy: %w", err))
+			return
+		}
+		if uid > 0 {
+			h.completeSentCopy(parent, send, folderID, uid, uidValidity)
+			return
+		}
+	}
+
+	result, err := client.AppendMessage(parent, remoteName, send.MIMEData, []goimap.Flag{goimap.FlagSeen}, snapshot.Date)
+	if err != nil {
+		status := storage.SentCopyFailed
+		if imapclient.IsAppendAmbiguous(err) {
+			status = storage.SentCopyAmbiguous
+		}
+		h.finishSentCopy(send, status, err)
+		return
+	}
+	uid := result.UID
+	if uid == 0 {
+		if foundUID, foundUIDValidity, findErr := client.FindUIDByMessageIDWithValidity(parent, remoteName, messageID); findErr == nil {
+			uid = foundUID
+			if result.UIDValidity == 0 {
+				result.UIDValidity = foundUIDValidity
+			}
+		} else {
+			log.Printf("outgoing-send: find appended Sent copy account=%s message=%s: %v", send.AccountID, messageID, findErr)
+		}
+	}
+	h.completeSentCopy(parent, send, folderID, uid, result.UIDValidity)
+}
+
+func (h *Handler) completeSentCopy(ctx context.Context, send storage.OutgoingSend, folderID string, uid, uidValidity uint32) {
+	if uid > 0 {
+		localID, err := h.db.GetMessageLocalIDByInternetID(ctx, send.AccountID, send.SentMessageID)
+		if err == nil && localID > 0 {
+			storedUIDValidity, validityErr := h.db.GetStoredUIDValidity(ctx, folderID)
+			if validityErr != nil {
+				log.Printf("outgoing-send: read Sent UID validity account=%s: %v", send.AccountID, validityErr)
+			} else if uidValidity > 0 && storedUIDValidity > 0 && uidValidity != storedUIDValidity {
+				log.Printf("outgoing-send: skip Sent UID link account=%s uidvalidity=%d stored=%d", send.AccountID, uidValidity, storedUIDValidity)
+			} else if err := h.db.SetMessageFolderRemoteUID(ctx, localID, folderID, uid); err != nil {
+				log.Printf("outgoing-send: link Sent UID account=%s message=%d uid=%d: %v", send.AccountID, localID, uid, err)
+			}
+		}
+	}
+	if err := h.db.CompleteSentCopy(ctx, send.ID, uid, uidValidity); err != nil {
+		log.Printf("outgoing-send: complete Sent copy %s: %v", send.ID, err)
+		nextAttempt := time.Now().Add(sentCopyRetryDelay(send.SentCopyAttempts))
+		if retryErr := h.db.FinishSentCopyWithError(context.Background(), send.ID, storage.SentCopyAmbiguous, "The remote Sent copy exists, but Gofer could not save its result: "+err.Error(), nextAttempt); retryErr != nil {
+			log.Printf("outgoing-send: schedule Sent copy reconciliation %s: %v", send.ID, retryErr)
+		}
+	}
+}
+
+func (h *Handler) finishSentCopy(send storage.OutgoingSend, status string, err error) {
+	errText := "Failed to copy message to the remote Sent folder."
+	if err != nil {
+		errText = err.Error()
+	}
+	nextAttempt := time.Now().Add(sentCopyRetryDelay(send.SentCopyAttempts))
+	if dbErr := h.db.FinishSentCopyWithError(context.Background(), send.ID, status, errText, nextAttempt); dbErr != nil {
+		log.Printf("outgoing-send: finish Sent copy %s: %v", send.ID, dbErr)
+		return
+	}
+	log.Printf("outgoing-send: Sent copy %s %s; retry at %s: %s", send.ID, status, nextAttempt.Format(time.RFC3339), errText)
+}
+
+func sentCopyRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 7 {
+		attempt = 7
+	}
+	return 30 * time.Second * time.Duration(1<<(attempt-1))
 }
 
 var errOutgoingSendAmbiguous = errors.New("outgoing send status is ambiguous")

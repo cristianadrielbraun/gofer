@@ -12,14 +12,48 @@ import (
 	"testing"
 	"time"
 
+	goimap "github.com/emersion/go-imap/v2"
+
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
+	imapclient "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
+
+type fakeSentCopyIMAPClient struct {
+	appendResult    imapclient.AppendResult
+	appendErr       error
+	findUID         uint32
+	findUIDValidity uint32
+	findErr         error
+	appendCalls     int
+	findCalls       int
+	mailbox         string
+	raw             []byte
+	flags           []goimap.Flag
+	date            time.Time
+}
+
+func (c *fakeSentCopyIMAPClient) AppendMessage(_ context.Context, mailbox string, raw []byte, flags []goimap.Flag, date time.Time) (imapclient.AppendResult, error) {
+	c.appendCalls++
+	c.mailbox = mailbox
+	c.raw = append([]byte(nil), raw...)
+	c.flags = append([]goimap.Flag(nil), flags...)
+	c.date = date
+	return c.appendResult, c.appendErr
+}
+
+func (c *fakeSentCopyIMAPClient) FindUIDByMessageIDWithValidity(context.Context, string, string) (uint32, uint32, error) {
+	c.findCalls++
+	return c.findUID, c.findUIDValidity, c.findErr
+}
+
+func (c *fakeSentCopyIMAPClient) Close() error { return nil }
 
 func TestHandleComposePersistsMIMEBeforeReturningAccepted(t *testing.T) {
 	h, db := newAccountOwnershipTestHandler(t)
@@ -133,11 +167,103 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 		t.Fatalf("delivered MIME = %q", string(delivered))
 	}
 	completed, err := db.GetOutgoingSend(ctx, queued.ID)
-	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentMessageID != "<durable@example.com>" {
+	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentMessageID != "<durable@example.com>" || completed.SentCopyStatus != storage.SentCopyNotRequired {
 		t.Fatalf("completed send = %#v, %v", completed, err)
 	}
 	localID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<durable@example.com>")
 	if err != nil || localID == 0 {
 		t.Fatalf("sent message local id = %d, %v", localID, err)
 	}
+}
+
+func TestSentCopyWorkerAppendsExactMIMEAndLinksRemoteUID(t *testing.T) {
+	h, db, queued, localID := seedPendingSentCopy(t)
+	fake := &fakeSentCopyIMAPClient{appendResult: imapclient.AppendResult{UID: 77, UIDValidity: 123}}
+	h.sentCopyIMAPFactory = func(context.Context, *models.AccountConfig, string) (sentCopyIMAPClient, error) {
+		return fake, nil
+	}
+
+	h.runDueSentCopies(t.Context())
+
+	if fake.appendCalls != 1 || fake.findCalls != 0 || fake.mailbox != "Sent" {
+		t.Fatalf("fake IMAP calls append=%d find=%d mailbox=%q", fake.appendCalls, fake.findCalls, fake.mailbox)
+	}
+	if !strings.Contains(string(fake.raw), "Message-ID: <sent-copy@example.com>") || !strings.Contains(string(fake.raw), "Sent copy body") {
+		t.Fatalf("appended MIME = %q", string(fake.raw))
+	}
+	if len(fake.flags) != 1 || fake.flags[0] != goimap.FlagSeen {
+		t.Fatalf("append flags = %#v, want Seen", fake.flags)
+	}
+	completed, err := db.GetOutgoingSend(t.Context(), queued.ID)
+	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentCopyStatus != storage.SentCopyComplete || completed.SentCopyUID != 77 || len(completed.MIMEData) != 0 {
+		t.Fatalf("completed Sent copy = %#v, %v", completed, err)
+	}
+	var remoteUID uint32
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT remote_uid FROM message_folder_state
+		WHERE message_id = ? AND folder_id = 'victim-sent'`, localID).Scan(&remoteUID); err != nil {
+		t.Fatalf("query linked remote UID: %v", err)
+	}
+	if remoteUID != 77 {
+		t.Fatalf("linked remote UID = %d, want 77", remoteUID)
+	}
+}
+
+func TestInterruptedSentCopySearchesBeforeAppendingAgain(t *testing.T) {
+	h, db, queued, _ := seedPendingSentCopy(t)
+	claimed, err := db.ClaimDueSentCopies(t.Context(), time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueSentCopies() = %#v, %v", claimed, err)
+	}
+	if count, err := db.MarkInterruptedSentCopiesAmbiguous(t.Context(), "interrupted"); err != nil || count != 1 {
+		t.Fatalf("MarkInterruptedSentCopiesAmbiguous() = %d, %v", count, err)
+	}
+	fake := &fakeSentCopyIMAPClient{findUID: 88}
+	h.sentCopyIMAPFactory = func(context.Context, *models.AccountConfig, string) (sentCopyIMAPClient, error) {
+		return fake, nil
+	}
+
+	h.runDueSentCopies(t.Context())
+
+	if fake.findCalls != 1 || fake.appendCalls != 0 {
+		t.Fatalf("ambiguous recovery find=%d append=%d, want search without APPEND", fake.findCalls, fake.appendCalls)
+	}
+	completed, err := db.GetOutgoingSend(t.Context(), queued.ID)
+	if err != nil || completed.SentCopyStatus != storage.SentCopyComplete || completed.SentCopyUID != 88 {
+		t.Fatalf("recovered Sent copy = %#v, %v", completed, err)
+	}
+}
+
+func seedPendingSentCopy(t *testing.T) (*Handler, *storage.DB, storage.OutgoingSend, int64) {
+	t.Helper()
+	h, db := newAccountOwnershipTestHandler(t)
+	h.blobStore = store.NewBlobStore(filepath.Join(t.TempDir(), "blobs"))
+	h.syncer = mailpkg.NewSyncOrchestrator(db, h.accountStore, h.blobStore, nil)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{{
+		ID: "victim-sent", AccountID: "victim-account", RemoteID: "Sent", Name: "Sent", Role: "sent", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	to, _ := message.ParseAddressList("recipient@example.com")
+	msg := &message.OutgoingMessage{
+		FromName: "Owner", FromEmail: "owner@example.com", To: to,
+		Subject: "Sent copy", TextBody: "Sent copy body",
+		MessageID: "<sent-copy@example.com>", Date: time.Now().UTC(),
+	}
+	queued, err := h.queueOutgoingMessage(t.Context(), "victim-account", 0, "", msg, time.Now().Add(-time.Second), false)
+	if err != nil {
+		t.Fatalf("queueOutgoingMessage() error = %v", err)
+	}
+	if sends, err := db.ClaimDueOutgoingSends(t.Context(), time.Now(), 1); err != nil || len(sends) != 1 {
+		t.Fatalf("ClaimDueOutgoingSends() = %#v, %v", sends, err)
+	}
+	h.saveSentMessageSnapshot(t.Context(), "victim-account", msg, queued.MIMEData)
+	if err := db.CompleteOutgoingSend(t.Context(), queued.ID, msg.MessageID, true); err != nil {
+		t.Fatalf("CompleteOutgoingSend() error = %v", err)
+	}
+	localID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", msg.MessageID)
+	if err != nil || localID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", localID, err)
+	}
+	return h, db, queued, localID
 }

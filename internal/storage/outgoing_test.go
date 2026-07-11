@@ -63,7 +63,7 @@ func TestOutgoingSendLifecycleKeepsImmutablePayload(t *testing.T) {
 	if len(due) != 1 || due[0].ID != queued.ID || !bytes.Equal(due[0].MIMEData, outgoingTestInput("acc", msgID, future, true).MIMEData) {
 		t.Fatalf("claimed = %#v, want original queued payload", due)
 	}
-	if err := db.CompleteOutgoingSend(ctx, queued.ID, "<stable@example.com>"); err != nil {
+	if err := db.CompleteOutgoingSend(ctx, queued.ID, "<stable@example.com>", false); err != nil {
 		t.Fatalf("CompleteOutgoingSend() error = %v", err)
 	}
 	got, err := db.GetOutgoingSendByMessageID(ctx, msgID)
@@ -75,6 +75,54 @@ func TestOutgoingSendLifecycleKeepsImmutablePayload(t *testing.T) {
 	}
 	if len(got.MIMEData) != 0 || len(got.MessageJSON) != 0 || len(got.EnvelopeRecipients) != 0 {
 		t.Fatalf("completed send retained delivery payload: %#v", got)
+	}
+}
+
+func TestSentCopyLifecycleKeepsPayloadSeparateFromDelivery(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	queued, err := db.QueueOutgoingSend(ctx, outgoingTestInput("acc", 0, time.Now().Add(-time.Minute), false))
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend() error = %v", err)
+	}
+	if sends, err := db.ClaimDueOutgoingSends(ctx, time.Now(), 1); err != nil || len(sends) != 1 {
+		t.Fatalf("ClaimDueOutgoingSends() = %#v, %v", sends, err)
+	}
+	if err := db.CompleteOutgoingSend(ctx, queued.ID, "<stable@example.com>", true); err != nil {
+		t.Fatalf("CompleteOutgoingSend() error = %v", err)
+	}
+	delivered, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil {
+		t.Fatalf("GetOutgoingSend(delivered) error = %v", err)
+	}
+	if delivered.Status != OutgoingSendSent || delivered.SentCopyStatus != SentCopyPending || len(delivered.MIMEData) == 0 {
+		t.Fatalf("delivered send = %#v, want sent with pending copy and retained MIME", delivered)
+	}
+
+	copies, err := db.ClaimDueSentCopies(ctx, time.Now(), 1)
+	if err != nil || len(copies) != 1 || copies[0].SentCopyStatus != SentCopyPending || copies[0].SentCopyAttempts != 1 {
+		t.Fatalf("ClaimDueSentCopies() = %#v, %v", copies, err)
+	}
+	next := time.Now().Add(time.Minute)
+	if err := db.FinishSentCopyWithError(ctx, queued.ID, SentCopyAmbiguous, "unknown APPEND result", next); err != nil {
+		t.Fatalf("FinishSentCopyWithError() error = %v", err)
+	}
+	if copies, err := db.ClaimDueSentCopies(ctx, next.Add(-time.Second), 1); err != nil || len(copies) != 0 {
+		t.Fatalf("Sent copy retried before backoff: %#v, %v", copies, err)
+	}
+	copies, err = db.ClaimDueSentCopies(ctx, next.Add(time.Second), 1)
+	if err != nil || len(copies) != 1 || copies[0].SentCopyStatus != SentCopyAmbiguous || copies[0].SentCopyAttempts != 2 {
+		t.Fatalf("ambiguous Sent copy claim = %#v, %v", copies, err)
+	}
+	if err := db.CompleteSentCopy(ctx, queued.ID, 42, 99); err != nil {
+		t.Fatalf("CompleteSentCopy() error = %v", err)
+	}
+	completed, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil || completed.SentCopyStatus != SentCopyComplete || completed.SentCopyUID != 42 || completed.SentCopyUIDValidity != 99 || len(completed.MIMEData) != 0 {
+		t.Fatalf("completed Sent copy = %#v, %v", completed, err)
 	}
 }
 

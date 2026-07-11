@@ -63,6 +63,7 @@ type Handler struct {
 	googleTranslator     *translation.GoogleWebConnector
 	vapidPublicKey       string
 	outgoingWake         chan struct{}
+	sentCopyIMAPFactory  sentCopyIMAPClientFactory
 }
 
 const (
@@ -98,6 +99,9 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		googleTranslator:   translation.NewGoogleWebConnector(nil),
 		vapidPublicKey:     vapidPublicKey,
 		outgoingWake:       make(chan struct{}, 1),
+		sentCopyIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
+			return imap.NewClient(ctx, cfg, password)
+		},
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {

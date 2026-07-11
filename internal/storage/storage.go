@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 58
+	const targetSchemaVersion = 59
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -492,6 +492,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 57 {
 		if err := migrateV57ToV58(tx); err != nil {
 			return fmt.Errorf("migrate v57 to v58: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 58 {
+		if err := migrateV58ToV59(tx); err != nil {
+			return fmt.Errorf("migrate v58 to v59: %w", err)
 		}
 	}
 
@@ -2245,6 +2251,41 @@ func migrateV57ToV58(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_outgoing_sends_due ON outgoing_sends(status, send_after)`,
 		`CREATE INDEX IF NOT EXISTS idx_outgoing_sends_account ON outgoing_sends(account_id, status, send_after)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (58)`,
+	} {
+		if _, err := tx.Exec(migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV58ToV59(tx *sql.Tx) error {
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{"sent_copy_status", `ALTER TABLE outgoing_sends ADD COLUMN sent_copy_status TEXT NOT NULL DEFAULT 'not_required' CHECK (sent_copy_status IN ('not_required', 'pending', 'copying', 'complete', 'failed', 'ambiguous'))`},
+		{"sent_copy_attempt_count", `ALTER TABLE outgoing_sends ADD COLUMN sent_copy_attempt_count INTEGER NOT NULL DEFAULT 0`},
+		{"sent_copy_last_error", `ALTER TABLE outgoing_sends ADD COLUMN sent_copy_last_error TEXT NOT NULL DEFAULT ''`},
+		{"sent_copy_locked_at", `ALTER TABLE outgoing_sends ADD COLUMN sent_copy_locked_at DATETIME`},
+		{"sent_copy_next_attempt_at", `ALTER TABLE outgoing_sends ADD COLUMN sent_copy_next_attempt_at DATETIME`},
+		{"sent_copy_uid", `ALTER TABLE outgoing_sends ADD COLUMN sent_copy_uid INTEGER NOT NULL DEFAULT 0`},
+		{"sent_copy_uid_validity", `ALTER TABLE outgoing_sends ADD COLUMN sent_copy_uid_validity INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, column := range columns {
+		exists, err := columnExistsTx(tx, "outgoing_sends", column.name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := tx.Exec(column.sql); err != nil {
+				return err
+			}
+		}
+	}
+	for _, migration := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_outgoing_sends_sent_copy ON outgoing_sends(status, sent_copy_status, sent_copy_next_attempt_at)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (59)`,
 	} {
 		if _, err := tx.Exec(migration); err != nil {
 			return err
