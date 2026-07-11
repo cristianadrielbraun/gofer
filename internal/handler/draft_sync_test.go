@@ -62,9 +62,10 @@ func TestHandleComposeDraftQueuesGenericIMAPRevision(t *testing.T) {
 		t.Fatalf("GetIMAPDraftOperation() error = %v", err)
 	}
 	raw := string(operation.MIMEData)
-	if operation.Kind != storage.IMAPDraftOperationUpsert || !strings.Contains(raw, "X-Gofer-Draft-Revision: ") || !strings.Contains(raw, "\r\nBcc: hidden@example.com\r\n") {
+	if operation.Kind != storage.IMAPDraftOperationUpsert || !strings.Contains(raw, "X-Gofer-Draft-Revision: ") {
 		t.Fatalf("queued draft operation = %#v MIME=%q", operation, raw)
 	}
+	assertMIMEHeaders(t, operation.MIMEData, "Remote draft", "", "hidden@example.com")
 }
 
 func TestIMAPDraftWorkerAppendsBeforeDeletingOldRevision(t *testing.T) {

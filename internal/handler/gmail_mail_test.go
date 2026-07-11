@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -277,11 +276,7 @@ func TestSaveGmailAPIDraftCreatesMIMEDraftAndCachesProviderMessageID(t *testing.
 		if err != nil {
 			t.Fatalf("draft MIME is not raw base64url: %v", err)
 		}
-		if !strings.Contains(string(raw), "Subject: Gmail draft") ||
-			!strings.Contains(string(raw), "Message-ID: <gmail-draft@example.com>") ||
-			!strings.Contains(string(raw), "\r\nBcc: hidden@example.com\r\n") {
-			t.Fatalf("draft MIME = %q, want subject, message id, and bcc", string(raw))
-		}
+		assertMIMEHeaders(t, raw, "Gmail draft", "<gmail-draft@example.com>", "hidden@example.com")
 		sawDraftCreate = true
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -346,11 +341,7 @@ func TestSendGmailAPIMessageUsesRawMIMEAndCachesSentID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("send MIME is not raw base64url: %v", err)
 		}
-		if !strings.Contains(string(raw), "Subject: Gmail send") ||
-			!strings.Contains(string(raw), "Message-ID: <gmail-sent@example.com>") ||
-			!strings.Contains(string(raw), "\r\nBcc: hidden@example.com\r\n") {
-			t.Fatalf("send MIME = %q, want subject, message id, and bcc", string(raw))
-		}
+		assertMIMEHeaders(t, raw, "Gmail send", "<gmail-sent@example.com>", "hidden@example.com")
 		sawSend = true
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": "gmail-sent-1"})

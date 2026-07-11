@@ -92,11 +92,7 @@ func TestSaveOutlookGraphDraftCreatesMIMEDraftAndCachesProviderID(t *testing.T) 
 			if err != nil {
 				t.Fatalf("draft MIME is not base64: %v", err)
 			}
-			if !strings.Contains(string(raw), "Subject: Graph draft") ||
-				!strings.Contains(string(raw), "Message-ID: <draft@example.com>") ||
-				!strings.Contains(string(raw), "\r\nBcc: hidden@example.com\r\n") {
-				t.Fatalf("draft MIME = %q, want subject, message id, and bcc", string(raw))
-			}
+			assertMIMEHeaders(t, raw, "Graph draft", "<draft@example.com>", "hidden@example.com")
 			sawDraftCreate = true
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
@@ -178,11 +174,7 @@ func TestSendOutlookGraphMessageUsesSendMailMIMEAndCachesSentID(t *testing.T) {
 			if err != nil {
 				t.Fatalf("send MIME is not base64: %v", err)
 			}
-			if !strings.Contains(string(raw), "Subject: Graph send") ||
-				!strings.Contains(string(raw), "Message-ID: <sent@example.com>") ||
-				!strings.Contains(string(raw), "\r\nBcc: hidden@example.com\r\n") {
-				t.Fatalf("send MIME = %q, want subject, message id, and bcc", string(raw))
-			}
+			assertMIMEHeaders(t, raw, "Graph send", "<sent@example.com>", "hidden@example.com")
 			sawSend = true
 			w.WriteHeader(http.StatusAccepted)
 		case r.Method == http.MethodGet && r.URL.Path == "/me/messages":

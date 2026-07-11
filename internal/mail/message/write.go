@@ -2,15 +2,17 @@ package message
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
 	"net/mail"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
+	gomessage "github.com/emersion/go-message"
+	gomail "github.com/emersion/go-message/mail"
 	"github.com/google/uuid"
 )
 
@@ -60,7 +62,9 @@ func BuildMIMEMessageForIMAPDraft(msg *OutgoingMessage, revisionToken string) ([
 }
 
 func buildMIMEMessage(msg *OutgoingMessage, includeBcc bool, extraHeaders map[string]string) ([]byte, error) {
-	from := []*mail.Address{{Name: msg.FromName, Address: msg.FromEmail}}
+	if msg == nil {
+		return nil, fmt.Errorf("message is required")
+	}
 	if msg.MessageID == "" {
 		msg.MessageID = NewMessageID()
 	}
@@ -68,66 +72,113 @@ func buildMIMEMessage(msg *OutgoingMessage, includeBcc bool, extraHeaders map[st
 		msg.Date = time.Now().UTC()
 	}
 
+	header, err := outgoingMIMEHeader(msg, includeBcc, extraHeaders)
+	if err != nil {
+		return nil, err
+	}
+	root := outgoingMIMEBody(msg)
+	if err := applyMIMEEntityHeaders(&header.Header, root); err != nil {
+		return nil, err
+	}
+
 	var buf bytes.Buffer
+	w, err := gomessage.CreateWriter(&buf, header.Header)
+	if err != nil {
+		return nil, fmt.Errorf("create MIME writer: %w", err)
+	}
+	if err := writeMIMEEntity(w, root); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
 
-	buf.WriteString(fmt.Sprintf("From: %s\r\n", formatAddressList(from)))
-	buf.WriteString(fmt.Sprintf("To: %s\r\n", formatAddressList(msg.To)))
-	if len(msg.CC) > 0 {
-		buf.WriteString(fmt.Sprintf("Cc: %s\r\n", formatAddressList(msg.CC)))
+type mimeEntity struct {
+	contentType       string
+	contentTypeParams map[string]string
+	transferEncoding  string
+	disposition       string
+	dispositionParams map[string]string
+	contentID         string
+	body              []byte
+	attachment        *OutgoingAttachment
+	children          []mimeEntity
+}
+
+func outgoingMIMEHeader(msg *OutgoingMessage, includeBcc bool, extraHeaders map[string]string) (gomail.Header, error) {
+	var header gomail.Header
+	header.SetAddressList("From", []*mail.Address{{Name: msg.FromName, Address: msg.FromEmail}})
+	header.SetAddressList("To", msg.To)
+	header.SetAddressList("Cc", msg.CC)
+	if includeBcc {
+		header.SetAddressList("Bcc", msg.Bcc)
 	}
-	if includeBcc && len(msg.Bcc) > 0 {
-		buf.WriteString(fmt.Sprintf("Bcc: %s\r\n", formatAddressList(msg.Bcc)))
+	header.SetSubject(msg.Subject)
+	header.SetDate(msg.Date)
+	messageID := NormalizeMessageID(msg.MessageID)
+	if messageID == "" {
+		return gomail.Header{}, fmt.Errorf("invalid Message-ID")
 	}
-	buf.WriteString(fmt.Sprintf("Subject: %s\r\n", mime.QEncoding.Encode("utf-8", msg.Subject)))
-	buf.WriteString(fmt.Sprintf("Date: %s\r\n", msg.Date.Format(time.RFC1123Z)))
-	buf.WriteString(fmt.Sprintf("Message-ID: %s\r\n", msg.MessageID))
-	for name, value := range extraHeaders {
-		if strings.ContainsAny(name, "\r\n:") || strings.ContainsAny(value, "\r\n") {
-			return nil, fmt.Errorf("invalid extra MIME header")
+	header.SetMessageID(messageID)
+
+	if value := strings.TrimSpace(msg.InReplyTo); value != "" {
+		ids := ParseMessageIDs(value)
+		if len(ids) == 0 {
+			return gomail.Header{}, fmt.Errorf("invalid In-Reply-To header")
 		}
-		buf.WriteString(fmt.Sprintf("%s: %s\r\n", name, value))
+		header.SetMsgIDList("In-Reply-To", ids[:1])
 	}
-	buf.WriteString("MIME-Version: 1.0\r\n")
+	if value := strings.TrimSpace(msg.References); value != "" {
+		ids := ParseMessageIDs(value)
+		if len(ids) == 0 {
+			return gomail.Header{}, fmt.Errorf("invalid References header")
+		}
+		header.SetMsgIDList("References", ids)
+	}
 
-	if msg.InReplyTo != "" {
-		buf.WriteString(fmt.Sprintf("In-Reply-To: %s\r\n", msg.InReplyTo))
+	names := make([]string, 0, len(extraHeaders))
+	for name := range extraHeaders {
+		names = append(names, name)
 	}
-	if msg.References != "" {
-		buf.WriteString(fmt.Sprintf("References: %s\r\n", msg.References))
+	sort.Strings(names)
+	for _, name := range names {
+		value := extraHeaders[name]
+		if strings.ContainsAny(name, "\r\n:") || strings.ContainsAny(value, "\r\n") {
+			return gomail.Header{}, fmt.Errorf("invalid extra MIME header")
+		}
+		header.Set(name, value)
+	}
+	return header, nil
+}
+
+func outgoingMIMEBody(msg *OutgoingMessage) mimeEntity {
+	body := textMIMEEntity("text/plain", msg.TextBody)
+	if msg.HTMLBody != "" {
+		html := textMIMEEntity("text/html", msg.HTMLBody)
+		if msg.TextBody != "" {
+			body = multipartMIMEEntity("multipart/alternative", body, html)
+		} else {
+			body = html
+		}
 	}
 
-	body, bodyContentType := buildMessageBody(msg)
 	inlineAttachments, fileAttachments := splitOutgoingAttachments(msg.Attachments)
 	if len(inlineAttachments) > 0 {
-		var err error
-		body, bodyContentType, err = buildRelatedBody(body, bodyContentType, inlineAttachments)
-		if err != nil {
-			return nil, err
+		children := make([]mimeEntity, 0, len(inlineAttachments)+1)
+		children = append(children, body)
+		for i := range inlineAttachments {
+			children = append(children, attachmentMIMEEntity(inlineAttachments[i], true))
 		}
+		body = multipartMIMEEntity("multipart/related", children...)
 	}
 	if len(fileAttachments) > 0 {
-		boundary := uuid.New().String()
-		buf.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=%s\r\n", boundary))
-		buf.WriteString("\r\n")
-		buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-		buf.WriteString(bodyContentType)
-		buf.WriteString("\r\n\r\n")
-		buf.Write(body)
-		buf.WriteString("\r\n")
-		for _, att := range fileAttachments {
-			if err := writeAttachmentPart(&buf, boundary, att); err != nil {
-				return nil, err
-			}
+		children := make([]mimeEntity, 0, len(fileAttachments)+1)
+		children = append(children, body)
+		for i := range fileAttachments {
+			children = append(children, attachmentMIMEEntity(fileAttachments[i], false))
 		}
-		buf.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
-		return buf.Bytes(), nil
+		body = multipartMIMEEntity("multipart/mixed", children...)
 	}
-
-	buf.WriteString(bodyContentType)
-	buf.WriteString("\r\n\r\n")
-	buf.Write(body)
-
-	return buf.Bytes(), nil
+	return body
 }
 
 func splitOutgoingAttachments(atts []OutgoingAttachment) (inline []OutgoingAttachment, files []OutgoingAttachment) {
@@ -141,112 +192,150 @@ func splitOutgoingAttachments(atts []OutgoingAttachment) (inline []OutgoingAttac
 	return inline, files
 }
 
-func buildRelatedBody(body []byte, bodyContentType string, inlineAttachments []OutgoingAttachment) ([]byte, string, error) {
-	boundary := uuid.New().String()
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	buf.WriteString(bodyContentType)
-	buf.WriteString("\r\n\r\n")
-	buf.Write(body)
-	buf.WriteString("\r\n")
-	for _, att := range inlineAttachments {
-		if err := writeAttachmentPart(&buf, boundary, att); err != nil {
-			return nil, "", err
+func textMIMEEntity(contentType, body string) mimeEntity {
+	return mimeEntity{
+		contentType:       contentType,
+		contentTypeParams: map[string]string{"charset": "utf-8"},
+		transferEncoding:  "quoted-printable",
+		body:              []byte(normalizeMIMEText(body)),
+	}
+}
+
+func multipartMIMEEntity(contentType string, children ...mimeEntity) mimeEntity {
+	return mimeEntity{contentType: contentType, children: children}
+}
+
+func attachmentMIMEEntity(att OutgoingAttachment, inline bool) mimeEntity {
+	entity := mimeEntity{
+		transferEncoding: "base64",
+		attachment:       &att,
+		disposition:      "attachment",
+	}
+	if inline {
+		entity.disposition = "inline"
+		entity.contentID = att.ContentID
+	}
+	return entity
+}
+
+func applyMIMEEntityHeaders(header *gomessage.Header, entity mimeEntity) error {
+	contentType := entity.contentType
+	params := cloneStringMap(entity.contentTypeParams)
+	if entity.attachment != nil {
+		contentType = strings.TrimSpace(entity.attachment.ContentType)
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		mediaType, parsedParams, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			return fmt.Errorf("invalid attachment content type %q: %w", contentType, err)
+		}
+		contentType = mediaType
+		params = cloneStringMap(parsedParams)
+		if filename := strings.TrimSpace(entity.attachment.Filename); filename != "" {
+			if params == nil {
+				params = map[string]string{}
+			}
+			params["name"] = filename
 		}
 	}
-	buf.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
-	return buf.Bytes(), fmt.Sprintf("Content-Type: multipart/related; boundary=%s", boundary), nil
-}
-
-func buildMessageBody(msg *OutgoingMessage) ([]byte, string) {
-	hasText := msg.TextBody != ""
-	hasHTML := msg.HTMLBody != ""
-	var buf bytes.Buffer
-
-	if hasText && hasHTML {
-		boundary := uuid.New().String()
-		buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-		buf.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
-		buf.WriteString(msg.TextBody)
-		buf.WriteString("\r\n")
-
-		buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-		buf.WriteString("Content-Type: text/html; charset=utf-8\r\n\r\n")
-		buf.WriteString(msg.HTMLBody)
-		buf.WriteString("\r\n")
-
-		buf.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
-		return buf.Bytes(), fmt.Sprintf("Content-Type: multipart/alternative; boundary=%s", boundary)
-	} else if hasHTML {
-		buf.WriteString(msg.HTMLBody)
-		return buf.Bytes(), "Content-Type: text/html; charset=utf-8"
-	} else {
-		buf.WriteString(msg.TextBody)
-		return buf.Bytes(), "Content-Type: text/plain; charset=utf-8"
-	}
-}
-
-func writeAttachmentPart(buf *bytes.Buffer, boundary string, att OutgoingAttachment) error {
-	f, err := os.Open(att.Path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	contentType := att.ContentType
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		return fmt.Errorf("MIME content type is required")
 	}
-	filename := mime.QEncoding.Encode("utf-8", att.Filename)
-	buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	buf.WriteString(fmt.Sprintf("Content-Type: %s; name=\"%s\"\r\n", contentType, filename))
-	buf.WriteString("Content-Transfer-Encoding: base64\r\n")
-	if att.Inline && att.ContentID != "" {
-		buf.WriteString(fmt.Sprintf("Content-ID: <%s>\r\n", att.ContentID))
-		buf.WriteString(fmt.Sprintf("Content-Disposition: inline; filename=\"%s\"\r\n\r\n", filename))
-	} else {
-		buf.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename))
+	header.SetContentType(contentType, params)
+	if entity.transferEncoding != "" {
+		header.Set("Content-Transfer-Encoding", entity.transferEncoding)
 	}
-	enc := base64.NewEncoder(base64.StdEncoding, newBase64LineWriter(buf))
-	if _, err := io.Copy(enc, f); err != nil {
-		enc.Close()
-		return err
+	if entity.disposition != "" {
+		dispositionParams := cloneStringMap(entity.dispositionParams)
+		if entity.attachment != nil {
+			if filename := strings.TrimSpace(entity.attachment.Filename); filename != "" {
+				if dispositionParams == nil {
+					dispositionParams = map[string]string{}
+				}
+				dispositionParams["filename"] = filename
+			}
+		}
+		header.SetContentDisposition(entity.disposition, dispositionParams)
 	}
-	if err := enc.Close(); err != nil {
-		return err
+	if entity.contentID != "" {
+		contentID := strings.TrimSpace(entity.contentID)
+		if strings.HasPrefix(contentID, "<") && strings.HasSuffix(contentID, ">") {
+			contentID = strings.TrimSpace(contentID[1 : len(contentID)-1])
+		}
+		if contentID == "" || strings.ContainsAny(contentID, "\r\n<>") {
+			return fmt.Errorf("invalid inline attachment Content-ID")
+		}
+		header.Set("Content-ID", "<"+contentID+">")
 	}
-	buf.WriteString("\r\n")
 	return nil
 }
 
-type base64LineWriter struct {
-	buf *bytes.Buffer
-	n   int
+func writeMIMEEntity(w *gomessage.Writer, entity mimeEntity) error {
+	if len(entity.children) > 0 {
+		for _, child := range entity.children {
+			var header gomessage.Header
+			if err := applyMIMEEntityHeaders(&header, child); err != nil {
+				_ = w.Close()
+				return err
+			}
+			part, err := w.CreatePart(header)
+			if err != nil {
+				_ = w.Close()
+				return fmt.Errorf("create MIME part: %w", err)
+			}
+			if err := writeMIMEEntity(part, child); err != nil {
+				_ = w.Close()
+				return err
+			}
+		}
+		if err := w.Close(); err != nil {
+			return fmt.Errorf("close multipart MIME body: %w", err)
+		}
+		return nil
+	}
+
+	if entity.attachment != nil {
+		f, err := os.Open(entity.attachment.Path)
+		if err != nil {
+			_ = w.Close()
+			return fmt.Errorf("open attachment %q: %w", entity.attachment.Filename, err)
+		}
+		_, copyErr := io.Copy(w, f)
+		closeErr := f.Close()
+		if copyErr != nil {
+			_ = w.Close()
+			return fmt.Errorf("read attachment %q: %w", entity.attachment.Filename, copyErr)
+		}
+		if closeErr != nil {
+			_ = w.Close()
+			return fmt.Errorf("close attachment %q: %w", entity.attachment.Filename, closeErr)
+		}
+	} else if _, err := w.Write(entity.body); err != nil {
+		_ = w.Close()
+		return fmt.Errorf("write MIME body: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close MIME body: %w", err)
+	}
+	return nil
 }
 
-func newBase64LineWriter(buf *bytes.Buffer) io.Writer { return &base64LineWriter{buf: buf} }
-
-func (w *base64LineWriter) Write(p []byte) (int, error) {
-	for _, b := range p {
-		if w.n == 76 {
-			w.buf.WriteString("\r\n")
-			w.n = 0
-		}
-		w.buf.WriteByte(b)
-		w.n++
-	}
-	return len(p), nil
+func normalizeMIMEText(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strings.ReplaceAll(value, "\n", "\r\n")
 }
 
-func formatAddressList(addrs []*mail.Address) string {
-	parts := make([]string, len(addrs))
-	for i, a := range addrs {
-		if a.Name != "" {
-			parts[i] = fmt.Sprintf("%s <%s>", mime.QEncoding.Encode("utf-8", a.Name), a.Address)
-		} else {
-			parts[i] = a.Address
-		}
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
 	}
-	return strings.Join(parts, ", ")
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func ParseAddressList(s string) ([]*mail.Address, error) {

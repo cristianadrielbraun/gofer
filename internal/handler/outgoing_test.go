@@ -108,12 +108,10 @@ func TestHandleComposePersistsMIMEBeforeReturningAccepted(t *testing.T) {
 	if queued.Status != storage.OutgoingSendPending || queued.AccountID != "victim-account" || queued.Transport != storage.OutgoingTransportSMTP {
 		t.Fatalf("queued send = %#v", queued)
 	}
-	if !strings.Contains(string(queued.MIMEData), "Subject: Durable send") || !strings.Contains(string(queued.MIMEData), "This body must survive a restart.") || !strings.Contains(string(queued.MIMEData), "Message-ID: <") {
+	if !strings.Contains(string(queued.MIMEData), "Subject: Durable send") || !strings.Contains(string(queued.MIMEData), "This body must survive a restart.") {
 		t.Fatalf("queued MIME = %q", string(queued.MIMEData))
 	}
-	if strings.Contains(string(queued.MIMEData), "\r\nBcc:") {
-		t.Fatalf("SMTP MIME leaked Bcc header: %q", string(queued.MIMEData))
-	}
+	assertMIMEHeaders(t, queued.MIMEData, "Durable send", "", "")
 	if len(queued.EnvelopeRecipients) != 2 || queued.EnvelopeRecipients[0] != "recipient@example.com" || queued.EnvelopeRecipients[1] != "hidden@example.com" {
 		t.Fatalf("envelope recipients = %#v", queued.EnvelopeRecipients)
 	}
@@ -208,9 +206,10 @@ func TestSentCopyWorkerAppendsExactMIMEAndLinksRemoteUID(t *testing.T) {
 	if fake.appendCalls != 1 || fake.findCalls != 0 || fake.mailbox != "Sent" {
 		t.Fatalf("fake IMAP calls append=%d find=%d mailbox=%q", fake.appendCalls, fake.findCalls, fake.mailbox)
 	}
-	if !strings.Contains(string(fake.raw), "Message-ID: <sent-copy@example.com>") || !strings.Contains(string(fake.raw), "Sent copy body") {
+	if !strings.Contains(string(fake.raw), "Sent copy body") {
 		t.Fatalf("appended MIME = %q", string(fake.raw))
 	}
+	assertMIMEHeaders(t, fake.raw, "Sent copy", "<sent-copy@example.com>", "")
 	if len(fake.flags) != 1 || fake.flags[0] != goimap.FlagSeen {
 		t.Fatalf("append flags = %#v, want Seen", fake.flags)
 	}
