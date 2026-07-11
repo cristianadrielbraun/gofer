@@ -127,6 +127,60 @@ func TestGetConfigBlocksStoredUnencryptedMailTransport(t *testing.T) {
 	}
 }
 
+func TestAccountStoreAllowsOnlyApprovedPlaintextEndpoint(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	if err := db.AddPlaintextTransportException(ctx, "imap", "mail.test", 1143, "default"); err != nil {
+		t.Fatalf("AddPlaintextTransportException() error = %v", err)
+	}
+	req := secureAccountStoreTestRequest("plaintext@example.com")
+	req.IMAPHost = "mail.test"
+	req.IMAPPort = 1143
+	req.IMAPTLSMode = "plaintext"
+
+	account, err := store.CreateAccount(ctx, "default", req)
+	if err != nil {
+		t.Fatalf("CreateAccount() error = %v", err)
+	}
+	cfg, err := store.GetConfig(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("GetConfig() error = %v", err)
+	}
+	if cfg.IMAPTLSMode != "plaintext" || !cfg.IMAPAllowPlaintext {
+		t.Fatalf("IMAP plaintext policy = mode %q allowed %v", cfg.IMAPTLSMode, cfg.IMAPAllowPlaintext)
+	}
+
+	items, err := db.ListMailSecurityExceptions(ctx)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("ListMailSecurityExceptions() = %#v, %v", items, err)
+	}
+	if err := db.DeleteMailSecurityException(ctx, items[0].ID); err != nil {
+		t.Fatalf("DeleteMailSecurityException() error = %v", err)
+	}
+	if _, err := store.GetConfig(ctx, account.ID); err == nil || !strings.Contains(err.Error(), "admin-approved server exception") {
+		t.Fatalf("GetConfig() after revoke error = %v, want exception requirement", err)
+	}
+}
+
+func TestAccountStoreRejectsOAuthOverApprovedPlaintextEndpoint(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	if err := db.AddPlaintextTransportException(ctx, "imap", "mail.test", 1143, "default"); err != nil {
+		t.Fatalf("AddPlaintextTransportException() error = %v", err)
+	}
+	req := secureAccountStoreTestRequest("oauth-plaintext@example.com")
+	req.IMAPHost = "mail.test"
+	req.IMAPPort = 1143
+	req.IMAPTLSMode = "plaintext"
+	req.AuthMethod = "oauth2"
+
+	if _, err := store.CreateAccount(ctx, "default", req); err == nil || !strings.Contains(err.Error(), "OAuth authentication is not allowed") {
+		t.Fatalf("CreateAccount() error = %v, want OAuth plaintext rejection", err)
+	}
+}
+
 func TestCreateAccountPurgesPendingDeletingAccount(t *testing.T) {
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)

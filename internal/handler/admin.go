@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail"
@@ -33,11 +36,11 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, "avatars", activeTab).Render(ctx, w)
+		views.AdminPartial(avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, "avatars", activeTab).Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, "avatars", activeTab).Render(ctx, w)
+	views.AdminLayout(uiSettings, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, "avatars", activeTab).Render(ctx, w)
 }
 
 func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
@@ -51,11 +54,11 @@ func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, "contacts", "").Render(ctx, w)
+		views.AdminPartial(models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, "contacts", "").Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, "contacts", "").Render(ctx, w)
+	views.AdminLayout(uiSettings, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, "contacts", "").Render(ctx, w)
 }
 
 func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
@@ -69,11 +72,172 @@ func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, "labels", "").Render(ctx, w)
+		views.AdminPartial(models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, "labels", "").Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, "labels", "").Render(ctx, w)
+	views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, "labels", "").Render(ctx, w)
+}
+
+func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	exceptions, err := h.db.ListMailSecurityExceptions(ctx)
+	if err != nil {
+		http.Error(w, "failed to load mail security exceptions", http.StatusInternalServerError)
+		return
+	}
+	data := models.MailSecurityAdminData{
+		Exceptions: exceptions,
+		Notice:     strings.TrimSpace(r.URL.Query().Get("notice")),
+		Error:      strings.TrimSpace(r.URL.Query().Get("error")),
+	}
+	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html")
+		views.AdminPartial(models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, "security", "").Render(ctx, w)
+		return
+	}
+	views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, "security", "").Render(ctx, w)
+}
+
+func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		redirectAdminSecurity(w, r, "", "Invalid form data.")
+		return
+	}
+	if r.FormValue("acknowledge") != "yes" {
+		redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
+		return
+	}
+	domain := normalizeDiscoveryExceptionDomain(r.FormValue("domain"))
+	if !validDiscoveryExceptionDomain(domain) {
+		redirectAdminSecurity(w, r, "", "Enter a valid email domain without a scheme or path.")
+		return
+	}
+	user := h.userID(r.Context())
+	if err := h.db.AddHTTPDiscoveryException(r.Context(), domain, user); err != nil {
+		redirectAdminSecurity(w, r, "", "Could not add the HTTP discovery exception.")
+		return
+	}
+	redirectAdminSecurity(w, r, "HTTP discovery is now allowed for "+domain+".", "")
+}
+
+func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		redirectAdminSecurity(w, r, "", "Invalid form data.")
+		return
+	}
+	if r.FormValue("acknowledge") != "yes" {
+		redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
+		return
+	}
+	protocol := strings.ToLower(strings.TrimSpace(r.FormValue("protocol")))
+	host := normalizePlaintextExceptionHost(r.FormValue("host"))
+	port, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
+	if (protocol != "imap" && protocol != "smtp") || !validPlaintextExceptionHost(host) || err != nil || port < 1 || port > 65535 {
+		redirectAdminSecurity(w, r, "", "Enter IMAP or SMTP with an exact host and a port between 1 and 65535.")
+		return
+	}
+	if err := h.db.AddPlaintextTransportException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
+		redirectAdminSecurity(w, r, "", "Could not add the plaintext transport exception.")
+		return
+	}
+	h.restartAccountsUsingPlaintextException(r.Context(), protocol, host, port)
+	redirectAdminSecurity(w, r, strings.ToUpper(protocol)+" plaintext is now allowed for "+host+":"+strconv.Itoa(port)+".", "")
+}
+
+func (h *Handler) restartAccountsUsingPlaintextException(ctx context.Context, protocol, host string, port int) {
+	if h.syncer == nil {
+		return
+	}
+	items, err := h.db.ListMailSecurityExceptions(ctx)
+	if err != nil {
+		log.Printf("mail security: list accounts after adding %s %s:%d: %v", protocol, host, port, err)
+		return
+	}
+	for _, item := range items {
+		if item.Kind != models.MailSecurityExceptionPlaintextTransport || item.Protocol != protocol || item.Host != host || item.Port != port {
+			continue
+		}
+		for _, account := range item.Accounts {
+			h.closeBodyClient(account.ID)
+			h.syncer.RestartAccount(account.ID)
+		}
+		return
+	}
+}
+
+func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	item, err := h.db.GetMailSecurityException(r.Context(), id)
+	if err != nil {
+		redirectAdminSecurity(w, r, "", "Could not load the security exception.")
+		return
+	}
+	if item == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.db.DeleteMailSecurityException(r.Context(), id); err != nil {
+		redirectAdminSecurity(w, r, "", "Could not revoke the security exception.")
+		return
+	}
+	for _, account := range item.Accounts {
+		h.closeBodyClient(account.ID)
+		if h.syncer != nil {
+			h.syncer.StopAccount(account.ID)
+		}
+	}
+	redirectAdminSecurity(w, r, "Security exception revoked.", "")
+}
+
+func redirectAdminSecurity(w http.ResponseWriter, r *http.Request, notice, message string) {
+	values := url.Values{}
+	if notice != "" {
+		values.Set("notice", notice)
+	}
+	if message != "" {
+		values.Set("error", message)
+	}
+	target := "/admin/security"
+	if query := values.Encode(); query != "" {
+		target += "?" + query
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func normalizeDiscoveryExceptionDomain(value string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+}
+
+func validDiscoveryExceptionDomain(domain string) bool {
+	if domain == "" || len(domain) > 253 || strings.ContainsAny(domain, "/:@ ") {
+		return false
+	}
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for _, char := range label {
+			if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func normalizePlaintextExceptionHost(value string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+}
+
+func validPlaintextExceptionHost(host string) bool {
+	return host != "" && len(host) <= 253 && !strings.ContainsAny(host, "/@ ")
 }
 
 func (h *Handler) handleContactAdminStatus(w http.ResponseWriter, r *http.Request) {

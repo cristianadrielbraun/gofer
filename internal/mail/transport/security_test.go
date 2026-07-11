@@ -31,3 +31,16 @@ func TestRequireTLSMode(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireTLSModeWithPlaintextRequiresExplicitApproval(t *testing.T) {
+	if _, err := RequireTLSModeWithPlaintext("imap", TLSModePlaintext, false); err == nil {
+		t.Fatal("plaintext mode was accepted without approval")
+	}
+	got, err := RequireTLSModeWithPlaintext("imap", TLSModePlaintext, true)
+	if err != nil {
+		t.Fatalf("approved plaintext mode error = %v", err)
+	}
+	if got != TLSModePlaintext {
+		t.Fatalf("approved plaintext mode = %q, want %q", got, TLSModePlaintext)
+	}
+}

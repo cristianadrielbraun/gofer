@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,13 +48,16 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 }
 
 func ConnectWithConfig(cfg *models.AccountConfig, password string, options *imapclient.Options) (*imapclient.Client, error) {
-	tlsMode, err := mailtransport.RequireTLSMode("IMAP", cfg.IMAPTLSMode)
+	tlsMode, err := mailtransport.RequireTLSModeWithPlaintext("IMAP", cfg.IMAPTLSMode, cfg.IMAPAllowPlaintext)
 	if err != nil {
 		return nil, err
 	}
+	if tlsMode == mailtransport.TLSModePlaintext && !strings.EqualFold(strings.TrimSpace(cfg.AuthMethod), "plain") {
+		return nil, fmt.Errorf("IMAP OAuth authentication is not allowed over a plaintext connection")
+	}
 	options = secureClientOptions(cfg.IMAPHost, options)
 
-	addr := fmt.Sprintf("%s:%d", cfg.IMAPHost, cfg.IMAPPort)
+	addr := net.JoinHostPort(cfg.IMAPHost, strconv.Itoa(cfg.IMAPPort))
 
 	var c *imapclient.Client
 
@@ -62,6 +66,8 @@ func ConnectWithConfig(cfg *models.AccountConfig, password string, options *imap
 		c, err = imapclient.DialTLS(addr, options)
 	case mailtransport.TLSModeStartTLS:
 		c, err = imapclient.DialStartTLS(addr, options)
+	case mailtransport.TLSModePlaintext:
+		c, err = imapclient.DialInsecure(addr, options)
 	default:
 		return nil, fmt.Errorf("unsupported IMAP TLS mode %q", tlsMode)
 	}

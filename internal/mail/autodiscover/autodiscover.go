@@ -45,11 +45,26 @@ type MXResolver interface {
 }
 
 type Options struct {
-	HTTPClient            HTTPClient
-	Resolver              SRVResolver
-	MXResolver            MXResolver
-	ProbeHeuristics       bool
-	HeuristicProbeTimeout time.Duration
+	HTTPClient              HTTPClient
+	Resolver                SRVResolver
+	MXResolver              MXResolver
+	ProbeHeuristics         bool
+	HeuristicProbeTimeout   time.Duration
+	AllowHTTPDiscovery      func(domain string) bool
+	AllowPlaintextTransport func(protocol, host string, port int) bool
+}
+
+type securityPolicy struct {
+	allowHTTPDiscovery      func(domain string) bool
+	allowPlaintextTransport func(protocol, host string, port int) bool
+}
+
+func (p securityPolicy) allowsHTTPDiscovery(domain string) bool {
+	return p.allowHTTPDiscovery != nil && p.allowHTTPDiscovery(cleanHost(domain))
+}
+
+func (p securityPolicy) allowsPlaintextTransport(protocol, host string, port int) bool {
+	return p.allowPlaintextTransport != nil && p.allowPlaintextTransport(strings.ToLower(strings.TrimSpace(protocol)), cleanHost(host), port)
 }
 
 type Candidate struct {
@@ -80,7 +95,7 @@ func Discover(ctx context.Context, email string, opts Options) ([]Candidate, err
 		return nil, err
 	}
 	if opts.HTTPClient == nil {
-		opts.HTTPClient = http.DefaultClient
+		opts.HTTPClient = newDiscoveryHTTPClient()
 	}
 	if opts.Resolver == nil {
 		opts.Resolver = net.DefaultResolver
@@ -95,13 +110,39 @@ func Discover(ctx context.Context, email string, opts Options) ([]Candidate, err
 	if opts.HeuristicProbeTimeout == 0 {
 		opts.HeuristicProbeTimeout = 1500 * time.Millisecond
 	}
+	policy := securityPolicy{
+		allowHTTPDiscovery:      opts.AllowHTTPDiscovery,
+		allowPlaintextTransport: opts.AllowPlaintextTransport,
+	}
 
 	var out []Candidate
-	out = append(out, discoverConfigXML(ctx, opts.HTTPClient, parts)...)
-	out = append(out, discoverMXConfigXML(ctx, opts.HTTPClient, opts.MXResolver, parts)...)
+	out = append(out, discoverConfigXML(ctx, opts.HTTPClient, parts, policy)...)
+	out = append(out, discoverMXConfigXML(ctx, opts.HTTPClient, opts.MXResolver, parts, policy)...)
 	out = append(out, discoverSRV(ctx, opts.Resolver, parts)...)
 	out = append(out, heuristicCandidates(ctx, parts, opts.ProbeHeuristics, opts.HeuristicProbeTimeout)...)
-	return dedupeCandidates(out), nil
+	return dedupeCandidates(out, policy), nil
+}
+
+func newDiscoveryHTTPClient() *http.Client {
+	return &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("autodiscovery stopped after too many redirects")
+		}
+		if len(via) == 0 || via[0].URL == nil || req.URL == nil {
+			return fmt.Errorf("autodiscovery refused an invalid redirect")
+		}
+		initialURL := via[0].URL
+		if initialURL.Scheme == "https" && req.URL.Scheme != "https" {
+			return fmt.Errorf("autodiscovery refused HTTPS downgrade")
+		}
+		if initialURL.Scheme == "http" && req.URL.Scheme == "http" && !strings.EqualFold(initialURL.Hostname(), req.URL.Hostname()) {
+			return fmt.Errorf("HTTP autodiscovery refused a cross-host redirect")
+		}
+		if req.URL.Scheme != "https" && req.URL.Scheme != "http" {
+			return fmt.Errorf("autodiscovery redirected to unsupported scheme %q", req.URL.Scheme)
+		}
+		return nil
+	}}
 }
 
 func parseEmail(email string) (emailParts, error) {
@@ -163,7 +204,7 @@ type configEndpoint struct {
 	notes      []string
 }
 
-func discoverConfigXML(ctx context.Context, client HTTPClient, parts emailParts) []Candidate {
+func discoverConfigXML(ctx context.Context, client HTTPClient, parts emailParts, policy securityPolicy) []Candidate {
 	return discoverConfigXMLForDomain(ctx, client, parts, configLookup{
 		domain:                 parts.Domain,
 		providerSource:         SourceProviderXML,
@@ -171,10 +212,10 @@ func discoverConfigXML(ctx context.Context, client HTTPClient, parts emailParts)
 		providerConfidence:     90,
 		thunderbirdConfidence:  82,
 		httpFallbackConfidence: 66,
-	})
+	}, policy)
 }
 
-func discoverConfigXMLForDomain(ctx context.Context, client HTTPClient, parts emailParts, lookup configLookup) []Candidate {
+func discoverConfigXMLForDomain(ctx context.Context, client HTTPClient, parts emailParts, lookup configLookup, policy securityPolicy) []Candidate {
 	lookup.domain = strings.ToLower(strings.TrimSpace(lookup.domain))
 	if !validDomain(lookup.domain) {
 		return nil
@@ -199,9 +240,12 @@ func discoverConfigXMLForDomain(ctx context.Context, client HTTPClient, parts em
 			notes:      lookup.notes,
 		},
 	}
-	out := fetchConfigEndpoints(ctx, client, parts, secure)
+	out := fetchConfigEndpoints(ctx, client, parts, secure, policy)
 	if len(out) > 0 {
 		return out
+	}
+	if !policy.allowsHTTPDiscovery(lookup.domain) {
+		return nil
 	}
 
 	httpNotes := appendNotes(lookup.notes, "Provider XML was fetched over HTTP fallback; verify before saving.")
@@ -219,10 +263,10 @@ func discoverConfigXMLForDomain(ctx context.Context, client HTTPClient, parts em
 			notes:      httpNotes,
 		},
 	}
-	return fetchConfigEndpoints(ctx, client, parts, httpEndpoints)
+	return fetchConfigEndpoints(ctx, client, parts, httpEndpoints, policy)
 }
 
-func fetchConfigEndpoints(ctx context.Context, client HTTPClient, parts emailParts, endpoints []configEndpoint) []Candidate {
+func fetchConfigEndpoints(ctx context.Context, client HTTPClient, parts emailParts, endpoints []configEndpoint, policy securityPolicy) []Candidate {
 	if len(endpoints) == 0 {
 		return nil
 	}
@@ -240,7 +284,7 @@ func fetchConfigEndpoints(ctx context.Context, client HTTPClient, parts emailPar
 			if err != nil {
 				return
 			}
-			candidates, err := parseConfigXML(body, parts, endpoint.source, endpoint.confidence, endpoint.notes)
+			candidates, err := parseConfigXML(body, parts, endpoint.source, endpoint.confidence, endpoint.notes, policy)
 			if err != nil {
 				return
 			}
@@ -280,13 +324,27 @@ func fetchXML(ctx context.Context, client HTTPClient, rawURL string) ([]byte, er
 		return nil, err
 	}
 	defer resp.Body.Close()
+	initialURL, initialErr := url.Parse(rawURL)
+	if initialErr != nil || resp.Request == nil || resp.Request.URL == nil {
+		return nil, fmt.Errorf("invalid autodiscovery response URL")
+	}
+	finalURL := resp.Request.URL
+	if finalURL.Scheme != "https" && finalURL.Scheme != "http" {
+		return nil, fmt.Errorf("autodiscovery redirected to unsupported scheme %q", finalURL.Scheme)
+	}
+	if initialURL.Scheme == "https" && finalURL.Scheme != "https" {
+		return nil, fmt.Errorf("autodiscovery refused HTTPS downgrade")
+	}
+	if initialURL.Scheme == "http" && finalURL.Scheme == "http" && !strings.EqualFold(initialURL.Hostname(), finalURL.Hostname()) {
+		return nil, fmt.Errorf("HTTP autodiscovery refused a cross-host redirect")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("fetch %s: status %d", rawURL, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, maxConfigBytes))
 }
 
-func discoverMXConfigXML(ctx context.Context, client HTTPClient, resolver MXResolver, parts emailParts) []Candidate {
+func discoverMXConfigXML(ctx context.Context, client HTTPClient, resolver MXResolver, parts emailParts, policy securityPolicy) []Candidate {
 	if resolver == nil {
 		return nil
 	}
@@ -305,7 +363,7 @@ func discoverMXConfigXML(ctx context.Context, client HTTPClient, resolver MXReso
 			thunderbirdConfidence:  76,
 			httpFallbackConfidence: 58,
 			notes:                  notes,
-		})...)
+		}, policy)...)
 		if len(out) >= 12 {
 			return out
 		}
@@ -425,10 +483,10 @@ func ParseConfigXML(data []byte, email string, source string) ([]Candidate, erro
 	if err != nil {
 		return nil, err
 	}
-	return parseConfigXML(data, parts, source, defaultConfigConfidence(source), nil)
+	return parseConfigXML(data, parts, source, defaultConfigConfidence(source), nil, securityPolicy{})
 }
 
-func parseConfigXML(data []byte, parts emailParts, source string, confidence int, notes []string) ([]Candidate, error) {
+func parseConfigXML(data []byte, parts emailParts, source string, confidence int, notes []string, policy securityPolicy) ([]Candidate, error) {
 	var cfg clientConfig
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	decoder.Strict = false
@@ -458,7 +516,7 @@ func parseConfigXML(data []byte, parts emailParts, source string, confidence int
 			if !strings.EqualFold(strings.TrimSpace(smtp.Type), "smtp") {
 				continue
 			}
-			candidate, ok := candidateFromXMLServers(in, smtp, parts, source, confidence, notes)
+			candidate, ok := candidateFromXMLServers(in, smtp, parts, source, confidence, notes, policy)
 			if !ok {
 				continue
 			}
@@ -485,7 +543,7 @@ func defaultConfigConfidence(source string) int {
 	}
 }
 
-func candidateFromXMLServers(imapServer, smtpServer mailServer, parts emailParts, source string, confidence int, baseNotes []string) (Candidate, bool) {
+func candidateFromXMLServers(imapServer, smtpServer mailServer, parts emailParts, source string, confidence int, baseNotes []string, policy securityPolicy) (Candidate, bool) {
 	auth, notes, ok := chooseManualAuth(imapServer.Authentication, smtpServer.Authentication)
 	if !ok {
 		return Candidate{}, false
@@ -506,12 +564,15 @@ func candidateFromXMLServers(imapServer, smtpServer mailServer, parts emailParts
 	}
 	imapTLS := socketTypeToTLSMode(imapServer.SocketType, imapServer.Port)
 	smtpTLS := socketTypeToTLSMode(smtpServer.SocketType, smtpServer.Port)
-	imapTLS, err := mailtransport.RequireTLSMode("IMAP", imapTLS)
+	imapTLS, err := mailtransport.RequireTLSModeWithPlaintext("IMAP", imapTLS, policy.allowsPlaintextTransport("imap", imapHost, imapServer.Port))
 	if err != nil {
 		return Candidate{}, false
 	}
-	smtpTLS, err = mailtransport.RequireTLSMode("SMTP", smtpTLS)
+	smtpTLS, err = mailtransport.RequireTLSModeWithPlaintext("SMTP", smtpTLS, policy.allowsPlaintextTransport("smtp", smtpHost, smtpServer.Port))
 	if err != nil {
+		return Candidate{}, false
+	}
+	if (imapTLS == mailtransport.TLSModePlaintext || smtpTLS == mailtransport.TLSModePlaintext) && auth != "plain" {
 		return Candidate{}, false
 	}
 	username := expandPlaceholders(firstNonEmpty(imapServer.Username, "%EMAILADDRESS%"), parts)
@@ -601,7 +662,7 @@ func socketTypeToTLSMode(socketType string, port int) string {
 	case "STARTTLS":
 		return "starttls"
 	case "PLAIN", "NONE":
-		return ""
+		return mailtransport.TLSModePlaintext
 	}
 	switch port {
 	case 993, 995, 465:
@@ -980,7 +1041,7 @@ func sortEndpoints(endpoints []endpoint) {
 	})
 }
 
-func dedupeCandidates(candidates []Candidate) []Candidate {
+func dedupeCandidates(candidates []Candidate, policy securityPolicy) []Candidate {
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return candidates[i].Confidence > candidates[j].Confidence
 	})
@@ -990,10 +1051,10 @@ func dedupeCandidates(candidates []Candidate) []Candidate {
 		if candidate.IMAPHost == "" || candidate.SMTPHost == "" || candidate.Username == "" || candidate.AuthMethod == "" {
 			continue
 		}
-		if _, err := mailtransport.RequireTLSMode("IMAP", candidate.IMAPTLSMode); err != nil {
+		if _, err := mailtransport.RequireTLSModeWithPlaintext("IMAP", candidate.IMAPTLSMode, policy.allowsPlaintextTransport("imap", candidate.IMAPHost, candidate.IMAPPort)); err != nil {
 			continue
 		}
-		if _, err := mailtransport.RequireTLSMode("SMTP", candidate.SMTPTLSMode); err != nil {
+		if _, err := mailtransport.RequireTLSModeWithPlaintext("SMTP", candidate.SMTPTLSMode, policy.allowsPlaintextTransport("smtp", candidate.SMTPHost, candidate.SMTPPort)); err != nil {
 			continue
 		}
 		key := strings.Join([]string{

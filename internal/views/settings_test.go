@@ -227,7 +227,7 @@ func TestEditAccountDialogRendersOutlookGraphMailPanels(t *testing.T) {
 	}
 }
 
-func TestAccountDialogsOnlyOfferEncryptedMailTransports(t *testing.T) {
+func TestAccountDialogsOfferOnlyExplicitMailTransportModes(t *testing.T) {
 	var addOut bytes.Buffer
 	if err := AddAccountDialog().Render(context.Background(), &addOut); err != nil {
 		t.Fatalf("AddAccountDialog.Render() error = %v", err)
@@ -247,10 +247,24 @@ func TestAccountDialogsOnlyOfferEncryptedMailTransports(t *testing.T) {
 		if strings.Contains(html, `value="none"`) {
 			t.Fatalf("%s account dialog still offers an unencrypted mail transport: %s", name, html)
 		}
-		for _, want := range []string{`value="tls"`, `value="starttls"`} {
+		for _, want := range []string{`value="tls"`, `value="starttls"`, `value="plaintext"`, "admin exception"} {
 			if !strings.Contains(html, want) {
-				t.Fatalf("%s account dialog missing secure transport %q: %s", name, want, html)
+				t.Fatalf("%s account dialog missing transport option %q: %s", name, want, html)
 			}
 		}
+	}
+}
+
+func TestAccountDiscoveryRequiresExplicitCandidateSelection(t *testing.T) {
+	var out bytes.Buffer
+	if err := AddAccountDialog().Render(context.Background(), &out); err != nil {
+		t.Fatalf("AddAccountDialog.Render() error = %v", err)
+	}
+	html := out.String()
+	if strings.Contains(html, "applyMailDiscoveryCandidate(0);") {
+		t.Fatal("mail discovery still automatically applies the first candidate")
+	}
+	if !strings.Contains(html, "Choose a configuration to apply") {
+		t.Fatal("mail discovery does not ask the user to choose a candidate")
 	}
 }

@@ -107,13 +107,24 @@ func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models
 		return nil, fmt.Errorf("query account config: %w", err)
 	}
 	if !accountProviderUsesGraphMail(cfg.Provider) {
-		cfg.IMAPTLSMode, err = mailtransport.RequireTLSMode("IMAP", cfg.IMAPTLSMode)
+		cfg.IMAPAllowPlaintext, err = s.db.IsPlaintextTransportAllowed(ctx, "imap", cfg.IMAPHost, cfg.IMAPPort)
+		if err != nil {
+			return nil, fmt.Errorf("account %s: check IMAP security exception: %w", accountID, err)
+		}
+		cfg.IMAPTLSMode, err = mailtransport.RequireTLSModeWithPlaintext("IMAP", cfg.IMAPTLSMode, cfg.IMAPAllowPlaintext)
 		if err != nil {
 			return nil, fmt.Errorf("account %s: %w", accountID, err)
 		}
-		cfg.SMTPTLSMode, err = mailtransport.RequireTLSMode("SMTP", cfg.SMTPTLSMode)
+		cfg.SMTPAllowPlaintext, err = s.db.IsPlaintextTransportAllowed(ctx, "smtp", cfg.SMTPHost, cfg.SMTPPort)
+		if err != nil {
+			return nil, fmt.Errorf("account %s: check SMTP security exception: %w", accountID, err)
+		}
+		cfg.SMTPTLSMode, err = mailtransport.RequireTLSModeWithPlaintext("SMTP", cfg.SMTPTLSMode, cfg.SMTPAllowPlaintext)
 		if err != nil {
 			return nil, fmt.Errorf("account %s: %w", accountID, err)
+		}
+		if (cfg.IMAPTLSMode == mailtransport.TLSModePlaintext || cfg.SMTPTLSMode == mailtransport.TLSModePlaintext) && !strings.EqualFold(strings.TrimSpace(cfg.AuthMethod), "plain") {
+			return nil, fmt.Errorf("account %s: OAuth authentication is not allowed over a plaintext connection", accountID)
 		}
 	}
 	return &cfg, nil
@@ -384,7 +395,7 @@ func accountProviderUsesGraphMail(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "outlook")
 }
 
-func normalizeAccountMailTLSModes(req *models.CreateAccountRequest, fillDefaults bool) error {
+func (s *AccountStore) normalizeAccountMailTLSModes(ctx context.Context, req *models.CreateAccountRequest, fillDefaults bool) error {
 	if accountProviderUsesGraphMail(req.Provider) {
 		return nil
 	}
@@ -395,18 +406,29 @@ func normalizeAccountMailTLSModes(req *models.CreateAccountRequest, fillDefaults
 		req.SMTPTLSMode = mailtransport.TLSModeImplicit
 	}
 	if strings.TrimSpace(req.IMAPTLSMode) != "" {
-		mode, err := mailtransport.RequireTLSMode("IMAP", req.IMAPTLSMode)
+		allowPlaintext, err := s.db.IsPlaintextTransportAllowed(ctx, "imap", req.IMAPHost, req.IMAPPort)
+		if err != nil {
+			return fmt.Errorf("check IMAP security exception: %w", err)
+		}
+		mode, err := mailtransport.RequireTLSModeWithPlaintext("IMAP", req.IMAPTLSMode, allowPlaintext)
 		if err != nil {
 			return err
 		}
 		req.IMAPTLSMode = mode
 	}
 	if strings.TrimSpace(req.SMTPTLSMode) != "" {
-		mode, err := mailtransport.RequireTLSMode("SMTP", req.SMTPTLSMode)
+		allowPlaintext, err := s.db.IsPlaintextTransportAllowed(ctx, "smtp", req.SMTPHost, req.SMTPPort)
+		if err != nil {
+			return fmt.Errorf("check SMTP security exception: %w", err)
+		}
+		mode, err := mailtransport.RequireTLSModeWithPlaintext("SMTP", req.SMTPTLSMode, allowPlaintext)
 		if err != nil {
 			return err
 		}
 		req.SMTPTLSMode = mode
+	}
+	if (req.IMAPTLSMode == mailtransport.TLSModePlaintext || req.SMTPTLSMode == mailtransport.TLSModePlaintext) && !strings.EqualFold(strings.TrimSpace(req.AuthMethod), "plain") {
+		return fmt.Errorf("OAuth authentication is not allowed over a plaintext connection")
 	}
 	return nil
 }
@@ -446,7 +468,7 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 			req.AuthMethod = "plain"
 		}
 	}
-	if err := normalizeAccountMailTLSModes(req, true); err != nil {
+	if err := s.normalizeAccountMailTLSModes(ctx, req, true); err != nil {
 		return nil, err
 	}
 
@@ -497,7 +519,7 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 }
 
 func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req *models.CreateAccountRequest) error {
-	if err := normalizeAccountMailTLSModes(req, false); err != nil {
+	if err := s.normalizeAccountMailTLSModes(ctx, req, false); err != nil {
 		return err
 	}
 	setClauses := []string{}

@@ -1,18 +1,20 @@
 package models
 
 type AccountConfig struct {
-	AccountID         string
-	Provider          string
-	ProviderAccountID string
-	IMAPHost          string
-	IMAPPort          int
-	IMAPTLSMode       string
-	SMTPHost          string
-	SMTPPort          int
-	SMTPTLSMode       string
-	Username          string
-	AuthMethod        string
-	SmtpUsername      string
+	AccountID          string
+	Provider           string
+	ProviderAccountID  string
+	IMAPHost           string
+	IMAPPort           int
+	IMAPTLSMode        string
+	IMAPAllowPlaintext bool
+	SMTPHost           string
+	SMTPPort           int
+	SMTPTLSMode        string
+	SMTPAllowPlaintext bool
+	Username           string
+	AuthMethod         string
+	SmtpUsername       string
 }
 
 type ConnectionTestResult struct {

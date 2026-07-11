@@ -2416,8 +2416,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 55 {
-		t.Fatalf("schema version = %d, want 55", version)
+	if version != 56 {
+		t.Fatalf("schema version = %d, want 56", version)
 	}
 }
 
@@ -2462,8 +2462,44 @@ func TestMigrateV54ConvertsZeroRemoteUIDsToNull(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 55 {
-		t.Fatalf("schema version = %d, want 55", version)
+	if version != 56 {
+		t.Fatalf("schema version = %d, want 56", version)
+	}
+}
+
+func TestMigrateV55AddsMailSecurityExceptions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gofer.db")
+	raw, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB() error = %v", err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO schema_version (version) VALUES (55);
+	`); err != nil {
+		raw.Close()
+		t.Fatalf("seed v55 database: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	db, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	var table string
+	if err := db.Read().QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mail_security_exceptions'`).Scan(&table); err != nil {
+		t.Fatalf("query mail security table: %v", err)
+	}
+	var version int
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("query schema version: %v", err)
+	}
+	if version != 56 {
+		t.Fatalf("schema version = %d, want 56", version)
 	}
 }
 
@@ -2512,8 +2548,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 55 {
-		t.Fatalf("schema version = %d, want 55", version)
+	if version != 56 {
+		t.Fatalf("schema version = %d, want 56", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

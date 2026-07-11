@@ -27,18 +27,26 @@ func (r fakeMXResolver) LookupMX(ctx context.Context, name string) ([]*net.MX, e
 
 type fakeHTTPClient map[string]string
 
+type fakeHTTPClientFunc func(req *http.Request) (*http.Response, error)
+
+func (fn fakeHTTPClientFunc) Do(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
 func (c fakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	if body, ok := c[req.URL.String()]; ok {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
 			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
 		}, nil
 	}
 	return &http.Response{
 		StatusCode: http.StatusNotFound,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader("not found")),
+		Request:    req,
 	}, nil
 }
 
@@ -183,7 +191,7 @@ func TestDiscoverMXConfigXMLUsesProviderDomain(t *testing.T) {
 		"https://autoconfig.thunderbird.net/v1.1/gmail.com": testConfigXML("imap.gmail.com", "smtp.gmail.com"),
 	}
 
-	candidates := discoverMXConfigXML(context.Background(), client, resolver, parts)
+	candidates := discoverMXConfigXML(context.Background(), client, resolver, parts, securityPolicy{})
 	if len(candidates) == 0 {
 		t.Fatalf("expected MX XML candidates")
 	}
@@ -205,13 +213,19 @@ func TestDiscoverConfigXMLFallsBackToHTTP(t *testing.T) {
 		"http://autoconfig.example.com/mail/config-v1.1.xml?emailaddress=me%40example.com": testConfigXML("imap.example.com", "smtp.example.com"),
 	}
 
-	candidates := discoverConfigXMLForDomain(context.Background(), client, parts, configLookup{
+	lookup := configLookup{
 		domain:                 "example.com",
 		providerSource:         SourceProviderXML,
 		thunderbirdSource:      SourceThunderbirdXML,
 		providerConfidence:     90,
 		thunderbirdConfidence:  82,
 		httpFallbackConfidence: 66,
+	}
+	if candidates := discoverConfigXMLForDomain(context.Background(), client, parts, lookup, securityPolicy{}); len(candidates) != 0 {
+		t.Fatalf("HTTP fallback returned candidates without an exception: %#v", candidates)
+	}
+	candidates := discoverConfigXMLForDomain(context.Background(), client, parts, lookup, securityPolicy{
+		allowHTTPDiscovery: func(domain string) bool { return domain == "example.com" },
 	})
 	if len(candidates) == 0 {
 		t.Fatalf("expected HTTP fallback candidates")
@@ -222,6 +236,97 @@ func TestDiscoverConfigXMLFallsBackToHTTP(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(got.Notes, " "), "HTTP fallback") {
 		t.Fatalf("expected HTTP fallback note, got %#v", got.Notes)
+	}
+}
+
+func TestFetchXMLRejectsUnsafeRedirects(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		initial string
+		final   string
+		want    string
+	}{
+		{name: "HTTPS downgrade", initial: "https://autoconfig.example.com/config.xml", final: "http://autoconfig.example.com/config.xml", want: "HTTPS downgrade"},
+		{name: "cross-host HTTP", initial: "http://autoconfig.example.com/config.xml", final: "http://127.0.0.1/internal", want: "cross-host redirect"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := fakeHTTPClientFunc(func(req *http.Request) (*http.Response, error) {
+				finalRequest, err := http.NewRequest(http.MethodGet, test.final, nil)
+				if err != nil {
+					t.Fatalf("http.NewRequest() error = %v", err)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("<clientConfig/>")),
+					Request:    finalRequest,
+				}, nil
+			})
+			if _, err := fetchXML(context.Background(), client, test.initial); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("fetchXML() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestDefaultDiscoveryClientRejectsUnsafeRedirectBeforeFollowing(t *testing.T) {
+	client := newDiscoveryHTTPClient()
+	for _, test := range []struct {
+		initial string
+		final   string
+	}{
+		{initial: "https://autoconfig.example.com/config.xml", final: "http://autoconfig.example.com/config.xml"},
+		{initial: "http://autoconfig.example.com/config.xml", final: "http://127.0.0.1/internal"},
+	} {
+		initial, err := http.NewRequest(http.MethodGet, test.initial, nil)
+		if err != nil {
+			t.Fatalf("initial request: %v", err)
+		}
+		redirect, err := http.NewRequest(http.MethodGet, test.final, nil)
+		if err != nil {
+			t.Fatalf("redirect request: %v", err)
+		}
+		if err := client.CheckRedirect(redirect, []*http.Request{initial}); err == nil {
+			t.Fatalf("redirect %s -> %s was allowed", test.initial, test.final)
+		}
+	}
+}
+
+func TestParseConfigXMLAllowsOnlyApprovedPlaintextEndpoints(t *testing.T) {
+	xml := []byte(`<?xml version="1.0"?>
+<clientConfig version="1.1">
+  <emailProvider id="example.com">
+    <incomingServer type="imap"><hostname>mail.test</hostname><port>1143</port><socketType>plain</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer>
+    <outgoingServer type="smtp"><hostname>mail.test</hostname><port>1025</port><socketType>plain</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer>
+  </emailProvider>
+</clientConfig>`)
+	parts := emailParts{Address: "me@example.com", LocalPart: "me", Domain: "example.com"}
+	policy := securityPolicy{allowPlaintextTransport: func(protocol, host string, port int) bool {
+		return host == "mail.test" && ((protocol == "imap" && port == 1143) || (protocol == "smtp" && port == 1025))
+	}}
+
+	candidates, err := parseConfigXML(xml, parts, SourceProviderXML, 90, nil, policy)
+	if err != nil {
+		t.Fatalf("parseConfigXML() error = %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].IMAPTLSMode != "plaintext" || candidates[0].SMTPTLSMode != "plaintext" {
+		t.Fatalf("approved plaintext candidates = %#v", candidates)
+	}
+}
+
+func TestCandidateFromXMLRejectsOAuthOverApprovedPlaintext(t *testing.T) {
+	policy := securityPolicy{allowPlaintextTransport: func(protocol, host string, port int) bool { return true }}
+	_, ok := candidateFromXMLServers(
+		mailServer{Type: "imap", Hostname: "imap.gmail.com", Port: 143, SocketType: "plain", Username: "%EMAILADDRESS%", Authentication: []string{"OAuth2"}},
+		mailServer{Type: "smtp", Hostname: "smtp.gmail.com", Port: 25, SocketType: "plain", Username: "%EMAILADDRESS%", Authentication: []string{"OAuth2"}},
+		emailParts{Address: "me@gmail.com", LocalPart: "me", Domain: "gmail.com"},
+		SourceProviderXML,
+		90,
+		nil,
+		policy,
+	)
+	if ok {
+		t.Fatal("OAuth plaintext discovery candidate was accepted")
 	}
 }
 

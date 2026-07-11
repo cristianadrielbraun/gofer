@@ -175,6 +175,17 @@ func (h *Handler) requireOwnedAccount(w http.ResponseWriter, r *http.Request, ac
 	return true
 }
 
+func (h *Handler) adminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := auth.GetCurrentUser(r.Context())
+		if user == nil || !user.IsAdmin {
+			http.Error(w, "admin access required", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (h *Handler) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
 	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
 		return "", fmt.Errorf("outlook mail uses Microsoft Graph; IMAP/SMTP credential resolution is disabled")
@@ -191,6 +202,9 @@ func (h *Handler) resolvePassword(ctx context.Context, cfg *models.AccountConfig
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	setupAssetsRoutes(mux)
+	adminRoute := func(pattern string, handler http.HandlerFunc) {
+		mux.Handle(pattern, h.adminOnly(handler))
+	}
 
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("GET /auth/google", h.handleGoogleRedirect)
@@ -201,14 +215,18 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/oauth2/authorize", h.handleAccountOAuthAuthorize)
 
 	mux.HandleFunc("GET /", h.handleIndex)
-	mux.HandleFunc("GET /admin", h.handleAdminRedirect)
-	mux.HandleFunc("GET /admin/avatars", h.handleAdminRedirect)
-	mux.HandleFunc("GET /admin/avatars/{$}", h.handleAdmin)
-	mux.HandleFunc("GET /admin/avatars/{tab}", h.handleAdmin)
-	mux.HandleFunc("GET /admin/contacts", h.handleAdminContacts)
-	mux.HandleFunc("GET /admin/contacts/{$}", h.handleAdminContacts)
-	mux.HandleFunc("GET /admin/labels", h.handleAdminLabels)
-	mux.HandleFunc("GET /admin/labels/{$}", h.handleAdminLabels)
+	adminRoute("GET /admin", h.handleAdminRedirect)
+	adminRoute("GET /admin/avatars", h.handleAdminRedirect)
+	adminRoute("GET /admin/avatars/{$}", h.handleAdmin)
+	adminRoute("GET /admin/avatars/{tab}", h.handleAdmin)
+	adminRoute("GET /admin/contacts", h.handleAdminContacts)
+	adminRoute("GET /admin/contacts/{$}", h.handleAdminContacts)
+	adminRoute("GET /admin/labels", h.handleAdminLabels)
+	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)
+	adminRoute("GET /admin/security", h.handleAdminSecurity)
+	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
+	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)
+	adminRoute("POST /admin/security/exceptions/{id}/delete", h.handleDeleteMailSecurityException)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
 	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
 	mux.HandleFunc("GET /email/{id}/body/translated", h.handleTranslatedEmailBody)
@@ -305,18 +323,18 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/{id}/translate", h.handleTranslateMessage)
 	mux.HandleFunc("POST /api/remote-content/{id}/allow", h.handleAllowRemoteContent)
 	mux.HandleFunc("GET /api/remote-assets/{messageID}/{filename}", h.handleRemoteAsset)
-	mux.HandleFunc("GET /api/avatars/status", h.handleAvatarStatus)
-	mux.HandleFunc("GET /api/admin/contacts/status", h.handleContactAdminStatus)
-	mux.HandleFunc("GET /api/admin/labels/status", h.handleLabelAdminStatus)
+	adminRoute("GET /api/avatars/status", h.handleAvatarStatus)
+	adminRoute("GET /api/admin/contacts/status", h.handleContactAdminStatus)
+	adminRoute("GET /api/admin/labels/status", h.handleLabelAdminStatus)
 	mux.HandleFunc("GET /api/provider-avatar", h.handleProviderAvatarImage)
 	mux.HandleFunc("GET /api/avatars/{hash}", h.handleAvatarImage)
-	mux.HandleFunc("GET /api/avatars/attempts", h.handleAvatarAttempts)
-	mux.HandleFunc("GET /api/avatars/senders", h.handleAvatarSenders)
+	adminRoute("GET /api/avatars/attempts", h.handleAvatarAttempts)
+	adminRoute("GET /api/avatars/senders", h.handleAvatarSenders)
 	mux.HandleFunc("POST /api/avatars/warmup", h.handleAvatarWarmup)
-	mux.HandleFunc("POST /api/avatars/senders/{hash}/recheck", h.handleRecheckAvatarSender)
-	mux.HandleFunc("POST /admin/avatar-backfill/recheck", h.handleForceAvatarBackfill)
-	mux.HandleFunc("POST /admin/avatar-backfill/cancel", h.handleCancelAvatarBackfill)
-	mux.HandleFunc("POST /admin/contacts/backfill", h.handleForceContactBackfill)
+	adminRoute("POST /api/avatars/senders/{hash}/recheck", h.handleRecheckAvatarSender)
+	adminRoute("POST /admin/avatar-backfill/recheck", h.handleForceAvatarBackfill)
+	adminRoute("POST /admin/avatar-backfill/cancel", h.handleCancelAvatarBackfill)
+	adminRoute("POST /admin/contacts/backfill", h.handleForceContactBackfill)
 }
 
 func setupAssetsRoutes(mux *http.ServeMux) {
@@ -1935,6 +1953,22 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	candidates, err := mailautodiscover.Discover(ctx, email, mailautodiscover.Options{
 		ProbeHeuristics: true,
+		AllowHTTPDiscovery: func(domain string) bool {
+			allowed, err := h.db.IsHTTPDiscoveryAllowed(ctx, domain)
+			if err != nil {
+				log.Printf("mail autodiscovery: check HTTP exception for %s: %v", domain, err)
+				return false
+			}
+			return allowed
+		},
+		AllowPlaintextTransport: func(protocol, host string, port int) bool {
+			allowed, err := h.db.IsPlaintextTransportAllowed(ctx, protocol, host, port)
+			if err != nil {
+				log.Printf("mail autodiscovery: check plaintext exception for %s %s:%d: %v", protocol, host, port, err)
+				return false
+			}
+			return allowed
+		},
 	})
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())

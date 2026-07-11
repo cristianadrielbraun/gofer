@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 55
+	const targetSchemaVersion = 56
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -474,6 +474,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 54 {
 		if err := migrateV54ToV55(tx); err != nil {
 			return fmt.Errorf("migrate v54 to v55: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 55 {
+		if err := migrateV55ToV56(tx); err != nil {
+			return fmt.Errorf("migrate v55 to v56: %w", err)
 		}
 	}
 
@@ -2101,6 +2107,35 @@ func migrateV54ToV55(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (55)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateV55ToV56(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS mail_security_exceptions (
+			id TEXT PRIMARY KEY,
+			kind TEXT NOT NULL CHECK (kind IN ('http_discovery', 'plaintext_transport')),
+			protocol TEXT NOT NULL DEFAULT '',
+			host TEXT NOT NULL CHECK (host <> ''),
+			port INTEGER NOT NULL DEFAULT 0,
+			created_by TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			CHECK (
+				(kind = 'http_discovery' AND protocol = '' AND port = 0)
+				OR
+				(kind = 'plaintext_transport' AND protocol IN ('imap', 'smtp') AND port BETWEEN 1 AND 65535)
+			),
+			UNIQUE(kind, protocol, host, port)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
+		 ON mail_security_exceptions(kind, protocol, host, port)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (56)`,
+	}
+	for _, migration := range migrations {
+		if _, err := tx.Exec(migration); err != nil {
+			return err
+		}
 	}
 	return nil
 }

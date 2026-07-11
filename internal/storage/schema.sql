@@ -906,5 +906,24 @@ ON scheduled_sends(status, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
 ON scheduled_sends(account_id, status, scheduled_for);
 
+CREATE TABLE IF NOT EXISTS mail_security_exceptions (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('http_discovery', 'plaintext_transport')),
+    protocol TEXT NOT NULL DEFAULT '',
+    host TEXT NOT NULL CHECK (host <> ''),
+    port INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (
+        (kind = 'http_discovery' AND protocol = '' AND port = 0)
+        OR
+        (kind = 'plaintext_transport' AND protocol IN ('imap', 'smtp') AND port BETWEEN 1 AND 65535)
+    ),
+    UNIQUE(kind, protocol, host, port)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
+ON mail_security_exceptions(kind, protocol, host, port);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (55);
+INSERT OR REPLACE INTO schema_version (version) VALUES (56);

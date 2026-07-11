@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-sasl"
@@ -58,9 +60,12 @@ func configureTimeouts(client *smtp.Client) {
 }
 
 func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) (*Client, error) {
-	tlsMode, err := mailtransport.RequireTLSMode("SMTP", cfg.SMTPTLSMode)
+	tlsMode, err := mailtransport.RequireTLSModeWithPlaintext("SMTP", cfg.SMTPTLSMode, cfg.SMTPAllowPlaintext)
 	if err != nil {
 		return nil, err
+	}
+	if tlsMode == mailtransport.TLSModePlaintext && !strings.EqualFold(strings.TrimSpace(cfg.AuthMethod), "plain") {
+		return nil, fmt.Errorf("SMTP OAuth authentication is not allowed over a plaintext connection")
 	}
 	ctx = nonNilContext(ctx)
 	setupCtx, cancelSetup := context.WithTimeout(ctx, setupTimeout)
@@ -69,7 +74,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 		return nil, err
 	}
 
-	addr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
+	addr := net.JoinHostPort(cfg.SMTPHost, strconv.Itoa(cfg.SMTPPort))
 	dialer := &net.Dialer{Timeout: connectTimeout}
 
 	var conn net.Conn
@@ -104,6 +109,13 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 			_ = conn.Close()
 			return nil, fmt.Errorf("starttls: %w", contextError(setupCtx, err))
 		}
+
+	case mailtransport.TLSModePlaintext:
+		conn, err = dialer.DialContext(setupCtx, "tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
+		}
+		client = smtp.NewClient(conn)
 
 	default:
 		return nil, fmt.Errorf("unsupported SMTP TLS mode %q", tlsMode)

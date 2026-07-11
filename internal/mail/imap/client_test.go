@@ -11,7 +11,7 @@ import (
 )
 
 func TestConnectWithConfigRejectsUnencryptedTLSModes(t *testing.T) {
-	for _, mode := range []string{"none", "", "optional"} {
+	for _, mode := range []string{"none", "", "optional", "plaintext"} {
 		t.Run(mode, func(t *testing.T) {
 			client, err := ConnectWithConfig(&models.AccountConfig{
 				IMAPHost:    "127.0.0.1",
@@ -21,10 +21,32 @@ func TestConnectWithConfigRejectsUnencryptedTLSModes(t *testing.T) {
 			if client != nil {
 				_ = client.Close()
 			}
-			if err == nil || !strings.Contains(err.Error(), "requires an encrypted connection") {
+			if err == nil {
+				t.Fatalf("ConnectWithConfig(mode=%q) error = nil, want transport policy rejection", mode)
+			}
+			if mode == "plaintext" && !strings.Contains(err.Error(), "admin-approved server exception") {
+				t.Fatalf("ConnectWithConfig(mode=%q) error = %v, want exception requirement", mode, err)
+			}
+			if mode != "plaintext" && !strings.Contains(err.Error(), "requires an encrypted connection") {
 				t.Fatalf("ConnectWithConfig(mode=%q) error = %v, want TLS requirement", mode, err)
 			}
 		})
+	}
+}
+
+func TestConnectWithConfigRejectsOAuthOverApprovedPlaintext(t *testing.T) {
+	client, err := ConnectWithConfig(&models.AccountConfig{
+		IMAPHost:           "127.0.0.1",
+		IMAPPort:           1,
+		IMAPTLSMode:        "plaintext",
+		IMAPAllowPlaintext: true,
+		AuthMethod:         "oauth2",
+	}, "token", nil)
+	if client != nil {
+		_ = client.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "OAuth authentication is not allowed") {
+		t.Fatalf("ConnectWithConfig() error = %v, want OAuth plaintext rejection", err)
 	}
 }
 
