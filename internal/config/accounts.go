@@ -831,9 +831,9 @@ func (s *AccountStore) DeleteAccountWithProgress(ctx context.Context, accountID 
 		},
 		{
 			step:  "delete scheduled sends",
-			table: "scheduled_sends",
-			sql: `DELETE FROM scheduled_sends
-			      WHERE rowid IN (SELECT rowid FROM scheduled_sends WHERE account_id = ? LIMIT ?)`,
+			table: "outgoing_sends",
+			sql: `DELETE FROM outgoing_sends
+			      WHERE rowid IN (SELECT rowid FROM outgoing_sends WHERE account_id = ? LIMIT ?)`,
 		},
 		{
 			step:  "delete label mutation queue",

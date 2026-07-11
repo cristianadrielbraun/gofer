@@ -2416,8 +2416,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 57 {
-		t.Fatalf("schema version = %d, want 57", version)
+	if version != 58 {
+		t.Fatalf("schema version = %d, want 58", version)
 	}
 }
 
@@ -2462,8 +2462,8 @@ func TestMigrateV54ConvertsZeroRemoteUIDsToNull(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 57 {
-		t.Fatalf("schema version = %d, want 57", version)
+	if version != 58 {
+		t.Fatalf("schema version = %d, want 58", version)
 	}
 }
 
@@ -2498,8 +2498,8 @@ func TestMigrateV55AddsMailSecurityExceptions(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 57 {
-		t.Fatalf("schema version = %d, want 57", version)
+	if version != 58 {
+		t.Fatalf("schema version = %d, want 58", version)
 	}
 }
 
@@ -2535,8 +2535,77 @@ func TestMigrateV56AddsOAuthAccountFlows(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 57 {
-		t.Fatalf("schema version = %d, want 57", version)
+	if version != 58 {
+		t.Fatalf("schema version = %d, want 58", version)
+	}
+}
+
+func TestMigrateV57MovesScheduledSendsIntoOutgoingQueue(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gofer.db")
+	raw, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB() error = %v", err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO schema_version (version) VALUES (57);
+		CREATE TABLE accounts (
+			id TEXT PRIMARY KEY,
+			provider TEXT NOT NULL DEFAULT '',
+			email_address TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE messages (
+			id INTEGER PRIMARY KEY,
+			internet_message_id TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE scheduled_sends (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			message_id INTEGER NOT NULL,
+			scheduled_for DATETIME NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			sent_message_id TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO accounts (id, provider, email_address) VALUES ('acc', 'imap', 'user@example.com');
+		INSERT INTO messages (id, internet_message_id) VALUES (1, '<draft@example.com>');
+		INSERT INTO scheduled_sends (id, account_id, message_id, scheduled_for)
+		VALUES ('scheduled', 'acc', 1, '2026-08-01 10:00:00');
+	`); err != nil {
+		raw.Close()
+		t.Fatalf("seed v57 database: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	db, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	var draftID, transport, status string
+	var scheduled int
+	var mime []byte
+	if err := db.Read().QueryRow(`
+		SELECT draft_id, transport, status, is_scheduled, mime_data
+		FROM outgoing_sends WHERE id = 'scheduled'`).Scan(&draftID, &transport, &status, &scheduled, &mime); err != nil {
+		t.Fatalf("query migrated outgoing send: %v", err)
+	}
+	if draftID != "<draft@example.com>" || transport != OutgoingTransportSMTP || status != OutgoingSendPending || scheduled != 1 || len(mime) != 0 {
+		t.Fatalf("migrated outgoing send draft=%q transport=%q status=%q scheduled=%d mime=%d", draftID, transport, status, scheduled, len(mime))
+	}
+	var oldTableCount int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_sends'`).Scan(&oldTableCount); err != nil {
+		t.Fatalf("query old scheduled table: %v", err)
+	}
+	if oldTableCount != 0 {
+		t.Fatalf("scheduled_sends still exists")
 	}
 }
 
@@ -2585,8 +2654,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 57 {
-		t.Fatalf("schema version = %d, want 57", version)
+	if version != 58 {
+		t.Fatalf("schema version = %d, want 58", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 57
+	const targetSchemaVersion = 58
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -486,6 +486,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 56 {
 		if err := migrateV56ToV57(tx); err != nil {
 			return fmt.Errorf("migrate v56 to v57: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 57 {
+		if err := migrateV57ToV58(tx); err != nil {
+			return fmt.Errorf("migrate v57 to v58: %w", err)
 		}
 	}
 
@@ -2162,6 +2168,84 @@ func migrateV56ToV57(tx *sql.Tx) error {
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (57)`,
 	}
 	for _, migration := range migrations {
+		if _, err := tx.Exec(migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV57ToV58(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS outgoing_sends (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+			draft_id TEXT NOT NULL DEFAULT '',
+			transport TEXT NOT NULL CHECK (transport IN ('smtp', 'gmail', 'outlook')),
+			envelope_from TEXT NOT NULL,
+			envelope_recipients TEXT NOT NULL DEFAULT '[]',
+			mime_data BLOB,
+			message_json TEXT NOT NULL DEFAULT '',
+			send_after DATETIME NOT NULL,
+			is_scheduled INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			sent_message_id TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(message_id)
+		)`); err != nil {
+		return err
+	}
+	hasScheduledSends, err := tableExistsTx(tx, "scheduled_sends")
+	if err != nil {
+		return err
+	}
+	hasMessages, err := tableExistsTx(tx, "messages")
+	if err != nil {
+		return err
+	}
+	hasProvider, err := columnExistsTx(tx, "accounts", "provider")
+	if err != nil {
+		return err
+	}
+	hasEmailAddress, err := columnExistsTx(tx, "accounts", "email_address")
+	if err != nil {
+		return err
+	}
+	if hasScheduledSends && hasMessages && hasProvider && hasEmailAddress {
+		if _, err := tx.Exec(`INSERT INTO outgoing_sends (
+			id, account_id, message_id, draft_id, transport, envelope_from,
+			envelope_recipients, mime_data, message_json, send_after, is_scheduled,
+			status, attempt_count, last_error, locked_at, sent_message_id, created_at, updated_at
+		)
+		SELECT ss.id, ss.account_id, ss.message_id, COALESCE(m.internet_message_id, ''),
+			CASE lower(COALESCE(a.provider, ''))
+				WHEN 'gmail' THEN 'gmail'
+				WHEN 'outlook' THEN 'outlook'
+				ELSE 'smtp'
+			END,
+			COALESCE(a.email_address, ''), '[]', NULL, '', ss.scheduled_for, 1,
+			ss.status, ss.attempt_count, ss.last_error, ss.locked_at, ss.sent_message_id,
+			ss.created_at, ss.updated_at
+		FROM scheduled_sends ss
+		JOIN accounts a ON a.id = ss.account_id
+		LEFT JOIN messages m ON m.id = ss.message_id`); err != nil {
+			return err
+		}
+	}
+	if hasScheduledSends {
+		if _, err := tx.Exec(`DROP TABLE scheduled_sends`); err != nil {
+			return err
+		}
+	}
+	for _, migration := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_outgoing_sends_due ON outgoing_sends(status, send_after)`,
+		`CREATE INDEX IF NOT EXISTS idx_outgoing_sends_account ON outgoing_sends(account_id, status, send_after)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (58)`,
+	} {
 		if _, err := tx.Exec(migration); err != nil {
 			return err
 		}

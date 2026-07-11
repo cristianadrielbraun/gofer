@@ -4127,10 +4127,10 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + accountFilter
 		args = append([]any{userID}, accountArgs...)
 	} else if folderID == "scheduled" {
-		where = `JOIN scheduled_sends ss ON ss.message_id = m.id
+		where = `JOIN outgoing_sends os ON os.message_id = m.id
 			 JOIN accounts a ON m.account_id = a.id
-			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
-		args = []any{userID, ScheduledSendPending}
+			 WHERE a.user_id = ? AND os.is_scheduled = 1 AND os.status = ? AND mfs.is_deleted = 0`
+		args = []any{userID, OutgoingSendPending}
 	} else {
 		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 		if err != nil {
@@ -4846,9 +4846,9 @@ func (db *DB) unifiedMailListFromWhere(ctx context.Context, userID, folderID str
 	if folderID == "scheduled" {
 		return `FROM messages m
 			JOIN message_folder_state mfs ON m.id = mfs.message_id
-			JOIN scheduled_sends ss ON ss.message_id = m.id
+			JOIN outgoing_sends os ON os.message_id = m.id
 			JOIN accounts a ON m.account_id = a.id
-			WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`, []any{userID, ScheduledSendPending}, nil
+			WHERE a.user_id = ? AND os.is_scheduled = 1 AND os.status = ? AND mfs.is_deleted = 0`, []any{userID, OutgoingSendPending}, nil
 	}
 	accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 	if err != nil {
@@ -4978,10 +4978,10 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + accountFilter
 		args = append([]any{userID}, accountArgs...)
 	} else if folderID == "scheduled" {
-		where = `JOIN scheduled_sends ss ON ss.message_id = m.id
+		where = `JOIN outgoing_sends os ON os.message_id = m.id
 			 JOIN accounts a ON m.account_id = a.id
-			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
-		args = []any{userID, ScheduledSendPending}
+			 WHERE a.user_id = ? AND os.is_scheduled = 1 AND os.status = ? AND mfs.is_deleted = 0`
+		args = []any{userID, OutgoingSendPending}
 	} else {
 		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 		if err != nil {
@@ -5219,10 +5219,10 @@ func (db *DB) findEmailPositionForUser(ctx context.Context, userID, folderID, em
 			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + accountFilter
 		args = append([]any{msgID, userID}, accountArgs...)
 	} else if folderID == "scheduled" {
-		where = `JOIN scheduled_sends ss ON ss.message_id = m.id
+		where = `JOIN outgoing_sends os ON os.message_id = m.id
 			 JOIN accounts a ON m.account_id = a.id
-			 WHERE a.user_id = ? AND ss.status = ? AND mfs.is_deleted = 0`
-		args = []any{msgID, userID, ScheduledSendPending}
+			 WHERE a.user_id = ? AND os.is_scheduled = 1 AND os.status = ? AND mfs.is_deleted = 0`
+		args = []any{msgID, userID, OutgoingSendPending}
 	} else {
 		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 		if err != nil {

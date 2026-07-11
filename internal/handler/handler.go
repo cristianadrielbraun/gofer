@@ -62,6 +62,7 @@ type Handler struct {
 	contactSyncQueue     chan struct{}
 	googleTranslator     *translation.GoogleWebConnector
 	vapidPublicKey       string
+	outgoingWake         chan struct{}
 }
 
 const (
@@ -96,6 +97,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		contactSyncQueue:   make(chan struct{}, 1),
 		googleTranslator:   translation.NewGoogleWebConnector(nil),
 		vapidPublicKey:     vapidPublicKey,
+		outgoingWake:       make(chan struct{}, 1),
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
@@ -3566,6 +3568,10 @@ func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 		writeComposeJSONError(w, composeErr.status, composeErr.message)
 		return
 	}
+	if err := h.refreshScheduledOutgoingSend(ctx, saved); err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to update scheduled message")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "draft_id": saved.DraftID})
@@ -3711,6 +3717,9 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	draftID := r.FormValue("draft_id")
 	draftPaths := h.composeDraftAttachmentPaths(ctx, accountID, draftID)
 	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, accountID, draftID)
+	if messageID, _ := h.db.GetMessageLocalIDByInternetID(ctx, accountID, draftID); messageID > 0 {
+		_ = h.db.CancelOutgoingSendForMessage(ctx, messageID)
+	}
 	folderID, err := h.db.DeleteDraftMessage(ctx, accountID, draftID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -3990,6 +3999,9 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	draftPaths := attachmentStoragePaths(email.Attachments)
 	draftProvider, _ := h.db.GetDraftProviderInfo(r.Context(), email.AccountID, email.InternetMessageID)
+	if messageID, err := strconv.ParseInt(email.ID, 10, 64); err == nil {
+		_ = h.db.CancelOutgoingSendForMessage(r.Context(), messageID)
+	}
 	folderID, err := h.db.DeleteDraftMessage(r.Context(), email.AccountID, email.InternetMessageID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -4098,74 +4110,20 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	}
 	draftID := strings.TrimSpace(r.FormValue("draft_id"))
 
-	go func() {
-		sendCtx, cancelSend := outgoingSendContext(context.Background())
-		defer cancelSend()
-		status, sendErr := h.sendOutgoingMessage(sendCtx, accountID, msg, draftID)
-
-		evt := mail.Event{
-			Type:      mail.EventSendResult,
-			AccountID: accountID,
-		}
-
-		evt.Status = status
-		if sendErr != "" {
-			evt.Error = sendErr
-		}
-
-		h.syncer.Events().Publish(evt)
-	}()
+	var localDraftMessageID int64
+	if draftID != "" {
+		localDraftMessageID, _ = h.db.GetMessageLocalIDByInternetID(ctx, accountID, draftID)
+	}
+	queued, err := h.queueOutgoingMessage(ctx, accountID, localDraftMessageID, draftID, msg, time.Now().UTC(), false)
+	if err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to queue message")
+		return
+	}
+	h.signalOutgoingWorker()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"status": "sending"})
-}
-
-func (h *Handler) sendOutgoingMessage(ctx context.Context, accountID string, msg *message.OutgoingMessage, draftID string) (string, string) {
-	cfg, err := h.accountStore.GetConfig(ctx, accountID)
-	if err != nil {
-		return "failed", "account not found"
-	}
-
-	if handled, status, errText := h.sendOutlookGraphMessage(ctx, cfg, msg, draftID); handled {
-		return status, errText
-	}
-	if handled, status, errText := h.sendGmailAPIMessage(ctx, cfg, msg, draftID); handled {
-		return status, errText
-	}
-
-	password, err := h.resolvePassword(ctx, cfg, accountID)
-	if err != nil {
-		return "failed", "failed to get credentials"
-	}
-
-	smtpPassword := password
-	if cfg.SmtpUsername != "" {
-		smtpPw, err := h.accountStore.DecryptSmtpPassword(ctx, accountID)
-		if err == nil && smtpPw != "" {
-			smtpPassword = smtpPw
-		}
-	}
-
-	result, err := smtpclient.SendMessage(ctx, cfg, smtpPassword, msg)
-	if err != nil {
-		return "failed", err.Error()
-	}
-
-	switch result {
-	case models.SendSuccess:
-		h.saveSentMessage(ctx, accountID, msg)
-		if draftID != "" {
-			if folderID, err := h.db.DeleteDraftMessage(ctx, accountID, draftID); err == nil && folderID != "" {
-				h.publishMutation(accountID, folderID)
-			}
-		}
-		return "sent", ""
-	case models.SendAmbiguous:
-		return "ambiguous", "Send status unknown. The message may have been sent."
-	default:
-		return "failed", "Failed to send message."
-	}
+	json.NewEncoder(w).Encode(map[string]string{"status": "sending", "send_id": queued.ID})
 }
 
 func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) {
@@ -4201,7 +4159,12 @@ func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	scheduled, err := h.db.UpsertScheduledSend(r.Context(), saved.AccountID, saved.MessageID, scheduledFor)
+	msg, err := h.outgoingMessageFromDraft(r.Context(), saved.MessageID)
+	if err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to prepare scheduled message")
+		return
+	}
+	scheduled, err := h.queueOutgoingMessage(r.Context(), saved.AccountID, saved.MessageID, saved.DraftID, msg, scheduledFor, true)
 	if err != nil {
 		writeComposeJSONError(w, http.StatusInternalServerError, "failed to schedule message")
 		return
@@ -4212,7 +4175,7 @@ func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":        "scheduled",
 		"draft_id":      saved.DraftID,
-		"scheduled_for": scheduled.ScheduledFor.Format(time.RFC3339),
+		"scheduled_for": scheduled.SendAfter.Format(time.RFC3339),
 	})
 }
 
@@ -4262,114 +4225,6 @@ func parseScheduledSendWallTime(dateValue, hourValue, minuteValue string, loc *t
 	return scheduled.UTC(), nil
 }
 
-func (h *Handler) StartScheduledSendWorker(ctx context.Context) {
-	go func() {
-		if err := h.db.ResetStaleScheduledSends(ctx, time.Now().Add(-15*time.Minute)); err != nil {
-			log.Printf("scheduled-send: reset stale sends: %v", err)
-		}
-		h.runDueScheduledSends(ctx)
-
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				h.runDueScheduledSends(ctx)
-			}
-		}
-	}()
-}
-
-func (h *Handler) runDueScheduledSends(ctx context.Context) {
-	sends, err := h.db.ClaimDueScheduledSends(ctx, time.Now(), 5)
-	if err != nil {
-		log.Printf("scheduled-send: claim due sends: %v", err)
-		return
-	}
-	for _, scheduled := range sends {
-		if err := h.sendScheduledMessage(ctx, scheduled); err != nil {
-			log.Printf("scheduled-send: send %s: %v", scheduled.ID, err)
-		}
-	}
-}
-
-func (h *Handler) sendScheduledMessage(ctx context.Context, scheduled storage.ScheduledSend) error {
-	email, err := h.db.GetEmailByID(ctx, strconv.FormatInt(scheduled.MessageID, 10))
-	if err != nil {
-		_ = h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storage.ScheduledSendFailed, err.Error())
-		return err
-	}
-	if email == nil || !email.IsDraft {
-		msg := "scheduled draft no longer exists"
-		_ = h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storage.ScheduledSendFailed, msg)
-		return errors.New(msg)
-	}
-
-	toAddrs, err := message.ParseAddressList(contactsToAddressList(email.To))
-	if err != nil || len(toAddrs) == 0 {
-		msg := "scheduled draft has no valid recipients"
-		_ = h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storage.ScheduledSendFailed, msg)
-		return errors.New(msg)
-	}
-	ccAddrs, _ := message.ParseAddressList(contactsToAddressList(email.CC))
-	bccAddrs, _ := message.ParseAddressList(contactsToAddressList(email.BCC))
-	body := email.TextBody
-	htmlBody := strings.TrimSpace(email.HTMLBody)
-	if htmlBody != "" {
-		if !strings.Contains(strings.ToLower(htmlBody), "<html") {
-			htmlBody = "<html><body>" + htmlBody + "</body></html>"
-		}
-	} else if body != "" {
-		htmlBody = "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(body) + "</pre></body></html>"
-	}
-	inReplyTo, references := h.validComposeThreadHeaders(ctx, email.AccountID, email.Subject, email.InReplyTo, email.References)
-	fromName := email.From.Name
-	fromEmail := email.From.Email
-	if account, err := h.accountStore.GetAccountByID(ctx, email.AccountID); err == nil && account != nil {
-		fromName = account.Name
-		fromEmail = account.Email
-	}
-
-	msg := &message.OutgoingMessage{
-		FromName:    fromName,
-		FromEmail:   fromEmail,
-		To:          toAddrs,
-		CC:          ccAddrs,
-		Bcc:         bccAddrs,
-		Subject:     email.Subject,
-		TextBody:    body,
-		HTMLBody:    htmlBody,
-		InReplyTo:   inReplyTo,
-		References:  references,
-		MessageID:   message.NewMessageID(),
-		Date:        time.Now().UTC(),
-		Attachments: outgoingAttachmentsFromStored(email.Attachments),
-	}
-
-	sendCtx, cancelSend := outgoingSendContext(ctx)
-	status, errText := h.sendOutgoingMessage(sendCtx, email.AccountID, msg, email.InternetMessageID)
-	cancelSend()
-	if status == "sent" {
-		if err := h.db.CompleteScheduledSend(ctx, scheduled.ID, msg.MessageID); err != nil {
-			return err
-		}
-	} else {
-		storageStatus := storage.ScheduledSendFailed
-		if status == "ambiguous" {
-			storageStatus = storage.ScheduledSendAmbiguous
-		}
-		if err := h.db.FinishScheduledSendWithError(ctx, scheduled.ID, storageStatus, errText); err != nil {
-			return err
-		}
-	}
-
-	h.publishMutation(email.AccountID, "scheduled")
-	h.syncer.Events().Publish(mail.Event{Type: mail.EventSendResult, AccountID: email.AccountID, Status: status, Error: errText})
-	return nil
-}
-
 func outgoingAttachmentsFromStored(atts []models.Attachment) []message.OutgoingAttachment {
 	out := make([]message.OutgoingAttachment, 0, len(atts))
 	for _, att := range atts {
@@ -4386,6 +4241,14 @@ func outgoingAttachmentsFromStored(atts []models.Attachment) []message.OutgoingA
 }
 
 func (h *Handler) saveSentMessage(ctx context.Context, accountID string, msg *message.OutgoingMessage) {
+	raw, err := message.BuildMIMEMessage(msg)
+	if err != nil {
+		return
+	}
+	h.saveSentMessageSnapshot(ctx, accountID, msg, raw)
+}
+
+func (h *Handler) saveSentMessageRecord(ctx context.Context, accountID string, msg *message.OutgoingMessage) {
 	sentFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "sent")
 	if err != nil || sentFolderID == "" {
 		return
@@ -4418,47 +4281,6 @@ func (h *Handler) saveSentMessage(ctx context.Context, accountID string, msg *me
 	}}); err != nil {
 		return
 	}
-
-	localID, err := h.db.GetMessageLocalIDByInternetID(ctx, accountID, msg.MessageID)
-	if err != nil || localID == 0 {
-		return
-	}
-
-	var textPath, htmlPath, rawPath string
-	if msg.TextBody != "" {
-		if p, err := h.blobStore.StoreBodyText(ctx, accountID, localID, []byte(msg.TextBody)); err == nil {
-			textPath = p
-		}
-	}
-	if msg.HTMLBody != "" {
-		if p, err := h.blobStore.StoreBodyHTML(ctx, accountID, localID, message.SanitizeHTML([]byte(msg.HTMLBody))); err == nil {
-			htmlPath = p
-		}
-	}
-	if raw, err := message.BuildMIMEMessage(msg); err == nil {
-		if p, err := h.blobStore.StoreRaw(ctx, accountID, localID, raw); err == nil {
-			rawPath = p
-		}
-	}
-	_ = h.db.UpdateMessageBody(ctx, localID, textPath, htmlPath, rawPath, snippet)
-	if len(msg.Attachments) > 0 {
-		var attRows []storage.AttachmentRow
-		for i, att := range msg.Attachments {
-			f, err := os.Open(att.Path)
-			if err != nil {
-				continue
-			}
-			storedPath, err := h.blobStore.StoreAttachment(ctx, accountID, localID, int64(i+1), att.Filename, f)
-			f.Close()
-			if err != nil {
-				continue
-			}
-			attRows = append(attRows, storage.AttachmentRow{Filename: att.Filename, ContentType: att.ContentType, SizeBytes: att.Size, ContentID: att.ContentID, Inline: att.Inline, StoragePath: storedPath})
-		}
-		_ = h.db.ReplaceAttachments(ctx, localID, attRows)
-	}
-	h.deleteComposeAttachmentPaths(outgoingAttachmentPaths(msg.Attachments))
-	h.publishMutation(accountID, sentFolderID)
 }
 
 func outgoingAttachmentPaths(atts []message.OutgoingAttachment) []string {

@@ -369,25 +369,17 @@ func (h *Handler) sendGmailAPIMessage(ctx context.Context, cfg *models.AccountCo
 	if cfg == nil || !h.shouldUseGmailAPIMailRuntime(cfg.Provider) {
 		return false, "", ""
 	}
-	if h.auth == nil {
-		return true, "failed", "google oauth not configured"
-	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, cfg.AccountID)
-	if err != nil {
-		return true, "failed", err.Error()
-	}
 	raw, err := message.BuildMIMEMessageForGraph(msg)
 	if err != nil {
 		return true, "failed", err.Error()
 	}
-	payload := map[string]string{"raw": base64.RawURLEncoding.EncodeToString(raw)}
-	var sent gmailAPIMessageResponse
-	if err := doGoogleJSON(ctx, http.MethodPost, gmailAPIBaseURL+"/users/me/messages/send", token, payload, &sent); err != nil {
+	providerMessageID, token, err := h.sendGmailAPIRaw(ctx, cfg, raw)
+	if err != nil {
 		return true, "failed", err.Error()
 	}
 
-	h.saveSentMessage(ctx, cfg.AccountID, msg)
-	h.cacheGmailSentMessageID(ctx, cfg.AccountID, msg, token, sent.ID)
+	h.saveSentMessageSnapshot(ctx, cfg.AccountID, msg, raw)
+	h.cacheGmailSentMessageID(ctx, cfg.AccountID, msg, token, providerMessageID)
 	if strings.TrimSpace(draftID) != "" {
 		draftProvider, _ := h.db.GetDraftProviderInfo(ctx, cfg.AccountID, draftID)
 		if folderID, err := h.db.DeleteDraftMessage(ctx, cfg.AccountID, draftID); err == nil && folderID != "" {
@@ -400,6 +392,25 @@ func (h *Handler) sendGmailAPIMessage(ctx context.Context, cfg *models.AccountCo
 		}
 	}
 	return true, "sent", ""
+}
+
+func (h *Handler) sendGmailAPIRaw(ctx context.Context, cfg *models.AccountConfig, raw []byte) (string, string, error) {
+	if h.auth == nil {
+		return "", "", fmt.Errorf("google oauth not configured")
+	}
+	token, err := h.auth.GetOAuthTokenForAccount(ctx, cfg.AccountID)
+	if err != nil {
+		return "", "", err
+	}
+	payload := map[string]string{"raw": base64.RawURLEncoding.EncodeToString(raw)}
+	var sent gmailAPIMessageResponse
+	if err := doGoogleJSON(ctx, http.MethodPost, gmailAPIBaseURL+"/users/me/messages/send", token, payload, &sent); err != nil {
+		if _, definitive := err.(googleAPIError); !definitive {
+			err = fmt.Errorf("%w: %v", errOutgoingSendAmbiguous, err)
+		}
+		return "", token, err
+	}
+	return strings.TrimSpace(sent.ID), token, nil
 }
 
 func (h *Handler) cacheGmailSentMessageID(ctx context.Context, accountID string, msg *message.OutgoingMessage, token, providerMessageID string) {

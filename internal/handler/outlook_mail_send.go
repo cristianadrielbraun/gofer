@@ -58,22 +58,16 @@ func (h *Handler) sendOutlookGraphMessage(ctx context.Context, cfg *models.Accou
 	if cfg == nil || strings.TrimSpace(cfg.Provider) != providers.ProviderOutlook {
 		return false, "", ""
 	}
-	if h.auth == nil {
-		return true, "failed", "microsoft oauth not configured"
-	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, cfg.AccountID)
-	if err != nil {
-		return true, "failed", err.Error()
-	}
 	raw, err := message.BuildMIMEMessageForGraph(msg)
 	if err != nil {
 		return true, "failed", err.Error()
 	}
-	if err := h.doOutlookRaw(ctx, http.MethodPost, outlookGraphBaseURL+"/me/sendMail", token, "text/plain", []byte(base64.StdEncoding.EncodeToString(raw)), nil); err != nil {
+	token, err := h.sendOutlookGraphRaw(ctx, cfg, raw)
+	if err != nil {
 		return true, "failed", err.Error()
 	}
 
-	h.saveSentMessage(ctx, cfg.AccountID, msg)
+	h.saveSentMessageSnapshot(ctx, cfg.AccountID, msg, raw)
 	h.cacheOutlookSentMessageID(ctx, cfg.AccountID, msg, token)
 	if strings.TrimSpace(draftID) != "" {
 		draftProvider, _ := h.db.GetDraftProviderInfo(ctx, cfg.AccountID, draftID)
@@ -87,6 +81,23 @@ func (h *Handler) sendOutlookGraphMessage(ctx context.Context, cfg *models.Accou
 		}
 	}
 	return true, "sent", ""
+}
+
+func (h *Handler) sendOutlookGraphRaw(ctx context.Context, cfg *models.AccountConfig, raw []byte) (string, error) {
+	if h.auth == nil {
+		return "", fmt.Errorf("microsoft oauth not configured")
+	}
+	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, cfg.AccountID)
+	if err != nil {
+		return "", err
+	}
+	if err := h.doOutlookRaw(ctx, http.MethodPost, outlookGraphBaseURL+"/me/sendMail", token, "text/plain", []byte(base64.StdEncoding.EncodeToString(raw)), nil); err != nil {
+		if _, definitive := err.(outlookAPIError); !definitive {
+			err = fmt.Errorf("%w: %v", errOutgoingSendAmbiguous, err)
+		}
+		return token, err
+	}
+	return token, nil
 }
 
 func (h *Handler) cacheOutlookSentMessageID(ctx context.Context, accountID string, msg *message.OutgoingMessage, token string) {

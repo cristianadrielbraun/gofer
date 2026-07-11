@@ -100,7 +100,7 @@ func main() {
 
 	h.StartAvatarBackfill(ctx)
 	h.StartContactSync(ctx)
-	h.StartScheduledSendWorker(ctx)
+	h.StartOutgoingSendWorker(ctx)
 	h.RegisterRoutes(mux)
 	log.Printf("boot: HTTP routes registered")
 	h.StartAccountDeletionCleanup(ctx)

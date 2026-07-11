@@ -235,3 +235,13 @@ func SendMessage(ctx context.Context, cfg *models.AccountConfig, password string
 
 	return c.Send(ctx, msg)
 }
+
+func SendRawMessage(ctx context.Context, cfg *models.AccountConfig, password, from string, recipients []string, mimeData []byte) (models.SendResult, error) {
+	c, err := NewClient(ctx, cfg, password)
+	if err != nil {
+		return models.SendFailed, err
+	}
+	defer c.Close()
+
+	return c.SendRaw(ctx, from, recipients, mimeData)
+}

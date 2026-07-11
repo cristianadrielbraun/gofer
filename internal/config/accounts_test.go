@@ -437,8 +437,13 @@ func TestDeleteAccountCleansAccountDataExplicitly(t *testing.T) {
 		 VALUES ('acc_delete', '<missing@example.com>', 1002, 0)`,
 		`INSERT INTO remote_content_messages (message_id)
 		 VALUES (1001)`,
-		`INSERT INTO scheduled_sends (id, account_id, message_id, scheduled_for)
-		 VALUES ('scheduled-delete', 'acc_delete', 1001, CURRENT_TIMESTAMP)`,
+		`INSERT INTO outgoing_sends (
+			id, account_id, message_id, draft_id, transport, envelope_from,
+			envelope_recipients, mime_data, message_json, send_after, is_scheduled
+		) VALUES (
+			'outgoing-delete', 'acc_delete', 1001, '<root@example.com>', 'smtp', 'owner@example.com',
+			'["to@example.com"]', X'00', '{}', CURRENT_TIMESTAMP, 1
+		)`,
 		`INSERT INTO message_search(rowid, account_id, thread_key, subject, sender, recipients, snippet, body, attachment_names)
 		 VALUES (1001, 'acc_delete', 'thread-delete', 'Root', 'sender', 'recipient', 'snippet', 'body', 'a.txt')`,
 		`CREATE TABLE IF NOT EXISTS message_search_docs (

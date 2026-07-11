@@ -898,11 +898,18 @@ CREATE TABLE IF NOT EXISTS web_push_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user
 ON web_push_subscriptions(user_id);
 
-CREATE TABLE IF NOT EXISTS scheduled_sends (
+CREATE TABLE IF NOT EXISTS outgoing_sends (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    scheduled_for DATETIME NOT NULL,
+    message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    draft_id TEXT NOT NULL DEFAULT '',
+    transport TEXT NOT NULL CHECK (transport IN ('smtp', 'gmail', 'outlook')),
+    envelope_from TEXT NOT NULL,
+    envelope_recipients TEXT NOT NULL DEFAULT '[]',
+    mime_data BLOB,
+    message_json TEXT NOT NULL DEFAULT '',
+    send_after DATETIME NOT NULL,
+    is_scheduled INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
     attempt_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT NOT NULL DEFAULT '',
@@ -913,11 +920,11 @@ CREATE TABLE IF NOT EXISTS scheduled_sends (
     UNIQUE(message_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_scheduled_sends_due
-ON scheduled_sends(status, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_outgoing_sends_due
+ON outgoing_sends(status, send_after);
 
-CREATE INDEX IF NOT EXISTS idx_scheduled_sends_account
-ON scheduled_sends(account_id, status, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_outgoing_sends_account
+ON outgoing_sends(account_id, status, send_after);
 
 CREATE TABLE IF NOT EXISTS mail_security_exceptions (
     id TEXT PRIMARY KEY,
@@ -939,4 +946,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (57);
+INSERT OR REPLACE INTO schema_version (version) VALUES (58);
