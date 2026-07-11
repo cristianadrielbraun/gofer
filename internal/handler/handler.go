@@ -2589,6 +2589,10 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 		}
 
 		idleFolderIDs := h.db.GetIdleFolderIDsForAccount(ctx, h.userID(ctx), account.ID)
+		var idleRuntime map[string]mail.IDLEFolderRuntimeStatus
+		if h.syncer != nil {
+			idleRuntime = h.syncer.IDLEFolderStatuses(account.ID)
+		}
 
 		var status models.AccountSyncStatus
 		status.AccountID = account.ID
@@ -2612,15 +2616,22 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 				name = f.RemoteID
 			}
 
+			configuredIDLE := idleFolderIDs[f.ID]
+			runtime, hasRuntime := idleRuntime[f.ID]
+			effectiveIDLE, fallbackReason, retryAt := effectiveIDLEFolderStatus(configuredIDLE, runtime, hasRuntime)
+
 			folderStatuses = append(folderStatuses, models.FolderSyncStatus{
-				ID:           f.ID,
-				Name:         name,
-				RemoteID:     f.RemoteID,
-				Icon:         folderIconFromRole(f.Role),
-				Role:         f.Role,
-				LastSyncedAt: lastSynced,
-				MessageCount: f.TotalCount,
-				IsIDLE:       idleFolderIDs[f.ID],
+				ID:                 f.ID,
+				Name:               name,
+				RemoteID:           f.RemoteID,
+				Icon:               folderIconFromRole(f.Role),
+				Role:               f.Role,
+				LastSyncedAt:       lastSynced,
+				MessageCount:       f.TotalCount,
+				IsIDLE:             configuredIDLE,
+				EffectiveIDLE:      effectiveIDLE,
+				IDLEFallbackReason: fallbackReason,
+				IDLERetryAt:        retryAt,
 			})
 		}
 		status.Folders = folderStatuses
@@ -2632,6 +2643,19 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 		SyncIntervalMinutes: syncInterval,
 		Accounts:            accountStatuses,
 	}
+}
+
+func effectiveIDLEFolderStatus(configured bool, runtime mail.IDLEFolderRuntimeStatus, hasRuntime bool) (effective bool, reason, retryAt string) {
+	if !configured {
+		return false, "", ""
+	}
+	if !hasRuntime || runtime.Healthy || runtime.Reason == "" {
+		return true, "", ""
+	}
+	if !runtime.RetryAt.IsZero() {
+		retryAt = runtime.RetryAt.UTC().Format(time.RFC3339)
+	}
+	return false, runtime.Reason, retryAt
 }
 
 func formatSyncTime(t time.Time) string {
@@ -3344,6 +3368,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
 	flusher.Flush()
 	for _, event := range h.syncer.ActiveManualSyncSnapshot(r.Context(), userID) {
+		writeEvent(event)
+	}
+	for _, event := range h.syncer.IDLEFolderStatusSnapshot(userAccounts) {
 		writeEvent(event)
 	}
 

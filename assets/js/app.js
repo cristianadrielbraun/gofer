@@ -2616,6 +2616,13 @@ document.addEventListener("DOMContentLoaded", function () {
       handleAccountSyncStatus(data)
     })
 
+    source.addEventListener("idle-folder-status", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !data.account_id || !data.folder_id) return
+      document.dispatchEvent(new CustomEvent("gofer:idle-folder-status", { detail: data }))
+    })
+
     source.addEventListener("sync-started", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }

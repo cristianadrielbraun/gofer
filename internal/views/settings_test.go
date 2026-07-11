@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -95,7 +96,7 @@ func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
 		`title="[Gmail]/Sent Mail"`,
 		"[Gmail]/Sent Mail",
 		`data-folder-id="acc_sent"`,
-		">Sent ",
+		">Sent</span>",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered sync folder paths missing %q: %s", want, html)
@@ -103,6 +104,62 @@ func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
 	}
 	if strings.Contains(html, ">sent ") {
 		t.Fatalf("rendered sync folder should prefer remote path over role/name label: %s", html)
+	}
+}
+
+func TestSettingsSyncTabShowsConfiguredIDLEFolderInPollingDuringFallback(t *testing.T) {
+	settings := models.SyncSettings{
+		SyncIntervalMinutes: 5,
+		Accounts: []models.AccountSyncStatus{{
+			AccountID:    "acc-imap",
+			AccountName:  "IMAP",
+			AccountEmail: "user@example.com",
+			Provider:     "imap",
+			Folders: []models.FolderSyncStatus{{
+				ID:                 "acc_inbox",
+				Name:               "INBOX",
+				RemoteID:           "INBOX",
+				Role:               "inbox",
+				Icon:               "inbox",
+				IsIDLE:             true,
+				EffectiveIDLE:      false,
+				IDLEFallbackReason: "the server does not advertise IMAP IDLE",
+			}},
+		}},
+	}
+
+	var out bytes.Buffer
+	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`data-poll-zone="acc-imap"`,
+		`data-folder-id="acc_inbox"`,
+		`data-configured-idle="true"`,
+		`data-effective-idle="false"`,
+		`data-idle-fallback-warning`,
+		`aria-label="Show IDLE fallback reason"`,
+		"INBOX was moved to polling because the server does not advertise IMAP IDLE.",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered fallback folder missing %q: %s", want, html)
+		}
+	}
+	if strings.Index(html, `data-folder-id="acc_inbox"`) < strings.Index(html, `data-poll-zone="acc-imap"`) {
+		t.Fatalf("fallback folder rendered outside polling zone: %s", html)
+	}
+}
+
+func TestIdleFallbackTooltipIncludesTemporaryRetry(t *testing.T) {
+	text := idleFallbackTooltip(models.FolderSyncStatus{
+		Name:               "INBOX",
+		RemoteID:           "INBOX",
+		IDLEFallbackReason: "the IDLE connection was closed",
+		IDLERetryAt:        time.Now().Add(2 * time.Minute).UTC().Format(time.RFC3339),
+	})
+	if !strings.Contains(text, "INBOX was moved to polling because the IDLE connection was closed.") || !strings.Contains(text, "Gofer will try again in") {
+		t.Fatalf("idleFallbackTooltip() = %q", text)
 	}
 }
 

@@ -4,10 +4,33 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
+
+func TestEffectiveIDLEFolderStatusKeepsConfiguredModeSeparateFromFallback(t *testing.T) {
+	retryAt := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Second)
+	effective, reason, retry := effectiveIDLEFolderStatus(true, mail.IDLEFolderRuntimeStatus{
+		Reason:  "the IDLE connection was closed",
+		RetryAt: retryAt,
+	}, true)
+	if effective || reason != "the IDLE connection was closed" || retry != retryAt.Format(time.RFC3339) {
+		t.Fatalf("fallback status = effective:%v reason:%q retry:%q", effective, reason, retry)
+	}
+
+	effective, reason, retry = effectiveIDLEFolderStatus(true, mail.IDLEFolderRuntimeStatus{Healthy: true}, true)
+	if !effective || reason != "" || retry != "" {
+		t.Fatalf("healthy status = effective:%v reason:%q retry:%q", effective, reason, retry)
+	}
+
+	effective, _, _ = effectiveIDLEFolderStatus(false, mail.IDLEFolderRuntimeStatus{Healthy: true}, true)
+	if effective {
+		t.Fatal("runtime health overrode the user's polling preference")
+	}
+}
 
 func TestBuildSyncSettingsUsesRemoteFolderPaths(t *testing.T) {
 	ctx := context.Background()

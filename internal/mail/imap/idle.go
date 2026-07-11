@@ -8,32 +8,74 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 )
+
+const (
+	idleRefreshInterval         = 25 * time.Minute
+	idleUnsupportedRetry        = 30 * time.Minute
+	idleInitialReconnectBackoff = time.Second
+	idleMaxReconnectBackoff     = 5 * time.Minute
+)
+
+type IdleWatcherStatus struct {
+	Healthy    bool
+	ReasonCode string
+	Reason     string
+	RetryAt    time.Time
+}
+
+type idleRunError struct {
+	code      string
+	reason    string
+	permanent bool
+	err       error
+}
+
+func (e *idleRunError) Error() string {
+	if e.err == nil {
+		return e.reason
+	}
+	return e.err.Error()
+}
+
+func (e *idleRunError) Unwrap() error { return e.err }
 
 type IdleWatcher struct {
 	config     *models.AccountConfig
 	password   string
 	remoteName string
 	onNotify   func()
+	onStatus   func(IdleWatcherStatus)
+	refreshIn  time.Duration
+	connect    func(*models.AccountConfig, string, *imapclient.Options) (*imapclient.Client, error)
 
 	mu     sync.Mutex
 	client *imapclient.Client
 	closed bool
 }
 
-func NewIdleWatcher(cfg *models.AccountConfig, password, remoteName string, onNotify func()) *IdleWatcher {
+func NewIdleWatcher(cfg *models.AccountConfig, password, remoteName string, onNotify func(), onStatus func(IdleWatcherStatus)) *IdleWatcher {
+	if onNotify == nil {
+		onNotify = func() {}
+	}
+	if onStatus == nil {
+		onStatus = func(IdleWatcherStatus) {}
+	}
 	return &IdleWatcher{
 		config:     cfg,
 		password:   password,
 		remoteName: remoteName,
 		onNotify:   onNotify,
+		onStatus:   onStatus,
+		refreshIn:  idleRefreshInterval,
+		connect:    ConnectWithConfig,
 	}
 }
 
 func (w *IdleWatcher) Run(ctx context.Context) {
-	backoff := time.Second
-	maxBackoff := 5 * time.Minute
+	backoff := idleInitialReconnectBackoff
 
 	for {
 		if w.isClosed() {
@@ -45,32 +87,59 @@ func (w *IdleWatcher) Run(ctx context.Context) {
 		default:
 		}
 
-		err := w.run(ctx)
+		becameHealthy := false
+		err := w.run(ctx, func() {
+			becameHealthy = true
+			w.onStatus(IdleWatcherStatus{Healthy: true})
+		})
 		if ctx.Err() != nil || w.isClosed() {
 			return
 		}
-		if err != nil {
-			log.Printf("idle %s: %v (reconnecting in %v)", w.remoteName, err, backoff)
+		if becameHealthy {
+			backoff = idleInitialReconnectBackoff
 		}
+		retryIn := backoff
+		status := idleStatusForError(err)
+		if runErr, ok := err.(*idleRunError); ok && runErr.permanent {
+			retryIn = idleUnsupportedRetry
+		} else {
+			status.RetryAt = time.Now().Add(retryIn)
+		}
+		w.onStatus(status)
+		log.Printf("idle %s: %v (reconnecting in %v)", w.remoteName, err, retryIn)
 
 		w.closeConnection()
 
+		timer := time.NewTimer(retryIn)
 		select {
 		case <-ctx.Done():
+			stopIdleTimer(timer)
 			return
-		case <-time.After(backoff):
+		case <-timer.C:
 		}
 
-		if backoff < maxBackoff {
+		if retryIn != idleUnsupportedRetry && backoff < idleMaxReconnectBackoff {
 			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
+			if backoff > idleMaxReconnectBackoff {
+				backoff = idleMaxReconnectBackoff
 			}
 		}
 	}
 }
 
-func (w *IdleWatcher) run(ctx context.Context) error {
+func idleStatusForError(err error) IdleWatcherStatus {
+	status := IdleWatcherStatus{
+		ReasonCode: "connection_error",
+		Reason:     "the IDLE connection failed",
+	}
+	if runErr, ok := err.(*idleRunError); ok {
+		status.ReasonCode = runErr.code
+		status.Reason = runErr.reason
+	}
+	return status
+}
+
+func (w *IdleWatcher) run(ctx context.Context, onHealthy func()) error {
 	notifyCh := make(chan struct{}, 1)
 	notify := func() {
 		select {
@@ -83,9 +152,13 @@ func (w *IdleWatcher) run(ctx context.Context) error {
 		UnilateralDataHandler: newIdleUnilateralDataHandler(notify),
 	}
 
-	c, err := ConnectWithConfig(w.config, w.password, options)
+	connect := w.connect
+	if connect == nil {
+		connect = ConnectWithConfig
+	}
+	c, err := connect(w.config, w.password, options)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return &idleRunError{code: "connection_error", reason: "the IDLE connection could not be established", err: fmt.Errorf("connect: %w", err)}
 	}
 
 	w.mu.Lock()
@@ -96,10 +169,13 @@ func (w *IdleWatcher) run(ctx context.Context) error {
 	}
 	w.client = c
 	w.mu.Unlock()
+	if !c.Caps().Has(imap.CapIdle) {
+		return &idleRunError{code: "idle_unsupported", reason: "the server does not advertise IMAP IDLE", permanent: true}
+	}
 
 	_, err = c.Select(w.remoteName, nil).Wait()
 	if err != nil {
-		return fmt.Errorf("select %s: %w", w.remoteName, err)
+		return &idleRunError{code: "select_error", reason: "the folder could not be selected for IDLE", err: fmt.Errorf("select %s: %w", w.remoteName, err)}
 	}
 
 	log.Printf("idle: watching %s", w.remoteName)
@@ -107,14 +183,22 @@ func (w *IdleWatcher) run(ctx context.Context) error {
 	for {
 		idleCmd, err := c.Idle()
 		if err != nil {
-			return fmt.Errorf("idle start: %w", err)
+			return &idleRunError{code: "idle_error", reason: "the server rejected the IDLE command", err: fmt.Errorf("idle start: %w", err)}
 		}
+		onHealthy()
+		refreshIn := w.refreshIn
+		if refreshIn <= 0 {
+			refreshIn = idleRefreshInterval
+		}
+		refresh := time.NewTimer(refreshIn)
 
 		select {
 		case <-ctx.Done():
+			stopIdleTimer(refresh)
 			idleCmd.Close()
 			return ctx.Err()
 		case <-notifyCh:
+			stopIdleTimer(refresh)
 			idleCmd.Close()
 			log.Printf("idle: notification received for %s", w.remoteName)
 			w.onNotify()
@@ -122,10 +206,24 @@ func (w *IdleWatcher) run(ctx context.Context) error {
 			case <-notifyCh:
 			default:
 			}
-		case <-c.Closed():
+		case <-refresh.C:
 			idleCmd.Close()
-			return fmt.Errorf("connection closed")
+			log.Printf("idle: refreshed %s after %v", w.remoteName, refreshIn)
+		case <-c.Closed():
+			stopIdleTimer(refresh)
+			idleCmd.Close()
+			return &idleRunError{code: "connection_lost", reason: "the IDLE connection was closed", err: fmt.Errorf("connection closed")}
 		}
+	}
+}
+
+func stopIdleTimer(timer *time.Timer) {
+	if timer == nil || timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C:
+	default:
 	}
 }
 

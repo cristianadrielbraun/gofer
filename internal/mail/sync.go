@@ -85,6 +85,16 @@ type idleWatcher interface {
 	Close()
 }
 
+type IDLEFolderRuntimeStatus struct {
+	AccountID  string
+	FolderID   string
+	RemoteName string
+	Healthy    bool
+	ReasonCode string
+	Reason     string
+	RetryAt    time.Time
+}
+
 type idleWatcherGroup struct {
 	cancel    context.CancelFunc
 	done      chan struct{}
@@ -128,8 +138,9 @@ type SyncOrchestrator struct {
 	manualRuns          map[string]map[string]*manualSyncRun
 	backgroundSyncSlots chan struct{}
 	idleWatchers        map[string]*idleWatcherGroup
-	idleWatcherFactory  func(*models.AccountConfig, string, string, func()) idleWatcher
+	idleWatcherFactory  func(*models.AccountConfig, string, string, func(), func(imap.IdleWatcherStatus)) idleWatcher
 	idleMu              sync.Mutex
+	idleFolderStatuses  map[string]map[string]IDLEFolderRuntimeStatus
 	dirtyIMAPFolders    map[string]map[string]dirtyIMAPFolder
 	dirtyIMAPDraining   map[string]bool
 	dirtyIMAPDrainDone  map[string]chan struct{}
@@ -257,11 +268,12 @@ func NewSyncOrchestrator(db *storage.DB, accountStore *config.AccountStore, blob
 		manualRuns:          make(map[string]map[string]*manualSyncRun),
 		backgroundSyncSlots: newAccountSyncSlots(backgroundSyncMaxParallelAccounts),
 		idleWatchers:        make(map[string]*idleWatcherGroup),
+		idleFolderStatuses:  make(map[string]map[string]IDLEFolderRuntimeStatus),
 		dirtyIMAPFolders:    make(map[string]map[string]dirtyIMAPFolder),
 		dirtyIMAPDraining:   make(map[string]bool),
 		dirtyIMAPDrainDone:  make(map[string]chan struct{}),
-		idleWatcherFactory: func(cfg *models.AccountConfig, password, remoteName string, onNotify func()) idleWatcher {
-			return imap.NewIdleWatcher(cfg, password, remoteName, onNotify)
+		idleWatcherFactory: func(cfg *models.AccountConfig, password, remoteName string, onNotify func(), onStatus func(imap.IdleWatcherStatus)) idleWatcher {
+			return imap.NewIdleWatcher(cfg, password, remoteName, onNotify, onStatus)
 		},
 		cancelFuncs:      make(map[string]*accountWorker),
 		activeUsers:      make(map[string]int),
@@ -314,6 +326,7 @@ func (o *SyncOrchestrator) stopAccount(accountID string) (<-chan struct{}, <-cha
 	}
 	o.stopIDLEWatchers(accountID)
 	drainDone := o.clearDirtyIMAPFolders(accountID)
+	o.clearIDLEFolderStatuses(accountID)
 	var workerDone, runDone <-chan struct{}
 	if worker != nil {
 		workerDone = worker.done
@@ -415,11 +428,116 @@ func (o *SyncOrchestrator) activeIdleFolderIDs(accountID string) map[string]bool
 	if group == nil {
 		return map[string]bool{}
 	}
+	statuses := o.idleFolderStatuses[accountID]
 	result := make(map[string]bool, len(group.folderIDs))
 	for folderID := range group.folderIDs {
-		result[folderID] = true
+		if statuses[folderID].Healthy {
+			result[folderID] = true
+		}
 	}
 	return result
+}
+
+func (o *SyncOrchestrator) IDLEFolderStatuses(accountID string) map[string]IDLEFolderRuntimeStatus {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	statuses := o.idleFolderStatuses[strings.TrimSpace(accountID)]
+	result := make(map[string]IDLEFolderRuntimeStatus, len(statuses))
+	for folderID, status := range statuses {
+		result[folderID] = status
+	}
+	return result
+}
+
+func (o *SyncOrchestrator) IDLEFolderStatusSnapshot(accountIDs []string) []Event {
+	o.mu.Lock()
+	var statuses []IDLEFolderRuntimeStatus
+	for _, accountID := range accountIDs {
+		for _, status := range o.idleFolderStatuses[strings.TrimSpace(accountID)] {
+			if status.Healthy || status.Reason != "" {
+				statuses = append(statuses, status)
+			}
+		}
+	}
+	o.mu.Unlock()
+	sort.Slice(statuses, func(i, j int) bool {
+		if statuses[i].AccountID != statuses[j].AccountID {
+			return statuses[i].AccountID < statuses[j].AccountID
+		}
+		return statuses[i].FolderID < statuses[j].FolderID
+	})
+	events := make([]Event, 0, len(statuses))
+	for _, status := range statuses {
+		events = append(events, idleFolderStatusEvent(status))
+	}
+	return events
+}
+
+func (o *SyncOrchestrator) clearIDLEFolderStatuses(accountID string) {
+	o.mu.Lock()
+	delete(o.idleFolderStatuses, strings.TrimSpace(accountID))
+	o.mu.Unlock()
+}
+
+func (o *SyncOrchestrator) setIDLEFolderStatusesPending(accountID string, folderIDs map[string]bool) {
+	o.mu.Lock()
+	if o.idleFolderStatuses == nil {
+		o.idleFolderStatuses = make(map[string]map[string]IDLEFolderRuntimeStatus)
+	}
+	statuses := make(map[string]IDLEFolderRuntimeStatus, len(folderIDs))
+	for folderID := range folderIDs {
+		statuses[folderID] = IDLEFolderRuntimeStatus{AccountID: accountID, FolderID: folderID}
+	}
+	o.idleFolderStatuses[accountID] = statuses
+	o.mu.Unlock()
+}
+
+func (o *SyncOrchestrator) updateIDLEFolderStatus(accountID, folderID, remoteName string, watcherStatus imap.IdleWatcherStatus) {
+	status := IDLEFolderRuntimeStatus{
+		AccountID:  accountID,
+		FolderID:   folderID,
+		RemoteName: remoteName,
+		Healthy:    watcherStatus.Healthy,
+		ReasonCode: watcherStatus.ReasonCode,
+		Reason:     watcherStatus.Reason,
+		RetryAt:    watcherStatus.RetryAt,
+	}
+
+	o.mu.Lock()
+	if o.idleFolderStatuses == nil {
+		o.idleFolderStatuses = make(map[string]map[string]IDLEFolderRuntimeStatus)
+	}
+	statuses := o.idleFolderStatuses[accountID]
+	if statuses == nil {
+		statuses = make(map[string]IDLEFolderRuntimeStatus)
+		o.idleFolderStatuses[accountID] = statuses
+	}
+	previous := statuses[folderID]
+	if previous.Healthy == status.Healthy && previous.ReasonCode == status.ReasonCode && previous.Reason == status.Reason && previous.RetryAt.Equal(status.RetryAt) {
+		o.mu.Unlock()
+		return
+	}
+	statuses[folderID] = status
+	o.mu.Unlock()
+
+	o.events.Publish(idleFolderStatusEvent(status))
+}
+
+func idleFolderStatusEvent(status IDLEFolderRuntimeStatus) Event {
+	payload := map[string]any{
+		"remote_name":    status.RemoteName,
+		"healthy":        status.Healthy,
+		"effective_mode": "polling",
+		"reason_code":    status.ReasonCode,
+		"reason":         status.Reason,
+	}
+	if status.Healthy {
+		payload["effective_mode"] = "idle"
+	}
+	if !status.RetryAt.IsZero() {
+		payload["retry_at"] = status.RetryAt.UTC().Format(time.RFC3339)
+	}
+	return Event{Type: EventIDLEFolderStatus, AccountID: status.AccountID, FolderID: status.FolderID, Payload: payload}
 }
 
 func (o *SyncOrchestrator) markIMAPFolderDirty(ctx context.Context, accountID, folderID, remoteName string) {
@@ -529,6 +647,7 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 	o.idleMu.Lock()
 	defer o.idleMu.Unlock()
 	o.stopIDLEWatchersLocked(accountID)
+	o.clearIDLEFolderStatuses(accountID)
 
 	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return
@@ -567,8 +686,8 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 	folderIDs := make(map[string]bool)
 	factory := o.idleWatcherFactory
 	if factory == nil {
-		factory = func(cfg *models.AccountConfig, password, remoteName string, onNotify func()) idleWatcher {
-			return imap.NewIdleWatcher(cfg, password, remoteName, onNotify)
+		factory = func(cfg *models.AccountConfig, password, remoteName string, onNotify func(), onStatus func(imap.IdleWatcherStatus)) idleWatcher {
+			return imap.NewIdleWatcher(cfg, password, remoteName, onNotify, onStatus)
 		}
 	}
 
@@ -579,9 +698,13 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 
 		folderID := folder.ID
 		remoteName := folder.RemoteID
-		watcher := factory(cfg, password, remoteName, func() {
-			o.markIMAPFolderDirty(watcherCtx, accountID, folderID, remoteName)
-		})
+		watcher := factory(
+			cfg,
+			password,
+			remoteName,
+			func() { o.markIMAPFolderDirty(watcherCtx, accountID, folderID, remoteName) },
+			func(status imap.IdleWatcherStatus) { o.updateIDLEFolderStatus(accountID, folderID, remoteName, status) },
+		)
 		watchers = append(watchers, watcher)
 		folderIDs[folderID] = true
 	}
@@ -599,6 +722,7 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 	o.mu.Lock()
 	o.idleWatchers[accountID] = group
 	o.mu.Unlock()
+	o.setIDLEFolderStatusesPending(accountID, folderIDs)
 
 	var wg sync.WaitGroup
 	wg.Add(len(watchers))

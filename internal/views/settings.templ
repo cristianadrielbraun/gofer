@@ -5,6 +5,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
@@ -1172,27 +1173,27 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 											<div class="rounded-md border border-border/70 bg-card/60 p-3">
 												<div class="flex items-center gap-1.5 mb-2">
 													@icon.Zap(icon.Props{Class: "size-3 text-amber-700/70 dark:text-amber-300/70"})
-													<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Real-time</span>
-												</div>
-												<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-idle-zone={ account.AccountID }>
-													for _, f := range account.Folders {
-														if f.IsIDLE {
-															@syncFolderPill(f, true, settings.SyncIntervalMinutes, account.AccountID)
-														}
-													}
+											<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Real-time</span>
+										</div>
+										<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-idle-zone={ account.AccountID }>
+											for _, f := range account.Folders {
+												if syncFolderUsesEffectiveIDLE(f) {
+													@syncFolderPill(f, settings.SyncIntervalMinutes, account.AccountID)
+												}
+											}
 												</div>
 											</div>
 											<div class="rounded-md border border-border/70 bg-card/60 p-3">
 												<div class="flex items-center gap-1.5 mb-2">
 													@icon.Clock(icon.Props{Class: "size-3 text-muted-foreground"})
-													<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider" data-sync-polling-title>Polling ({ strconv.Itoa(settings.SyncIntervalMinutes) } min)</span>
-												</div>
-												<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-poll-zone={ account.AccountID }>
-													for _, f := range account.Folders {
-														if !f.IsIDLE {
-															@syncFolderPill(f, false, settings.SyncIntervalMinutes, account.AccountID)
-														}
-													}
+											<span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider" data-sync-polling-title>Polling ({ strconv.Itoa(settings.SyncIntervalMinutes) } min)</span>
+										</div>
+										<div class="flex flex-wrap gap-1.5 min-h-[28px]" data-poll-zone={ account.AccountID }>
+											for _, f := range account.Folders {
+												if !syncFolderUsesEffectiveIDLE(f) {
+													@syncFolderPill(f, settings.SyncIntervalMinutes, account.AccountID)
+												}
+											}
 												</div>
 											</div>
 										</div>
@@ -1255,52 +1256,95 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 		var syncSaveInFlight = false;
 		var syncSaveQueued = false;
 
-		function setPillMode(pill, isIDLE) {
+		function setPillEffectiveMode(pill, isIDLE) {
 			var label = pill.querySelector('.sync-label');
+			var toggle = pill.querySelector('[data-sync-pill-toggle]');
+			pill.dataset.effectiveIdle = isIDLE ? 'true' : 'false';
 			if (isIDLE) {
 				pill.className = pill.className.replace(/bg-muted\/50 border-border text-muted-foreground/g, 'bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200');
-				if (!label) {
+				if (!label && toggle) {
 					label = document.createElement('span');
 					label.className = 'sync-label text-[10px] opacity-70';
-					pill.appendChild(label);
+					toggle.appendChild(label);
 				}
-				label.textContent = 'real-time';
+				if (label) label.textContent = 'real-time';
 				return;
 			}
 			pill.className = pill.className.replace(/bg-amber-800\/10 border-amber-700\/20 text-amber-800 dark:bg-amber-300\/10 dark:border-amber-300\/20 dark:text-amber-200/g, 'bg-muted/50 border-border text-muted-foreground');
 			if (label) label.remove();
 		}
 
-		function togglePill(pill) {
-			if (pill.classList.contains('sync-pill-exit')) return;
+		function fallbackTooltipText(pill) {
+			var reason = (pill.dataset.idleFallbackReason || '').trim().replace(/\.$/, '');
+			if (!reason) return '';
+			var name = pill.dataset.folderName || 'This folder';
+			var message = name + ' was moved to polling because ' + reason + '.';
+			var retryAt = Date.parse(pill.dataset.idleRetryAt || '');
+			if (!isNaN(retryAt) && retryAt > Date.now()) {
+				var remaining = retryAt - Date.now();
+				var minutes = Math.max(1, Math.ceil(remaining / 60000));
+				return message + ' Gofer will try again in ' + minutes + (minutes === 1 ? ' minute.' : ' minutes.');
+			}
+			return message;
+		}
 
+		function setPillFallback(pill, reason, retryAt) {
+			pill.dataset.idleFallbackReason = reason || '';
+			pill.dataset.idleRetryAt = retryAt || '';
+			var warning = pill.querySelector('[data-idle-fallback-warning]');
+			if (warning) warning.classList.toggle('hidden', !reason);
+			var text = pill.querySelector('[data-idle-fallback-tooltip-text]');
+			if (text) text.textContent = fallbackTooltipText(pill);
+		}
+
+		function movePill(pill, toIdle, animate, afterMove) {
 			var container = pill.closest('[data-sync-account-card]');
 			if (!container) return;
-			var idleZone = container.querySelector('[data-idle-zone]');
-			var pollZone = container.querySelector('[data-poll-zone]');
-			if (!idleZone || !pollZone) return;
-
-			var toIdle = !!pill.closest('[data-poll-zone]');
-			var target = toIdle ? idleZone : pollZone;
-
-			pill.classList.add('sync-pill-exit');
-			pill.addEventListener('animationend', function onExit() {
-				pill.removeEventListener('animationend', onExit);
-				pill.classList.remove('sync-pill-exit');
-
-				setPillMode(pill, toIdle);
-
-				target.appendChild(pill);
+			var target = container.querySelector(toIdle ? '[data-idle-zone]' : '[data-poll-zone]');
+			if (!target) return;
+			var complete = function() {
+				setPillEffectiveMode(pill, toIdle);
+				if (pill.parentElement !== target) target.appendChild(pill);
 				pill.classList.add('sync-pill-enter');
 				pill.addEventListener('animationend', function onEnter() {
 					pill.removeEventListener('animationend', onEnter);
 					pill.classList.remove('sync-pill-enter');
-				});
-
+				}, { once: true });
 				updateEmptyStates(container);
+				if (afterMove) afterMove();
+			};
+			if (!animate || pill.parentElement === target) {
+				complete();
+				return;
+			}
+			pill.classList.add('sync-pill-exit');
+			pill.addEventListener('animationend', function onExit() {
+				pill.removeEventListener('animationend', onExit);
+				pill.classList.remove('sync-pill-exit');
+				complete();
+			}, { once: true });
+		}
+
+		function togglePill(pill) {
+			if (pill.classList.contains('sync-pill-exit')) return;
+			var toIdle = pill.dataset.configuredIdle !== 'true';
+			pill.dataset.configuredIdle = toIdle ? 'true' : 'false';
+			setPillFallback(pill, '', '');
+			movePill(pill, toIdle, true, function() {
 				updateHiddenInputs();
 				scheduleAutoSave(80);
 			});
+		}
+
+		function applyIDLEFolderStatus(data) {
+			if (!data || !data.account_id || !data.folder_id) return;
+			var pill = Array.prototype.find.call(document.querySelectorAll('[data-sync-pill]'), function(candidate) {
+				return candidate.dataset.accountId === data.account_id && candidate.dataset.folderId === data.folder_id;
+			});
+			if (!pill || pill.dataset.configuredIdle !== 'true') return;
+			var effectiveIDLE = data.effective_mode === 'idle';
+			setPillFallback(pill, effectiveIDLE ? '' : (data.reason || ''), effectiveIDLE ? '' : (data.retry_at || ''));
+			movePill(pill, effectiveIDLE, true);
 		}
 
 		function updateEmptyStates(container) {
@@ -1330,7 +1374,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 			container.innerHTML = '';
 			var seenAccounts = {};
 			var seenIdle = {};
-			document.querySelectorAll('[data-idle-zone] [data-folder-id]').forEach(function(pill) {
+			document.querySelectorAll('[data-sync-pill][data-configured-idle="true"]').forEach(function(pill) {
 				var accountID = pill.dataset.accountId;
 				var folderID = pill.dataset.folderId;
 				var key = accountID + ':' + folderID;
@@ -1359,13 +1403,25 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 		}
 
 		document.addEventListener('click', function(e) {
-			var pill = e.target.closest('[data-sync-pill]');
-			if (pill) {
+			var toggle = e.target.closest('[data-sync-pill-toggle]');
+			var pill = toggle && toggle.closest('[data-sync-pill]');
+			if (pill && toggle) {
 				e.preventDefault();
 				togglePill(pill);
 				return;
 			}
 		});
+
+		document.addEventListener('gofer:idle-folder-status', function(e) {
+			applyIDLEFolderStatus(e.detail || {});
+		});
+		if (window.goferIDLEFallbackTimer) window.clearInterval(window.goferIDLEFallbackTimer);
+		window.goferIDLEFallbackTimer = window.setInterval(function() {
+			document.querySelectorAll('[data-sync-pill][data-idle-fallback-reason]:not([data-idle-fallback-reason=""])').forEach(function(pill) {
+				var text = pill.querySelector('[data-idle-fallback-tooltip-text]');
+				if (text) text.textContent = fallbackTooltipText(pill);
+			});
+		}, 30000);
 
 		function syncPollingIntervalDisplay() {
 			var input = document.querySelector('#sync-settings-form input[name="sync_interval_minutes"]');
@@ -1601,31 +1657,68 @@ templ UnifiedFolderAccountRow(folder unifiedFolderOption, account models.Account
 	</div>
 }
 
-templ syncFolderPill(f models.FolderSyncStatus, isIDLE bool, interval int, accountID string) {
-		<button
-			type="button"
+templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) {
+		<div
 			data-sync-pill
 			data-folder-id={ f.ID }
 			data-role={ f.Role }
 			data-account-id={ accountID }
 			data-interval={ strconv.Itoa(interval) }
-			title={ f.RemoteID }
+			data-folder-name={ syncFolderDisplayName(f) }
+			data-configured-idle={ strconv.FormatBool(f.IsIDLE) }
+			data-effective-idle={ strconv.FormatBool(syncFolderUsesEffectiveIDLE(f)) }
+			data-idle-fallback-reason={ f.IDLEFallbackReason }
+			data-idle-retry-at={ f.IDLERetryAt }
 			class={
 				"inline-flex items-center gap-1.5 px-2.5 rounded-md border text-xs font-medium cursor-pointer transition-transform hover:scale-[1.02] will-change-transform backface-hidden",
-			templ.KV("bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200", isIDLE),
-			templ.KV("bg-muted/50 border-border text-muted-foreground", !isIDLE),
-		}
-		style="height:26px"
-	>
-		{{ folderIcon := icon.Icon(f.Icon) }}
-		@folderIcon(icon.Props{Class: "size-3"})
-		{ syncFolderDisplayName(f) }
-		if isIDLE {
-			<span class="sync-label text-[10px] opacity-70">
-				real-time
+				templ.KV("bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200", syncFolderUsesEffectiveIDLE(f)),
+				templ.KV("bg-muted/50 border-border text-muted-foreground", !syncFolderUsesEffectiveIDLE(f)),
+			}
+			style="height:26px"
+		>
+			<button type="button" data-sync-pill-toggle class="inline-flex min-w-0 items-center gap-1.5" title={ f.RemoteID }>
+				{{ folderIcon := icon.Icon(f.Icon) }}
+				@folderIcon(icon.Props{Class: "size-3 shrink-0"})
+				<span class="truncate">{ syncFolderDisplayName(f) }</span>
+				if syncFolderUsesEffectiveIDLE(f) {
+					<span class="sync-label text-[10px] opacity-70">
+						real-time
+					</span>
+				}
+			</button>
+			<span data-idle-fallback-warning class={ "inline-flex", templ.KV("hidden", f.IDLEFallbackReason == "") }>
+				@tooltip.Tooltip() {
+					@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+						<span class="inline-flex text-amber-700 dark:text-amber-300" aria-label="Show IDLE fallback reason">
+							@icon.TriangleAlert(icon.Props{Class: "size-3"})
+						</span>
+					}
+					@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "max-w-72 px-3 py-1.5 text-center text-xs leading-relaxed"}) {
+						<span data-idle-fallback-tooltip-text>{ idleFallbackTooltip(f) }</span>
+					}
+				}
 			</span>
+		</div>
+}
+
+func syncFolderUsesEffectiveIDLE(f models.FolderSyncStatus) bool {
+	return f.IsIDLE && (f.EffectiveIDLE || strings.TrimSpace(f.IDLEFallbackReason) == "")
+}
+
+func idleFallbackTooltip(f models.FolderSyncStatus) string {
+	if strings.TrimSpace(f.IDLEFallbackReason) == "" {
+		return ""
+	}
+	message := fmt.Sprintf("%s was moved to polling because %s.", syncFolderDisplayName(f), strings.TrimSuffix(strings.TrimSpace(f.IDLEFallbackReason), "."))
+	if retryAt, err := time.Parse(time.RFC3339, f.IDLERetryAt); err == nil && retryAt.After(time.Now()) {
+		remaining := time.Until(retryAt)
+		minutes := max(1, int((remaining+time.Minute-1)/time.Minute))
+		if minutes == 1 {
+			return message + " Gofer will try again in 1 minute."
 		}
-	</button>
+		return fmt.Sprintf("%s Gofer will try again in %d minutes.", message, minutes)
+	}
+	return message
 }
 
 templ SettingsNoAccounts() {

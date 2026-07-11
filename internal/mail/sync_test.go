@@ -21,6 +21,7 @@ type lifecycleIdleWatcher struct {
 	started     chan struct{}
 	stopped     chan struct{}
 	closed      chan struct{}
+	onStatus    func(imap.IdleWatcherStatus)
 }
 
 type folderMessageSyncerStub struct {
@@ -41,6 +42,9 @@ func newLifecycleIdleWatcher() *lifecycleIdleWatcher {
 }
 
 func (w *lifecycleIdleWatcher) Run(ctx context.Context) {
+	if w.onStatus != nil {
+		w.onStatus(imap.IdleWatcherStatus{Healthy: true})
+	}
 	w.startedOnce.Do(func() { close(w.started) })
 	<-ctx.Done()
 	w.stoppedOnce.Do(func() { close(w.stopped) })
@@ -301,8 +305,9 @@ func TestAccountLifecycleBaselinesBeforeIDLEAndRestartsWatchers(t *testing.T) {
 
 	var watcherMu sync.Mutex
 	var watchers []*lifecycleIdleWatcher
-	orchestrator.idleWatcherFactory = func(*models.AccountConfig, string, string, func()) idleWatcher {
+	orchestrator.idleWatcherFactory = func(_ *models.AccountConfig, _ string, _ string, _ func(), onStatus func(imap.IdleWatcherStatus)) idleWatcher {
 		watcher := newLifecycleIdleWatcher()
+		watcher.onStatus = onStatus
 		watcherMu.Lock()
 		watchers = append(watchers, watcher)
 		watcherMu.Unlock()
@@ -819,6 +824,59 @@ func TestPollingFoldersForPeriodicSyncKeepsAllWithoutIdleFolderIDs(t *testing.T)
 	}
 	if len(got) != len(folders) {
 		t.Fatalf("polling folders len = %d, want %d", len(got), len(folders))
+	}
+}
+
+func TestIDLEFolderHealthControlsPollingFallbackAndRecovery(t *testing.T) {
+	orchestrator := NewSyncOrchestrator(nil, nil, nil, nil)
+	orchestrator.mu.Lock()
+	orchestrator.idleWatchers["acc"] = &idleWatcherGroup{folderIDs: map[string]bool{"acc_inbox": true}}
+	orchestrator.mu.Unlock()
+	orchestrator.setIDLEFolderStatusesPending("acc", map[string]bool{"acc_inbox": true})
+	events := orchestrator.events.Subscribe()
+	defer orchestrator.events.Unsubscribe(events)
+
+	if active := orchestrator.activeIdleFolderIDs("acc"); len(active) != 0 {
+		t.Fatalf("pending IDLE folder counted as active: %#v", active)
+	}
+	if snapshot := orchestrator.IDLEFolderStatusSnapshot([]string{"acc"}); len(snapshot) != 0 {
+		t.Fatalf("pending IDLE status leaked into SSE snapshot: %#v", snapshot)
+	}
+	retryAt := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Second)
+	orchestrator.updateIDLEFolderStatus("acc", "acc_inbox", "INBOX", imap.IdleWatcherStatus{
+		ReasonCode: "connection_lost",
+		Reason:     "the IDLE connection was closed",
+		RetryAt:    retryAt,
+	})
+	if active := orchestrator.activeIdleFolderIDs("acc"); len(active) != 0 {
+		t.Fatalf("unhealthy IDLE folder excluded from polling: %#v", active)
+	}
+	var fallback Event
+	select {
+	case fallback = <-events:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for IDLE polling fallback event")
+	}
+	if fallback.Type != EventIDLEFolderStatus || fallback.Payload["effective_mode"] != "polling" || fallback.Payload["reason_code"] != "connection_lost" || fallback.Payload["retry_at"] != retryAt.Format(time.RFC3339) {
+		t.Fatalf("fallback event = %#v", fallback)
+	}
+	snapshot := orchestrator.IDLEFolderStatusSnapshot([]string{"acc"})
+	if len(snapshot) != 1 || snapshot[0].Payload["effective_mode"] != "polling" {
+		t.Fatalf("IDLE status snapshot = %#v", snapshot)
+	}
+
+	orchestrator.updateIDLEFolderStatus("acc", "acc_inbox", "INBOX", imap.IdleWatcherStatus{Healthy: true})
+	if active := orchestrator.activeIdleFolderIDs("acc"); len(active) != 1 || !active["acc_inbox"] {
+		t.Fatalf("recovered IDLE folder not active: %#v", active)
+	}
+	var recovered Event
+	select {
+	case recovered = <-events:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for IDLE recovery event")
+	}
+	if recovered.Payload["effective_mode"] != "idle" || recovered.Payload["reason"] != "" {
+		t.Fatalf("recovery event = %#v", recovered)
 	}
 }
 

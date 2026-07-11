@@ -10,6 +10,7 @@ const (
 	EventSyncProgress          EventType = "sync-progress"
 	EventSyncComplete          EventType = "sync-complete"
 	EventAccountSyncStatus     EventType = "account-sync-status"
+	EventIDLEFolderStatus      EventType = "idle-folder-status"
 	EventManualSyncStarted     EventType = "manual-sync-started"
 	EventManualSyncProgress    EventType = "manual-sync-progress"
 	EventManualSyncComplete    EventType = "manual-sync-complete"

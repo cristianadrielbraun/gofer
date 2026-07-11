@@ -80,14 +80,17 @@ type AccountSyncStatus struct {
 }
 
 type FolderSyncStatus struct {
-	ID           string
-	Name         string
-	RemoteID     string
-	Icon         string
-	Role         string
-	LastSyncedAt string
-	MessageCount int
-	IsIDLE       bool
+	ID                 string
+	Name               string
+	RemoteID           string
+	Icon               string
+	Role               string
+	LastSyncedAt       string
+	MessageCount       int
+	IsIDLE             bool
+	EffectiveIDLE      bool
+	IDLEFallbackReason string
+	IDLERetryAt        string
 }
 
 type Signature struct {
