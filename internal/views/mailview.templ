@@ -327,7 +327,7 @@ templ MailViewThreadItemMiniHeader(item *models.ThreadItem) {
 				@button.Button(button.Props{
 					Variant:    button.VariantGhost,
 					Size:       button.SizeIcon,
-					Class:      "h-7 w-7 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
+					Class:      mailDeleteActionClass("h-7 w-7", "text-ink/40 hover:text-ink/70 hover:bg-ink/5", mailThreadItemIsTrash(item)),
 					Attributes: templ.Attributes{"onclick": fmt.Sprintf("deleteMessage('%s')", item.ID)},
 				}) {
 					@icon.Trash2(icon.Props{Class: "size-3.5"})
@@ -337,7 +337,11 @@ templ MailViewThreadItemMiniHeader(item *models.ThreadItem) {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Delete
+				if mailThreadItemIsTrash(item) {
+					Permanently delete
+				} else {
+					Delete
+				}
 			}
 		}
 		@tooltip.Tooltip() {
@@ -465,7 +469,7 @@ templ MailViewHeader(email *models.Email) {
 					@button.Button(button.Props{
 						Variant:    button.VariantGhost,
 						Size:       button.SizeIcon,
-						Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
+						Class:      mailDeleteActionClass("h-8 w-8", "text-ink/40 hover:text-ink/70 hover:bg-ink/5", mailEmailIsTrash(email)),
 						Attributes: templ.Attributes{"onclick": threadAwareAction("deleteMessage", "deleteThread", email)},
 					}) {
 						@icon.Trash2(icon.Props{Class: "size-4"})
@@ -475,7 +479,11 @@ templ MailViewHeader(email *models.Email) {
 					Position:  tooltip.PositionBottom,
 					ShowArrow: true,
 				}) {
-					{ threadAwareLabel("Delete", "Delete thread", email) }
+					if mailEmailIsTrash(email) {
+						{ threadAwareLabel("Permanently delete", "Permanently delete thread", email) }
+					} else {
+						{ threadAwareLabel("Delete", "Delete thread", email) }
+					}
 				}
 				}
 				@tooltip.Tooltip() {

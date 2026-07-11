@@ -185,9 +185,12 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
 					Size:    button.SizeIcon,
-					Class:   "h-7 w-7",
+					Class:   mailDeleteActionClass("h-7 w-7", "", mailFolderIDIsTrash(activeFolder, accounts)),
 					Disabled: true,
-					Attributes: templ.Attributes{"data-mail-selection-action": "delete", "aria-label": "Delete selected messages"},
+					Attributes: templ.Attributes{
+						"data-mail-selection-action": "delete",
+						"aria-label": mailDeleteSelectionLabel(mailFolderIDIsTrash(activeFolder, accounts)),
+					},
 				}) {
 					@icon.Trash2(icon.Props{Class: "size-3.5"})
 				}
@@ -196,7 +199,11 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Delete
+				if mailFolderIDIsTrash(activeFolder, accounts) {
+					Permanently delete
+				} else {
+					Delete
+				}
 			}
 		}
 		@tooltip.Tooltip() {

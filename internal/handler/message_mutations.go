@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,14 +19,21 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
+var errProviderDeleteAlreadyGone = errors.New("provider message was already deleted")
+
 type messageMutationIMAPClient interface {
 	StoreFlags(ctx context.Context, folderRemoteName string, uid uint32, op goimap.StoreFlagsOp, flags []goimap.Flag) error
 	MoveMessageWithDestUID(ctx context.Context, folderRemoteName string, uid uint32, destFolderRemoteName string) (uint32, error)
+	DeleteMessagesIfUIDValidity(ctx context.Context, folderRemoteName string, uids []uint32, expectedUIDValidity uint32) (bool, error)
 	FindUIDByMessageID(ctx context.Context, remoteName, messageID string) (uint32, error)
 	Close() error
 }
 
 type messageMutationIMAPClientFactory func(context.Context, *models.AccountConfig, string) (messageMutationIMAPClient, error)
+
+type outlookMessageMoveResponse struct {
+	ID string `json:"id"`
+}
 
 func (h *Handler) signalMessageMutationWorker() {
 	select {
@@ -40,6 +49,20 @@ func (h *Handler) queueMessageMoves(ctx context.Context, infos []storage.ThreadM
 	}
 	for sourceFolderID, messageIDs := range bySource {
 		if err := h.db.MoveMessagesAndQueue(ctx, messageIDs, sourceFolderID, destinationFolderID); err != nil {
+			return err
+		}
+	}
+	h.signalMessageMutationWorker()
+	return nil
+}
+
+func (h *Handler) queuePermanentDeletes(ctx context.Context, infos []storage.ThreadMessageMutationInfo) error {
+	byFolder := make(map[string][]int64)
+	for _, info := range infos {
+		byFolder[info.FolderID] = append(byFolder[info.FolderID], info.MessageID)
+	}
+	for folderID, messageIDs := range byFolder {
+		if err := h.db.PermanentlyDeleteMessagesAndQueue(ctx, messageIDs, folderID); err != nil {
 			return err
 		}
 	}
@@ -91,20 +114,38 @@ func (h *Handler) runDueMessageMutations(ctx context.Context) {
 func (h *Handler) applyQueuedMessageMutation(parent context.Context, mutation storage.MessageMutation) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
-	if err := h.applyRemoteMessageMutation(ctx, mutation); err != nil {
+	if _, err := h.db.GetMessageMutation(ctx, mutation.ID); err == sql.ErrNoRows {
+		return
+	} else if err != nil {
+		log.Printf("message-mutation: reload id=%s: %v", mutation.ID, err)
+		return
+	}
+	applyErr := h.applyRemoteMessageMutation(ctx, mutation)
+	alreadyGone := errors.Is(applyErr, errProviderDeleteAlreadyGone)
+	if applyErr != nil && !alreadyGone {
 		nextAttempt := time.Now().Add(sentCopyRetryDelay(mutation.AttemptCount))
-		if dbErr := h.db.FinishMessageMutationWithError(context.Background(), mutation.ID, err.Error(), nextAttempt); dbErr != nil {
+		if dbErr := h.db.FinishMessageMutationWithError(context.Background(), mutation.ID, applyErr.Error(), nextAttempt); dbErr != nil {
 			log.Printf("message-mutation: save failure id=%s: %v", mutation.ID, dbErr)
 			return
 		}
-		log.Printf("message-mutation: %s message=%d failed; retry at %s: %v", mutation.Kind, mutation.MessageID, nextAttempt.Format(time.RFC3339), err)
+		log.Printf("message-mutation: %s message=%d failed; retry at %s: %v", mutation.Kind, mutation.MessageID, nextAttempt.Format(time.RFC3339), applyErr)
 		return
 	}
-	if err := h.db.CompleteMessageMutation(context.Background(), mutation.ID); err != nil {
+	complete := h.db.CompleteMessageMutation
+	if mutation.Kind == storage.MessageMutationDelete {
+		complete = h.db.CompleteMessageDeleteMutation
+	}
+	if err := complete(context.Background(), mutation.ID); err != nil {
 		log.Printf("message-mutation: mark applied id=%s: %v", mutation.ID, err)
 		nextAttempt := time.Now().Add(sentCopyRetryDelay(mutation.AttemptCount))
 		if dbErr := h.db.FinishMessageMutationWithError(context.Background(), mutation.ID, "Provider update succeeded, but Gofer could not save the result: "+err.Error(), nextAttempt); dbErr != nil {
 			log.Printf("message-mutation: schedule applied-state retry id=%s: %v", mutation.ID, dbErr)
+		}
+		return
+	}
+	if alreadyGone {
+		if err := h.db.ConfirmMessageDeleteMutation(context.Background(), mutation.ID); err != nil {
+			log.Printf("message-mutation: confirm already deleted id=%s: %v", mutation.ID, err)
 		}
 	}
 }
@@ -112,7 +153,7 @@ func (h *Handler) applyQueuedMessageMutation(parent context.Context, mutation st
 func (h *Handler) applyRemoteMessageMutation(ctx context.Context, mutation storage.MessageMutation) error {
 	var info *storage.MessageMutationInfo
 	var err error
-	if mutation.Kind == storage.MessageMutationMove {
+	if mutation.Kind == storage.MessageMutationMove || mutation.Kind == storage.MessageMutationDelete {
 		info, err = h.db.GetMessageMutationInfoIncludingDeletedInFolder(ctx, mutation.MessageID, mutation.FolderID)
 	} else if mutation.FolderID != "" {
 		info, err = h.db.GetMessageMutationInfoInFolder(ctx, mutation.MessageID, mutation.FolderID)
@@ -174,6 +215,12 @@ func (h *Handler) applyGmailMessageMutation(ctx context.Context, mutation storag
 	}
 	var addLabels, removeLabels []string
 	switch mutation.Kind {
+	case storage.MessageMutationDelete:
+		err := h.deleteGmailAPIMessage(ctx, token, providerMessageID)
+		if googleAPIStatus(err, http.StatusNotFound) {
+			return errProviderDeleteAlreadyGone
+		}
+		return err
 	case storage.MessageMutationMove:
 		return h.applyGmailMessageMove(ctx, mutation, info, token, providerMessageID)
 	case storage.MessageMutationRead:
@@ -214,6 +261,12 @@ func (h *Handler) applyOutlookMessageMutation(ctx context.Context, mutation stor
 	}
 	endpoint := outlookGraphBaseURL + "/me/messages/" + url.PathEscape(providerMessageID)
 	switch mutation.Kind {
+	case storage.MessageMutationDelete:
+		err := h.doOutlookJSON(ctx, http.MethodDelete, endpoint, token, nil, nil)
+		if outlookAPIStatus(err, http.StatusNotFound) {
+			return errProviderDeleteAlreadyGone
+		}
+		return err
 	case storage.MessageMutationMove:
 		destinationProviderID, err := h.db.GetFolderProviderRemoteID(ctx, mutation.DestinationFolderID)
 		if err != nil {
@@ -279,6 +332,36 @@ func (h *Handler) applyIMAPMessageMutation(ctx context.Context, mutation storage
 		return err
 	}
 	defer client.Close()
+	if mutation.Kind == storage.MessageMutationDelete {
+		uid := info.RemoteUID
+		if uid == 0 {
+			uid, err = client.FindUIDByMessageID(ctx, info.FolderRemoteID, info.InternetMessageID)
+			if err != nil {
+				return err
+			}
+		}
+		if uid == 0 {
+			return errProviderDeleteAlreadyGone
+		}
+		expectedUIDValidity := mutation.SourceUIDValidity
+		if expectedUIDValidity == 0 {
+			expectedUIDValidity, err = h.db.GetFolderUIDValidity(ctx, mutation.FolderID)
+			if err != nil {
+				return err
+			}
+			if expectedUIDValidity == 0 {
+				return fmt.Errorf("IMAP UIDVALIDITY is unavailable; waiting for folder sync before deleting")
+			}
+		}
+		validityChanged, err := client.DeleteMessagesIfUIDValidity(ctx, info.FolderRemoteID, []uint32{uid}, expectedUIDValidity)
+		if err != nil {
+			return err
+		}
+		if validityChanged {
+			return fmt.Errorf("IMAP UIDVALIDITY changed; waiting for folder resync before deleting")
+		}
+		return nil
+	}
 	if mutation.Kind == storage.MessageMutationMove {
 		return h.applyIMAPMessageMove(ctx, client, mutation, info)
 	}

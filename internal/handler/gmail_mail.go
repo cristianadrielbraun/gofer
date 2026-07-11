@@ -36,72 +36,6 @@ func (h *Handler) shouldUseGmailAPIMailRuntime(provider string) bool {
 	return strings.TrimSpace(provider) == providers.ProviderGmail && gmailAPIMailRuntimeEnabled()
 }
 
-func (h *Handler) tryMoveGmailMessage(ctx context.Context, messageID int64, info storage.MessageMutationInfo, destinationFolderID string) bool {
-	if !h.shouldUseGmailAPIMailRuntime(info.AccountProvider) {
-		return false
-	}
-	token, providerMessageID, ok := h.gmailMessageIdentity(ctx, messageID, info, "move mutation")
-	if !ok {
-		return true
-	}
-	destinationProviderID, destinationRole, err := h.db.GetFolderProviderRemoteInfo(ctx, destinationFolderID)
-	if err != nil {
-		log.Printf("gmail move destination folder account=%s folder=%s: %v", info.AccountID, destinationFolderID, err)
-		return true
-	}
-	if strings.TrimSpace(destinationRole) == "" {
-		return true
-	}
-	if strings.TrimSpace(info.FolderRole) == "trash" && destinationRole != "trash" {
-		if err := h.untrashGmailMessage(ctx, token, providerMessageID); err != nil {
-			log.Printf("gmail untrash before move account=%s message=%d: %v", info.AccountID, messageID, err)
-			return true
-		}
-	}
-
-	removeLabels := []string{}
-	if sourceLabelID, err := h.db.GetFolderProviderRemoteID(ctx, info.FolderID); err == nil {
-		removeLabels = append(removeLabels, gmailSourceMoveRemoveLabels(info.FolderRole, sourceLabelID, destinationProviderID)...)
-	}
-
-	switch destinationRole {
-	case "trash":
-		if err := h.trashGmailMessage(ctx, token, providerMessageID); err != nil {
-			log.Printf("gmail move trash account=%s message=%d: %v", info.AccountID, messageID, err)
-		}
-	case "inbox":
-		removeLabels = append(removeLabels, "SPAM", "TRASH")
-		if err := h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{"INBOX"}, removeLabels); err != nil {
-			log.Printf("gmail move inbox account=%s message=%d: %v", info.AccountID, messageID, err)
-		}
-	case "junk", "spam":
-		removeLabels = append(removeLabels, "INBOX", "TRASH")
-		if err := h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{"SPAM"}, removeLabels); err != nil {
-			log.Printf("gmail move spam account=%s message=%d: %v", info.AccountID, messageID, err)
-		}
-	case "archive":
-		removeLabels = append(removeLabels, "INBOX")
-		if err := h.modifyGmailMessageLabels(ctx, token, providerMessageID, nil, removeLabels); err != nil {
-			log.Printf("gmail archive account=%s message=%d: %v", info.AccountID, messageID, err)
-		}
-	case "starred":
-		removeLabels = append(removeLabels, "INBOX")
-		if err := h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{"STARRED"}, removeLabels); err != nil {
-			log.Printf("gmail move starred account=%s message=%d: %v", info.AccountID, messageID, err)
-		}
-	default:
-		destinationProviderID = strings.TrimSpace(destinationProviderID)
-		if destinationProviderID == "" || destinationProviderID == "ARCHIVE" {
-			return true
-		}
-		removeLabels = append(removeLabels, "INBOX")
-		if err := h.modifyGmailMessageLabels(ctx, token, providerMessageID, []string{destinationProviderID}, removeLabels); err != nil {
-			log.Printf("gmail move label account=%s message=%d: %v", info.AccountID, messageID, err)
-		}
-	}
-	return true
-}
-
 func gmailSourceMoveRemoveLabels(sourceRole, sourceProviderID, destinationProviderID string) []string {
 	sourceProviderID = strings.TrimSpace(sourceProviderID)
 	if sourceProviderID == "" || sourceProviderID == "ARCHIVE" || sourceProviderID == strings.TrimSpace(destinationProviderID) {
@@ -113,20 +47,6 @@ func gmailSourceMoveRemoveLabels(sourceRole, sourceProviderID, destinationProvid
 	default:
 		return nil
 	}
-}
-
-func (h *Handler) tryDeleteGmailMessage(ctx context.Context, messageID int64, info storage.MessageMutationInfo) bool {
-	if !h.shouldUseGmailAPIMailRuntime(info.AccountProvider) {
-		return false
-	}
-	token, providerMessageID, ok := h.gmailMessageIdentity(ctx, messageID, info, "delete mutation")
-	if !ok {
-		return true
-	}
-	if err := h.deleteGmailAPIMessage(ctx, token, providerMessageID); err != nil {
-		log.Printf("gmail delete account=%s message=%d: %v", info.AccountID, messageID, err)
-	}
-	return true
 }
 
 func (h *Handler) gmailMessageIdentity(ctx context.Context, messageID int64, info storage.MessageMutationInfo, operation string) (string, string, bool) {

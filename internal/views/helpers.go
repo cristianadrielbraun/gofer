@@ -84,6 +84,46 @@ func mailEmailIsSpam(email *models.Email) bool {
 	return email.FolderID == "spam" || mailRoleIsSpam(email.FolderRole)
 }
 
+func mailRoleIsTrash(role string) bool {
+	return strings.TrimSpace(strings.ToLower(role)) == "trash"
+}
+
+func mailFolderIDIsTrash(folderID string, accounts []models.Account) bool {
+	if strings.TrimSpace(folderID) == "trash" {
+		return true
+	}
+	for _, account := range accounts {
+		for _, folder := range account.Folders {
+			if folder.ID == folderID && mailRoleIsTrash(folder.Role) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mailEmailIsTrash(email *models.Email) bool {
+	return email != nil && (email.FolderID == "trash" || mailRoleIsTrash(email.FolderRole))
+}
+
+func mailThreadItemIsTrash(item *models.ThreadItem) bool {
+	return item != nil && mailRoleIsTrash(item.FolderRole)
+}
+
+func mailDeleteActionClass(size, normal string, permanent bool) string {
+	if permanent {
+		return size + " border border-red-500/35 bg-red-500/12 text-red-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-red-500/20 hover:text-red-800 dark:border-red-300/20 dark:bg-red-300/10 dark:text-red-300 dark:hover:text-red-200"
+	}
+	return size + " " + normal
+}
+
+func mailDeleteSelectionLabel(permanent bool) string {
+	if permanent {
+		return "Permanently delete selected messages"
+	}
+	return "Delete selected messages"
+}
+
 func composeDefaultAccountID(accounts []models.Account) string {
 	if len(accounts) > 0 {
 		return accounts[0].ID

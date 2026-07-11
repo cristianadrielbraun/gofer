@@ -4755,95 +4755,68 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.WithoutCancel(r.Context())
+	sourceFolderID := strings.TrimSpace(payload.FolderID)
 	updated := 0
 
 	for _, target := range messageBulkTargets(payload) {
 		if target.Thread {
+			_, currentInfo, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
+			if err != nil {
+				continue
+			}
 			email, err := h.db.GetEmailByID(ctx, target.ID)
 			if err != nil || email == nil || email.ThreadID == "" {
 				continue
 			}
-			infos, err := h.db.GetThreadMutationInfos(ctx, email.AccountID, email.ThreadID)
+			infos, err := h.db.GetThreadMutationInfosInFolder(ctx, email.AccountID, email.ThreadID, currentInfo.FolderID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			trashFolderID, trashRemoteID, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "trash")
-			if err != nil || trashFolderID == "" {
+			if len(infos) == 0 {
 				continue
 			}
-			deleteInfos := make([]storage.ThreadMessageMutationInfo, 0)
-			moveInfos := make([]storage.ThreadMessageMutationInfo, 0)
-			for _, info := range infos {
-				if info.FolderRole == "trash" {
-					deleteInfos = append(deleteInfos, info)
-				} else {
-					moveInfos = append(moveInfos, info)
-				}
-			}
-			for _, info := range deleteInfos {
-				if err := h.db.MarkMessageDeleted(ctx, info.MessageID); err != nil {
+			if currentInfo.FolderRole == "trash" {
+				if err := h.queuePermanentDeletes(ctx, infos); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-			}
-			for _, info := range moveInfos {
-				if err := h.db.RemoveMessageFromFolder(ctx, info.MessageID, info.FolderID); err != nil {
+			} else {
+				trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "trash")
+				if err != nil || trashFolderID == "" {
+					continue
+				}
+				if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, trashFolderID, info.IsRead, info.IsStarred); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
+				h.publishMutation(email.AccountID, trashFolderID)
 			}
 			updated++
 			h.publishThreadMutation(infos)
-			h.publishMutation(email.AccountID, trashFolderID)
-			go func(trashFolderID, trashRemoteID string, deleteInfos, moveInfos []storage.ThreadMessageMutationInfo) {
-				for _, info := range deleteInfos {
-					h.deleteRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo)
-				}
-				for _, info := range moveInfos {
-					h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, trashFolderID, trashRemoteID)
-				}
-			}(trashFolderID, trashRemoteID, deleteInfos, moveInfos)
 			continue
 		}
 
-		msgID, info, err := h.getMessageInfo(ctx, target.ID)
+		msgID, info, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
 		if err != nil {
 			continue
 		}
 		if info.FolderRole == "trash" {
-			if err := h.db.MarkMessageDeleted(ctx, msgID); err != nil {
+			if err := h.db.PermanentlyDeleteMessageAndQueue(ctx, msgID, info.FolderID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			go h.deleteRemoteMessage(context.Background(), msgID, *info)
+			h.signalMessageMutationWorker()
 		} else {
-			trashFolderID, trashRemoteID, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
+			trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
 			if err != nil || trashFolderID == "" {
 				continue
 			}
-			states, _ := h.db.GetMessageAllFolderStates(ctx, msgID)
-			var isRead, isStarred bool
-			for _, s := range states {
-				if s.FolderID == info.FolderID {
-					isRead = s.IsRead
-					isStarred = s.IsStarred
-					break
-				}
-			}
-			if err := h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID); err != nil {
+			if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, trashFolderID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if err := h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, trashFolderID, isRead, isStarred); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			go h.moveRemoteMessage(context.Background(), msgID, *info, trashFolderID, trashRemoteID)
+			h.signalMessageMutationWorker()
 			h.publishMutation(info.AccountID, trashFolderID)
 		}
 		updated++
@@ -5051,6 +5024,11 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	ctx := r.Context()
+	_, currentInfo, err := h.getMessageInfoForFolder(ctx, idStr, r.URL.Query().Get("folder_id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	email, err := h.db.GetEmailByID(ctx, idStr)
 	if err != nil || email == nil || email.ThreadID == "" {
@@ -5058,7 +5036,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	infos, err := h.db.GetThreadMutationInfos(ctx, email.AccountID, email.ThreadID)
+	infos, err := h.db.GetThreadMutationInfosInFolder(ctx, email.AccountID, email.ThreadID, currentInfo.FolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -5068,40 +5046,24 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	trashFolderID, trashRemoteID, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "trash")
-	if err != nil || trashFolderID == "" {
-		http.Error(w, "no trash folder found", http.StatusBadRequest)
-		return
-	}
-
-	deleteInfos := make([]storage.ThreadMessageMutationInfo, 0)
-	moveInfos := make([]storage.ThreadMessageMutationInfo, 0)
-	for _, info := range infos {
-		if info.FolderRole == "trash" {
-			deleteInfos = append(deleteInfos, info)
-			continue
+	if currentInfo.FolderRole == "trash" {
+		if err := h.queuePermanentDeletes(ctx, infos); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-		moveInfos = append(moveInfos, info)
-	}
-
-	go func(trashFolderID, trashRemoteID string, deleteInfos, moveInfos []storage.ThreadMessageMutationInfo) {
-		for _, info := range deleteInfos {
-			h.deleteRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo)
+	} else {
+		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "trash")
+		if err != nil || trashFolderID == "" {
+			http.Error(w, "no trash folder found", http.StatusBadRequest)
+			return
 		}
-		for _, info := range moveInfos {
-			h.moveRemoteMessage(context.Background(), info.MessageID, info.MessageMutationInfo, trashFolderID, trashRemoteID)
+		if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-	}(trashFolderID, trashRemoteID, deleteInfos, moveInfos)
-
-	for _, info := range deleteInfos {
-		h.db.MarkMessageDeleted(ctx, info.MessageID)
-	}
-	for _, info := range moveInfos {
-		h.db.RemoveMessageFromFolder(ctx, info.MessageID, info.FolderID)
-		h.db.AddMessageToFolderWithoutRemoteUID(ctx, info.MessageID, trashFolderID, info.IsRead, info.IsStarred)
+		h.publishMutation(email.AccountID, trashFolderID)
 	}
 	h.publishThreadMutation(infos)
-	h.publishMutation(email.AccountID, trashFolderID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -5112,37 +5074,31 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	ctx := r.Context()
 
-	msgID, info, err := h.getMessageInfo(ctx, idStr)
+	msgID, info, err := h.getMessageInfoForFolder(ctx, idStr, r.URL.Query().Get("folder_id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if info.FolderRole == "trash" {
-		go h.deleteRemoteMessage(context.Background(), msgID, *info)
-
-		h.db.MarkMessageDeleted(ctx, msgID)
+		if err := h.db.PermanentlyDeleteMessageAndQueue(ctx, msgID, info.FolderID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		h.signalMessageMutationWorker()
 	} else {
-		trashFolderID, trashRemoteID, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
+		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
 		if err != nil || trashFolderID == "" {
 			http.Error(w, "no trash folder found", http.StatusBadRequest)
 			return
 		}
 
-		states, _ := h.db.GetMessageAllFolderStates(ctx, msgID)
-		var isRead, isStarred bool
-		for _, s := range states {
-			if s.FolderID == info.FolderID {
-				isRead = s.IsRead
-				isStarred = s.IsStarred
-				break
-			}
+		if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, trashFolderID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-
-		go h.moveRemoteMessage(context.Background(), msgID, *info, trashFolderID, trashRemoteID)
-
-		h.db.RemoveMessageFromFolder(ctx, msgID, info.FolderID)
-		h.db.AddMessageToFolderWithoutRemoteUID(ctx, msgID, trashFolderID, isRead, isStarred)
+		h.signalMessageMutationWorker()
+		h.publishMutation(info.AccountID, trashFolderID)
 	}
 
 	h.publishMutation(info.AccountID, info.FolderID)

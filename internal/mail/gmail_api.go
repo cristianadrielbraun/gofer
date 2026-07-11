@@ -688,6 +688,9 @@ func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accou
 			stats.FailedMessages++
 			if providerMessageNotFound(err) {
 				stats.MissingProviderMessages++
+				if confirmErr := o.db.ConfirmProviderMessageDeleted(ctx, accountID, providerID); confirmErr != nil {
+					return confirmErr
+				}
 			}
 			log.Printf("gmail api sync history account=%s provider_message=%s: %v", accountID, providerID, err)
 			continue

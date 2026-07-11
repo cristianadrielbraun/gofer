@@ -1073,6 +1073,7 @@ document.addEventListener("DOMContentLoaded", function () {
         clearMailSelection()
         var path = action === "archive" ? "/api/messages/archive" : (action === "delete" ? "/api/messages/delete" : (action === "spam" ? "/api/messages/spam" : (action === "not-spam" ? "/api/messages/not-spam" : "/api/messages/star")))
         var extra = action === "star" ? { state: "starred" } : null
+        if (action === "delete") extra = { folder_id: currentMailListFolderID() }
         if (action === "spam" || action === "not-spam") extra = { folder_id: currentMailListFolderID() }
         sendBulkMessageAction(path, targets, extra).then(function () {
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -1088,7 +1089,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
       Promise.allSettled(ids.map(function (emailId) {
         if (action === "archive") return fetch("/api/messages/" + encodeURIComponent(emailId) + "/thread/archive", { method: "POST" })
-        if (action === "delete") return fetch("/api/messages/" + encodeURIComponent(emailId), { method: "DELETE" })
+        if (action === "delete") return fetch("/api/messages/" + encodeURIComponent(emailId) + mailDeleteFolderQuery(), { method: "DELETE" })
         return Promise.resolve()
       })).then(function () {
         var mailView = document.getElementById("mail-view")
@@ -9268,8 +9269,13 @@ function toggleStar(emailId) {
     .catch(function () {})
 }
 
+function mailDeleteFolderQuery() {
+  var folderID = currentMailListFolderID()
+  return folderID ? "?folder_id=" + encodeURIComponent(folderID) : ""
+}
+
 function deleteMessage(emailId) {
-  fetch("/api/messages/" + emailId, { method: "DELETE" })
+  fetch("/api/messages/" + emailId + mailDeleteFolderQuery(), { method: "DELETE" })
     .then(function () {
       var mailView = document.getElementById("mail-view")
       if (mailView) setMailViewEmpty()
@@ -9305,7 +9311,7 @@ function archiveThread(emailId) {
 }
 
 function deleteThread(emailId) {
-  fetch("/api/messages/" + emailId + "/thread", { method: "DELETE" })
+  fetch("/api/messages/" + emailId + "/thread" + mailDeleteFolderQuery(), { method: "DELETE" })
     .then(function () {
       var mailView = document.getElementById("mail-view")
       if (mailView) setMailViewEmpty()

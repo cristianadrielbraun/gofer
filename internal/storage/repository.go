@@ -1302,7 +1302,7 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 
 	stateStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
 		ON CONFLICT(message_id, folder_id) DO UPDATE SET
 			remote_uid = excluded.remote_uid,
 			is_read = excluded.is_read,
@@ -1379,11 +1379,18 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		}
 
 		isRead, isStarred := m.IsRead, m.IsStarred
+		if err := refreshIMAPDeleteUIDValidityTx(ctx, tx, msgID, m.FolderID); err != nil {
+			return fmt.Errorf("refresh pending IMAP delete identity: %w", err)
+		}
 		if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, &isRead, &isStarred); err != nil {
 			return fmt.Errorf("protect pending message mutation: %w", err)
 		}
+		visible, err := protectProviderMoveFolderTx(ctx, tx, msgID, m.FolderID)
+		if err != nil {
+			return fmt.Errorf("protect pending message location mutation: %w", err)
+		}
 		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, remoteUID,
-			isRead, isStarred, m.IsDraft, time.Now().UTC()); err != nil {
+			isRead, isStarred, m.IsDraft, boolInt(!visible), time.Now().UTC()); err != nil {
 			return fmt.Errorf("upsert state: %w", err)
 		}
 
@@ -1890,6 +1897,18 @@ func (db *DB) ReconcileProviderFolderSeen(ctx context.Context, accountID, folder
 		  )`, time.Now().UTC(), folderID, accountID, folderID)
 	if err != nil {
 		return fmt.Errorf("mark unseen provider folder messages deleted: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM message_mutations
+		WHERE kind = 'delete' AND status = 'applied' AND message_id IN (
+			SELECT m.id FROM messages m
+			WHERE m.account_id = ? AND COALESCE(m.remote_message_id, '') != ''
+			  AND NOT EXISTS (
+				SELECT 1 FROM temp_provider_folder_seen seen
+				WHERE seen.provider_id = m.remote_message_id
+			  )
+		)`, accountID); err != nil {
+		return fmt.Errorf("confirm unseen provider deletes: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM temp_provider_folder_seen`); err != nil {
 		return fmt.Errorf("clear provider seen temp table after reconcile: %w", err)
@@ -3435,7 +3454,10 @@ func (db *DB) MarkProviderMessageRemovedFromFolder(ctx context.Context, accountI
 			WHERE mm.message_id = message_folder_state.message_id
 			  AND mm.kind = 'move' AND mm.destination_folder_id = ?
 		  )`, folderID, accountID, providerMessageID, folderID)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.ConfirmProviderMessageDeleted(ctx, accountID, providerMessageID)
 }
 
 func (db *DB) MarkProviderMessagesMissingFromFolder(ctx context.Context, accountID, folderID string, seenProviderIDs map[string]bool) (int64, error) {
@@ -3501,6 +3523,18 @@ func (db *DB) MarkProviderMessagesMissingFromFolder(ctx context.Context, account
 	removed, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("missing provider messages affected rows: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM message_mutations
+		WHERE kind = 'delete' AND status = 'applied' AND message_id IN (
+			SELECT m.id FROM messages m
+			WHERE m.account_id = ? AND COALESCE(m.remote_message_id, '') != ''
+			  AND NOT EXISTS (
+				SELECT 1 FROM tmp_provider_folder_seen seen
+				WHERE seen.provider_message_id = m.remote_message_id
+			  )
+		)`, accountID); err != nil {
+		return 0, fmt.Errorf("confirm missing provider deletes: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -3685,6 +3719,19 @@ func (db *DB) GetFolderRemoteID(ctx context.Context, folderID string) (string, e
 		return "", nil
 	}
 	return strings.TrimSpace(remoteID), err
+}
+
+func (db *DB) GetFolderUIDValidity(ctx context.Context, folderID string) (uint32, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return 0, nil
+	}
+	var uidValidity uint32
+	err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(uid_validity, 0) FROM folders WHERE id = ?`, folderID).Scan(&uidValidity)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return uidValidity, err
 }
 
 func (db *DB) GetFolderProviderRemoteInfo(ctx context.Context, folderID string) (string, string, error) {
@@ -7052,6 +7099,16 @@ func (db *DB) RemoveExpungedUIDs(ctx context.Context, folderID string, expungedU
 		placeholders[i] = "?"
 		args[i+1] = uid
 	}
+	confirmQuery := fmt.Sprintf(`
+		DELETE FROM message_mutations
+		WHERE kind = 'delete' AND status = 'applied' AND EXISTS (
+			SELECT 1 FROM message_folder_state mfs
+			WHERE mfs.message_id = message_mutations.message_id
+			  AND mfs.folder_id = ? AND mfs.remote_uid IN (%s)
+		)`, strings.Join(placeholders, ","))
+	if _, err := tx.ExecContext(ctx, confirmQuery, args...); err != nil {
+		return 0, fmt.Errorf("confirm expunged deletes: %w", err)
+	}
 
 	query := fmt.Sprintf(
 		`DELETE FROM message_folder_state
@@ -7098,8 +7155,8 @@ func (db *DB) ResetFolderUIDState(ctx context.Context, folderID string, uidValid
 		  AND NOT EXISTS (
 			SELECT 1 FROM message_mutations mm
 			WHERE mm.message_id = message_folder_state.message_id
-			  AND mm.kind = 'move' AND mm.destination_folder_id = ?
-		  )`, folderID, folderID)
+			  AND ((mm.kind = 'move' AND mm.destination_folder_id = ?) OR (mm.kind = 'delete' AND mm.folder_id = ?))
+		  )`, folderID, folderID, folderID)
 	if err != nil {
 		return fmt.Errorf("delete states: %w", err)
 	}
@@ -7108,9 +7165,9 @@ func (db *DB) ResetFolderUIDState(ctx context.Context, folderID string, uidValid
 		WHERE folder_id = ? AND EXISTS (
 			SELECT 1 FROM message_mutations mm
 			WHERE mm.message_id = message_folder_state.message_id
-			  AND mm.kind = 'move' AND mm.destination_folder_id = ?
-		)`, folderID, folderID); err != nil {
-		return fmt.Errorf("reset pending move UIDs: %w", err)
+			  AND ((mm.kind = 'move' AND mm.destination_folder_id = ?) OR (mm.kind = 'delete' AND mm.folder_id = ?))
+		)`, folderID, folderID, folderID); err != nil {
+		return fmt.Errorf("reset pending location mutation UIDs: %w", err)
 	}
 
 	_, err = tx.ExecContext(ctx,

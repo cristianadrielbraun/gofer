@@ -246,9 +246,10 @@ CREATE TABLE IF NOT EXISTS message_mutations (
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     folder_id TEXT NOT NULL DEFAULT '',
     provider_type TEXT NOT NULL CHECK (provider_type IN ('gmail', 'outlook', 'imap')),
-    kind TEXT NOT NULL CHECK (kind IN ('read', 'starred', 'move')),
+    kind TEXT NOT NULL CHECK (kind IN ('read', 'starred', 'move', 'delete')),
     target_value INTEGER NOT NULL CHECK (target_value IN (0, 1)),
     destination_folder_id TEXT NOT NULL DEFAULT '',
+    source_uid_validity INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'failed', 'applied')),
     attempt_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT NOT NULL DEFAULT '',
@@ -1019,4 +1020,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (62);
+INSERT OR REPLACE INTO schema_version (version) VALUES (63);

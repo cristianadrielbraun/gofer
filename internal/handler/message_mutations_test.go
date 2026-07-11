@@ -5,29 +5,38 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
 
+	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 type fakeMessageMutationIMAPClient struct {
-	storeErr     error
-	storeCalls   int
-	folder       string
-	uid          uint32
-	op           goimap.StoreFlagsOp
-	flags        []goimap.Flag
-	findUID      uint32
-	findByFolder map[string]uint32
-	moveUID      uint32
-	moveErr      error
-	moveCalls    int
-	moveSource   string
-	moveDest     string
+	storeErr        error
+	storeCalls      int
+	folder          string
+	uid             uint32
+	op              goimap.StoreFlagsOp
+	flags           []goimap.Flag
+	findUID         uint32
+	findByFolder    map[string]uint32
+	moveUID         uint32
+	moveErr         error
+	moveCalls       int
+	moveSource      string
+	moveDest        string
+	deleteErr       error
+	deleteCalls     int
+	deleteFolder    string
+	deleteUIDs      []uint32
+	deleteValidity  uint32
+	validityChanged bool
 }
 
 func (c *fakeMessageMutationIMAPClient) StoreFlags(_ context.Context, folder string, uid uint32, op goimap.StoreFlagsOp, flags []goimap.Flag) error {
@@ -52,6 +61,14 @@ func (c *fakeMessageMutationIMAPClient) MoveMessageWithDestUID(_ context.Context
 	c.moveDest = destination
 	c.uid = uid
 	return c.moveUID, c.moveErr
+}
+
+func (c *fakeMessageMutationIMAPClient) DeleteMessagesIfUIDValidity(_ context.Context, folder string, uids []uint32, expectedUIDValidity uint32) (bool, error) {
+	c.deleteCalls++
+	c.deleteFolder = folder
+	c.deleteUIDs = append([]uint32(nil), uids...)
+	c.deleteValidity = expectedUIDValidity
+	return c.validityChanged, c.deleteErr
 }
 
 func (c *fakeMessageMutationIMAPClient) Close() error { return nil }
@@ -263,5 +280,155 @@ func TestMessageMutationWorkerRetriesIMAPMove(t *testing.T) {
 	}
 	if status != storage.MessageMutationApplied || fake.moveCalls != 2 {
 		t.Fatalf("retried move status=%q calls=%d", status, fake.moveCalls)
+	}
+}
+
+func seedIMAPDeleteMutationWorker(t *testing.T) (*Handler, *storage.DB, int64) {
+	t.Helper()
+	h, db := newAccountOwnershipTestHandler(t)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{{
+		ID: "victim-trash", AccountID: "victim-account", RemoteID: "Trash", Name: "Trash", Role: "trash", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().Exec(`UPDATE folders SET uid_validity = 77 WHERE id = 'victim-trash'`); err != nil {
+		t.Fatalf("set UIDVALIDITY: %v", err)
+	}
+	if err := db.UpsertSyncMessages(t.Context(), []storage.SyncMessage{{
+		AccountID: "victim-account", FolderID: "victim-trash", RemoteUID: 42,
+		MessageID: "<permanent-delete@example.com>", Subject: "Delete", FromEmail: "sender@example.com",
+		DateSent: time.Now(), IsRead: true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	messageID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<permanent-delete@example.com>")
+	if err != nil || messageID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+	}
+	if err := db.PermanentlyDeleteMessageAndQueue(t.Context(), messageID, "victim-trash"); err != nil {
+		t.Fatalf("PermanentlyDeleteMessageAndQueue() error = %v", err)
+	}
+	return h, db, messageID
+}
+
+func TestMessageMutationWorkerPermanentlyDeletesGenericIMAPMessage(t *testing.T) {
+	h, db, messageID := seedIMAPDeleteMutationWorker(t)
+	fake := &fakeMessageMutationIMAPClient{}
+	h.messageMutationIMAPFactory = func(context.Context, *models.AccountConfig, string) (messageMutationIMAPClient, error) {
+		return fake, nil
+	}
+
+	h.runDueMessageMutations(t.Context())
+
+	if fake.deleteCalls != 1 || fake.deleteFolder != "Trash" || len(fake.deleteUIDs) != 1 || fake.deleteUIDs[0] != 42 || fake.deleteValidity != 77 {
+		t.Fatalf("IMAP delete calls=%d folder=%q uids=%v validity=%d", fake.deleteCalls, fake.deleteFolder, fake.deleteUIDs, fake.deleteValidity)
+	}
+	var status string
+	if err := db.Read().QueryRow(`SELECT status FROM message_mutations WHERE message_id = ? AND kind = 'delete'`, messageID).Scan(&status); err != nil || status != storage.MessageMutationApplied {
+		t.Fatalf("delete mutation status=%q, %v", status, err)
+	}
+	if _, err := db.RemoveExpungedUIDs(t.Context(), "victim-trash", []uint32{42}); err != nil {
+		t.Fatalf("RemoveExpungedUIDs() error = %v", err)
+	}
+	var remaining int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE message_id = ?`, messageID).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("confirmed delete mutations remaining=%d, %v", remaining, err)
+	}
+}
+
+func TestMessageMutationWorkerStopsIMAPDeleteAfterUIDValidityChange(t *testing.T) {
+	h, db, messageID := seedIMAPDeleteMutationWorker(t)
+	fake := &fakeMessageMutationIMAPClient{validityChanged: true}
+	h.messageMutationIMAPFactory = func(context.Context, *models.AccountConfig, string) (messageMutationIMAPClient, error) {
+		return fake, nil
+	}
+
+	h.runDueMessageMutations(t.Context())
+
+	var status, lastError string
+	if err := db.Read().QueryRow(`SELECT status, last_error FROM message_mutations WHERE message_id = ? AND kind = 'delete'`, messageID).Scan(&status, &lastError); err != nil {
+		t.Fatalf("query failed delete: %v", err)
+	}
+	if status != storage.MessageMutationFailed || !strings.Contains(lastError, "UIDVALIDITY") {
+		t.Fatalf("delete status=%q error=%q", status, lastError)
+	}
+}
+
+func TestMessageMutationWorkerTreatsMissingGmailDeleteAsSuccess(t *testing.T) {
+	ctx := t.Context()
+	h, db := newGmailAPITestHandler(t, ctx)
+	messageID := seedGmailAPIMessage(t, ctx, db, []storage.UpsertFolderInput{{
+		ID: "acc_trash", AccountID: "acc", RemoteID: "Trash", ProviderRemoteID: "TRASH", Name: "Trash", Role: "trash", Selectable: true,
+	}})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/users/me/messages/gmail-msg-1" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		http.Error(w, "already deleted", http.StatusNotFound)
+	}))
+	defer server.Close()
+	previousBase := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBase })
+	fakeIMAP := &fakeMessageMutationIMAPClient{}
+	h.messageMutationIMAPFactory = func(context.Context, *models.AccountConfig, string) (messageMutationIMAPClient, error) {
+		return fakeIMAP, nil
+	}
+	if err := db.PermanentlyDeleteMessageAndQueue(ctx, messageID, "acc_trash"); err != nil {
+		t.Fatalf("PermanentlyDeleteMessageAndQueue() error = %v", err)
+	}
+
+	h.runDueMessageMutations(ctx)
+
+	if fakeIMAP.deleteCalls != 0 {
+		t.Fatalf("Gmail delete fell through to IMAP: %d", fakeIMAP.deleteCalls)
+	}
+	var remaining int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE message_id = ? AND kind = 'delete'`, messageID).Scan(&remaining); err != nil {
+		t.Fatalf("query Gmail delete: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("already missing Gmail delete remaining=%d", remaining)
+	}
+}
+
+func TestDeleteThreadOnlyQueuesMessagesFromTheViewedTrashFolder(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	h.syncer = mailpkg.NewSyncOrchestrator(db, nil, nil, nil)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{
+		{ID: "victim-inbox", AccountID: "victim-account", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "victim-trash", AccountID: "victim-account", RemoteID: "Trash", Name: "Trash", Role: "trash", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().Exec(`UPDATE folders SET uid_validity = 77 WHERE id = 'victim-trash'`); err != nil {
+		t.Fatalf("set UIDVALIDITY: %v", err)
+	}
+	if err := db.UpsertSyncMessages(t.Context(), []storage.SyncMessage{
+		{AccountID: "victim-account", FolderID: "victim-trash", RemoteUID: 42, MessageID: "<trash-thread@example.com>", Subject: "Thread", FromEmail: "sender@example.com", DateSent: time.Now()},
+		{AccountID: "victim-account", FolderID: "victim-inbox", RemoteUID: 43, MessageID: "<inbox-thread@example.com>", Subject: "Thread", FromEmail: "sender@example.com", DateSent: time.Now()},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	trashID, _ := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<trash-thread@example.com>")
+	inboxID, _ := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<inbox-thread@example.com>")
+	if _, err := db.Write().Exec(`UPDATE messages SET thread_id = 'shared-thread' WHERE id IN (?, ?)`, trashID, inboxID); err != nil {
+		t.Fatalf("set thread IDs: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodDelete, "/api/messages/"+strconv.FormatInt(trashID, 10)+"/thread?folder_id=victim-trash", nil)
+	req.SetPathValue("id", strconv.FormatInt(trashID, 10))
+	recorder := httptest.NewRecorder()
+
+	h.handleDeleteThread(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("delete thread status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var trashDeletes, inboxDeletes, inboxDeleted int
+	_ = db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE message_id = ? AND kind = 'delete'`, trashID).Scan(&trashDeletes)
+	_ = db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE message_id = ? AND kind = 'delete'`, inboxID).Scan(&inboxDeletes)
+	_ = db.Read().QueryRow(`SELECT is_deleted FROM message_folder_state WHERE message_id = ? AND folder_id = 'victim-inbox'`, inboxID).Scan(&inboxDeleted)
+	if trashDeletes != 1 || inboxDeletes != 0 || inboxDeleted != 0 {
+		t.Fatalf("folder-scoped delete trash_ops=%d inbox_ops=%d inbox_deleted=%d", trashDeletes, inboxDeletes, inboxDeleted)
 	}
 }

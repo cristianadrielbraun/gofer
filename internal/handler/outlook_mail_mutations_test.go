@@ -60,7 +60,7 @@ func TestOutlookGraphMutationUsesProviderMessageIDAndCachesMovedID(t *testing.T)
 		t.Fatal("provider message was not inserted")
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := auth.NewManager(&auth.Config{}, db)
+	manager := auth.NewManager(&auth.Config{MicrosoftClient: &oauth2.Config{}}, db)
 	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
@@ -140,6 +140,72 @@ func TestOutlookGraphMutationUsesProviderMessageIDAndCachesMovedID(t *testing.T)
 	}
 	if providerID != "graph-message-2" {
 		t.Fatalf("remote_message_id = %q, want moved graph id", providerID)
+	}
+}
+
+func TestOutlookGraphPermanentDeleteUsesProviderAPI(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('acc', 'default', ?, 'subject-id', 'user@example.com')`, providers.ProviderOutlook); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{
+		ID: "acc_trash", AccountID: "acc", RemoteID: "Trash", ProviderRemoteID: "graph-trash", Name: "Trash", Role: "trash", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	ids, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
+		AccountID: "acc", FolderID: "acc_trash", ProviderMessageID: "graph-delete-1",
+		InternetMessageID: "<graph-delete@example.com>", Subject: "Delete", FromEmail: "sender@example.com",
+		DateSent: time.Now(), DateReceived: time.Now(), IsRead: true,
+	}})
+	if err != nil {
+		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+	}
+	messageID := ids["graph-delete-1"]
+	expires := time.Now().Add(time.Hour)
+	manager := auth.NewManager(&auth.Config{MicrosoftClient: &oauth2.Config{}}, db)
+	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "graph-token", "refresh-token", "Bearer", &expires,
+		"https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/MailboxSettings.ReadWrite"); err != nil {
+		t.Fatalf("UpsertOAuthAccount() error = %v", err)
+	}
+	sawDelete := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/me/messages/graph-delete-1" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		if !strings.Contains(r.Header.Get("Prefer"), `IdType="ImmutableId"`) {
+			t.Fatalf("Prefer = %q", r.Header.Get("Prefer"))
+		}
+		sawDelete = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	previousGraphBase := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
+	h := &Handler{db: db, auth: manager}
+	if err := db.PermanentlyDeleteMessageAndQueue(ctx, messageID, "acc_trash"); err != nil {
+		t.Fatalf("PermanentlyDeleteMessageAndQueue() error = %v", err)
+	}
+
+	h.runDueMessageMutations(ctx)
+
+	if !sawDelete {
+		t.Fatal("Graph DELETE was not observed")
+	}
+	var status string
+	if err := db.Read().QueryRow(`SELECT status FROM message_mutations WHERE message_id = ? AND kind = 'delete'`, messageID).Scan(&status); err != nil || status != storage.MessageMutationApplied {
+		t.Fatalf("Graph delete status=%q, %v", status, err)
 	}
 }
 

@@ -14,6 +14,7 @@ const (
 	MessageMutationRead    = "read"
 	MessageMutationStarred = "starred"
 	MessageMutationMove    = "move"
+	MessageMutationDelete  = "delete"
 )
 
 const (
@@ -35,6 +36,7 @@ type MessageMutation struct {
 	MessageID           int64
 	FolderID            string
 	DestinationFolderID string
+	SourceUIDValidity   uint32
 	ProviderType        string
 	Kind                string
 	TargetValue         bool
@@ -42,6 +44,101 @@ type MessageMutation struct {
 	AttemptCount        int
 	LastError           string
 	NextAttemptAt       time.Time
+}
+
+func (db *DB) PermanentlyDeleteMessageAndQueue(ctx context.Context, messageID int64, folderID string) error {
+	return db.PermanentlyDeleteMessagesAndQueue(ctx, []int64{messageID}, folderID)
+}
+
+func (db *DB) PermanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs []int64, folderID string) error {
+	messageIDs = uniquePositiveInt64s(messageIDs)
+	folderID = strings.TrimSpace(folderID)
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	if folderID == "" {
+		return fmt.Errorf("delete source folder is required")
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	refreshFolders := map[string]struct{}{}
+	for _, messageID := range messageIDs {
+		var accountID, provider string
+		var sourceUIDValidity int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT m.account_id, a.provider, COALESCE(f.uid_validity, 0)
+			FROM messages m
+			JOIN accounts a ON a.id = m.account_id
+			JOIN message_folder_state mfs ON mfs.message_id = m.id
+			JOIN folders f ON f.id = mfs.folder_id
+			WHERE m.id = ? AND mfs.folder_id = ? AND mfs.is_deleted = 0`, messageID, folderID).
+			Scan(&accountID, &provider, &sourceUIDValidity); err != nil {
+			return fmt.Errorf("load message %d for permanent delete: %w", messageID, err)
+		}
+		providerType := messageMutationProviderType(provider)
+		var mutationID string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM message_mutations WHERE message_id = ? AND kind = ? ORDER BY created_at LIMIT 1`, messageID, MessageMutationDelete).Scan(&mutationID)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == sql.ErrNoRows {
+			mutationID = uuid.NewString()
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO message_mutations (
+					id, account_id, message_id, folder_id, provider_type, kind, target_value,
+					source_uid_validity, status, attempt_count, last_error, locked_at, next_attempt_at
+				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP)`,
+				mutationID, accountID, messageID, folderID, providerType, MessageMutationDelete,
+				sourceUIDValidity, MessageMutationPending); err != nil {
+				return fmt.Errorf("queue permanent delete for message %d: %w", messageID, err)
+			}
+		} else if _, err := tx.ExecContext(ctx, `
+			UPDATE message_mutations
+			SET account_id = ?, folder_id = ?, provider_type = ?, source_uid_validity = ?,
+			    status = ?, attempt_count = 0, last_error = '', locked_at = NULL,
+			    next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?`, accountID, folderID, providerType, sourceUIDValidity,
+			MessageMutationPending, mutationID); err != nil {
+			return fmt.Errorf("update permanent delete for message %d: %w", messageID, err)
+		}
+
+		if providerType == MessageMutationProviderIMAP {
+			if _, err := tx.ExecContext(ctx, `UPDATE message_folder_state SET is_deleted = 1, synced_at = CURRENT_TIMESTAMP WHERE message_id = ? AND folder_id = ?`, messageID, folderID); err != nil {
+				return err
+			}
+			refreshFolders[folderID] = struct{}{}
+		} else {
+			rows, err := tx.QueryContext(ctx, `SELECT folder_id FROM message_folder_state WHERE message_id = ? AND is_deleted = 0`, messageID)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var affectedFolderID string
+				if err := rows.Scan(&affectedFolderID); err != nil {
+					rows.Close()
+					return err
+				}
+				refreshFolders[affectedFolderID] = struct{}{}
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE message_folder_state SET is_deleted = 1, synced_at = CURRENT_TIMESTAMP WHERE message_id = ?`, messageID); err != nil {
+				return err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for affectedFolderID := range refreshFolders {
+		_, _ = db.RefreshFolderUnreadCount(ctx, affectedFolderID)
+		_ = db.RefreshFolderThreadState(ctx, affectedFolderID)
+	}
+	return nil
 }
 
 func (db *DB) MoveMessageAndQueue(ctx context.Context, messageID int64, sourceFolderID, destinationFolderID string) error {
@@ -376,6 +473,48 @@ func (db *DB) CompleteMessageMutation(ctx context.Context, id string) error {
 	return err
 }
 
+func (db *DB) CompleteMessageDeleteMutation(ctx context.Context, id string) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var messageID int64
+	if err := tx.QueryRowContext(ctx, `SELECT message_id FROM message_mutations WHERE id = ? AND kind = ? AND status = ?`, id, MessageMutationDelete, MessageMutationProcessing).
+		Scan(&messageID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_mutations WHERE message_id = ? AND id != ?`, messageID, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE message_mutations
+		SET status = ?, last_error = '', locked_at = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ?`, MessageMutationApplied, id, MessageMutationProcessing); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (db *DB) ConfirmProviderMessageDeleted(ctx context.Context, accountID, providerMessageID string) error {
+	accountID = strings.TrimSpace(accountID)
+	providerMessageID = strings.TrimSpace(providerMessageID)
+	if accountID == "" || providerMessageID == "" {
+		return nil
+	}
+	_, err := db.Write().ExecContext(ctx, `
+		DELETE FROM message_mutations
+		WHERE kind = ? AND status = ? AND message_id IN (
+			SELECT id FROM messages WHERE account_id = ? AND remote_message_id = ?
+		)`, MessageMutationDelete, MessageMutationApplied, accountID, providerMessageID)
+	return err
+}
+
+func (db *DB) ConfirmMessageDeleteMutation(ctx context.Context, id string) error {
+	_, err := db.Write().ExecContext(ctx, `DELETE FROM message_mutations WHERE id = ? AND kind = ? AND status = ?`, id, MessageMutationDelete, MessageMutationApplied)
+	return err
+}
+
 func (db *DB) AdvanceMessageMoveMutation(ctx context.Context, id, destinationFolderID, providerMessageID string, destinationUID uint32) error {
 	destinationFolderID = strings.TrimSpace(destinationFolderID)
 	if strings.TrimSpace(id) == "" || destinationFolderID == "" {
@@ -496,6 +635,13 @@ func resolveMessageMutationTargetsTx(ctx context.Context, tx *sql.Tx, messageID 
 }
 
 func protectProviderMoveFolderTx(ctx context.Context, tx *sql.Tx, messageID int64, folderID string) (bool, error) {
+	var deletePending int
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM message_mutations WHERE message_id = ? AND kind = ?)`, messageID, MessageMutationDelete).Scan(&deletePending); err != nil {
+		return false, err
+	}
+	if deletePending != 0 {
+		return false, nil
+	}
 	var destinationFolderID string
 	err := tx.QueryRowContext(ctx, `
 		SELECT destination_folder_id
@@ -520,6 +666,17 @@ func protectProviderMoveFolderTx(ctx context.Context, tx *sql.Tx, messageID int6
 		return false, err
 	}
 	return deleted == 0, nil
+}
+
+func refreshIMAPDeleteUIDValidityTx(ctx context.Context, tx *sql.Tx, messageID int64, folderID string) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE message_mutations
+		SET source_uid_validity = COALESCE((SELECT uid_validity FROM folders WHERE id = ?), source_uid_validity),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE message_id = ? AND folder_id = ? AND kind = ? AND provider_type = ?
+		  AND status IN (?, ?)`, folderID, messageID, folderID, MessageMutationDelete,
+		MessageMutationProviderIMAP, MessageMutationPending, MessageMutationFailed)
+	return err
 }
 
 func resolveProviderMoveFoldersTx(ctx context.Context, tx *sql.Tx, messageID int64, observed, desired map[string]bool) error {
@@ -565,22 +722,26 @@ func resolveProviderMoveFoldersTx(ctx context.Context, tx *sql.Tx, messageID int
 }
 
 const messageMutationSelect = `SELECT
-	id, account_id, message_id, folder_id, destination_folder_id, provider_type, kind, target_value,
+	id, account_id, message_id, folder_id, destination_folder_id, source_uid_validity, provider_type, kind, target_value,
 	status, attempt_count, last_error, next_attempt_at
 	FROM message_mutations`
 
 func scanMessageMutation(row rowScanner) (MessageMutation, error) {
 	var mutation MessageMutation
 	var target int
+	var sourceUIDValidity int64
 	var nextAttempt sqliteNullTime
 	if err := row.Scan(
-		&mutation.ID, &mutation.AccountID, &mutation.MessageID, &mutation.FolderID, &mutation.DestinationFolderID,
+		&mutation.ID, &mutation.AccountID, &mutation.MessageID, &mutation.FolderID, &mutation.DestinationFolderID, &sourceUIDValidity,
 		&mutation.ProviderType, &mutation.Kind, &target, &mutation.Status,
 		&mutation.AttemptCount, &mutation.LastError, &nextAttempt,
 	); err != nil {
 		return MessageMutation{}, err
 	}
 	mutation.TargetValue = target != 0
+	if sourceUIDValidity > 0 {
+		mutation.SourceUIDValidity = uint32(sourceUIDValidity)
+	}
 	if nextAttempt.Valid {
 		mutation.NextAttemptAt = nextAttempt.Time
 	}
