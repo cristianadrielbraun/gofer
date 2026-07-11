@@ -44,3 +44,22 @@ func TestBuildMIMEMessageForGraphIncludesBcc(t *testing.T) {
 		t.Fatalf("BuildMIMEMessageForGraph() did not include Bcc header: %q", string(raw))
 	}
 }
+
+func TestBuildMIMEMessageForIMAPDraftIncludesRevisionAndBcc(t *testing.T) {
+	to, _ := ParseAddressList("recipient@example.com")
+	bcc, _ := ParseAddressList("hidden@example.com")
+	raw, err := BuildMIMEMessageForIMAPDraft(&OutgoingMessage{
+		FromEmail: "sender@example.com",
+		To:        to,
+		Bcc:       bcc,
+		MessageID: "<draft@example.com>",
+		TextBody:  "draft body",
+	}, "revision-1")
+	if err != nil {
+		t.Fatalf("BuildMIMEMessageForIMAPDraft() error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "\r\nBcc: hidden@example.com\r\n") || !strings.Contains(text, "\r\nX-Gofer-Draft-Revision: revision-1\r\n") {
+		t.Fatalf("draft MIME = %q, want Bcc and revision headers", text)
+	}
+}

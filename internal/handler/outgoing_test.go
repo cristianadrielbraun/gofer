@@ -33,10 +33,16 @@ type fakeSentCopyIMAPClient struct {
 	findErr         error
 	appendCalls     int
 	findCalls       int
+	deleteCalls     int
 	mailbox         string
 	raw             []byte
 	flags           []goimap.Flag
 	date            time.Time
+	findHeader      string
+	findValue       string
+	deleteUIDs      []uint32
+	deleteValidity  uint32
+	deleteErr       error
 }
 
 func (c *fakeSentCopyIMAPClient) AppendMessage(_ context.Context, mailbox string, raw []byte, flags []goimap.Flag, date time.Time) (imapclient.AppendResult, error) {
@@ -51,6 +57,20 @@ func (c *fakeSentCopyIMAPClient) AppendMessage(_ context.Context, mailbox string
 func (c *fakeSentCopyIMAPClient) FindUIDByMessageIDWithValidity(context.Context, string, string) (uint32, uint32, error) {
 	c.findCalls++
 	return c.findUID, c.findUIDValidity, c.findErr
+}
+
+func (c *fakeSentCopyIMAPClient) FindUIDByHeaderWithValidity(_ context.Context, _ string, headerName, headerValue string) (uint32, uint32, error) {
+	c.findCalls++
+	c.findHeader = headerName
+	c.findValue = headerValue
+	return c.findUID, c.findUIDValidity, c.findErr
+}
+
+func (c *fakeSentCopyIMAPClient) DeleteMessagesIfUIDValidity(_ context.Context, _ string, uids []uint32, expectedUIDValidity uint32) (bool, error) {
+	c.deleteCalls++
+	c.deleteUIDs = append([]uint32(nil), uids...)
+	c.deleteValidity = expectedUIDValidity
+	return false, c.deleteErr
 }
 
 func (c *fakeSentCopyIMAPClient) Close() error { return nil }

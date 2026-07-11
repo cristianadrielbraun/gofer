@@ -2154,11 +2154,11 @@ func displayName(remoteName, role string) string {
 
 func withFolderLabels(msgs []storage.SyncMessage, accountProvider, remoteName, role string) []storage.SyncMessage {
 	label, ok := syncedFolderLabel(accountProvider, remoteName, role)
-	if !ok {
-		return msgs
-	}
 	for i := range msgs {
-		if !messageHasLabel(msgs[i].Labels, label) {
+		if role == "drafts" {
+			msgs[i].IsDraft = true
+		}
+		if ok && !messageHasLabel(msgs[i].Labels, label) {
 			msgs[i].Labels = append(msgs[i].Labels, label)
 		}
 	}

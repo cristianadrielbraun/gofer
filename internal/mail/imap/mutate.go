@@ -152,18 +152,29 @@ func (c *Client) MoveMessagesWithDestUIDs(ctx context.Context, folderRemoteName 
 }
 
 func (c *Client) DeleteMessages(ctx context.Context, folderRemoteName string, uids []uint32) error {
+	_, err := c.DeleteMessagesIfUIDValidity(ctx, folderRemoteName, uids, 0)
+	return err
+}
+
+func (c *Client) DeleteMessagesIfUIDValidity(ctx context.Context, folderRemoteName string, uids []uint32, expectedUIDValidity uint32) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if len(uids) == 0 {
+		return false, nil
+	}
 	if c.closed {
-		return fmt.Errorf("client is closed")
+		return false, fmt.Errorf("client is closed")
 	}
 
-	_, err := c.client.Select(folderRemoteName, nil).Wait()
+	selectData, err := c.client.Select(folderRemoteName, nil).Wait()
 	if err != nil {
-		return fmt.Errorf("select %s: %w", folderRemoteName, err)
+		return false, fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
 	defer c.client.Unselect()
+	if uidValidityChanged(expectedUIDValidity, uint32(selectData.UIDValidity)) {
+		return true, nil
+	}
 
 	var uidSet imap.UIDSet
 	for _, uid := range uids {
@@ -176,10 +187,10 @@ func (c *Client) DeleteMessages(ctx context.Context, folderRemoteName string, ui
 		Flags:  []imap.Flag{imap.FlagDeleted},
 	}, nil)
 	if err := storeCmd.Close(); err != nil {
-		return fmt.Errorf("store deleted: %w", err)
+		return false, fmt.Errorf("store deleted: %w", err)
 	}
 
 	expungeCmd := c.client.UIDExpunge(uidSet)
 	_, err = expungeCmd.Collect()
-	return err
+	return false, err
 }

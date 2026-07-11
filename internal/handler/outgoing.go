@@ -55,6 +55,8 @@ type outgoingMessageSnapshot struct {
 type sentCopyIMAPClient interface {
 	AppendMessage(ctx context.Context, remoteName string, raw []byte, flags []goimap.Flag, date time.Time) (imapclient.AppendResult, error)
 	FindUIDByMessageIDWithValidity(ctx context.Context, remoteName, messageID string) (uint32, uint32, error)
+	FindUIDByHeaderWithValidity(ctx context.Context, remoteName, headerName, headerValue string) (uint32, uint32, error)
+	DeleteMessagesIfUIDValidity(ctx context.Context, folderRemoteName string, uids []uint32, expectedUIDValidity uint32) (bool, error)
 	Close() error
 }
 
@@ -206,9 +208,15 @@ func (h *Handler) StartOutgoingSendWorker(ctx context.Context) {
 		} else if count > 0 {
 			log.Printf("outgoing-send: marked %d interrupted Sent copy operation(s) ambiguous", count)
 		}
+		if count, err := h.db.MarkInterruptedIMAPDraftOperationsAmbiguous(ctx, "Gofer stopped while syncing this draft. The remote revision may already exist."); err != nil {
+			log.Printf("imap-draft: recover interrupted operations: %v", err)
+		} else if count > 0 {
+			log.Printf("imap-draft: marked %d interrupted operation(s) ambiguous", count)
+		}
 		h.prepareMigratedOutgoingSends(ctx)
 		h.runDueOutgoingSends(ctx)
 		h.runDueSentCopies(ctx)
+		h.runDueIMAPDraftOperations(ctx)
 
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -219,9 +227,11 @@ func (h *Handler) StartOutgoingSendWorker(ctx context.Context) {
 			case <-h.outgoingWake:
 				h.runDueOutgoingSends(ctx)
 				h.runDueSentCopies(ctx)
+				h.runDueIMAPDraftOperations(ctx)
 			case <-ticker.C:
 				h.runDueOutgoingSends(ctx)
 				h.runDueSentCopies(ctx)
+				h.runDueIMAPDraftOperations(ctx)
 			}
 		}
 	}()
@@ -529,6 +539,12 @@ func (h *Handler) cleanupDeliveredDraft(ctx context.Context, send storage.Outgoi
 		return
 	}
 	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, send.AccountID, send.DraftID)
+	if send.Transport == storage.OutgoingTransportSMTP {
+		if err := h.queueIMAPDraftDelete(ctx, send.AccountID, send.DraftID, draftProvider); err != nil {
+			log.Printf("outgoing-send: queue remote draft delete account=%s draft=%s: %v", send.AccountID, send.DraftID, err)
+			return
+		}
+	}
 	folderID, err := h.db.DeleteDraftMessage(ctx, send.AccountID, send.DraftID)
 	if err != nil {
 		log.Printf("outgoing-send: delete local draft account=%s draft=%s: %v", send.AccountID, send.DraftID, err)

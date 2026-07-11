@@ -786,6 +786,7 @@ type SyncMessage struct {
 	Snippet       string
 	IsRead        bool
 	IsStarred     bool
+	IsDraft       bool
 	Labels        []LabelInput
 	LabelsKnown   bool
 	LabelProvider string
@@ -1104,8 +1105,11 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 type DraftProviderInfo struct {
 	MessageID         int64
 	FolderID          string
+	FolderRemoteName  string
 	AccountProvider   string
 	ProviderMessageID string
+	RemoteUID         uint32
+	UIDValidity       uint32
 }
 
 type ProviderMessageIDBackfillCandidate struct {
@@ -1179,14 +1183,17 @@ func (db *DB) GetDraftProviderInfo(ctx context.Context, accountID, internetMessa
 	}
 	var info DraftProviderInfo
 	var providerMessageID sql.NullString
+	var remoteUID sql.NullInt64
+	var uidValidity int64
 	err := db.Read().QueryRowContext(ctx, `
-		SELECT m.id, mfs.folder_id, a.provider, m.remote_message_id
+		SELECT m.id, mfs.folder_id, f.remote_id, a.provider, m.remote_message_id, mfs.remote_uid, COALESCE(f.uid_validity, 0)
 		FROM messages m
 		JOIN accounts a ON m.account_id = a.id
 		JOIN message_folder_state mfs ON m.id = mfs.message_id
+		JOIN folders f ON f.id = mfs.folder_id
 		WHERE m.account_id = ? AND m.internet_message_id = ? AND mfs.is_draft = 1
 		LIMIT 1`, accountID, internetMessageID,
-	).Scan(&info.MessageID, &info.FolderID, &info.AccountProvider, &providerMessageID)
+	).Scan(&info.MessageID, &info.FolderID, &info.FolderRemoteName, &info.AccountProvider, &providerMessageID, &remoteUID, &uidValidity)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1195,6 +1202,12 @@ func (db *DB) GetDraftProviderInfo(ctx context.Context, accountID, internetMessa
 	}
 	if providerMessageID.Valid {
 		info.ProviderMessageID = providerMessageID.String
+	}
+	if remoteUID.Valid && remoteUID.Int64 > 0 {
+		info.RemoteUID = uint32(remoteUID.Int64)
+	}
+	if uidValidity > 0 {
+		info.UIDValidity = uint32(uidValidity)
 	}
 	return &info, nil
 }
@@ -1288,11 +1301,12 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 
 	stateStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
-		VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)
+		VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)
 		ON CONFLICT(message_id, folder_id) DO UPDATE SET
 			remote_uid = excluded.remote_uid,
 			is_read = excluded.is_read,
 			is_starred = excluded.is_starred,
+			is_draft = excluded.is_draft,
 			synced_at = excluded.synced_at`)
 	if err != nil {
 		return fmt.Errorf("prepare state upsert: %w", err)
@@ -1329,13 +1343,30 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		messageDBDate := formatDBTime(m.DateSent)
 
 		var msgID int64
-		if _, err := msgStmt.ExecContext(ctx, m.AccountID, m.MessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
-			m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet); err != nil {
-			return fmt.Errorf("upsert message: %w", err)
+		preserveLocalDraft := false
+		if m.IsDraft {
+			active, err := hasActiveIMAPDraftOperationTx(ctx, tx, m.AccountID, m.MessageID)
+			if err != nil {
+				return fmt.Errorf("check local draft operation: %w", err)
+			}
+			if active {
+				err = tx.QueryRowContext(ctx, `SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`, m.AccountID, m.MessageID).Scan(&msgID)
+				if err == nil {
+					preserveLocalDraft = true
+				} else if err != sql.ErrNoRows {
+					return fmt.Errorf("query local draft: %w", err)
+				}
+			}
 		}
-		if err := tx.QueryRow(`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`,
-			m.AccountID, m.MessageID).Scan(&msgID); err != nil {
-			return fmt.Errorf("query upserted message: %w", err)
+		if !preserveLocalDraft {
+			if _, err := msgStmt.ExecContext(ctx, m.AccountID, m.MessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
+				m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet); err != nil {
+				return fmt.Errorf("upsert message: %w", err)
+			}
+			if err := tx.QueryRow(`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`,
+				m.AccountID, m.MessageID).Scan(&msgID); err != nil {
+				return fmt.Errorf("query upserted message: %w", err)
+			}
 		}
 
 		var remoteUID any
@@ -1347,7 +1378,7 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		}
 
 		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, remoteUID,
-			m.IsRead, m.IsStarred, time.Now().UTC()); err != nil {
+			m.IsRead, m.IsStarred, m.IsDraft, time.Now().UTC()); err != nil {
 			return fmt.Errorf("upsert state: %w", err)
 		}
 
@@ -1361,23 +1392,27 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			}
 		}
 
-		if _, err := delRecipStmt.ExecContext(ctx, msgID); err != nil {
-			return fmt.Errorf("delete recipients: %w", err)
-		}
+		if !preserveLocalDraft {
+			if _, err := delRecipStmt.ExecContext(ctx, msgID); err != nil {
+				return fmt.Errorf("delete recipients: %w", err)
+			}
 
-		for _, r := range m.ToRecipients {
-			if _, err := recipStmt.ExecContext(ctx, msgID, "to", r.Name, r.Email); err != nil {
-				return fmt.Errorf("insert to: %w", err)
+			for _, r := range m.ToRecipients {
+				if _, err := recipStmt.ExecContext(ctx, msgID, "to", r.Name, r.Email); err != nil {
+					return fmt.Errorf("insert to: %w", err)
+				}
+			}
+			for _, r := range m.CCRecipients {
+				if _, err := recipStmt.ExecContext(ctx, msgID, "cc", r.Name, r.Email); err != nil {
+					return fmt.Errorf("insert cc: %w", err)
+				}
 			}
 		}
-		for _, r := range m.CCRecipients {
-			if _, err := recipStmt.ExecContext(ctx, msgID, "cc", r.Name, r.Email); err != nil {
-				return fmt.Errorf("insert cc: %w", err)
-			}
-		}
 
-		if err := db.reconcileMessageThreadTx(ctx, tx, msgID, m.AccountID, messageIDNorm, inReplyTo, m.References, m.Subject, m.DateSent); err != nil {
-			return fmt.Errorf("reconcile thread: %w", err)
+		if !preserveLocalDraft {
+			if err := db.reconcileMessageThreadTx(ctx, tx, msgID, m.AccountID, messageIDNorm, inReplyTo, m.References, m.Subject, m.DateSent); err != nil {
+				return fmt.Errorf("reconcile thread: %w", err)
+			}
 		}
 		msgIDs = append(msgIDs, msgID)
 	}

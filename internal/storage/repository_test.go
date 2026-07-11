@@ -2416,8 +2416,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 59 {
-		t.Fatalf("schema version = %d, want 59", version)
+	if version != 60 {
+		t.Fatalf("schema version = %d, want 60", version)
 	}
 }
 
@@ -2462,8 +2462,8 @@ func TestMigrateV54ConvertsZeroRemoteUIDsToNull(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 59 {
-		t.Fatalf("schema version = %d, want 59", version)
+	if version != 60 {
+		t.Fatalf("schema version = %d, want 60", version)
 	}
 }
 
@@ -2498,8 +2498,8 @@ func TestMigrateV55AddsMailSecurityExceptions(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 59 {
-		t.Fatalf("schema version = %d, want 59", version)
+	if version != 60 {
+		t.Fatalf("schema version = %d, want 60", version)
 	}
 }
 
@@ -2535,8 +2535,8 @@ func TestMigrateV56AddsOAuthAccountFlows(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 59 {
-		t.Fatalf("schema version = %d, want 59", version)
+	if version != 60 {
+		t.Fatalf("schema version = %d, want 60", version)
 	}
 }
 
@@ -2672,6 +2672,52 @@ func TestMigrateV58AddsRemoteSentCopyState(t *testing.T) {
 	}
 }
 
+func TestMigrateV59AddsIMAPDraftSyncQueue(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gofer.db")
+	raw, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB() error = %v", err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO schema_version (version) VALUES (59);
+		CREATE TABLE accounts (id TEXT PRIMARY KEY);
+		CREATE TABLE messages (id INTEGER PRIMARY KEY);
+		INSERT INTO accounts (id) VALUES ('acc');
+		INSERT INTO messages (id) VALUES (1);
+	`); err != nil {
+		raw.Close()
+		t.Fatalf("seed v59 database: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	db, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	var version int
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("query schema version: %v", err)
+	}
+	if version != 60 {
+		t.Fatalf("schema version = %d, want 60", version)
+	}
+	if _, err := db.Write().Exec(`
+		INSERT INTO imap_draft_states (
+			account_id, draft_key, local_message_id, folder_id, folder_remote_name
+		) VALUES ('acc', '<draft@example.com>', 1, 'drafts', 'Drafts');
+		INSERT INTO imap_draft_operations (
+			id, account_id, draft_key, kind, revision_token, mime_data
+		) VALUES ('operation', 'acc', '<draft@example.com>', 'upsert', 'revision', X'01');
+	`); err != nil {
+		t.Fatalf("use migrated IMAP draft tables: %v", err)
+	}
+}
+
 func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gofer.db")
 	raw, err := openDB(dbPath)
@@ -2717,8 +2763,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 59 {
-		t.Fatalf("schema version = %d, want 59", version)
+	if version != 60 {
+		t.Fatalf("schema version = %d, want 60", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

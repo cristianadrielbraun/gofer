@@ -147,6 +147,8 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 							syncMsg.IsRead = true
 						case imap.FlagFlagged:
 							syncMsg.IsStarred = true
+						case imap.FlagDraft:
+							syncMsg.IsDraft = true
 						}
 					}
 				case imapclient.FetchItemDataInternalDate:
@@ -316,6 +318,8 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 						syncMsg.IsRead = true
 					case imap.FlagFlagged:
 						syncMsg.IsStarred = true
+					case imap.FlagDraft:
+						syncMsg.IsDraft = true
 					}
 				}
 			case imapclient.FetchItemDataInternalDate:
@@ -401,11 +405,16 @@ func (c *Client) FindUIDByMessageID(ctx context.Context, remoteName, messageID s
 }
 
 func (c *Client) FindUIDByMessageIDWithValidity(ctx context.Context, remoteName, messageID string) (uint32, uint32, error) {
+	return c.FindUIDByHeaderWithValidity(ctx, remoteName, "Message-ID", messageID)
+}
+
+func (c *Client) FindUIDByHeaderWithValidity(ctx context.Context, remoteName, headerName, headerValue string) (uint32, uint32, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	messageID = strings.TrimSpace(messageID)
-	if messageID == "" {
+	headerName = strings.TrimSpace(headerName)
+	headerValue = strings.TrimSpace(headerValue)
+	if headerName == "" || headerValue == "" {
 		return 0, 0, nil
 	}
 	if c.closed {
@@ -421,13 +430,13 @@ func (c *Client) FindUIDByMessageIDWithValidity(ctx context.Context, remoteName,
 
 	searchCmd := c.client.UIDSearch(&imap.SearchCriteria{
 		Header: []imap.SearchCriteriaHeaderField{{
-			Key:   "Message-ID",
-			Value: messageID,
+			Key:   headerName,
+			Value: headerValue,
 		}},
 	}, nil)
 	searchData, err := searchCmd.Wait()
 	if err != nil {
-		return 0, uidValidity, fmt.Errorf("uid search %s message-id %s: %w", remoteName, messageID, err)
+		return 0, uidValidity, fmt.Errorf("uid search %s %s %s: %w", remoteName, headerName, headerValue, err)
 	}
 
 	uids := searchData.AllUIDs()

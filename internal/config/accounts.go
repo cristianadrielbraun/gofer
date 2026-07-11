@@ -836,6 +836,18 @@ func (s *AccountStore) DeleteAccountWithProgress(ctx context.Context, accountID 
 			      WHERE rowid IN (SELECT rowid FROM outgoing_sends WHERE account_id = ? LIMIT ?)`,
 		},
 		{
+			step:  "delete IMAP draft operations",
+			table: "imap_draft_operations",
+			sql: `DELETE FROM imap_draft_operations
+			      WHERE rowid IN (SELECT rowid FROM imap_draft_operations WHERE account_id = ? LIMIT ?)`,
+		},
+		{
+			step:  "delete IMAP draft state",
+			table: "imap_draft_states",
+			sql: `DELETE FROM imap_draft_states
+			      WHERE rowid IN (SELECT rowid FROM imap_draft_states WHERE account_id = ? LIMIT ?)`,
+		},
+		{
 			step:  "delete label mutation queue",
 			table: "label_mutation_queue",
 			sql: `DELETE FROM label_mutation_queue

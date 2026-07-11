@@ -44,14 +44,22 @@ func NewMessageID() string {
 }
 
 func BuildMIMEMessage(msg *OutgoingMessage) ([]byte, error) {
-	return buildMIMEMessage(msg, false)
+	return buildMIMEMessage(msg, false, nil)
 }
 
 func BuildMIMEMessageForGraph(msg *OutgoingMessage) ([]byte, error) {
-	return buildMIMEMessage(msg, true)
+	return buildMIMEMessage(msg, true, nil)
 }
 
-func buildMIMEMessage(msg *OutgoingMessage, includeBcc bool) ([]byte, error) {
+func BuildMIMEMessageForIMAPDraft(msg *OutgoingMessage, revisionToken string) ([]byte, error) {
+	revisionToken = strings.TrimSpace(revisionToken)
+	if revisionToken == "" || strings.ContainsAny(revisionToken, "\r\n") {
+		return nil, fmt.Errorf("invalid draft revision token")
+	}
+	return buildMIMEMessage(msg, true, map[string]string{"X-Gofer-Draft-Revision": revisionToken})
+}
+
+func buildMIMEMessage(msg *OutgoingMessage, includeBcc bool, extraHeaders map[string]string) ([]byte, error) {
 	from := []*mail.Address{{Name: msg.FromName, Address: msg.FromEmail}}
 	if msg.MessageID == "" {
 		msg.MessageID = NewMessageID()
@@ -73,6 +81,12 @@ func buildMIMEMessage(msg *OutgoingMessage, includeBcc bool) ([]byte, error) {
 	buf.WriteString(fmt.Sprintf("Subject: %s\r\n", mime.QEncoding.Encode("utf-8", msg.Subject)))
 	buf.WriteString(fmt.Sprintf("Date: %s\r\n", msg.Date.Format(time.RFC1123Z)))
 	buf.WriteString(fmt.Sprintf("Message-ID: %s\r\n", msg.MessageID))
+	for name, value := range extraHeaders {
+		if strings.ContainsAny(name, "\r\n:") || strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("invalid extra MIME header")
+		}
+		buf.WriteString(fmt.Sprintf("%s: %s\r\n", name, value))
+	}
 	buf.WriteString("MIME-Version: 1.0\r\n")
 
 	if msg.InReplyTo != "" {

@@ -3613,7 +3613,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "account not found"}
 	}
 
-	draftFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
+	draftFolderID, draftFolderRemoteName, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
 	if err != nil || draftFolderID == "" {
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: "drafts folder not available"}
 	}
@@ -3669,36 +3669,46 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 	_ = h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, "", snippet)
 	_ = h.db.ReplaceAttachments(ctx, msgID, attachmentRows)
-	if strings.TrimSpace(account.Provider) == providers.ProviderOutlook || (strings.TrimSpace(account.Provider) == providers.ProviderGmail && gmailAPIMailRuntimeEnabled()) {
-		toAddrs, _ := message.ParseAddressList(r.FormValue("to"))
-		ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
-		bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
-		providerDraft := &message.OutgoingMessage{
-			FromName:    account.Name,
-			FromEmail:   account.Email,
-			To:          toAddrs,
-			CC:          ccAddrs,
-			Bcc:         bccAddrs,
-			Subject:     subject,
-			TextBody:    body,
-			HTMLBody:    htmlBody,
-			InReplyTo:   r.FormValue("in_reply_to"),
-			References:  r.FormValue("references"),
-			MessageID:   draftID,
-			Date:        time.Now().UTC(),
-			Attachments: outgoingAttachments,
+	toAddrs, _ := message.ParseAddressList(r.FormValue("to"))
+	ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
+	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
+	providerDraft := &message.OutgoingMessage{
+		FromName:    account.Name,
+		FromEmail:   account.Email,
+		To:          toAddrs,
+		CC:          ccAddrs,
+		Bcc:         bccAddrs,
+		Subject:     subject,
+		TextBody:    body,
+		HTMLBody:    htmlBody,
+		InReplyTo:   r.FormValue("in_reply_to"),
+		References:  r.FormValue("references"),
+		MessageID:   draftID,
+		Date:        time.Now().UTC(),
+		Attachments: outgoingAttachments,
+	}
+	switch strings.TrimSpace(account.Provider) {
+	case providers.ProviderOutlook:
+		if err := h.saveOutlookGraphDraft(ctx, accountID, msgID, providerDraft); err != nil {
+			log.Printf("outlook draft save account=%s message=%d: %v", accountID, msgID, err)
+			return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save Outlook draft"}
 		}
-		switch strings.TrimSpace(account.Provider) {
-		case providers.ProviderOutlook:
-			if err := h.saveOutlookGraphDraft(ctx, accountID, msgID, providerDraft); err != nil {
-				log.Printf("outlook draft save account=%s message=%d: %v", accountID, msgID, err)
-				return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save Outlook draft"}
-			}
-		case providers.ProviderGmail:
+	case providers.ProviderGmail:
+		if gmailAPIMailRuntimeEnabled() {
 			if err := h.saveGmailAPIDraft(ctx, accountID, msgID, providerDraft); err != nil {
 				log.Printf("gmail draft save account=%s message=%d: %v", accountID, msgID, err)
 				return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save Gmail draft"}
 			}
+		}
+	default:
+		draftInfo, _ := h.db.GetDraftProviderInfo(ctx, accountID, draftID)
+		var remoteUID, uidValidity uint32
+		if draftInfo != nil {
+			remoteUID, uidValidity = draftInfo.RemoteUID, draftInfo.UIDValidity
+		}
+		if err := h.queueIMAPDraftUpsert(ctx, accountID, msgID, draftID, draftFolderID, draftFolderRemoteName, remoteUID, uidValidity, providerDraft); err != nil {
+			log.Printf("imap draft queue account=%s message=%d: %v", accountID, msgID, err)
+			return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to queue IMAP draft sync"}
 		}
 	}
 	h.publishMutation(accountID, draftFolderID)
@@ -3721,6 +3731,10 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	draftID := r.FormValue("draft_id")
 	draftPaths := h.composeDraftAttachmentPaths(ctx, accountID, draftID)
 	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, accountID, draftID)
+	if err := h.queueIMAPDraftDelete(ctx, accountID, draftID, draftProvider); err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to queue remote draft deletion")
+		return
+	}
 	if messageID, _ := h.db.GetMessageLocalIDByInternetID(ctx, accountID, draftID); messageID > 0 {
 		_ = h.db.CancelOutgoingSendForMessage(ctx, messageID)
 	}
@@ -4003,6 +4017,10 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	draftPaths := attachmentStoragePaths(email.Attachments)
 	draftProvider, _ := h.db.GetDraftProviderInfo(r.Context(), email.AccountID, email.InternetMessageID)
+	if err := h.queueIMAPDraftDelete(r.Context(), email.AccountID, email.InternetMessageID, draftProvider); err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to queue remote draft deletion")
+		return
+	}
 	if messageID, err := strconv.ParseInt(email.ID, 10, 64); err == nil {
 		_ = h.db.CancelOutgoingSendForMessage(r.Context(), messageID)
 	}

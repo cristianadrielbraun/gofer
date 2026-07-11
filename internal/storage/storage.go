@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 59
+	const targetSchemaVersion = 60
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -498,6 +498,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 58 {
 		if err := migrateV58ToV59(tx); err != nil {
 			return fmt.Errorf("migrate v58 to v59: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 59 {
+		if err := migrateV59ToV60(tx); err != nil {
+			return fmt.Errorf("migrate v59 to v60: %w", err)
 		}
 	}
 
@@ -2287,6 +2293,52 @@ func migrateV58ToV59(tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS idx_outgoing_sends_sent_copy ON outgoing_sends(status, sent_copy_status, sent_copy_next_attempt_at)`,
 		`INSERT OR REPLACE INTO schema_version (version) VALUES (59)`,
 	} {
+		if _, err := tx.Exec(migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV59ToV60(tx *sql.Tx) error {
+	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS imap_draft_states (
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			draft_key TEXT NOT NULL,
+			local_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+			folder_id TEXT NOT NULL DEFAULT '',
+			folder_remote_name TEXT NOT NULL,
+			remote_uid INTEGER NOT NULL DEFAULT 0,
+			uid_validity INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (account_id, draft_key)
+		)`,
+		`CREATE TABLE IF NOT EXISTS imap_draft_operations (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			draft_key TEXT NOT NULL,
+			kind TEXT NOT NULL CHECK (kind IN ('upsert', 'delete')),
+			revision_token TEXT NOT NULL DEFAULT '',
+			mime_data BLOB,
+			message_date DATETIME,
+			status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'syncing', 'failed', 'ambiguous')),
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			locked_at DATETIME,
+			next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (account_id, draft_key) REFERENCES imap_draft_states(account_id, draft_key) ON DELETE CASCADE
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_imap_draft_operations_coalesced
+		 ON imap_draft_operations(account_id, draft_key)
+		 WHERE status IN ('pending', 'failed')`,
+		`CREATE INDEX IF NOT EXISTS idx_imap_draft_operations_due
+		 ON imap_draft_operations(status, next_attempt_at, created_at)`,
+		`INSERT OR REPLACE INTO schema_version (version) VALUES (60)`,
+	}
+	for _, migration := range migrations {
 		if _, err := tx.Exec(migration); err != nil {
 			return err
 		}
