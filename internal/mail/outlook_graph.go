@@ -20,8 +20,7 @@ import (
 )
 
 const (
-	outlookGraphMessagePageSize               = 50
-	outlookGraphCountDriftRepairConfirmations = 2
+	outlookGraphMessagePageSize = 250
 )
 
 type outlookGraphFolder struct {
@@ -176,7 +175,7 @@ func (o *SyncOrchestrator) syncOutlookGraphAccount(ctx context.Context, accountI
 	if failedFolders > 0 {
 		return fmt.Errorf("%d Outlook Graph folder sync(s) failed: %w", failedFolders, firstFolderErr)
 	}
-	return o.db.RefreshAccountFolderThreadState(ctx, accountID)
+	return nil
 }
 
 func (o *SyncOrchestrator) backfillOutlookGraphMessageIDs(ctx context.Context, accountID, token string, limit int) {
@@ -619,10 +618,10 @@ func sortOutlookGraphFolders(folders []outlookGraphFolder) {
 	})
 }
 
-func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID, token string, target outlookGraphFolderSyncTarget, categoriesByName map[string]outlookCategory, folderIndex, folderTotal int) error {
+func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID, token string, target outlookGraphFolderSyncTarget, categoriesByName map[string]outlookCategory, folderIndex, folderTotal int) (syncErr error) {
 	folder := target.Folder
 	graphFolder := target.Graph
-	full := outlookGraphFolderNeedsFullReconcile(folder, graphFolder)
+	full := outlookGraphFolderNeedsFullReconcile(folder)
 	if !full && o.db != nil {
 		missingHeaders, err := o.db.HasProviderFolderMessagesMissingSender(ctx, accountID, folder.ID)
 		if err != nil {
@@ -639,28 +638,43 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 	if full {
 		if !resumingFull {
 			endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, false)
+			if err := o.db.StartProviderFolderBaseline(context.WithoutCancel(ctx), folder.ID); err != nil {
+				return err
+			}
 		}
 	} else if endpoint == "" {
 		endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, true)
 	}
 
-	totalHint := graphFolder.TotalItemCount
+	eventTotal := 0
+	totalEstimated := true
 	folderName := displayName(folder.RemoteID, folder.Role)
-	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", map[string]any{
+	startedCurrent := 0
+	if resumingFull {
+		startedCurrent = folder.SyncProgressCurrent
+	}
+	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Current: startedCurrent, Total: eventTotal, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", map[string]any{
 		"account_folders_total": folderTotal,
 		"account_folders_done":  folderIndex - 1,
+		"total_estimated":       totalEstimated,
 	})})
 	defer func() {
-		if ctx.Err() != nil {
-			return
-		}
-		o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", map[string]any{
+		payload := map[string]any{
 			"account_folders_total": folderTotal,
 			"account_folders_done":  folderIndex,
-		})})
+			"status":                "complete",
+		}
+		if syncErr != nil {
+			payload["status"] = "error"
+			payload["error"] = syncErr.Error()
+			if ctx.Err() != nil {
+				payload["status"] = "cancelled"
+			}
+		}
+		o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Payload: o.folderSyncProgressPayload(context.WithoutCancel(ctx), accountID, folderName, "graph", payload)})
 	}()
 
-	fetched := 0
+	fetched := startedCurrent
 	seenProviderIDs := map[string]bool{}
 	var postPageErr error
 	for endpoint != "" {
@@ -673,7 +687,12 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 					full = true
 					fullStartedFromBaseline = true
 					seenProviderIDs = map[string]bool{}
+					fetched = 0
 					endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, false)
+					if startErr := o.db.StartProviderFolderBaseline(context.WithoutCancel(ctx), folder.ID); startErr != nil {
+						return startErr
+					}
+					o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Current: 0, Total: 0, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", map[string]any{"total_estimated": true})})
 					continue
 				}
 			}
@@ -716,8 +735,16 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 				return err
 			}
 			folderStateDirty = true
-			if err := o.db.RefreshFolderThreadState(persistCtx, folder.ID); err != nil {
-				return fmt.Errorf("refresh outlook graph folder page %s/%s: %w", accountID, graphFolder.DisplayName, err)
+			if full {
+				messageIDs := make([]int64, 0, len(idsByProvider))
+				for _, messageID := range idsByProvider {
+					messageIDs = append(messageIDs, messageID)
+				}
+				if err := o.db.RefreshFolderThreadsForMessages(persistCtx, folder.ID, messageIDs); err != nil {
+					return fmt.Errorf("refresh outlook graph folder page %s/%s: %w", accountID, graphFolder.DisplayName, err)
+				}
+			} else if err := o.db.RefreshFolderThreadState(persistCtx, folder.ID); err != nil {
+				return fmt.Errorf("refresh incremental outlook graph folder %s/%s: %w", accountID, graphFolder.DisplayName, err)
 			}
 			if !full {
 				if err := o.syncOutlookGraphAttachmentMetadata(ctx, token, idsByProvider, bodySources); err != nil {
@@ -733,8 +760,14 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 					log.Printf("outlook graph folder body side effect %s/%s: %v", accountID, graphFolder.DisplayName, err)
 				}
 			}
+		}
+		if full {
+			fetched += len(response.Value)
+		} else {
 			fetched += len(upserts)
-			o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Current: fetched, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", nil)})
+		}
+		if len(response.Value) > 0 {
+			o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Current: fetched, Total: eventTotal, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, "graph", map[string]any{"total_estimated": totalEstimated})})
 		}
 		if folderStateDirty && len(upserts) == 0 {
 			if err := o.db.RefreshFolderThreadState(persistCtx, folder.ID); err != nil {
@@ -745,7 +778,7 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 		if strings.TrimSpace(response.NextLink) != "" {
 			endpoint = strings.TrimSpace(response.NextLink)
 			if full {
-				if err := o.db.UpdateProviderFolderPageCursor(persistCtx, folder.ID, endpoint, graphFolder.TotalItemCount, graphFolder.UnreadItemCount); err != nil {
+				if err := o.db.UpdateProviderFolderPageCursor(persistCtx, folder.ID, endpoint, fetched, graphFolder.TotalItemCount, graphFolder.UnreadItemCount); err != nil {
 					return err
 				}
 			}
@@ -760,23 +793,8 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 				return postPageErr
 			}
 			if !full {
-				refreshedFolder, repair, err := o.updateOutlookGraphCountDriftAfterDelta(persistCtx, token, accountID, folder, graphFolder, deltaLink)
-				if err != nil {
-					return err
-				}
-				graphFolder = refreshedFolder
 				if err := o.db.UpdateProviderFolderSyncState(persistCtx, folder.ID, deltaLink, graphFolder.TotalItemCount, graphFolder.UnreadItemCount, false); err != nil {
 					return err
-				}
-				if repair {
-					log.Printf("outlook graph count drift confirmed for %s/%s, restarting full baseline", accountID, graphFolder.DisplayName)
-					full = true
-					fullStartedFromBaseline = true
-					seenProviderIDs = map[string]bool{}
-					postPageErr = nil
-					fetched = 0
-					endpoint = outlookGraphMessagesDeltaEndpoint(graphFolder.ID, false)
-					continue
 				}
 				return nil
 			}
@@ -785,6 +803,9 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 					return err
 				}
 			}
+			if err := o.db.RefreshFolderThreadState(persistCtx, folder.ID); err != nil {
+				return fmt.Errorf("finalize outlook graph folder threads %s/%s: %w", accountID, graphFolder.DisplayName, err)
+			}
 			return o.db.UpdateProviderFolderSyncState(persistCtx, folder.ID, deltaLink, graphFolder.TotalItemCount, graphFolder.UnreadItemCount, full)
 		}
 		endpoint = ""
@@ -792,51 +813,7 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 	return nil
 }
 
-func (o *SyncOrchestrator) updateOutlookGraphCountDriftAfterDelta(ctx context.Context, token, accountID string, folder storage.FolderSyncInfo, graphFolder outlookGraphFolder, deltaLink string) (outlookGraphFolder, bool, error) {
-	if o.db == nil {
-		return graphFolder, false, nil
-	}
-	providerTotal := graphFolderCount(graphFolder.TotalItemCount)
-	if providerTotal == 0 {
-		providerTotal = folder.TotalCount
-	}
-	localCount, err := o.db.GetProviderFolderMessageCount(ctx, accountID, folder.ID)
-	if err != nil {
-		return graphFolder, false, fmt.Errorf("outlook graph count drift local count %s/%s: %w", accountID, graphFolder.DisplayName, err)
-	}
-	if providerTotal > 0 && localCount < providerTotal {
-		refreshed, err := fetchOutlookGraphFolder(ctx, token, graphFolder.ID)
-		if err != nil {
-			if ctx.Err() != nil {
-				return graphFolder, false, err
-			}
-			log.Printf("outlook graph count drift folder count refresh %s/%s: %v", accountID, graphFolder.DisplayName, err)
-		} else if strings.TrimSpace(refreshed.ID) != "" {
-			if strings.TrimSpace(refreshed.DisplayName) == "" {
-				refreshed.DisplayName = graphFolder.DisplayName
-			}
-			if strings.TrimSpace(refreshed.ParentFolderID) == "" {
-				refreshed.ParentFolderID = graphFolder.ParentFolderID
-			}
-			refreshed.Role = graphFolder.Role
-			graphFolder = refreshed
-			providerTotal = graphFolderCount(graphFolder.TotalItemCount)
-		}
-	}
-	if providerTotal > 0 && localCount < providerTotal {
-		confirmations, err := o.db.RecordProviderFolderCountDrift(ctx, folder.ID, localCount, providerTotal, deltaLink)
-		if err != nil {
-			return graphFolder, false, fmt.Errorf("outlook graph count drift record %s/%s: %w", accountID, graphFolder.DisplayName, err)
-		}
-		return graphFolder, confirmations >= outlookGraphCountDriftRepairConfirmations, nil
-	}
-	if err := o.db.ClearProviderFolderCountDrift(ctx, folder.ID); err != nil {
-		return graphFolder, false, fmt.Errorf("outlook graph count drift clear %s/%s: %w", accountID, graphFolder.DisplayName, err)
-	}
-	return graphFolder, false, nil
-}
-
-func outlookGraphFolderNeedsFullReconcile(folder storage.FolderSyncInfo, graphFolder outlookGraphFolder) bool {
+func outlookGraphFolderNeedsFullReconcile(folder storage.FolderSyncInfo) bool {
 	if strings.TrimSpace(folder.SyncCursor) == "" {
 		return true
 	}
@@ -846,13 +823,7 @@ func outlookGraphFolderNeedsFullReconcile(folder storage.FolderSyncInfo, graphFo
 	if !folder.LastFullSyncAt.Valid || folder.LastFullSyncAt.Time.IsZero() {
 		return true
 	}
-	providerTotal := graphFolderCount(graphFolder.TotalItemCount)
-	if providerTotal == 0 {
-		providerTotal = folder.TotalCount
-	}
-	return providerTotal > 0 &&
-		folder.ProviderMessageCount < providerTotal &&
-		folder.ProviderCountDriftConfirmations >= outlookGraphCountDriftRepairConfirmations
+	return false
 }
 
 func outlookGraphDeltaNextLink(cursor string) bool {

@@ -23,7 +23,7 @@ import (
 const (
 	manualSyncMaxParallelAccounts     = 0
 	backgroundSyncMaxParallelAccounts = 0
-	manualSyncTimeout                 = 30 * time.Minute
+	manualSyncTimeout                 = 6 * time.Hour
 	manualRepairSyncTimeout           = 6 * time.Hour
 )
 

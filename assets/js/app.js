@@ -2680,6 +2680,11 @@ document.addEventListener("DOMContentLoaded", function () {
     source.onerror = function () {
       source.close()
       if (appEventSource === source) appEventSource = null
+      for (var folderID in syncStatesByFolder) {
+        if (!Object.prototype.hasOwnProperty.call(syncStatesByFolder, folderID)) continue
+        if (syncStatesByFolder[folderID]) syncStatesByFolder[folderID].active = false
+      }
+      applyActiveFolderSyncState()
       setTimeout(setupSSE, 5000)
     }
   }

@@ -947,6 +947,10 @@ type DraftMessageInput struct {
 }
 
 func (db *DB) ReindexMessageSearch(ctx context.Context, messageID int64) error {
+	return db.ReindexMessagesSearch(ctx, []int64{messageID})
+}
+
+func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) error {
 	type searchDoc struct {
 		accountID       string
 		threadKey       string
@@ -959,8 +963,17 @@ func (db *DB) ReindexMessageSearch(ctx context.Context, messageID int64) error {
 		bodyTextPath    sql.NullString
 	}
 
-	var doc searchDoc
-	err := db.Write().QueryRowContext(ctx, `
+	messageIDs = compactMessageIDs(messageIDs)
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin message search batch: %w", err)
+	}
+	defer tx.Rollback()
+
+	loadStmt, err := tx.PrepareContext(ctx, `
 		SELECT m.account_id,
 		       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)),
 		       COALESCE(m.subject, ''),
@@ -971,34 +984,65 @@ func (db *DB) ReindexMessageSearch(ctx context.Context, messageID int64) error {
 		       COALESCE((SELECT group_concat(att.filename, ' ') FROM attachments att WHERE att.message_id = m.id), ''),
 		       m.body_text_path
 		FROM messages m
-		WHERE m.id = ?`, messageID).Scan(
-		&doc.accountID, &doc.threadKey, &doc.subject, &doc.sender, &doc.recipients,
-		&doc.snippet, &doc.body, &doc.attachmentNames, &doc.bodyTextPath,
-	)
-	if err == sql.ErrNoRows {
-		_, deleteErr := db.Write().ExecContext(ctx, `DELETE FROM message_search WHERE rowid = ?`, messageID)
-		return deleteErr
-	}
+		WHERE m.id = ?`)
 	if err != nil {
-		return fmt.Errorf("load message search doc: %w", err)
+		return fmt.Errorf("prepare message search load: %w", err)
 	}
-	if doc.bodyTextPath.Valid && doc.bodyTextPath.String != "" {
-		if body, readErr := os.ReadFile(doc.bodyTextPath.String); readErr == nil {
-			doc.body = string(body)
+	defer loadStmt.Close()
+	deleteStmt, err := tx.PrepareContext(ctx, `DELETE FROM message_search WHERE rowid = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare message search delete: %w", err)
+	}
+	defer deleteStmt.Close()
+	insertStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO message_search(rowid, account_id, thread_key, subject, sender, recipients, snippet, body, attachment_names)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare message search insert: %w", err)
+	}
+	defer insertStmt.Close()
+
+	for _, messageID := range messageIDs {
+		var doc searchDoc
+		err := loadStmt.QueryRowContext(ctx, messageID).Scan(
+			&doc.accountID, &doc.threadKey, &doc.subject, &doc.sender, &doc.recipients,
+			&doc.snippet, &doc.body, &doc.attachmentNames, &doc.bodyTextPath,
+		)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("load message search doc: %w", err)
+		}
+		if _, err := deleteStmt.ExecContext(ctx, messageID); err != nil {
+			return fmt.Errorf("delete message search doc: %w", err)
+		}
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if doc.bodyTextPath.Valid && doc.bodyTextPath.String != "" {
+			if body, readErr := os.ReadFile(doc.bodyTextPath.String); readErr == nil {
+				doc.body = string(body)
+			}
+		}
+		if _, err := insertStmt.ExecContext(ctx,
+			messageID, doc.accountID, doc.threadKey, doc.subject, doc.sender, doc.recipients,
+			doc.snippet, doc.body, doc.attachmentNames,
+		); err != nil {
+			return fmt.Errorf("insert message search doc: %w", err)
 		}
 	}
+	return tx.Commit()
+}
 
-	if _, err := db.Write().ExecContext(ctx, `DELETE FROM message_search WHERE rowid = ?`, messageID); err != nil {
-		return fmt.Errorf("delete message search doc: %w", err)
+func compactMessageIDs(messageIDs []int64) []int64 {
+	seen := make(map[int64]bool, len(messageIDs))
+	compacted := make([]int64, 0, len(messageIDs))
+	for _, messageID := range messageIDs {
+		if messageID <= 0 || seen[messageID] {
+			continue
+		}
+		seen[messageID] = true
+		compacted = append(compacted, messageID)
 	}
-	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO message_search(rowid, account_id, thread_key, subject, sender, recipients, snippet, body, attachment_names)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		messageID, doc.accountID, doc.threadKey, doc.subject, doc.sender, doc.recipients, doc.snippet, doc.body, doc.attachmentNames,
-	); err != nil {
-		return fmt.Errorf("insert message search doc: %w", err)
-	}
-	return nil
+	return compacted
 }
 
 func (db *DB) deleteMessageSearch(ctx context.Context, messageID int64) error {
@@ -1711,13 +1755,59 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	for _, m := range observed {
-		db.UpsertObservedContactsForMessage(ctx, m.accountID, m.fromName, m.fromEmail, m.toRecipients, m.ccRecipients, m.bccRecipients, m.dateSent)
+	observedByAccount := make(map[string][]observedMessage)
+	for _, message := range observed {
+		observedByAccount[message.accountID] = append(observedByAccount[message.accountID], message)
 	}
-	for _, msgID := range msgIDs {
-		if err := db.ReindexMessageSearch(ctx, msgID); err != nil {
-			return nil, err
+	for accountID, messages := range observedByAccount {
+		userID, err := db.GetAccountUserID(ctx, accountID)
+		if err != nil || userID == "" {
+			continue
 		}
+		settings := db.GetContactSettings(ctx, userID)
+		type observedContact struct {
+			name   string
+			email  string
+			seenAt time.Time
+			count  int
+		}
+		contacts := make(map[string]observedContact)
+		addContact := func(name, email string, seenAt time.Time) {
+			normalized := normalizeContactEmail(email)
+			if normalized == "" {
+				return
+			}
+			contact := contacts[normalized]
+			contact.count++
+			if contact.email == "" || seenAt.After(contact.seenAt) {
+				contact.name = name
+				contact.email = email
+				contact.seenAt = seenAt
+			}
+			contacts[normalized] = contact
+		}
+		for _, message := range messages {
+			if settings.ObserveSenders {
+				addContact(message.fromName, message.fromEmail, message.dateSent)
+			}
+			if settings.ObserveRecipients {
+				for _, recipient := range message.toRecipients {
+					addContact(recipient.Name, recipient.Email, message.dateSent)
+				}
+				for _, recipient := range message.ccRecipients {
+					addContact(recipient.Name, recipient.Email, message.dateSent)
+				}
+				for _, recipient := range message.bccRecipients {
+					addContact(recipient.Name, recipient.Email, message.dateSent)
+				}
+			}
+		}
+		for _, contact := range contacts {
+			_ = db.upsertObservedContact(ctx, userID, contact.name, contact.email, contact.seenAt, contact.count, settings)
+		}
+	}
+	if err := db.ReindexMessagesSearch(ctx, msgIDs); err != nil {
+		return nil, err
 	}
 	return idsByProvider, nil
 }
@@ -3307,6 +3397,7 @@ func (db *DB) UpdateProviderFolderSyncState(ctx context.Context, folderID, curso
 	if full {
 		_, err := db.Write().ExecContext(ctx,
 			`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
+			 sync_progress_current = 0, sync_progress_started_at = NULL,
 			 last_full_sync_at = CURRENT_TIMESTAMP, sync_error = NULL,
 			 provider_count_drift_first_seen_at = NULL,
 			 provider_count_drift_last_seen_at = NULL,
@@ -3316,26 +3407,38 @@ func (db *DB) UpdateProviderFolderSyncState(ctx context.Context, folderID, curso
 			 provider_count_drift_confirmations = 0,
 			 updated_at = CURRENT_TIMESTAMP
 			 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), folderID)
-		if err != nil {
-			return err
-		}
-		return db.RefreshFolderThreadState(ctx, folderID)
-	}
-	_, err := db.Write().ExecContext(ctx,
-		`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
-		 last_incremental_sync_at = CURRENT_TIMESTAMP, sync_error = NULL, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), folderID)
-	if err != nil {
 		return err
 	}
-	return db.RefreshFolderThreadState(ctx, folderID)
-}
-
-func (db *DB) UpdateProviderFolderPageCursor(ctx context.Context, folderID, cursor string, totalCount, unreadCount int) error {
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
-		 sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+		 sync_progress_current = 0, sync_progress_started_at = NULL,
+		 last_incremental_sync_at = CURRENT_TIMESTAMP, sync_error = NULL,
+		 provider_count_drift_first_seen_at = NULL,
+		 provider_count_drift_last_seen_at = NULL,
+		 provider_count_drift_local_count = 0,
+		 provider_count_drift_remote_count = 0,
+		 provider_count_drift_cursor = '',
+		 provider_count_drift_confirmations = 0,
+		 updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), folderID)
+	return err
+}
+
+func (db *DB) StartProviderFolderBaseline(ctx context.Context, folderID string) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE folders SET sync_progress_current = 0, sync_progress_started_at = CURRENT_TIMESTAMP,
+		 sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, folderID)
+	return err
+}
+
+func (db *DB) UpdateProviderFolderPageCursor(ctx context.Context, folderID, cursor string, current, totalCount, unreadCount int) error {
+	_, err := db.Write().ExecContext(ctx,
+		`UPDATE folders SET sync_cursor = ?, total_count = ?, unread_count = ?,
+		 sync_progress_current = ?,
+		 sync_progress_started_at = COALESCE(sync_progress_started_at, CURRENT_TIMESTAMP),
+		 sync_error = NULL, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, strings.TrimSpace(cursor), clampNonNegative(totalCount), clampNonNegative(unreadCount), clampNonNegative(current), folderID)
 	return err
 }
 
@@ -3811,6 +3914,96 @@ func (db *DB) RefreshFolderThreadState(ctx context.Context, folderID string) err
 	}
 	defer tx.Rollback()
 	if err := db.refreshFolderThreadStateTx(ctx, tx, folderID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (db *DB) RefreshFolderThreadsForMessages(ctx context.Context, folderID string, messageIDs []int64) error {
+	folderID = strings.TrimSpace(folderID)
+	messageIDs = compactMessageIDs(messageIDs)
+	if folderID == "" || len(messageIDs) == 0 {
+		return nil
+	}
+
+	idArgs := make([]any, 0, len(messageIDs))
+	for _, messageID := range messageIDs {
+		idArgs = append(idArgs, messageID)
+	}
+	placeholders := sqlPlaceholders(len(messageIDs))
+	keyArgs := append([]any{}, idArgs...)
+	keyArgs = append(keyArgs, folderID)
+	keyArgs = append(keyArgs, idArgs...)
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT DISTINCT COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id))
+		FROM messages
+		WHERE id IN (`+placeholders+`)
+		UNION
+		SELECT thread_key
+		FROM folder_thread_state
+		WHERE folder_id = ? AND head_message_id IN (`+placeholders+`)`, keyArgs...)
+	if err != nil {
+		return err
+	}
+	var threadKeys []string
+	for rows.Next() {
+		var threadKey string
+		if err := rows.Scan(&threadKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if threadKey = strings.TrimSpace(threadKey); threadKey != "" {
+			threadKeys = append(threadKeys, threadKey)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(threadKeys) == 0 {
+		return nil
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	threadArgs := stringsToAny(threadKeys)
+	threadPlaceholders := sqlPlaceholders(len(threadKeys))
+	deleteArgs := append([]any{folderID}, threadArgs...)
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM folder_thread_state WHERE folder_id = ? AND thread_key IN (`+threadPlaceholders+`)`, deleteArgs...); err != nil {
+		return err
+	}
+	insertArgs := append([]any{folderID}, threadArgs...)
+	insertArgs = append(insertArgs, folderID)
+	_, err = tx.ExecContext(ctx, `WITH base AS (
+			SELECT m.id, m.account_id, m.date_received, m.has_attachments,
+			       mfs.is_read, mfs.is_starred,
+			       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) AS thread_key,
+			       COALESCE(m.date_received, '') || ':' || printf('%020d', m.id) AS row_key
+			FROM message_folder_state mfs
+			JOIN messages m ON mfs.message_id = m.id
+			WHERE mfs.folder_id = ? AND mfs.is_deleted = 0
+			  AND COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) IN (`+threadPlaceholders+`)
+		), grouped AS (
+			SELECT thread_key, MAX(row_key) AS row_key, COUNT(*) AS thread_count,
+			       MIN(is_read) AS thread_is_read, MAX(is_starred) AS thread_is_starred,
+			       MAX(has_attachments) AS thread_has_attachments
+			FROM base
+			GROUP BY thread_key
+		)
+		INSERT OR REPLACE INTO folder_thread_state (
+			folder_id, thread_key, head_message_id, account_id, last_message_at,
+			thread_count, thread_is_read, thread_is_starred, thread_has_attachments, updated_at
+		)
+		SELECT ?, b.thread_key, b.id, b.account_id, b.date_received,
+		       g.thread_count, g.thread_is_read, g.thread_is_starred, g.thread_has_attachments, CURRENT_TIMESTAMP
+		FROM grouped g
+		JOIN base b ON b.thread_key = g.thread_key AND b.row_key = g.row_key`, insertArgs...)
+	if err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -6572,6 +6765,8 @@ type FolderSyncInfo struct {
 	LastFullSyncAt                  sqliteNullTime
 	LastIncrementalAt               sqliteNullTime
 	SyncCursor                      string
+	SyncProgressCurrent             int
+	SyncProgressStartedAt           sqliteNullTime
 	TotalCount                      int
 	LocalMessageCount               int
 	ProviderMessageCount            int
@@ -7031,6 +7226,7 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		`SELECT f.id, f.account_id, f.remote_id, COALESCE(f.provider_remote_id, ''), f.role,
 		        COALESCE(f.uid_validity, 0), COALESCE(f.highest_seen_uid, 0), COALESCE(f.highest_modseq, 0),
 		        f.last_full_sync_at, f.last_incremental_sync_at, COALESCE(f.sync_cursor, ''),
+		        COALESCE(f.sync_progress_current, 0), f.sync_progress_started_at,
 		        COALESCE(f.total_count, 0),
 		        COALESCE((SELECT COUNT(*) FROM message_folder_state mfs WHERE mfs.folder_id = f.id AND mfs.is_deleted = 0), 0),
 		        COALESCE((
@@ -7068,6 +7264,7 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		if err := rows.Scan(&f.ID, &f.AccountID, &f.RemoteID, &f.ProviderRemoteID, &f.Role,
 			&f.UIDValidity, &f.HighestSeenUID, &f.HighestModSeq,
 			&f.LastFullSyncAt, &f.LastIncrementalAt, &f.SyncCursor,
+			&f.SyncProgressCurrent, &f.SyncProgressStartedAt,
 			&f.TotalCount, &f.LocalMessageCount, &f.ProviderMessageCount,
 			&f.ProviderCountDriftFirstSeenAt, &f.ProviderCountDriftLastSeenAt,
 			&f.ProviderCountDriftLocalCount, &f.ProviderCountDriftRemoteCount,

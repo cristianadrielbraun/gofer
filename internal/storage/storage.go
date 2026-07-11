@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 63
+	const targetSchemaVersion = 64
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -522,6 +522,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 62 {
 		if err := migrateV62ToV63(tx); err != nil {
 			return fmt.Errorf("migrate v62 to v63: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 63 {
+		if err := migrateV63ToV64(tx); err != nil {
+			return fmt.Errorf("migrate v63 to v64: %w", err)
 		}
 	}
 
@@ -2506,6 +2512,34 @@ func migrateV62ToV63(tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+func migrateV63ToV64(tx *sql.Tx) error {
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{"sync_progress_current", `ALTER TABLE folders ADD COLUMN sync_progress_current INTEGER NOT NULL DEFAULT 0`},
+		{"sync_progress_started_at", `ALTER TABLE folders ADD COLUMN sync_progress_started_at DATETIME`},
+	}
+	if ok, err := tableExistsTx(tx, "folders"); err != nil {
+		return err
+	} else if ok {
+		for _, column := range columns {
+			exists, err := columnExistsTx(tx, "folders", column.name)
+			if err != nil {
+				return err
+			}
+			if exists {
+				continue
+			}
+			if _, err := tx.Exec(column.sql); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (64)`)
+	return err
 }
 
 func tableExistsTx(tx *sql.Tx, table string) (bool, error) {

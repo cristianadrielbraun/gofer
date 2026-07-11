@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS folders (
     uid_validity INTEGER,
     uid_next INTEGER,
     sync_cursor TEXT,
+    sync_progress_current INTEGER NOT NULL DEFAULT 0,
+    sync_progress_started_at DATETIME,
     highest_seen_uid INTEGER NOT NULL DEFAULT 0,
     highest_modseq INTEGER,
     last_full_sync_at DATETIME,
@@ -1020,4 +1022,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (63);
+INSERT OR REPLACE INTO schema_version (version) VALUES (64);

@@ -43,8 +43,8 @@ func TestOutlookGraphMessagesDeltaEndpointUsesPreferHeaderPagingOnly(t *testing.
 		t.Fatalf("delta endpoint = %q, want $select query", endpoint)
 	}
 	headers := outlookGraphHeaders(outlookGraphMessagePageSize)
-	if !strings.Contains(headers["Prefer"], "odata.maxpagesize=50") {
-		t.Fatalf("Prefer = %q, want odata.maxpagesize=50", headers["Prefer"])
+	if !strings.Contains(headers["Prefer"], "odata.maxpagesize=250") {
+		t.Fatalf("Prefer = %q, want odata.maxpagesize=250", headers["Prefer"])
 	}
 }
 
@@ -611,6 +611,9 @@ func TestSyncOutlookGraphFolderFullBaselineSavesNextLinkAndResumes(t *testing.T)
 	if got := queryOutlookGraphFolderCursor(t, ctx, db); got != nextLink {
 		t.Fatalf("sync_cursor after interrupted full baseline = %q, want nextLink %q", got, nextLink)
 	}
+	if got := queryOutlookGraphFolderProgress(t, ctx, db); got != 1 {
+		t.Fatalf("sync progress after interrupted full baseline = %d, want 1", got)
+	}
 	if got := queryOutlookGraphProviderMessageCount(t, ctx, db); got != 1 {
 		t.Fatalf("provider-backed message count after first page = %d, want 1", got)
 	}
@@ -619,17 +622,68 @@ func TestSyncOutlookGraphFolderFullBaselineSavesNextLinkAndResumes(t *testing.T)
 	}
 
 	failSecondPage = false
+	events := orchestrator.events.Subscribe()
+	defer orchestrator.events.Unsubscribe(events)
 	if err := orchestrator.syncOutlookGraphFolder(ctx, "acc", "graph-token", outlookGraphInboxTargetFromDB(t, ctx, db), nil, 1, 1); err != nil {
 		t.Fatalf("resumed sync error = %v", err)
 	}
+	var resumedStart *Event
+	for len(events) > 0 {
+		event := <-events
+		if event.Type == EventSyncStarted {
+			copy := event
+			resumedStart = &copy
+			break
+		}
+	}
+	if resumedStart == nil || resumedStart.Current != 1 || resumedStart.Total != 0 || resumedStart.Payload["total_estimated"] != true {
+		t.Fatalf("resumed sync start = %#v, want current=1 with indeterminate total", resumedStart)
+	}
 	if got := queryOutlookGraphFolderCursor(t, ctx, db); got != deltaLink {
 		t.Fatalf("sync_cursor after resumed full baseline = %q, want delta link %q", got, deltaLink)
+	}
+	if got := queryOutlookGraphFolderProgress(t, ctx, db); got != 0 {
+		t.Fatalf("sync progress after completed full baseline = %d, want cleared", got)
 	}
 	if got := queryOutlookGraphProviderMessageCount(t, ctx, db); got != 3 {
 		t.Fatalf("provider-backed message count after resume = %d, want 3", got)
 	}
 	if got := queryOutlookGraphVisibleThreadCount(t, ctx, db); got != 3 {
 		t.Fatalf("visible thread count after resumed full baseline = %d, want 3", got)
+	}
+}
+
+func TestSyncOutlookGraphFolderPublishesCompletionWhenCancelled(t *testing.T) {
+	db := newLabelSyncTestDB(t)
+	seedOutlookGraphFolder(t, context.Background(), db)
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("cancelled sync unexpectedly reached Graph")
+	}))
+	defer server.Close()
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	events := orchestrator.events.Subscribe()
+	defer orchestrator.events.Unsubscribe(events)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := orchestrator.syncOutlookGraphFolder(ctx, "acc", "graph-token", outlookGraphInboxTargetFromDB(t, context.Background(), db), nil, 1, 1)
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("cancelled sync error = %v, want context canceled", err)
+	}
+	var completion *Event
+	for len(events) > 0 {
+		event := <-events
+		if event.Type == EventSyncComplete {
+			copy := event
+			completion = &copy
+			break
+		}
+	}
+	if completion == nil || completion.Payload["status"] != "cancelled" {
+		t.Fatalf("cancelled sync completion = %#v, want terminal cancelled event", completion)
 	}
 }
 
@@ -676,13 +730,13 @@ func TestSyncOutlookGraphFolderOldFullSyncStillUsesDelta(t *testing.T) {
 	}
 }
 
-func TestSyncOutlookGraphFolderCountDriftRequiresSecondCompletedDelta(t *testing.T) {
+func TestSyncOutlookGraphFolderDoesNotRestartForFolderItemCountMismatch(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)
 	seedOutlookGraphFolder(t, ctx, db)
 	seedOutlookGraphProviderMessages(t, ctx, db, "graph-existing")
 
-	var firstDelta, secondDelta, fullDelta string
+	var firstDelta string
 	var baselineRequests int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -691,47 +745,19 @@ func TestSyncOutlookGraphFolderCountDriftRequiresSecondCompletedDelta(t *testing
 				"value":            []map[string]any{},
 				"@odata.deltaLink": firstDelta,
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/delta/after-first":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"value":            []map[string]any{},
-				"@odata.deltaLink": secondDelta,
-			})
-		case r.Method == http.MethodGet && r.URL.Path == "/me/mailFolders/folder-inbox":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":              "folder-inbox",
-				"displayName":     "Inbox",
-				"totalItemCount":  2,
-				"unreadItemCount": 0,
-			})
 		case r.Method == http.MethodGet && r.URL.Path == "/me/mailFolders/folder-inbox/messages/delta":
 			baselineRequests++
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"value": []map[string]any{
-					{
-						"id":                "graph-existing",
-						"internetMessageId": "<graph-existing@example.com>",
-						"subject":           "Existing",
-						"from":              map[string]any{"emailAddress": map[string]string{"address": "sender@example.com"}},
-					},
-					{
-						"id":                "graph-missing",
-						"internetMessageId": "<graph-missing@example.com>",
-						"subject":           "Missing",
-						"from":              map[string]any{"emailAddress": map[string]string{"address": "sender@example.com"}},
-					},
-				},
-				"@odata.deltaLink": fullDelta,
-			})
+			t.Fatalf("item count mismatch triggered a full baseline")
 		default:
 			t.Fatalf("unexpected Graph request %s %s", r.Method, r.URL.String())
 		}
 	}))
 	defer server.Close()
 	firstDelta = server.URL + "/delta/after-first"
-	secondDelta = server.URL + "/delta/after-second"
-	fullDelta = server.URL + "/delta/full-recovered"
 
-	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET total_count = 2, sync_cursor = ?, last_full_sync_at = CURRENT_TIMESTAMP WHERE id = 'acc_inbox'`, server.URL+"/delta/current"); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET total_count = 2, sync_cursor = ?, last_full_sync_at = CURRENT_TIMESTAMP,
+		provider_count_drift_local_count = 1, provider_count_drift_remote_count = 2, provider_count_drift_confirmations = 2
+		WHERE id = 'acc_inbox'`, server.URL+"/delta/current"); err != nil {
 		t.Fatalf("set drift candidate folder state: %v", err)
 	}
 
@@ -749,27 +775,11 @@ func TestSyncOutlookGraphFolderCountDriftRequiresSecondCompletedDelta(t *testing
 	if got := queryOutlookGraphFolderCursor(t, ctx, db); got != firstDelta {
 		t.Fatalf("sync_cursor after first drift observation = %q, want %q", got, firstDelta)
 	}
-	if got := queryOutlookGraphCountDriftConfirmations(t, ctx, db); got != 1 {
-		t.Fatalf("drift confirmations after first sync = %d, want 1", got)
+	if got := queryOutlookGraphCountDriftConfirmations(t, ctx, db); got != 0 {
+		t.Fatalf("stale drift confirmations after delta completion = %d, want 0", got)
 	}
 	if got := queryOutlookGraphProviderMessageCount(t, ctx, db); got != 1 {
 		t.Fatalf("provider-backed message count after first sync = %d, want still 1", got)
-	}
-
-	if err := orchestrator.syncOutlookGraphFolder(ctx, "acc", "graph-token", outlookGraphInboxTargetFromDB(t, ctx, db), nil, 1, 1); err != nil {
-		t.Fatalf("second sync error = %v", err)
-	}
-	if baselineRequests != 1 {
-		t.Fatalf("baseline requests after confirmed drift = %d, want 1", baselineRequests)
-	}
-	if got := queryOutlookGraphProviderMessageCount(t, ctx, db); got != 2 {
-		t.Fatalf("provider-backed message count after repair = %d, want 2", got)
-	}
-	if got := queryOutlookGraphCountDriftConfirmations(t, ctx, db); got != 0 {
-		t.Fatalf("drift confirmations after repair = %d, want cleared", got)
-	}
-	if got := queryOutlookGraphFolderCursor(t, ctx, db); got != fullDelta {
-		t.Fatalf("sync_cursor after repair = %q, want recovered delta link %q", got, fullDelta)
 	}
 }
 
@@ -1299,6 +1309,15 @@ func queryOutlookGraphFolderCursor(t *testing.T, ctx context.Context, db *storag
 		t.Fatalf("query sync cursor: %v", err)
 	}
 	return cursor
+}
+
+func queryOutlookGraphFolderProgress(t *testing.T, ctx context.Context, db *storage.DB) int {
+	t.Helper()
+	var current int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(sync_progress_current, 0) FROM folders WHERE id = 'acc_inbox'`).Scan(&current); err != nil {
+		t.Fatalf("query sync progress: %v", err)
+	}
+	return current
 }
 
 func queryOutlookGraphProviderMessageCount(t *testing.T, ctx context.Context, db *storage.DB) int {
