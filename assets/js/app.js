@@ -43,6 +43,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupMailTableColumnResize()
   setupSSE()
   setupOutgoingSendStatus()
+  setupMailOperationActions()
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
@@ -4511,6 +4512,7 @@ var _outgoingStatusLoadTimer = null
 var _outgoingStatusLoading = false
 var _outgoingStatusReloadQueued = false
 var _outgoingStatusSetupDone = false
+var _mailOperationActionsSetupDone = false
 
 function outgoingStatusEscape(value) {
   return String(value == null ? "" : value).replace(/[&<>'"]/g, function (ch) {
@@ -4812,6 +4814,43 @@ function setupOutgoingSendStatus() {
       }
     }
   }).observe(document.body, { childList: true, subtree: true })
+}
+
+function setupMailOperationActions() {
+  if (_mailOperationActionsSetupDone) return
+  _mailOperationActionsSetupDone = true
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-mail-operation-retry]") : null
+    if (!button) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    var operationID = button.getAttribute("data-mail-operation-id") || ""
+    if (!operationID) return
+    button.disabled = true
+    fetch("/api/mail-operations/" + encodeURIComponent(operationID) + "/retry", {
+      method: "POST",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || "Could not retry mail operation")
+        return data
+      })
+    }).then(function () {
+      if (window.htmx && typeof window.htmx.ajax === "function") {
+        window.htmx.ajax("GET", "/settings/operations/content", { target: "#mail-operations-content", swap: "outerHTML" })
+      } else {
+        window.location.reload()
+      }
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: "Mail operation queued", description: "Gofer will try the provider operation again.", variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
+      }
+    }).catch(function (error) {
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: "Could not retry operation", description: error && error.message ? error.message : "The operation was not changed.", variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+      }
+      button.disabled = false
+    })
+  })
 }
 
 function setMailViewEmpty() {

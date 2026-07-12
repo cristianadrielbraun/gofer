@@ -234,6 +234,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/contacts/{$}", h.handleAdminContacts)
 	adminRoute("GET /admin/labels", h.handleAdminLabels)
 	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)
+	adminRoute("GET /admin/operations", h.handleAdminOperations)
+	adminRoute("GET /admin/operations/{$}", h.handleAdminOperations)
 	adminRoute("GET /admin/security", h.handleAdminSecurity)
 	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)
@@ -275,6 +277,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/accounts/{id}", h.handleDeleteAccount)
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
+	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
 	mux.HandleFunc("GET /api/settings/ui", h.handleGetUISettings)
@@ -300,6 +303,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/outgoing-sends/{id}/retry", h.handleOutgoingSendRetry)
 	mux.HandleFunc("POST /api/outgoing-sends/{id}/retry-now", h.handleOutgoingSendRetryNow)
 	mux.HandleFunc("POST /api/outgoing-sends/{id}/cancel", h.handleOutgoingSendCancel)
+	mux.HandleFunc("GET /api/mail-operations", h.handleMailOperations)
+	mux.HandleFunc("POST /api/mail-operations/{id}/retry", h.handleRetryMailOperation)
+	adminRoute("GET /api/admin/mail-operations/status", h.handleAdminMailOperationsStatus)
 	mux.HandleFunc("GET /api/sidebar/mail", h.handleMailSidebar)
 	mux.HandleFunc("GET /api/sidebar/accounts/{id}", h.handleSidebarAccount)
 	mux.HandleFunc("POST /api/mail/sync", h.handleSyncMail)
@@ -2586,7 +2592,7 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 	tab := r.PathValue("tab")
-	if tab != "accounts" && tab != "sync" && tab != "contacts" && tab != "appearance" && tab != "regional" && tab != "compose-display" && tab != "advanced" {
+	if tab != "accounts" && tab != "sync" && tab != "operations" && tab != "contacts" && tab != "appearance" && tab != "regional" && tab != "compose-display" && tab != "advanced" {
 		http.NotFound(w, r)
 		return
 	}

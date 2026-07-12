@@ -334,7 +334,7 @@ templ ContactsShell(accounts []models.Account, contacts []models.Contact, select
 	</div>
 }
 
-templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, activeSection string, activeTab string) {
+templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -368,6 +368,8 @@ templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus
 						@AdminLabelsPage(labelStatus)
 					} else if activeSection == "security" {
 						@AdminSecurityPage(securityData)
+					} else if activeSection == "operations" {
+						@AdminMailOperationsPage(operationStatus)
 					} else {
 						@AdminPage(avatarStatus, activeTab)
 					}
@@ -468,7 +470,7 @@ templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSetting
 	<div id="edit-account-container"></div>
 }
 
-templ AdminPartial(avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, activeSection string, activeTab string) {
+templ AdminPartial(avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
 	<div id="main-content" class="flex flex-1 min-w-0">
 		if activeSection == "contacts" {
 			@AdminContactsPage(contactStatus)
@@ -476,6 +478,8 @@ templ AdminPartial(avatarStatus models.AvatarStatus, contactStatus models.Contac
 			@AdminLabelsPage(labelStatus)
 		} else if activeSection == "security" {
 			@AdminSecurityPage(securityData)
+		} else if activeSection == "operations" {
+			@AdminMailOperationsPage(operationStatus)
 		} else {
 			@AdminPage(avatarStatus, activeTab)
 		}

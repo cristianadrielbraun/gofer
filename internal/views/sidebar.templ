@@ -265,6 +265,7 @@ templ SettingsSidebar(activeTab string, width string) {
 			<div class="px-2.5 pb-2 text-[11px] text-sidebar-foreground/45 uppercase tracking-wider font-semibold">Categories</div>
 			@SettingsSidebarItem(activeTab, "accounts", "Accounts")
 			@SettingsSidebarItem(activeTab, "sync", "Email sync and folders settings")
+			@SettingsSidebarItem(activeTab, "operations", "Mail operations")
 			@SettingsSidebarItem(activeTab, "contacts", "Contacts")
 			@SettingsSidebarItem(activeTab, "appearance", "Appearance")
 			@SettingsSidebarItem(activeTab, "regional", "Regional")
@@ -304,6 +305,8 @@ templ SettingsSidebarItemIcon(value string) {
 			@icon.User(icon.Props{Class: "size-4"})
 		case "sync":
 			@icon.RefreshCw(icon.Props{Class: "size-4"})
+		case "operations":
+			@icon.ClipboardList(icon.Props{Class: "size-4"})
 		case "contacts":
 			@icon.BookUser(icon.Props{Class: "size-4"})
 		case "appearance":
