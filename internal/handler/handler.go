@@ -71,6 +71,8 @@ type Handler struct {
 	messageMutationIMAPFactory messageMutationIMAPClientFactory
 	retentionMu                sync.RWMutex
 	retentionState             models.MailRetentionDiagnostics
+	smtpProfileMu              sync.RWMutex
+	smtpProfile                smtpDeliveryProfileState
 }
 
 const (

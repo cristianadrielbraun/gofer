@@ -25,6 +25,19 @@ type Client struct {
 	client *smtp.Client
 }
 
+// DeliveryTiming contains the durations and connection usage for one SMTP
+// delivery attempt. It is intentionally separate from the delivery result so
+// callers can measure the existing one-message-per-connection behavior before
+// deciding whether connection reuse is worth the added state machine.
+type DeliveryTiming struct {
+	ConnectAuth           time.Duration
+	Data                  time.Duration
+	Total                 time.Duration
+	QueueWait             time.Duration
+	ConnectionEstablished bool
+	MessagesPerConnection int
+}
+
 type deliveryError struct {
 	err       error
 	retryable bool
@@ -265,6 +278,17 @@ func (c *Client) SendRaw(ctx context.Context, from string, recipients []string, 
 	return models.SendSuccess, nil
 }
 
+func (c *Client) sendRawWithTiming(ctx context.Context, from string, recipients []string, mimeData []byte) (models.SendResult, error, DeliveryTiming) {
+	startedAt := time.Now()
+	result, err := c.SendRaw(ctx, from, recipients, mimeData)
+	return result, err, DeliveryTiming{
+		Data:                  time.Since(startedAt),
+		Total:                 time.Since(startedAt),
+		ConnectionEstablished: true,
+		MessagesPerConnection: 1,
+	}
+}
+
 func smtpEnvelopeRequiresUTF8(from string, recipients []string) bool {
 	if smtpAddressRequiresUTF8(from) {
 		return true
@@ -316,11 +340,27 @@ func SendMessage(ctx context.Context, cfg *models.AccountConfig, password string
 }
 
 func SendRawMessage(ctx context.Context, cfg *models.AccountConfig, password, from string, recipients []string, mimeData []byte) (models.SendResult, error) {
+	result, err, _ := SendRawMessageWithTiming(ctx, cfg, password, from, recipients, mimeData)
+	return result, err
+}
+
+// SendRawMessageWithTiming sends one message with a fresh SMTP connection and
+// returns timing data for profiling. It preserves the existing connection
+// lifetime and delivery classification; the timing is observational only.
+func SendRawMessageWithTiming(ctx context.Context, cfg *models.AccountConfig, password, from string, recipients []string, mimeData []byte) (models.SendResult, error, DeliveryTiming) {
+	startedAt := time.Now()
 	c, err := NewClient(ctx, cfg, password)
+	timing := DeliveryTiming{ConnectAuth: time.Since(startedAt)}
 	if err != nil {
-		return models.SendFailed, err
+		timing.Total = time.Since(startedAt)
+		return models.SendFailed, err, timing
 	}
 	defer c.Close()
 
-	return c.SendRaw(ctx, from, recipients, mimeData)
+	timing.ConnectionEstablished = true
+	timing.MessagesPerConnection = 1
+	result, err, sendTiming := c.sendRawWithTiming(ctx, from, recipients, mimeData)
+	timing.Data = sendTiming.Data
+	timing.Total = time.Since(startedAt)
+	return result, err, timing
 }

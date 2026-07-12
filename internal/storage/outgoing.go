@@ -64,6 +64,7 @@ type OutgoingSend struct {
 	SentCopyNextTry     time.Time
 	SentCopyUID         uint32
 	SentCopyUIDValidity uint32
+	CreatedAt           time.Time
 }
 
 // OutgoingSendSummary is the user-safe subset of an outbox row. It deliberately
@@ -562,7 +563,7 @@ const outgoingSendSelect = `SELECT id, account_id, message_id, draft_id, transpo
 	envelope_recipients, mime_data, message_json, send_after, next_attempt_at, is_scheduled,
 	status, attempt_count, last_error, sent_message_id,
 	sent_copy_status, sent_copy_attempt_count, sent_copy_last_error,
-	sent_copy_next_attempt_at, sent_copy_uid, sent_copy_uid_validity
+	sent_copy_next_attempt_at, sent_copy_uid, sent_copy_uid_validity, created_at
 	FROM outgoing_sends`
 
 const outgoingSendSummarySelect = `SELECT os.id, os.account_id, COALESCE(os.message_id, 0), os.draft_id, os.transport,
@@ -582,6 +583,7 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 	var sendAfter sqliteNullTime
 	var nextAttemptAt sqliteNullTime
 	var sentCopyNextTry sqliteNullTime
+	var createdAt sqliteNullTime
 	var scheduled int
 	var sentCopyUID, sentCopyUIDValidity int64
 	if err := row.Scan(
@@ -589,7 +591,7 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 		&recipientsJSON, &send.MIMEData, &send.MessageJSON, &sendAfter, &nextAttemptAt, &scheduled,
 		&send.Status, &send.AttemptCount, &send.LastError, &send.SentMessageID,
 		&send.SentCopyStatus, &send.SentCopyAttempts, &send.SentCopyLastError,
-		&sentCopyNextTry, &sentCopyUID, &sentCopyUIDValidity,
+		&sentCopyNextTry, &sentCopyUID, &sentCopyUIDValidity, &createdAt,
 	); err != nil {
 		return OutgoingSend{}, err
 	}
@@ -605,6 +607,9 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 	send.IsScheduled = scheduled != 0
 	if sentCopyNextTry.Valid {
 		send.SentCopyNextTry = sentCopyNextTry.Time
+	}
+	if createdAt.Valid {
+		send.CreatedAt = createdAt.Time
 	}
 	if sentCopyUID > 0 {
 		send.SentCopyUID = uint32(sentCopyUID)

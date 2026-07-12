@@ -19,6 +19,7 @@ import (
 	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
 	imapclient "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -397,6 +398,38 @@ func TestProviderSendStatusRetryable(t *testing.T) {
 		if got := providerSendStatusRetryable(tc.status); got != tc.want {
 			t.Fatalf("providerSendStatusRetryable(%d) = %v, want %v", tc.status, got, tc.want)
 		}
+	}
+}
+
+func TestSMTPDeliveryProfileAggregatesResultsAndTiming(t *testing.T) {
+	h, _ := newAccountOwnershipTestHandler(t)
+	h.recordSMTPDelivery(models.SendSuccess, smtpclient.DeliveryTiming{
+		ConnectAuth:           10 * time.Millisecond,
+		Data:                  20 * time.Millisecond,
+		Total:                 30 * time.Millisecond,
+		QueueWait:             40 * time.Millisecond,
+		ConnectionEstablished: true, MessagesPerConnection: 1,
+	})
+	h.recordSMTPDelivery(models.SendAmbiguous, smtpclient.DeliveryTiming{
+		ConnectAuth:           20 * time.Millisecond,
+		Data:                  40 * time.Millisecond,
+		Total:                 60 * time.Millisecond,
+		QueueWait:             60 * time.Millisecond,
+		ConnectionEstablished: true, MessagesPerConnection: 1,
+	})
+
+	profile := h.smtpDeliveryProfile()
+	if profile.Samples != 2 || profile.Successes != 1 || profile.Ambiguous != 1 || profile.Failures != 0 {
+		t.Fatalf("SMTP profile result counts = %#v", profile)
+	}
+	if profile.Connections != 2 || profile.Messages != 2 {
+		t.Fatalf("SMTP profile connection usage = %#v, want two connections and messages", profile)
+	}
+	if profile.AvgConnectAuthMs != 15 || profile.AvgDataMs != 30 || profile.AvgTotalMs != 45 {
+		t.Fatalf("SMTP profile averages = %#v, want 15/30/45ms", profile)
+	}
+	if profile.AvgQueueWaitMs <= 0 {
+		t.Fatalf("SMTP profile queue wait = %#v, want positive wait", profile)
 	}
 }
 

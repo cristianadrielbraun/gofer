@@ -190,6 +190,7 @@ func (h *Handler) mailOperationsAdminStatus(ctx context.Context) (models.MailOpe
 	if err := h.mergeIDLEAdminHealth(ctx, &status.Health); err != nil {
 		return models.MailOperationsAdminStatus{}, err
 	}
+	status.Health.SMTPProfile = h.smtpDeliveryProfile()
 	status.Retention = h.mailRetentionDiagnostics()
 	return status, nil
 }

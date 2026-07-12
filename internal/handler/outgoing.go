@@ -530,8 +530,17 @@ func outgoingSendRetryDelay(attempt int) time.Duration {
 }
 
 func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountConfig, send storage.OutgoingSend) error {
+	startedAt := time.Now()
+	queueWait := time.Duration(0)
+	if !send.CreatedAt.IsZero() {
+		queueWait = time.Since(send.CreatedAt)
+		if queueWait < 0 {
+			queueWait = 0
+		}
+	}
 	password, err := h.resolvePassword(ctx, cfg, send.AccountID)
 	if err != nil {
+		h.recordSMTPDelivery(models.SendFailed, smtpclient.DeliveryTiming{Total: time.Since(startedAt), QueueWait: queueWait})
 		return fmt.Errorf("failed to get credentials")
 	}
 	smtpPassword := password
@@ -540,7 +549,10 @@ func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountCo
 			smtpPassword = decrypted
 		}
 	}
-	result, err := smtpclient.SendRawMessage(ctx, cfg, smtpPassword, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
+	result, err, timing := smtpclient.SendRawMessageWithTiming(ctx, cfg, smtpPassword, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
+	timing.Total = time.Since(startedAt)
+	timing.QueueWait = queueWait
+	h.recordSMTPDelivery(result, timing)
 	if err != nil {
 		if result == models.SendAmbiguous {
 			return fmt.Errorf("%w: %v", errOutgoingSendAmbiguous, err)
@@ -557,6 +569,68 @@ func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountCo
 		return fmt.Errorf("failed to send message")
 	}
 	return nil
+}
+
+type smtpDeliveryProfileState struct {
+	Samples     int
+	Successes   int
+	Failures    int
+	Ambiguous   int
+	Connections int
+	Messages    int
+	ConnectAuth time.Duration
+	Data        time.Duration
+	Total       time.Duration
+	QueueWait   time.Duration
+}
+
+func (h *Handler) recordSMTPDelivery(result models.SendResult, timing smtpclient.DeliveryTiming) {
+	h.smtpProfileMu.Lock()
+	defer h.smtpProfileMu.Unlock()
+	h.smtpProfile.Samples++
+	switch result {
+	case models.SendSuccess:
+		h.smtpProfile.Successes++
+	case models.SendAmbiguous:
+		h.smtpProfile.Ambiguous++
+	default:
+		h.smtpProfile.Failures++
+	}
+	if timing.ConnectionEstablished {
+		h.smtpProfile.Connections++
+	}
+	if timing.MessagesPerConnection > 0 {
+		h.smtpProfile.Messages += timing.MessagesPerConnection
+	}
+	h.smtpProfile.ConnectAuth += timing.ConnectAuth
+	h.smtpProfile.Data += timing.Data
+	h.smtpProfile.Total += timing.Total
+	h.smtpProfile.QueueWait += timing.QueueWait
+}
+
+func (h *Handler) smtpDeliveryProfile() models.MailSMTPAdminProfile {
+	h.smtpProfileMu.RLock()
+	defer h.smtpProfileMu.RUnlock()
+	profile := h.smtpProfile
+	return models.MailSMTPAdminProfile{
+		Samples:          profile.Samples,
+		Successes:        profile.Successes,
+		Failures:         profile.Failures,
+		Ambiguous:        profile.Ambiguous,
+		Connections:      profile.Connections,
+		Messages:         profile.Messages,
+		AvgConnectAuthMs: averageDurationMilliseconds(profile.ConnectAuth, profile.Samples),
+		AvgDataMs:        averageDurationMilliseconds(profile.Data, profile.Samples),
+		AvgTotalMs:       averageDurationMilliseconds(profile.Total, profile.Samples),
+		AvgQueueWaitMs:   averageDurationMilliseconds(profile.QueueWait, profile.Samples),
+	}
+}
+
+func averageDurationMilliseconds(total time.Duration, samples int) int64 {
+	if samples <= 0 {
+		return 0
+	}
+	return total.Milliseconds() / int64(samples)
 }
 
 func (h *Handler) finishOutgoingSendRetry(send storage.OutgoingSend, err error) {

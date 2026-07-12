@@ -478,6 +478,50 @@ func TestSendRawWorksWithoutAdvertisedSize(t *testing.T) {
 	waitForSMTPServer(t, serverErr)
 }
 
+func TestSendRawTimingReportsOneConnectionAndTransaction(t *testing.T) {
+	mimeData := []byte("Subject: timing\r\n\r\nbody\r\n")
+	client, serverErr := startSMTPConversation(t, "250 ESMTP\r\n", func(reader *bufio.Reader, conn net.Conn) error {
+		line, err := reader.ReadString('\n')
+		if err != nil || !strings.HasPrefix(line, "MAIL FROM:") {
+			return fmt.Errorf("read MAIL: %q: %w", line, err)
+		}
+		if _, err := fmt.Fprint(conn, "250 sender ok\r\n"); err != nil {
+			return err
+		}
+		line, err = reader.ReadString('\n')
+		if err != nil || !strings.HasPrefix(line, "RCPT TO:") {
+			return fmt.Errorf("read RCPT: %q: %w", line, err)
+		}
+		if _, err := fmt.Fprint(conn, "250 recipient ok\r\n"); err != nil {
+			return err
+		}
+		line, err = reader.ReadString('\n')
+		if err != nil || strings.TrimSpace(line) != "DATA" {
+			return fmt.Errorf("read DATA: %q: %w", line, err)
+		}
+		if _, err := fmt.Fprint(conn, "354 send message\r\n"); err != nil {
+			return err
+		}
+		if err := readSMTPData(reader, mimeData); err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(conn, "250 queued\r\n")
+		return err
+	})
+
+	result, err, timing := client.sendRawWithTiming(context.Background(), "sender@example.com", []string{"recipient@example.com"}, mimeData)
+	if result != models.SendSuccess || err != nil {
+		t.Fatalf("sendRawWithTiming() = %v, %v; want success", result, err)
+	}
+	if !timing.ConnectionEstablished || timing.MessagesPerConnection != 1 {
+		t.Fatalf("timing connection usage = %#v, want one established connection and one message", timing)
+	}
+	if timing.Data <= 0 || timing.Total < timing.Data {
+		t.Fatalf("timing durations = %#v, want positive transaction and total duration", timing)
+	}
+	waitForSMTPServer(t, serverErr)
+}
+
 func TestSendRawRequestsSMTPUTF8ForInternationalizedEnvelope(t *testing.T) {
 	client, serverErr := startSMTPConversation(t, "250-test ESMTP\r\n250 SMTPUTF8\r\n", func(reader *bufio.Reader, conn net.Conn) error {
 		line, err := reader.ReadString('\n')

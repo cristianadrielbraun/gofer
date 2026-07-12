@@ -64,6 +64,9 @@ func TestOutgoingSendLifecycleKeepsImmutablePayload(t *testing.T) {
 	if len(due) != 1 || due[0].ID != queued.ID || !bytes.Equal(due[0].MIMEData, outgoingTestInput("acc", msgID, future, true).MIMEData) {
 		t.Fatalf("claimed = %#v, want original queued payload", due)
 	}
+	if due[0].CreatedAt.IsZero() {
+		t.Fatal("claimed send has no created timestamp for queue-latency measurement")
+	}
 	if err := db.CompleteOutgoingSend(ctx, queued.ID, "<stable@example.com>", false); err != nil {
 		t.Fatalf("CompleteOutgoingSend() error = %v", err)
 	}

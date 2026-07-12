@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -139,6 +140,11 @@ func TestMailOperationsAdminStatusIncludesRetentionDiagnostics(t *testing.T) {
 	h, _ := newAccountOwnershipTestHandler(t)
 	runAt := time.Date(2026, time.July, 12, 12, 0, 0, 0, time.UTC)
 	h.runMailRetentionAt(t.Context(), runAt)
+	h.recordSMTPDelivery(models.SendSuccess, smtpclient.DeliveryTiming{
+		ConnectAuth: 10 * time.Millisecond, Data: 20 * time.Millisecond, Total: 30 * time.Millisecond,
+		QueueWait:             40 * time.Millisecond,
+		ConnectionEstablished: true, MessagesPerConnection: 1,
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/mail-operations/status", nil)
 	rec := httptest.NewRecorder()
@@ -155,5 +161,8 @@ func TestMailOperationsAdminStatusIncludesRetentionDiagnostics(t *testing.T) {
 	}
 	if status.Retention.LastError != "" {
 		t.Fatalf("retention error = %q", status.Retention.LastError)
+	}
+	if status.Health.SMTPProfile.Samples != 1 || status.Health.SMTPProfile.Successes != 1 {
+		t.Fatalf("SMTP profile = %#v, want one successful sample", status.Health.SMTPProfile)
 	}
 }

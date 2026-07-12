@@ -113,6 +113,22 @@ type MailFolderSyncAdminCounts struct {
 	Failed   int `json:"failed"`
 }
 
+// MailSMTPAdminProfile is a process-lifetime baseline for generic SMTP
+// delivery. It contains aggregate timings only; no account, recipient, or
+// message data is retained.
+type MailSMTPAdminProfile struct {
+	Samples          int   `json:"samples"`
+	Successes        int   `json:"successes"`
+	Failures         int   `json:"failures"`
+	Ambiguous        int   `json:"ambiguous"`
+	Connections      int   `json:"connections"`
+	Messages         int   `json:"messages"`
+	AvgConnectAuthMs int64 `json:"avg_connect_auth_ms"`
+	AvgDataMs        int64 `json:"avg_data_ms"`
+	AvgTotalMs       int64 `json:"avg_total_ms"`
+	AvgQueueWaitMs   int64 `json:"avg_queue_wait_ms"`
+}
+
 type MailOperationAdminHealth struct {
 	Outgoing            MailOutgoingAdminCounts            `json:"outgoing"`
 	SentCopy            MailSentCopyAdminCounts            `json:"sent_copy"`
@@ -121,6 +137,7 @@ type MailOperationAdminHealth struct {
 	IMAPDraftOperations []MailOperationAdminStateCount     `json:"imap_draft_operations"`
 	IDLE                MailIdleAdminCounts                `json:"idle"`
 	FolderSync          MailFolderSyncAdminCounts          `json:"folder_sync"`
+	SMTPProfile         MailSMTPAdminProfile               `json:"smtp_profile"`
 	OldestPendingAt     time.Time                          `json:"oldest_pending_at,omitempty"`
 	NextRetryAt         time.Time                          `json:"next_retry_at,omitempty"`
 }

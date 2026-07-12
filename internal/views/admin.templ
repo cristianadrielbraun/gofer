@@ -291,6 +291,16 @@ func adminMailPendingAge(t time.Time) string {
 	return fmt.Sprintf("%dd ago", int(age/(24*time.Hour)))
 }
 
+func adminSMTPProfileDuration(milliseconds int64) string {
+	if milliseconds <= 0 {
+		return "—"
+	}
+	if milliseconds < 1000 {
+		return fmt.Sprintf("%d ms", milliseconds)
+	}
+	return fmt.Sprintf("%.1f s", float64(milliseconds)/1000)
+}
+
 func adminChecked(total, pending int) int {
 	checked := total - pending
 	if checked < 0 {
@@ -1551,9 +1561,30 @@ templ AdminMailOperationsPage(status models.MailOperationsAdminStatus) {
 								<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Folder sync</span><span class="font-semibold tabular-nums text-foreground">{ fmt.Sprintf("%d complete · %d partial · %d failed", status.Health.FolderSync.Complete, status.Health.FolderSync.Partial, status.Health.FolderSync.Failed) }</span></div>
 								<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Oldest pending</span><span class="font-semibold text-foreground">{ adminMailPendingAge(status.Health.OldestPendingAt) }</span></div>
 								<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Next retry</span><span class="font-semibold text-foreground">{ adminTime(status.Health.NextRetryAt) }</span></div>
-							</div>
-						</section>
+								</div>
+							</section>
 					</div>
+					<section class="mt-5 rounded-lg border border-border/70 bg-background/35 p-4">
+						<div class="flex items-baseline justify-between gap-3">
+							<div class="text-xs font-semibold text-foreground">SMTP baseline</div>
+							<div class="text-[11px] text-muted-foreground">Process lifetime</div>
+						</div>
+						<p class="mt-1 text-xs text-muted-foreground">Timing data for generic SMTP only. These counters reset when Gofer restarts and are used to decide whether connection reuse is worth the extra state.</p>
+						<div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+							@AdminMailHealthCard("SMTP attempts", status.Health.SMTPProfile.Samples, false, false)
+							@AdminMailHealthCard("SMTP successes", status.Health.SMTPProfile.Successes, false, false)
+							@AdminMailHealthCard("SMTP failed", status.Health.SMTPProfile.Failures, status.Health.SMTPProfile.Failures > 0, false)
+							@AdminMailHealthCard("SMTP ambiguous", status.Health.SMTPProfile.Ambiguous, false, status.Health.SMTPProfile.Ambiguous > 0)
+							@AdminMailHealthCard("Connections", status.Health.SMTPProfile.Connections, false, false)
+							@AdminMailHealthCard("Messages", status.Health.SMTPProfile.Messages, false, false)
+						</div>
+						<div class="mt-4 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+							<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Avg connect + auth</span><span class="font-semibold tabular-nums text-foreground">{ adminSMTPProfileDuration(status.Health.SMTPProfile.AvgConnectAuthMs) }</span></div>
+							<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Avg SMTP transaction</span><span class="font-semibold tabular-nums text-foreground">{ adminSMTPProfileDuration(status.Health.SMTPProfile.AvgDataMs) }</span></div>
+							<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Avg total</span><span class="font-semibold tabular-nums text-foreground">{ adminSMTPProfileDuration(status.Health.SMTPProfile.AvgTotalMs) }</span></div>
+							<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Avg queue wait</span><span class="font-semibold tabular-nums text-foreground">{ adminSMTPProfileDuration(status.Health.SMTPProfile.AvgQueueWaitMs) }</span></div>
+						</div>
+					</section>
 				</section>
 				<div class="mt-5 grid gap-5 lg:grid-cols-2">
 					<section class="rounded-lg border border-border bg-card p-5">

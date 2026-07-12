@@ -63,3 +63,22 @@ func TestAdminSecurityPageShowsExceptionsAndWarnings(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminMailOperationsPageRendersSMTPBaseline(t *testing.T) {
+	status := models.MailOperationsAdminStatus{}
+	status.Health.SMTPProfile = models.MailSMTPAdminProfile{
+		Samples: 2, Successes: 1, Failures: 1, Connections: 2, Messages: 2,
+		AvgConnectAuthMs: 1250, AvgDataMs: 240, AvgTotalMs: 1490, AvgQueueWaitMs: 3200,
+	}
+
+	var out bytes.Buffer
+	if err := AdminMailOperationsPage(status).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminMailOperationsPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{"Queue health", "SMTP baseline", "Process lifetime", "Avg connect + auth", "1.2 s", "240 ms"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered admin operations page missing %q: %s", want, html)
+		}
+	}
+}
