@@ -28,6 +28,9 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if chunkSize <= 0 {
+		return nil, fmt.Errorf("chunk size must be positive")
+	}
 	if c.closed {
 		return nil, fmt.Errorf("client is closed")
 	}
@@ -47,7 +50,15 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 
 	result := &SyncResult{
 		UIDValidity: uint32(selectData.UIDValidity),
-		NumMessages: selectData.NumMessages,
+	}
+	searchData, err := c.client.UIDSearch(&imap.SearchCriteria{}, nil).Wait()
+	if err != nil {
+		return result, fmt.Errorf("uid search %s: %w", remoteName, err)
+	}
+	uids := searchData.AllUIDs()
+	result.NumMessages = uint32(len(uids))
+	if len(uids) == 0 {
+		return result, nil
 	}
 
 	fetchOpts := &imap.FetchOptions{
@@ -64,17 +75,10 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 	}
 
 	var allMsgs []storage.SyncMessage
-	uidNext := uint32(selectData.UIDNext)
-	startUID := uint32(1)
-
-	for startUID < uidNext {
-		endUID := startUID + uint32(chunkSize) - 1
-		if endUID >= uidNext {
-			endUID = uidNext - 1
-		}
-
+	for start := 0; start < len(uids); start += chunkSize {
+		end := min(start+chunkSize, len(uids))
 		var uidSet imap.UIDSet
-		uidSet.AddRange(imap.UID(startUID), imap.UID(endUID))
+		uidSet.AddNum(uids[start:end]...)
 
 		cmd := c.client.Fetch(uidSet, fetchOpts)
 
@@ -178,7 +182,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 		}
 
 		if err := cmd.Close(); err != nil {
-			return result, fmt.Errorf("fetch %s %d-%d: %w", remoteName, startUID, endUID, err)
+			return result, fmt.Errorf("fetch %s UID batch %d: %w", remoteName, start/chunkSize+1, err)
 		}
 
 		if len(allMsgs) >= chunkSize {
@@ -187,8 +191,6 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 			}
 			allMsgs = allMsgs[:0]
 		}
-
-		startUID = endUID + 1
 	}
 
 	if len(allMsgs) > 0 {
