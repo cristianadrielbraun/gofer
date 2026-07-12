@@ -76,12 +76,21 @@ type googlePhoto struct {
 var googlePeopleAPIBaseURL = "https://people.googleapis.com/v1"
 
 type googleAPIError struct {
-	Status int
-	Body   string
+	Status    int
+	Body      string
+	RetryAt   time.Time
+	RequestID string
 }
 
 func (e googleAPIError) Error() string {
-	return fmt.Sprintf("google api returned %d: %s", e.Status, strings.TrimSpace(e.Body))
+	return fmt.Sprintf("google api returned %d: %s", e.Status, sanitizeProviderErrorBody(e.Body))
+}
+
+func (e googleAPIError) RetryAfter() (time.Time, bool) {
+	if e.RetryAt.IsZero() {
+		return time.Time{}, false
+	}
+	return e.RetryAt, true
 }
 
 type contactSyncAccount struct {
@@ -827,7 +836,7 @@ func (h *Handler) getGoogleContact(ctx context.Context, accessToken, remoteID st
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return googlePerson{}, googleAPIError{Status: resp.StatusCode, Body: string(body)}
+		return googlePerson{}, newGoogleAPIError(resp, body)
 	}
 	var person googlePerson
 	if err := json.NewDecoder(resp.Body).Decode(&person); err != nil {
@@ -849,7 +858,7 @@ func (h *Handler) deleteGoogleContact(ctx context.Context, accessToken, remoteID
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return googleAPIError{Status: resp.StatusCode, Body: string(body)}
+		return newGoogleAPIError(resp, body)
 	}
 	return nil
 }
@@ -906,7 +915,7 @@ func (h *Handler) searchGoogleContactsByEmail(ctx context.Context, accessToken, 
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, googleAPIError{Status: resp.StatusCode, Body: string(body)}
+		return nil, newGoogleAPIError(resp, body)
 	}
 	var result googleSearchContactsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -942,7 +951,7 @@ func (h *Handler) writeGoogleContact(ctx context.Context, method, endpoint, acce
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return googlePerson{}, googleAPIError{Status: resp.StatusCode, Body: string(body)}
+		return googlePerson{}, newGoogleAPIError(resp, body)
 	}
 	var out googlePerson
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {

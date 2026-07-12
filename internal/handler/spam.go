@@ -311,7 +311,7 @@ func doGoogleJSON(ctx context.Context, method, endpoint, token string, body any,
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return googleAPIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
+		return newGoogleAPIError(resp, raw)
 	}
 	if out == nil {
 		io.Copy(io.Discard, resp.Body)

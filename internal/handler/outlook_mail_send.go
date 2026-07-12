@@ -60,11 +60,11 @@ func (h *Handler) sendOutlookGraphMessage(ctx context.Context, cfg *models.Accou
 	}
 	raw, err := message.BuildMIMEMessageForGraph(msg)
 	if err != nil {
-		return true, "failed", err.Error()
+		return true, "failed", sanitizeOutgoingErrorText(err.Error())
 	}
 	token, err := h.sendOutlookGraphRaw(ctx, cfg, raw)
 	if err != nil {
-		return true, "failed", err.Error()
+		return true, "failed", sanitizeOutgoingErrorText(err.Error())
 	}
 
 	h.saveSentMessageSnapshot(ctx, cfg.AccountID, msg, raw)
@@ -89,6 +89,9 @@ func (h *Handler) sendOutlookGraphRaw(ctx context.Context, cfg *models.AccountCo
 	}
 	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, cfg.AccountID)
 	if err != nil {
+		if isPermanentOAuthError(err) {
+			return "", markOutgoingSendReconnect(err)
+		}
 		return "", markOutgoingSendRetryable(err)
 	}
 	if err := h.doOutlookRaw(ctx, http.MethodPost, outlookGraphBaseURL+"/me/sendMail", token, "text/plain", []byte(base64.StdEncoding.EncodeToString(raw)), nil); err != nil {
@@ -178,7 +181,7 @@ func (h *Handler) doOutlookRaw(ctx context.Context, method, endpoint, accessToke
 		if readErr != nil {
 			return readErr
 		}
-		return outlookAPIError{Status: resp.StatusCode, Body: string(raw)}
+		return newOutlookAPIError(resp, raw)
 	}
 	if readErr != nil {
 		return readErr

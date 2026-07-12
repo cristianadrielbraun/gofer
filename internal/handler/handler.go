@@ -25,6 +25,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -63,6 +64,8 @@ type Handler struct {
 	googleTranslator           *translation.GoogleWebConnector
 	vapidPublicKey             string
 	outgoingWake               chan struct{}
+	outgoingNow                func() time.Time
+	outgoingRandom             func() float64
 	sentCopyIMAPFactory        sentCopyIMAPClientFactory
 	messageMutationWake        chan struct{}
 	messageMutationIMAPFactory messageMutationIMAPClientFactory
@@ -101,6 +104,8 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		googleTranslator:    translation.NewGoogleWebConnector(nil),
 		vapidPublicKey:      vapidPublicKey,
 		outgoingWake:        make(chan struct{}, 1),
+		outgoingNow:         time.Now,
+		outgoingRandom:      rand.Float64,
 		messageMutationWake: make(chan struct{}, 1),
 		sentCopyIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)

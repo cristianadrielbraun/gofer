@@ -400,6 +400,35 @@ func TestProviderSendStatusRetryable(t *testing.T) {
 	}
 }
 
+func TestOutgoingRetrySchedulingHonorsProviderRetryAfter(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	to, _ := message.ParseAddressList("recipient@example.com")
+	queued, err := h.queueOutgoingMessage(t.Context(), "victim-account", 0, "", &message.OutgoingMessage{
+		FromEmail: "owner@example.com", To: to, Subject: "Retry-After", TextBody: "body",
+		MessageID: "<retry-after@example.com>", Date: time.Now().UTC(),
+	}, time.Now().Add(-time.Minute), false)
+	if err != nil {
+		t.Fatalf("queueOutgoingMessage() error = %v", err)
+	}
+	claimed, err := db.ClaimDueOutgoingSends(t.Context(), time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueOutgoingSends() = %#v, %v", claimed, err)
+	}
+	fixedNow := time.Date(2026, time.July, 12, 12, 0, 0, 0, time.UTC)
+	retryAt := fixedNow.Add(10 * time.Minute)
+	h.outgoingNow = func() time.Time { return fixedNow }
+	h.outgoingRandom = func() float64 { return 0 }
+	h.finishOutgoingSendRetry(claimed[0], markOutgoingSendRetryablePreserving(googleAPIError{Status: http.StatusTooManyRequests, RetryAt: retryAt, Body: "throttled"}))
+
+	retrying, err := db.GetOutgoingSend(t.Context(), queued.ID)
+	if err != nil {
+		t.Fatalf("GetOutgoingSend() error = %v", err)
+	}
+	if !retrying.NextAttemptAt.Equal(retryAt) {
+		t.Fatalf("NextAttemptAt = %s, want provider Retry-After %s", retrying.NextAttemptAt, retryAt)
+	}
+}
+
 func TestSentCopyWorkerAppendsExactMIMEAndLinksRemoteUID(t *testing.T) {
 	h, db, queued, localID := seedPendingSentCopy(t)
 	fake := &fakeSentCopyIMAPClient{appendResult: imapclient.AppendResult{UID: 77, UIDValidity: 123}}

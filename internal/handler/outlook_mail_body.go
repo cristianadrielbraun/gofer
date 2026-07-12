@@ -47,7 +47,7 @@ func (h *Handler) fetchOutlookGraphMessageMIMEByID(ctx context.Context, token, p
 		if readErr != nil {
 			return nil, readErr
 		}
-		return nil, outlookAPIError{Status: resp.StatusCode, Body: string(raw)}
+		return nil, newOutlookAPIError(resp, raw)
 	}
 	if readErr != nil {
 		return nil, readErr

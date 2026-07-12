@@ -320,6 +320,9 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	if err != nil {
 		if errors.Is(err, errOutgoingSendAmbiguous) {
 			status = storage.OutgoingSendAmbiguous
+		} else if errors.Is(err, errOutgoingSendReconnect) {
+			h.finishOutgoingSend(send, status, err)
+			return
 		} else if errors.Is(err, errOutgoingSendRetryable) && send.AttemptCount < outgoingSendMaxAttempts {
 			h.finishOutgoingSendRetry(send, err)
 			return
@@ -458,7 +461,7 @@ func (h *Handler) completeSentCopy(ctx context.Context, send storage.OutgoingSen
 	}
 	if err := h.db.CompleteSentCopy(ctx, send.ID, uid, uidValidity); err != nil {
 		log.Printf("outgoing-send: complete Sent copy %s: %v", send.ID, err)
-		nextAttempt := time.Now().Add(sentCopyRetryDelay(send.SentCopyAttempts))
+		nextAttempt := h.outgoingNowUTC().Add(sentCopyRetryDelayWithJitter(send.SentCopyAttempts, h.outgoingRandomValue()))
 		if retryErr := h.db.FinishSentCopyWithError(context.Background(), send.ID, storage.SentCopyAmbiguous, "The remote Sent copy exists, but Gofer could not save its result: "+err.Error(), nextAttempt); retryErr != nil {
 			log.Printf("outgoing-send: schedule Sent copy reconciliation %s: %v", send.ID, retryErr)
 		}
@@ -468,9 +471,9 @@ func (h *Handler) completeSentCopy(ctx context.Context, send storage.OutgoingSen
 func (h *Handler) finishSentCopy(send storage.OutgoingSend, status string, err error) {
 	errText := "Failed to copy message to the remote Sent folder."
 	if err != nil {
-		errText = err.Error()
+		errText = sanitizeOutgoingErrorText(err.Error())
 	}
-	nextAttempt := time.Now().Add(sentCopyRetryDelay(send.SentCopyAttempts))
+	nextAttempt := h.outgoingNowUTC().Add(sentCopyRetryDelayWithJitter(send.SentCopyAttempts, h.outgoingRandomValue()))
 	if dbErr := h.db.FinishSentCopyWithError(context.Background(), send.ID, status, errText, nextAttempt); dbErr != nil {
 		log.Printf("outgoing-send: finish Sent copy %s: %v", send.ID, dbErr)
 		return
@@ -490,21 +493,19 @@ func sentCopyRetryDelay(attempt int) time.Duration {
 
 var errOutgoingSendAmbiguous = errors.New("outgoing send status is ambiguous")
 var errOutgoingSendRetryable = errors.New("outgoing send can be retried")
+var errOutgoingSendReconnect = errors.New("outgoing account authorization requires reconnect")
 
 const outgoingSendMaxAttempts = 12
 
 func markOutgoingSendRetryable(err error) error {
-	if err == nil || errors.Is(err, errOutgoingSendRetryable) {
-		return err
-	}
-	return fmt.Errorf("%w: %v", errOutgoingSendRetryable, err)
+	return markOutgoingSendRetryablePreserving(err)
 }
 
 func outgoingSendErrorText(err error) string {
 	if err == nil {
 		return "Temporary send failure."
 	}
-	return strings.TrimSpace(strings.TrimPrefix(err.Error(), errOutgoingSendRetryable.Error()+":"))
+	return sanitizeOutgoingErrorText(strings.TrimSpace(strings.TrimPrefix(err.Error(), errOutgoingSendRetryable.Error()+":")))
 }
 
 func providerSendStatusRetryable(status int) bool {
@@ -563,8 +564,13 @@ func (h *Handler) finishOutgoingSendRetry(send storage.OutgoingSend, err error) 
 	if err != nil {
 		errText = outgoingSendErrorText(err)
 	}
-	delay := outgoingSendRetryDelay(send.AttemptCount)
-	nextAttempt := time.Now().UTC().Add(delay)
+	now := h.outgoingNowUTC()
+	delay := outgoingSendRetryDelayWithJitter(send.AttemptCount, h.outgoingRandomValue())
+	nextAttempt := now.Add(delay)
+	if providerRetryAt, ok := retryAfterAt(err, now); ok && providerRetryAt.After(nextAttempt) {
+		nextAttempt = providerRetryAt
+		delay = nextAttempt.Sub(now)
+	}
 	if dbErr := h.db.FinishOutgoingSendWithRetry(context.Background(), send.ID, errText, nextAttempt); dbErr != nil {
 		log.Printf("outgoing-send: schedule retry %s: %v", send.ID, dbErr)
 		return
@@ -573,14 +579,14 @@ func (h *Handler) finishOutgoingSendRetry(send storage.OutgoingSend, err error) 
 	h.publishOutgoingResultWithPayload(send, "retrying", errText, map[string]any{
 		"attempt":          send.AttemptCount,
 		"next_attempt_at":  nextAttempt.Format(time.RFC3339),
-		"retry_in_seconds": int(delay.Seconds()),
+		"retry_in_seconds": retryInSeconds(delay),
 	})
 }
 
 func (h *Handler) finishOutgoingSend(send storage.OutgoingSend, status string, err error) {
 	errText := "Failed to send message."
 	if err != nil {
-		errText = err.Error()
+		errText = sanitizeOutgoingErrorText(err.Error())
 	}
 	if dbErr := h.db.FinishOutgoingSendWithError(context.Background(), send.ID, status, errText); dbErr != nil {
 		log.Printf("outgoing-send: finish %s: %v", send.ID, dbErr)

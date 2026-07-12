@@ -139,7 +139,7 @@ func (h *Handler) fetchOutlookGraphAttachmentContent(ctx context.Context, token,
 		if readErr != nil {
 			return nil, readErr
 		}
-		return nil, outlookAPIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
+		return nil, newOutlookAPIError(resp, raw)
 	}
 	if readErr != nil {
 		return nil, readErr

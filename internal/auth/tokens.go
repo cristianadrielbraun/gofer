@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/retry"
 	"golang.org/x/oauth2"
 )
 
@@ -21,6 +22,54 @@ const (
 	microsoftGraphMailSendScope        = "https://graph.microsoft.com/Mail.Send"
 	microsoftGraphMailboxSettingsScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
 )
+
+// OAuthTokenError keeps the non-secret parts of a token endpoint failure so
+// callers can distinguish a permanent authorization problem from a temporary
+// provider outage and can honor Retry-After.
+type OAuthTokenError struct {
+	Status      int
+	Code        string
+	Description string
+	RetryAt     time.Time
+}
+
+func (e *OAuthTokenError) Error() string {
+	if e == nil {
+		return "oauth token endpoint failed"
+	}
+	if strings.TrimSpace(e.Code) != "" {
+		return fmt.Sprintf("oauth token endpoint returned %d (%s)", e.Status, strings.TrimSpace(e.Code))
+	}
+	return fmt.Sprintf("oauth token endpoint returned %d", e.Status)
+}
+
+func (e *OAuthTokenError) RetryAfter() (time.Time, bool) {
+	if e == nil || e.RetryAt.IsZero() {
+		return time.Time{}, false
+	}
+	return e.RetryAt, true
+}
+
+func (e *OAuthTokenError) OAuthErrorCode() string {
+	if e == nil {
+		return ""
+	}
+	return e.Code
+}
+
+func (e *OAuthTokenError) OAuthErrorDescription() string {
+	if e == nil {
+		return ""
+	}
+	return e.Description
+}
+
+func (e *OAuthTokenError) OAuthErrorStatus() int {
+	if e == nil {
+		return 0
+	}
+	return e.Status
+}
 
 func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
 	var accountProvider, providerAccountID string
@@ -239,7 +288,18 @@ func refreshTokenForScopes(ctx context.Context, cfg *oauth2.Config, refreshToken
 		if readErr != nil {
 			return nil, readErr
 		}
-		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		var tokenFailure struct {
+			Code        string `json:"error"`
+			Description string `json:"error_description"`
+		}
+		_ = json.Unmarshal(body, &tokenFailure)
+		retryAt, _ := retry.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now().UTC())
+		return nil, &OAuthTokenError{
+			Status:      resp.StatusCode,
+			Code:        strings.TrimSpace(tokenFailure.Code),
+			Description: strings.TrimSpace(tokenFailure.Description),
+			RetryAt:     retryAt,
+		}
 	}
 	if readErr != nil {
 		return nil, readErr

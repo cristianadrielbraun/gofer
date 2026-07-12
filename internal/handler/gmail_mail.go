@@ -251,11 +251,11 @@ func (h *Handler) sendGmailAPIMessage(ctx context.Context, cfg *models.AccountCo
 	}
 	raw, err := message.BuildMIMEMessageForGraph(msg)
 	if err != nil {
-		return true, "failed", err.Error()
+		return true, "failed", sanitizeOutgoingErrorText(err.Error())
 	}
 	providerMessageID, token, err := h.sendGmailAPIRaw(ctx, cfg, raw)
 	if err != nil {
-		return true, "failed", err.Error()
+		return true, "failed", sanitizeOutgoingErrorText(err.Error())
 	}
 
 	h.saveSentMessageSnapshot(ctx, cfg.AccountID, msg, raw)
@@ -280,6 +280,9 @@ func (h *Handler) sendGmailAPIRaw(ctx context.Context, cfg *models.AccountConfig
 	}
 	token, err := h.auth.GetOAuthTokenForAccount(ctx, cfg.AccountID)
 	if err != nil {
+		if isPermanentOAuthError(err) {
+			return "", "", markOutgoingSendReconnect(err)
+		}
 		return "", "", markOutgoingSendRetryable(err)
 	}
 	payload := map[string]string{"raw": base64.RawURLEncoding.EncodeToString(raw)}

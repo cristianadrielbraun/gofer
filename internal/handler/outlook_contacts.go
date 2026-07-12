@@ -59,12 +59,21 @@ type outlookEmailAddress struct {
 }
 
 type outlookAPIError struct {
-	Status int
-	Body   string
+	Status    int
+	Body      string
+	RetryAt   time.Time
+	RequestID string
 }
 
 func (e outlookAPIError) Error() string {
-	return fmt.Sprintf("graph contacts api returned %d: %s", e.Status, strings.TrimSpace(e.Body))
+	return fmt.Sprintf("graph contacts api returned %d: %s", e.Status, sanitizeProviderErrorBody(e.Body))
+}
+
+func (e outlookAPIError) RetryAfter() (time.Time, bool) {
+	if e.RetryAt.IsZero() {
+		return time.Time{}, false
+	}
+	return e.RetryAt, true
 }
 
 func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, accessToken string) (int, error) {
@@ -128,7 +137,7 @@ func (h *Handler) fetchOutlookContactPhotoDataURL(ctx context.Context, accessTok
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", outlookAPIError{Status: resp.StatusCode, Body: string(body)}
+		return "", newOutlookAPIError(resp, body)
 	}
 	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
 	if contentType == "" {
@@ -462,7 +471,7 @@ func (h *Handler) doOutlookJSON(ctx context.Context, method, endpoint, accessTok
 		if readErr != nil {
 			return readErr
 		}
-		return outlookAPIError{Status: resp.StatusCode, Body: string(raw)}
+		return newOutlookAPIError(resp, raw)
 	}
 	if readErr != nil {
 		return readErr

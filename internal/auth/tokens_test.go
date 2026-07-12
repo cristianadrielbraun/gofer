@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,6 +14,51 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"golang.org/x/oauth2"
 )
+
+func TestRefreshTokenForScopesClassifiesPermanentAndTemporaryFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		retryAfter string
+		code       string
+		wantRetry  bool
+	}{
+		{name: "revoked refresh token", status: http.StatusBadRequest, body: `{"error":"invalid_grant","error_description":"refresh token revoked"}`, code: "invalid_grant"},
+		{name: "temporary outage", status: http.StatusServiceUnavailable, body: `{"error":"temporarily_unavailable"}`, retryAfter: "60", code: "temporarily_unavailable", wantRetry: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.retryAfter != "" {
+					w.Header().Set("Retry-After", tc.retryAfter)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+
+			_, err := refreshTokenForScopes(context.Background(), &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL}}, "refresh-token-secret", nil)
+			if err == nil {
+				t.Fatal("refreshTokenForScopes() error = nil")
+			}
+			var tokenErr *OAuthTokenError
+			if !errors.As(err, &tokenErr) {
+				t.Fatalf("error = %T %v, want OAuthTokenError", err, err)
+			}
+			if tokenErr.Code != tc.code || tokenErr.Status != tc.status {
+				t.Fatalf("token error = %#v, want code=%q status=%d", tokenErr, tc.code, tc.status)
+			}
+			if strings.Contains(err.Error(), "refresh-token-secret") || strings.Contains(err.Error(), "revoked") {
+				t.Fatalf("token error exposed secret/provider description: %v", err)
+			}
+			_, ok := tokenErr.RetryAfter()
+			if ok != tc.wantRetry {
+				t.Fatalf("RetryAfter() ok = %v, want %v", ok, tc.wantRetry)
+			}
+		})
+	}
+}
 
 func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(t *testing.T) {
 	ctx := context.Background()
