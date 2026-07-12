@@ -284,6 +284,23 @@ func (o *SyncOrchestrator) syncOutlookGraphFolders(ctx context.Context, accountI
 			return nil, err
 		}
 	}
+	if err := o.db.MarkUnlistedProviderFoldersNonSelectable(ctx, accountID, providerRemoteIDsFromFolderInputs(inputs)); err != nil {
+		return nil, err
+	}
+	seenProviderIDs := make([]string, 0, len(folders))
+	for _, folder := range folders {
+		if strings.TrimSpace(folder.ID) != "" {
+			seenProviderIDs = append(seenProviderIDs, folder.ID)
+		}
+	}
+	reconcileResult, err := o.db.ReconcileDiscoveredFolders(ctx, accountID, storage.FolderDiscoveryOutlook, seenProviderIDs, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("reconcile Outlook folders: %w", err)
+	}
+	if reconcileResult.Changed() {
+		log.Printf("reconciled Outlook folders %s: missing=%d removed=%d recovered=%d", accountID, len(reconcileResult.MissingIDs), len(reconcileResult.RemovedIDs), len(reconcileResult.RecoveredIDs))
+		o.publishFolderReconciliationChange(accountID, reconcileResult)
+	}
 
 	localFolders, err := o.db.GetFoldersForAccount(ctx, accountID)
 	if err != nil {

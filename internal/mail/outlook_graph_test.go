@@ -35,6 +35,89 @@ func TestOutlookFolderRenameKeepsLocalFolderID(t *testing.T) {
 	}
 }
 
+func TestSyncOutlookGraphFoldersRenameUpdatesMetadataWithoutChangingID(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderOutlook); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	displayName := "Projects"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/me/mailFolders":
+			_ = json.NewEncoder(w).Encode(map[string]any{"value": []map[string]any{{
+				"id":               "folder-projects",
+				"displayName":      displayName,
+				"childFolderCount": 0,
+			}}})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/me/mailFolders/"):
+			http.NotFound(w, r)
+		default:
+			t.Fatalf("unexpected Graph request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if _, err := orchestrator.syncOutlookGraphFolders(ctx, "acc", "graph-token"); err != nil {
+		t.Fatalf("initial syncOutlookGraphFolders() error = %v", err)
+	}
+	localID := outlookGraphTestFolderID("folder-projects")
+	displayName = "Renamed projects"
+	if _, err := orchestrator.syncOutlookGraphFolders(ctx, "acc", "graph-token"); err != nil {
+		t.Fatalf("renamed syncOutlookGraphFolders() error = %v", err)
+	}
+	var gotID, gotName, gotRemote string
+	if err := db.Read().QueryRowContext(ctx, `SELECT id, name, remote_id FROM folders WHERE provider_remote_id = 'folder-projects'`).Scan(&gotID, &gotName, &gotRemote); err != nil {
+		t.Fatalf("query renamed folder: %v", err)
+	}
+	if gotID != localID || gotName != displayName || gotRemote != displayName {
+		t.Fatalf("renamed folder id=%q name=%q remote=%q, want id=%q name/remote=%q", gotID, gotName, gotRemote, localID, displayName)
+	}
+}
+
+func TestSyncOutlookGraphFoldersFailureLeavesExistingFolderActive(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderOutlook); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	folderID := outlookGraphTestFolderID("folder-inbox")
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{
+		ID: folderID, AccountID: "acc", RemoteID: "Inbox", ProviderRemoteID: "folder-inbox", Name: "Inbox", Role: "inbox", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("seed folder: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/me/mailFolders" {
+			t.Fatalf("unexpected Graph request %s %s", r.Method, r.URL.String())
+		}
+		http.Error(w, "folders unavailable", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if _, err := orchestrator.syncOutlookGraphFolders(ctx, "acc", "graph-token"); err == nil {
+		t.Fatal("syncOutlookGraphFolders() error = nil, want failed discovery")
+	}
+	var state string
+	var selectable int
+	if err := db.Read().QueryRowContext(ctx, `SELECT discovery_state, selectable FROM folders WHERE id = ?`, folderID).Scan(&state, &selectable); err != nil {
+		t.Fatalf("query folder lifecycle: %v", err)
+	}
+	if state != "active" || selectable != 1 {
+		t.Fatalf("folder lifecycle after failed discovery = state:%q selectable:%d, want active/1", state, selectable)
+	}
+}
+
 func TestShouldUseOutlookGraphMailAlwaysUsesGraphForOutlook(t *testing.T) {
 	orchestrator := NewSyncOrchestrator(nil, nil, nil, nil)
 	cfg := &models.AccountConfig{Provider: providers.ProviderOutlook}

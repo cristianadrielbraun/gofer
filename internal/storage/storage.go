@@ -137,7 +137,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 66
+	const targetSchemaVersion = 67
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -542,6 +542,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 65 {
 		if err := migrateV65ToV66(tx); err != nil {
 			return fmt.Errorf("migrate v65 to v66: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 66 {
+		if err := migrateV66ToV67(tx); err != nil {
+			return fmt.Errorf("migrate v66 to v67: %w", err)
 		}
 	}
 
@@ -2770,6 +2776,41 @@ func migrateV65ToV66(tx *sql.Tx) error {
 		return err
 	}
 	return markSchemaVersion(tx, 66)
+}
+
+func migrateV66ToV67(tx *sql.Tx) error {
+	exists, err := tableExistsTx(tx, "folders")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return markSchemaVersion(tx, 67)
+	}
+	for _, column := range []string{
+		"last_seen_at",
+		"missing_since",
+		"discovery_state",
+	} {
+		exists, err := columnExistsTx(tx, "folders", column)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		definition := map[string]string{
+			"last_seen_at":    "DATETIME",
+			"missing_since":   "DATETIME",
+			"discovery_state": "TEXT NOT NULL DEFAULT 'active'",
+		}[column]
+		if _, err := tx.Exec(`ALTER TABLE folders ADD COLUMN ` + column + ` ` + definition); err != nil {
+			return fmt.Errorf("add folders.%s: %w", column, err)
+		}
+	}
+	if _, err := tx.Exec(`UPDATE folders SET discovery_state = 'active' WHERE discovery_state IS NULL OR discovery_state = ''`); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 67)
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

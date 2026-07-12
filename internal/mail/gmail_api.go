@@ -354,6 +354,19 @@ func (o *SyncOrchestrator) syncGmailAPIFolders(ctx context.Context, accountID, t
 			return nil, nil, err
 		}
 	}
+	seenProviderIDs := make([]string, 0, len(labelsByID)+1)
+	for labelID := range labelsByID {
+		seenProviderIDs = append(seenProviderIDs, labelID)
+	}
+	seenProviderIDs = append(seenProviderIDs, "ARCHIVE")
+	reconcileResult, err := o.db.ReconcileDiscoveredFolders(ctx, accountID, storage.FolderDiscoveryGmail, seenProviderIDs, time.Now().UTC())
+	if err != nil {
+		return nil, nil, fmt.Errorf("reconcile Gmail folders: %w", err)
+	}
+	if reconcileResult.Changed() {
+		log.Printf("reconciled Gmail folders %s: missing=%d removed=%d recovered=%d", accountID, len(reconcileResult.MissingIDs), len(reconcileResult.RemovedIDs), len(reconcileResult.RecoveredIDs))
+		o.publishFolderReconciliationChange(accountID, reconcileResult)
+	}
 	localFolders, err := o.db.GetFoldersForAccount(ctx, accountID)
 	if err != nil {
 		return nil, nil, err

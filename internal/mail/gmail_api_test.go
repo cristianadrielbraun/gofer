@@ -38,6 +38,44 @@ func TestGmailLabelRenameKeepsLocalFolderID(t *testing.T) {
 	}
 }
 
+func TestSyncGmailAPIFoldersFailureLeavesExistingFolderActive(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderGmail); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	folderID := gmailAPITestFolderID("INBOX")
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{
+		ID: folderID, AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("seed folder: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users/me/labels" {
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+		http.Error(w, "labels unavailable", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})
+	if _, _, err := orchestrator.syncGmailAPIFolders(ctx, "acc", "gmail-token"); err == nil {
+		t.Fatal("syncGmailAPIFolders() error = nil, want failed discovery")
+	}
+	var state string
+	var selectable int
+	if err := db.Read().QueryRowContext(ctx, `SELECT discovery_state, selectable FROM folders WHERE id = ?`, folderID).Scan(&state, &selectable); err != nil {
+		t.Fatalf("query folder lifecycle: %v", err)
+	}
+	if state != "active" || selectable != 1 {
+		t.Fatalf("folder lifecycle after failed discovery = state:%q selectable:%d, want active/1", state, selectable)
+	}
+}
+
 func TestShouldUseGmailAPIMailIsAlwaysUsedForGmailAccounts(t *testing.T) {
 	orchestrator := NewSyncOrchestrator(nil, nil, nil, labelSyncTestTokens{})
 	cfg := &models.AccountConfig{Provider: providers.ProviderGmail}

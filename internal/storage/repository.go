@@ -3788,7 +3788,8 @@ func (db *DB) GetAccountUserID(ctx context.Context, accountID string) (string, e
 func (db *DB) GetFolderIDByRole(ctx context.Context, accountID, role string) (string, string, error) {
 	var id, remoteID string
 	err := db.Read().QueryRowContext(ctx,
-		`SELECT id, remote_id FROM folders WHERE account_id = ? AND role = ? LIMIT 1`, accountID, role,
+		`SELECT id, remote_id FROM folders
+		 WHERE account_id = ? AND role = ? AND COALESCE(discovery_state, 'active') = 'active' LIMIT 1`, accountID, role,
 	).Scan(&id, &remoteID)
 	if err == sql.ErrNoRows {
 		return "", "", nil
@@ -3845,7 +3846,8 @@ func (db *DB) ResolveFolderIDForUser(ctx context.Context, userID, folderID strin
 		SELECT f.id
 		FROM folders f
 		JOIN accounts a ON a.id = f.account_id
-		WHERE f.id = ? AND a.user_id = ?`, folderID, userID).Scan(&canonicalID)
+		WHERE f.id = ? AND a.user_id = ?
+		  AND COALESCE(f.discovery_state, 'active') = 'active'`, folderID, userID).Scan(&canonicalID)
 	if err == nil {
 		return canonicalID, nil
 	}
@@ -3858,7 +3860,8 @@ func (db *DB) ResolveFolderIDForUser(ctx context.Context, userID, folderID strin
 		FROM folder_id_aliases aliases
 		JOIN folders f ON f.id = aliases.new_id
 		JOIN accounts a ON a.id = f.account_id
-		WHERE aliases.old_id = ? AND a.user_id = ?`, folderID, userID).Scan(&canonicalID)
+		WHERE aliases.old_id = ? AND a.user_id = ?
+		  AND COALESCE(f.discovery_state, 'active') = 'active'`, folderID, userID).Scan(&canonicalID)
 	if err == sql.ErrNoRows {
 		return "", sql.ErrNoRows
 	}
@@ -4416,6 +4419,7 @@ func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder
 		 FROM folders f
 		 JOIN accounts a ON a.id = f.account_id
 		 WHERE f.account_id = ?
+		   AND COALESCE(f.discovery_state, 'active') = 'active'
 		   AND COALESCE(f.selectable, 1) = 1
 		   AND (
 		     a.provider != 'gmail'
@@ -7290,6 +7294,7 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		 FROM folders f
 		 JOIN accounts a ON a.id = f.account_id
 		 WHERE f.account_id = ?
+		   AND COALESCE(f.discovery_state, 'active') = 'active'
 		   AND COALESCE(f.selectable, 1) = 1
 		   AND (
 		     a.provider != 'gmail'

@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS folders (
     provider_count_drift_remote_count INTEGER NOT NULL DEFAULT 0,
     provider_count_drift_cursor TEXT NOT NULL DEFAULT '',
     provider_count_drift_confirmations INTEGER NOT NULL DEFAULT 0,
+    last_seen_at DATETIME,
+    missing_since DATETIME,
+    discovery_state TEXT NOT NULL DEFAULT 'active',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -1034,4 +1037,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (66);
+INSERT OR REPLACE INTO schema_version (version) VALUES (67);

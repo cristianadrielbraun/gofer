@@ -400,6 +400,34 @@ func (o *SyncOrchestrator) RestartIDLEWatchers(accountIDs []string) {
 	}
 }
 
+func (o *SyncOrchestrator) restartIDLEWatchersAfterFolderReconciliation(accountID string) {
+	o.mu.Lock()
+	worker := o.cancelFuncs[accountID]
+	ready := worker != nil && worker.ready
+	var ctx context.Context
+	if ready {
+		ctx = worker.ctx
+	}
+	o.mu.Unlock()
+	if !ready || ctx == nil {
+		return
+	}
+	o.startIDLEWatchers(ctx, accountID)
+}
+
+func (o *SyncOrchestrator) publishFolderReconciliationChange(accountID string, result storage.FolderDiscoveryResult) {
+	if o == nil || o.events == nil || !result.Changed() {
+		return
+	}
+	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+		"status":            "folders_changed",
+		"folders_changed":   true,
+		"folders_missing":   len(result.MissingIDs),
+		"folders_removed":   len(result.RemovedIDs),
+		"folders_recovered": len(result.RecoveredIDs),
+	}})
+}
+
 func (o *SyncOrchestrator) stopIDLEWatchers(accountID string) {
 	o.idleMu.Lock()
 	defer o.idleMu.Unlock()
@@ -2106,11 +2134,25 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 			SortOrder:  order,
 		})
 	}
-
 	if len(folderInputs) > 0 {
 		if err := o.db.UpsertFolders(ctx, folderInputs); err != nil {
 			return fmt.Errorf("save IMAP folders for %s: %w", accountID, err)
 		}
+	}
+	seenRemoteNames := make([]string, 0, len(folders))
+	for _, f := range folders {
+		if f.Name != "" {
+			seenRemoteNames = append(seenRemoteNames, f.Name)
+		}
+	}
+	reconcileResult, err := o.db.ReconcileDiscoveredFolders(ctx, accountID, storage.FolderDiscoveryIMAP, seenRemoteNames, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("reconcile IMAP folders for %s: %w", accountID, err)
+	}
+	if reconcileResult.Changed() {
+		log.Printf("reconciled IMAP folders %s: missing=%d removed=%d recovered=%d", accountID, len(reconcileResult.MissingIDs), len(reconcileResult.RemovedIDs), len(reconcileResult.RecoveredIDs))
+		o.publishFolderReconciliationChange(accountID, reconcileResult)
+		o.restartIDLEWatchersAfterFolderReconciliation(accountID)
 	}
 
 	folderInfos, err := o.db.GetFoldersForAccount(ctx, accountID)
