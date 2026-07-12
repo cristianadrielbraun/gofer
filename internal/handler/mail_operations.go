@@ -187,8 +187,35 @@ func (h *Handler) mailOperationsAdminStatus(ctx context.Context) (models.MailOpe
 	if err != nil {
 		return models.MailOperationsAdminStatus{}, err
 	}
+	if err := h.mergeIDLEAdminHealth(ctx, &status.Health); err != nil {
+		return models.MailOperationsAdminStatus{}, err
+	}
 	status.Retention = h.mailRetentionDiagnostics()
 	return status, nil
+}
+
+func (h *Handler) mergeIDLEAdminHealth(ctx context.Context, health *models.MailOperationAdminHealth) error {
+	configured, err := h.db.ListConfiguredIdleFolders(ctx)
+	if err != nil {
+		return err
+	}
+	for _, folder := range configured {
+		health.IDLE.Configured++
+		if h.syncer == nil {
+			health.IDLE.Pending++
+			continue
+		}
+		runtime := h.syncer.IDLEFolderStatuses(folder.AccountID)
+		status, ok := runtime[folder.FolderID]
+		if !ok || (!status.Healthy && status.Reason == "") {
+			health.IDLE.Pending++
+		} else if status.Healthy {
+			health.IDLE.Healthy++
+		} else {
+			health.IDLE.Fallback++
+		}
+	}
+	return nil
 }
 
 func (h *Handler) signalMailOperation(operation models.MailOperationSummary) {

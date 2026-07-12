@@ -296,6 +296,11 @@ ORDER BY updated_at DESC`,
 		}
 		return status.ByAccount[i].AccountLabel < status.ByAccount[j].AccountLabel
 	})
+	health, err := db.ListMailOperationsAdminHealth(ctx)
+	if err != nil {
+		return models.MailOperationsAdminStatus{}, err
+	}
+	status.Health = health
 	return status, nil
 }
 

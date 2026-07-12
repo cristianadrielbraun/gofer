@@ -75,10 +75,61 @@ type MailRetentionDiagnostics struct {
 	LastError  string                   `json:"last_error,omitempty"`
 }
 
+type MailOperationAdminStateCount struct {
+	State string `json:"state"`
+	Count int    `json:"count"`
+}
+
+type MailOperationAdminKindStateCount struct {
+	Kind  string `json:"kind"`
+	State string `json:"state"`
+	Count int    `json:"count"`
+}
+
+type MailOutgoingAdminCounts struct {
+	Pending   int `json:"pending"`
+	Sending   int `json:"sending"`
+	Failed    int `json:"failed"`
+	Ambiguous int `json:"ambiguous"`
+}
+
+type MailSentCopyAdminCounts struct {
+	Pending   int `json:"pending"`
+	Copying   int `json:"copying"`
+	Failed    int `json:"failed"`
+	Ambiguous int `json:"ambiguous"`
+}
+
+type MailIdleAdminCounts struct {
+	Configured int `json:"configured"`
+	Healthy    int `json:"healthy"`
+	Fallback   int `json:"fallback"`
+	Pending    int `json:"pending"`
+}
+
+type MailFolderSyncAdminCounts struct {
+	Complete int `json:"complete"`
+	Partial  int `json:"partial"`
+	Failed   int `json:"failed"`
+}
+
+type MailOperationAdminHealth struct {
+	Outgoing            MailOutgoingAdminCounts            `json:"outgoing"`
+	SentCopy            MailSentCopyAdminCounts            `json:"sent_copy"`
+	MessageMutations    []MailOperationAdminKindStateCount `json:"message_mutations"`
+	LabelMutations      []MailOperationAdminStateCount     `json:"label_mutations"`
+	IMAPDraftOperations []MailOperationAdminStateCount     `json:"imap_draft_operations"`
+	IDLE                MailIdleAdminCounts                `json:"idle"`
+	FolderSync          MailFolderSyncAdminCounts          `json:"folder_sync"`
+	OldestPendingAt     time.Time                          `json:"oldest_pending_at,omitempty"`
+	NextRetryAt         time.Time                          `json:"next_retry_at,omitempty"`
+}
+
 type MailOperationsAdminStatus struct {
 	Total          int                              `json:"total"`
 	ActionRequired int                              `json:"action_required"`
 	ByType         []MailOperationAdminTypeCount    `json:"by_type"`
 	ByAccount      []MailOperationAdminAccountCount `json:"by_account"`
 	Retention      MailRetentionDiagnostics         `json:"retention"`
+	Health         MailOperationAdminHealth         `json:"health"`
 }

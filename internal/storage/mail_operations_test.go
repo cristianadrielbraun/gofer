@@ -153,6 +153,24 @@ func TestMailOperationsAdminStatusIsAggregatedAndMasked(t *testing.T) {
 	if len(status.ByAccount) != 2 || len(status.ByType) != 4 {
 		t.Fatalf("admin aggregates = %#v, want two accounts and four types", status)
 	}
+	if status.Health.SentCopy.Failed != 1 {
+		t.Fatalf("sent-copy health = %#v, want one failed copy", status.Health.SentCopy)
+	}
+	if got := mailOperationKindStateCount(status.Health.MessageMutations, "read", "failed"); got != 1 {
+		t.Fatalf("read mutation health = %d, want one failed operation", got)
+	}
+	if got := mailOperationKindStateCount(status.Health.MessageMutations, "starred", "failed"); got != 1 {
+		t.Fatalf("starred mutation health = %d, want one failed operation", got)
+	}
+	if got := mailOperationStateCount(status.Health.LabelMutations, "failed"); got != 1 {
+		t.Fatalf("label mutation health = %d, want one failed operation", got)
+	}
+	if got := mailOperationStateCount(status.Health.IMAPDraftOperations, "ambiguous"); got != 1 {
+		t.Fatalf("IMAP draft health = %d, want one ambiguous operation", got)
+	}
+	if status.Health.OldestPendingAt.IsZero() || status.Health.NextRetryAt.IsZero() {
+		t.Fatalf("queue timestamps = %#v, want oldest and next retry timestamps", status.Health)
+	}
 	for _, account := range status.ByAccount {
 		if strings.Contains(account.AccountLabel, "@example.com") && strings.Contains(account.AccountLabel, "user@example.com") {
 			t.Fatalf("admin account label leaked full email: %q", account.AccountLabel)
@@ -166,5 +184,75 @@ func TestMailOperationsAdminStatusIsAggregatedAndMasked(t *testing.T) {
 	}
 	if _, err := db.GetMailOperationForUser(ctx, "default", "sent_copy:"+sentCopyID); err != nil {
 		t.Fatalf("GetMailOperationForUser(sent copy) error = %v", err)
+	}
+}
+
+func mailOperationKindStateCount(items []models.MailOperationAdminKindStateCount, kind, state string) int {
+	for _, item := range items {
+		if item.Kind == kind && item.State == state {
+			return item.Count
+		}
+	}
+	return 0
+}
+
+func mailOperationStateCount(items []models.MailOperationAdminStateCount, state string) int {
+	for _, item := range items {
+		if item.State == state {
+			return item.Count
+		}
+	}
+	return 0
+}
+
+func TestMailOperationsAdminHealthClassifiesFolderSync(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('sync-acc', 'default', 'imap', 'sync@example.com');
+		INSERT INTO folders (id, account_id, remote_id, name, role, last_full_sync_at)
+			VALUES ('sync-complete', 'sync-acc', 'INBOX', 'Inbox', 'inbox', CURRENT_TIMESTAMP);
+		INSERT INTO folders (id, account_id, remote_id, name, role, last_incremental_sync_at, sync_error)
+			VALUES ('sync-partial', 'sync-acc', 'Sent', 'Sent', 'sent', CURRENT_TIMESTAMP, 'temporary provider error');
+		INSERT INTO folders (id, account_id, remote_id, name, role, sync_error)
+			VALUES ('sync-failed', 'sync-acc', 'Drafts', 'Drafts', 'drafts', 'initial sync failed');`); err != nil {
+		t.Fatalf("seed folder sync state: %v", err)
+	}
+
+	health, err := db.ListMailOperationsAdminHealth(ctx)
+	if err != nil {
+		t.Fatalf("ListMailOperationsAdminHealth() error = %v", err)
+	}
+	if health.FolderSync.Complete != 1 || health.FolderSync.Partial != 1 || health.FolderSync.Failed != 1 {
+		t.Fatalf("folder sync health = %#v, want one complete, partial, and failed folder", health.FolderSync)
+	}
+}
+
+func TestListConfiguredIdleFoldersUsesEffectiveIMAPSelection(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address) VALUES
+			('idle-imap', 'default', 'imap', 'imap@example.com'),
+			('idle-outlook', 'default', 'outlook', 'outlook@example.com');
+		INSERT INTO folders (id, account_id, remote_id, name, role) VALUES
+			('imap-inbox', 'idle-imap', 'INBOX', 'Inbox', 'inbox'),
+			('imap-sent', 'idle-imap', 'Sent', 'Sent', 'sent'),
+			('imap-drafts', 'idle-imap', 'Drafts', 'Drafts', 'drafts'),
+			('outlook-inbox', 'idle-outlook', 'Inbox', 'Inbox', 'inbox');`); err != nil {
+		t.Fatalf("seed configured idle folders: %v", err)
+	}
+
+	configured, err := db.ListConfiguredIdleFolders(ctx)
+	if err != nil {
+		t.Fatalf("ListConfiguredIdleFolders() error = %v", err)
+	}
+	if len(configured) != 3 {
+		t.Fatalf("configured idle folders = %#v, want three generic IMAP folders", configured)
+	}
+	for index, wantID := range []string{"imap-drafts", "imap-inbox", "imap-sent"} {
+		if configured[index].AccountID != "idle-imap" || configured[index].FolderID != wantID || configured[index].Provider != "imap" {
+			t.Fatalf("configured idle folder[%d] = %#v, want idle-imap/%s/imap", index, configured[index], wantID)
+		}
 	}
 }

@@ -123,11 +123,14 @@ func TestMailOperationsAdminRoutesAreRegisteredAndProtected(t *testing.T) {
 	if status["total"] != float64(1) || status["action_required"] != float64(1) {
 		t.Fatalf("admin status = %#v", status)
 	}
+	if _, ok := status["health"].(map[string]any); !ok {
+		t.Fatalf("admin status missing aggregate health: %#v", status)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/admin/operations/", nil)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, mailOperationsRequest(req, "admin", true))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Mail operations") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Mail operations") || !strings.Contains(rec.Body.String(), "Queue health") {
 		t.Fatalf("admin operations page status = %d body prefix = %q", rec.Code, rec.Body.String()[:min(len(rec.Body.String()), 200)])
 	}
 }
