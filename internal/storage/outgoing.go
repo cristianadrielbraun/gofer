@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,6 +17,13 @@ const (
 	OutgoingSendSent      = "sent"
 	OutgoingSendFailed    = "failed"
 	OutgoingSendAmbiguous = "ambiguous"
+	OutgoingSendCanceled  = "canceled"
+)
+
+var (
+	ErrOutgoingSendAmbiguousConfirmation = errors.New("retrying this send requires explicit confirmation because delivery is ambiguous")
+	ErrOutgoingSendNotRetryable          = errors.New("outgoing send is not retryable in its current state")
+	ErrOutgoingSendNotCancelable         = errors.New("outgoing send is not cancelable in its current state")
 )
 
 const (
@@ -56,6 +64,30 @@ type OutgoingSend struct {
 	SentCopyNextTry     time.Time
 	SentCopyUID         uint32
 	SentCopyUIDValidity uint32
+}
+
+// OutgoingSendSummary is the user-safe subset of an outbox row. It deliberately
+// excludes MIME bytes, recipient envelopes, and provider credentials.
+type OutgoingSendSummary struct {
+	ID                  string
+	AccountID           string
+	MessageID           int64
+	DraftID             string
+	Transport           string
+	SendAfter           time.Time
+	NextAttemptAt       time.Time
+	IsScheduled         bool
+	Status              string
+	AttemptCount        int
+	LastError           string
+	SentCopyStatus      string
+	SentCopyAttempts    int
+	SentCopyLastError   string
+	SentCopyNextTry     time.Time
+	SentCopyUID         uint32
+	SentCopyUIDValidity uint32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type QueueOutgoingSendInput struct {
@@ -146,6 +178,88 @@ func (db *DB) CancelOutgoingSendForMessage(ctx context.Context, messageID int64)
 		DELETE FROM outgoing_sends
 		WHERE message_id = ? AND status != ?`, messageID, OutgoingSendSending)
 	return err
+}
+
+func (db *DB) RetryOutgoingSend(ctx context.Context, userID, id string, confirmAmbiguous bool) (OutgoingSend, error) {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return OutgoingSend{}, err
+	}
+	defer tx.Rollback()
+
+	var status string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT os.status
+		FROM outgoing_sends os
+		JOIN accounts a ON a.id = os.account_id
+		WHERE os.id = ? AND a.user_id = ?`, id, userID).Scan(&status); err != nil {
+		return OutgoingSend{}, err
+	}
+	switch status {
+	case OutgoingSendFailed:
+	case OutgoingSendAmbiguous:
+		if !confirmAmbiguous {
+			return OutgoingSend{}, ErrOutgoingSendAmbiguousConfirmation
+		}
+	default:
+		return OutgoingSend{}, ErrOutgoingSendNotRetryable
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE outgoing_sends
+		SET status = ?, last_error = '', locked_at = NULL, next_attempt_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`, OutgoingSendPending, id, userID); err != nil {
+		return OutgoingSend{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return OutgoingSend{}, err
+	}
+	return db.GetOutgoingSend(ctx, id)
+}
+
+func (db *DB) RetryOutgoingSendNow(ctx context.Context, userID, id string) (OutgoingSend, error) {
+	result, err := db.Write().ExecContext(ctx, `
+		UPDATE outgoing_sends
+		SET send_after = CASE WHEN send_after > CURRENT_TIMESTAMP THEN CURRENT_TIMESTAMP ELSE send_after END,
+			is_scheduled = 0, next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ? AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`, id, OutgoingSendPending, userID)
+	if err != nil {
+		return OutgoingSend{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		var status string
+		if err := db.Read().QueryRowContext(ctx, `
+			SELECT os.status
+			FROM outgoing_sends os
+			JOIN accounts a ON a.id = os.account_id
+			WHERE os.id = ? AND a.user_id = ?`, id, userID).Scan(&status); err != nil {
+			return OutgoingSend{}, err
+		}
+		return OutgoingSend{}, ErrOutgoingSendNotRetryable
+	}
+	return db.GetOutgoingSend(ctx, id)
+}
+
+func (db *DB) CancelOutgoingSend(ctx context.Context, userID, id string) (OutgoingSend, error) {
+	result, err := db.Write().ExecContext(ctx, `
+		UPDATE outgoing_sends
+		SET status = ?, last_error = 'Canceled by the user', locked_at = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status IN (?, ?, ?) AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`, OutgoingSendCanceled, id, OutgoingSendPending, OutgoingSendFailed, OutgoingSendAmbiguous, userID)
+	if err != nil {
+		return OutgoingSend{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		var status string
+		if err := db.Read().QueryRowContext(ctx, `
+			SELECT os.status
+			FROM outgoing_sends os
+			JOIN accounts a ON a.id = os.account_id
+			WHERE os.id = ? AND a.user_id = ?`, id, userID).Scan(&status); err != nil {
+			return OutgoingSend{}, err
+		}
+		return OutgoingSend{}, ErrOutgoingSendNotCancelable
+	}
+	return db.GetOutgoingSend(ctx, id)
 }
 
 func (db *DB) GetOutgoingSend(ctx context.Context, id string) (OutgoingSend, error) {
@@ -413,12 +527,49 @@ func (db *DB) PrepareOutgoingSend(ctx context.Context, id, draftID, transport, e
 	return err
 }
 
+func (db *DB) ListOutgoingSendSummariesForUser(ctx context.Context, userID string) ([]OutgoingSendSummary, error) {
+	rows, err := db.Read().QueryContext(ctx, outgoingSendSummarySelect+`
+		JOIN accounts a ON a.id = os.account_id
+		WHERE a.user_id = ?
+		  AND (os.status IN (?, ?, ?, ?)
+		       OR (os.status = ? AND os.sent_copy_status IN (?, ?, ?, ?)))
+		ORDER BY os.updated_at DESC
+		LIMIT 100`, userID,
+		OutgoingSendPending, OutgoingSendSending, OutgoingSendFailed, OutgoingSendAmbiguous,
+		OutgoingSendSent, SentCopyPending, SentCopyCopying, SentCopyFailed, SentCopyAmbiguous)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var summaries []OutgoingSendSummary
+	for rows.Next() {
+		summary, err := scanOutgoingSendSummary(rows)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, rows.Err()
+}
+
+func (db *DB) GetOutgoingSendSummaryForUser(ctx context.Context, userID, id string) (OutgoingSendSummary, error) {
+	return scanOutgoingSendSummary(db.Read().QueryRowContext(ctx, outgoingSendSummarySelect+`
+		JOIN accounts a ON a.id = os.account_id
+		WHERE a.user_id = ? AND os.id = ?`, userID, id))
+}
+
 const outgoingSendSelect = `SELECT id, account_id, message_id, draft_id, transport, envelope_from,
 	envelope_recipients, mime_data, message_json, send_after, next_attempt_at, is_scheduled,
 	status, attempt_count, last_error, sent_message_id,
 	sent_copy_status, sent_copy_attempt_count, sent_copy_last_error,
 	sent_copy_next_attempt_at, sent_copy_uid, sent_copy_uid_validity
 	FROM outgoing_sends`
+
+const outgoingSendSummarySelect = `SELECT os.id, os.account_id, COALESCE(os.message_id, 0), os.draft_id, os.transport,
+	os.send_after, os.next_attempt_at, os.is_scheduled, os.status, os.attempt_count, os.last_error,
+	os.sent_copy_status, os.sent_copy_attempt_count, os.sent_copy_last_error, os.sent_copy_next_attempt_at,
+	os.sent_copy_uid, os.sent_copy_uid_validity, os.created_at, os.updated_at
+	FROM outgoing_sends os`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -467,4 +618,42 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 		}
 	}
 	return send, nil
+}
+
+func scanOutgoingSendSummary(row rowScanner) (OutgoingSendSummary, error) {
+	var summary OutgoingSendSummary
+	var sendAfter, nextAttempt, sentCopyNext, createdAt, updatedAt sqliteNullTime
+	var scheduled int
+	var sentCopyUID, sentCopyUIDValidity int64
+	if err := row.Scan(
+		&summary.ID, &summary.AccountID, &summary.MessageID, &summary.DraftID, &summary.Transport,
+		&sendAfter, &nextAttempt, &scheduled, &summary.Status, &summary.AttemptCount, &summary.LastError,
+		&summary.SentCopyStatus, &summary.SentCopyAttempts, &summary.SentCopyLastError, &sentCopyNext,
+		&sentCopyUID, &sentCopyUIDValidity, &createdAt, &updatedAt,
+	); err != nil {
+		return OutgoingSendSummary{}, err
+	}
+	if sendAfter.Valid {
+		summary.SendAfter = sendAfter.Time
+	}
+	if nextAttempt.Valid {
+		summary.NextAttemptAt = nextAttempt.Time
+	}
+	if sentCopyNext.Valid {
+		summary.SentCopyNextTry = sentCopyNext.Time
+	}
+	if createdAt.Valid {
+		summary.CreatedAt = createdAt.Time
+	}
+	if updatedAt.Valid {
+		summary.UpdatedAt = updatedAt.Time
+	}
+	summary.IsScheduled = scheduled != 0
+	if sentCopyUID > 0 {
+		summary.SentCopyUID = uint32(sentCopyUID)
+	}
+	if sentCopyUIDValidity > 0 {
+		summary.SentCopyUIDValidity = uint32(sentCopyUIDValidity)
+	}
+	return summary, nil
 }

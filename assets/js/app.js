@@ -42,6 +42,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupMailFilters()
   setupMailTableColumnResize()
   setupSSE()
+  setupOutgoingSendStatus()
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
@@ -2531,22 +2532,27 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data) return
 
+      if (data.send_id) {
+        fetchOutgoingSendStatus(data.send_id)
+        startOutgoingSendPolling(data.send_id)
+      }
+
       if (data.status === "sent") {
         showSendStatus("sent", "Message sent")
-        handleComposeSendResult("sent")
+        handleComposeSendResult("sent", data)
       } else if (data.status === "retrying") {
         var retrySeconds = Math.max(1, Number(data.retry_in_seconds) || 60)
         var retryMinutes = Math.max(1, Math.ceil(retrySeconds / 60))
         var retryText = data.error || "The provider could not send the message yet."
         retryText += " Gofer will try again in " + retryMinutes + (retryMinutes === 1 ? " minute." : " minutes.")
         showSendStatus("retrying", retryText)
-        handleComposeSendResult("retrying")
+        handleComposeSendResult("retrying", data)
       } else if (data.status === "ambiguous") {
         showSendStatus("ambiguous", data.error || "Send status unknown")
-        handleComposeSendResult("ambiguous")
+        handleComposeSendResult("ambiguous", data)
       } else {
         showSendStatus("failed", data.error || "Failed to send")
-        handleComposeSendResult("failed")
+        handleComposeSendResult("failed", data)
       }
     })
 
@@ -4498,6 +4504,315 @@ var sendStatusTimer = null
 var _sendStatusToast = null
 var _mailSyncIssuesByAccount = Object.create(null)
 var _mailSyncIssueOrder = []
+var _outgoingSendStatusByID = Object.create(null)
+var _outgoingSendStatusByMessage = Object.create(null)
+var _outgoingSendPollers = Object.create(null)
+var _outgoingStatusLoadTimer = null
+var _outgoingStatusLoading = false
+var _outgoingStatusReloadQueued = false
+var _outgoingStatusSetupDone = false
+
+function outgoingStatusEscape(value) {
+  return String(value == null ? "" : value).replace(/[&<>'"]/g, function (ch) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]
+  })
+}
+
+function outgoingSendStatusLabel(summary) {
+  if (!summary) return ""
+  if (summary.status === "pending") {
+    if (Number(summary.attempt_count) > 0) return "Retrying"
+    if (summary.is_scheduled) return "Scheduled"
+    return "Queued"
+  }
+  if (summary.status === "sending") return "Sending"
+  if (summary.status === "failed") return "Failed"
+  if (summary.status === "ambiguous") return "Needs review"
+  if (summary.status === "canceled") return "Canceled"
+  if (summary.status === "sent") {
+    if (summary.sent_copy_status === "pending" || summary.sent_copy_status === "copying") return "Sent copy pending"
+    if (summary.sent_copy_status === "failed") return "Sent copy failed"
+    if (summary.sent_copy_status === "ambiguous") return "Sent copy needs review"
+  }
+  return ""
+}
+
+function outgoingSendStatusClasses(summary) {
+  if (!summary) return ""
+  if (summary.status === "failed") return "border-destructive/30 bg-destructive/10 text-destructive"
+  if (summary.status === "ambiguous") return "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300"
+  if (summary.status === "sent" && (summary.sent_copy_status === "failed" || summary.sent_copy_status === "ambiguous")) {
+    return "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300"
+  }
+  if (summary.status === "sending") return "border-primary/30 bg-primary/10 text-primary"
+  if (summary.status === "pending" && Number(summary.attempt_count) > 0) return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+  return "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+}
+
+function outgoingSendStatusError(summary) {
+  if (!summary) return ""
+  return summary.last_error || summary.sent_copy_last_error || ""
+}
+
+function outgoingSendStatusMarkup(summary) {
+  var label = outgoingSendStatusLabel(summary)
+  if (!label) return ""
+  var error = outgoingSendStatusError(summary)
+  var title = error ? " title=\"" + outgoingStatusEscape(error) + "\"" : ""
+  var html = '<span data-outgoing-status="" class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ' + outgoingSendStatusClasses(summary) + '"' + title + '>' + outgoingStatusEscape(label) + '</span>'
+  var actions = []
+  if (summary.can_retry) actions.push({ action: "retry", label: "Retry" })
+  if (summary.can_retry_now && (Number(summary.attempt_count) > 0 || summary.is_scheduled)) actions.push({ action: "retry-now", label: summary.is_scheduled ? "Send now" : "Try now" })
+  if (summary.can_cancel) actions.push({ action: "cancel", label: "Cancel" })
+  for (var i = 0; i < actions.length; i++) {
+    html += '<button type="button" data-outgoing-action="' + actions[i].action + '" data-outgoing-id="' + outgoingStatusEscape(summary.id) + '" class="text-[10px] font-medium underline decoration-dotted underline-offset-2 hover:no-underline" aria-label="' + outgoingStatusEscape(actions[i].label) + ' outgoing message">' + outgoingStatusEscape(actions[i].label) + '</button>'
+  }
+  return '<span class="inline-flex items-center gap-1.5" data-outgoing-status-group="">' + html + '</span>'
+}
+
+function outgoingSendSummaryIsTerminal(summary) {
+  if (!summary) return true
+  if (summary.status === "failed" || summary.status === "ambiguous" || summary.status === "canceled") return true
+  return summary.status === "sent" && (summary.sent_copy_status === "not_required" || summary.sent_copy_status === "complete")
+}
+
+function outgoingSendSummaryShouldHide(summary) {
+  if (!summary) return true
+  return summary.status === "canceled" || (summary.status === "sent" && (summary.sent_copy_status === "not_required" || summary.sent_copy_status === "complete"))
+}
+
+function clearOutgoingSendMessageStatus(messageID) {
+  if (!messageID) return
+  var rows = document.querySelectorAll('.mail-list-item[data-email-id]')
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].getAttribute("data-email-id")) !== String(messageID)) continue
+    var cardZone = rows[i].querySelector('[data-mail-card-zone="status"]')
+    if (cardZone) cardZone.innerHTML = ""
+    var tableStatuses = rows[i].querySelectorAll('[data-outgoing-status-group]')
+    for (var j = 0; j < tableStatuses.length; j++) tableStatuses[j].remove()
+  }
+}
+
+function applyOutgoingSendSummary(summary) {
+  if (!summary || !summary.id) return
+  var previous = _outgoingSendStatusByID[summary.id]
+  if (outgoingSendSummaryShouldHide(summary)) {
+    delete _outgoingSendStatusByID[summary.id]
+    if (summary.message_id) delete _outgoingSendStatusByMessage[String(summary.message_id)]
+    if (previous && previous.message_id) clearOutgoingSendMessageStatus(previous.message_id)
+    if (summary.message_id) clearOutgoingSendMessageStatus(summary.message_id)
+    stopOutgoingSendPolling(summary.id)
+    return
+  }
+  _outgoingSendStatusByID[summary.id] = summary
+  if (summary.message_id) _outgoingSendStatusByMessage[String(summary.message_id)] = summary
+  if (!summary.message_id) return
+  var markup = outgoingSendStatusMarkup(summary)
+  if (!markup) return
+  var rows = document.querySelectorAll('.mail-list-item[data-email-id]')
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].getAttribute("data-email-id")) !== String(summary.message_id)) continue
+    var cardZone = rows[i].querySelector('[data-mail-card-zone="status"]')
+    if (cardZone) cardZone.innerHTML = markup
+    var subject = rows[i].querySelector('[data-mail-table-cell="subject"]')
+    if (subject) {
+      var oldStatuses = subject.querySelectorAll('[data-outgoing-status-group]')
+      for (var j = 0; j < oldStatuses.length; j++) oldStatuses[j].remove()
+      subject.insertAdjacentHTML("beforeend", markup)
+    }
+  }
+}
+
+function renderOutgoingSendStatuses() {
+  for (var id in _outgoingSendStatusByID) {
+    if (Object.prototype.hasOwnProperty.call(_outgoingSendStatusByID, id)) applyOutgoingSendSummary(_outgoingSendStatusByID[id])
+  }
+}
+
+function recoverComposeOutgoingSend(summary) {
+  if (!summary || !summary.draft_id) return
+  var forms = document.querySelectorAll("#compose-form, #compose-pane-form")
+  for (var i = 0; i < forms.length; i++) {
+    var draftField = forms[i].querySelector('input[name="draft_id"]')
+    if (!draftField || String(draftField.value || "").trim() !== String(summary.draft_id).trim()) continue
+    var fromPane = forms[i].id === "compose-pane-form"
+    if (summary.status === "pending" || summary.status === "sending") {
+      _composeSendState = { formId: forms[i].id, fromPane: fromPane, sendID: summary.id }
+      forms[i].dataset.composeOutgoingStatus = outgoingSendStatusLabel(summary)
+      _setComposeSending(forms[i], true)
+      if (summary.status === "pending" && (Number(summary.attempt_count) > 0 || summary.is_scheduled)) {
+        _setComposeSending(forms[i], false)
+      }
+      forms[i].dataset.composeDirty = "false"
+    } else if (_composeSendState && _composeSendState.sendID === summary.id) {
+      _setComposeSending(forms[i], false)
+      forms[i].dataset.composeOutgoingStatus = outgoingSendStatusLabel(summary)
+      forms[i].dataset.composeDirty = "true"
+      _composeSendState = null
+    }
+  }
+}
+
+function fetchOutgoingSendStatus(id) {
+  if (!id) return Promise.resolve(null)
+  return fetch("/api/outgoing-sends/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } })
+    .then(function (response) {
+      if (response.status === 404) {
+        stopOutgoingSendPolling(id)
+        return null
+      }
+      if (!response.ok) throw new Error("failed to load outgoing send status")
+      return response.json()
+    })
+    .then(function (summary) {
+      if (!summary) return null
+      applyOutgoingSendSummary(summary)
+      recoverComposeOutgoingSend(summary)
+      if (outgoingSendSummaryIsTerminal(summary)) stopOutgoingSendPolling(summary.id)
+      return summary
+    })
+}
+
+function startOutgoingSendPolling(id) {
+  if (!id || _outgoingSendPollers[id]) return
+  var poller = { stopped: false, timer: null }
+  _outgoingSendPollers[id] = poller
+  function schedule() {
+    if (poller.stopped) return
+    poller.timer = setTimeout(tick, 4000)
+  }
+  function tick() {
+    if (poller.stopped) return
+    fetchOutgoingSendStatus(id).catch(function () {}).then(function (summary) {
+      if (poller.stopped) return
+      if (summary && outgoingSendSummaryIsTerminal(summary)) {
+        stopOutgoingSendPolling(id)
+        return
+      }
+      schedule()
+    })
+  }
+  tick()
+}
+
+function stopOutgoingSendPolling(id) {
+  var poller = id && _outgoingSendPollers[id]
+  if (!poller) return
+  poller.stopped = true
+  if (poller.timer) clearTimeout(poller.timer)
+  delete _outgoingSendPollers[id]
+}
+
+function scheduleOutgoingSendStatusLoad() {
+  if (_outgoingStatusLoadTimer) clearTimeout(_outgoingStatusLoadTimer)
+  _outgoingStatusLoadTimer = setTimeout(function () {
+    _outgoingStatusLoadTimer = null
+    loadActiveOutgoingSends()
+  }, 120)
+}
+
+function loadActiveOutgoingSends() {
+  if (_outgoingStatusLoading) {
+    _outgoingStatusReloadQueued = true
+    return
+  }
+  _outgoingStatusLoading = true
+  fetch("/api/outgoing-sends/active", { headers: { "Accept": "application/json" } })
+    .then(function (response) {
+      if (!response.ok) throw new Error("failed to load active outgoing sends")
+      return response.json()
+    })
+    .then(function (data) {
+      var summaries = data && Array.isArray(data.sends) ? data.sends : []
+      var activeIDs = Object.create(null)
+      document.querySelectorAll("[data-outgoing-status-group]").forEach(function (node) { node.remove() })
+      _outgoingSendStatusByID = Object.create(null)
+      _outgoingSendStatusByMessage = Object.create(null)
+      for (var i = 0; i < summaries.length; i++) {
+        var summary = summaries[i]
+        activeIDs[summary.id] = true
+        applyOutgoingSendSummary(summary)
+        recoverComposeOutgoingSend(summary)
+        if (!outgoingSendSummaryIsTerminal(summary)) startOutgoingSendPolling(summary.id)
+      }
+      for (var id in _outgoingSendPollers) {
+        if (Object.prototype.hasOwnProperty.call(_outgoingSendPollers, id) && !activeIDs[id]) stopOutgoingSendPolling(id)
+      }
+      renderOutgoingSendStatuses()
+    })
+    .catch(function () {})
+    .then(function () {
+      _outgoingStatusLoading = false
+      if (_outgoingStatusReloadQueued) {
+        _outgoingStatusReloadQueued = false
+        scheduleOutgoingSendStatusLoad()
+      }
+    })
+}
+
+function outgoingSendAction(action, id, button) {
+  if (!action || !id) return
+  var summary = _outgoingSendStatusByID[id]
+  var confirm = false
+  if (action === "retry" && summary && summary.ambiguous_warning_required) {
+    confirm = window.confirm("Gofer lost the connection after sending this message, so it may already have been delivered. Check Sent before retrying. Retrying can send a duplicate. Continue?")
+    if (!confirm) return
+  }
+  if (button) button.disabled = true
+  var endpoint = "/api/outgoing-sends/" + encodeURIComponent(id) + "/" + action
+  var options = { method: "POST", headers: { "Accept": "application/json" } }
+  if (action === "retry") {
+    options.headers["Content-Type"] = "application/json"
+    options.body = JSON.stringify({ confirm: confirm })
+  }
+  fetch(endpoint, options)
+    .then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || "Could not update outgoing send")
+        return data
+      })
+    })
+    .then(function (next) {
+      applyOutgoingSendSummary(next)
+      recoverComposeOutgoingSend(next)
+      if (next.status === "canceled") showSendStatus("canceled", "The message remains available as a draft.")
+      else showSendStatus("sending", next.status === "pending" ? "Message queued" : "Updating message status...")
+      if (!outgoingSendSummaryIsTerminal(next)) startOutgoingSendPolling(next.id)
+      scheduleOutgoingSendStatusLoad()
+    })
+    .catch(function (error) {
+      showSendStatus("failed", error && error.message ? error.message : "Could not update outgoing send")
+    })
+    .finally(function () {
+      if (button) button.disabled = false
+    })
+}
+
+function setupOutgoingSendStatus() {
+  if (_outgoingStatusSetupDone) return
+  _outgoingStatusSetupDone = true
+  loadActiveOutgoingSends()
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-outgoing-action]") : null
+    if (!button) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    outgoingSendAction(button.getAttribute("data-outgoing-action"), button.getAttribute("data-outgoing-id"), button)
+  })
+  document.addEventListener("htmx:afterSwap", scheduleOutgoingSendStatusLoad)
+  document.addEventListener("htmx:afterSettle", scheduleOutgoingSendStatusLoad)
+  new MutationObserver(function (mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      for (var j = 0; j < mutations[i].addedNodes.length; j++) {
+        var node = mutations[i].addedNodes[j]
+        if (node && node.nodeType === 1 && (node.matches(".mail-list-item[data-email-id]") || node.querySelector(".mail-list-item[data-email-id]"))) {
+          renderOutgoingSendStatuses()
+          return
+        }
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true })
+}
 
 function setMailViewEmpty() {
   var mailView = document.getElementById("mail-view")
@@ -4548,6 +4863,7 @@ function hideSendStatus() {
 
 function _composeToastConfig(status) {
   if (status === "sent") return { title: "Message sent", variant: "success", icon: "success" }
+  if (status === "canceled") return { title: "Send canceled", variant: "info", icon: "info" }
   if (status === "scheduled") return { title: "Message scheduled", variant: "success", icon: "success" }
   if (status === "sending") return { title: "Working...", variant: "info", icon: "spinner" }
   if (status === "retrying") return { title: "Send delayed", variant: "warning", icon: "warning" }
@@ -6083,6 +6399,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   renderComposeAttachments(form, [])
   form.dataset.composeUploadsPending = "0"
   form.dataset.composeSending = "false"
+  delete form.dataset.composeOutgoingStatus
   delete form.dataset.composeUploadFailed
   form.dataset.composeDirty = "false"
   updateComposeSendState(form)
@@ -7148,6 +7465,8 @@ function updateComposeSendState(form) {
     button.title = "Sending..."
   } else if (pending > 0) {
     button.title = "Waiting for uploads to finish"
+  } else if (form.dataset.composeOutgoingStatus) {
+    button.title = form.dataset.composeOutgoingStatus
   } else {
     button.removeAttribute("title")
   }
@@ -7167,6 +7486,7 @@ function composeUploadFailed(form, message) {
 
 function finishComposeSendSuccess(state) {
   if (!state) return
+  if (state.sendID) stopOutgoingSendPolling(state.sendID)
   var form = document.getElementById(state.formId)
   if (form) _setComposeSending(form, false)
   _composeSendState = null
@@ -7182,9 +7502,13 @@ function finishComposeSendSuccess(state) {
   }, 300)
 }
 
-function handleComposeSendResult(status) {
+function handleComposeSendResult(status, data) {
   if (!_composeSendState) return
   var state = _composeSendState
+  if (data && data.send_id) {
+    if (state.sendID && state.sendID !== data.send_id) return
+    state.sendID = data.send_id
+  }
   var form = document.getElementById(state.formId)
   if (status === "sent") {
     finishComposeSendSuccess(state)
@@ -7193,12 +7517,14 @@ function handleComposeSendResult(status) {
   if (status === "retrying") {
     if (form) {
       _setComposeSending(form, false)
+      form.dataset.composeOutgoingStatus = "Retrying"
       form.dataset.composeDirty = "true"
     }
     return
   }
   if (form) {
     _setComposeSending(form, false)
+    form.dataset.composeOutgoingStatus = status === "ambiguous" ? "Needs review" : "Failed"
     form.dataset.composeDirty = "true"
   }
   _composeSendState = null
@@ -8531,6 +8857,7 @@ function sendCompose(fromPane) {
 
   showSendStatus("sending", "Sending...")
   _setComposeSending(form, true)
+  delete form.dataset.composeOutgoingStatus
   _composeSendState = { formId: form.id, fromPane: !!fromPane }
 
   fetch("/compose", {
@@ -8544,7 +8871,15 @@ function sendCompose(fromPane) {
       })
     }
     return r.json().catch(function () { return {} })
+  }).then(function (data) {
+    if (data && data.send_id && _composeSendState) {
+      _composeSendState.sendID = data.send_id
+      startOutgoingSendPolling(data.send_id)
+      fetchOutgoingSendStatus(data.send_id).catch(function () {})
+    }
+    return data
   }).catch(function (err) {
+    if (_composeSendState && _composeSendState.sendID) stopOutgoingSendPolling(_composeSendState.sendID)
     _setComposeSending(form, false)
     _composeSendState = null
     form.dataset.composeDirty = "true"

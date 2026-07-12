@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -327,5 +328,91 @@ func TestScheduledVirtualFolderListsPendingScheduledDrafts(t *testing.T) {
 	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "scheduled", 0, 50, models.EmailFilters{})
 	if err != nil || page.TotalCount != 1 || len(page.Emails) != 1 || page.Emails[0].Subject != "Scheduled draft" {
 		t.Fatalf("scheduled page = %#v, %v", page, err)
+	}
+}
+
+func TestOutgoingSendUserSummaryAndRecoveryActions(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	queued, err := db.QueueOutgoingSend(ctx, outgoingTestInput("acc", 0, time.Now().Add(-time.Minute), false))
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend() error = %v", err)
+	}
+	if _, err := db.ClaimDueOutgoingSends(ctx, time.Now(), 1); err != nil {
+		t.Fatalf("ClaimDueOutgoingSends() error = %v", err)
+	}
+	if err := db.FinishOutgoingSendWithError(ctx, queued.ID, OutgoingSendFailed, "temporary failure"); err != nil {
+		t.Fatalf("FinishOutgoingSendWithError() error = %v", err)
+	}
+
+	summaries, err := db.ListOutgoingSendSummariesForUser(ctx, "default")
+	if err != nil || len(summaries) != 1 {
+		t.Fatalf("ListOutgoingSendSummariesForUser() = %#v, %v", summaries, err)
+	}
+	if summaries[0].ID != queued.ID || summaries[0].Status != OutgoingSendFailed || summaries[0].LastError != "temporary failure" || summaries[0].MessageID != 0 {
+		t.Fatalf("summary = %#v", summaries[0])
+	}
+
+	retried, err := db.RetryOutgoingSend(ctx, "default", queued.ID, false)
+	if err != nil || retried.Status != OutgoingSendPending || retried.LastError != "" {
+		t.Fatalf("RetryOutgoingSend() = %#v, %v", retried, err)
+	}
+	if _, err := db.RetryOutgoingSendNow(ctx, "default", queued.ID); err != nil {
+		t.Fatalf("RetryOutgoingSendNow() error = %v", err)
+	}
+	canceled, err := db.CancelOutgoingSend(ctx, "default", queued.ID)
+	if err != nil || canceled.Status != OutgoingSendCanceled || canceled.LastError != "Canceled by the user" {
+		t.Fatalf("CancelOutgoingSend() = %#v, %v", canceled, err)
+	}
+	if _, err := db.RetryOutgoingSend(ctx, "default", queued.ID, false); !errors.Is(err, ErrOutgoingSendNotRetryable) {
+		t.Fatalf("RetryOutgoingSend(canceled) error = %v, want not retryable", err)
+	}
+}
+
+func TestOutgoingSendAmbiguousRetryRequiresConfirmation(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	queued, err := db.QueueOutgoingSend(ctx, outgoingTestInput("acc", 0, time.Now().Add(-time.Minute), false))
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend() error = %v", err)
+	}
+	if _, err := db.ClaimDueOutgoingSends(ctx, time.Now(), 1); err != nil {
+		t.Fatalf("ClaimDueOutgoingSends() error = %v", err)
+	}
+	if err := db.FinishOutgoingSendWithError(ctx, queued.ID, OutgoingSendAmbiguous, "connection lost"); err != nil {
+		t.Fatalf("FinishOutgoingSendWithError() error = %v", err)
+	}
+	if _, err := db.RetryOutgoingSend(ctx, "default", queued.ID, false); !errors.Is(err, ErrOutgoingSendAmbiguousConfirmation) {
+		t.Fatalf("RetryOutgoingSend(no confirmation) error = %v, want confirmation", err)
+	}
+	retried, err := db.RetryOutgoingSend(ctx, "default", queued.ID, true)
+	if err != nil || retried.Status != OutgoingSendPending {
+		t.Fatalf("RetryOutgoingSend(confirmed) = %#v, %v", retried, err)
+	}
+}
+
+func TestRetryOutgoingSendNowReleasesScheduledSend(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	future := time.Now().UTC().Add(24 * time.Hour)
+	queued, err := db.QueueOutgoingSend(ctx, outgoingTestInput("acc", 0, future, true))
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend() error = %v", err)
+	}
+	released, err := db.RetryOutgoingSendNow(ctx, "default", queued.ID)
+	if err != nil {
+		t.Fatalf("RetryOutgoingSendNow() error = %v", err)
+	}
+	if released.IsScheduled || released.SendAfter.After(time.Now().UTC().Add(time.Minute)) || released.Status != OutgoingSendPending {
+		t.Fatalf("released scheduled send = %#v", released)
 	}
 }
