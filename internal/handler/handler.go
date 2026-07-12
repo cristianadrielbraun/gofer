@@ -383,11 +383,16 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
-	folderID = h.resolveFolderID(folderID)
 
 	emailID := r.URL.Query().Get("email")
 	ctx := r.Context()
 	userID := h.userID(ctx)
+	var err error
+	folderID, err = h.resolveFolderID(ctx, userID, folderID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 	uiSettings := h.db.GetUISettings(ctx, userID)
@@ -419,10 +424,15 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 	if folderID == "" {
 		folderID = "inbox"
 	}
-	folderID = h.resolveFolderID(folderID)
 
 	ctx := r.Context()
 	userID := h.userID(ctx)
+	var err error
+	folderID, err = h.resolveFolderID(ctx, userID, folderID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 	views.Layout(accounts, folderID, nil, nil, -1, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID), parseEmailFilters(r)).Render(ctx, w)
 }
@@ -437,7 +447,16 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
 
-	email, err := h.db.GetEmailByIDForFolder(ctx, emailID, r.URL.Query().Get("folder_id"))
+	folderID := r.URL.Query().Get("folder_id")
+	if folderID != "" {
+		var err error
+		folderID, err = h.resolveFolderID(ctx, h.userID(ctx), folderID)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+	}
+	email, err := h.db.GetEmailByIDForFolder(ctx, emailID, folderID)
 	if err != nil || email == nil {
 		http.NotFound(w, r)
 		return
@@ -1660,10 +1679,15 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
-	folderID = h.resolveFolderID(folderID)
 
 	ctx := r.Context()
 	userID := h.userID(ctx)
+	var err error
+	folderID, err = h.resolveFolderID(ctx, userID, folderID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	ctx = h.contextWithUserTimezone(ctx, userID)
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 	filters := parseEmailFilters(r)
@@ -1695,11 +1719,17 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
-	folderID = h.resolveFolderID(folderID)
 
 	ctx := r.Context()
-	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	var err error
+	folderID, err = h.resolveFolderID(ctx, userID, folderID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	ctx = h.contextWithUserTimezone(ctx, userID)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
 	filters := parseEmailFilters(r)
 	selectedEmailID := r.URL.Query().Get("selected")
 	window := h.loadMailWindow(ctx, h.userID(ctx), folderID, filters, selectedEmailID, 50)
@@ -1783,7 +1813,6 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = "inbox"
 	}
-	folderID = h.resolveFolderID(folderID)
 
 	limit := 50
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 200 {
@@ -1796,7 +1825,14 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		knownTotal = kt
 	}
 	ctx := r.Context()
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	var resolveErr error
+	folderID, resolveErr = h.resolveFolderID(ctx, userID, folderID)
+	if resolveErr != nil {
+		http.NotFound(w, r)
+		return
+	}
+	uiSettings := h.db.GetUISettings(ctx, userID)
 	ctx = storage.WithTimezone(ctx, uiSettings["timezone"])
 	filters := parseEmailFilters(r)
 
@@ -1890,11 +1926,11 @@ func emailFiltersActive(filters models.EmailFilters) bool {
 	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != ""
 }
 
-func (h *Handler) resolveFolderID(requested string) string {
+func (h *Handler) resolveFolderID(ctx context.Context, userID, requested string) (string, error) {
 	if requested == "" {
 		requested = "inbox"
 	}
-	return requested
+	return h.db.ResolveFolderIDForUser(ctx, userID, requested)
 }
 
 func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
@@ -4446,6 +4482,12 @@ func (h *Handler) getMessageInfoForFolder(ctx context.Context, idStr, folderID s
 	if err != nil {
 		return 0, nil, fmt.Errorf("invalid message id")
 	}
+	if strings.TrimSpace(folderID) != "" {
+		folderID, err = h.resolveFolderID(ctx, h.userID(ctx), folderID)
+		if err != nil {
+			return 0, nil, fmt.Errorf("resolve folder: %w", err)
+		}
+	}
 	info, err := h.db.GetMessageMutationInfoForFolder(ctx, msgID, folderID)
 	if err != nil {
 		return 0, nil, fmt.Errorf("get message info: %w", err)
@@ -4867,6 +4909,11 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.WithoutCancel(r.Context())
+	destFolderID, err = h.resolveFolderID(ctx, h.userID(ctx), destFolderID)
+	if err != nil {
+		http.Error(w, "destination folder not found", http.StatusBadRequest)
+		return
+	}
 	if remoteID, err := h.db.GetFolderRemoteID(ctx, destFolderID); err != nil || remoteID == "" {
 		http.Error(w, "destination folder not found", http.StatusBadRequest)
 		return
@@ -5147,6 +5194,12 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 	destFolderID := r.FormValue("folder_id")
 	if destFolderID == "" {
 		http.Error(w, "folder_id required", http.StatusBadRequest)
+		return
+	}
+	var err error
+	destFolderID, err = h.resolveFolderID(ctx, h.userID(ctx), destFolderID)
+	if err != nil {
+		http.Error(w, "destination folder not found", http.StatusBadRequest)
 		return
 	}
 

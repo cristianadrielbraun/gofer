@@ -253,6 +253,9 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	defer stmt.Close()
 
 	for _, f := range folders {
+		if strings.TrimSpace(f.ID) == "" {
+			return fmt.Errorf("upsert folder %q: folder ID is required", f.Name)
+		}
 		countsKnown := boolInt(f.CountsKnown)
 		if _, err := stmt.ExecContext(ctx,
 			f.ID, f.AccountID, f.RemoteID, f.ProviderRemoteID, f.Name, f.Icon, f.Role, boolInt(f.Selectable), f.SortOrder,
@@ -3822,6 +3825,47 @@ func (db *DB) GetFolderRemoteID(ctx context.Context, folderID string) (string, e
 		return "", nil
 	}
 	return strings.TrimSpace(remoteID), err
+}
+
+// ResolveFolderIDForUser accepts a canonical folder ID or a pre-migration
+// alias, while keeping the lookup scoped to the account owner. Virtual folder
+// IDs are returned unchanged because they are not rows in folders.
+func (db *DB) ResolveFolderIDForUser(ctx context.Context, userID, folderID string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return "", nil
+	}
+	if isUnifiedFolderID(folderID) {
+		return folderID, nil
+	}
+
+	var canonicalID string
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT f.id
+		FROM folders f
+		JOIN accounts a ON a.id = f.account_id
+		WHERE f.id = ? AND a.user_id = ?`, folderID, userID).Scan(&canonicalID)
+	if err == nil {
+		return canonicalID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
+
+	err = db.Read().QueryRowContext(ctx, `
+		SELECT f.id
+		FROM folder_id_aliases aliases
+		JOIN folders f ON f.id = aliases.new_id
+		JOIN accounts a ON a.id = f.account_id
+		WHERE aliases.old_id = ? AND a.user_id = ?`, folderID, userID).Scan(&canonicalID)
+	if err == sql.ErrNoRows {
+		return "", sql.ErrNoRows
+	}
+	if err != nil {
+		return "", err
+	}
+	return canonicalID, nil
 }
 
 func (db *DB) GetFolderUIDValidity(ctx context.Context, folderID string) (uint32, error) {

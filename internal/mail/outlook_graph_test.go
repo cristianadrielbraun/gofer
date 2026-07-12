@@ -17,6 +17,24 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
+func outlookGraphTestFolderID(providerID string) string {
+	return storage.FolderIDForIdentity("acc", providers.ProviderOutlook, providerID)
+}
+
+func TestOutlookFolderRenameKeepsLocalFolderID(t *testing.T) {
+	oldPath := "Projects/2026"
+	newPath := "Archive/Projects 2026"
+	graphID := "folder-projects"
+	oldID := storage.FolderIDForIdentity("acc", providers.ProviderOutlook, graphID)
+	newID := storage.FolderIDForIdentity("acc", providers.ProviderOutlook, graphID)
+	if oldPath == newPath {
+		t.Fatal("test folder paths unexpectedly have the same display path")
+	}
+	if oldID == "" || oldID != newID {
+		t.Fatalf("Outlook folder ID changed across rename: old=%q new=%q", oldID, newID)
+	}
+}
+
 func TestShouldUseOutlookGraphMailAlwaysUsesGraphForOutlook(t *testing.T) {
 	orchestrator := NewSyncOrchestrator(nil, nil, nil, nil)
 	cfg := &models.AccountConfig{Provider: providers.ProviderOutlook}
@@ -256,12 +274,12 @@ func TestSyncOutlookGraphAccountImportsFoldersMessagesAndDeltaCursor(t *testing.
 	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderOutlook); err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
-	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "Inbox", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
-		t.Fatalf("UpsertFolders(legacy) error = %v", err)
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{ID: outlookGraphTestFolderID("folder-inbox"), AccountID: "acc", RemoteID: "Inbox", ProviderRemoteID: "folder-inbox", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders(seed) error = %v", err)
 	}
 	if err := db.UpsertSyncMessages(ctx, []storage.SyncMessage{{
 		AccountID: "acc",
-		FolderID:  "acc_inbox",
+		FolderID:  outlookGraphTestFolderID("folder-inbox"),
 		RemoteUID: 42,
 		MessageID: "<legacy@example.com>",
 		Subject:   "Legacy",

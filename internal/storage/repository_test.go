@@ -2550,8 +2550,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 65 {
-		t.Fatalf("schema version = %d, want 65", version)
+	if version != 66 {
+		t.Fatalf("schema version = %d, want 66", version)
 	}
 }
 
@@ -2587,8 +2587,8 @@ func TestMigrateV63AddsProviderSyncProgress(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT sync_progress_current, sync_progress_started_at FROM folders WHERE id = 'inbox'`).Scan(&current, &startedAt); err != nil {
 		t.Fatalf("query sync progress columns: %v", err)
 	}
-	if version != 65 || current != 0 || startedAt.Valid {
-		t.Fatalf("migrated sync progress = version:%d current:%d started:%v, want 65/0/NULL", version, current, startedAt.Valid)
+	if version != 66 || current != 0 || startedAt.Valid {
+		t.Fatalf("migrated sync progress = version:%d current:%d started:%v, want 66/0/NULL", version, current, startedAt.Valid)
 	}
 }
 
@@ -2629,8 +2629,8 @@ func TestMigrateV64AddsOutgoingRetrySchedule(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT next_attempt_at FROM outgoing_sends WHERE id = 'send-1'`).Scan(&nextAttempt); err != nil {
 		t.Fatalf("query retry schedule: %v", err)
 	}
-	if version != 65 || nextAttempt.IsZero() {
-		t.Fatalf("migrated outgoing retry = version:%d next:%v, want 65/non-zero", version, nextAttempt)
+	if version != 66 || nextAttempt.IsZero() {
+		t.Fatalf("migrated outgoing retry = version:%d next:%v, want 66/non-zero", version, nextAttempt)
 	}
 }
 
@@ -2675,8 +2675,8 @@ func TestMigrateV54ConvertsZeroRemoteUIDsToNull(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 65 {
-		t.Fatalf("schema version = %d, want 65", version)
+	if version != 66 {
+		t.Fatalf("schema version = %d, want 66", version)
 	}
 }
 
@@ -2711,8 +2711,8 @@ func TestMigrateV55AddsMailSecurityExceptions(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 65 {
-		t.Fatalf("schema version = %d, want 65", version)
+	if version != 66 {
+		t.Fatalf("schema version = %d, want 66", version)
 	}
 }
 
@@ -2748,8 +2748,8 @@ func TestMigrateV56AddsOAuthAccountFlows(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 65 {
-		t.Fatalf("schema version = %d, want 65", version)
+	if version != 66 {
+		t.Fatalf("schema version = %d, want 66", version)
 	}
 }
 
@@ -2916,8 +2916,8 @@ func TestMigrateV59AddsIMAPDraftSyncQueue(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 65 {
-		t.Fatalf("schema version = %d, want 65", version)
+	if version != 66 {
+		t.Fatalf("schema version = %d, want 66", version)
 	}
 	if _, err := db.Write().Exec(`
 		INSERT INTO imap_draft_states (
@@ -2970,8 +2970,8 @@ func TestMigrateV60AddsMessageMutationQueueWithMoves(t *testing.T) {
 		t.Fatalf("use migrated permanent delete mutation: %v", err)
 	}
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 65 {
-		t.Fatalf("schema version = %d, %v; want 65", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 66 {
+		t.Fatalf("schema version = %d, %v; want 66", version, err)
 	}
 }
 
@@ -3020,8 +3020,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 65 {
-		t.Fatalf("schema version = %d, want 65", version)
+	if version != 66 {
+		t.Fatalf("schema version = %d, want 66", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

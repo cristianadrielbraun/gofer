@@ -2074,6 +2074,10 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	}
 
 	for i, f := range folders {
+		folderID := folderIDFromRemote(accountID, f.Name)
+		if folderID == "" {
+			return fmt.Errorf("IMAP folder has no stable remote identity (name=%q)", f.Name)
+		}
 		role := f.Role
 		order, ok := sortOrder[role]
 		if !ok {
@@ -2082,14 +2086,16 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 
 		parentID := ""
 		if f.Delimiter != 0 && containsDelimiter(f.Name, f.Delimiter) {
-			parts := splitDelimiter(f.Name, f.Delimiter)
-			if knownFolders[parts[0]] {
-				parentID = folderIDFromRemote(accountID, parts[0])
+			if delimiterIndex := strings.LastIndex(f.Name, string(f.Delimiter)); delimiterIndex > 0 {
+				parentName := f.Name[:delimiterIndex]
+				if knownFolders[parentName] {
+					parentID = folderIDFromRemote(accountID, parentName)
+				}
 			}
 		}
 
 		folderInputs = append(folderInputs, storage.UpsertFolderInput{
-			ID:         folderIDFromRemote(accountID, f.Name),
+			ID:         folderID,
 			AccountID:  accountID,
 			ParentID:   parentID,
 			RemoteID:   f.Name,
@@ -2362,21 +2368,7 @@ func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap
 }
 
 func folderIDFromRemote(accountID, remoteName string) string {
-	return accountID + "_" + sanitizeRemote(remoteName)
-}
-
-func sanitizeRemote(name string) string {
-	result := make([]rune, 0, len(name))
-	for _, r := range name {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			result = append(result, r)
-		} else if r >= 'A' && r <= 'Z' {
-			result = append(result, r+32)
-		} else {
-			result = append(result, '_')
-		}
-	}
-	return string(result)
+	return storage.FolderIDForIdentity(accountID, "imap", remoteName)
 }
 
 func containsDelimiter(name string, delim rune) bool {
@@ -2386,15 +2378,6 @@ func containsDelimiter(name string, delim rune) bool {
 		}
 	}
 	return false
-}
-
-func splitDelimiter(name string, delim rune) []string {
-	for i, r := range name {
-		if r == delim {
-			return []string{name[:i], name[i+1:]}
-		}
-	}
-	return []string{name}
 }
 
 func displayName(remoteName, role string) string {

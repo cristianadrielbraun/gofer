@@ -3,10 +3,12 @@ package storage
 import (
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -135,7 +137,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 65
+	const targetSchemaVersion = 66
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -534,6 +536,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 64 {
 		if err := migrateV64ToV65(tx); err != nil {
 			return fmt.Errorf("migrate v64 to v65: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 65 {
+		if err := migrateV65ToV66(tx); err != nil {
+			return fmt.Errorf("migrate v65 to v66: %w", err)
 		}
 	}
 
@@ -2573,6 +2581,365 @@ func migrateV64ToV65(tx *sql.Tx) error {
 	}
 	_, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (65)`)
 	return err
+}
+
+type folderIdentityMigration struct {
+	OldID            string
+	NewID            string
+	AccountID        string
+	Provider         string
+	ProviderKind     string
+	ProviderIdentity string
+	RemoteID         string
+	ProviderRemoteID string
+	ParentID         string
+}
+
+func migrateV65ToV66(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS folder_id_aliases (
+		old_id TEXT PRIMARY KEY,
+		new_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+
+	// Some historical migration tests intentionally use skeletal folders
+	// tables. They contain no real remote identity to migrate, so keep them
+	// usable and let the test-specific migrations finish.
+	for _, column := range []string{"account_id", "remote_id", "provider_remote_id", "parent_id"} {
+		exists, err := columnExistsTx(tx, "folders", column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return markSchemaVersion(tx, 66)
+		}
+	}
+
+	rows, err := tx.Query(`
+		SELECT f.id, f.account_id, COALESCE(a.provider, ''),
+		       COALESCE(f.remote_id, ''), COALESCE(f.provider_remote_id, ''),
+		       COALESCE(f.parent_id, '')
+		FROM folders f
+		LEFT JOIN accounts a ON a.id = f.account_id
+		ORDER BY f.id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	entries := make([]folderIdentityMigration, 0)
+	byNewID := make(map[string]string)
+	byIdentity := make(map[string]string)
+	byOldID := make(map[string]folderIdentityMigration)
+	for rows.Next() {
+		var entry folderIdentityMigration
+		if err := rows.Scan(&entry.OldID, &entry.AccountID, &entry.Provider, &entry.RemoteID, &entry.ProviderRemoteID, &entry.ParentID); err != nil {
+			return err
+		}
+		providerKind := "imap"
+		identity := entry.RemoteID
+		switch strings.ToLower(strings.TrimSpace(entry.Provider)) {
+		case "gmail":
+			providerKind = "gmail"
+			identity = entry.ProviderRemoteID
+		case "outlook":
+			providerKind = "outlook"
+			identity = entry.ProviderRemoteID
+		default:
+			if entry.ProviderRemoteID != "" && entry.Provider != "" && entry.Provider != "imap" {
+				providerKind = strings.ToLower(strings.TrimSpace(entry.Provider))
+				identity = entry.ProviderRemoteID
+			}
+		}
+		if identity == "" {
+			return fmt.Errorf("folder %q has no stable provider identity", entry.OldID)
+		}
+		entry.ProviderKind = providerKind
+		entry.ProviderIdentity = identity
+		identityKey := entry.AccountID + "\x00" + providerKind + "\x00" + identity
+		if previous, exists := byIdentity[identityKey]; exists && previous != entry.OldID {
+			return fmt.Errorf("folders %q and %q have the same provider identity %q for account %q", previous, entry.OldID, identity, entry.AccountID)
+		}
+		byIdentity[identityKey] = entry.OldID
+		entry.NewID = FolderIDForIdentity(entry.AccountID, providerKind, identity)
+		if entry.NewID == "" {
+			return fmt.Errorf("folder %q produced an empty stable ID", entry.OldID)
+		}
+		if previous, exists := byNewID[entry.NewID]; exists && previous != entry.OldID {
+			return fmt.Errorf("folders %q and %q map to the same stable ID %q", previous, entry.OldID, entry.NewID)
+		}
+		byNewID[entry.NewID] = entry.OldID
+		byOldID[entry.OldID] = entry
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.ParentID == "" {
+			continue
+		}
+		if _, ok := byOldID[entry.ParentID]; !ok {
+			return fmt.Errorf("folder %q references missing parent %q", entry.OldID, entry.ParentID)
+		}
+	}
+
+	for _, entry := range entries {
+		if entry.NewID == entry.OldID {
+			continue
+		}
+		var existing string
+		err := tx.QueryRow(`SELECT id FROM folders WHERE id = ?`, entry.NewID).Scan(&existing)
+		if err == nil {
+			return fmt.Errorf("stable folder ID %q already exists while migrating %q", entry.NewID, entry.OldID)
+		}
+		if err != sql.ErrNoRows {
+			return err
+		}
+	}
+
+	for _, entry := range entries {
+		if entry.NewID == entry.OldID {
+			continue
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO folders (
+				id, account_id, parent_id, remote_id, provider_remote_id, name, icon, role,
+				selectable, sort_order, uid_validity, uid_next, sync_cursor,
+				sync_progress_current, sync_progress_started_at, highest_seen_uid,
+				highest_modseq, last_full_sync_at, last_incremental_sync_at, sync_error,
+				total_count, unread_count, provider_count_drift_first_seen_at,
+				provider_count_drift_last_seen_at, provider_count_drift_local_count,
+				provider_count_drift_remote_count, provider_count_drift_cursor,
+				provider_count_drift_confirmations, created_at, updated_at
+			)
+			SELECT ?, account_id, NULL, remote_id, provider_remote_id, name, icon, role,
+				   selectable, sort_order, uid_validity, uid_next, sync_cursor,
+				   sync_progress_current, sync_progress_started_at, highest_seen_uid,
+				   highest_modseq, last_full_sync_at, last_incremental_sync_at, sync_error,
+				   total_count, unread_count, provider_count_drift_first_seen_at,
+				   provider_count_drift_last_seen_at, provider_count_drift_local_count,
+				   provider_count_drift_remote_count, provider_count_drift_cursor,
+				   provider_count_drift_confirmations, created_at, updated_at
+			FROM folders WHERE id = ?`, entry.NewID, entry.OldID); err != nil {
+			return fmt.Errorf("copy folder %q to %q: %w", entry.OldID, entry.NewID, err)
+		}
+	}
+
+	if err := migrateFolderReferences(tx, entries); err != nil {
+		return err
+	}
+	if err := rewriteFolderSettings(tx, byOldID); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.NewID == entry.OldID {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO folder_id_aliases (old_id, new_id) VALUES (?, ?)`, entry.OldID, entry.NewID); err != nil {
+			return fmt.Errorf("save folder alias %q: %w", entry.OldID, err)
+		}
+	}
+	for _, entry := range entries {
+		if entry.NewID == entry.OldID {
+			continue
+		}
+		if _, err := tx.Exec(`DELETE FROM folders WHERE id = ?`, entry.OldID); err != nil {
+			return fmt.Errorf("remove old folder %q: %w", entry.OldID, err)
+		}
+	}
+	// v65 already had a non-unique index with this name. Drop it explicitly;
+	// CREATE INDEX IF NOT EXISTS would otherwise leave the old constraint in
+	// place and silently skip the unique replacement.
+	if _, err := tx.Exec(`DROP INDEX IF EXISTS idx_folders_account_provider_remote`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_account_provider_remote
+		ON folders(account_id, provider_remote_id)
+		WHERE provider_remote_id != ''`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_account_remote
+		ON folders(account_id, remote_id)
+		WHERE provider_remote_id = '' AND COALESCE(remote_id, '') != ''`); err != nil {
+		return err
+	}
+	if err := foreignKeyCheckTx(tx); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 66)
+}
+
+func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {
+	for _, entry := range entries {
+		if entry.NewID == entry.OldID {
+			continue
+		}
+		for table, columns := range map[string][]string{
+			"message_folder_state": {"folder_id"},
+			"folder_thread_state":  {"folder_id"},
+			"sync_state":           {"folder_id"},
+			"label_mutation_queue": {"folder_id"},
+			"message_mutations":    {"folder_id", "destination_folder_id"},
+			"imap_draft_states":    {"folder_id"},
+		} {
+			exists, err := tableExistsTx(tx, table)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				continue
+			}
+			for _, column := range columns {
+				query := fmt.Sprintf(`UPDATE %s SET %s = ? WHERE %s = ?`, table, column, column)
+				if _, err := tx.Exec(query, entry.NewID, entry.OldID); err != nil {
+					return fmt.Errorf("migrate %s.%s %q: %w", table, column, entry.OldID, err)
+				}
+			}
+		}
+		if entry.ParentID != "" {
+			parent := entry.ParentID
+			for _, parentEntry := range entries {
+				if parentEntry.OldID == parent {
+					parent = parentEntry.NewID
+					break
+				}
+			}
+			if _, err := tx.Exec(`UPDATE folders SET parent_id = ? WHERE id = ?`, parent, entry.NewID); err != nil {
+				return fmt.Errorf("migrate parent for folder %q: %w", entry.OldID, err)
+			}
+		}
+	}
+	// Folders that already had their final ID still need parent references
+	// rewritten when their parent was re-keyed.
+	for _, entry := range entries {
+		if entry.ParentID == "" {
+			continue
+		}
+		parent := entry.ParentID
+		for _, parentEntry := range entries {
+			if parentEntry.OldID == parent {
+				parent = parentEntry.NewID
+				break
+			}
+		}
+		if _, err := tx.Exec(`UPDATE folders SET parent_id = ? WHERE id = ?`, parent, entry.NewID); err != nil {
+			return fmt.Errorf("migrate parent for folder %q: %w", entry.OldID, err)
+		}
+	}
+	return nil
+}
+
+func markSchemaVersion(tx *sql.Tx, version int) error {
+	_, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (?)`, version)
+	return err
+}
+
+func rewriteFolderSettings(tx *sql.Tx, entries map[string]folderIdentityMigration) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	exists, err := tableExistsTx(tx, "app_settings")
+	if err != nil || !exists {
+		return err
+	}
+	for _, key := range []string{"idle_folders", "sidebar_folder_collapsed"} {
+		rows, err := tx.Query(`SELECT user_id, value FROM app_settings WHERE key = ?`, key)
+		if err != nil {
+			return err
+		}
+		var updates [][2]string
+		for rows.Next() {
+			var userID, raw string
+			if err := rows.Scan(&userID, &raw); err != nil {
+				rows.Close()
+				return err
+			}
+			updated, changed, err := rewriteFolderSettingJSON(key, raw, entries)
+			if err != nil {
+				rows.Close()
+				return err
+			}
+			if changed {
+				updates = append(updates, [2]string{userID, updated})
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, update := range updates {
+			if _, err := tx.Exec(`UPDATE app_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND key = ?`, update[1], update[0], key); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func rewriteFolderSettingJSON(key, raw string, entries map[string]folderIdentityMigration) (string, bool, error) {
+	if key == "idle_folders" {
+		var perAccount map[string][]string
+		if err := json.Unmarshal([]byte(raw), &perAccount); err != nil {
+			return raw, false, nil
+		}
+		changed := false
+		for accountID, values := range perAccount {
+			for i, value := range values {
+				if entry, ok := entries[value]; ok && entry.AccountID == accountID {
+					values[i] = entry.NewID
+					changed = true
+				}
+			}
+			perAccount[accountID] = values
+		}
+		if !changed {
+			return raw, false, nil
+		}
+		data, err := json.Marshal(perAccount)
+		return string(data), true, err
+	}
+
+	var state map[string]bool
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return raw, false, nil
+	}
+	changed := false
+	for oldKey, enabled := range state {
+		parts := strings.SplitN(oldKey, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if entry, ok := entries[parts[1]]; ok && entry.AccountID == parts[0] {
+			delete(state, oldKey)
+			state[parts[0]+":"+entry.NewID] = enabled
+			changed = true
+		}
+	}
+	if !changed {
+		return raw, false, nil
+	}
+	data, err := json.Marshal(state)
+	return string(data), true, err
+}
+
+func foreignKeyCheckTx(tx *sql.Tx) error {
+	rows, err := tx.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var table, rowID, parent, foreignKey string
+		if err := rows.Scan(&table, &rowID, &parent, &foreignKey); err != nil {
+			return err
+		}
+		return fmt.Errorf("foreign key check failed: table=%s row=%s parent=%s fk=%s", table, rowID, parent, foreignKey)
+	}
+	return rows.Err()
 }
 
 func tableExistsTx(tx *sql.Tx, table string) (bool, error) {

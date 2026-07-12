@@ -72,6 +72,20 @@ CREATE TABLE IF NOT EXISTS folders (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS folder_id_aliases (
+    old_id TEXT PRIMARY KEY,
+    new_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_account_provider_remote
+ON folders(account_id, provider_remote_id)
+WHERE provider_remote_id != '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_account_remote
+ON folders(account_id, remote_id)
+WHERE provider_remote_id = '' AND COALESCE(remote_id, '') != '';
+
 -- Messages
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,9 +330,6 @@ ON folders(account_id, sort_order);
 
 CREATE INDEX IF NOT EXISTS idx_folders_account_role
 ON folders(account_id, role);
-
-CREATE INDEX IF NOT EXISTS idx_folders_account_provider_remote
-ON folders(account_id, provider_remote_id);
 
 CREATE INDEX IF NOT EXISTS idx_folders_role_account
 ON folders(role, account_id, id);
@@ -1023,4 +1034,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (65);
+INSERT OR REPLACE INTO schema_version (version) VALUES (66);

@@ -322,7 +322,7 @@ func (o *SyncOrchestrator) syncGmailAPIFolders(ctx context.Context, accountID, t
 		remoteName := gmailAPILabelRemoteName(label)
 		role := gmailAPILabelRole(label)
 		inputs = append(inputs, storage.UpsertFolderInput{
-			ID:               folderIDFromRemote(accountID, remoteName),
+			ID:               storage.FolderIDForIdentity(accountID, "gmail", label.ID),
 			AccountID:        accountID,
 			RemoteID:         remoteName,
 			ProviderRemoteID: label.ID,
@@ -335,7 +335,7 @@ func (o *SyncOrchestrator) syncGmailAPIFolders(ctx context.Context, accountID, t
 	}
 	archiveRemote := "[Gmail]/All Mail"
 	inputs = append(inputs, storage.UpsertFolderInput{
-		ID:               folderIDFromRemote(accountID, archiveRemote),
+		ID:               storage.FolderIDForIdentity(accountID, "gmail", "ARCHIVE"),
 		AccountID:        accountID,
 		RemoteID:         archiveRemote,
 		ProviderRemoteID: "ARCHIVE",

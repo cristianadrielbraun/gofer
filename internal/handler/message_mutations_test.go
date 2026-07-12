@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	goimap "github.com/emersion/go-imap/v2"
 
 	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
@@ -417,6 +418,7 @@ func TestDeleteThreadOnlyQueuesMessagesFromTheViewedTrashFolder(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodDelete, "/api/messages/"+strconv.FormatInt(trashID, 10)+"/thread?folder_id=victim-trash", nil)
 	req.SetPathValue("id", strconv.FormatInt(trashID, 10))
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
 	recorder := httptest.NewRecorder()
 
 	h.handleDeleteThread(recorder, req)
@@ -456,6 +458,7 @@ func TestEmailPartialUsesViewedFolderForDeleteAction(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/email/"+strconv.FormatInt(messageID, 10)+"?folder_id="+folderID, nil)
 		req.SetPathValue("id", strconv.FormatInt(messageID, 10))
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
 		recorder := httptest.NewRecorder()
 		h.handleEmailPartial(recorder, req)
 		if recorder.Code != http.StatusOK {
@@ -477,5 +480,42 @@ func TestEmailPartialUsesViewedFolderForDeleteAction(t *testing.T) {
 	inboxHTML := render("victim-inbox")
 	if strings.Contains(inboxHTML, "Permanently delete") || strings.Contains(inboxHTML, "border-red-500/35") {
 		t.Fatalf("Inbox email partial kept Trash delete treatment: %s", inboxHTML)
+	}
+}
+
+func TestEmailPartialResolvesOwnedFolderAlias(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{{
+		ID: "victim-inbox", AccountID: "victim-account", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO folder_id_aliases (old_id, new_id) VALUES ('legacy-inbox', 'victim-inbox')`); err != nil {
+		t.Fatalf("insert folder alias: %v", err)
+	}
+	if err := db.UpsertSyncMessages(t.Context(), []storage.SyncMessage{{
+		AccountID: "victim-account", FolderID: "victim-inbox", RemoteUID: 7,
+		MessageID: "<alias@example.com>", Subject: "Alias", FromEmail: "sender@example.com", DateSent: time.Now(),
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	messageID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<alias@example.com>")
+	if err != nil || messageID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+	}
+
+	ownerRequest := func(userID, folderID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/email/"+strconv.FormatInt(messageID, 10)+"?folder_id="+folderID, nil)
+		req.SetPathValue("id", strconv.FormatInt(messageID, 10))
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Email: userID + "@example.com"}))
+		recorder := httptest.NewRecorder()
+		h.handleEmailPartial(recorder, req)
+		return recorder
+	}
+	if response := ownerRequest("owner", "legacy-inbox"); response.Code != http.StatusOK {
+		t.Fatalf("owned alias status = %d body=%s, want 200", response.Code, response.Body.String())
+	}
+	if response := ownerRequest("attacker", "legacy-inbox"); response.Code != http.StatusNotFound {
+		t.Fatalf("cross-user alias status = %d body=%s, want 404", response.Code, response.Body.String())
 	}
 }

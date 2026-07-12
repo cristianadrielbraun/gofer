@@ -516,7 +516,7 @@ func outlookGraphFolderRemoteName(folder outlookGraphFolder) string {
 }
 
 func outlookGraphLocalFolderID(accountID string, folder outlookGraphFolder) string {
-	return folderIDFromRemote(accountID, outlookGraphFolderRemoteName(folder))
+	return storage.FolderIDForIdentity(accountID, "outlook", folder.ID)
 }
 
 func outlookGraphFolderSortOrder(role string, fallback int) int {

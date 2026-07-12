@@ -20,6 +20,24 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
+func gmailAPITestFolderID(providerID string) string {
+	return storage.FolderIDForIdentity("acc", providers.ProviderGmail, providerID)
+}
+
+func TestGmailLabelRenameKeepsLocalFolderID(t *testing.T) {
+	oldName := "Projects"
+	newName := "Renamed projects"
+	providerID := "Label_projects"
+	oldID := storage.FolderIDForIdentity("acc", providers.ProviderGmail, providerID)
+	newID := storage.FolderIDForIdentity("acc", providers.ProviderGmail, providerID)
+	if oldName == newName {
+		t.Fatal("test labels unexpectedly have the same display name")
+	}
+	if oldID == "" || oldID != newID {
+		t.Fatalf("Gmail label ID changed across rename: old=%q new=%q", oldID, newID)
+	}
+}
+
 func TestShouldUseGmailAPIMailIsAlwaysUsedForGmailAccounts(t *testing.T) {
 	orchestrator := NewSyncOrchestrator(nil, nil, nil, labelSyncTestTokens{})
 	cfg := &models.AccountConfig{Provider: providers.ProviderGmail}
@@ -41,13 +59,13 @@ func TestSyncGmailAPIAccountImportsLabelsMessagesAndCursor(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
-		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
-		{ID: "acc_sent", AccountID: "acc", RemoteID: "[Gmail]/Sent Mail", ProviderRemoteID: "SENT", Name: "Sent", Role: "sent", Selectable: true},
-		{ID: "acc_projects", AccountID: "acc", RemoteID: "Projects", ProviderRemoteID: "Label_Projects", Name: "Projects", Role: "custom", Selectable: true},
-		{ID: "acc_important", AccountID: "acc", RemoteID: "[Gmail]/Important", ProviderRemoteID: "IMPORTANT", Name: "[Gmail]/Important", Role: "custom", Selectable: true},
-		{ID: "acc_category_forums", AccountID: "acc", RemoteID: "CATEGORY_FORUMS", ProviderRemoteID: "CATEGORY_FORUMS", Name: "CATEGORY_FORUMS", Role: "custom", Selectable: true},
-		{ID: "acc_yellow_star", AccountID: "acc", RemoteID: "YELLOW_STAR", ProviderRemoteID: "YELLOW_STAR", Name: "YELLOW_STAR", Role: "custom", Selectable: true},
-		{ID: "acc_imap_trash", AccountID: "acc", RemoteID: "[Imap]/Trash", ProviderRemoteID: "Label_ImapTrash", Name: "[Imap]/Trash", Role: "custom", Selectable: true},
+		{ID: gmailAPITestFolderID("INBOX"), AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: gmailAPITestFolderID("SENT"), AccountID: "acc", RemoteID: "[Gmail]/Sent Mail", ProviderRemoteID: "SENT", Name: "Sent", Role: "sent", Selectable: true},
+		{ID: gmailAPITestFolderID("Label_Projects"), AccountID: "acc", RemoteID: "Projects", ProviderRemoteID: "Label_Projects", Name: "Projects", Role: "custom", Selectable: true},
+		{ID: gmailAPITestFolderID("IMPORTANT"), AccountID: "acc", RemoteID: "[Gmail]/Important", ProviderRemoteID: "IMPORTANT", Name: "[Gmail]/Important", Role: "custom", Selectable: true},
+		{ID: gmailAPITestFolderID("CATEGORY_FORUMS"), AccountID: "acc", RemoteID: "CATEGORY_FORUMS", ProviderRemoteID: "CATEGORY_FORUMS", Name: "CATEGORY_FORUMS", Role: "custom", Selectable: true},
+		{ID: gmailAPITestFolderID("YELLOW_STAR"), AccountID: "acc", RemoteID: "YELLOW_STAR", ProviderRemoteID: "YELLOW_STAR", Name: "YELLOW_STAR", Role: "custom", Selectable: true},
+		{ID: gmailAPITestFolderID("Label_ImapTrash"), AccountID: "acc", RemoteID: "[Imap]/Trash", ProviderRemoteID: "Label_ImapTrash", Name: "[Imap]/Trash", Role: "custom", Selectable: true},
 	}); err != nil {
 		t.Fatalf("UpsertFolders(seed) error = %v", err)
 	}
@@ -156,7 +174,7 @@ func TestSyncGmailAPIAccountImportsLabelsMessagesAndCursor(t *testing.T) {
 		t.Fatalf("GetEmailBody() = %q, %v; want no stored body before lazy fetch", string(body), err)
 	}
 	var staleSent int
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = 'acc_sent' AND is_deleted = 0`, msgID).Scan(&staleSent); err != nil {
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = ? AND is_deleted = 0`, msgID, gmailAPITestFolderID("SENT")).Scan(&staleSent); err != nil {
 		t.Fatalf("query stale sent state: %v", err)
 	}
 	if staleSent != 0 {
@@ -207,7 +225,7 @@ func TestSyncGmailAPIAccountRefreshesTokenAfterUnauthorized(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
-		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: gmailAPITestFolderID("INBOX"), AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
 	}); err != nil {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
@@ -359,13 +377,13 @@ func TestSyncGmailAPIAccountSeedsCursorWithoutHistoricalImportForExistingProvide
 		t.Fatalf("insert account: %v", err)
 	}
 	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
-		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: gmailAPITestFolderID("INBOX"), AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
 	}); err != nil {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
 	idsByProvider, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
 		AccountID:         "acc",
-		FolderID:          "acc_inbox",
+		FolderID:          gmailAPITestFolderID("INBOX"),
 		ProviderMessageID: "gmail-msg-1",
 		InternetMessageID: "<known@gmail.example>",
 		Subject:           "Known Gmail message",
@@ -428,14 +446,14 @@ func TestSyncGmailAPIAccountRecentCatchupImportsGapMessageBeforeHistory(t *testi
 		t.Fatalf("insert account: %v", err)
 	}
 	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
-		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: gmailAPITestFolderID("INBOX"), AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
 	}); err != nil {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
 	baseline := mustParseGmailAPITestTime(t)
 	if _, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
 		AccountID:         "acc",
-		FolderID:          "acc_inbox",
+		FolderID:          gmailAPITestFolderID("INBOX"),
 		ProviderMessageID: "gmail-known",
 		InternetMessageID: "<known@gmail.example>",
 		Subject:           "Known Gmail message",
@@ -542,14 +560,14 @@ func TestRepairGmailAPIAccountRunsHistoricalImportForExistingProviderMessages(t 
 		t.Fatalf("insert account: %v", err)
 	}
 	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
-		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: gmailAPITestFolderID("INBOX"), AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
 	}); err != nil {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
 	baseline := mustParseGmailAPITestTime(t)
 	if _, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
 		AccountID:         "acc",
-		FolderID:          "acc_inbox",
+		FolderID:          gmailAPITestFolderID("INBOX"),
 		ProviderMessageID: "gmail-known",
 		InternetMessageID: "<known@gmail.example>",
 		Subject:           "Known Gmail message",
@@ -743,14 +761,14 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 		t.Fatalf("insert account: %v", err)
 	}
 	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
-		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: gmailAPITestFolderID("INBOX"), AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
 	}); err != nil {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
 	baseline := mustParseGmailAPITestTime(t)
 	if _, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
 		AccountID:         "acc",
-		FolderID:          "acc_inbox",
+		FolderID:          gmailAPITestFolderID("INBOX"),
 		ProviderMessageID: "gmail-msg-1",
 		InternetMessageID: "<known@gmail.example>",
 		Subject:           "Known Gmail message",
