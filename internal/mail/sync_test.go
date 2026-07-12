@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -25,11 +26,20 @@ type lifecycleIdleWatcher struct {
 }
 
 type folderMessageSyncerStub struct {
-	result *imap.SyncResult
-	err    error
+	result  *imap.SyncResult
+	err     error
+	batches [][]storage.SyncMessage
 }
 
-func (s folderMessageSyncerStub) SyncFolder(context.Context, string, string, int, func([]storage.SyncMessage) error) (*imap.SyncResult, error) {
+func (s folderMessageSyncerStub) SyncFolder(_ context.Context, _ string, _ string, options imap.FolderSyncOptions, onBatch func([]storage.SyncMessage) error) (*imap.SyncResult, error) {
+	if s.result != nil && options.OnTotal != nil {
+		options.OnTotal(int(s.result.NumMessages))
+	}
+	for _, batch := range s.batches {
+		if err := onBatch(batch); err != nil {
+			return s.result, fmt.Errorf("callback: %w", err)
+		}
+	}
 	return s.result, s.err
 }
 
@@ -267,6 +277,73 @@ func TestSyncFolderMessagesCompletesAfterStateIsSaved(t *testing.T) {
 	}
 	if !completed {
 		t.Fatal("successful folder sync did not publish completion")
+	}
+}
+
+func TestSyncFolderMessagesUsesDiscoveredTotalBeforeFetching(t *testing.T) {
+	orchestrator, db, events := newFolderMessageSyncTestOrchestrator(t)
+	if _, err := db.Write().Exec(`UPDATE folders SET total_count = 3 WHERE id = 'acc_inbox'`); err != nil {
+		t.Fatalf("seed stale folder count: %v", err)
+	}
+
+	err := orchestrator.syncFolderMessages(
+		context.Background(),
+		folderMessageSyncerStub{result: &imap.SyncResult{NumMessages: 42, HighestUID: 42, UIDValidity: 200}},
+		"acc",
+		"imap",
+		"acc_inbox",
+		"INBOX",
+	)
+	if err != nil {
+		t.Fatalf("syncFolderMessages() error = %v", err)
+	}
+
+	var startedTotal, firstProgressTotal int
+	for _, event := range drainSyncEvents(events) {
+		switch event.Type {
+		case EventSyncStarted:
+			if startedTotal != 0 {
+				t.Fatalf("duplicate sync-started event with totals %d and %d", startedTotal, event.Total)
+			}
+			startedTotal = event.Total
+		case EventSyncProgress:
+			if firstProgressTotal == 0 {
+				firstProgressTotal = event.Total
+			}
+		}
+	}
+	if startedTotal != 42 || firstProgressTotal != 42 {
+		t.Fatalf("progress totals started=%d first_progress=%d, want 42/42", startedTotal, firstProgressTotal)
+	}
+	var storedTotal int
+	if err := db.Read().QueryRow(`SELECT total_count FROM folders WHERE id = 'acc_inbox'`).Scan(&storedTotal); err != nil {
+		t.Fatalf("query stored total: %v", err)
+	}
+	if storedTotal != 42 {
+		t.Fatalf("stored total = %d, want 42", storedTotal)
+	}
+}
+
+func TestSyncFolderMessagesDoesNotCompleteAfterBatchCallbackError(t *testing.T) {
+	orchestrator, _, events := newFolderMessageSyncTestOrchestrator(t)
+	err := orchestrator.syncFolderMessages(
+		context.Background(),
+		folderMessageSyncerStub{
+			result:  &imap.SyncResult{NumMessages: 1, HighestUID: 1, UIDValidity: 200},
+			batches: [][]storage.SyncMessage{{{AccountID: "acc", FolderID: "missing-folder", RemoteUID: 1, MessageID: "<callback@example.com>", Subject: "Callback"}}},
+		},
+		"acc",
+		"imap",
+		"acc_inbox",
+		"INBOX",
+	)
+	if err == nil || !strings.Contains(err.Error(), "callback") {
+		t.Fatalf("syncFolderMessages() error = %v, want callback failure", err)
+	}
+	for _, event := range drainSyncEvents(events) {
+		if event.Type == EventSyncComplete {
+			t.Fatal("folder sync published completion after callback failure")
+		}
 	}
 }
 

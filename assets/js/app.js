@@ -5812,7 +5812,9 @@ function updateMailSyncFolderProgress(phase, data) {
   if (data.current_folder) folder.label = data.current_folder
   folder.status = phase === "complete" ? "complete" : "syncing"
   folder.current = _mailSyncCount(data.current)
-  folder.total = _mailSyncCount(data.total) || folder.total
+  if (_mailSyncHasField(data, "total") && (phase !== "complete" || _mailSyncCount(data.total) > 0)) {
+    folder.total = _mailSyncCount(data.total)
+  }
   folder.refreshOnly = !!data.refresh_only
   folder.totalEstimated = !!data.total_estimated
   folder.updatedAt = Date.now()

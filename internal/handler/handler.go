@@ -3401,10 +3401,13 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		if event.Error != "" {
 			m["error"] = event.Error
 		}
-		if event.Current > 0 {
+		includeProgress := event.Type == mail.EventSyncStarted || event.Type == mail.EventSyncProgress || event.Type == mail.EventSyncComplete ||
+			event.Type == mail.EventManualSyncStarted || event.Type == mail.EventManualSyncProgress || event.Type == mail.EventManualSyncComplete ||
+			event.Type == mail.EventScheduledSyncStarted || event.Type == mail.EventScheduledSyncProgress || event.Type == mail.EventScheduledSyncComplete
+		if event.Current > 0 || includeProgress {
 			m["current"] = event.Current
 		}
-		if event.Total > 0 {
+		if event.Total > 0 || includeProgress {
 			m["total"] = event.Total
 		}
 		if event.AvatarHash != "" {

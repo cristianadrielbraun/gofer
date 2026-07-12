@@ -24,6 +24,15 @@ type SyncResult struct {
 	NumMessages        uint32
 }
 
+// FolderSyncOptions controls a full mailbox sync. OnTotal is called after
+// the server's UID SEARCH has produced the real mailbox size and before the
+// first fetch starts. It is intentionally separate from the message-batch
+// callback so callers do not have to infer totals from an empty batch.
+type FolderSyncOptions struct {
+	ChunkSize int
+	OnTotal   func(total int)
+}
+
 type messageDateCandidates struct {
 	envelopeDate time.Time
 	internalDate time.Time
@@ -53,10 +62,11 @@ func finalizeSyncMessage(syncMsg *storage.SyncMessage, folderID string, dates me
 	syncMsg.Snippet = truncate(syncMsg.Subject, 200)
 }
 
-func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, chunkSize int, fn func([]storage.SyncMessage) error) (*SyncResult, error) {
+func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, options FolderSyncOptions, fn func([]storage.SyncMessage) error) (*SyncResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	chunkSize := options.ChunkSize
 	if chunkSize <= 0 {
 		return nil, fmt.Errorf("chunk size must be positive")
 	}
@@ -71,6 +81,9 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 	defer c.client.Unselect()
 
 	if selectData.NumMessages == 0 {
+		if options.OnTotal != nil {
+			options.OnTotal(0)
+		}
 		return &SyncResult{
 			UIDValidity: uint32(selectData.UIDValidity),
 			NumMessages: 0,
@@ -86,6 +99,9 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 	}
 	uids := searchData.AllUIDs()
 	result.NumMessages = uint32(len(uids))
+	if options.OnTotal != nil {
+		options.OnTotal(len(uids))
+	}
 	if len(uids) == 0 {
 		return result, nil
 	}

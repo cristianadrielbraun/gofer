@@ -16,6 +16,7 @@ import (
 
 type sparseSyncServerScript struct {
 	rejectSearch bool
+	empty        bool
 	mu           sync.Mutex
 	commands     []string
 }
@@ -72,7 +73,11 @@ func serveSparseSyncScript(conn net.Conn, script *sparseSyncServerScript) {
 		case strings.Contains(upper, " CAPABILITY"):
 			fmt.Fprintf(writer, "* CAPABILITY IMAP4rev1\r\n%s OK capability\r\n", tag)
 		case strings.Contains(upper, " SELECT "):
-			fmt.Fprint(writer, "* FLAGS (\\Seen)\r\n* 2 EXISTS\r\n* OK [UIDVALIDITY 100] valid\r\n* OK [UIDNEXT 1000001] next\r\n")
+			exists := 2
+			if script.empty {
+				exists = 0
+			}
+			fmt.Fprintf(writer, "* FLAGS (\\Seen)\r\n* %d EXISTS\r\n* OK [UIDVALIDITY 100] valid\r\n* OK [UIDNEXT 1000001] next\r\n", exists)
 			fmt.Fprintf(writer, "%s OK [READ-WRITE] selected\r\n", tag)
 		case strings.Contains(upper, " UID SEARCH "):
 			if script.rejectSearch {
@@ -105,7 +110,12 @@ func TestSyncFolderFetchesOnlyUIDsThatExist(t *testing.T) {
 	client := newSparseSyncTestClient(t, script)
 
 	var synced []storage.SyncMessage
-	result, err := client.SyncFolder(context.Background(), "inbox", "INBOX", 2, func(messages []storage.SyncMessage) error {
+	var total int
+	totalSeenBeforeBatch := false
+	result, err := client.SyncFolder(context.Background(), "inbox", "INBOX", FolderSyncOptions{ChunkSize: 2, OnTotal: func(value int) {
+		total = value
+	}}, func(messages []storage.SyncMessage) error {
+		totalSeenBeforeBatch = total > 0
 		synced = append(synced, messages...)
 		return nil
 	})
@@ -117,6 +127,9 @@ func TestSyncFolderFetchesOnlyUIDsThatExist(t *testing.T) {
 	}
 	if len(synced) != 2 || synced[0].RemoteUID != 2 || synced[1].RemoteUID != 1000000 {
 		t.Fatalf("synced messages = %#v", synced)
+	}
+	if total != 2 || !totalSeenBeforeBatch {
+		t.Fatalf("total callback = %d, seen before batch = %v; want 2/true", total, totalSeenBeforeBatch)
 	}
 	commands := strings.ToUpper(script.commandLog())
 	if !strings.Contains(commands, "UID SEARCH ALL") {
@@ -130,11 +143,34 @@ func TestSyncFolderFetchesOnlyUIDsThatExist(t *testing.T) {
 	}
 }
 
+func TestSyncFolderPublishesZeroForEmptyMailbox(t *testing.T) {
+	script := &sparseSyncServerScript{empty: true}
+	client := newSparseSyncTestClient(t, script)
+
+	var total int = -1
+	var batches int
+	result, err := client.SyncFolder(context.Background(), "inbox", "INBOX", FolderSyncOptions{ChunkSize: 2, OnTotal: func(value int) {
+		total = value
+	}}, func(messages []storage.SyncMessage) error {
+		batches += len(messages)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("SyncFolder() error = %v", err)
+	}
+	if result.NumMessages != 0 || result.TotalFetched != 0 || total != 0 || batches != 0 {
+		t.Fatalf("empty sync result=%#v total=%d batches=%d", result, total, batches)
+	}
+	if commands := strings.ToUpper(script.commandLog()); strings.Contains(commands, "UID SEARCH") || strings.Contains(commands, " UID FETCH ") {
+		t.Fatalf("empty mailbox commands = %q, want no search/fetch", commands)
+	}
+}
+
 func TestSyncFolderDoesNotRangeScanWhenUIDSearchFails(t *testing.T) {
 	script := &sparseSyncServerScript{rejectSearch: true}
 	client := newSparseSyncTestClient(t, script)
 
-	if _, err := client.SyncFolder(context.Background(), "inbox", "INBOX", 500, func([]storage.SyncMessage) error { return nil }); err == nil {
+	if _, err := client.SyncFolder(context.Background(), "inbox", "INBOX", FolderSyncOptions{ChunkSize: 500}, func([]storage.SyncMessage) error { return nil }); err == nil {
 		t.Fatal("SyncFolder() error = nil, want UID SEARCH failure")
 	}
 	commands := strings.ToUpper(script.commandLog())

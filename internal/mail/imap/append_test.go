@@ -114,7 +114,7 @@ func TestAppendMessageStoresSeenMessageAndReturnsUID(t *testing.T) {
 		t.Fatalf("find draft revision UID=%d validity=%d result=%#v error=%v", draftUID, draftUIDValidity, draftResult, err)
 	}
 	var syncedDraft bool
-	if _, err := client.SyncFolder(context.Background(), "drafts", "Drafts", 10, func(messages []storage.SyncMessage) error {
+	if _, err := client.SyncFolder(context.Background(), "drafts", "Drafts", FolderSyncOptions{ChunkSize: 10}, func(messages []storage.SyncMessage) error {
 		for _, synced := range messages {
 			if synced.RemoteUID == draftUID {
 				syncedDraft = synced.IsDraft

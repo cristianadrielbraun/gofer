@@ -35,7 +35,7 @@ type manualSyncJob struct {
 type manualSyncOperation func(context.Context, string) error
 
 type folderMessageSyncer interface {
-	SyncFolder(context.Context, string, string, int, func([]storage.SyncMessage) error) (*imap.SyncResult, error)
+	SyncFolder(context.Context, string, string, imap.FolderSyncOptions, func([]storage.SyncMessage) error) (*imap.SyncResult, error)
 }
 
 type manualSyncRun struct {
@@ -2242,26 +2242,44 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client folder
 	}
 	totalHint, _ := o.db.GetFolderEmailCount(ctx, folderID)
 	folderName := displayName(remoteName, folderRole)
-	o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 	fetched := 0
-	result, err := client.SyncFolder(ctx, folderID, remoteName, 500, func(msgs []storage.SyncMessage) error {
+	total := totalHint
+	started := false
+	publishStarted := func() {
+		o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
+		started = true
+	}
+	result, err := client.SyncFolder(ctx, folderID, remoteName, imap.FolderSyncOptions{
+		ChunkSize: 500,
+		OnTotal: func(remoteTotal int) {
+			total = max(0, remoteTotal)
+			publishStarted()
+		},
+	}, func(msgs []storage.SyncMessage) error {
 		fetched += len(msgs)
-		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: totalHint, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
+		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 		return o.db.UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, remoteName, folderRole))
 	})
 	if err != nil {
+		if !started {
+			publishStarted()
+		}
 		return fmt.Errorf("sync messages %s/%s: %w", accountID, remoteName, err)
 	}
 	if result == nil {
+		if !started {
+			publishStarted()
+		}
 		return fmt.Errorf("sync messages %s/%s returned no result", accountID, remoteName)
+	}
+	if !started {
+		total = int(result.NumMessages)
+		publishStarted()
 	}
 	if err := o.db.UpdateFolderSyncState(ctx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages)); err != nil {
 		return fmt.Errorf("save sync state %s/%s: %w", accountID, remoteName, err)
 	}
-	total := totalHint
-	if total <= 0 {
-		total = int(result.NumMessages)
-	}
+	total = int(result.NumMessages)
 	o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 	if _, err := o.db.RefreshFolderUnreadCount(ctx, folderID); err != nil {
 		return fmt.Errorf("refresh unread count %s/%s: %w", accountID, remoteName, err)
