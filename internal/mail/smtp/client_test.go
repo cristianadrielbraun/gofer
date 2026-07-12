@@ -174,6 +174,61 @@ func TestSendRawStopsWhenSMTPCommandContextExpires(t *testing.T) {
 	waitForSMTPServer(t, serverErr)
 }
 
+func TestSendRawClassifiesSMTPRepliesBeforeAcceptance(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		reply     string
+		retryable bool
+	}{
+		{name: "temporary", reply: "451 4.3.0 try again later\r\n", retryable: true},
+		{name: "permanent", reply: "550 5.1.0 sender rejected\r\n", retryable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clientConn, serverConn := net.Pipe()
+			protocolClient := gosmtp.NewClient(clientConn)
+			protocolClient.CommandTimeout = time.Second
+			protocolClient.SubmissionTimeout = time.Second
+			client := &Client{conn: clientConn, client: protocolClient}
+			defer client.Close()
+
+			serverErr := make(chan error, 1)
+			go func() {
+				defer serverConn.Close()
+				reader := bufio.NewReader(serverConn)
+				if _, err := fmt.Fprint(serverConn, "220 test ESMTP ready\r\n"); err != nil {
+					serverErr <- err
+					return
+				}
+				line, err := reader.ReadString('\n')
+				if err != nil || !strings.HasPrefix(line, "EHLO ") {
+					serverErr <- fmt.Errorf("read EHLO %q: %w", line, err)
+					return
+				}
+				if _, err := fmt.Fprint(serverConn, "250 test\r\n"); err != nil {
+					serverErr <- err
+					return
+				}
+				line, err = reader.ReadString('\n')
+				if err != nil || !strings.HasPrefix(line, "MAIL FROM:") {
+					serverErr <- fmt.Errorf("read MAIL %q: %w", line, err)
+					return
+				}
+				_, err = fmt.Fprint(serverConn, tc.reply)
+				serverErr <- err
+			}()
+
+			result, err := client.SendRaw(context.Background(), "sender@example.com", []string{"recipient@example.com"}, []byte("Subject: test\r\n\r\nbody\r\n"))
+			if result != models.SendFailed || err == nil {
+				t.Fatalf("SendRaw() = %v, %v; want failed SMTP reply", result, err)
+			}
+			if got := IsRetryable(err); got != tc.retryable {
+				t.Fatalf("IsRetryable(%v) = %v, want %v", err, got, tc.retryable)
+			}
+			waitForSMTPServer(t, serverErr)
+		})
+	}
+}
+
 func TestSendRawIsAmbiguousWhenFinalDeliveryReplyTimesOut(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	protocolClient := gosmtp.NewClient(clientConn)
@@ -234,4 +289,75 @@ func TestSendRawIsAmbiguousWhenFinalDeliveryReplyTimesOut(t *testing.T) {
 		t.Fatalf("SendRaw() error = %v, want context deadline", err)
 	}
 	waitForSMTPServer(t, serverErr)
+}
+
+func TestSendRawClassifiesExplicitFinalDeliveryReply(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		reply     string
+		retryable bool
+	}{
+		{name: "temporary", reply: "451 4.3.0 delivery temporarily unavailable\r\n", retryable: true},
+		{name: "permanent", reply: "550 5.7.1 message rejected\r\n", retryable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clientConn, serverConn := net.Pipe()
+			protocolClient := gosmtp.NewClient(clientConn)
+			protocolClient.CommandTimeout = time.Second
+			protocolClient.SubmissionTimeout = time.Second
+			client := &Client{conn: clientConn, client: protocolClient}
+			defer client.Close()
+
+			serverErr := make(chan error, 1)
+			go func() {
+				defer serverConn.Close()
+				reader := bufio.NewReader(serverConn)
+				steps := []struct {
+					prefix string
+					reply  string
+				}{
+					{prefix: "EHLO ", reply: "250 test\r\n"},
+					{prefix: "MAIL FROM:", reply: "250 sender ok\r\n"},
+					{prefix: "RCPT TO:", reply: "250 recipient ok\r\n"},
+					{prefix: "DATA", reply: "354 send message\r\n"},
+				}
+				if _, err := fmt.Fprint(serverConn, "220 test ESMTP ready\r\n"); err != nil {
+					serverErr <- err
+					return
+				}
+				for _, step := range steps {
+					line, err := reader.ReadString('\n')
+					if err != nil || !strings.HasPrefix(line, step.prefix) {
+						serverErr <- fmt.Errorf("read %s command %q: %w", step.prefix, line, err)
+						return
+					}
+					if _, err := fmt.Fprint(serverConn, step.reply); err != nil {
+						serverErr <- err
+						return
+					}
+				}
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						serverErr <- err
+						return
+					}
+					if strings.TrimSpace(line) == "." {
+						break
+					}
+				}
+				_, err := fmt.Fprint(serverConn, tc.reply)
+				serverErr <- err
+			}()
+
+			result, err := client.SendRaw(context.Background(), "sender@example.com", []string{"recipient@example.com"}, []byte("Subject: test\r\n\r\nbody\r\n"))
+			if result != models.SendFailed || err == nil {
+				t.Fatalf("SendRaw() = %v, %v; want explicit final delivery failure", result, err)
+			}
+			if got := IsRetryable(err); got != tc.retryable {
+				t.Fatalf("IsRetryable(%v) = %v, want %v", err, got, tc.retryable)
+			}
+			waitForSMTPServer(t, serverErr)
+		})
+	}
 }

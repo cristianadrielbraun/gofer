@@ -78,6 +78,89 @@ func TestOutgoingSendLifecycleKeepsImmutablePayload(t *testing.T) {
 	}
 }
 
+func TestOutgoingSendRetryWaitsForBackoffAndKeepsPayload(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	input := outgoingTestInput("acc", 0, time.Now().Add(-time.Minute), false)
+	queued, err := db.QueueOutgoingSend(ctx, input)
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend() error = %v", err)
+	}
+	claimed, err := db.ClaimDueOutgoingSends(ctx, time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueOutgoingSends() = %#v, %v", claimed, err)
+	}
+	nextAttempt := time.Now().UTC().Add(5 * time.Minute).Round(time.Second)
+	if err := db.FinishOutgoingSendWithRetry(ctx, queued.ID, "temporary provider failure", nextAttempt); err != nil {
+		t.Fatalf("FinishOutgoingSendWithRetry() error = %v", err)
+	}
+	retrying, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil || retrying.Status != OutgoingSendPending || retrying.AttemptCount != 1 || !retrying.NextAttemptAt.Equal(nextAttempt) {
+		t.Fatalf("retrying send = %#v, %v", retrying, err)
+	}
+	if !bytes.Equal(retrying.MIMEData, input.MIMEData) || retrying.LastError != "temporary provider failure" {
+		t.Fatalf("retry changed durable payload/state: %#v", retrying)
+	}
+	if early, err := db.ClaimDueOutgoingSends(ctx, nextAttempt.Add(-time.Second), 1); err != nil || len(early) != 0 {
+		t.Fatalf("send retried before backoff = %#v, %v", early, err)
+	}
+	claimed, err = db.ClaimDueOutgoingSends(ctx, nextAttempt.Add(time.Second), 1)
+	if err != nil || len(claimed) != 1 || claimed[0].AttemptCount != 2 || !bytes.Equal(claimed[0].MIMEData, input.MIMEData) {
+		t.Fatalf("send after backoff = %#v, %v", claimed, err)
+	}
+}
+
+func TestOutgoingSendRetrySurvivesDatabaseRestart(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "gofer.db")
+	db, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default');
+		INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com');
+	`); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	input := outgoingTestInput("acc", 0, time.Now().Add(-time.Minute), false)
+	queued, err := db.QueueOutgoingSend(ctx, input)
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend() error = %v", err)
+	}
+	claimed, err := db.ClaimDueOutgoingSends(ctx, time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueOutgoingSends() = %#v, %v", claimed, err)
+	}
+	nextAttempt := time.Now().UTC().Add(5 * time.Minute).Round(time.Second)
+	if err := db.FinishOutgoingSendWithRetry(ctx, queued.ID, "temporary provider failure", nextAttempt); err != nil {
+		t.Fatalf("FinishOutgoingSendWithRetry() error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	db, err = New(dbPath)
+	if err != nil {
+		t.Fatalf("New(after restart) error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	restored, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil {
+		t.Fatalf("GetOutgoingSend(after restart) error = %v", err)
+	}
+	if restored.Status != OutgoingSendPending || restored.AttemptCount != 1 || !restored.NextAttemptAt.Equal(nextAttempt) || !bytes.Equal(restored.MIMEData, input.MIMEData) {
+		t.Fatalf("restored retry = %#v", restored)
+	}
+	claimed, err = db.ClaimDueOutgoingSends(ctx, nextAttempt.Add(time.Second), 1)
+	if err != nil || len(claimed) != 1 || claimed[0].AttemptCount != 2 || !bytes.Equal(claimed[0].MIMEData, input.MIMEData) {
+		t.Fatalf("ClaimDueOutgoingSends(after restart) = %#v, %v", claimed, err)
+	}
+}
+
 func TestSentCopyLifecycleKeepsPayloadSeparateFromDelivery(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

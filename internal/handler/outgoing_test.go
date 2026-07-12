@@ -194,6 +194,212 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 	}
 }
 
+func TestOutgoingWorkerRetriesTemporaryGmailFailureWithSameSnapshot(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default');
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('acc', 'default', ?, 'google-subject', 'user@example.com')`, providers.ProviderGmail); err != nil {
+		t.Fatalf("seed Gmail account: %v", err)
+	}
+	expires := time.Now().Add(time.Hour)
+	authManager := auth.NewManager(&auth.Config{}, db)
+	if err := authManager.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
+		t.Fatalf("UpsertOAuthAccount() error = %v", err)
+	}
+	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("NewAccountStore() error = %v", err)
+	}
+	syncer := mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil)
+	h := New(db, accountStore, syncer, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), authManager, "")
+	events := syncer.Events().Subscribe()
+	defer syncer.Events().Unsubscribe(events)
+
+	var attempts int
+	var delivered [][]byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		raw, err := base64.RawURLEncoding.DecodeString(payload["raw"])
+		if err != nil {
+			t.Fatalf("decode MIME: %v", err)
+		}
+		delivered = append(delivered, raw)
+		if attempts == 1 {
+			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"gmail-retried-id"}`))
+	}))
+	defer server.Close()
+	previousBase := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBase })
+
+	to, _ := message.ParseAddressList("recipient@example.com")
+	msg := &message.OutgoingMessage{
+		FromEmail: "user@example.com", To: to, Subject: "Retry snapshot", TextBody: "Same body",
+		MessageID: "<retry@example.com>", Date: time.Now().UTC(),
+	}
+	queued, err := h.queueOutgoingMessage(ctx, "acc", 0, "", msg, time.Now().Add(-time.Second), false)
+	if err != nil {
+		t.Fatalf("queueOutgoingMessage() error = %v", err)
+	}
+	h.runDueOutgoingSends(ctx)
+
+	retrying, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil || retrying.Status != storage.OutgoingSendPending || retrying.AttemptCount != 1 || !retrying.NextAttemptAt.After(time.Now()) {
+		t.Fatalf("retrying send = %#v, %v", retrying, err)
+	}
+	if attempts != 1 || len(delivered) != 1 {
+		t.Fatalf("first delivery attempts=%d payloads=%d, want one", attempts, len(delivered))
+	}
+	var retryEvent *mailpkg.Event
+	for len(events) > 0 {
+		event := <-events
+		if event.Type == mailpkg.EventSendResult && event.Status == "retrying" {
+			copy := event
+			retryEvent = &copy
+		}
+	}
+	if retryEvent == nil || retryEvent.Payload["retry_in_seconds"] == nil {
+		t.Fatalf("retry event = %#v, want retry schedule", retryEvent)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE outgoing_sends SET next_attempt_at = CURRENT_TIMESTAMP WHERE id = ?`, queued.ID); err != nil {
+		t.Fatalf("make retry due: %v", err)
+	}
+	h.runDueOutgoingSends(ctx)
+
+	completed, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil || completed.Status != storage.OutgoingSendSent || completed.AttemptCount != 2 {
+		t.Fatalf("completed retry = %#v, %v", completed, err)
+	}
+	if attempts != 2 || len(delivered) != 2 || string(delivered[0]) != string(delivered[1]) {
+		t.Fatalf("retry attempts=%d payloads=%d same=%v", attempts, len(delivered), len(delivered) == 2 && string(delivered[0]) == string(delivered[1]))
+	}
+}
+
+func TestEditingRetryingDraftRefreshesPayloadWithoutResettingDeliveryIdentity(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	h.blobStore = store.NewBlobStore(filepath.Join(t.TempDir(), "blobs"))
+	ctx := t.Context()
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{
+		ID: "victim-drafts", AccountID: "victim-account", RemoteID: "Drafts", Name: "Drafts", Role: "drafts", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	draftID := "<retrying-draft@example.com>"
+	localID, err := db.SaveDraftMessage(ctx, storage.DraftMessageInput{
+		AccountID: "victim-account", FolderID: "victim-drafts", InternetMessageID: draftID,
+		Subject: "Original subject", FromEmail: "owner@example.com",
+		ToRecipients: []storage.Recipient{{Email: "recipient@example.com"}}, Date: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("SaveDraftMessage() error = %v", err)
+	}
+	originalBody, err := h.blobStore.StoreBodyText(ctx, "victim-account", localID, []byte("Original body"))
+	if err != nil {
+		t.Fatalf("StoreBodyText() error = %v", err)
+	}
+	if err := db.UpdateMessageBody(ctx, localID, originalBody, "", "", "Original body"); err != nil {
+		t.Fatalf("UpdateMessageBody() error = %v", err)
+	}
+
+	to, _ := message.ParseAddressList("recipient@example.com")
+	deliveryDate := time.Now().UTC().Add(-time.Minute).Round(time.Second)
+	queued, err := h.queueOutgoingMessage(ctx, "victim-account", localID, draftID, &message.OutgoingMessage{
+		FromEmail: "owner@example.com", To: to, Subject: "Original subject", TextBody: "Original body",
+		MessageID: "<stable-delivery@example.com>", Date: deliveryDate,
+	}, time.Now().Add(-time.Second), false)
+	if err != nil {
+		t.Fatalf("queueOutgoingMessage() error = %v", err)
+	}
+	claimed, err := db.ClaimDueOutgoingSends(ctx, time.Now(), 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueOutgoingSends() = %#v, %v", claimed, err)
+	}
+	nextAttempt := time.Now().UTC().Add(10 * time.Minute).Round(time.Second)
+	if err := db.FinishOutgoingSendWithRetry(ctx, queued.ID, "temporary failure", nextAttempt); err != nil {
+		t.Fatalf("FinishOutgoingSendWithRetry() error = %v", err)
+	}
+
+	if _, err := db.SaveDraftMessage(ctx, storage.DraftMessageInput{
+		AccountID: "victim-account", FolderID: "victim-drafts", InternetMessageID: draftID,
+		Subject: "Edited subject", FromEmail: "owner@example.com",
+		ToRecipients: []storage.Recipient{{Email: "recipient@example.com"}}, Date: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("update draft: %v", err)
+	}
+	editedBody, err := h.blobStore.StoreBodyText(ctx, "victim-account", localID, []byte("Edited body"))
+	if err != nil {
+		t.Fatalf("StoreBodyText(edited) error = %v", err)
+	}
+	if err := db.UpdateMessageBody(ctx, localID, editedBody, "", "", "Edited body"); err != nil {
+		t.Fatalf("UpdateMessageBody(edited) error = %v", err)
+	}
+	retrying, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil {
+		t.Fatalf("GetOutgoingSend() error = %v", err)
+	}
+	if h.deliveredSnapshotMatchesDraft(ctx, retrying) {
+		t.Fatal("old delivery snapshot unexpectedly matches edited draft")
+	}
+	if err := h.refreshPendingOutgoingSend(ctx, composeDraftSaveResult{
+		AccountID: "victim-account", DraftID: draftID, MessageID: localID, DraftFolderID: "victim-drafts",
+	}); err != nil {
+		t.Fatalf("refreshPendingOutgoingSend() error = %v", err)
+	}
+
+	refreshed, err := db.GetOutgoingSend(ctx, queued.ID)
+	if err != nil {
+		t.Fatalf("GetOutgoingSend(refreshed) error = %v", err)
+	}
+	if refreshed.AttemptCount != 1 || !refreshed.NextAttemptAt.Equal(nextAttempt) || refreshed.LastError != "temporary failure" {
+		t.Fatalf("refresh reset retry state: %#v", refreshed)
+	}
+	var snapshot outgoingMessageSnapshot
+	if err := json.Unmarshal(refreshed.MessageJSON, &snapshot); err != nil {
+		t.Fatalf("decode refreshed snapshot: %v", err)
+	}
+	if snapshot.MessageID != "<stable-delivery@example.com>" || !snapshot.Date.Equal(deliveryDate) {
+		t.Fatalf("delivery identity changed: %#v", snapshot)
+	}
+	if snapshot.Subject != "Edited subject" || snapshot.TextBody != "Edited body" || !strings.Contains(string(refreshed.MIMEData), "Edited body") {
+		t.Fatalf("retry payload was not refreshed: snapshot=%#v MIME=%q", snapshot, refreshed.MIMEData)
+	}
+	if !h.deliveredSnapshotMatchesDraft(ctx, refreshed) {
+		t.Fatal("refreshed delivery snapshot does not match edited draft")
+	}
+}
+
+func TestProviderSendStatusRetryable(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   bool
+	}{
+		{status: http.StatusBadRequest, want: false},
+		{status: http.StatusUnauthorized, want: false},
+		{status: http.StatusRequestTimeout, want: true},
+		{status: http.StatusTooManyRequests, want: true},
+		{status: http.StatusInternalServerError, want: true},
+		{status: http.StatusServiceUnavailable, want: true},
+	} {
+		if got := providerSendStatusRetryable(tc.status); got != tc.want {
+			t.Fatalf("providerSendStatusRetryable(%d) = %v, want %v", tc.status, got, tc.want)
+		}
+	}
+}
+
 func TestSentCopyWorkerAppendsExactMIMEAndLinksRemoteUID(t *testing.T) {
 	h, db, queued, localID := seedPendingSentCopy(t)
 	fake := &fakeSentCopyIMAPClient{appendResult: imapclient.AppendResult{UID: 77, UIDValidity: 123}}

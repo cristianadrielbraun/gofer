@@ -89,10 +89,12 @@ func (h *Handler) sendOutlookGraphRaw(ctx context.Context, cfg *models.AccountCo
 	}
 	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, cfg.AccountID)
 	if err != nil {
-		return "", err
+		return "", markOutgoingSendRetryable(err)
 	}
 	if err := h.doOutlookRaw(ctx, http.MethodPost, outlookGraphBaseURL+"/me/sendMail", token, "text/plain", []byte(base64.StdEncoding.EncodeToString(raw)), nil); err != nil {
-		if _, definitive := err.(outlookAPIError); !definitive {
+		if apiErr, definitive := err.(outlookAPIError); definitive && providerSendStatusRetryable(apiErr.Status) {
+			err = markOutgoingSendRetryable(err)
+		} else if !definitive {
 			err = fmt.Errorf("%w: %v", errOutgoingSendAmbiguous, err)
 		}
 		return token, err

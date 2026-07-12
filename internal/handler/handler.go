@@ -3605,8 +3605,8 @@ func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 		writeComposeJSONError(w, composeErr.status, composeErr.message)
 		return
 	}
-	if err := h.refreshScheduledOutgoingSend(ctx, saved); err != nil {
-		writeComposeJSONError(w, http.StatusInternalServerError, "failed to update scheduled message")
+	if err := h.refreshPendingOutgoingSend(ctx, saved); err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to update queued message")
 		return
 	}
 

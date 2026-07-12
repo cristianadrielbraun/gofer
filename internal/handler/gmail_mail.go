@@ -280,12 +280,14 @@ func (h *Handler) sendGmailAPIRaw(ctx context.Context, cfg *models.AccountConfig
 	}
 	token, err := h.auth.GetOAuthTokenForAccount(ctx, cfg.AccountID)
 	if err != nil {
-		return "", "", err
+		return "", "", markOutgoingSendRetryable(err)
 	}
 	payload := map[string]string{"raw": base64.RawURLEncoding.EncodeToString(raw)}
 	var sent gmailAPIMessageResponse
 	if err := doGoogleJSON(ctx, http.MethodPost, gmailAPIBaseURL+"/users/me/messages/send", token, payload, &sent); err != nil {
-		if _, definitive := err.(googleAPIError); !definitive {
+		if apiErr, definitive := err.(googleAPIError); definitive && providerSendStatusRetryable(apiErr.Status) {
+			err = markOutgoingSendRetryable(err)
+		} else if !definitive {
 			err = fmt.Errorf("%w: %v", errOutgoingSendAmbiguous, err)
 		}
 		return "", token, err

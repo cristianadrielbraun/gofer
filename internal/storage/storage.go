@@ -135,7 +135,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 64
+	const targetSchemaVersion = 65
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -528,6 +528,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 63 {
 		if err := migrateV63ToV64(tx); err != nil {
 			return fmt.Errorf("migrate v63 to v64: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 64 {
+		if err := migrateV64ToV65(tx); err != nil {
+			return fmt.Errorf("migrate v64 to v65: %w", err)
 		}
 	}
 
@@ -2539,6 +2545,33 @@ func migrateV63ToV64(tx *sql.Tx) error {
 		}
 	}
 	_, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (64)`)
+	return err
+}
+
+func migrateV64ToV65(tx *sql.Tx) error {
+	if ok, err := tableExistsTx(tx, "outgoing_sends"); err != nil {
+		return err
+	} else if ok {
+		exists, err := columnExistsTx(tx, "outgoing_sends", "next_attempt_at")
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := tx.Exec(`ALTER TABLE outgoing_sends ADD COLUMN next_attempt_at DATETIME`); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`UPDATE outgoing_sends SET next_attempt_at = COALESCE(next_attempt_at, send_after, CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DROP INDEX IF EXISTS idx_outgoing_sends_due`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`CREATE INDEX idx_outgoing_sends_due ON outgoing_sends(status, next_attempt_at, send_after)`); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (65)`)
 	return err
 }
 

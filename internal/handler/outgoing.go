@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/mail"
 	"strings"
 	"time"
@@ -319,6 +320,11 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	if err != nil {
 		if errors.Is(err, errOutgoingSendAmbiguous) {
 			status = storage.OutgoingSendAmbiguous
+		} else if errors.Is(err, errOutgoingSendRetryable) && send.AttemptCount < outgoingSendMaxAttempts {
+			h.finishOutgoingSendRetry(send, err)
+			return
+		} else if errors.Is(err, errOutgoingSendRetryable) {
+			err = fmt.Errorf("send failed after %d attempts: %s", send.AttemptCount, outgoingSendErrorText(err))
 		}
 		h.finishOutgoingSend(send, status, err)
 		return
@@ -483,6 +489,44 @@ func sentCopyRetryDelay(attempt int) time.Duration {
 }
 
 var errOutgoingSendAmbiguous = errors.New("outgoing send status is ambiguous")
+var errOutgoingSendRetryable = errors.New("outgoing send can be retried")
+
+const outgoingSendMaxAttempts = 12
+
+func markOutgoingSendRetryable(err error) error {
+	if err == nil || errors.Is(err, errOutgoingSendRetryable) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", errOutgoingSendRetryable, err)
+}
+
+func outgoingSendErrorText(err error) string {
+	if err == nil {
+		return "Temporary send failure."
+	}
+	return strings.TrimSpace(strings.TrimPrefix(err.Error(), errOutgoingSendRetryable.Error()+":"))
+}
+
+func providerSendStatusRetryable(status int) bool {
+	return status == http.StatusRequestTimeout ||
+		status == http.StatusTooEarly ||
+		status == http.StatusTooManyRequests ||
+		status >= http.StatusInternalServerError
+}
+
+func outgoingSendRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 8 {
+		attempt = 8
+	}
+	delay := 30 * time.Second * time.Duration(1<<(attempt-1))
+	if delay > time.Hour {
+		return time.Hour
+	}
+	return delay
+}
 
 func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountConfig, send storage.OutgoingSend) error {
 	password, err := h.resolvePassword(ctx, cfg, send.AccountID)
@@ -500,6 +544,9 @@ func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountCo
 		if result == models.SendAmbiguous {
 			return fmt.Errorf("%w: %v", errOutgoingSendAmbiguous, err)
 		}
+		if smtpclient.IsRetryable(err) {
+			return markOutgoingSendRetryable(err)
+		}
 		return err
 	}
 	if result == models.SendAmbiguous {
@@ -509,6 +556,25 @@ func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountCo
 		return fmt.Errorf("failed to send message")
 	}
 	return nil
+}
+
+func (h *Handler) finishOutgoingSendRetry(send storage.OutgoingSend, err error) {
+	errText := "Temporary send failure."
+	if err != nil {
+		errText = outgoingSendErrorText(err)
+	}
+	delay := outgoingSendRetryDelay(send.AttemptCount)
+	nextAttempt := time.Now().UTC().Add(delay)
+	if dbErr := h.db.FinishOutgoingSendWithRetry(context.Background(), send.ID, errText, nextAttempt); dbErr != nil {
+		log.Printf("outgoing-send: schedule retry %s: %v", send.ID, dbErr)
+		return
+	}
+	log.Printf("outgoing-send: retry %s attempt=%d at=%s: %s", send.ID, send.AttemptCount, nextAttempt.Format(time.RFC3339), errText)
+	h.publishOutgoingResultWithPayload(send, "retrying", errText, map[string]any{
+		"attempt":          send.AttemptCount,
+		"next_attempt_at":  nextAttempt.Format(time.RFC3339),
+		"retry_in_seconds": int(delay.Seconds()),
+	})
 }
 
 func (h *Handler) finishOutgoingSend(send storage.OutgoingSend, status string, err error) {
@@ -527,15 +593,27 @@ func (h *Handler) finishOutgoingSend(send storage.OutgoingSend, status string, e
 }
 
 func (h *Handler) publishOutgoingResult(send storage.OutgoingSend, status, errText string) {
+	h.publishOutgoingResultWithPayload(send, status, errText, nil)
+}
+
+func (h *Handler) publishOutgoingResultWithPayload(send storage.OutgoingSend, status, errText string, extra map[string]any) {
 	if h.syncer == nil {
 		return
 	}
-	event := mailpkg.Event{Type: mailpkg.EventSendResult, AccountID: send.AccountID, Status: status, Error: errText, Payload: map[string]any{"send_id": send.ID}}
+	payload := map[string]any{"send_id": send.ID}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	event := mailpkg.Event{Type: mailpkg.EventSendResult, AccountID: send.AccountID, Status: status, Error: errText, Payload: payload}
 	h.syncer.Events().Publish(event)
 }
 
 func (h *Handler) cleanupDeliveredDraft(ctx context.Context, send storage.OutgoingSend) {
 	if strings.TrimSpace(send.DraftID) == "" {
+		return
+	}
+	if !h.deliveredSnapshotMatchesDraft(ctx, send) {
+		log.Printf("outgoing-send: keeping draft changed during delivery account=%s draft=%s", send.AccountID, send.DraftID)
 		return
 	}
 	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, send.AccountID, send.DraftID)
@@ -566,6 +644,28 @@ func (h *Handler) cleanupDeliveredDraft(ctx context.Context, send storage.Outgoi
 	if deleteErr != nil {
 		log.Printf("outgoing-send: delete provider draft account=%s draft=%s: %v", send.AccountID, send.DraftID, deleteErr)
 	}
+}
+
+func (h *Handler) deliveredSnapshotMatchesDraft(ctx context.Context, send storage.OutgoingSend) bool {
+	if send.MessageID <= 0 || len(send.MessageJSON) == 0 {
+		return true
+	}
+	current, err := h.outgoingMessageFromDraft(ctx, send.MessageID)
+	if err != nil {
+		return false
+	}
+	var delivered outgoingMessageSnapshot
+	if err := json.Unmarshal(send.MessageJSON, &delivered); err != nil {
+		return false
+	}
+	current.MessageID = delivered.MessageID
+	current.Date = delivered.Date
+	currentJSON, err := json.Marshal(snapshotOutgoingMessage(current))
+	if err != nil {
+		return false
+	}
+	deliveredJSON, err := json.Marshal(delivered)
+	return err == nil && bytes.Equal(currentJSON, deliveredJSON)
 }
 
 func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID int64) (*message.OutgoingMessage, error) {
@@ -602,17 +702,46 @@ func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID i
 	}, nil
 }
 
-func (h *Handler) refreshScheduledOutgoingSend(ctx context.Context, saved composeDraftSaveResult) error {
+func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeDraftSaveResult) error {
 	existing, err := h.db.OutgoingSendForMessage(ctx, saved.MessageID)
-	if err != nil || existing == nil || !existing.IsScheduled || existing.Status != storage.OutgoingSendPending {
+	if err != nil || existing == nil || existing.Status != storage.OutgoingSendPending {
 		return err
 	}
 	msg, err := h.outgoingMessageFromDraft(ctx, saved.MessageID)
 	if err != nil {
 		return err
 	}
-	_, err = h.queueOutgoingMessage(ctx, saved.AccountID, saved.MessageID, saved.DraftID, msg, existing.SendAfter, true)
-	return err
+
+	// A retry must keep the same delivery identity. The draft contents can
+	// change while it is waiting, but changing Message-ID would make the next
+	// attempt look like a different message to the provider.
+	var snapshot outgoingMessageSnapshot
+	if err := json.Unmarshal(existing.MessageJSON, &snapshot); err == nil {
+		if strings.TrimSpace(snapshot.MessageID) != "" {
+			msg.MessageID = snapshot.MessageID
+		}
+		if !snapshot.Date.IsZero() {
+			msg.Date = snapshot.Date
+		}
+	}
+	cfg, err := h.accountStore.GetConfig(ctx, saved.AccountID)
+	if err != nil {
+		return fmt.Errorf("account not found")
+	}
+	transport := outgoingTransportForConfig(cfg)
+	raw, err := buildOutgoingMIME(transport, msg)
+	if err != nil {
+		return fmt.Errorf("build outgoing message: %w", err)
+	}
+	snapshotJSON, err := json.Marshal(snapshotOutgoingMessage(msg))
+	if err != nil {
+		return fmt.Errorf("encode outgoing message: %w", err)
+	}
+	recipients := message.AllRecipients(msg)
+	if len(recipients) == 0 {
+		return fmt.Errorf("no recipients")
+	}
+	return h.db.PrepareOutgoingSend(ctx, existing.ID, saved.DraftID, transport, msg.FromEmail, recipients, raw, snapshotJSON)
 }
 
 func (h *Handler) saveSentMessageSnapshot(ctx context.Context, accountID string, msg *message.OutgoingMessage, raw []byte) {

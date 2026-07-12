@@ -2534,6 +2534,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (data.status === "sent") {
         showSendStatus("sent", "Message sent")
         handleComposeSendResult("sent")
+      } else if (data.status === "retrying") {
+        var retrySeconds = Math.max(1, Number(data.retry_in_seconds) || 60)
+        var retryMinutes = Math.max(1, Math.ceil(retrySeconds / 60))
+        var retryText = data.error || "The provider could not send the message yet."
+        retryText += " Gofer will try again in " + retryMinutes + (retryMinutes === 1 ? " minute." : " minutes.")
+        showSendStatus("retrying", retryText)
+        handleComposeSendResult("retrying")
       } else if (data.status === "ambiguous") {
         showSendStatus("ambiguous", data.error || "Send status unknown")
         handleComposeSendResult("ambiguous")
@@ -4543,6 +4550,7 @@ function _composeToastConfig(status) {
   if (status === "sent") return { title: "Message sent", variant: "success", icon: "success" }
   if (status === "scheduled") return { title: "Message scheduled", variant: "success", icon: "success" }
   if (status === "sending") return { title: "Working...", variant: "info", icon: "spinner" }
+  if (status === "retrying") return { title: "Send delayed", variant: "warning", icon: "warning" }
   if (status === "ambiguous") return { title: "Needs review", variant: "warning", icon: "warning" }
   return { title: "Action failed", variant: "error", icon: "error" }
 }
@@ -7180,6 +7188,13 @@ function handleComposeSendResult(status) {
   var form = document.getElementById(state.formId)
   if (status === "sent") {
     finishComposeSendSuccess(state)
+    return
+  }
+  if (status === "retrying") {
+    if (form) {
+      _setComposeSending(form, false)
+      form.dataset.composeDirty = "true"
+    }
     return
   }
   if (form) {

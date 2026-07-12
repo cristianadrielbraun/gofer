@@ -3,6 +3,7 @@ package smtp
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -22,6 +23,38 @@ type Client struct {
 	config *models.AccountConfig
 	conn   net.Conn
 	client *smtp.Client
+}
+
+type deliveryError struct {
+	err       error
+	retryable bool
+}
+
+func (e *deliveryError) Error() string { return e.err.Error() }
+func (e *deliveryError) Unwrap() error { return e.err }
+
+func markDeliveryError(err error, retryable bool) error {
+	if err == nil {
+		return nil
+	}
+	var deliveryErr *deliveryError
+	if errors.As(err, &deliveryErr) {
+		return err
+	}
+	return &deliveryError{err: err, retryable: retryable}
+}
+
+func classifyPreAcceptanceError(err error) error {
+	var smtpErr *smtp.SMTPError
+	if errors.As(err, &smtpErr) {
+		return markDeliveryError(err, smtpErr.Code/100 == 4)
+	}
+	return markDeliveryError(err, true)
+}
+
+func IsRetryable(err error) bool {
+	var deliveryErr *deliveryError
+	return errors.As(err, &deliveryErr) && deliveryErr.retryable
 }
 
 const (
@@ -62,16 +95,16 @@ func configureTimeouts(client *smtp.Client) {
 func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) (*Client, error) {
 	tlsMode, err := mailtransport.RequireTLSModeWithPlaintext("SMTP", cfg.SMTPTLSMode, cfg.SMTPAllowPlaintext)
 	if err != nil {
-		return nil, err
+		return nil, markDeliveryError(err, false)
 	}
 	if tlsMode == mailtransport.TLSModePlaintext && !strings.EqualFold(strings.TrimSpace(cfg.AuthMethod), "plain") {
-		return nil, fmt.Errorf("SMTP OAuth authentication is not allowed over a plaintext connection")
+		return nil, markDeliveryError(fmt.Errorf("SMTP OAuth authentication is not allowed over a plaintext connection"), false)
 	}
 	ctx = nonNilContext(ctx)
 	setupCtx, cancelSetup := context.WithTimeout(ctx, setupTimeout)
 	defer cancelSetup()
 	if err := setupCtx.Err(); err != nil {
-		return nil, err
+		return nil, markDeliveryError(err, true)
 	}
 
 	addr := net.JoinHostPort(cfg.SMTPHost, strconv.Itoa(cfg.SMTPPort))
@@ -89,14 +122,14 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 		tlsDialer := &tls.Dialer{NetDialer: dialer, Config: tlsConfig}
 		conn, err = tlsDialer.DialContext(setupCtx, "tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
+			return nil, markDeliveryError(fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err)), true)
 		}
 		client = smtp.NewClient(conn)
 
 	case mailtransport.TLSModeStartTLS:
 		conn, err = dialer.DialContext(setupCtx, "tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
+			return nil, markDeliveryError(fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err)), true)
 		}
 		stopCancellation := context.AfterFunc(setupCtx, func() { _ = conn.Close() })
 		defer stopCancellation()
@@ -107,18 +140,18 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 		client, err = smtp.NewClientStartTLS(conn, tlsConfig)
 		if err != nil {
 			_ = conn.Close()
-			return nil, fmt.Errorf("starttls: %w", contextError(setupCtx, err))
+			return nil, classifyPreAcceptanceError(fmt.Errorf("starttls: %w", contextError(setupCtx, err)))
 		}
 
 	case mailtransport.TLSModePlaintext:
 		conn, err = dialer.DialContext(setupCtx, "tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err))
+			return nil, markDeliveryError(fmt.Errorf("connect to %s: %w", addr, contextError(setupCtx, err)), true)
 		}
 		client = smtp.NewClient(conn)
 
 	default:
-		return nil, fmt.Errorf("unsupported SMTP TLS mode %q", tlsMode)
+		return nil, markDeliveryError(fmt.Errorf("unsupported SMTP TLS mode %q", tlsMode), false)
 	}
 	stopCancellation := context.AfterFunc(setupCtx, func() { _ = conn.Close() })
 	defer stopCancellation()
@@ -126,7 +159,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 
 	if err := client.Hello("localhost"); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("ehlo: %w", contextError(setupCtx, err))
+		return nil, classifyPreAcceptanceError(fmt.Errorf("ehlo: %w", contextError(setupCtx, err)))
 	}
 
 	smtpUsername := cfg.SmtpUsername
@@ -148,7 +181,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("authenticate: %w", contextError(setupCtx, err))
+		return nil, classifyPreAcceptanceError(fmt.Errorf("authenticate: %w", contextError(setupCtx, err)))
 	}
 
 	return &Client{
@@ -161,45 +194,45 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 func (c *Client) Send(ctx context.Context, msg *message.OutgoingMessage) (models.SendResult, error) {
 	recipients := message.AllRecipients(msg)
 	if len(recipients) == 0 {
-		return models.SendFailed, fmt.Errorf("no recipients")
+		return models.SendFailed, markDeliveryError(fmt.Errorf("no recipients"), false)
 	}
 	mimeData, err := message.BuildMIMEMessage(msg)
 	if err != nil {
-		return models.SendFailed, fmt.Errorf("build mime: %w", err)
+		return models.SendFailed, markDeliveryError(fmt.Errorf("build mime: %w", err), false)
 	}
 	return c.SendRaw(ctx, msg.FromEmail, recipients, mimeData)
 }
 
 func (c *Client) SendRaw(ctx context.Context, from string, recipients []string, mimeData []byte) (models.SendResult, error) {
 	if len(recipients) == 0 {
-		return models.SendFailed, fmt.Errorf("no recipients")
+		return models.SendFailed, markDeliveryError(fmt.Errorf("no recipients"), false)
 	}
 	ctx = nonNilContext(ctx)
 	sendCtx, cancelSend := context.WithTimeout(ctx, outgoingMessageTimeout)
 	defer cancelSend()
 	if err := sendCtx.Err(); err != nil {
-		return models.SendFailed, err
+		return models.SendFailed, markDeliveryError(err, true)
 	}
 	stopCancellation := context.AfterFunc(sendCtx, func() { _ = c.conn.Close() })
 	defer stopCancellation()
 
 	if err := c.client.Mail(from, nil); err != nil {
-		return models.SendFailed, fmt.Errorf("mail from: %w", contextError(sendCtx, err))
+		return models.SendFailed, classifyPreAcceptanceError(fmt.Errorf("mail from: %w", contextError(sendCtx, err)))
 	}
 
 	for _, rcpt := range recipients {
 		if err := c.client.Rcpt(rcpt, nil); err != nil {
-			return models.SendFailed, fmt.Errorf("rcpt to %s: %w", rcpt, contextError(sendCtx, err))
+			return models.SendFailed, classifyPreAcceptanceError(fmt.Errorf("rcpt to %s: %w", rcpt, contextError(sendCtx, err)))
 		}
 	}
 
 	dataw, err := c.client.Data()
 	if err != nil {
-		return models.SendFailed, fmt.Errorf("data: %w", contextError(sendCtx, err))
+		return models.SendFailed, classifyPreAcceptanceError(fmt.Errorf("data: %w", contextError(sendCtx, err)))
 	}
 	if err := c.conn.SetDeadline(deadlineForContext(sendCtx, submissionTimeout)); err != nil {
 		_ = c.conn.Close()
-		return models.SendFailed, fmt.Errorf("set data deadline: %w", contextError(sendCtx, err))
+		return models.SendFailed, markDeliveryError(fmt.Errorf("set data deadline: %w", contextError(sendCtx, err)), true)
 	}
 
 	if _, err := dataw.Write(mimeData); err != nil {
@@ -208,6 +241,10 @@ func (c *Client) SendRaw(ctx context.Context, from string, recipients []string, 
 	}
 
 	if err := dataw.Close(); err != nil {
+		var smtpErr *smtp.SMTPError
+		if errors.As(err, &smtpErr) {
+			return models.SendFailed, classifyPreAcceptanceError(fmt.Errorf("close data: %w", contextError(sendCtx, err)))
+		}
 		return models.SendAmbiguous, fmt.Errorf("close data: %w", contextError(sendCtx, err))
 	}
 

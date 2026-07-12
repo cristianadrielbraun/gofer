@@ -937,6 +937,7 @@ CREATE TABLE IF NOT EXISTS outgoing_sends (
     mime_data BLOB,
     message_json TEXT NOT NULL DEFAULT '',
     send_after DATETIME NOT NULL,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_scheduled INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
     attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -956,7 +957,7 @@ CREATE TABLE IF NOT EXISTS outgoing_sends (
 );
 
 CREATE INDEX IF NOT EXISTS idx_outgoing_sends_due
-ON outgoing_sends(status, send_after);
+ON outgoing_sends(status, next_attempt_at, send_after);
 
 CREATE INDEX IF NOT EXISTS idx_outgoing_sends_account
 ON outgoing_sends(account_id, status, send_after);
@@ -1022,4 +1023,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (64);
+INSERT OR REPLACE INTO schema_version (version) VALUES (65);

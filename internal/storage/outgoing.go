@@ -44,6 +44,7 @@ type OutgoingSend struct {
 	MIMEData            []byte
 	MessageJSON         []byte
 	SendAfter           time.Time
+	NextAttemptAt       time.Time
 	IsScheduled         bool
 	Status              string
 	AttemptCount        int
@@ -94,9 +95,9 @@ func (db *DB) QueueOutgoingSend(ctx context.Context, input QueueOutgoingSendInpu
 	result, err := db.Write().ExecContext(ctx, `
 		INSERT INTO outgoing_sends (
 			id, account_id, message_id, draft_id, transport, envelope_from,
-			envelope_recipients, mime_data, message_json, send_after, is_scheduled,
+			envelope_recipients, mime_data, message_json, send_after, next_attempt_at, is_scheduled,
 			status, attempt_count, last_error, locked_at, sent_message_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, '')
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, '')
 		ON CONFLICT(message_id) DO UPDATE SET
 			account_id = excluded.account_id,
 			draft_id = excluded.draft_id,
@@ -106,6 +107,7 @@ func (db *DB) QueueOutgoingSend(ctx context.Context, input QueueOutgoingSendInpu
 			mime_data = excluded.mime_data,
 			message_json = excluded.message_json,
 			send_after = excluded.send_after,
+			next_attempt_at = excluded.next_attempt_at,
 			is_scheduled = excluded.is_scheduled,
 			status = excluded.status,
 			attempt_count = 0,
@@ -122,7 +124,7 @@ func (db *DB) QueueOutgoingSend(ctx context.Context, input QueueOutgoingSendInpu
 			updated_at = CURRENT_TIMESTAMP
 		WHERE outgoing_sends.status != ?`,
 		input.ID, input.AccountID, messageID, input.DraftID, input.Transport, input.EnvelopeFrom,
-		string(recipientsJSON), input.MIMEData, string(input.MessageJSON), input.SendAfter, input.IsScheduled,
+		string(recipientsJSON), input.MIMEData, string(input.MessageJSON), input.SendAfter, time.Now().UTC(), input.IsScheduled,
 		OutgoingSendPending, OutgoingSendSending)
 	if err != nil {
 		return OutgoingSend{}, fmt.Errorf("queue outgoing send: %w", err)
@@ -177,9 +179,9 @@ func (db *DB) ClaimDueOutgoingSends(ctx context.Context, now time.Time, limit in
 	defer tx.Rollback()
 
 	rows, err := tx.QueryContext(ctx, outgoingSendSelect+`
-		WHERE status = ? AND send_after <= ? AND mime_data IS NOT NULL AND length(mime_data) > 0
-		ORDER BY send_after ASC, created_at ASC
-		LIMIT ?`, OutgoingSendPending, now, limit)
+		WHERE status = ? AND send_after <= ? AND next_attempt_at <= ? AND mime_data IS NOT NULL AND length(mime_data) > 0
+		ORDER BY next_attempt_at ASC, send_after ASC, created_at ASC
+		LIMIT ?`, OutgoingSendPending, now, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("select due outgoing sends: %w", err)
 	}
@@ -349,6 +351,14 @@ func (db *DB) FinishOutgoingSendWithError(ctx context.Context, id, status, errTe
 	return err
 }
 
+func (db *DB) FinishOutgoingSendWithRetry(ctx context.Context, id, errText string, nextAttempt time.Time) error {
+	_, err := db.Write().ExecContext(ctx, `
+		UPDATE outgoing_sends
+		SET status = ?, last_error = ?, locked_at = NULL, next_attempt_at = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ?`, OutgoingSendPending, errText, nextAttempt.UTC(), id, OutgoingSendSending)
+	return err
+}
+
 func (db *DB) MarkPendingOutgoingSendFailed(ctx context.Context, id, errText string) error {
 	_, err := db.Write().ExecContext(ctx, `
 		UPDATE outgoing_sends
@@ -404,7 +414,7 @@ func (db *DB) PrepareOutgoingSend(ctx context.Context, id, draftID, transport, e
 }
 
 const outgoingSendSelect = `SELECT id, account_id, message_id, draft_id, transport, envelope_from,
-	envelope_recipients, mime_data, message_json, send_after, is_scheduled,
+	envelope_recipients, mime_data, message_json, send_after, next_attempt_at, is_scheduled,
 	status, attempt_count, last_error, sent_message_id,
 	sent_copy_status, sent_copy_attempt_count, sent_copy_last_error,
 	sent_copy_next_attempt_at, sent_copy_uid, sent_copy_uid_validity
@@ -419,12 +429,13 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 	var messageID sql.NullInt64
 	var recipientsJSON string
 	var sendAfter sqliteNullTime
+	var nextAttemptAt sqliteNullTime
 	var sentCopyNextTry sqliteNullTime
 	var scheduled int
 	var sentCopyUID, sentCopyUIDValidity int64
 	if err := row.Scan(
 		&send.ID, &send.AccountID, &messageID, &send.DraftID, &send.Transport, &send.EnvelopeFrom,
-		&recipientsJSON, &send.MIMEData, &send.MessageJSON, &sendAfter, &scheduled,
+		&recipientsJSON, &send.MIMEData, &send.MessageJSON, &sendAfter, &nextAttemptAt, &scheduled,
 		&send.Status, &send.AttemptCount, &send.LastError, &send.SentMessageID,
 		&send.SentCopyStatus, &send.SentCopyAttempts, &send.SentCopyLastError,
 		&sentCopyNextTry, &sentCopyUID, &sentCopyUIDValidity,
@@ -436,6 +447,9 @@ func scanOutgoingSend(row rowScanner) (OutgoingSend, error) {
 	}
 	if sendAfter.Valid {
 		send.SendAfter = sendAfter.Time
+	}
+	if nextAttemptAt.Valid {
+		send.NextAttemptAt = nextAttemptAt.Time
 	}
 	send.IsScheduled = scheduled != 0
 	if sentCopyNextTry.Valid {
