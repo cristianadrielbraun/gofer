@@ -4,6 +4,7 @@ dist/
 internal_notes/
 gofer
 *.png
+!assets/logo.png
 !screenshots/
 !screenshots/*.png
 .air.toml
