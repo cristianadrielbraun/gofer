@@ -159,7 +159,7 @@ func (h *Handler) handleRetryMailOperation(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) handleAdminMailOperationsStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.db.ListMailOperationsAdminStatus(r.Context())
+	status, err := h.mailOperationsAdminStatus(r.Context())
 	if err != nil {
 		http.Error(w, "failed to get mail operation status", http.StatusInternalServerError)
 		return
@@ -168,7 +168,7 @@ func (h *Handler) handleAdminMailOperationsStatus(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) {
-	status, err := h.db.ListMailOperationsAdminStatus(r.Context())
+	status, err := h.mailOperationsAdminStatus(r.Context())
 	if err != nil {
 		http.Error(w, "failed to get mail operation status", http.StatusInternalServerError)
 		return
@@ -180,6 +180,15 @@ func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	_ = views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
+}
+
+func (h *Handler) mailOperationsAdminStatus(ctx context.Context) (models.MailOperationsAdminStatus, error) {
+	status, err := h.db.ListMailOperationsAdminStatus(ctx)
+	if err != nil {
+		return models.MailOperationsAdminStatus{}, err
+	}
+	status.Retention = h.mailRetentionDiagnostics()
+	return status, nil
 }
 
 func (h *Handler) signalMailOperation(operation models.MailOperationSummary) {

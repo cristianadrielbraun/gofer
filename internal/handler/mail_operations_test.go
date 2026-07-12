@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -127,5 +129,28 @@ func TestMailOperationsAdminRoutesAreRegisteredAndProtected(t *testing.T) {
 	mux.ServeHTTP(rec, mailOperationsRequest(req, "admin", true))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Mail operations") {
 		t.Fatalf("admin operations page status = %d body prefix = %q", rec.Code, rec.Body.String()[:min(len(rec.Body.String()), 200)])
+	}
+}
+
+func TestMailOperationsAdminStatusIncludesRetentionDiagnostics(t *testing.T) {
+	h, _ := newAccountOwnershipTestHandler(t)
+	runAt := time.Date(2026, time.July, 12, 12, 0, 0, 0, time.UTC)
+	h.runMailRetentionAt(t.Context(), runAt)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/mail-operations/status", nil)
+	rec := httptest.NewRecorder()
+	h.handleAdminMailOperationsStatus(rec, mailOperationsRequest(req, "admin", true))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	var status models.MailOperationsAdminStatus
+	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+		t.Fatalf("decode admin status: %v", err)
+	}
+	if !status.Retention.LastRunAt.Equal(runAt) {
+		t.Fatalf("retention last run = %s, want %s", status.Retention.LastRunAt, runAt)
+	}
+	if status.Retention.LastError != "" {
+		t.Fatalf("retention error = %q", status.Retention.LastError)
 	}
 }

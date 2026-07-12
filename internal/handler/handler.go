@@ -69,6 +69,8 @@ type Handler struct {
 	sentCopyIMAPFactory        sentCopyIMAPClientFactory
 	messageMutationWake        chan struct{}
 	messageMutationIMAPFactory messageMutationIMAPClientFactory
+	retentionMu                sync.RWMutex
+	retentionState             models.MailRetentionDiagnostics
 }
 
 const (

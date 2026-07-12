@@ -59,9 +59,26 @@ type MailOperationAdminAccountCount struct {
 	ActionRequired int    `json:"action_required"`
 }
 
+// MailRetentionPruneCounts records what the last maintenance pass removed.
+// The counts are intentionally aggregate: admin diagnostics should show queue
+// health without exposing message content or durable payloads.
+type MailRetentionPruneCounts struct {
+	OutgoingSends       int `json:"outgoing_sends"`
+	MessageMutations    int `json:"message_mutations"`
+	IMAPDraftOperations int `json:"imap_draft_operations"`
+	LabelMutations      int `json:"label_mutations"`
+}
+
+type MailRetentionDiagnostics struct {
+	LastRunAt  time.Time                `json:"last_run_at,omitempty"`
+	LastPruned MailRetentionPruneCounts `json:"last_pruned"`
+	LastError  string                   `json:"last_error,omitempty"`
+}
+
 type MailOperationsAdminStatus struct {
 	Total          int                              `json:"total"`
 	ActionRequired int                              `json:"action_required"`
 	ByType         []MailOperationAdminTypeCount    `json:"by_type"`
 	ByAccount      []MailOperationAdminAccountCount `json:"by_account"`
+	Retention      MailRetentionDiagnostics         `json:"retention"`
 }
