@@ -216,8 +216,22 @@ func (c *Client) SendRaw(ctx context.Context, from string, recipients []string, 
 	stopCancellation := context.AfterFunc(sendCtx, func() { _ = c.conn.Close() })
 	defer stopCancellation()
 
-	if err := c.client.Mail(from, nil); err != nil {
-		return models.SendFailed, classifyPreAcceptanceError(fmt.Errorf("mail from: %w", contextError(sendCtx, err)))
+	messageSize := int64(len(mimeData))
+	if maxSize, ok := c.client.MaxMessageSize(); ok && maxSize > 0 && messageSize > int64(maxSize) {
+		return models.SendFailed, markDeliveryError(fmt.Errorf("message is %d bytes, but the SMTP server accepts at most %d bytes", messageSize, maxSize), false)
+	}
+
+	requiresSMTPUTF8 := smtpEnvelopeRequiresUTF8(from, recipients)
+	mailOptions := &smtp.MailOptions{
+		Size: messageSize,
+		UTF8: requiresSMTPUTF8,
+	}
+	if err := c.client.Mail(from, mailOptions); err != nil {
+		mailErr := fmt.Errorf("mail from: %w", contextError(sendCtx, err))
+		if requiresSMTPUTF8 && strings.Contains(strings.ToLower(mailErr.Error()), "server does not support smtputf8") {
+			return models.SendFailed, markDeliveryError(fmt.Errorf("SMTPUTF8 is required for %s, but the server does not advertise SMTPUTF8", smtpUTF8RequirementDescription(from, recipients)), false)
+		}
+		return models.SendFailed, classifyPreAcceptanceError(mailErr)
 	}
 
 	for _, rcpt := range recipients {
@@ -249,6 +263,34 @@ func (c *Client) SendRaw(ctx context.Context, from string, recipients []string, 
 	}
 
 	return models.SendSuccess, nil
+}
+
+func smtpEnvelopeRequiresUTF8(from string, recipients []string) bool {
+	if smtpAddressRequiresUTF8(from) {
+		return true
+	}
+	for _, recipient := range recipients {
+		if smtpAddressRequiresUTF8(recipient) {
+			return true
+		}
+	}
+	return false
+}
+
+func smtpUTF8RequirementDescription(from string, recipients []string) string {
+	if smtpAddressRequiresUTF8(from) {
+		return "the sender address"
+	}
+	return "a recipient address"
+}
+
+func smtpAddressRequiresUTF8(address string) bool {
+	for _, r := range address {
+		if r > 127 {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) Close() error {
