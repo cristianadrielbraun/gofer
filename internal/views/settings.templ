@@ -1291,10 +1291,14 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 		}
 
 		function setPillFallback(pill, reason, retryAt) {
-			pill.dataset.idleFallbackReason = reason || '';
+			reason = (reason || '').trim();
+			pill.dataset.idleFallbackReason = reason;
 			pill.dataset.idleRetryAt = retryAt || '';
 			var warning = pill.querySelector('[data-idle-fallback-warning]');
-			if (warning) warning.classList.toggle('hidden', !reason);
+			if (warning) {
+				warning.classList.toggle('hidden', !reason);
+				warning.classList.toggle('inline-flex', !!reason);
+			}
 			var text = pill.querySelector('[data-idle-fallback-tooltip-text]');
 			if (text) text.textContent = fallbackTooltipText(pill);
 		}
@@ -1688,7 +1692,13 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 					</span>
 				}
 			</button>
-			<span data-idle-fallback-warning class={ "inline-flex", templ.KV("hidden", f.IDLEFallbackReason == "") }>
+			<span
+				data-idle-fallback-warning
+				class={
+					templ.KV("inline-flex", hasIDLEFallback(f)),
+					templ.KV("hidden", !hasIDLEFallback(f)),
+				}
+			>
 				@tooltip.Tooltip() {
 					@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
 						<span class="inline-flex text-amber-700 dark:text-amber-300" aria-label="Show IDLE fallback reason">
@@ -1705,6 +1715,10 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 
 func syncFolderUsesEffectiveIDLE(f models.FolderSyncStatus) bool {
 	return f.IsIDLE && (f.EffectiveIDLE || strings.TrimSpace(f.IDLEFallbackReason) == "")
+}
+
+func hasIDLEFallback(f models.FolderSyncStatus) bool {
+	return strings.TrimSpace(f.IDLEFallbackReason) != ""
 }
 
 func idleFallbackTooltip(f models.FolderSyncStatus) string {

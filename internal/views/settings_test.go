@@ -3,6 +3,7 @@ package views
 import (
 	"bytes"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,37 @@ func TestSettingsSyncTabShowsConfiguredIDLEFolderInPollingDuringFallback(t *test
 	}
 	if strings.Index(html, `data-folder-id="acc_inbox"`) < strings.Index(html, `data-poll-zone="acc-imap"`) {
 		t.Fatalf("fallback folder rendered outside polling zone: %s", html)
+	}
+}
+
+func TestSyncFolderPillHidesWarningWithoutFallbackReason(t *testing.T) {
+	var out bytes.Buffer
+	folder := models.FolderSyncStatus{
+		ID:            "acc_inbox",
+		Name:          "INBOX",
+		RemoteID:      "INBOX",
+		Role:          "inbox",
+		Icon:          "inbox",
+		IsIDLE:        true,
+		EffectiveIDLE: true,
+	}
+	if err := syncFolderPill(folder, 5, "acc-imap").Render(context.Background(), &out); err != nil {
+		t.Fatalf("syncFolderPill.Render() error = %v", err)
+	}
+	html := out.String()
+	marker := `data-idle-fallback-warning class="`
+	start := strings.Index(html, marker)
+	if start == -1 {
+		t.Fatalf("rendered pill missing fallback warning wrapper: %s", html)
+	}
+	start += len(marker)
+	end := strings.Index(html[start:], `"`)
+	if end == -1 {
+		t.Fatalf("rendered pill has malformed fallback warning class: %s", html)
+	}
+	classes := strings.Fields(html[start : start+end])
+	if !slices.Contains(classes, "hidden") || slices.Contains(classes, "inline-flex") {
+		t.Fatalf("healthy pill warning classes = %q, want hidden without inline-flex", classes)
 	}
 }
 
