@@ -2,8 +2,11 @@ package imap
 
 import (
 	"testing"
+	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
+
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 func TestLabelsFromFlagsSkipsReservedJunkFlags(t *testing.T) {
@@ -90,6 +93,34 @@ func TestUIDStateNeedsReset(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := uidStateNeedsReset(tt.expected, tt.current, tt.highestUID); got != tt.want {
 				t.Fatalf("uidStateNeedsReset(%d, %d, %d) = %v, want %v", tt.expected, tt.current, tt.highestUID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFinalizeSyncMessageUsesIMAPDatePrecedence(t *testing.T) {
+	headerDate := time.Date(2020, 1, 2, 3, 4, 5, 0, time.FixedZone("header", 2*60*60))
+	internalDate := time.Date(2021, 2, 3, 4, 5, 6, 0, time.UTC)
+	fallbackDate := time.Date(2022, 3, 4, 5, 6, 7, 0, time.UTC)
+	tests := []struct {
+		name         string
+		dates        messageDateCandidates
+		want         time.Time
+		wantFallback bool
+	}{
+		{name: "header wins", dates: messageDateCandidates{envelopeDate: headerDate, internalDate: internalDate}, want: headerDate.UTC()},
+		{name: "internal date fills missing header", dates: messageDateCandidates{internalDate: internalDate}, want: internalDate},
+		{name: "fallback only when both are missing", dates: messageDateCandidates{}, want: fallbackDate, wantFallback: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := storage.SyncMessage{RemoteUID: 42}
+			finalizeSyncMessage(&msg, "folder", tt.dates, fallbackDate)
+			if !msg.DateSent.Equal(tt.want) || msg.DateSentFallback != tt.wantFallback {
+				t.Fatalf("finalized date=%v fallback=%v, want date=%v fallback=%v", msg.DateSent, msg.DateSentFallback, tt.want, tt.wantFallback)
+			}
+			if msg.MessageID != "<folder-42@sync.gofer>" || msg.Subject != "(no subject)" || msg.Snippet != "(no subject)" {
+				t.Fatalf("finalized metadata = %#v, want synthetic defaults", msg)
 			}
 		})
 	}

@@ -24,6 +24,35 @@ type SyncResult struct {
 	NumMessages        uint32
 }
 
+type messageDateCandidates struct {
+	envelopeDate time.Time
+	internalDate time.Time
+}
+
+func (c messageDateCandidates) resolve(fallback time.Time) (time.Time, bool) {
+	if !c.envelopeDate.IsZero() {
+		return c.envelopeDate.UTC(), false
+	}
+	if !c.internalDate.IsZero() {
+		return c.internalDate.UTC(), false
+	}
+	if fallback.IsZero() {
+		fallback = time.Now().UTC()
+	}
+	return fallback.UTC(), true
+}
+
+func finalizeSyncMessage(syncMsg *storage.SyncMessage, folderID string, dates messageDateCandidates, fallback time.Time) {
+	syncMsg.DateSent, syncMsg.DateSentFallback = dates.resolve(fallback)
+	if syncMsg.MessageID == "" {
+		syncMsg.MessageID = fmt.Sprintf("<%s-%d@sync.gofer>", folderID, syncMsg.RemoteUID)
+	}
+	if syncMsg.Subject == "" {
+		syncMsg.Subject = "(no subject)"
+	}
+	syncMsg.Snippet = truncate(syncMsg.Subject, 200)
+}
+
 func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, chunkSize int, fn func([]storage.SyncMessage) error) (*SyncResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -92,6 +121,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 				AccountID: c.accountID,
 				FolderID:  folderID,
 			}
+			var dates messageDateCandidates
 
 			for {
 				item := msg.Next()
@@ -122,9 +152,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 							syncMsg.FromEmail = item.Envelope.From[0].Addr()
 						}
 						if !item.Envelope.Date.IsZero() {
-							syncMsg.DateSent = item.Envelope.Date
-						} else {
-							syncMsg.DateSent = time.Now()
+							dates.envelopeDate = item.Envelope.Date
 						}
 						for _, addr := range item.Envelope.To {
 							if email := addr.Addr(); email != "" {
@@ -158,21 +186,13 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, ch
 						}
 					}
 				case imapclient.FetchItemDataInternalDate:
-					if syncMsg.DateSent.IsZero() {
-						syncMsg.DateSent = item.Time
+					if !item.Time.IsZero() {
+						dates.internalDate = item.Time
 					}
 				}
 			}
 
-			if syncMsg.MessageID == "" {
-				syncMsg.MessageID = fmt.Sprintf("<%s-%d@sync.gofer>", folderID, syncMsg.RemoteUID)
-			}
-
-			if syncMsg.Subject == "" {
-				syncMsg.Subject = "(no subject)"
-			}
-
-			syncMsg.Snippet = truncate(syncMsg.Subject, 200)
+			finalizeSyncMessage(&syncMsg, folderID, dates, time.Now().UTC())
 
 			allMsgs = append(allMsgs, syncMsg)
 			if syncMsg.RemoteUID > result.HighestUID {
@@ -261,6 +281,7 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 			AccountID: c.accountID,
 			FolderID:  folderID,
 		}
+		var dates messageDateCandidates
 
 		for {
 			item := msg.Next()
@@ -291,9 +312,7 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 						syncMsg.FromEmail = item.Envelope.From[0].Addr()
 					}
 					if !item.Envelope.Date.IsZero() {
-						syncMsg.DateSent = item.Envelope.Date
-					} else {
-						syncMsg.DateSent = time.Now()
+						dates.envelopeDate = item.Envelope.Date
 					}
 					for _, addr := range item.Envelope.To {
 						if email := addr.Addr(); email != "" {
@@ -327,21 +346,13 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 					}
 				}
 			case imapclient.FetchItemDataInternalDate:
-				if syncMsg.DateSent.IsZero() {
-					syncMsg.DateSent = item.Time
+				if !item.Time.IsZero() {
+					dates.internalDate = item.Time
 				}
 			}
 		}
 
-		if syncMsg.MessageID == "" {
-			syncMsg.MessageID = fmt.Sprintf("<%s-%d@sync.gofer>", folderID, syncMsg.RemoteUID)
-		}
-
-		if syncMsg.Subject == "" {
-			syncMsg.Subject = "(no subject)"
-		}
-
-		syncMsg.Snippet = truncate(syncMsg.Subject, 200)
+		finalizeSyncMessage(&syncMsg, folderID, dates, time.Now().UTC())
 
 		msgs = append(msgs, syncMsg)
 		if syncMsg.RemoteUID > result.HighestUID {

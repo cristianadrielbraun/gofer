@@ -777,25 +777,26 @@ func formatDBTime(t time.Time) string {
 }
 
 type SyncMessage struct {
-	AccountID     string
-	FolderID      string
-	RemoteUID     uint32
-	MessageID     string
-	InReplyTo     string
-	References    string
-	Subject       string
-	FromName      string
-	FromEmail     string
-	DateSent      time.Time
-	Snippet       string
-	IsRead        bool
-	IsStarred     bool
-	IsDraft       bool
-	Labels        []LabelInput
-	LabelsKnown   bool
-	LabelProvider string
-	ToRecipients  []Recipient
-	CCRecipients  []Recipient
+	AccountID        string
+	FolderID         string
+	RemoteUID        uint32
+	MessageID        string
+	InReplyTo        string
+	References       string
+	Subject          string
+	FromName         string
+	FromEmail        string
+	DateSent         time.Time
+	DateSentFallback bool
+	Snippet          string
+	IsRead           bool
+	IsStarred        bool
+	IsDraft          bool
+	Labels           []LabelInput
+	LabelsKnown      bool
+	LabelProvider    string
+	ToRecipients     []Recipient
+	CCRecipients     []Recipient
 }
 
 type ProviderSyncMessage struct {
@@ -1327,8 +1328,8 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			normalized_subject = excluded.normalized_subject,
 			from_name = excluded.from_name,
 			from_email = excluded.from_email,
-			date_sent = excluded.date_sent,
-			date_received = excluded.date_received,
+			date_sent = CASE WHEN ? = 1 AND COALESCE(date_sent, '') != '' THEN date_sent ELSE excluded.date_sent END,
+			date_received = CASE WHEN ? = 1 AND COALESCE(date_received, '') != '' THEN date_received ELSE excluded.date_received END,
 			in_reply_to = excluded.in_reply_to,
 			"references" = excluded."references",
 			snippet = excluded.snippet,
@@ -1376,7 +1377,8 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 	defer delRecipStmt.Close()
 
 	msgIDs := make([]int64, 0, len(msgs))
-	for _, m := range msgs {
+	for i := range msgs {
+		m := &msgs[i]
 		messageIDNorm := mailmessage.NormalizeMessageID(m.MessageID)
 		if messageIDNorm == "" {
 			messageIDNorm = mailmessage.NormalizeMessageID(fmt.Sprintf("<%s-%d@sync.gofer>", m.FolderID, m.RemoteUID))
@@ -1408,12 +1410,22 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		}
 		if !preserveLocalDraft {
 			if _, err := msgStmt.ExecContext(ctx, m.AccountID, m.MessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
-				m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet); err != nil {
+				m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet,
+				boolInt(m.DateSentFallback), boolInt(m.DateSentFallback)); err != nil {
 				return fmt.Errorf("upsert message: %w", err)
 			}
 			if err := tx.QueryRow(`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`,
 				m.AccountID, m.MessageID).Scan(&msgID); err != nil {
 				return fmt.Errorf("query upserted message: %w", err)
+			}
+		}
+		if m.DateSentFallback {
+			var storedDate sqliteNullTime
+			if err := tx.QueryRowContext(ctx, `SELECT date_sent FROM messages WHERE id = ?`, msgID).Scan(&storedDate); err != nil {
+				return fmt.Errorf("query stored message date: %w", err)
+			}
+			if storedDate.Valid {
+				m.DateSent = storedDate.Time
 			}
 		}
 

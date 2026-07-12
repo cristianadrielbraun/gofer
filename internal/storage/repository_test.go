@@ -450,6 +450,46 @@ func TestUpsertProviderSyncMessagesDoesNotBlankExistingHeaders(t *testing.T) {
 	}
 }
 
+func TestUpsertSyncMessagesDoesNotReplaceValidDateWithFallback(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	realDate := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 1, MessageID: "<fallback-date@example.com>",
+		Subject: "Original", FromEmail: "sender@example.com", DateSent: realDate,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages(initial) error = %v", err)
+	}
+	fallbackDate := time.Now().UTC()
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc", FolderID: "acc_inbox", RemoteUID: 1, MessageID: "<fallback-date@example.com>",
+		Subject: "Refreshed", FromEmail: "sender@example.com", DateSent: fallbackDate, DateSentFallback: true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages(fallback) error = %v", err)
+	}
+	var dateSentRaw, dateReceivedRaw string
+	if err := db.Read().QueryRowContext(ctx, `SELECT date_sent, date_received FROM messages WHERE internet_message_id = '<fallback-date@example.com>'`).Scan(&dateSentRaw, &dateReceivedRaw); err != nil {
+		t.Fatalf("query dates: %v", err)
+	}
+	dateSent, ok := parseSQLiteDateTime(dateSentRaw)
+	if !ok {
+		t.Fatalf("parse date_sent %q failed", dateSentRaw)
+	}
+	dateReceived, ok := parseSQLiteDateTime(dateReceivedRaw)
+	if !ok {
+		t.Fatalf("parse date_received %q failed", dateReceivedRaw)
+	}
+	if !dateSent.Equal(realDate) || !dateReceived.Equal(realDate) {
+		t.Fatalf("fallback update changed dates sent=%v received=%v, want %v", dateSent, dateReceived, realDate)
+	}
+}
+
 func TestMarkProviderMessagesMissingFromFolderMarksOnlyAbsentProviderRows(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
