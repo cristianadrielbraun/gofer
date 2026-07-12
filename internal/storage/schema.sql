@@ -1019,7 +1019,7 @@ ON imap_draft_operations(status, next_attempt_at, created_at);
 
 CREATE TABLE IF NOT EXISTS mail_security_exceptions (
     id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('http_discovery', 'plaintext_transport')),
+    kind TEXT NOT NULL CHECK (kind IN ('http_discovery', 'plaintext_transport', 'private_target')),
     protocol TEXT NOT NULL DEFAULT '',
     host TEXT NOT NULL CHECK (host <> ''),
     port INTEGER NOT NULL DEFAULT 0,
@@ -1029,6 +1029,8 @@ CREATE TABLE IF NOT EXISTS mail_security_exceptions (
         (kind = 'http_discovery' AND protocol = '' AND port = 0)
         OR
         (kind = 'plaintext_transport' AND protocol IN ('imap', 'smtp') AND port BETWEEN 1 AND 65535)
+        OR
+        (kind = 'private_target' AND protocol IN ('http', 'https', 'imap', 'smtp') AND port BETWEEN 1 AND 65535)
     ),
     UNIQUE(kind, protocol, host, port)
 );
@@ -1037,4 +1039,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (67);
+INSERT OR REPLACE INTO schema_version (version) VALUES (68);

@@ -5,6 +5,7 @@ import "time"
 const (
 	MailSecurityExceptionHTTPDiscovery      = "http_discovery"
 	MailSecurityExceptionPlaintextTransport = "plaintext_transport"
+	MailSecurityExceptionPrivateTarget      = "private_target"
 )
 
 type MailSecurityException struct {

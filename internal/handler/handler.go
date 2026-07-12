@@ -239,6 +239,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/security", h.handleAdminSecurity)
 	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)
+	adminRoute("POST /admin/security/private-target", h.handleAddPrivateTargetException)
 	adminRoute("POST /admin/security/exceptions/{id}/delete", h.handleDeleteMailSecurityException)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
 	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
@@ -2023,6 +2024,14 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 			allowed, err := h.db.IsPlaintextTransportAllowed(ctx, protocol, host, port)
 			if err != nil {
 				log.Printf("mail autodiscovery: check plaintext exception for %s %s:%d: %v", protocol, host, port, err)
+				return false
+			}
+			return allowed
+		},
+		AllowPrivateTarget: func(protocol, host string, port int) bool {
+			allowed, err := h.db.IsPrivateTargetAllowed(ctx, protocol, host, port)
+			if err != nil {
+				log.Printf("mail autodiscovery: check private target exception for %s %s:%d: %v", protocol, host, port, err)
 				return false
 			}
 			return allowed

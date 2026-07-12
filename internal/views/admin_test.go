@@ -49,6 +49,7 @@ func TestAdminSecurityPageShowsExceptionsAndWarnings(t *testing.T) {
 	data := models.MailSecurityAdminData{Exceptions: []models.MailSecurityException{
 		{ID: "http", Kind: models.MailSecurityExceptionHTTPDiscovery, Host: "lab.example.test", CreatedBy: "admin"},
 		{ID: "imap", Kind: models.MailSecurityExceptionPlaintextTransport, Protocol: "imap", Host: "mail.test", Port: 1143, CreatedBy: "admin", Accounts: []models.MailSecurityExceptionAccount{{ID: "account", Email: "user@example.com"}}},
+		{ID: "private", Kind: models.MailSecurityExceptionPrivateTarget, Protocol: "http", Host: "127.0.0.1", Port: 8080, CreatedBy: "admin"},
 	}}
 
 	var out bytes.Buffer
@@ -56,7 +57,7 @@ func TestAdminSecurityPageShowsExceptionsAndWarnings(t *testing.T) {
 		t.Fatalf("AdminSecurityPage.Render() error = %v", err)
 	}
 	html := out.String()
-	for _, want := range []string{"Mail security", "lab.example.test", "IMAP mail.test:1143", "user@example.com", "OAuth tokens are never allowed", "Only approve endpoints you control"} {
+	for _, want := range []string{"Mail security", "lab.example.test", "IMAP mail.test:1143", "HTTP 127.0.0.1:8080", "user@example.com", "OAuth tokens are never allowed", "Only approve endpoints you control"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered admin security page missing %q: %s", want, html)
 		}

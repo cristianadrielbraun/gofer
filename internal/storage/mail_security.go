@@ -14,6 +14,14 @@ func normalizeMailSecurityHost(value string) string {
 	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
 }
 
+func normalizePrivateTargetHost(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSuffix(strings.TrimPrefix(value, "["), "]")
+	}
+	return normalizeMailSecurityHost(value)
+}
+
 func (db *DB) AddHTTPDiscoveryException(ctx context.Context, domain, createdBy string) error {
 	domain = normalizeMailSecurityHost(domain)
 	if domain == "" {
@@ -47,6 +55,26 @@ func (db *DB) AddPlaintextTransportException(ctx context.Context, protocol, host
 	return err
 }
 
+func (db *DB) AddPrivateTargetException(ctx context.Context, protocol, host string, port int, createdBy string) error {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	host = normalizePrivateTargetHost(host)
+	if protocol != "http" && protocol != "https" && protocol != "imap" && protocol != "smtp" {
+		return fmt.Errorf("protocol must be HTTP, HTTPS, IMAP, or SMTP")
+	}
+	if host == "" {
+		return fmt.Errorf("target host is required")
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("target port must be between 1 and 65535")
+	}
+	_, err := db.write.ExecContext(ctx, `
+		INSERT INTO mail_security_exceptions (id, kind, protocol, host, port, created_by)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(kind, protocol, host, port) DO NOTHING`,
+		uuid.NewString(), models.MailSecurityExceptionPrivateTarget, protocol, host, port, strings.TrimSpace(createdBy))
+	return err
+}
+
 func (db *DB) DeleteMailSecurityException(ctx context.Context, id string) error {
 	_, err := db.write.ExecContext(ctx, `DELETE FROM mail_security_exceptions WHERE id = ?`, strings.TrimSpace(id))
 	return err
@@ -69,6 +97,16 @@ func (db *DB) IsPlaintextTransportAllowed(ctx context.Context, protocol, host st
 			SELECT 1 FROM mail_security_exceptions
 			WHERE kind = ? AND protocol = ? AND host = ? AND port = ?
 		)`, models.MailSecurityExceptionPlaintextTransport, strings.ToLower(strings.TrimSpace(protocol)), normalizeMailSecurityHost(host), port).Scan(&allowed)
+	return allowed == 1, err
+}
+
+func (db *DB) IsPrivateTargetAllowed(ctx context.Context, protocol, host string, port int) (bool, error) {
+	var allowed int
+	err := db.read.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM mail_security_exceptions
+			WHERE kind = ? AND protocol = ? AND host = ? AND port = ?
+		)`, models.MailSecurityExceptionPrivateTarget, strings.ToLower(strings.TrimSpace(protocol)), normalizePrivateTargetHost(host), port).Scan(&allowed)
 	return allowed == 1, err
 }
 

@@ -137,7 +137,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 67
+	const targetSchemaVersion = 68
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -548,6 +548,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 66 {
 		if err := migrateV66ToV67(tx); err != nil {
 			return fmt.Errorf("migrate v66 to v67: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 67 {
+		if err := migrateV67ToV68(tx); err != nil {
+			return fmt.Errorf("migrate v67 to v68: %w", err)
 		}
 	}
 
@@ -2811,6 +2817,53 @@ func migrateV66ToV67(tx *sql.Tx) error {
 		return err
 	}
 	return markSchemaVersion(tx, 67)
+}
+
+func migrateV67ToV68(tx *sql.Tx) error {
+	exists, err := tableExistsTx(tx, "mail_security_exceptions")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return markSchemaVersion(tx, 68)
+	}
+	if _, err := tx.Exec(`ALTER TABLE mail_security_exceptions RENAME TO mail_security_exceptions_v67`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP INDEX IF EXISTS idx_mail_security_exceptions_lookup`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE TABLE mail_security_exceptions (
+		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL CHECK (kind IN ('http_discovery', 'plaintext_transport', 'private_target')),
+		protocol TEXT NOT NULL DEFAULT '',
+		host TEXT NOT NULL CHECK (host <> ''),
+		port INTEGER NOT NULL DEFAULT 0,
+		created_by TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		CHECK (
+			(kind = 'http_discovery' AND protocol = '' AND port = 0)
+			OR
+			(kind = 'plaintext_transport' AND protocol IN ('imap', 'smtp') AND port BETWEEN 1 AND 65535)
+			OR
+			(kind = 'private_target' AND protocol IN ('http', 'https', 'imap', 'smtp') AND port BETWEEN 1 AND 65535)
+		),
+		UNIQUE(kind, protocol, host, port)
+	)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO mail_security_exceptions (id, kind, protocol, host, port, created_by, created_at)
+		SELECT id, kind, protocol, host, port, created_by, created_at FROM mail_security_exceptions_v67`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE mail_security_exceptions_v67`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
+		ON mail_security_exceptions(kind, protocol, host, port)`); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 68)
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -146,6 +147,29 @@ func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r 
 	redirectAdminSecurity(w, r, strings.ToUpper(protocol)+" plaintext is now allowed for "+host+":"+strconv.Itoa(port)+".", "")
 }
 
+func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		redirectAdminSecurity(w, r, "", "Invalid form data.")
+		return
+	}
+	if r.FormValue("acknowledge") != "yes" {
+		redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
+		return
+	}
+	protocol := strings.ToLower(strings.TrimSpace(r.FormValue("protocol")))
+	host := normalizePrivateTargetHost(r.FormValue("host"))
+	port, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
+	if (protocol != "http" && protocol != "https" && protocol != "imap" && protocol != "smtp") || !validPrivateTargetHost(host) || err != nil || port < 1 || port > 65535 {
+		redirectAdminSecurity(w, r, "", "Enter HTTP, HTTPS, IMAP, or SMTP with an exact host and a port between 1 and 65535.")
+		return
+	}
+	if err := h.db.AddPrivateTargetException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
+		redirectAdminSecurity(w, r, "", "Could not add the private target exception.")
+		return
+	}
+	redirectAdminSecurity(w, r, strings.ToUpper(protocol)+" private target is now allowed for "+host+":"+strconv.Itoa(port)+".", "")
+}
+
 func (h *Handler) restartAccountsUsingPlaintextException(ctx context.Context, protocol, host string, port int) {
 	if h.syncer == nil {
 		return
@@ -238,6 +262,35 @@ func normalizePlaintextExceptionHost(value string) string {
 
 func validPlaintextExceptionHost(host string) bool {
 	return host != "" && len(host) <= 253 && !strings.ContainsAny(host, "/@ ")
+}
+
+func normalizePrivateTargetHost(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSuffix(strings.TrimPrefix(value, "["), "]")
+	}
+	return strings.ToLower(strings.TrimSuffix(value, "."))
+}
+
+func validPrivateTargetHost(host string) bool {
+	if host == "" || len(host) > 253 || strings.ContainsAny(host, "/@?#% ") {
+		return false
+	}
+	if address, err := netip.ParseAddr(host); err == nil {
+		return address.Zone() == ""
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for _, char := range label {
+			if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) handleContactAdminStatus(w http.ResponseWriter, r *http.Request) {
