@@ -1903,13 +1903,21 @@ class VirtualMailList {
       ["read", filters.read ? "1" : ""],
       ["no_attachments", filters.noAttachments ? "1" : ""],
       ["has_tags", filters.hasTags ? "1" : ""],
+      ["no_tags", filters.noTags ? "1" : ""],
       ["threads_only", filters.threadsOnly ? "1" : ""],
+      ["no_threads", filters.noThreads ? "1" : ""],
       ["from", filters.from || ""],
       ["to", filters.to || ""],
+      ["recipient_type", filters.recipientType || ""],
+      ["recipient_domain", filters.recipientDomain || ""],
       ["subject", filters.subject || ""],
       ["body", filters.body || ""],
       ["from_domain", filters.fromDomain || ""],
       ["attachment", filters.attachment || ""],
+      ["attachment_type", filters.attachmentType || ""],
+      ["attachment_extension", filters.attachmentExtension || ""],
+      ["min_size_mb", filters.minSizeMB || ""],
+      ["max_size_mb", filters.maxSizeMB || ""],
       ["account_id", filters.accountId || ""],
       ["q", filters.query || ""],
       ["after_date", filters.afterDate || ""],
@@ -1951,13 +1959,21 @@ class VirtualMailList {
       read: false,
       noAttachments: false,
       hasTags: false,
+      noTags: false,
       threadsOnly: false,
+      noThreads: false,
       from: "",
       to: "",
+      recipientType: "",
+      recipientDomain: "",
       subject: "",
       body: "",
       fromDomain: "",
       attachment: "",
+      attachmentType: "",
+      attachmentExtension: "",
+      minSizeMB: "",
+      maxSizeMB: "",
       tag: "",
       accountId: "",
       query: "",
@@ -1977,13 +1993,21 @@ class VirtualMailList {
     filters.read = params.get("read") === "1"
     filters.noAttachments = params.get("no_attachments") === "1"
     filters.hasTags = params.get("has_tags") === "1"
+    filters.noTags = params.get("no_tags") === "1"
     filters.threadsOnly = params.get("threads_only") === "1"
+    filters.noThreads = params.get("no_threads") === "1"
     filters.from = (params.get("from") || "").trim()
     filters.to = (params.get("to") || "").trim()
+    filters.recipientType = (params.get("recipient_type") || "").trim()
+    filters.recipientDomain = (params.get("recipient_domain") || "").trim()
     filters.subject = (params.get("subject") || "").trim()
     filters.body = (params.get("body") || "").trim()
     filters.fromDomain = (params.get("from_domain") || "").trim()
     filters.attachment = (params.get("attachment") || "").trim()
+    filters.attachmentType = (params.get("attachment_type") || "").trim()
+    filters.attachmentExtension = (params.get("attachment_extension") || "").trim()
+    filters.minSizeMB = (params.get("min_size_mb") || "").trim()
+    filters.maxSizeMB = (params.get("max_size_mb") || "").trim()
     filters.tag = (params.get("tag") || "").trim()
     filters.accountId = (params.get("account_id") || "").trim()
     filters.query = (params.get("q") || "").trim()
@@ -1991,6 +2015,19 @@ class VirtualMailList {
     filters.beforeDate = (params.get("before_date") || "").trim()
     filters.sortBy = (params.get("sort_by") || "date").trim()
     filters.sortOrder = (params.get("sort_order") || "desc").trim()
+    if (filters.hasTags) filters.noTags = false
+    if (filters.threadsOnly) filters.noThreads = false
+    if (filters.attachmentType !== "custom") filters.attachmentExtension = ""
+    else filters.attachmentExtension = filters.attachmentExtension.replace(/^\./, "").toLowerCase()
+    var minSize = parseFloat(filters.minSizeMB)
+    var maxSize = parseFloat(filters.maxSizeMB)
+    if (!isFinite(minSize) || minSize <= 0) filters.minSizeMB = ""
+    if (!isFinite(maxSize) || maxSize <= 0) filters.maxSizeMB = ""
+    if (filters.minSizeMB && filters.maxSizeMB && minSize > maxSize) {
+      var originalMin = filters.minSizeMB
+      filters.minSizeMB = filters.maxSizeMB
+      filters.maxSizeMB = originalMin
+    }
     return filters
   }
 
@@ -2043,13 +2080,21 @@ class VirtualMailList {
     if (filters.read) params.set("read", "1")
     if (filters.noAttachments) params.set("no_attachments", "1")
     if (filters.hasTags) params.set("has_tags", "1")
+    if (filters.noTags) params.set("no_tags", "1")
     if (filters.threadsOnly) params.set("threads_only", "1")
+    if (filters.noThreads) params.set("no_threads", "1")
     if (filters.from) params.set("from", filters.from)
     if (filters.to) params.set("to", filters.to)
+    if (filters.recipientType) params.set("recipient_type", filters.recipientType)
+    if (filters.recipientDomain) params.set("recipient_domain", filters.recipientDomain)
     if (filters.subject) params.set("subject", filters.subject)
     if (filters.body) params.set("body", filters.body)
     if (filters.fromDomain) params.set("from_domain", filters.fromDomain)
     if (filters.attachment) params.set("attachment", filters.attachment)
+    if (filters.attachmentType) params.set("attachment_type", filters.attachmentType)
+    if (filters.attachmentExtension) params.set("attachment_extension", filters.attachmentExtension)
+    if (filters.minSizeMB) params.set("min_size_mb", filters.minSizeMB)
+    if (filters.maxSizeMB) params.set("max_size_mb", filters.maxSizeMB)
     var tag = this.sidebarTag || this.emptySidebarTag()
     var filterTag = (filters.tag || tag.label || "").trim()
     if (filterTag) params.set("tag", filterTag)
@@ -2068,10 +2113,10 @@ class VirtualMailList {
   filterCount() {
     var filters = this.filters || this.emptyFilters()
     return (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
-      (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) +
-      (filters.threadsOnly ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
-      (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
-      (filters.attachment ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
+      (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) + (filters.noTags ? 1 : 0) +
+      (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
+      (filters.recipientType ? 1 : 0) + (filters.recipientDomain ? 1 : 0) + (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
+      (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
       (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
   }
 

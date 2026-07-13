@@ -1951,13 +1951,21 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 		Read:            q.Get("read") == "1",
 		NoAttach:        q.Get("no_attachments") == "1",
 		HasTags:         q.Get("has_tags") == "1",
+		NoTags:          q.Get("no_tags") == "1",
 		ThreadsOnly:     q.Get("threads_only") == "1",
+		NoThreads:       q.Get("no_threads") == "1",
 		From:            strings.TrimSpace(q.Get("from")),
 		To:              strings.TrimSpace(q.Get("to")),
+		RecipientType:   normalizeRecipientType(q.Get("recipient_type")),
+		RecipientDomain: strings.TrimSpace(q.Get("recipient_domain")),
 		Subject:         strings.TrimSpace(q.Get("subject")),
 		Body:            strings.TrimSpace(q.Get("body")),
 		FromDomain:      strings.TrimSpace(q.Get("from_domain")),
 		Attachment:      strings.TrimSpace(q.Get("attachment")),
+		AttachmentType:  normalizeAttachmentType(q.Get("attachment_type")),
+		AttachmentExt:   normalizeAttachmentExtension(q.Get("attachment_extension")),
+		MinSizeBytes:    parseFilterSizeMB(q.Get("min_size_mb")),
+		MaxSizeBytes:    parseFilterSizeMB(q.Get("max_size_mb")),
 		Tag:             tag,
 		AccountID:       strings.TrimSpace(q.Get("account_id")),
 		TagAccountID:    tagAccountID,
@@ -1975,9 +1983,66 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 	if filters.Attachments {
 		filters.NoAttach = false
 	}
+	if filters.HasTags {
+		filters.NoTags = false
+	}
+	if filters.ThreadsOnly {
+		filters.NoThreads = false
+	}
+	if filters.AttachmentType != "custom" {
+		filters.AttachmentExt = ""
+	} else if filters.AttachmentExt == "" {
+		filters.AttachmentType = ""
+	}
+	if filters.MinSizeBytes > 0 && filters.MaxSizeBytes > 0 && filters.MinSizeBytes > filters.MaxSizeBytes {
+		filters.MinSizeBytes, filters.MaxSizeBytes = filters.MaxSizeBytes, filters.MinSizeBytes
+	}
 	filters.SortBy = normalizeEmailSortBy(filters.SortBy)
 	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
 	return filters
+}
+
+func normalizeRecipientType(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "to" || value == "cc" || value == "bcc" {
+		return value
+	}
+	return ""
+}
+
+func normalizeAttachmentType(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "pdf", "image", "document", "spreadsheet", "presentation", "archive", "audio", "video", "custom":
+		return value
+	default:
+		return ""
+	}
+}
+
+func normalizeAttachmentExtension(value string) string {
+	value = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), ".")
+	if value == "" || len(value) > 16 {
+		return ""
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return ""
+		}
+	}
+	return value
+}
+
+func parseFilterSizeMB(value string) int64 {
+	mb, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || mb <= 0 {
+		return 0
+	}
+	const maxFilterSizeMB = 1024 * 1024
+	if mb > maxFilterSizeMB {
+		mb = maxFilterSizeMB
+	}
+	return int64(mb * 1024 * 1024)
 }
 
 func applyEmailSortDefaults(filters models.EmailFilters, r *http.Request, settings map[string]string) models.EmailFilters {
@@ -1999,7 +2064,7 @@ func normalizeEmailSortBy(value string) string {
 }
 
 func emailFiltersActive(filters models.EmailFilters) bool {
-	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != "" || (filters.SortBy != "" && filters.SortBy != "date") || (filters.SortOrder != "" && filters.SortOrder != "desc")
+	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.NoTags || filters.ThreadsOnly || filters.NoThreads || filters.From != "" || filters.To != "" || filters.RecipientType != "" || filters.RecipientDomain != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.AttachmentType != "" || filters.AttachmentExt != "" || filters.MinSizeBytes > 0 || filters.MaxSizeBytes > 0 || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != "" || (filters.SortBy != "" && filters.SortBy != "date") || (filters.SortOrder != "" && filters.SortOrder != "desc")
 }
 
 func (h *Handler) resolveFolderID(ctx context.Context, userID, requested string) (string, error) {

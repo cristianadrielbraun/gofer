@@ -1430,13 +1430,21 @@ document.addEventListener("DOMContentLoaded", function () {
         read: false,
         noAttachments: false,
         hasTags: false,
+        noTags: false,
         threadsOnly: false,
+        noThreads: false,
         from: "",
         to: "",
+        recipientType: "",
+        recipientDomain: "",
         subject: "",
         body: "",
         fromDomain: "",
         attachment: "",
+        attachmentType: "",
+        attachmentExtension: "",
+        minSizeMB: "",
+        maxSizeMB: "",
         tag: "",
         accountId: "",
         query: "",
@@ -1459,28 +1467,45 @@ document.addEventListener("DOMContentLoaded", function () {
       if (form) {
         var status = form.querySelector('[data-mail-tristate="status"]')
         var attachments = form.querySelector('[data-mail-tristate="attachments"]')
+        var tags = form.querySelector('[data-mail-tristate="tags"]')
+        var threads = form.querySelector('[data-mail-tristate="threads"]')
         var statusValue = status ? status.getAttribute("data-mail-tristate-value") : ""
         var attachmentValue = attachments ? attachments.getAttribute("data-mail-tristate-value") : ""
+        var tagValue = tags ? tags.getAttribute("data-mail-tristate-value") : ""
+        var threadValue = threads ? threads.getAttribute("data-mail-tristate-value") : ""
         filters.unread = statusValue === "unread"
         filters.read = statusValue === "read"
         filters.attachments = attachmentValue === "yes"
         filters.noAttachments = attachmentValue === "no"
         filters.starred = !!form.querySelector('input[name="starred"]:checked')
-        filters.hasTags = !!form.querySelector('input[name="has_tags"]:checked')
-        filters.threadsOnly = !!form.querySelector('input[name="threads_only"]:checked')
+        filters.hasTags = tagValue === "yes"
+        filters.noTags = tagValue === "no"
+        filters.threadsOnly = threadValue === "yes"
+        filters.noThreads = threadValue === "no"
       }
       var advanced = document.querySelector("[data-mail-advanced-filter-form]")
       if (advanced) {
-        filters.read = filters.read || (!!advanced.querySelector('input[name="read"]:checked') && !filters.unread)
-        filters.noAttachments = filters.noAttachments || (!!advanced.querySelector('input[name="no_attachments"]:checked') && !filters.attachments)
-        filters.hasTags = filters.hasTags || !!advanced.querySelector('input[name="has_tags"]:checked')
-        filters.threadsOnly = filters.threadsOnly || !!advanced.querySelector('input[name="threads_only"]:checked')
         filters.from = (advanced.querySelector('input[name="from"]') || {}).value || ""
         filters.to = (advanced.querySelector('input[name="to"]') || {}).value || ""
+        filters.recipientType = (advanced.querySelector('input[name="recipient_type"]') || {}).value || ""
+        filters.recipientDomain = (advanced.querySelector('input[name="recipient_domain"]') || {}).value || ""
         filters.subject = (advanced.querySelector('input[name="subject"]') || {}).value || ""
         filters.body = (advanced.querySelector('input[name="body"]') || {}).value || ""
         filters.fromDomain = (advanced.querySelector('input[name="from_domain"]') || {}).value || ""
         filters.attachment = (advanced.querySelector('input[name="attachment"]') || {}).value || ""
+        filters.attachmentType = (advanced.querySelector('input[name="attachment_type"]') || {}).value || ""
+        filters.attachmentExtension = filters.attachmentType === "custom" ? (((advanced.querySelector('input[name="attachment_extension"]') || {}).value || "").trim().replace(/^\./, "").toLowerCase()) : ""
+        filters.minSizeMB = (advanced.querySelector('input[name="min_size_mb"]') || {}).value || ""
+        filters.maxSizeMB = (advanced.querySelector('input[name="max_size_mb"]') || {}).value || ""
+        var minSize = parseFloat(filters.minSizeMB)
+        var maxSize = parseFloat(filters.maxSizeMB)
+        if (!isFinite(minSize) || minSize <= 0) filters.minSizeMB = ""
+        if (!isFinite(maxSize) || maxSize <= 0) filters.maxSizeMB = ""
+        if (filters.minSizeMB && filters.maxSizeMB && minSize > maxSize) {
+          var originalMin = filters.minSizeMB
+          filters.minSizeMB = filters.maxSizeMB
+          filters.maxSizeMB = originalMin
+        }
         filters.tag = (advanced.querySelector('input[name="tag"]') || {}).value || ""
         filters.accountId = (advanced.querySelector('input[name="account_id"]') || {}).value || ""
         filters.afterDate = (advanced.querySelector('input[name="after_date"]') || {}).value || ""
@@ -1503,10 +1528,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function syncFilterButton(filters) {
       var count = (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
-        (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) +
-        (filters.threadsOnly ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
-        (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
-        (filters.attachment ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
+        (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) + (filters.noTags ? 1 : 0) +
+        (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
+        (filters.recipientType ? 1 : 0) + (filters.recipientDomain ? 1 : 0) + (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
+        (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
         (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
       var button = document.querySelector("[data-mail-filter-button]")
       var badge = document.querySelector("[data-mail-filter-count]")
@@ -1529,14 +1554,21 @@ document.addEventListener("DOMContentLoaded", function () {
         { key: "from", name: "from", label: "From" },
         { key: "fromDomain", name: "from_domain", label: "From domain" },
         { key: "to", name: "to", label: "Recipients" },
+        { key: "recipientType", name: "recipient_type", label: "Recipient type" },
+        { key: "recipientDomain", name: "recipient_domain", label: "Recipient domain" },
         { key: "subject", name: "subject", label: "Subject" },
         { key: "body", name: "body", label: "Body" },
         { key: "attachment", name: "attachment", label: "Attachment" },
+        { key: "attachmentType", name: "attachment_type", label: "Attachment type" },
+        { key: "minSizeMB", name: "min_size_mb", label: "Minimum size" },
+        { key: "maxSizeMB", name: "max_size_mb", label: "Maximum size" },
         { key: "tag", name: "tag", label: "Tag" },
         { key: "read", name: "read", label: "Read" },
         { key: "noAttachments", name: "no_attachments", label: "No attachments" },
         { key: "hasTags", name: "has_tags", label: "Has tags" },
+        { key: "noTags", name: "no_tags", label: "No tags" },
         { key: "threadsOnly", name: "threads_only", label: "Threads only" },
+        { key: "noThreads", name: "no_threads", label: "Single messages" },
       ]
     }
 
@@ -1548,21 +1580,72 @@ document.addEventListener("DOMContentLoaded", function () {
       return value
     }
 
-    function renderAdvancedSummary() {
-      var summary = document.querySelector("[data-mail-filter-summary]")
-      if (!summary) return
+    function syncAttachmentExtensionField() {
+      var form = document.querySelector("[data-mail-advanced-filter-form]")
+      if (!form) return
+      var typeInput = form.querySelector('input[name="attachment_type"]')
+      var extensionInput = form.querySelector('input[name="attachment_extension"]')
+      var field = form.querySelector("[data-mail-attachment-extension-field]")
+      var custom = !!typeInput && typeInput.value === "custom"
+      if (field) field.classList.toggle("hidden", !custom)
+      if (extensionInput) {
+        extensionInput.required = custom
+        if (!custom) extensionInput.value = ""
+      }
+    }
+
+    function syncAdvancedFilterCount() {
+      var counter = document.querySelector("[data-mail-advanced-filter-count]")
+      if (!counter) return
       var filters = readFilters()
       var defs = advancedFilterDefs()
-      var html = ""
+      var count = 0
       for (var i = 0; i < defs.length; i++) {
-        var def = defs[i]
-        var value = filters[def.key]
-        if (!value) continue
-        var text = typeof value === "boolean" ? def.label : (def.label + ": " + displayValueForAdvanced(def.name, value))
-        html += '<button type="button" data-mail-filter-chip-remove="' + def.name + '" class="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent">' + escapeHTML(text) + '<span class="text-muted-foreground">x</span></button>'
+        if (filters[defs[i].key]) count++
       }
-      summary.innerHTML = html || '<span class="px-1 py-0.5 text-xs text-muted-foreground">No advanced filters applied</span>'
-      summary.classList.toggle("hidden", false)
+      counter.textContent = String(count)
+      counter.classList.toggle("hidden", count === 0)
+    }
+
+    function switchAdvancedFilterPanel(panelButton) {
+      var panel = panelButton.getAttribute("data-mail-filter-panel-button")
+      var sections = Array.prototype.slice.call(document.querySelectorAll("[data-mail-filter-panel]"))
+      var nextSection = null
+      for (var i = 0; i < sections.length; i++) {
+        if (sections[i].getAttribute("data-mail-filter-panel") === panel) nextSection = sections[i]
+      }
+      if (!nextSection || !nextSection.classList.contains("hidden")) return
+
+      document.querySelectorAll("[data-mail-filter-panel-button]").forEach(function (btn) {
+        var active = btn === panelButton
+        btn.setAttribute("data-active", active ? "true" : "false")
+        btn.setAttribute("aria-selected", active ? "true" : "false")
+      })
+
+      var box = nextSection.closest("[data-mail-filter-panel-box]")
+      var oldHeight = box ? box.getBoundingClientRect().height : 0
+      for (var j = 0; j < sections.length; j++) sections[j].classList.toggle("hidden", sections[j] !== nextSection)
+      if (!box || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+
+      if (box._mailFilterPanelTimer) window.clearTimeout(box._mailFilterPanelTimer)
+      box.style.height = ""
+      box.style.overflow = ""
+      var nextHeight = box.getBoundingClientRect().height
+      box.style.height = oldHeight + "px"
+      box.style.overflow = "hidden"
+      box.offsetHeight
+      box.style.height = nextHeight + "px"
+      if (typeof nextSection.animate === "function") {
+        nextSection.animate([
+          { opacity: 0, transform: "translateY(5px)" },
+          { opacity: 1, transform: "translateY(0)" },
+        ], { duration: 180, easing: "ease-out" })
+      }
+      box._mailFilterPanelTimer = window.setTimeout(function () {
+        box._mailFilterPanelTimer = null
+        box.style.height = ""
+        box.style.overflow = ""
+      }, 220)
     }
 
     function scheduleActivePillOverflow(bar) {
@@ -1627,19 +1710,32 @@ document.addEventListener("DOMContentLoaded", function () {
       if (filters.starred) pills.push({ name: "starred", label: "Starred" })
       if (filters.attachments) pills.push({ name: "attachments", label: "Attachments", value: "Yes" })
       if (filters.noAttachments) pills.push({ name: "no_attachments", label: "Attachments", value: "No" })
-      if (filters.hasTags) pills.push({ name: "has_tags", label: "Has tags" })
-      if (filters.threadsOnly) pills.push({ name: "threads_only", label: "Threads only" })
+      if (filters.hasTags) pills.push({ name: "has_tags", label: "Tags", value: "Yes" })
+      if (filters.noTags) pills.push({ name: "no_tags", label: "Tags", value: "No" })
+      if (filters.threadsOnly) pills.push({ name: "threads_only", label: "Threads", value: "Yes" })
+      if (filters.noThreads) pills.push({ name: "no_threads", label: "Threads", value: "No" })
       if (filters.accountId) pills.push({ name: "account_id", label: "Account", value: displayValueForAdvanced("account_id", filters.accountId) })
       if (filters.afterDate) pills.push({ name: "after_date", label: "After", value: filters.afterDate })
       if (filters.beforeDate) pills.push({ name: "before_date", label: "Before", value: filters.beforeDate })
       if (filters.from) pills.push({ name: "from", label: "From", value: filters.from })
       if (filters.fromDomain) pills.push({ name: "from_domain", label: "From domain", value: filters.fromDomain })
       if (filters.to) pills.push({ name: "to", label: "Recipients", value: filters.to })
+      if (filters.recipientType) pills.push({ name: "recipient_type", label: "Recipient type", value: filters.recipientType.toUpperCase() })
+      if (filters.recipientDomain) pills.push({ name: "recipient_domain", label: "Recipient domain", value: filters.recipientDomain })
       if (filters.subject) pills.push({ name: "subject", label: "Subject", value: filters.subject })
       if (filters.body) pills.push({ name: "body", label: "Body", value: filters.body })
       if (filters.attachment) pills.push({ name: "attachment", label: "Attachment", value: filters.attachment })
+      if (filters.attachmentType) pills.push({ name: "attachment_type", label: "Attachment type", value: attachmentTypeLabel(filters.attachmentType, filters.attachmentExtension) })
+      if (filters.minSizeMB) pills.push({ name: "min_size_mb", label: "Minimum size", value: filters.minSizeMB + " MB" })
+      if (filters.maxSizeMB) pills.push({ name: "max_size_mb", label: "Maximum size", value: filters.maxSizeMB + " MB" })
       if (filters.tag) pills.push({ name: "tag", label: "Tag", value: filters.tag })
       return pills
+    }
+
+    function attachmentTypeLabel(type, extension) {
+      if (type === "custom") return "." + extension
+      if (type === "pdf") return "PDF"
+      return type.charAt(0).toUpperCase() + type.slice(1)
     }
 
     function activePillText(pill) {
@@ -1813,8 +1909,9 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
       var tristates = form.querySelectorAll("[data-mail-tristate]")
-      for (var t = 0; t < tristates.length; t++) setTriState(tristates[t], "")
-      renderAdvancedSummary()
+      for (var t = 0; t < tristates.length; t++) setFilterTriState(tristates[t].getAttribute("data-mail-tristate"), "")
+      syncAttachmentExtensionField()
+      syncAdvancedFilterCount()
       renderActivePills()
     }
 
@@ -1823,44 +1920,9 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var i = 0; i < inputs.length; i++) inputs[i].checked = !!value
     }
 
-    function setAdvancedBooleanFilterControl(name, value) {
-      var input = document.querySelector('[data-mail-advanced-filter-form] input[name="' + name + '"]')
-      if (input) input.checked = !!value
-    }
-
     function setFilterTriState(name, value) {
-      var control = document.querySelector('[data-mail-tristate="' + name + '"]')
-      setTriState(control, value)
-      if (name === "status") setAdvancedBooleanFilterControl("read", value === "read")
-      if (name === "attachments") setAdvancedBooleanFilterControl("no_attachments", value === "no")
-    }
-
-    function syncAdvancedDuplicateFilterInput(input) {
-      if (!input || !input.name) return
-      var checked = !!input.checked
-      if (input.name === "read") {
-        var status = document.querySelector('[data-mail-tristate="status"]')
-        if (checked) setTriState(status, "read")
-        else if (status && status.getAttribute("data-mail-tristate-value") === "read") setTriState(status, "")
-      } else if (input.name === "no_attachments") {
-        var attachments = document.querySelector('[data-mail-tristate="attachments"]')
-        if (checked) setTriState(attachments, "no")
-        else if (attachments && attachments.getAttribute("data-mail-tristate-value") === "no") setTriState(attachments, "")
-      } else if (input.name === "has_tags" || input.name === "threads_only") {
-        setBooleanFilterControl(input.name, checked)
-      }
-    }
-
-    function syncQuickDuplicateFilterInput(input) {
-      if (!input || !input.name) return
-      if (input.name === "has_tags" || input.name === "threads_only") setBooleanFilterControl(input.name, !!input.checked)
-    }
-
-    function syncAdvancedDuplicateFiltersToQuick() {
-      var form = document.querySelector("[data-mail-advanced-filter-form]")
-      if (!form) return
-      var names = ["read", "no_attachments", "has_tags", "threads_only"]
-      for (var i = 0; i < names.length; i++) syncAdvancedDuplicateFilterInput(form.querySelector('input[name="' + names[i] + '"]'))
+      var controls = document.querySelectorAll('[data-mail-tristate="' + name + '"]')
+      for (var i = 0; i < controls.length; i++) setTriState(controls[i], value)
     }
 
     function syncFilterControls(filters) {
@@ -1873,21 +1935,26 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       setFilterTriState("status", filters.unread ? "unread" : (filters.read ? "read" : ""))
       setFilterTriState("attachments", filters.attachments ? "yes" : (filters.noAttachments ? "no" : ""))
+      setFilterTriState("tags", filters.hasTags ? "yes" : (filters.noTags ? "no" : ""))
+      setFilterTriState("threads", filters.threadsOnly ? "yes" : (filters.noThreads ? "no" : ""))
       setBooleanFilterControl("starred", !!filters.starred)
-      setBooleanFilterControl("has_tags", !!filters.hasTags)
-      setBooleanFilterControl("threads_only", !!filters.threadsOnly)
-      setAdvancedBooleanFilterControl("read", !!filters.read && !filters.unread)
-      setAdvancedBooleanFilterControl("no_attachments", !!filters.noAttachments && !filters.attachments)
       setInputValue("from", filters.from || "")
       setInputValue("from_domain", filters.fromDomain || "")
       setInputValue("to", filters.to || "")
+      setInputValue("recipient_type", filters.recipientType || "")
+      setInputValue("recipient_domain", filters.recipientDomain || "")
       setInputValue("subject", filters.subject || "")
       setInputValue("body", filters.body || "")
       setInputValue("attachment", filters.attachment || "")
+      setInputValue("attachment_type", filters.attachmentType || "")
+      setInputValue("attachment_extension", filters.attachmentExtension || "")
+      setInputValue("min_size_mb", filters.minSizeMB || "")
+      setInputValue("max_size_mb", filters.maxSizeMB || "")
       setInputValue("tag", filters.tag || "")
       setInputValue("account_id", filters.accountId || "")
       setInputValue("after_date", filters.afterDate || "")
       setInputValue("before_date", filters.beforeDate || "")
+      syncAttachmentExtensionField()
       renderActivePills(filters)
       syncFilterButton(filters)
     }
@@ -1902,17 +1969,19 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       var dateDisplay = form.querySelector('[data-mail-date-display="' + name + '"]')
       if (dateDisplay) dateDisplay.textContent = "Any date"
-      if (name === "account_id") {
-        var selectRoot = input && input.closest(".select-container")
-        if (selectRoot) {
-          var valueEl = selectRoot.querySelector("[data-tui-selectbox-placeholder]")
-          if (valueEl) valueEl.textContent = valueEl.getAttribute("data-tui-selectbox-placeholder") || ""
-          var selectedItems = selectRoot.querySelectorAll("[data-tui-selectbox-selected='true']")
-          for (var i = 0; i < selectedItems.length; i++) selectedItems[i].setAttribute("data-tui-selectbox-selected", "false")
-        }
+      var selectRoot = input && input.closest(".select-container")
+      if (selectRoot) {
+        var valueEl = selectRoot.querySelector("[data-tui-selectbox-placeholder]")
+        if (valueEl) valueEl.textContent = valueEl.getAttribute("data-tui-selectbox-placeholder") || ""
+        var selectedItems = selectRoot.querySelectorAll("[data-tui-selectbox-selected='true']")
+        for (var i = 0; i < selectedItems.length; i++) selectedItems[i].setAttribute("data-tui-selectbox-selected", "false")
       }
-      if (name === "read" || name === "no_attachments" || name === "has_tags" || name === "threads_only") syncAdvancedDuplicateFilterInput(input)
-      renderAdvancedSummary()
+      if (name === "attachment_type") {
+        var extension = form.querySelector('input[name="attachment_extension"]')
+        if (extension) extension.value = ""
+        syncAttachmentExtensionField()
+      }
+      syncAdvancedFilterCount()
       renderActivePills()
     }
 
@@ -1988,6 +2057,14 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function setQuickBoolean(name, value) {
+      if (name === "has_tags") {
+        setFilterTriState("tags", value ? "yes" : "")
+        return
+      }
+      if (name === "threads_only") {
+        setFilterTriState("threads", value ? "yes" : "")
+        return
+      }
       setBooleanFilterControl(name, value)
     }
 
@@ -2054,7 +2131,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       if (plain.length) committedQuery = committedQuery ? (committedQuery + " " + plain.join(" ")) : plain.join(" ")
       input.value = ""
-      renderAdvancedSummary()
+      syncAdvancedFilterCount()
       applyCurrentFilters()
       return true
     }
@@ -2071,16 +2148,14 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       else if (name === "unread" || name === "read") {
         setFilterTriState("status", "")
-        setQuickBoolean("read", false)
       } else if (name === "attachments" || name === "no_attachments") {
         setFilterTriState("attachments", "")
-        setQuickBoolean("no_attachments", false)
       }
       else if (name === "starred") setQuickBoolean("starred", false)
-      else if (name === "has_tags") setQuickBoolean("has_tags", false)
-      else if (name === "threads_only") setQuickBoolean("threads_only", false)
+      else if (name === "has_tags" || name === "no_tags") setFilterTriState("tags", "")
+      else if (name === "threads_only" || name === "no_threads") setFilterTriState("threads", "")
       else clearAdvancedFilter(name)
-      renderAdvancedSummary()
+      syncAdvancedFilterCount()
       applyCurrentFilters(options)
     }
 
@@ -2136,7 +2211,6 @@ document.addEventListener("DOMContentLoaded", function () {
     document.addEventListener("change", function (e) {
       var input = e.target && e.target.closest && e.target.closest("[data-mail-filter-input]")
       if (!input) return
-      syncQuickDuplicateFilterInput(input)
       applyCurrentFilters()
     })
 
@@ -2144,23 +2218,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var panelButton = e.target && e.target.closest && e.target.closest("[data-mail-filter-panel-button]")
       if (panelButton) {
         e.preventDefault()
-        var panel = panelButton.getAttribute("data-mail-filter-panel-button")
-        document.querySelectorAll("[data-mail-filter-panel-button]").forEach(function (btn) {
-          var active = btn === panelButton
-          btn.classList.toggle("bg-accent", active)
-          btn.classList.toggle("text-foreground", active)
-          btn.classList.toggle("text-muted-foreground", !active)
-        })
-        document.querySelectorAll("[data-mail-filter-panel]").forEach(function (section) {
-          section.classList.toggle("hidden", section.getAttribute("data-mail-filter-panel") !== panel)
-        })
-        return
-      }
-
-      var chipRemove = e.target && e.target.closest && e.target.closest("[data-mail-filter-chip-remove]")
-      if (chipRemove) {
-        e.preventDefault()
-        clearAdvancedFilter(chipRemove.getAttribute("data-mail-filter-chip-remove"))
+        switchAdvancedFilterPanel(panelButton)
         return
       }
 
@@ -2169,6 +2227,10 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault()
         var control = tristateOption.closest("[data-mail-tristate]")
         setFilterTriState(control ? control.getAttribute("data-mail-tristate") : "", tristateOption.getAttribute("data-mail-tristate-option") || "")
+        if (tristateOption.closest("[data-mail-advanced-filter-form]")) {
+          syncAdvancedFilterCount()
+          return
+        }
         applyCurrentFilters()
         return
       }
@@ -2176,7 +2238,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var advancedOpen = e.target && e.target.closest && e.target.closest("[data-mail-advanced-filter-open]")
       if (advancedOpen) {
         e.preventDefault()
-        renderAdvancedSummary()
+        syncAttachmentExtensionField()
+        syncAdvancedFilterCount()
         if (window.tui && window.tui.dialog) window.tui.dialog.open("mail-advanced-filter-dialog")
         return
       }
@@ -2224,7 +2287,6 @@ document.addEventListener("DOMContentLoaded", function () {
       var form = e.target && e.target.closest && e.target.closest("[data-mail-advanced-filter-form]")
       if (!form) return
       e.preventDefault()
-      syncAdvancedDuplicateFiltersToQuick()
       applyCurrentFilters()
       if (window.tui && window.tui.dialog) window.tui.dialog.close("mail-advanced-filter-dialog")
     })
@@ -2234,8 +2296,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!clear) return
       e.preventDefault()
       clearInputs("[data-mail-advanced-filter-form]")
-      syncAdvancedDuplicateFiltersToQuick()
-      renderAdvancedSummary()
+      syncAdvancedFilterCount()
       renderActivePills()
     })
 
@@ -2257,7 +2318,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       if (!e.target || !e.target.closest || !e.target.closest("[data-mail-advanced-filter-form]")) return
-      renderAdvancedSummary()
+      syncAdvancedFilterCount()
     })
 
     document.addEventListener("search", function (e) {
@@ -2267,8 +2328,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.addEventListener("change", function (e) {
       if (!e.target || !e.target.closest || !e.target.closest("[data-mail-advanced-filter-form]")) return
-      syncAdvancedDuplicateFilterInput(e.target)
-      renderAdvancedSummary()
+      syncAttachmentExtensionField()
+      syncAdvancedFilterCount()
     })
 
     document.addEventListener("calendar-date-selected", function (e) {
@@ -2278,7 +2339,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!hidden || !hidden.name) return
       var display = document.querySelector('[data-mail-date-display="' + hidden.name + '"]')
       if (display) display.textContent = hidden.value || "Any date"
-      renderAdvancedSummary()
+      syncAdvancedFilterCount()
     })
 
     document.body.addEventListener("htmx:afterSettle", function (evt) {

@@ -4823,7 +4823,7 @@ type emailFilterParts struct {
 }
 
 func emailFiltersEmpty(filters models.EmailFilters) bool {
-	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
+	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.NoTags && !filters.ThreadsOnly && !filters.NoThreads && filters.From == "" && filters.To == "" && filters.RecipientType == "" && filters.RecipientDomain == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.AttachmentType == "" && filters.AttachmentExt == "" && filters.MinSizeBytes == 0 && filters.MaxSizeBytes == 0 && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
 }
 
 func emailUsesDefaultSort(filters models.EmailFilters) bool {
@@ -4859,6 +4859,29 @@ func ftsQuery(input string) string {
 	return strings.Join(terms, " ")
 }
 
+func attachmentTypeFilterSQL(filterType, customExtension string) (string, []any) {
+	switch filterType {
+	case "pdf":
+		return "lower(att.content_type) = 'application/pdf' OR lower(att.filename) LIKE '%.pdf'", nil
+	case "image", "audio", "video":
+		return "lower(att.content_type) LIKE ?", []any{filterType + "/%"}
+	case "document":
+		return "lower(att.filename) LIKE '%.doc' OR lower(att.filename) LIKE '%.docx' OR lower(att.filename) LIKE '%.odt' OR lower(att.filename) LIKE '%.rtf' OR lower(att.filename) LIKE '%.txt'", nil
+	case "spreadsheet":
+		return "lower(att.filename) LIKE '%.xls' OR lower(att.filename) LIKE '%.xlsx' OR lower(att.filename) LIKE '%.ods' OR lower(att.filename) LIKE '%.csv'", nil
+	case "presentation":
+		return "lower(att.filename) LIKE '%.ppt' OR lower(att.filename) LIKE '%.pptx' OR lower(att.filename) LIKE '%.odp'", nil
+	case "archive":
+		return "lower(att.filename) LIKE '%.zip' OR lower(att.filename) LIKE '%.rar' OR lower(att.filename) LIKE '%.7z' OR lower(att.filename) LIKE '%.tar' OR lower(att.filename) LIKE '%.gz'", nil
+	case "custom":
+		customExtension = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(customExtension)), ".")
+		if customExtension != "" {
+			return "lower(att.filename) LIKE ?", []any{"%." + customExtension}
+		}
+	}
+	return "", nil
+}
+
 func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	var cteParts []string
 	var outerParts []string
@@ -4880,9 +4903,13 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	}
 	if filters.ThreadsOnly {
 		outerParts = append(outerParts, "thread_count > 1")
+	} else if filters.NoThreads {
+		outerParts = append(outerParts, "thread_count = 1")
 	}
 	if filters.HasTags {
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = m.id)")
+	} else if filters.NoTags {
+		cteParts = append(cteParts, "NOT EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = m.id)")
 	}
 	if filters.AccountID != "" {
 		cteParts = append(cteParts, "m.account_id = ?")
@@ -4908,9 +4935,27 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		args = append(args, "%@"+domain)
 	}
 	if filters.To != "" {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_recipients mr WHERE mr.message_id = m.id AND mr.kind IN ('to', 'cc', 'bcc') AND (mr.name LIKE ? OR mr.email LIKE ?))")
+		recipientKind := "mr.kind IN ('to', 'cc', 'bcc')"
+		if filters.RecipientType != "" {
+			recipientKind = "mr.kind = ?"
+			args = append(args, filters.RecipientType)
+		}
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_recipients mr WHERE mr.message_id = m.id AND "+recipientKind+" AND (mr.name LIKE ? OR mr.email LIKE ?))")
 		like := "%" + filters.To + "%"
 		args = append(args, like, like)
+	}
+	if filters.RecipientDomain != "" {
+		domain := strings.TrimPrefix(strings.ToLower(filters.RecipientDomain), "@")
+		recipientKind := "mr.kind IN ('to', 'cc', 'bcc')"
+		if filters.RecipientType != "" {
+			recipientKind = "mr.kind = ?"
+			args = append(args, filters.RecipientType)
+		}
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_recipients mr WHERE mr.message_id = m.id AND "+recipientKind+" AND lower(mr.email) LIKE ?)")
+		args = append(args, "%@"+domain)
+	} else if filters.RecipientType != "" && filters.To == "" {
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_recipients mr WHERE mr.message_id = m.id AND mr.kind = ?)")
+		args = append(args, filters.RecipientType)
 	}
 	if filters.Subject != "" {
 		cteParts = append(cteParts, "m.subject LIKE ?")
@@ -4924,6 +4969,18 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	if filters.Attachment != "" {
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND att.filename LIKE ?)")
 		args = append(args, "%"+filters.Attachment+"%")
+	}
+	if clause, clauseArgs := attachmentTypeFilterSQL(filters.AttachmentType, filters.AttachmentExt); clause != "" {
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND ("+clause+"))")
+		args = append(args, clauseArgs...)
+	}
+	if filters.MinSizeBytes > 0 {
+		cteParts = append(cteParts, "m.size_bytes >= ?")
+		args = append(args, filters.MinSizeBytes)
+	}
+	if filters.MaxSizeBytes > 0 {
+		cteParts = append(cteParts, "m.size_bytes <= ?")
+		args = append(args, filters.MaxSizeBytes)
 	}
 	if filters.Tag != "" {
 		predicate := `

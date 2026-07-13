@@ -172,13 +172,21 @@ type EmailFilters struct {
 	Read            bool
 	NoAttach        bool
 	HasTags         bool
+	NoTags          bool
 	ThreadsOnly     bool
+	NoThreads       bool
 	From            string
 	To              string
+	RecipientType   string
+	RecipientDomain string
 	Subject         string
 	Body            string
 	FromDomain      string
 	Attachment      string
+	AttachmentType  string
+	AttachmentExt   string
+	MinSizeBytes    int64
+	MaxSizeBytes    int64
 	Tag             string
 	AccountID       string
 	TagAccountID    string
