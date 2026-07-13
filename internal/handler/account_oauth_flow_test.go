@@ -46,6 +46,7 @@ func TestHandleAccountOAuthAuthorizeStoresServerSideFlow(t *testing.T) {
 		"provider":      {providers.ProviderGmail},
 		"email_address": {"user@gmail.com"},
 		"display_name":  {"User Gmail"},
+		"flow_action":   {"add"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/oauth2/authorize", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -74,8 +75,20 @@ func TestHandleAccountOAuthAuthorizeStoresServerSideFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConsumeAccountOAuthFlow() error = %v", err)
 	}
-	if flow.FormData["email_address"] != "user@gmail.com" || flow.FormData["display_name"] != "User Gmail" {
+	if flow.FormData["email_address"] != "user@gmail.com" || flow.FormData["display_name"] != "User Gmail" || flow.FormData["flow_action"] != "add" {
 		t.Fatalf("stored form data = %#v", flow.FormData)
+	}
+}
+
+func TestAccountOAuthSuccessRedirectMatchesFlowAction(t *testing.T) {
+	if got := accountOAuthSuccessRedirect(map[string]string{"flow_action": "add"}); got != "/settings/accounts?account_added=1" {
+		t.Fatalf("add redirect = %q", got)
+	}
+	if got := accountOAuthSuccessRedirect(map[string]string{"flow_action": "reconnect"}); got != "/settings/accounts?account_reconnected=1" {
+		t.Fatalf("reconnect redirect = %q", got)
+	}
+	if got := accountOAuthSuccessRedirect(nil); got != "/settings/accounts?account_added=1" {
+		t.Fatalf("default redirect = %q", got)
 	}
 }
 

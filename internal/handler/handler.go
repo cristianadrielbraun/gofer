@@ -285,6 +285,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/signatures/{id}", h.handleDeleteSignature)
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)
 	mux.HandleFunc("DELETE /api/accounts/{id}", h.handleDeleteAccount)
+	mux.HandleFunc("GET /api/accounts/{id}/deletion-status", h.handleAccountDeletionStatus)
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
@@ -2507,6 +2508,21 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"status": "accepted", "account_id": accountID})
 }
 
+func (h *Handler) handleAccountDeletionStatus(w http.ResponseWriter, r *http.Request) {
+	accountID := strings.TrimSpace(r.PathValue("id"))
+	if accountID == "" {
+		http.Error(w, "account id required", http.StatusBadRequest)
+		return
+	}
+	status, err := h.accountStore.AccountDeletionStatus(r.Context(), h.userID(r.Context()), accountID)
+	if err != nil {
+		http.Error(w, "check account deletion status", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": status})
+}
+
 func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	accountID := r.PathValue("id")
 	if accountID == "" {
@@ -2595,17 +2611,21 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	displayAccounts, err := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
+	if err != nil {
+		displayAccounts = accounts
+	}
 	syncSettings := h.buildSyncSettings(ctx, accounts)
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	signatureData := h.buildAccountSignatureData(ctx, accounts)
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.SettingsPartial(accounts, syncSettings, "accounts", uiSettings, signatureData).Render(ctx, w)
+		views.SettingsPartial(displayAccounts, syncSettings, "accounts", uiSettings, signatureData).Render(ctx, w)
 		return
 	}
 
-	views.SettingsLayout(accounts, syncSettings, "accounts", uiSettings, signatureData).Render(ctx, w)
+	views.SettingsLayout(displayAccounts, syncSettings, "accounts", uiSettings, signatureData).Render(ctx, w)
 }
 
 func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
@@ -2616,17 +2636,23 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	displayAccounts := accounts
+	if tab == "accounts" {
+		if includingDeleting, err := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx)); err == nil {
+			displayAccounts = includingDeleting
+		}
+	}
 	syncSettings := h.buildSyncSettings(ctx, accounts)
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	signatureData := h.buildAccountSignatureData(ctx, accounts)
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.SettingsPartial(accounts, syncSettings, tab, uiSettings, signatureData).Render(ctx, w)
+		views.SettingsPartial(displayAccounts, syncSettings, tab, uiSettings, signatureData).Render(ctx, w)
 		return
 	}
 
-	views.SettingsLayout(accounts, syncSettings, tab, uiSettings, signatureData).Render(ctx, w)
+	views.SettingsLayout(displayAccounts, syncSettings, tab, uiSettings, signatureData).Render(ctx, w)
 }
 
 func (h *Handler) buildAccountSignatureData(ctx context.Context, accounts []models.Account) []models.AccountSignatureData {
@@ -5414,6 +5440,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		"provider":      provider,
 		"email_address": r.FormValue("email_address"),
 		"display_name":  r.FormValue("display_name"),
+		"flow_action":   accountOAuthFlowAction(r.FormValue("flow_action")),
 	}
 
 	user := auth.GetCurrentUser(r.Context())
@@ -5509,7 +5536,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		}
 	}()
 
-	http.Redirect(w, r, "/settings/accounts", http.StatusSeeOther)
+	http.Redirect(w, r, accountOAuthSuccessRedirect(formData), http.StatusSeeOther)
 }
 
 func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.Request) {
@@ -5588,7 +5615,21 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 			log.Printf("contacts sync %s after outlook connect: %v", accountID, err)
 		}
 	}()
-	http.Redirect(w, r, "/settings/accounts", http.StatusSeeOther)
+	http.Redirect(w, r, accountOAuthSuccessRedirect(formData), http.StatusSeeOther)
+}
+
+func accountOAuthFlowAction(action string) string {
+	if strings.EqualFold(strings.TrimSpace(action), "reconnect") {
+		return "reconnect"
+	}
+	return "add"
+}
+
+func accountOAuthSuccessRedirect(formData map[string]string) string {
+	if accountOAuthFlowAction(formData["flow_action"]) == "reconnect" {
+		return "/settings/accounts?account_reconnected=1"
+	}
+	return "/settings/accounts?account_added=1"
 }
 
 func (h *Handler) readAccountOAuthCallback(w http.ResponseWriter, r *http.Request, logPrefix, provider string) (*auth.AccountOAuthFlow, string, bool) {

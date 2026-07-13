@@ -2203,30 +2203,45 @@ class VirtualMailList {
     var list = document.getElementById("mail-list")
     if (!list) return
     var row = document.getElementById("mail-sync-status")
+    var rowCreated = false
     if (!row) {
       row = document.createElement("div")
       row.id = "mail-sync-status"
-      row.className = "px-4 pb-2 hidden"
+      row.className = "pointer-events-none absolute inset-x-0 bottom-0 z-30 translate-y-6 scale-[0.98] px-3 pb-4 opacity-0 transition-[opacity,transform] duration-300 ease-out"
+      row.setAttribute("role", "status")
+      row.setAttribute("aria-live", "polite")
+      row.setAttribute("aria-hidden", "true")
       row.innerHTML =
-        '<div class="rounded-[var(--radius)] border border-border bg-muted/40 px-2.5 py-2">' +
-          '<div class="flex items-center justify-between gap-3 text-[11px] text-muted-foreground mb-1">' +
-            '<span id="mail-sync-text" class="min-w-0 truncate">Syncing folder</span>' +
-            '<span id="mail-sync-count" class="shrink-0 tabular-nums"></span>' +
+        '<div class="relative overflow-hidden rounded-xl border border-border bg-card/98 px-3.5 py-3 shadow-[0_14px_38px_rgba(0,0,0,0.24),0_2px_8px_rgba(0,0,0,0.14)] ring-1 ring-black/5 dark:ring-white/10 backdrop-blur-md">' +
+          '<div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/15 to-transparent"></div>' +
+          '<div class="flex items-center justify-between gap-3">' +
+            '<div class="flex min-w-0 items-center gap-2.5">' +
+              '<span class="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary shadow-sm">' +
+                '<svg class="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' +
+              '</span>' +
+              '<div class="min-w-0">' +
+                '<div class="text-[10px] font-bold uppercase tracking-[0.12em] text-primary">Mail sync in progress</div>' +
+                '<div id="mail-sync-text" class="mt-0.5 truncate text-xs font-medium text-foreground">Syncing folder</div>' +
+              '</div>' +
+            '</div>' +
+            '<span id="mail-sync-count" class="shrink-0 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-semibold tabular-nums text-primary"></span>' +
           '</div>' +
-          '<div class="h-1.5 w-full rounded-full bg-muted overflow-hidden">' +
-            '<div id="mail-sync-progress" class="h-full bg-amber-500 transition-all duration-300 ease-out" style="width: 8%"></div>' +
+          '<div class="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-primary/10 ring-1 ring-inset ring-primary/10">' +
+            '<div id="mail-sync-progress" class="h-full rounded-full bg-primary transition-all duration-300 ease-out" style="width: 8%"></div>' +
           '</div>' +
         '</div>'
-      var scroll = document.getElementById("mail-list-scroll")
-      if (scroll && scroll.parentElement === list) list.insertBefore(row, scroll)
+      var body = list.querySelector("[data-mail-list-body]")
+      if (body) body.appendChild(row)
       else list.appendChild(row)
+      rowCreated = true
     }
 
     if (!this.syncState || !this.syncState.active) {
-      row.classList.add("hidden")
+      row.classList.add("pointer-events-none", "translate-y-6", "scale-[0.98]", "opacity-0")
+      row.classList.remove("translate-y-0", "scale-100", "opacity-100")
+      row.setAttribute("aria-hidden", "true")
       return
     }
-    row.classList.remove("hidden")
     var cur = this.syncState.current || 0
     var total = this.syncState.total || 0
     var text = document.getElementById("mail-sync-text")
@@ -2250,6 +2265,14 @@ class VirtualMailList {
         bar.style.transform = ""
       }
     }
+    var show = function () {
+      if (!this.syncState || !this.syncState.active) return
+      row.classList.remove("pointer-events-none", "translate-y-6", "scale-[0.98]", "opacity-0")
+      row.classList.add("translate-y-0", "scale-100", "opacity-100")
+      row.setAttribute("aria-hidden", "false")
+    }.bind(this)
+    if (rowCreated) window.requestAnimationFrame(show)
+    else show()
   }
 
   onNewEmail() {

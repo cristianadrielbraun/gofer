@@ -388,6 +388,41 @@ func TestDeleteAccountOnlyDeletesMarkedDeletingRows(t *testing.T) {
 	}
 }
 
+func TestAccountDeletionStatusIsScopedAndTracksCompletion(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, email, name) VALUES ('other', 'other@example.com', 'Other');
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('acc_delete', 'default', 'outlook', 'user@outlook.com')`); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+
+	status, err := store.AccountDeletionStatus(ctx, "default", "acc_delete")
+	if err != nil || status != "active" {
+		t.Fatalf("active status = %q, %v; want active", status, err)
+	}
+	status, err = store.AccountDeletionStatus(ctx, "other", "acc_delete")
+	if err != nil || status != "deleted" {
+		t.Fatalf("foreign status = %q, %v; want deleted", status, err)
+	}
+	if err := store.MarkAccountDeleting(ctx, "acc_delete"); err != nil {
+		t.Fatalf("MarkAccountDeleting() error = %v", err)
+	}
+	status, err = store.AccountDeletionStatus(ctx, "default", "acc_delete")
+	if err != nil || status != "deleting" {
+		t.Fatalf("deleting status = %q, %v; want deleting", status, err)
+	}
+	if err := store.DeleteAccount(ctx, "acc_delete"); err != nil {
+		t.Fatalf("DeleteAccount() error = %v", err)
+	}
+	status, err = store.AccountDeletionStatus(ctx, "default", "acc_delete")
+	if err != nil || status != "deleted" {
+		t.Fatalf("completed status = %q, %v; want deleted", status, err)
+	}
+}
+
 func TestDeleteAccountCleansAccountDataExplicitly(t *testing.T) {
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)

@@ -23,7 +23,9 @@ templ MailList(accounts []models.Account, emails []models.Email, activeFolder st
 		@MailFilterAdvancedDialog(accounts)
 		@MailCardLayoutDialog()
 		<hr class="divider-etched"/>
-		@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, senderDisplayMode, mailListViewMode(viewMode), mailListNavigationMode(navigationMode))
+		<div class="relative min-h-0 flex-1 overflow-hidden" data-mail-list-body>
+			@MailListEmails(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, senderDisplayMode, mailListViewMode(viewMode), mailListNavigationMode(navigationMode))
+		</div>
 		if mailListNavigationMode(navigationMode) == "pagination" && scrollCount >= 0 {
 			@MailListPagination(scrollCount, windowStart, len(emails), mailListPaginationPageSize())
 		}
@@ -434,7 +436,7 @@ templ MailFilterCalendarField(name string, id string, placeholder string) {
 templ MailListEmails(accounts []models.Account, emails []models.Email, folderID string, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, senderDisplayMode string, viewMode string, navigationMode string) {
 	<div
 		id="mail-list-scroll"
-		class="flex-1 overflow-y-auto px-2 py-2"
+		class="h-full overflow-y-auto px-2 py-2"
 		data-hydrate-dropin
 		data-total-count={ fmt.Sprintf("%d", scrollCount) }
 		data-display-total-count={ fmt.Sprintf("%d", totalCount) }

@@ -256,6 +256,13 @@ func PreviewFromText(text string) string {
 }
 
 func PreviewFromHTML(raw []byte) string {
+	return truncate(TextFromHTML(raw), 200)
+}
+
+// TextFromHTML extracts the complete visible text from an HTML message body.
+// Unlike PreviewFromHTML, it does not truncate the result, so it is suitable
+// for full-text indexing.
+func TextFromHTML(raw []byte) string {
 	if len(raw) == 0 {
 		return ""
 	}
@@ -265,7 +272,7 @@ func PreviewFromHTML(raw []byte) string {
 	}
 	var buf strings.Builder
 	appendHTMLText(doc, &buf)
-	return truncate(buf.String(), 200)
+	return strings.TrimSpace(buf.String())
 }
 
 func appendHTMLText(n *xhtml.Node, buf *strings.Builder) {

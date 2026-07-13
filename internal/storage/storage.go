@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	_ "modernc.org/sqlite"
 )
 
@@ -137,7 +138,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 68
+	const targetSchemaVersion = 70
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -554,6 +555,18 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 67 {
 		if err := migrateV67ToV68(tx); err != nil {
 			return fmt.Errorf("migrate v67 to v68: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 68 {
+		if err := migrateV68ToV69(tx); err != nil {
+			return fmt.Errorf("migrate v68 to v69: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 69 {
+		if err := migrateV69ToV70(tx); err != nil {
+			return fmt.Errorf("migrate v69 to v70: %w", err)
 		}
 	}
 
@@ -2864,6 +2877,124 @@ func migrateV67ToV68(tx *sql.Tx) error {
 		return err
 	}
 	return markSchemaVersion(tx, 68)
+}
+
+func migrateV68ToV69(tx *sql.Tx) error {
+	searchExists, err := tableExistsTx(tx, "message_search")
+	if err != nil {
+		return err
+	}
+	messagesExist, err := tableExistsTx(tx, "messages")
+	if err != nil {
+		return err
+	}
+	if !searchExists || !messagesExist {
+		return markSchemaVersion(tx, 69)
+	}
+
+	rows, err := tx.Query(`
+		SELECT id, body_html_path
+		FROM messages
+		WHERE COALESCE(body_text_path, '') = ''
+		  AND COALESCE(body_html_path, '') != ''`)
+	if err != nil {
+		return err
+	}
+	type htmlBody struct {
+		messageID int64
+		path      string
+	}
+	var bodies []htmlBody
+	for rows.Next() {
+		var body htmlBody
+		if err := rows.Scan(&body.messageID, &body.path); err != nil {
+			rows.Close()
+			return err
+		}
+		bodies = append(bodies, body)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	for _, body := range bodies {
+		raw, err := os.ReadFile(body.path)
+		if err != nil {
+			continue
+		}
+		if _, err := tx.Exec(`UPDATE message_search SET body = ? WHERE rowid = ?`, mailmessage.TextFromHTML(raw), body.messageID); err != nil {
+			return err
+		}
+	}
+	return markSchemaVersion(tx, 69)
+}
+
+func migrateV69ToV70(tx *sql.Tx) error {
+	for _, table := range []string{"messages", "message_folder_state", "folder_thread_state"} {
+		exists, err := tableExistsTx(tx, table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return markSchemaVersion(tx, 70)
+		}
+	}
+	if _, err := tx.Exec(`CREATE TEMP TABLE temp_stale_folder_threads (
+		folder_id TEXT NOT NULL,
+		thread_key TEXT NOT NULL,
+		PRIMARY KEY (folder_id, thread_key)
+	)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO temp_stale_folder_threads (folder_id, thread_key)
+		SELECT fts.folder_id, fts.thread_key
+		FROM folder_thread_state fts
+		LEFT JOIN message_folder_state head
+		  ON head.message_id = fts.head_message_id AND head.folder_id = fts.folder_id
+		WHERE head.message_id IS NULL OR head.is_deleted = 1`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM folder_thread_state
+		WHERE EXISTS (
+			SELECT 1 FROM temp_stale_folder_threads stale
+			WHERE stale.folder_id = folder_thread_state.folder_id
+			  AND stale.thread_key = folder_thread_state.thread_key
+		)`); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`WITH base AS (
+			SELECT m.id, m.account_id, m.date_received, m.has_attachments,
+			       mfs.folder_id, mfs.is_read, mfs.is_starred,
+			       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) AS thread_key,
+			       COALESCE(m.date_received, '') || ':' || printf('%020d', m.id) AS row_key
+			FROM message_folder_state mfs
+			JOIN messages m ON mfs.message_id = m.id
+			JOIN temp_stale_folder_threads stale
+			  ON stale.folder_id = mfs.folder_id
+			 AND stale.thread_key = COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))
+			WHERE mfs.is_deleted = 0
+		), grouped AS (
+			SELECT folder_id, thread_key, MAX(row_key) AS row_key, COUNT(*) AS thread_count,
+			       MIN(is_read) AS thread_is_read, MAX(is_starred) AS thread_is_starred,
+			       MAX(has_attachments) AS thread_has_attachments
+			FROM base
+			GROUP BY folder_id, thread_key
+		)
+		INSERT INTO folder_thread_state (
+			folder_id, thread_key, head_message_id, account_id, last_message_at,
+			thread_count, thread_is_read, thread_is_starred, thread_has_attachments, updated_at
+		)
+		SELECT b.folder_id, b.thread_key, b.id, b.account_id, b.date_received,
+		       g.thread_count, g.thread_is_read, g.thread_is_starred, g.thread_has_attachments, CURRENT_TIMESTAMP
+		FROM grouped g
+		JOIN base b ON b.folder_id = g.folder_id AND b.thread_key = g.thread_key AND b.row_key = g.row_key`)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE temp_stale_folder_threads`); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 70)
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

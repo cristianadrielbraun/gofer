@@ -914,6 +914,7 @@ templ SettingsContactsTab(accounts []models.Account, uiSettings map[string]strin
 
 templ GmailReauthForm(account models.Account) {
 	<form method="POST" action="/api/accounts/oauth2/authorize">
+		<input type="hidden" name="flow_action" value="reconnect"/>
 		<input type="hidden" name="provider" value="gmail"/>
 		<input type="hidden" name="email_address" value={ account.Email }/>
 		<input type="hidden" name="display_name" value={ account.Name }/>
@@ -934,6 +935,7 @@ templ GmailReauthForm(account models.Account) {
 
 templ OutlookReauthForm(account models.Account) {
 	<form method="POST" action="/api/accounts/oauth2/authorize">
+		<input type="hidden" name="flow_action" value="reconnect"/>
 		<input type="hidden" name="provider" value="outlook"/>
 		<input type="hidden" name="email_address" value={ account.Email }/>
 		<input type="hidden" name="display_name" value={ account.Name }/>
@@ -1308,18 +1310,21 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 			if (!container) return;
 			var target = container.querySelector(toIdle ? '[data-idle-zone]' : '[data-poll-zone]');
 			if (!target) return;
+			var moved = pill.parentElement !== target;
 			var complete = function() {
 				setPillEffectiveMode(pill, toIdle);
-				if (pill.parentElement !== target) target.appendChild(pill);
-				pill.classList.add('sync-pill-enter');
-				pill.addEventListener('animationend', function onEnter() {
-					pill.removeEventListener('animationend', onEnter);
-					pill.classList.remove('sync-pill-enter');
-				}, { once: true });
+				if (moved) target.appendChild(pill);
+				if (animate && moved) {
+					pill.classList.add('sync-pill-enter');
+					pill.addEventListener('animationend', function onEnter() {
+						pill.removeEventListener('animationend', onEnter);
+						pill.classList.remove('sync-pill-enter');
+					}, { once: true });
+				}
 				updateEmptyStates(container);
 				if (afterMove) afterMove();
 			};
-			if (!animate || pill.parentElement === target) {
+			if (!animate || !moved) {
 				complete();
 				return;
 			}
@@ -1748,7 +1753,14 @@ templ SettingsNoAccounts() {
 }
 
 templ SettingsAccountCard(account models.Account) {
-	<div id={ fmt.Sprintf("account-card-%s", account.ID) }>
+	<div
+		id={ fmt.Sprintf("account-card-%s", account.ID) }
+		data-settings-account-card
+		data-account-id={ account.ID }
+		data-account-email={ account.Email }
+		data-account-deleting={ fmt.Sprintf("%t", account.IsDeleting) }
+		class="transition-[opacity,transform] duration-200 ease-out"
+	>
 		<div class="rounded-lg border border-border bg-background p-4 shadow-sm">
 			<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 				<div class="flex min-w-0 items-start gap-3">
@@ -1761,9 +1773,9 @@ templ SettingsAccountCard(account models.Account) {
 						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ account.Email }</p>
 					</div>
 				</div>
-				<div class="flex flex-wrap items-center gap-2 sm:justify-end">
+				<div class="flex flex-wrap items-center gap-2 sm:justify-end" data-account-actions>
 					if account.IsDeleting {
-						<button type="button" class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default" disabled>
+						<button type="button" data-account-deleting-status role="status" aria-live="polite" class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default" disabled>
 							@icon.RefreshCw(icon.Props{Class: "size-3.5 animate-spin"})
 							Deleting
 						</button>
@@ -1882,7 +1894,7 @@ templ SettingsAccountCard(account models.Account) {
 						Delete Account
 					}
 					@dialog.Description() {
-						This will remove <strong>{ account.Email }</strong> and all its synced messages. This action cannot be undone.
+						This removes <strong>{ account.Email }</strong> and its locally stored mail, contacts, scheduled sends, and account settings from Gofer. It does not delete anything from your mail provider.
 					}
 				}
 				<div class="flex items-center gap-3 p-3 rounded-lg bg-destructive/5 border border-destructive/15">
@@ -1903,6 +1915,7 @@ templ SettingsAccountCard(account models.Account) {
 					}
 					<button
 						type="button"
+						data-account-delete-submit
 						class="inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors"
 						hx-delete={ fmt.Sprintf("/api/accounts/%s", account.ID) }
 						hx-swap="none"
@@ -2401,6 +2414,7 @@ templ GmailAccountDialog() {
 				}
 			}
 			<form id="gmail-form" method="POST" action="/api/accounts/oauth2/authorize" class="px-1 pt-2 pb-4 space-y-4">
+				<input type="hidden" name="flow_action" value="add"/>
 				<div>
 					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Email Address</label>
 					@input.Input(input.Props{
@@ -2468,6 +2482,7 @@ templ OutlookAccountDialog() {
 				}
 			}
 			<form id="outlook-form" method="POST" action="/api/accounts/oauth2/authorize" class="px-1 pt-2 pb-4 space-y-4">
+				<input type="hidden" name="flow_action" value="add"/>
 				<div>
 					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Email Address</label>
 					@input.Input(input.Props{
@@ -2762,7 +2777,8 @@ templ AddAccountDialog() {
 						oauthForm.action = '/api/accounts/oauth2/authorize';
 						oauthForm.style.display = 'none';
 						var data = new FormData(form);
-						data.set('provider', provider);
+					data.set('provider', provider);
+					data.set('flow_action', 'add');
 						data.set('auth_method', 'oauth2');
 						data.set('password', '_oauth2_');
 						data.forEach(function(value, key) {
@@ -4243,7 +4259,7 @@ templ AddAccountPostCreateStep(accountID string) {
 			@icon.ArrowLeft(icon.Props{Class: "size-4"})
 			Back
 		</button>
-		<a href="/settings/accounts" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Done</a>
+		<a href="/settings/accounts?account_added=1" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Done</a>
 	</div>
 	<div id="add-step-4-content" hx-swap-oob="innerHTML">
 		@WizardStepSuccess("Account created", accountID, "add")

@@ -1,6 +1,9 @@
 package message
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGenerateSnippetPrefersPlainText(t *testing.T) {
 	got := GenerateSnippet("Plain text body", []byte(`<html><body><p>HTML body</p></body></html>`))
@@ -56,5 +59,18 @@ func TestPreviewFromHTMLUsesImageAltText(t *testing.T) {
 	want := "Invoice attached PDF icon"
 	if got != want {
 		t.Fatalf("PreviewFromHTML() = %q, want %q", got, want)
+	}
+}
+
+func TestTextFromHTMLReturnsCompleteVisibleText(t *testing.T) {
+	longText := "Searchable opening " + strings.Repeat("content ", 40) + "deepbodytoken"
+	html := []byte(`<html><head><style>.hidden { display: none; }</style><script>ignore()</script></head><body><p>` + longText + `</p></body></html>`)
+
+	got := TextFromHTML(html)
+	if !strings.Contains(got, "deepbodytoken") {
+		t.Fatalf("TextFromHTML() truncated searchable content: %q", got)
+	}
+	if strings.Contains(got, "display: none") || strings.Contains(got, "ignore()") {
+		t.Fatalf("TextFromHTML() included non-visible content: %q", got)
 	}
 }

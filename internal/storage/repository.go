@@ -965,6 +965,7 @@ func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) err
 		body            string
 		attachmentNames string
 		bodyTextPath    sql.NullString
+		bodyHTMLPath    sql.NullString
 	}
 
 	messageIDs = compactMessageIDs(messageIDs)
@@ -986,7 +987,8 @@ func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) err
 		       COALESCE(m.snippet, ''),
 		       COALESCE(m.preview_text, m.snippet, ''),
 		       COALESCE((SELECT group_concat(att.filename, ' ') FROM attachments att WHERE att.message_id = m.id), ''),
-		       m.body_text_path
+		       m.body_text_path,
+		       m.body_html_path
 		FROM messages m
 		WHERE m.id = ?`)
 	if err != nil {
@@ -1010,7 +1012,7 @@ func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) err
 		var doc searchDoc
 		err := loadStmt.QueryRowContext(ctx, messageID).Scan(
 			&doc.accountID, &doc.threadKey, &doc.subject, &doc.sender, &doc.recipients,
-			&doc.snippet, &doc.body, &doc.attachmentNames, &doc.bodyTextPath,
+			&doc.snippet, &doc.body, &doc.attachmentNames, &doc.bodyTextPath, &doc.bodyHTMLPath,
 		)
 		if err != nil && err != sql.ErrNoRows {
 			return fmt.Errorf("load message search doc: %w", err)
@@ -1024,6 +1026,10 @@ func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) err
 		if doc.bodyTextPath.Valid && doc.bodyTextPath.String != "" {
 			if body, readErr := os.ReadFile(doc.bodyTextPath.String); readErr == nil {
 				doc.body = string(body)
+			}
+		} else if doc.bodyHTMLPath.Valid && doc.bodyHTMLPath.String != "" {
+			if body, readErr := os.ReadFile(doc.bodyHTMLPath.String); readErr == nil {
+				doc.body = mailmessage.TextFromHTML(body)
 			}
 		}
 		if _, err := insertStmt.ExecContext(ctx,
@@ -1610,6 +1616,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 	desiredProviderFolders := map[int64]map[string]bool{}
 	observedProviderFolders := map[int64]map[string]bool{}
 	messageAccounts := map[int64]string{}
+	affectedFolderMessages := map[string][]int64{}
 
 	for _, m := range msgs {
 		m.AccountID = strings.TrimSpace(m.AccountID)
@@ -1709,6 +1716,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 			desiredProviderFolders[msgID][m.FolderID] = true
 		}
 		messageAccounts[msgID] = m.AccountID
+		affectedFolderMessages[m.FolderID] = append(affectedFolderMessages[m.FolderID], msgID)
 
 		if m.LabelsKnown && strings.TrimSpace(m.LabelProvider) != "" {
 			if err := db.replaceMessageLabelsForProviderTx(ctx, tx, msgID, m.AccountID, m.LabelProvider, m.Labels); err != nil {
@@ -1759,6 +1767,28 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 	}
 
 	for msgID, folderSet := range desiredProviderFolders {
+		rows, err := tx.QueryContext(ctx, `
+			SELECT mfs.folder_id
+			FROM message_folder_state mfs
+			JOIN folders f ON f.id = mfs.folder_id
+			WHERE mfs.message_id = ?
+			  AND mfs.is_deleted = 0
+			  AND f.account_id = ?
+			  AND COALESCE(f.provider_remote_id, '') != ''`, msgID, messageAccounts[msgID])
+		if err != nil {
+			return nil, fmt.Errorf("list affected provider folders: %w", err)
+		}
+		for rows.Next() {
+			var folderID string
+			if err := rows.Scan(&folderID); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan affected provider folder: %w", err)
+			}
+			affectedFolderMessages[folderID] = append(affectedFolderMessages[folderID], msgID)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
 		if err := resolveProviderMoveFoldersTx(ctx, tx, msgID, observedProviderFolders[msgID], folderSet); err != nil {
 			return nil, fmt.Errorf("reconcile pending provider move: %w", err)
 		}
@@ -1823,6 +1853,11 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 	}
 	if err := db.ReindexMessagesSearch(ctx, msgIDs); err != nil {
 		return nil, err
+	}
+	for folderID, affectedMessageIDs := range affectedFolderMessages {
+		if err := db.RefreshFolderThreadsForMessages(ctx, folderID, affectedMessageIDs); err != nil {
+			return nil, fmt.Errorf("refresh provider folder thread state %s: %w", folderID, err)
+		}
 	}
 	return idsByProvider, nil
 }
@@ -7700,5 +7735,8 @@ func (db *DB) UpdateMessageBodyHTMLPath(ctx context.Context, messageID int64, ht
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE messages SET body_html_path = ? WHERE id = ?`, htmlPath, messageID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
 }

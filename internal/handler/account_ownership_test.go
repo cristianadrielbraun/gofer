@@ -95,6 +95,30 @@ func TestHandleTestAccountRejectsForeignAccount(t *testing.T) {
 	}
 }
 
+func TestHandleAccountDeletionStatusTracksOwnedAccountWithoutLeakingForeignState(t *testing.T) {
+	h, _ := newAccountOwnershipTestHandler(t)
+	if err := h.accountStore.MarkAccountDeleting(t.Context(), "victim-account"); err != nil {
+		t.Fatalf("MarkAccountDeleting() error = %v", err)
+	}
+
+	ownerReq := httptest.NewRequest(http.MethodGet, "/api/accounts/victim-account/deletion-status", nil)
+	ownerReq.SetPathValue("id", "victim-account")
+	ownerReq = ownerReq.WithContext(auth.ContextWithUser(ownerReq.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
+	ownerRec := httptest.NewRecorder()
+	h.handleAccountDeletionStatus(ownerRec, ownerReq)
+	if ownerRec.Code != http.StatusOK || !strings.Contains(ownerRec.Body.String(), `"status":"deleting"`) {
+		t.Fatalf("owner status = %d body = %q, want deleting", ownerRec.Code, ownerRec.Body.String())
+	}
+
+	foreignReq := httptest.NewRequest(http.MethodGet, "/api/accounts/victim-account/deletion-status", nil)
+	foreignReq.SetPathValue("id", "victim-account")
+	foreignRec := httptest.NewRecorder()
+	h.handleAccountDeletionStatus(foreignRec, attackerRequest(foreignReq))
+	if foreignRec.Code != http.StatusOK || !strings.Contains(foreignRec.Body.String(), `"status":"deleted"`) {
+		t.Fatalf("foreign status = %d body = %q, want privacy-preserving deleted", foreignRec.Code, foreignRec.Body.String())
+	}
+}
+
 func TestHandleComposeRejectsForeignAccount(t *testing.T) {
 	h, _ := newAccountOwnershipTestHandler(t)
 	form := url.Values{"account_id": {"victim-account"}, "to": {"recipient@example.com"}}

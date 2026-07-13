@@ -579,7 +579,7 @@ func TestMarkProviderMessagesMissingFromFolderMarksOnlyAbsentProviderRows(t *tes
 	}
 }
 
-func TestRefreshAccountFolderThreadStateMakesProviderMessagesVisible(t *testing.T) {
+func TestProviderMessageUpsertRefreshesFolderThreadState(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
 
@@ -631,23 +631,12 @@ func TestRefreshAccountFolderThreadStateMakesProviderMessagesVisible(t *testing.
 		t.Fatalf("UpsertProviderSyncMessages(new) error = %v", err)
 	}
 
-	stalePage, err := db.GetEmailsRangeForUser(ctx, "default", "inbox", 0, 10)
-	if err != nil {
-		t.Fatalf("GetEmailsRangeForUser(stale) error = %v", err)
-	}
-	if len(stalePage.Emails) != 1 || stalePage.Emails[0].Subject != "Old inbox message" {
-		t.Fatalf("stale unified inbox = %#v, want old cached thread before explicit refresh", stalePage.Emails)
-	}
-
-	if err := db.RefreshAccountFolderThreadState(ctx, "acc"); err != nil {
-		t.Fatalf("RefreshAccountFolderThreadState(final) error = %v", err)
-	}
 	page, err := db.GetEmailsRangeForUser(ctx, "default", "inbox", 0, 10)
 	if err != nil {
-		t.Fatalf("GetEmailsRangeForUser(refreshed) error = %v", err)
+		t.Fatalf("GetEmailsRangeForUser() error = %v", err)
 	}
 	if page.TotalCount != 2 || len(page.Emails) != 2 {
-		t.Fatalf("refreshed unified inbox count=%d emails=%#v, want two messages", page.TotalCount, page.Emails)
+		t.Fatalf("unified inbox count=%d emails=%#v, want two messages without an explicit cache refresh", page.TotalCount, page.Emails)
 	}
 	if page.Emails[0].Subject != "New inbox message" || page.Emails[1].Subject != "Old inbox message" {
 		t.Fatalf("refreshed unified inbox order = %#v, want new then old", page.Emails)
@@ -2152,6 +2141,51 @@ func TestEmailBodyFilterUsesMaintainedSearchIndex(t *testing.T) {
 	}
 }
 
+func TestEmailBodyFilterIndexesCompleteHTMLBody(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{{
+		AccountID: "acc",
+		FolderID:  "inbox",
+		RemoteUID: 1,
+		MessageID: "<html-body@example.com>",
+		Subject:   "HTML body test",
+		FromEmail: "sender@example.com",
+		DateSent:  time.Now(),
+		Snippet:   "short preview without the target",
+		IsRead:    true,
+	}}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<html-body@example.com>")
+	if err != nil || msgID == 0 {
+		t.Fatalf("GetMessageLocalIDByInternetID(body) = %d, %v", msgID, err)
+	}
+	bodyPath := filepath.Join(t.TempDir(), "body.html")
+	body := `<html><head><style>.x { color: red; }</style></head><body><p>` + strings.Repeat("content ", 40) + `deeplhtmlsearchtoken</p></body></html>`
+	if err := os.WriteFile(bodyPath, []byte(body), 0600); err != nil {
+		t.Fatalf("write HTML body: %v", err)
+	}
+	if err := db.UpdateMessageBody(ctx, msgID, "", bodyPath, "", "short preview without the target"); err != nil {
+		t.Fatalf("UpdateMessageBody() error = %v", err)
+	}
+
+	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{Body: "deeplhtmlsearchtoken"})
+	if err != nil {
+		t.Fatalf("GetEmailsRangeFilteredForUser() error = %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Emails) != 1 {
+		t.Fatalf("HTML body filtered page total=%d len=%d, want 1 result", page.TotalCount, len(page.Emails))
+	}
+}
+
 func TestSidebarTagFilterMatchesAliasedIMAPKeywordLabels(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -2590,8 +2624,8 @@ func TestFreshSchemaStartsAtCurrentVersion(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 68 {
-		t.Fatalf("schema version = %d, want 68", version)
+	if version != 70 {
+		t.Fatalf("schema version = %d, want 70", version)
 	}
 }
 
@@ -2627,8 +2661,8 @@ func TestMigrateV63AddsProviderSyncProgress(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT sync_progress_current, sync_progress_started_at FROM folders WHERE id = 'inbox'`).Scan(&current, &startedAt); err != nil {
 		t.Fatalf("query sync progress columns: %v", err)
 	}
-	if version != 68 || current != 0 || startedAt.Valid {
-		t.Fatalf("migrated sync progress = version:%d current:%d started:%v, want 68/0/NULL", version, current, startedAt.Valid)
+	if version != 70 || current != 0 || startedAt.Valid {
+		t.Fatalf("migrated sync progress = version:%d current:%d started:%v, want 70/0/NULL", version, current, startedAt.Valid)
 	}
 }
 
@@ -2669,8 +2703,8 @@ func TestMigrateV64AddsOutgoingRetrySchedule(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT next_attempt_at FROM outgoing_sends WHERE id = 'send-1'`).Scan(&nextAttempt); err != nil {
 		t.Fatalf("query retry schedule: %v", err)
 	}
-	if version != 68 || nextAttempt.IsZero() {
-		t.Fatalf("migrated outgoing retry = version:%d next:%v, want 68/non-zero", version, nextAttempt)
+	if version != 70 || nextAttempt.IsZero() {
+		t.Fatalf("migrated outgoing retry = version:%d next:%v, want 70/non-zero", version, nextAttempt)
 	}
 }
 
@@ -2715,8 +2749,8 @@ func TestMigrateV54ConvertsZeroRemoteUIDsToNull(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 68 {
-		t.Fatalf("schema version = %d, want 68", version)
+	if version != 70 {
+		t.Fatalf("schema version = %d, want 70", version)
 	}
 }
 
@@ -2751,8 +2785,8 @@ func TestMigrateV55AddsMailSecurityExceptions(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 68 {
-		t.Fatalf("schema version = %d, want 68", version)
+	if version != 70 {
+		t.Fatalf("schema version = %d, want 70", version)
 	}
 }
 
@@ -2788,8 +2822,8 @@ func TestMigrateV56AddsOAuthAccountFlows(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 68 {
-		t.Fatalf("schema version = %d, want 68", version)
+	if version != 70 {
+		t.Fatalf("schema version = %d, want 70", version)
 	}
 }
 
@@ -2956,8 +2990,8 @@ func TestMigrateV59AddsIMAPDraftSyncQueue(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 68 {
-		t.Fatalf("schema version = %d, want 68", version)
+	if version != 70 {
+		t.Fatalf("schema version = %d, want 70", version)
 	}
 	if _, err := db.Write().Exec(`
 		INSERT INTO imap_draft_states (
@@ -3010,8 +3044,8 @@ func TestMigrateV60AddsMessageMutationQueueWithMoves(t *testing.T) {
 		t.Fatalf("use migrated permanent delete mutation: %v", err)
 	}
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 68 {
-		t.Fatalf("schema version = %d, %v; want 68", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 70 {
+		t.Fatalf("schema version = %d, %v; want 70", version, err)
 	}
 }
 
@@ -3060,8 +3094,8 @@ func TestMigrateV45AddsLabelMutationQueueFolderID(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 68 {
-		t.Fatalf("schema version = %d, want 68", version)
+	if version != 70 {
+		t.Fatalf("schema version = %d, want 70", version)
 	}
 	var totalMessages int
 	if err := db.Read().QueryRow(`SELECT COALESCE(last_total_messages, 0) FROM label_sync_state LIMIT 1`).Scan(&totalMessages); err != nil && err != sql.ErrNoRows {

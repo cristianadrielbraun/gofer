@@ -139,8 +139,8 @@ func TestMigrateV67ExpandsPrivateTargetExceptions(t *testing.T) {
 	}
 	defer db.Close()
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 68 {
-		t.Fatalf("migrated schema version = %d, %v; want 68", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 70 {
+		t.Fatalf("migrated schema version = %d, %v; want 70", version, err)
 	}
 	if err := db.AddPrivateTargetException(context.Background(), "http", "127.0.0.1", 8080, "admin"); err != nil {
 		t.Fatalf("AddPrivateTargetException() after migration error = %v", err)

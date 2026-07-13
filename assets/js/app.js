@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var selectedMailIds = new Set()
   var lastSelectedMailId = null
   var mailSelectionBusy = false
+  var accountDeletionPolls = Object.create(null)
 
   function cssEscape(value) {
     if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value)
@@ -47,6 +48,8 @@ document.addEventListener("DOMContentLoaded", function () {
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
+  setupAccountDeletionTracking()
+  setupAccountResultFeedback()
   setupSidebarAccountCollapse()
   setupProcessingStatus()
   setupBodyPrefetch()
@@ -837,13 +840,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (emailId) toggleStar(emailId)
       }
 
-      var deleteBtn = e.target.closest("[data-delete-account-action]")
-      if (deleteBtn) {
-        var accountId = deleteBtn.getAttribute("data-account-id")
-        if (accountId && window.tui && window.tui.dialog) {
-          window.tui.dialog.close("delete-account-" + accountId)
-        }
-      }
       var repairBtn = e.target.closest("[data-repair-account-action]")
       if (repairBtn) {
         var repairAccountId = repairBtn.getAttribute("data-account-id")
@@ -852,14 +848,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
     }, true)
-
-    document.body.addEventListener("htmx:afterRequest", function (evt) {
-      var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
-      var match = path && path.match(/^\/api\/accounts\/([^/]+)$/)
-      if (!match || !evt.detail.xhr || evt.detail.xhr.status !== 202) return
-      markAccountDeleting(match[1])
-      refreshMailSidebarBody()
-    })
 
     document.body.addEventListener("htmx:beforeRequest", function (evt) {
       var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
@@ -2338,17 +2326,181 @@ document.addEventListener("DOMContentLoaded", function () {
     if (window.tui && window.tui.dialog) {
       window.tui.dialog.close("delete-account-" + accountId)
     }
-    var row = card.firstElementChild
-    if (!row) return
-    while (row.children.length > 2) {
-      row.removeChild(row.lastElementChild)
+    card.dataset.accountDeleting = "true"
+    var actions = card.querySelector("[data-account-actions]")
+    if (!actions) return
+    actions.innerHTML = '<button type="button" data-account-deleting-status role="status" aria-live="polite" disabled class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default"><svg class="size-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Deleting…</button>'
+  }
+
+  function setupAccountDeletionTracking() {
+    function deletionToastId(accountId) {
+      return "account-deletion-toast-" + accountId
     }
-    var status = document.createElement("button")
-    status.type = "button"
-    status.disabled = true
-    status.className = "inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default"
-    status.innerHTML = '<svg class="size-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Deleting'
-    row.appendChild(status)
+
+    function accountEmail(accountId) {
+      var card = document.getElementById("account-card-" + accountId)
+      return card && card.dataset.accountEmail ? card.dataset.accountEmail : "this account"
+    }
+
+    function showDeletionStarted(accountId) {
+      if (typeof showGoferToast !== "function") return
+      showGoferToast({
+        id: deletionToastId(accountId),
+        title: "Deleting account…",
+        description: "Removing " + accountEmail(accountId) + ". You can leave this page; cleanup will continue in the background.",
+        variant: "default",
+        icon: "info",
+        position: "bottom-right",
+        duration: 0,
+        dismissible: false,
+      })
+    }
+
+    function finishAccountDeletion(accountId) {
+      if (accountDeletionPolls[accountId] && accountDeletionPolls[accountId].timer) {
+        clearTimeout(accountDeletionPolls[accountId].timer)
+      }
+      delete accountDeletionPolls[accountId]
+      var email = accountEmail(accountId)
+      var card = document.getElementById("account-card-" + accountId)
+      if (card) {
+        card.style.opacity = "0"
+        card.style.transform = "translateY(-0.35rem)"
+      }
+      if (typeof showGoferToast === "function") {
+        showGoferToast({
+          id: deletionToastId(accountId),
+          title: "Account deleted",
+          description: email + " and its local data were removed from Gofer.",
+          variant: "success",
+          icon: "success",
+          position: "bottom-right",
+          duration: 5000,
+          dismissible: true,
+        })
+      }
+      refreshMailSidebarBody()
+      setTimeout(function () {
+        if (window.location.pathname === "/settings/accounts" && window.htmx && document.getElementById("main-content")) {
+          htmx.ajax("GET", "/settings/accounts", { target: "#main-content", swap: "outerHTML" })
+        } else if (card) {
+          card.remove()
+        }
+      }, 220)
+    }
+
+    function pollAccountDeletion(accountId) {
+      var tracker = accountDeletionPolls[accountId]
+      if (!tracker) return
+      fetch("/api/accounts/" + encodeURIComponent(accountId) + "/deletion-status", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      }).then(function (resp) {
+        if (!resp.ok) throw new Error("status request failed")
+        return resp.json()
+      }).then(function (result) {
+        if (!accountDeletionPolls[accountId]) return
+        if (result && result.status === "deleted") {
+          finishAccountDeletion(accountId)
+          return
+        }
+        tracker.failures = 0
+        tracker.timer = setTimeout(function () { pollAccountDeletion(accountId) }, 1200)
+      }).catch(function () {
+        if (!accountDeletionPolls[accountId]) return
+        tracker.failures += 1
+        var delay = tracker.failures > 3 ? 5000 : 1800
+        tracker.timer = setTimeout(function () { pollAccountDeletion(accountId) }, delay)
+      })
+    }
+
+    function trackAccountDeletion(accountId) {
+      if (!accountId || accountDeletionPolls[accountId]) return
+      accountDeletionPolls[accountId] = { timer: null, failures: 0 }
+      markAccountDeleting(accountId)
+      showDeletionStarted(accountId)
+      pollAccountDeletion(accountId)
+    }
+
+    function initialize(root) {
+      var scope = root && root.querySelectorAll ? root : document
+      var cards = []
+      if (scope.matches && scope.matches('[data-settings-account-card][data-account-deleting="true"]')) cards.push(scope)
+      scope.querySelectorAll('[data-settings-account-card][data-account-deleting="true"]').forEach(function (card) { cards.push(card) })
+      cards.forEach(function (card) { trackAccountDeletion(card.dataset.accountId) })
+    }
+
+    document.body.addEventListener("htmx:beforeRequest", function (evt) {
+      var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
+      if (!path || !path.match(/^\/api\/accounts\/[^/]+$/)) return
+      var button = evt.detail.elt && evt.detail.elt.closest ? evt.detail.elt.closest("[data-account-delete-submit]") : null
+      if (!button) return
+      button.dataset.originalContent = button.innerHTML
+      button.disabled = true
+      button.innerHTML = '<svg class="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Starting…'
+    })
+
+    document.body.addEventListener("htmx:afterRequest", function (evt) {
+      var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
+      var match = path && path.match(/^\/api\/accounts\/([^/]+)$/)
+      if (!match || !evt.detail.xhr) return
+      var accountId = decodeURIComponent(match[1])
+      var button = evt.detail.elt && evt.detail.elt.closest ? evt.detail.elt.closest("[data-account-delete-submit]") : null
+      if (evt.detail.xhr.status === 202) {
+        if (window.tui && window.tui.dialog) window.tui.dialog.close("delete-account-" + accountId)
+        trackAccountDeletion(accountId)
+        refreshMailSidebarBody()
+        return
+      }
+      if (button) {
+        button.disabled = false
+        if (button.dataset.originalContent) button.innerHTML = button.dataset.originalContent
+      }
+      if (typeof showGoferToast === "function") {
+        showGoferToast({
+          id: deletionToastId(accountId),
+          title: "Could not delete account",
+          description: "Gofer could not start account cleanup. Please try again.",
+          variant: "error",
+          icon: "error",
+          position: "bottom-right",
+          duration: 7000,
+          dismissible: true,
+        })
+      }
+    })
+
+    document.body.addEventListener("htmx:afterSettle", function (evt) { initialize(evt.target) })
+    initialize(document)
+  }
+
+  function setupAccountResultFeedback() {
+    var params = new URLSearchParams(window.location.search)
+    var added = params.get("account_added") === "1"
+    var reconnected = params.get("account_reconnected") === "1"
+    if (!added && !reconnected) return
+
+    if (typeof showGoferToast === "function") {
+      showGoferToast({
+        id: "account-connection-toast",
+        title: added ? "Account added" : "Account reconnected",
+        description: added
+          ? "The account was added successfully. Initial synchronization has started."
+          : "The account was reconnected successfully. Synchronization has resumed.",
+        variant: "success",
+        icon: "success",
+        position: "bottom-right",
+        duration: 5000,
+        dismissible: true,
+      })
+    }
+
+    params.delete("account_added")
+    params.delete("account_reconnected")
+    var query = params.toString()
+    var cleanURL = window.location.pathname + (query ? "?" + query : "") + window.location.hash
+    window.history.replaceState(window.history.state, "", cleanURL)
   }
 
   function setupProcessingStatus() {

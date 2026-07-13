@@ -1166,6 +1166,29 @@ func (s *AccountStore) MarkAccountDeleting(ctx context.Context, accountID string
 	return err
 }
 
+func (s *AccountStore) AccountDeletionStatus(ctx context.Context, userID, accountID string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	accountID = strings.TrimSpace(accountID)
+	if userID == "" || accountID == "" {
+		return "deleted", nil
+	}
+	var deleting int
+	err := s.db.Read().QueryRowContext(ctx,
+		`SELECT COALESCE(is_deleting, 0) FROM accounts WHERE id = ? AND user_id = ?`,
+		accountID, userID,
+	).Scan(&deleting)
+	if err == sql.ErrNoRows {
+		return "deleted", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if deleting == 1 {
+		return "deleting", nil
+	}
+	return "active", nil
+}
+
 func (s *AccountStore) GetAccountByID(ctx context.Context, accountID string) (*models.Account, error) {
 	return s.getAccountByID(ctx, accountID, "")
 }
