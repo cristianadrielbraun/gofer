@@ -85,6 +85,8 @@ type Contact struct {
 	CreatedAt             string
 	LastSeenAt            string
 	UpdatedAt             string
+	LastSeenSort          string
+	UpdatedSort           string
 	SaveTargets           []string
 	AvatarHash            string
 	AvatarStatus          string
@@ -130,6 +132,8 @@ type ContactFilters struct {
 	SaveTarget string
 	Activity   string
 	View       string
+	SortBy     string
+	SortOrder  string
 }
 
 type Label struct {
@@ -183,6 +187,8 @@ type EmailFilters struct {
 	Query           string
 	After           string
 	Before          string
+	SortBy          string
+	SortOrder       string
 }
 
 type ThreadItem struct {

@@ -609,6 +609,28 @@ func TestListContactsFilters(t *testing.T) {
 	}
 }
 
+func TestListContactsSortsByNameInBothDirections(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	for _, contact := range []models.Contact{
+		{Name: "Zulu", Email: "zulu@example.com"},
+		{Name: "Alpha", Email: "alpha@example.com"},
+	} {
+		if _, err := db.SaveContact(ctx, "default", contact); err != nil {
+			t.Fatalf("SaveContact() error = %v", err)
+		}
+	}
+
+	ascending, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "name", SortOrder: "asc"}, 10, 0)
+	if err != nil || len(ascending) != 2 || ascending[0].Name != "Alpha" || ascending[1].Name != "Zulu" {
+		t.Fatalf("ascending contacts = %#v, %v", ascending, err)
+	}
+	descending, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "name", SortOrder: "desc"}, 10, 0)
+	if err != nil || len(descending) != 2 || descending[0].Name != "Zulu" || descending[1].Name != "Alpha" {
+		t.Fatalf("descending contacts = %#v, %v", descending, err)
+	}
+}
+
 func TestSuppressedContactsCanBeCleared(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

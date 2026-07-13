@@ -214,6 +214,15 @@ import "./floating_ui_dom.js";
     }
   }
 
+  function closeElement(element) {
+    const root = element?.matches?.("[data-tui-popover-root]")
+      ? element
+      : element?.closest?.("[data-tui-popover-root]");
+    if (root) {
+      closeRoot(root);
+    }
+  }
+
   function closeAllRoots(exceptRoot = null) {
     getRoots().forEach((root) => {
       if (root !== exceptRoot && isOpenRoot(root)) {
@@ -444,6 +453,7 @@ import "./floating_ui_dom.js";
   window.tui.popover = {
     open,
     close,
+    closeElement,
     closeAll,
     toggle,
     isOpen,

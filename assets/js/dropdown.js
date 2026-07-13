@@ -11,7 +11,16 @@
     const popoverContent = popoverRoot?.querySelector(':scope > [data-tui-popover-content]');
     if (!popoverContent?.matches(':popover-open')) return;
 
+    if (window.tui?.popover?.closeElement) {
+      window.tui.popover.closeElement(popoverContent);
+      return;
+    }
+
     try {
+      popoverContent.setAttribute('data-tui-popover-open', 'false');
+      popoverRoot.querySelectorAll(':scope > [data-tui-popover-trigger]').forEach(trigger => {
+        trigger.setAttribute('data-tui-popover-open', 'false');
+      });
       popoverContent.hidePopover();
     } catch {
       // ignore

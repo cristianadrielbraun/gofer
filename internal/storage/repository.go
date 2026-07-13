@@ -4728,7 +4728,7 @@ func (db *DB) GetEmailsRangeFilteredForUserWithTotal(ctx context.Context, userID
 	}
 
 	var emails []models.Email
-	if emailFiltersEmpty(filters) {
+	if emailFiltersEmpty(filters) && emailUsesDefaultSort(filters) {
 		emails, err = db.listEmailsUnfilteredForUser(ctx, userID, folderID, start, limit)
 	} else {
 		emails, err = db.listEmailsFilteredForUser(ctx, userID, folderID, start, limit, filters)
@@ -4786,7 +4786,7 @@ func (db *DB) GetEmailsRangeFilteredWithTotal(ctx context.Context, folderID stri
 	}
 
 	var emails []models.Email
-	if emailFiltersEmpty(filters) {
+	if emailFiltersEmpty(filters) && emailUsesDefaultSort(filters) {
 		emails, err = db.listEmailsUnfiltered(ctx, folderID, start, limit)
 	} else {
 		emails, err = db.listEmailsFiltered(ctx, folderID, start, limit, filters)
@@ -4824,6 +4824,25 @@ type emailFilterParts struct {
 
 func emailFiltersEmpty(filters models.EmailFilters) bool {
 	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.ThreadsOnly && filters.From == "" && filters.To == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
+}
+
+func emailUsesDefaultSort(filters models.EmailFilters) bool {
+	return (filters.SortBy == "" || filters.SortBy == "date") && (filters.SortOrder == "" || filters.SortOrder == "desc")
+}
+
+func emailOrderSQL(filters models.EmailFilters) string {
+	direction := "DESC"
+	if filters.SortOrder == "asc" {
+		direction = "ASC"
+	}
+	switch filters.SortBy {
+	case "sender":
+		return "LOWER(COALESCE(NULLIF(from_name, ''), from_email, '')) " + direction + ", date_received DESC, id DESC"
+	case "subject":
+		return "LOWER(COALESCE(subject, '')) " + direction + ", date_received DESC, id DESC"
+	default:
+		return "date_received " + direction + ", id " + direction
+	}
 }
 
 func ftsQuery(input string) string {
@@ -5484,7 +5503,7 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY date_received DESC, id DESC
+			ORDER BY ` + emailOrderSQL(filters) + `
 			LIMIT ? OFFSET ?`
 	args = append(append([]any{}, filterSQL.withArgs...), args...)
 	args = append(args, filterSQL.args...)
@@ -5518,7 +5537,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY date_received DESC, id DESC
+			ORDER BY ` + emailOrderSQL(filters) + `
 			LIMIT ? OFFSET ?`
 
 	var args []any
@@ -5543,7 +5562,7 @@ func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, l
 			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY date_received DESC, id DESC
+			ORDER BY ` + emailOrderSQL(filters) + `
 			LIMIT ? OFFSET ?`
 	}
 	args = append(append(append([]any{}, filterSQL.withArgs...), folderID), filterSQL.args...)
@@ -7288,6 +7307,10 @@ func defaultUISettings() map[string]string {
 		"mail_list_width":                   "50%",
 		"mail_list_height":                  "360",
 		"mail_list_navigation":              "infinite",
+		"mail_list_sort_by":                 "date",
+		"mail_list_sort_order":              "desc",
+		"contacts_list_sort_by":             "updated",
+		"contacts_list_sort_order":          "desc",
 		"unified_folders_enabled":           "true",
 		"unified_folder_inbox_enabled":      "true",
 		"unified_folder_starred_enabled":    "true",

@@ -15,7 +15,7 @@ func TestTrashDeleteActionsLookDestructiveAndSayPermanent(t *testing.T) {
 		Folders: []models.Folder{{ID: "acc-trash", Name: "Trash", Role: "trash"}},
 	}}
 	var list bytes.Buffer
-	if err := MailListToolbar(accounts, "acc-trash", "cards").Render(context.Background(), &list); err != nil {
+	if err := MailListToolbar(accounts, "acc-trash", "cards", models.EmailFilters{}).Render(context.Background(), &list); err != nil {
 		t.Fatalf("MailListToolbar.Render() error = %v", err)
 	}
 	for _, want := range []string{"Permanently delete", "Permanently delete selected messages", "data-mail-delete-permanent=\"true\"", "data-mail-delete-tooltip", "border-red-500/35", "bg-red-500/12", "text-red-700"} {
@@ -48,7 +48,7 @@ func TestMailViewLinksKeepTheirFolderContext(t *testing.T) {
 func TestRegularDeleteActionsKeepNeutralTreatment(t *testing.T) {
 	accounts := []models.Account{{ID: "acc", Folders: []models.Folder{{ID: "acc-inbox", Name: "Inbox", Role: "inbox"}}}}
 	var out bytes.Buffer
-	if err := MailListToolbar(accounts, "acc-inbox", "cards").Render(context.Background(), &out); err != nil {
+	if err := MailListToolbar(accounts, "acc-inbox", "cards", models.EmailFilters{}).Render(context.Background(), &out); err != nil {
 		t.Fatalf("MailListToolbar.Render() error = %v", err)
 	}
 	html := out.String()

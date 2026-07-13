@@ -80,7 +80,14 @@
     const content = getContentFromTrigger(trigger);
     if (!content?.matches(':popover-open')) return;
 
+    if (window.tui?.popover?.closeElement) {
+      window.tui.popover.closeElement(content);
+      return;
+    }
+
     try {
+      content.setAttribute('data-tui-popover-open', 'false');
+      trigger.closest('[data-tui-popover-trigger]')?.setAttribute('data-tui-popover-open', 'false');
       content.hidePopover();
     } catch {
       // ignore

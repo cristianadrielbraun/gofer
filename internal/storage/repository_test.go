@@ -67,6 +67,25 @@ func TestGetFoldersForAccountSkipsNonSelectableFolders(t *testing.T) {
 	}
 }
 
+func TestEmailOrderSQLUsesWhitelistedSortExpressions(t *testing.T) {
+	tests := []struct {
+		name    string
+		filters models.EmailFilters
+		want    string
+	}{
+		{name: "date ascending", filters: models.EmailFilters{SortBy: "date", SortOrder: "asc"}, want: "date_received ASC, id ASC"},
+		{name: "sender descending", filters: models.EmailFilters{SortBy: "sender", SortOrder: "desc"}, want: "LOWER(COALESCE(NULLIF(from_name, ''), from_email, '')) DESC, date_received DESC, id DESC"},
+		{name: "subject ascending", filters: models.EmailFilters{SortBy: "subject", SortOrder: "asc"}, want: "LOWER(COALESCE(subject, '')) ASC, date_received DESC, id DESC"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := emailOrderSQL(tt.filters); got != tt.want {
+				t.Fatalf("emailOrderSQL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetFoldersForAccountSkipsGmailLabelBackedFolders(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

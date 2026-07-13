@@ -86,11 +86,14 @@ document.addEventListener("DOMContentLoaded", function () {
     function readFilters() {
       var search = document.querySelector("[data-contact-search-input]")
       var form = document.querySelector("[data-contact-filter-form]")
+      var sortForm = document.querySelector("[data-contact-sort-form]")
       return {
         query: search ? search.value || "" : "",
         source: form && form.querySelector('[name="source"]') ? form.querySelector('[name="source"]').value || "" : "",
         saveTarget: form && form.querySelector('[name="save_target"]') ? form.querySelector('[name="save_target"]').value || "" : "",
         activity: form && form.querySelector('[name="activity"]') ? form.querySelector('[name="activity"]').value || "" : "",
+        sortBy: sortForm && sortForm.querySelector('[name="sort_by"]') ? sortForm.querySelector('[name="sort_by"]').value || "updated" : "updated",
+        sortOrder: sortForm && sortForm.querySelector('[name="sort_order"]') ? sortForm.querySelector('[name="sort_order"]').value || "desc" : "desc",
       }
     }
 
@@ -194,7 +197,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (search) search.value = ""
         var form = document.querySelector("[data-contact-filter-form]")
         if (form) {
-          var inputs = form.querySelectorAll("input")
+          var inputs = form.querySelectorAll('input[name="source"], input[name="save_target"], input[name="activity"]')
           for (var ci = 0; ci < inputs.length; ci++) inputs[ci].value = ""
           var selectedItems = form.querySelectorAll("[data-tui-selectbox-selected='true']")
           for (var si = 0; si < selectedItems.length; si++) selectedItems[si].setAttribute("data-tui-selectbox-selected", "false")
@@ -252,8 +255,14 @@ document.addEventListener("DOMContentLoaded", function () {
         saveContactEditor(e.target, e.submitter || null)
         return
       }
-      if (!e.target || (!e.target.matches("[data-contact-filter-form]") && !e.target.matches("[data-contact-search-form]"))) return
+      if (!e.target || (!e.target.matches("[data-contact-filter-form]") && !e.target.matches("[data-contact-search-form]") && !e.target.matches("[data-contact-sort-form]"))) return
       e.preventDefault()
+      if (e.target.matches("[data-contact-sort-form]") && window.GoferSettings) {
+        var contactSortBy = e.target.querySelector('[name="sort_by"]')
+        var contactSortOrder = e.target.querySelector('[name="sort_order"]')
+        GoferSettings.set("contacts_list_sort_by", contactSortBy ? contactSortBy.value || "updated" : "updated")
+        GoferSettings.set("contacts_list_sort_order", contactSortOrder ? contactSortOrder.value || "desc" : "desc")
+      }
       applyFilters()
     }, true)
 
@@ -1433,6 +1442,8 @@ document.addEventListener("DOMContentLoaded", function () {
         query: "",
         afterDate: "",
         beforeDate: "",
+        sortBy: "date",
+        sortOrder: "desc",
       }
     }
 
@@ -1474,6 +1485,11 @@ document.addEventListener("DOMContentLoaded", function () {
         filters.accountId = (advanced.querySelector('input[name="account_id"]') || {}).value || ""
         filters.afterDate = (advanced.querySelector('input[name="after_date"]') || {}).value || ""
         filters.beforeDate = (advanced.querySelector('input[name="before_date"]') || {}).value || ""
+      }
+      var sortForm = document.querySelector("[data-mail-sort-form]")
+      if (sortForm) {
+        filters.sortBy = (sortForm.querySelector('[name="sort_by"]') || {}).value || "date"
+        filters.sortOrder = (sortForm.querySelector('[name="sort_order"]') || {}).value || "desc"
       }
       var search = document.querySelector("[data-mail-search-input]")
       var pendingQuery = search ? (search.value || "").trim() : ""
@@ -2102,6 +2118,19 @@ document.addEventListener("DOMContentLoaded", function () {
       var form = e.target && e.target.closest && e.target.closest("[data-mail-filter-form]")
       if (!form) return
       e.preventDefault()
+    })
+
+    document.addEventListener("submit", function (e) {
+      var form = e.target && e.target.closest && e.target.closest("[data-mail-sort-form]")
+      if (!form) return
+      e.preventDefault()
+      if (window.GoferSettings) {
+        var mailSortBy = form.querySelector('[name="sort_by"]')
+        var mailSortOrder = form.querySelector('[name="sort_order"]')
+        GoferSettings.set("mail_list_sort_by", mailSortBy ? mailSortBy.value || "date" : "date")
+        GoferSettings.set("mail_list_sort_order", mailSortOrder ? mailSortOrder.value || "desc" : "desc")
+      }
+      applyCurrentFilters({ delayResults: false })
     })
 
     document.addEventListener("change", function (e) {
@@ -4091,18 +4120,24 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function mailPendingToolbarHTML(viewMode) {
+    var sortBy = window.GoferSettings ? GoferSettings.get("mail_list_sort_by") : "date"
+    var sortLabel = sortBy === "sender" ? "Sender" : (sortBy === "subject" ? "Subject" : "Date")
     return '<div class="mail-list-toolbar flex items-center gap-1 px-4 py-1.5">' +
       pendingViewToggleHTML(viewMode) +
       '<div class="mail-list-toolbar-spacer flex-1"></div>' +
+      '<button type="button" disabled class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground opacity-60">' + pendingIcon("size-3.5") + '<span class="hidden sm:inline">' + sortLabel + '</span></button>' +
       '<button type="button" disabled class="h-7 w-7 rounded-md text-muted-foreground opacity-50">' + pendingIcon("mx-auto size-3.5") + '</button>' +
       '<button type="button" disabled class="h-7 w-7 rounded-md text-muted-foreground opacity-50">' + pendingIcon("mx-auto size-3.5") + '</button>' +
     '</div>'
   }
 
   function contactsPendingToolbarHTML(viewMode) {
+    var sortBy = window.GoferSettings ? GoferSettings.get("contacts_list_sort_by") : "updated"
+    var sortLabel = sortBy === "name" ? "Name" : (sortBy === "last_interaction" ? "Last interaction" : "Recently updated")
     return '<div class="flex items-center gap-1 px-4 py-1.5">' +
       pendingFilterButton("Filter contacts") +
       '<div class="flex-1"></div>' +
+      '<button type="button" disabled class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground opacity-60">' + pendingIcon("size-3.5") + '<span class="hidden sm:inline">' + sortLabel + '</span></button>' +
       pendingViewToggleHTML(viewMode) +
     '</div>'
   }

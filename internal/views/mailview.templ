@@ -7,6 +7,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/copybutton"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/popover"
@@ -21,6 +22,31 @@ func contactDisplay(c models.Contact) string {
 		return c.Name
 	}
 	return c.Email
+}
+
+templ MailViewAvatar(contact models.Contact, messageID string, class string, fallbackClass string) {
+	if strings.TrimSpace(contact.AvatarURL) != "" {
+		{{ dialogID := "mail-avatar-preview-" + messageID }}
+		@dialog.Trigger(dialog.TriggerProps{For: dialogID, Class: "inline-flex shrink-0"}) {
+			<button
+				type="button"
+				class="group relative inline-flex shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/25 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+				aria-label="View profile picture"
+				data-contact-avatar-preview-trigger
+				data-contact-avatar-preview-dialog={ dialogID }
+				data-contact-avatar-preview-alt={ contactDisplay(contact) + " profile picture" }
+				data-contact-avatar-preview-src={ contactAvatarRenderURL(contactAvatarPreviewURL(contact.AvatarURL)) }
+			>
+				@ContactAvatar(contact, class, fallbackClass)
+				<span class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-ink/0 text-white opacity-0 transition group-hover:bg-ink/25 group-hover:opacity-100 group-focus-visible:bg-ink/25 group-focus-visible:opacity-100">
+					@icon.Search(icon.Props{Class: "size-4 drop-shadow"})
+				</span>
+			</button>
+		}
+		@ContactAvatarPreviewDialog(contact, dialogID)
+	} else {
+		@ContactAvatar(contact, class, fallbackClass)
+	}
 }
 
 func threadAwareAction(singleFn, threadFn string, email *models.Email) string {
@@ -172,7 +198,7 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 
 templ MailViewThreadItemSender(email *models.Email, item *models.ThreadItem) {
 	<div class="mail-view-thread-sender flex items-start gap-4">
-		@ContactAvatar(item.From, "mail-view-avatar size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", contactAvatarThreadFallback(item.ID == email.ID))
+		@MailViewAvatar(item.From, item.ID, "mail-view-avatar size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", contactAvatarThreadFallback(item.ID == email.ID))
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2 flex-wrap">
 				<span class="font-semibold text-ink">{ item.From.Name }</span>
@@ -664,7 +690,7 @@ templ MailViewHeader(email *models.Email) {
 
 templ MailViewSender(email *models.Email) {
 	<div class="mail-view-sender flex items-start gap-4">
-		@ContactAvatar(email.From, "mail-view-avatar size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
+		@MailViewAvatar(email.From, email.ID, "mail-view-avatar size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2 flex-wrap">
 				<span class="font-semibold text-ink">{ email.From.Name }</span>

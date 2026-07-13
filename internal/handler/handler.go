@@ -419,7 +419,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 	uiSettings := h.db.GetUISettings(ctx, userID)
 	scheduledCount := h.scheduledSidebarCount(ctx, userID)
-	filters := parseEmailFilters(r)
+	filters := applyEmailSortDefaults(parseEmailFilters(r), r, uiSettings)
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
 		ctx = h.contextWithUserTimezone(ctx, userID)
 		window := h.loadMailWindow(ctx, userID, folderID, filters, emailID, 50)
@@ -456,7 +456,8 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	accounts, _ := h.db.GetAccounts(ctx, userID)
-	views.Layout(accounts, folderID, nil, nil, -1, -1, h.db.GetUISettings(ctx, userID), nil, emailID, h.scheduledSidebarCount(ctx, userID), parseEmailFilters(r)).Render(ctx, w)
+	uiSettings := h.db.GetUISettings(ctx, userID)
+	views.Layout(accounts, folderID, nil, nil, -1, -1, uiSettings, nil, emailID, h.scheduledSidebarCount(ctx, userID), applyEmailSortDefaults(parseEmailFilters(r), r, uiSettings)).Render(ctx, w)
 }
 
 func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
@@ -594,9 +595,10 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 		views.ContactsDetail(selected, selectedProfile, false, syncQueued, accounts).Render(ctx, w)
 		return
 	}
-	filters := h.parseContactFilters(r)
+	uiSettings := h.db.GetUISettings(ctx, userID)
+	filters := applyContactSortDefaults(h.parseContactFilters(r), r, uiSettings)
 	if filters.View == "" {
-		filters.View = contactViewMode(h.db.GetUISettings(ctx, userID)["contacts_list_view"])
+		filters.View = contactViewMode(uiSettings["contacts_list_view"])
 	}
 	if filters.View == "" {
 		filters.View = "cards"
@@ -621,7 +623,6 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	accounts, _ := h.db.GetAccounts(ctx, userID)
 
 	if r.Header.Get("HX-Request") == "true" {
-		uiSettings := h.db.GetUISettings(ctx, userID)
 		width := uiSettings["mail_list_width"]
 		if width == "" {
 			width = "50%"
@@ -642,7 +643,7 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	layoutAccounts, _ := h.db.GetAccounts(ctx, userID)
-	views.ContactsLayout(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, h.db.GetUISettings(ctx, userID)).Render(ctx, w)
+	views.ContactsLayout(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
 }
 
 func (h *Handler) recentContactActivity(ctx context.Context, userID string, contact *models.Contact) []models.Email {
@@ -662,7 +663,7 @@ func (h *Handler) handleContactItems(w http.ResponseWriter, r *http.Request) {
 	h.ensureContactsBackfilled(ctx)
 	userID := h.userID(ctx)
 	ctx = h.contextWithUserTimezone(ctx, userID)
-	filters := h.parseContactFilters(r)
+	filters := applyContactSortDefaults(h.parseContactFilters(r), r, h.db.GetUISettings(ctx, userID))
 	if filters.View == "" {
 		filters.View = "cards"
 	}
@@ -701,6 +702,8 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 		SaveTarget: strings.TrimSpace(q.Get("save_target")),
 		Activity:   strings.TrimSpace(q.Get("activity")),
 		View:       contactViewMode(q.Get("view")),
+		SortBy:     strings.TrimSpace(q.Get("sort_by")),
+		SortOrder:  strings.TrimSpace(q.Get("sort_order")),
 	}
 	if filters.Source != "manual" && filters.Source != "observed" && filters.Source != "synced" && !strings.HasPrefix(filters.Source, "synced:") {
 		filters.Source = ""
@@ -711,7 +714,34 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 	if filters.SaveTarget != "local" && !strings.HasPrefix(filters.SaveTarget, "account:") && !strings.HasPrefix(filters.SaveTarget, "book:") {
 		filters.SaveTarget = ""
 	}
+	filters.SortBy = normalizeContactSortBy(filters.SortBy)
+	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
 	return filters
+}
+
+func applyContactSortDefaults(filters models.ContactFilters, r *http.Request, settings map[string]string) models.ContactFilters {
+	query := r.URL.Query()
+	if !query.Has("sort_by") {
+		filters.SortBy = normalizeContactSortBy(settings["contacts_list_sort_by"])
+	}
+	if !query.Has("sort_order") {
+		filters.SortOrder = normalizeSortOrder(settings["contacts_list_sort_order"])
+	}
+	return filters
+}
+
+func normalizeContactSortBy(value string) string {
+	if value == "name" || value == "last_interaction" {
+		return value
+	}
+	return "updated"
+}
+
+func normalizeSortOrder(value string) string {
+	if value == "asc" {
+		return "asc"
+	}
+	return "desc"
 }
 
 func contactViewMode(mode string) string {
@@ -1712,9 +1742,10 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx = h.contextWithUserTimezone(ctx, userID)
 	accounts, _ := h.db.GetAccounts(ctx, userID)
-	filters := parseEmailFilters(r)
+	uiSettings := h.db.GetUISettings(ctx, userID)
+	filters := applyEmailSortDefaults(parseEmailFilters(r), r, uiSettings)
 	if r.Header.Get("HX-Request") != "true" {
-		views.Layout(accounts, folderID, nil, nil, -1, -1, h.db.GetUISettings(ctx, userID), nil, "", h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
+		views.Layout(accounts, folderID, nil, nil, -1, -1, uiSettings, nil, "", h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
 		return
 	}
 
@@ -1733,7 +1764,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	var selectedThread []models.ThreadItem
 
 	w.Header().Set("Content-Type", "text/html")
-	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, scrollCount, selectedThread, h.db.GetUISettings(ctx, userID), filters).Render(ctx, w)
+	views.FolderPartial(accounts, emails, folderID, selectedEmail, totalCount, scrollCount, selectedThread, uiSettings, filters).Render(ctx, w)
 }
 
 func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
@@ -1752,12 +1783,13 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx = h.contextWithUserTimezone(ctx, userID)
 	accounts, _ := h.db.GetAccounts(ctx, userID)
-	filters := parseEmailFilters(r)
+	uiSettings := h.db.GetUISettings(ctx, userID)
+	filters := applyEmailSortDefaults(parseEmailFilters(r), r, uiSettings)
 	selectedEmailID := r.URL.Query().Get("selected")
 	window := h.loadMailWindow(ctx, h.userID(ctx), folderID, filters, selectedEmailID, 50)
 
 	w.Header().Set("Content-Type", "text/html")
-	views.MailContentPartial(accounts, window.emails, folderID, window.selectedEmail, window.totalCount, window.scrollCount, nil, h.db.GetUISettings(ctx, h.userID(ctx)), selectedEmailID, window.windowStart).Render(ctx, w)
+	views.MailContentPartial(accounts, window.emails, folderID, window.selectedEmail, window.totalCount, window.scrollCount, nil, uiSettings, selectedEmailID, window.windowStart, filters).Render(ctx, w)
 }
 
 type mailWindow struct {
@@ -1856,7 +1888,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 	}
 	uiSettings := h.db.GetUISettings(ctx, userID)
 	ctx = storage.WithTimezone(ctx, uiSettings["timezone"])
-	filters := parseEmailFilters(r)
+	filters := applyEmailSortDefaults(parseEmailFilters(r), r, uiSettings)
 
 	var page *models.EmailPage
 	var pageErr error
@@ -1934,6 +1966,8 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 		Query:           strings.TrimSpace(q.Get("q")),
 		After:           strings.TrimSpace(q.Get("after_date")),
 		Before:          strings.TrimSpace(q.Get("before_date")),
+		SortBy:          strings.TrimSpace(q.Get("sort_by")),
+		SortOrder:       strings.TrimSpace(q.Get("sort_order")),
 	}
 	if filters.Unread {
 		filters.Read = false
@@ -1941,11 +1975,31 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 	if filters.Attachments {
 		filters.NoAttach = false
 	}
+	filters.SortBy = normalizeEmailSortBy(filters.SortBy)
+	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
 	return filters
 }
 
+func applyEmailSortDefaults(filters models.EmailFilters, r *http.Request, settings map[string]string) models.EmailFilters {
+	query := r.URL.Query()
+	if !query.Has("sort_by") {
+		filters.SortBy = normalizeEmailSortBy(settings["mail_list_sort_by"])
+	}
+	if !query.Has("sort_order") {
+		filters.SortOrder = normalizeSortOrder(settings["mail_list_sort_order"])
+	}
+	return filters
+}
+
+func normalizeEmailSortBy(value string) string {
+	if value == "sender" || value == "subject" {
+		return value
+	}
+	return "date"
+}
+
 func emailFiltersActive(filters models.EmailFilters) bool {
-	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != ""
+	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.ThreadsOnly || filters.From != "" || filters.To != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != "" || (filters.SortBy != "" && filters.SortBy != "date") || (filters.SortOrder != "" && filters.SortOrder != "desc")
 }
 
 func (h *Handler) resolveFolderID(ctx context.Context, userID, requested string) (string, error) {
@@ -3513,9 +3567,10 @@ func (h *Handler) handleMailSidebar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	activeFolder := strings.TrimSpace(r.URL.Query().Get("active_folder"))
-	filters := parseEmailFilters(r)
+	uiSettings := h.db.GetUISettings(ctx, userID)
+	filters := applyEmailSortDefaults(parseEmailFilters(r), r, uiSettings)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	views.MailSidebarBody(accounts, activeFolder, h.db.GetUISettings(ctx, userID), h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
+	views.MailSidebarBody(accounts, activeFolder, uiSettings, h.scheduledSidebarCount(ctx, userID), filters).Render(ctx, w)
 }
 
 func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
@@ -3539,7 +3594,8 @@ func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		activeFolder := strings.TrimSpace(r.URL.Query().Get("active_folder"))
-		views.SidebarAccountSection(account, activeFolder, h.db.GetUISettings(ctx, userID), parseEmailFilters(r)).Render(ctx, w)
+		uiSettings := h.db.GetUISettings(ctx, userID)
+		views.SidebarAccountSection(account, activeFolder, uiSettings, applyEmailSortDefaults(parseEmailFilters(r), r, uiSettings)).Render(ctx, w)
 		return
 	}
 

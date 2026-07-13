@@ -437,7 +437,24 @@ func contactFilterValues(filters models.ContactFilters) url.Values {
 	if contactViewMode(filters.View) != "cards" {
 		values.Set("view", contactViewMode(filters.View))
 	}
+	if filters.SortBy != "" && filters.SortBy != "updated" {
+		values.Set("sort_by", filters.SortBy)
+	}
+	if filters.SortOrder == "asc" {
+		values.Set("sort_order", "asc")
+	}
 	return values
+}
+
+func contactSortLabel(filters models.ContactFilters) string {
+	switch filters.SortBy {
+	case "name":
+		return "Name"
+	case "last_interaction":
+		return "Last interaction"
+	default:
+		return "Recently updated"
+	}
 }
 
 func contactsViewURL(filters models.ContactFilters, mode string) string {
@@ -967,6 +984,8 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					<input type="hidden" name="save_target" value={ filters.SaveTarget }/>
 					<input type="hidden" name="activity" value={ filters.Activity }/>
 					<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
+					<input type="hidden" name="sort_by" value={ filters.SortBy }/>
+					<input type="hidden" name="sort_order" value={ filters.SortOrder }/>
 					@icon.Search(icon.Props{Class: "pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"})
 					<input
 						type="search"
@@ -993,9 +1012,11 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					<form action="/contacts" method="get" class="space-y-3" data-contact-filter-form>
 						<input type="hidden" name="q" value={ filters.Query }/>
 						<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
+						<input type="hidden" name="sort_by" value={ filters.SortBy }/>
+						<input type="hidden" name="sort_order" value={ filters.SortOrder }/>
 						<div class="flex items-center justify-between gap-2">
 							<div class="text-xs font-semibold text-muted-foreground">Quick filters</div>
-							<a href={ contactsURL(models.ContactFilters{Query: filters.Query}, "") } class="text-[11px] font-medium text-muted-foreground hover:text-foreground" data-contact-filter-clear>Clear</a>
+							<a href={ contactsURL(models.ContactFilters{Query: filters.Query, View: filters.View, SortBy: filters.SortBy, SortOrder: filters.SortOrder}, "") } class="text-[11px] font-medium text-muted-foreground hover:text-foreground" data-contact-filter-clear>Clear</a>
 						</div>
 						<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 							<span>Origin</span>
@@ -1097,6 +1118,40 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 				</div>
 			}
 			<div class="flex-1"></div>
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					<button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Sort contacts">
+						@icon.ArrowUpDown(icon.Props{Class: "size-3.5"})
+						<span class="hidden sm:inline">{ contactSortLabel(filters) }</span>
+					</button>
+				}
+				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-64 normal-case tracking-normal p-3"}) {
+					<form class="space-y-3" data-contact-sort-form>
+						<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+							<span>Order by</span>
+							@selectbox.SelectBox() {
+								@selectbox.Trigger(selectbox.TriggerProps{Name: "sort_by", Class: "h-8 bg-background text-xs", DisableClear: true}) { @selectbox.Value(selectbox.ValueProps{Placeholder: "Recently updated"}) }
+								@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+									@selectbox.Item(selectbox.ItemProps{Value: "updated", Selected: filters.SortBy == "" || filters.SortBy == "updated"}) { Recently updated }
+									@selectbox.Item(selectbox.ItemProps{Value: "name", Selected: filters.SortBy == "name"}) { Name }
+									@selectbox.Item(selectbox.ItemProps{Value: "last_interaction", Selected: filters.SortBy == "last_interaction"}) { Last interaction }
+								}
+							}
+						</div>
+						<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+							<span>Order</span>
+							@selectbox.SelectBox() {
+								@selectbox.Trigger(selectbox.TriggerProps{Name: "sort_order", Class: "h-8 bg-background text-xs", DisableClear: true}) { @selectbox.Value(selectbox.ValueProps{Placeholder: "Descending"}) }
+								@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+									@selectbox.Item(selectbox.ItemProps{Value: "desc", Selected: filters.SortOrder == "" || filters.SortOrder == "desc"}) { Descending }
+									@selectbox.Item(selectbox.ItemProps{Value: "asc", Selected: filters.SortOrder == "asc"}) { Ascending }
+								}
+							}
+						</div>
+						<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Apply sort</button>
+					</form>
+				}
+			}
 			<div class="relative inline-flex h-7 shrink-0 rounded-lg border border-border bg-background p-0.5 gap-0.5" data-contact-list-view-toggle>
 				<div class="absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out" style={ contactViewIndicatorStyle(filters.View) } data-contact-list-view-indicator></div>
 				<button
@@ -1138,6 +1193,8 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			data-window-end={ fmt.Sprintf("%d", contactWindowEnd(0, len(contacts))) }
 			data-has-more={ fmt.Sprintf("%t", len(contacts) < totalCount) }
 			data-query={ filters.Query }
+			data-sort-by={ filters.SortBy }
+			data-sort-order={ filters.SortOrder }
 			data-source={ filters.Source }
 			data-save-target={ filters.SaveTarget }
 			data-activity={ filters.Activity }

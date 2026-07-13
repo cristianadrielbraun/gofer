@@ -337,7 +337,7 @@ func (db *DB) ListContacts(ctx context.Context, userID string, filters models.Co
 		return nil, err
 	}
 	contacts := append(profileContacts, legacyContacts...)
-	sortContactsForList(contacts)
+	sortContactsForList(contacts, filters)
 	if offset >= len(contacts) {
 		return nil, nil
 	}
@@ -363,7 +363,7 @@ func (db *DB) listLegacyContacts(ctx context.Context, userID string, filters mod
 		FROM contacts c
 		JOIN contact_emails ce ON ce.contact_id = c.id AND ce.is_primary = 1
 		WHERE `+where+`
-		ORDER BY COALESCE(ce.last_seen_at, c.updated_at) DESC, c.display_name COLLATE NOCASE
+		ORDER BY `+contactListOrderSQL(filters, false)+`
 		LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query contacts: %w", err)
@@ -497,7 +497,7 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 		FROM contact_profiles p
 		LEFT JOIN contact_fields email ON email.profile_id = p.id AND email.user_id = p.user_id AND email.kind = 'email' AND email.is_primary = 1
 		WHERE `+where+`
-		ORDER BY p.updated_at DESC, p.display_name COLLATE NOCASE
+		ORDER BY `+contactListOrderSQL(filters, true)+`
 		LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query contact profiles: %w", err)
@@ -610,25 +610,67 @@ func scanProfileContactRow(scanner interface{ Scan(dest ...any) error }, loc *ti
 		c.AvatarSource = "provider_contact"
 	}
 	if lastSeen.Valid {
+		c.LastSeenSort = lastSeen.String
 		c.LastSeenAt = formatContactTime(lastSeen.String, loc)
 	}
 	if createdAt.Valid {
 		c.CreatedAt = formatContactTime(createdAt.String, loc)
 	}
 	if updatedAt.Valid {
+		c.UpdatedSort = updatedAt.String
 		c.UpdatedAt = formatContactTime(updatedAt.String, loc)
 	}
 	return c, nil
 }
 
-func sortContactsForList(contacts []models.Contact) {
+func contactListOrderSQL(filters models.ContactFilters, profile bool) string {
+	direction := "DESC"
+	if filters.SortOrder == "asc" {
+		direction = "ASC"
+	}
+	nameColumn := "c.display_name"
+	updatedColumn := "c.updated_at"
+	lastSeenColumn := "ce.last_seen_at"
+	if profile {
+		nameColumn = "p.display_name"
+		updatedColumn = "p.updated_at"
+		lastSeenColumn = "(SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0)"
+	}
+	switch filters.SortBy {
+	case "name":
+		return nameColumn + " COLLATE NOCASE " + direction + ", " + updatedColumn + " DESC"
+	case "last_interaction":
+		return "(" + lastSeenColumn + " IS NULL) ASC, " + lastSeenColumn + " " + direction + ", " + nameColumn + " COLLATE NOCASE ASC"
+	default:
+		return updatedColumn + " " + direction + ", " + nameColumn + " COLLATE NOCASE ASC"
+	}
+}
+
+func sortContactsForList(contacts []models.Contact, filters models.ContactFilters) {
 	sort.SliceStable(contacts, func(i, j int) bool {
-		left := contacts[i].UpdatedAt
-		right := contacts[j].UpdatedAt
-		if left != "" && right != "" && left != right {
-			return left > right
+		left, right := contacts[i], contacts[j]
+		var leftValue, rightValue string
+		switch filters.SortBy {
+		case "name":
+			leftValue, rightValue = strings.ToLower(left.Name), strings.ToLower(right.Name)
+		case "last_interaction":
+			leftValue, rightValue = left.LastSeenSort, right.LastSeenSort
+		default:
+			leftValue, rightValue = left.UpdatedSort, right.UpdatedSort
 		}
-		return strings.ToLower(contacts[i].Name) < strings.ToLower(contacts[j].Name)
+		if leftValue != rightValue {
+			if leftValue == "" {
+				return false
+			}
+			if rightValue == "" {
+				return true
+			}
+			if filters.SortOrder == "asc" {
+				return leftValue < rightValue
+			}
+			return leftValue > rightValue
+		}
+		return strings.ToLower(left.Name) < strings.ToLower(right.Name)
 	})
 }
 
@@ -674,7 +716,7 @@ func (db *DB) SearchContacts(ctx context.Context, userID, query string, limit in
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sortContactsForList(contacts)
+	sortContactsForList(contacts, models.ContactFilters{SortBy: "updated", SortOrder: "desc"})
 	if len(contacts) > limit {
 		contacts = contacts[:limit]
 	}
@@ -1764,12 +1806,14 @@ func scanContactRow(scanner interface{ Scan(dest ...any) error }, loc *time.Loca
 	c.Initials = initials(contactDisplayName(c.Name, c.Email))
 	c.AvatarHash = avatarresolver.GravatarHash(c.Email)
 	if lastSeen.Valid {
+		c.LastSeenSort = lastSeen.String
 		c.LastSeenAt = formatContactTime(lastSeen.String, loc)
 	}
 	if createdAt.Valid {
 		c.CreatedAt = formatContactTime(createdAt.String, loc)
 	}
 	if updatedAt.Valid {
+		c.UpdatedSort = updatedAt.String
 		c.UpdatedAt = formatContactTime(updatedAt.String, loc)
 	}
 	return c, nil

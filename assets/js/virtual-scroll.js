@@ -1914,6 +1914,8 @@ class VirtualMailList {
       ["q", filters.query || ""],
       ["after_date", filters.afterDate || ""],
       ["before_date", filters.beforeDate || ""],
+      ["sort_by", filters.sortBy || "date"],
+      ["sort_order", filters.sortOrder || "desc"],
     ]
     for (var i = 0; i < pairs.length; i++) {
       if (!pairs[i][1]) continue
@@ -1961,6 +1963,8 @@ class VirtualMailList {
       query: "",
       afterDate: "",
       beforeDate: "",
+      sortBy: "date",
+      sortOrder: "desc",
     }
   }
 
@@ -1985,6 +1989,8 @@ class VirtualMailList {
     filters.query = (params.get("q") || "").trim()
     filters.afterDate = (params.get("after_date") || "").trim()
     filters.beforeDate = (params.get("before_date") || "").trim()
+    filters.sortBy = (params.get("sort_by") || "date").trim()
+    filters.sortOrder = (params.get("sort_order") || "desc").trim()
     return filters
   }
 
@@ -2051,6 +2057,8 @@ class VirtualMailList {
     if (filters.query) params.set("q", filters.query)
     if (filters.afterDate) params.set("after_date", filters.afterDate)
     if (filters.beforeDate) params.set("before_date", filters.beforeDate)
+    params.set("sort_by", filters.sortBy || "date")
+    params.set("sort_order", filters.sortOrder || "desc")
     if (tag.label === filterTag && tag.accountId) params.set("tag_account_id", tag.accountId)
     if (tag.label === filterTag && tag.providerId) params.set("tag_provider_id", tag.providerId)
     if (tag.label === filterTag && tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
@@ -2500,6 +2508,8 @@ class VirtualContactsList {
       source: this.container.dataset.source || "",
       saveTarget: this.container.dataset.saveTarget || "",
       activity: this.container.dataset.activity || "",
+      sortBy: this.container.dataset.sortBy || "updated",
+      sortOrder: this.container.dataset.sortOrder || "desc",
     }
   }
 
@@ -2557,6 +2567,8 @@ class VirtualContactsList {
     this.rowPool = []
     this.visibleRows.clear()
     this.rowByIndex.clear()
+    this.prevFirst = null
+    this.prevLast = null
     if (this.itemsContainer) this.itemsContainer.innerHTML = ""
     this.container.scrollTop = 0
   }
@@ -2866,6 +2878,8 @@ class VirtualContactsList {
     if (filters.source) params.set("source", filters.source)
     if (filters.saveTarget) params.set("save_target", filters.saveTarget)
     if (filters.activity) params.set("activity", filters.activity)
+    params.set("sort_by", filters.sortBy || "updated")
+    params.set("sort_order", filters.sortOrder || "desc")
     return "/contacts/items?" + params.toString()
   }
 
@@ -2996,6 +3010,8 @@ class VirtualContactsList {
       source: (filters.source || "").trim(),
       saveTarget: (filters.saveTarget || "").trim(),
       activity: (filters.activity || "").trim(),
+      sortBy: (filters.sortBy || "updated").trim(),
+      sortOrder: (filters.sortOrder || "desc").trim(),
     }
     var transition = this.captureListTransition()
     var previousSelected = this.selectedContactId
@@ -3033,6 +3049,8 @@ class VirtualContactsList {
     if (this.filters.source) params.set("source", this.filters.source)
     if (this.filters.saveTarget) params.set("save_target", this.filters.saveTarget)
     if (this.filters.activity) params.set("activity", this.filters.activity)
+    params.set("sort_by", this.filters.sortBy || "updated")
+    params.set("sort_order", this.filters.sortOrder || "desc")
     if (this.viewMode !== "cards") params.set("view", this.viewMode)
     if (this.selectedContactId) params.set("contact", this.selectedContactId)
     var url = "/contacts" + (params.toString() ? "?" + params.toString() : "")
