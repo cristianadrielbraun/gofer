@@ -442,52 +442,6 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 	if err != nil {
 		return err
 	}
-	previousTargets := map[string]contactSyncAccount{}
-	if previous != nil {
-		previousTargets, err = h.contactTargetAccountSet(ctx, userID, previous.SaveTargets)
-		if err != nil {
-			return err
-		}
-	}
-
-	handledRemoved := make(map[string]bool)
-	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderGmail, desired, handledRemoved); err != nil {
-		return err
-	}
-	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderOutlook, desired, handledRemoved); err != nil {
-		return err
-	}
-	if err := h.removeUnwantedContactSources(ctx, userID, contact, providers.ProviderCardDAV, desired, handledRemoved); err != nil {
-		return err
-	}
-	for accountID := range previousTargets {
-		if _, ok := desired[accountID]; ok || handledRemoved[accountID] {
-			continue
-		}
-		switch previousTargets[accountID].Provider {
-		case providers.ProviderGmail:
-			token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
-			if err != nil {
-				return err
-			}
-			if err := h.deleteGoogleContactsByEmail(ctx, token, contact.Email); err != nil {
-				return err
-			}
-		case providers.ProviderOutlook:
-			token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, accountID)
-			if err != nil {
-				return err
-			}
-			if err := h.deleteOutlookContactsByEmail(ctx, token, contact.Email); err != nil {
-				return err
-			}
-		case providers.ProviderCardDAV:
-			if err := h.deleteCardDAVContactsByEmail(ctx, userID, accountID, contact.Email); err != nil {
-				return err
-			}
-		}
-	}
-
 	for accountID, account := range desired {
 		switch account.Provider {
 		case providers.ProviderGmail:
@@ -504,6 +458,71 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 			}
 		default:
 			return fmt.Errorf("contact sync is not configured for this account")
+		}
+	}
+	return nil
+}
+
+// preflightNewContactSyncTargets checks a newly enabled destination before the
+// profile is saved. Exact email matches are safe to attach automatically;
+// ambiguous matches stop the save and are surfaced to the editor.
+func (h *Handler) preflightNewContactSyncTargets(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) error {
+	desired, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
+	if err != nil || len(desired) == 0 {
+		return err
+	}
+	existing := map[string]contactSyncAccount{}
+	if previous != nil {
+		existing, err = h.contactTargetAccountSet(ctx, userID, previous.SaveTargets)
+		if err != nil {
+			return err
+		}
+	}
+	for accountID, account := range desired {
+		if _, alreadyEnabled := existing[accountID]; alreadyEnabled {
+			continue
+		}
+		switch account.Provider {
+		case providers.ProviderGmail:
+			if h.auth == nil {
+				return fmt.Errorf("Gmail contact preflight is unavailable")
+			}
+			token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("preflight Gmail contact: %w", err)
+			}
+			matches, err := h.searchGoogleContactsByEmail(ctx, token, contact.Email)
+			if err != nil {
+				return fmt.Errorf("preflight Gmail contact: %w", err)
+			}
+			if len(matches) > 1 {
+				return fmt.Errorf("Gmail has multiple contacts with %s; resolve those copies before enabling Gofer Sync", contact.Email)
+			}
+			if len(matches) == 1 && contact.ID != "" && matches[0].ResourceName != "" {
+				if err := h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: matches[0].ResourceName, Etag: matches[0].Etag}); err != nil {
+					return err
+				}
+			}
+		case providers.ProviderOutlook:
+			if h.auth == nil {
+				return fmt.Errorf("Outlook contact preflight is unavailable")
+			}
+			token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("preflight Outlook contact: %w", err)
+			}
+			matches, err := h.searchOutlookContactsByEmail(ctx, token, contact.Email)
+			if err != nil {
+				return fmt.Errorf("preflight Outlook contact: %w", err)
+			}
+			if len(matches) > 1 {
+				return fmt.Errorf("Outlook has multiple contacts with %s; resolve those copies before enabling Gofer Sync", contact.Email)
+			}
+			if len(matches) == 1 && contact.ID != "" && matches[0].ID != "" {
+				if err := h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: matches[0].ID, Etag: outlookContactVersion(matches[0])}); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -578,6 +597,11 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 
 	contact := op.Payload.Contact
 	previous := op.Payload.Previous
+	// Memberships are policy, so a queued operation must honor their latest
+	// state. This prevents a stale job from pushing after the user stops sync.
+	if current, err := h.db.GetContact(ctx, op.UserID, contact.ID); err == nil && current != nil {
+		contact = *current
+	}
 	logSyncResult := func(eventType, message string) {
 		logCtx, logCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer logCancel()
@@ -608,22 +632,7 @@ func (h *Handler) contactNeedsAccountSync(ctx context.Context, userID string, co
 	if err == nil && len(currentTargets) > 0 {
 		return true
 	}
-	if previous != nil {
-		previousTargets, err := h.contactTargetAccountSet(ctx, userID, previous.SaveTargets)
-		if err == nil && len(previousTargets) > 0 {
-			return true
-		}
-	}
-	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderGmail)
-	if err == nil && len(sources) > 0 {
-		return true
-	}
-	sources, err = h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderOutlook)
-	if err == nil && len(sources) > 0 {
-		return true
-	}
-	sources, err = h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderCardDAV)
-	return err == nil && len(sources) > 0
+	return false
 }
 
 func (h *Handler) contactTargetAccountSet(ctx context.Context, userID string, targets []string) (map[string]contactSyncAccount, error) {
@@ -751,14 +760,28 @@ func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, 
 		return err
 	}
 	if source == nil || strings.TrimSpace(source.RemoteID) == "" {
-		person, err := h.createGoogleContact(ctx, token, contact)
+		matches, err := h.searchGoogleContactsByEmail(ctx, token, contact.Email)
 		if err != nil {
-			return err
+			return fmt.Errorf("preflight Gmail contact: %w", err)
 		}
-		if strings.TrimSpace(person.ResourceName) == "" {
-			return fmt.Errorf("people api did not return a contact resource name")
+		if len(matches) > 1 {
+			return fmt.Errorf("Gmail has multiple contacts with %s; choose the copy to use before enabling Gofer Sync", contact.Email)
 		}
-		return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
+		if len(matches) == 1 && strings.TrimSpace(matches[0].ResourceName) != "" {
+			source = &storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: matches[0].ResourceName, Etag: matches[0].Etag}
+			if err := h.db.UpsertContactSource(ctx, *source); err != nil {
+				return err
+			}
+		} else {
+			person, err := h.createGoogleContact(ctx, token, contact)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(person.ResourceName) == "" {
+				return fmt.Errorf("people api did not return a contact resource name")
+			}
+			return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
+		}
 	}
 
 	etag := strings.TrimSpace(source.Etag)

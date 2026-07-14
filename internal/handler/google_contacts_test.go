@@ -163,6 +163,11 @@ func TestPushContactToGmailAccountUsesPeopleAPIAndStoresSource(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer gmail-token" {
 			t.Fatalf("Authorization = %q", got)
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/people:searchContacts" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"results":[]}`))
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/people:createContact" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}

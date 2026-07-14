@@ -24,6 +24,77 @@ func newContactsTestDB(t *testing.T) *DB {
 	return db
 }
 
+func TestMigrateV70SeparatesContactSyncMembershipsFromCards(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "gofer.db")
+	db, err := New(path)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO contact_profiles (id, user_id, display_name, primary_email) VALUES ('profile-1', 'default', 'Jane', 'jane@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO contact_cards (id, user_id, profile_id, kind, account_id) VALUES ('target-1', 'default', 'profile-1', 'target', 'acc')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`DELETE FROM schema_version WHERE version = 72`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (70)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = New(path)
+	if err != nil {
+		t.Fatalf("reopen migrated DB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	var memberships, targetCards int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_sync_memberships WHERE profile_id = 'profile-1' AND account_id = 'acc' AND enabled = 1`).Scan(&memberships); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_cards WHERE profile_id = 'profile-1' AND kind = 'target'`).Scan(&targetCards); err != nil {
+		t.Fatal(err)
+	}
+	if memberships != 1 || targetCards != 0 {
+		t.Fatalf("memberships=%d target cards=%d, want 1 and 0", memberships, targetCards)
+	}
+}
+
+func TestMigrateV71CreatesContactFieldPreferences(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gofer.db")
+	db, err := New(path)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := db.Write().Exec(`DROP TABLE contact_field_preferences`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`DELETE FROM schema_version WHERE version = 72`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (71)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = New(path)
+	if err != nil {
+		t.Fatalf("reopen migrated DB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	var tableName string
+	if err := db.Read().QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'contact_field_preferences'`).Scan(&tableName); err != nil {
+		t.Fatalf("contact_field_preferences missing after v72 migration: %v", err)
+	}
+}
+
 func TestObservedContactManualNameWins(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
@@ -66,6 +137,45 @@ func TestObservedContactManualNameWins(t *testing.T) {
 	}
 	if got == nil || got.Name != "Janet Manual" {
 		t.Fatalf("manual name after observed update = %#v, want Janet Manual", got)
+	}
+}
+
+func TestSaveContactCanReplaceAndRemoveProfileAvatar(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	dataURL := "data:image/png;base64,iVBORw0KGgo="
+	saved, err := db.SaveContact(ctx, "default", models.Contact{Name: "Avatar Contact", Email: "avatar@example.com", AvatarURL: dataURL})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	if saved.AvatarURL != dataURL {
+		t.Fatalf("saved AvatarURL = %q, want custom data URL", saved.AvatarURL)
+	}
+
+	preserved, err := db.SaveContact(ctx, "default", models.Contact{ID: saved.ID, Name: saved.Name, Email: saved.Email})
+	if err != nil {
+		t.Fatalf("SaveContact() preserve error = %v", err)
+	}
+	if preserved.AvatarURL != dataURL {
+		t.Fatalf("preserved AvatarURL = %q, want custom data URL", preserved.AvatarURL)
+	}
+	if _, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "gmail-a", models.Contact{Name: saved.Name, Email: saved.Email, AvatarURL: "https://photos.example/provider.jpg"}); err != nil {
+		t.Fatalf("UpsertSyncedContactFromContact() error = %v", err)
+	}
+	withProviderSync, err := db.GetContact(ctx, "default", saved.ID)
+	if err != nil {
+		t.Fatalf("GetContact() after provider sync error = %v", err)
+	}
+	if withProviderSync == nil || withProviderSync.AvatarURL != dataURL {
+		t.Fatalf("avatar after provider sync = %#v, want custom avatar preserved", withProviderSync)
+	}
+
+	removed, err := db.SaveContact(ctx, "default", models.Contact{ID: saved.ID, Name: saved.Name, Email: saved.Email, RemoveAvatar: true})
+	if err != nil {
+		t.Fatalf("SaveContact() remove error = %v", err)
+	}
+	if removed.AvatarURL != "" {
+		t.Fatalf("removed AvatarURL = %q, want empty", removed.AvatarURL)
 	}
 }
 
@@ -212,6 +322,29 @@ func TestSaveContactPersistsSaveTargets(t *testing.T) {
 	want := []string{"local", "account:acc"}
 	if !reflect.DeepEqual(saved.SaveTargets, want) {
 		t.Fatalf("updated SaveTargets = %#v, want %#v", saved.SaveTargets, want)
+	}
+}
+
+func TestStoppingContactSyncKeepsExistingProviderCopy(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	saved, err := db.SaveContact(ctx, "default", models.Contact{Name: "Jane", Email: "jane@example.com", SaveTargets: []string{"account:acc"}})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	if err := db.UpsertContactSource(ctx, ContactSource{ContactID: saved.ID, UserID: "default", Provider: "gmail", AccountID: "acc", RemoteID: "people/jane"}); err != nil {
+		t.Fatalf("UpsertContactSource() error = %v", err)
+	}
+	if err := db.ReplaceContactSyncMemberships(ctx, "default", saved.ID, []string{"local"}); err != nil {
+		t.Fatalf("ReplaceContactSyncMemberships() error = %v", err)
+	}
+	targets, err := db.GetContactSaveTargets(ctx, "default", saved.ID)
+	if err != nil || !reflect.DeepEqual(targets, []string{"local"}) {
+		t.Fatalf("GetContactSaveTargets() = %#v, %v; want local only", targets, err)
+	}
+	source, err := db.GetContactSource(ctx, "default", saved.ID, "gmail", "acc")
+	if err != nil || source == nil || source.RemoteID != "people/jane" {
+		t.Fatalf("provider copy = %#v, %v; want existing remote copy preserved", source, err)
 	}
 }
 
@@ -526,6 +659,50 @@ func TestUpsertSyncedContactFromContactPersistsProviderFields(t *testing.T) {
 	}
 	if !foundSynced {
 		t.Fatalf("synced phone was not preserved after manual edit: %#v", profile.Fields)
+	}
+}
+
+func TestPreferredProviderValueSurvivesProviderRefresh(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	contactID, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-a", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0100"})
+	if err != nil {
+		t.Fatalf("first provider upsert: %v", err)
+	}
+	if _, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-b", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0200"}); err != nil {
+		t.Fatalf("second provider upsert: %v", err)
+	}
+	profile, err := db.GetContactProfile(ctx, "default", contactID)
+	if err != nil {
+		t.Fatalf("GetContactProfile() error = %v", err)
+	}
+	preferredID := ""
+	for _, field := range profile.Fields {
+		if field.Source == "synced:acc-b" && field.Kind == "phone" {
+			preferredID = field.ID
+		}
+	}
+	if preferredID == "" {
+		t.Fatal("second provider phone field not found")
+	}
+	if _, err := db.PreferContactField(ctx, "default", contactID, preferredID); err != nil {
+		t.Fatalf("PreferContactField() error = %v", err)
+	}
+	if _, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-b", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0200"}); err != nil {
+		t.Fatalf("provider refresh: %v", err)
+	}
+	profile, err = db.GetContactProfile(ctx, "default", contactID)
+	if err != nil {
+		t.Fatalf("GetContactProfile() after refresh: %v", err)
+	}
+	foundPreferred := false
+	for _, field := range profile.Fields {
+		if field.Kind == "phone" && field.Value == "+1 555 0200" && field.IsPrimary {
+			foundPreferred = true
+		}
+	}
+	if !foundPreferred {
+		t.Fatalf("preferred provider phone was lost after refresh: %#v", profile.Fields)
 	}
 }
 

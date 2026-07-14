@@ -232,6 +232,51 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      var chooseContactAvatar = e.target.closest && e.target.closest("[data-contact-avatar-choose]")
+      if (chooseContactAvatar) {
+        e.preventDefault()
+        var avatarEditor = chooseContactAvatar.closest("[data-contact-avatar-editor]")
+        var avatarInput = avatarEditor && avatarEditor.querySelector("[data-contact-avatar-input]")
+        if (avatarInput) avatarInput.click()
+        return
+      }
+
+      var removeContactAvatar = e.target.closest && e.target.closest("[data-contact-avatar-remove]")
+      if (removeContactAvatar) {
+        e.preventDefault()
+        setContactAvatarEditorValue(removeContactAvatar.closest("[data-contact-avatar-editor]"), "", "remove")
+        return
+      }
+
+      var editContact = e.target.closest && e.target.closest("[data-contact-edit-trigger]")
+      if (editContact) {
+        var editDialogID = editContact.getAttribute("data-contact-edit-dialog") || ""
+        window.setTimeout(function () {
+          var editDialog = editDialogID ? document.getElementById(editDialogID) : null
+          var editForm = editDialog && editDialog.querySelector("[data-contact-edit-form]")
+          if (editForm) editForm.dataset.initialState = contactEditorState(editForm)
+        }, 0)
+        return
+      }
+
+      var cancelContactEdit = e.target.closest && e.target.closest("[data-contact-editor-cancel]")
+      if (cancelContactEdit) {
+        e.preventDefault()
+        var cancelForm = cancelContactEdit.closest("[data-contact-edit-form]")
+        if (!cancelForm) return
+        var initialState = cancelForm.dataset.initialState || contactEditorState(cancelForm)
+        var hasChanges = contactEditorState(cancelForm) !== initialState
+        if (hasChanges && !window.confirm("Discard unsaved contact changes?")) return
+        var cancelDialogID = cancelForm.getAttribute("data-contact-edit-dialog") || ""
+        if (cancelDialogID && window.tui && window.tui.dialog) window.tui.dialog.close(cancelDialogID)
+        if (hasChanges && cancelForm.dataset.contactId) {
+          window.setTimeout(function () {
+            refreshContactsDetail(cancelForm.dataset.contactId, null, false)
+          }, 220)
+        }
+        return
+      }
+
       var sidebarLink = e.target.closest && e.target.closest("[data-contact-sidebar-link]")
       if (sidebarLink) {
         setContactsSidebarActive(sidebarLink.getAttribute("data-contact-sidebar-target") || "")
@@ -278,16 +323,124 @@ document.addEventListener("DOMContentLoaded", function () {
       htmx.ajax("GET", contactDetailURL(contactId, syncQueued), { target: "#contacts-detail", swap: "outerHTML" })
     }
 
+    function contactEditorState(form) {
+      return new URLSearchParams(new FormData(form)).toString()
+    }
+
+    function setContactAvatarEditorValue(editor, dataURL, action) {
+      if (!editor) return
+      var actionInput = editor.querySelector("[data-contact-avatar-action]")
+      var dataInput = editor.querySelector("[data-contact-avatar-data]")
+      var preview = editor.querySelector("[data-contact-avatar-edit-preview]")
+      var remove = editor.querySelector("[data-contact-avatar-remove]")
+      var status = editor.querySelector("[data-contact-avatar-status]")
+      var chooseLabel = editor.querySelector("[data-contact-avatar-choose-label]")
+      if (actionInput) actionInput.value = action || "preserve"
+      if (dataInput) dataInput.value = dataURL || ""
+      if (!preview) return
+      var image = preview.querySelector("[data-avatar-image]")
+      if (dataURL) {
+        if (!image) {
+          image = document.createElement("img")
+          image.setAttribute("data-avatar-image", "")
+          image.alt = "Contact profile picture"
+          image.className = "absolute inset-0 size-full object-cover"
+          preview.appendChild(image)
+        }
+        image.src = dataURL
+        image.classList.remove("hidden")
+        hideContactAvatarFallback(preview)
+        if (remove) {
+          remove.classList.remove("hidden")
+          remove.classList.add("inline-flex")
+        }
+        if (status) {
+          status.textContent = "New picture ready"
+          status.classList.remove("hidden", "text-ink/45")
+          status.classList.add("text-emerald-700")
+        }
+        if (chooseLabel) chooseLabel.textContent = "Replace"
+      } else {
+        if (image) image.remove()
+        showContactAvatarFallback(preview)
+        if (remove) {
+          remove.classList.add("hidden")
+          remove.classList.remove("inline-flex")
+        }
+        if (status) {
+          status.textContent = "Picture will be removed"
+          status.classList.remove("hidden")
+          status.classList.remove("text-emerald-700")
+          status.classList.add("text-ink/45")
+        }
+        if (chooseLabel) chooseLabel.textContent = "Choose image"
+      }
+    }
+
+    function prepareContactAvatar(file, editor) {
+      if (!file || !editor) return
+      if (["image/jpeg", "image/png", "image/webp"].indexOf(file.type) === -1) {
+        showGoferToast({ id: "contact-avatar-error", title: "Unsupported picture", description: "Choose a JPEG, PNG, or WebP image.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        return
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        showGoferToast({ id: "contact-avatar-error", title: "Picture is too large", description: "Choose an image smaller than 8 MB.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        return
+      }
+      var objectURL = URL.createObjectURL(file)
+      var image = new Image()
+      image.onload = function () {
+        URL.revokeObjectURL(objectURL)
+        var side = Math.min(image.naturalWidth, image.naturalHeight)
+        if (!side) return
+        var canvas = document.createElement("canvas")
+        canvas.width = 512
+        canvas.height = 512
+        var context = canvas.getContext("2d")
+        if (!context) return
+        var sourceX = Math.max(0, (image.naturalWidth - side) / 2)
+        var sourceY = Math.max(0, (image.naturalHeight - side) / 2)
+        context.drawImage(image, sourceX, sourceY, side, side, 0, 0, 512, 512)
+        var dataURL = canvas.toDataURL("image/webp", 0.9)
+        if (dataURL.indexOf("data:image/webp") !== 0) dataURL = canvas.toDataURL("image/png")
+        setContactAvatarEditorValue(editor, dataURL, "replace")
+      }
+      image.onerror = function () {
+        URL.revokeObjectURL(objectURL)
+        showGoferToast({ id: "contact-avatar-error", title: "Could not read picture", description: "The selected image appears to be invalid.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+      }
+      image.src = objectURL
+    }
+
+    function updateContactListPreview(contactId, form) {
+      if (!contactId || !form) return
+      var rows = document.querySelectorAll("[data-contact-id]")
+      var row = null
+      for (var ri = 0; ri < rows.length; ri++) {
+        if (rows[ri].dataset.contactId === contactId) {
+          row = rows[ri]
+          break
+        }
+      }
+      if (!row) return
+      var nameInput = form.querySelector('[name="name"]')
+      var emailInput = form.querySelector('[name="email"]')
+      var names = row.querySelectorAll("[data-contact-name]")
+      var emails = row.querySelectorAll("[data-contact-email]")
+      for (var i = 0; i < names.length; i++) names[i].textContent = nameInput ? nameInput.value : ""
+      for (var j = 0; j < emails.length; j++) emails[j].textContent = emailInput ? emailInput.value : ""
+    }
+
     function saveContactEditor(form, submitter) {
       if (!form || form.dataset.saving === "true") return
       form.dataset.saving = "true"
       var submit = submitter && submitter.matches && submitter.matches('button[type="submit"]') ? submitter : form.querySelector('button[type="submit"]')
       if (submit) submit.disabled = true
       var formData = new FormData(form)
-      var action = submitter && submitter.formAction ? submitter.formAction : form.action
-      var method = submitter && submitter.formMethod ? submitter.formMethod : form.method
-      var editorAction = submitter && submitter.dataset ? submitter.dataset.contactEditorAction || "" : ""
-
+      var hasActionOverride = submitter && submitter.hasAttribute && submitter.hasAttribute("formaction")
+      var hasMethodOverride = submitter && submitter.hasAttribute && submitter.hasAttribute("formmethod")
+      var action = hasActionOverride ? submitter.formAction : form.action
+      var method = hasMethodOverride ? submitter.formMethod : form.method
       fetch(action, {
         method: (method || "POST").toUpperCase(),
         body: new URLSearchParams(formData),
@@ -306,6 +459,8 @@ document.addEventListener("DOMContentLoaded", function () {
           if (data.location) history.replaceState({ contacts: true, contact: data.contact_id }, "", data.location)
         }
         var syncQueued = !!(data && (data.contact_sync_queued || data.gmail_sync_queued))
+        if (data && data.avatar_hash) updateVisibleAvatars(data.avatar_hash, data.avatar_url || "")
+        if (data && data.contact_id) updateContactListPreview(data.contact_id, form)
         if (data && data.refresh_detail && data.contact_id) {
           refreshContactsDetail(data.contact_id, form, syncQueued)
         }
@@ -316,7 +471,7 @@ document.addEventListener("DOMContentLoaded", function () {
           showGoferToast({
             id: "contact-sync-toast",
             title: "Contact saved",
-            description: "Syncing contact with Gmail...",
+            description: "Gofer Sync is updating the selected destinations...",
             variant: "info",
             icon: "spinner",
             position: "bottom-right",
@@ -324,14 +479,13 @@ document.addEventListener("DOMContentLoaded", function () {
             dismissible: false,
           })
         } else {
-          var unified = editorAction === "unify" || (data && data.action === "unify")
           showGoferToast({
             id: "contact-save-toast",
-            title: unified ? "Contact unified" : "Contact saved locally",
-            description: unified ? "Gofer is now the editable source of truth." : "Changes are stored in Gofer.",
+            title: "Contact saved",
+            description: "The aggregate profile has been updated.",
             variant: "success",
             icon: "success",
-            position: unified ? "bottom-right" : "top-center",
+            position: "bottom-right",
             duration: 3000,
             dismissible: true,
           })
@@ -343,7 +497,7 @@ document.addEventListener("DOMContentLoaded", function () {
           description: err && err.message ? err.message : "Could not save contact.",
           variant: "error",
           icon: "error",
-          position: "top-center",
+          position: "bottom-right",
           duration: 8000,
           dismissible: true,
         })
@@ -364,6 +518,12 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("change", function (e) {
+      if (e.target && e.target.matches("[data-contact-avatar-input]")) {
+        var file = e.target.files && e.target.files[0]
+        prepareContactAvatar(file, e.target.closest("[data-contact-avatar-editor]"))
+        e.target.value = ""
+        return
+      }
       if (!e.target || !e.target.closest("[data-contact-filter-form]")) return
       applyFilters()
     })
@@ -3322,8 +3482,15 @@ document.addEventListener("DOMContentLoaded", function () {
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i]
       if (node.getAttribute("data-avatar-hash") !== hash) continue
-      applyAvatarURLToNode(node, avatarURL)
+      if (avatarURL) applyAvatarURLToNode(node, avatarURL)
+      else clearAvatarURLFromNode(node)
     }
+  }
+
+  function clearAvatarURLFromNode(node) {
+    var img = node.querySelector("img[data-avatar-image]")
+    if (img) img.remove()
+    showContactAvatarFallback(node)
   }
 
   function applyAvatarURLToNode(node, avatarURL) {
@@ -3389,7 +3556,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var changed = false
     template.content.querySelectorAll("[data-contact-avatar][data-avatar-hash]").forEach(function (node) {
       if (node.getAttribute("data-avatar-hash") !== hash) return
-      applyAvatarURLToNode(node, avatarURL)
+      if (avatarURL) applyAvatarURLToNode(node, avatarURL)
+      else clearAvatarURLFromNode(node)
       changed = true
     })
     return changed ? template.innerHTML : html
@@ -3916,18 +4084,18 @@ document.addEventListener("DOMContentLoaded", function () {
     var folderName = textFrom(folderLink, ".flex-1") || "Mail"
     var count = textFrom(folderLink, "[data-folder-unread]")
     mainContent.innerHTML = '<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden">' +
-      '<div class="px-4 py-4 space-y-3">' +
-      '<div class="flex items-center justify-between">' +
-      '<div class="flex items-center gap-2">' +
+      '<div class="mail-list-header px-4 py-4 space-y-3">' +
+      '<div class="mail-list-title-row flex items-center justify-between">' +
+      '<div class="mail-list-title flex items-center gap-2 min-w-0">' +
       '<h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + escapeHTML(folderName) + '</h2>' +
-      (count ? '<span id="mail-folder-count" class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
+      (count ? '<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
       '</div>' +
       '<div class="h-8 w-8 rounded-md bg-muted/50"></div>' +
       '</div>' +
       '<div class="mail-list-search-section">' +
       '<div class="mail-list-search-primary">' +
       '<div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
-      '<input type="text" placeholder="Quick search" disabled class="h-9 w-full pl-3 pr-3 rounded-lg text-sm bg-background border border-border/50 opacity-60" />' +
+      '<input type="text" placeholder="Search, or use from: subject: body: then Enter" disabled class="h-9 w-full pl-3 pr-3 rounded-lg text-sm bg-background border border-border/50 opacity-60" />' +
       '</div>' +
       '<div class="mail-list-search-actions">' +
       '<button type="button" disabled class="mail-list-quick-filter-button inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-muted-foreground opacity-60">' + pendingIcon("size-3.5") + '</button>' +
@@ -4159,10 +4327,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mailPendingHeaderHTML() {
     return '<div class="mail-list-header px-4 py-4 space-y-3">' +
-      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2><span id="mail-folder-count" class="h-5 w-10 rounded-full bg-muted animate-pulse"></span></div></div>' +
+      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="mail-list-search-section"><div class="mail-list-search-primary"><div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
           '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
-          '<input type="text" disabled placeholder="Quick search" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
+          '<input type="text" disabled placeholder="Search, or use from: subject: body: then Enter" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
         '</div><div class="mail-list-search-actions">' +
           pendingFilterButton("Filter messages", "mail-list-quick-filter-button relative inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-foreground opacity-70") +
           '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Advanced filters</span>' + pendingIcon("size-3.5") + '</button>' +
@@ -4245,7 +4413,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse"></span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + '</span>' + (i % 3 === 0 ? '<span data-mail-card-field="date">' + pendingBar("3rem", "block h-3") + '</span>' : "") + '</div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="subject">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3.5") + '</span></div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer"><span data-mail-card-field="preview" class="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"><span class="h-4 rounded-full border border-border bg-background animate-pulse" style="width:' + chipWidths[i % chipWidths.length] + '"></span>' + (i % 4 === 0 ? '<span class="h-4 w-16 rounded-full border border-border bg-background animate-pulse"></span>' : "") + '</span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer"><span data-mail-card-field="preview" class="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"><span class="h-4 rounded-full bg-muted animate-pulse" style="width:' + chipWidths[i % chipWidths.length] + '"></span>' + (i % 4 === 0 ? '<span class="h-4 w-16 rounded-full bg-muted animate-pulse"></span>' : "") + '</span></div>' +
       '</div></div>'
   }
 
@@ -5133,7 +5301,7 @@ function showSendStatus(status, text) {
     status: status,
     variant: config.variant,
     icon: config.icon,
-    position: "top-center",
+    position: "bottom-right",
     duration: duration,
     dismissible: status !== "sending"
   })
@@ -5213,7 +5381,7 @@ function showGoferToast(opts) {
   toast.setAttribute("popover", "manual")
   toast.dataset.tuiToast = ""
   toast.dataset.tuiToastDuration = String(duration)
-  toast.dataset.position = opts.position || "top-center"
+  toast.dataset.position = opts.position || "bottom-right"
   toast.dataset.variant = opts.variant || "default"
   toast.className = "z-50 fixed m-0 border-0 bg-transparent overflow-visible pointer-events-auto p-4 w-fit max-w-[calc(100vw-2rem)] md:max-w-[680px] animate-in fade-in slide-in-from-bottom-4 duration-300 data-[position=top-right]:top-0 data-[position=top-right]:right-0 data-[position=top-left]:top-0 data-[position=top-left]:left-0 data-[position=top-center]:top-0 data-[position=top-center]:left-1/2 data-[position=top-center]:-translate-x-1/2 data-[position=bottom-right]:bottom-0 data-[position=bottom-right]:right-0 data-[position=bottom-left]:bottom-0 data-[position=bottom-left]:left-0 data-[position=bottom-center]:bottom-0 data-[position=bottom-center]:left-1/2 data-[position=bottom-center]:-translate-x-1/2 data-[position*=top]:slide-in-from-top-4 data-[position*=bottom]:slide-in-from-bottom-4"
   if (opts.width) toast.style.width = opts.width

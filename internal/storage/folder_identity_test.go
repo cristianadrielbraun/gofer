@@ -56,8 +56,8 @@ func TestMigrateV65FolderIdentityRekeysReferencesAndAliases(t *testing.T) {
 	if err := db.Read().QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema version: %v", err)
 	}
-	if version != 70 {
-		t.Fatalf("schema version = %d, want 70", version)
+	if version != 72 {
+		t.Fatalf("schema version = %d, want 72", version)
 	}
 	for _, oldID := range []string{"legacy-root", "legacy-child", "gmail-inbox"} {
 		var count int

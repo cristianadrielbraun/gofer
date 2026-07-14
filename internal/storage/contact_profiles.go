@@ -146,6 +146,16 @@ func replaceContactFieldsTx(ctx context.Context, tx *sql.Tx, profile models.Cont
 			field.ID, profile.UserID, profile.ID, cardID, field.Kind, strings.TrimSpace(field.Label), field.Value, field.NormalizedValue, boolInt(field.IsPrimary), ordinal, strings.TrimSpace(field.Source), field.Confidence); err != nil {
 			return err
 		}
+		if field.IsPrimary {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO contact_field_preferences (user_id, profile_id, field_kind, preferred_normalized_value)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT(user_id, profile_id, field_kind) DO UPDATE SET
+					preferred_normalized_value = excluded.preferred_normalized_value,
+					updated_at = CURRENT_TIMESTAMP`, profile.UserID, profile.ID, field.Kind, field.NormalizedValue); err != nil {
+				return err
+			}
+		}
 		if field.Kind == "email" || field.Kind == "phone" {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO contact_identities (user_id, profile_id, kind, normalized_value, confidence)
@@ -186,6 +196,11 @@ func (db *DB) GetContactProfile(ctx context.Context, userID, profileID string) (
 	}
 	profile.Cards = cards
 	profile.Fields = fields
+	memberships, err := db.ListContactSyncMemberships(ctx, userID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	profile.SyncMemberships = memberships
 	profile.Insights = ContactProfileInsights(profile)
 	return &profile, nil
 }
@@ -397,6 +412,14 @@ func (db *DB) PreferContactField(ctx context.Context, userID, profileID, fieldID
 		UPDATE contact_fields
 		SET is_primary = 0, updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND profile_id = ? AND kind = ?`, userID, profileID, field.Kind); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO contact_field_preferences (user_id, profile_id, field_kind, preferred_normalized_value)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(user_id, profile_id, field_kind) DO UPDATE SET
+			preferred_normalized_value = excluded.preferred_normalized_value,
+			updated_at = CURRENT_TIMESTAMP`, userID, profileID, field.Kind, normalizeContactFieldValue(field.Kind, field.Value)); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `

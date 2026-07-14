@@ -93,6 +93,7 @@ type Contact struct {
 	AvatarSource          string
 	AvatarURL             string
 	AvatarDataURL         string
+	RemoveAvatar          bool
 	SourceBooks           []ContactAddressBook
 	SyncStatus            string
 	SyncError             string

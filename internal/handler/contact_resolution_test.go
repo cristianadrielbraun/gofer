@@ -22,6 +22,9 @@ func TestPreferContactFieldQueuesProviderSync(t *testing.T) {
 	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'jane@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
 	profile, err := db.SaveContactProfile(ctx, "default", models.ContactProfile{
 		DisplayName:  "Jane",
 		PrimaryEmail: "jane@example.com",
@@ -41,6 +44,9 @@ func TestPreferContactFieldQueuesProviderSync(t *testing.T) {
 		RemoteID:  "people/c1",
 	}); err != nil {
 		t.Fatalf("UpsertContactSource() error = %v", err)
+	}
+	if err := db.ReplaceContactSyncMemberships(ctx, "default", profile.ID, []string{"account:acc"}); err != nil {
+		t.Fatalf("ReplaceContactSyncMemberships() error = %v", err)
 	}
 
 	h := &Handler{db: db}

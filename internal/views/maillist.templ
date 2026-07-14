@@ -37,9 +37,9 @@ templ MailListHeader(activeFolder string, totalCount int) {
 			<div class="mail-list-title flex items-center gap-2 min-w-0">
 				<h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ folderDisplayName(activeFolder) }</h2>
 				if totalCount >= 0 {
-					<span id="mail-folder-count" class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+					<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
 				} else {
-					<span id="mail-folder-count" class="h-5 w-10 rounded-full bg-muted animate-pulse"></span>
+					<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span>
 				}
 			</div>
 		</div>
@@ -50,7 +50,7 @@ templ MailListHeader(activeFolder string, totalCount int) {
 					<input
 						type="text"
 						name="q"
-						placeholder="Quick search"
+						placeholder="Search, or use from: subject: body: then Enter"
 						class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none focus:ring-2 focus:ring-ring"
 						data-mail-search-input
 						autocomplete="off"

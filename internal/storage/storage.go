@@ -138,7 +138,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 70
+	const targetSchemaVersion = 72
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -567,6 +567,18 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 69 {
 		if err := migrateV69ToV70(tx); err != nil {
 			return fmt.Errorf("migrate v69 to v70: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 70 {
+		if err := migrateV70ToV71(tx); err != nil {
+			return fmt.Errorf("migrate v70 to v71: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 71 {
+		if err := migrateV71ToV72(tx); err != nil {
+			return fmt.Errorf("migrate v71 to v72: %w", err)
 		}
 	}
 
@@ -2995,6 +3007,102 @@ func migrateV69ToV70(tx *sql.Tx) error {
 		return err
 	}
 	return markSchemaVersion(tx, 70)
+}
+
+func migrateV70ToV71(tx *sql.Tx) error {
+	hasUsers, err := tableExistsTx(tx, "users")
+	if err != nil {
+		return err
+	}
+	if !hasUsers {
+		return markSchemaVersion(tx, 71)
+	}
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS contact_sync_memberships (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+			account_id TEXT NOT NULL DEFAULT '',
+			address_book_id TEXT NOT NULL DEFAULT '',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			status TEXT NOT NULL DEFAULT 'active',
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, profile_id, account_id, address_book_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sync_memberships_profile
+		 ON contact_sync_memberships(user_id, profile_id, enabled)`,
+		`CREATE INDEX IF NOT EXISTS idx_contact_sync_memberships_account
+		 ON contact_sync_memberships(account_id, enabled)`,
+		`CREATE TABLE IF NOT EXISTS contact_field_preferences (
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+			field_kind TEXT NOT NULL,
+			preferred_normalized_value TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, profile_id, field_kind)
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	hasCards, err := tableExistsTx(tx, "contact_cards")
+	if err != nil {
+		return err
+	}
+	if hasCards {
+		migrationSQL := `INSERT OR IGNORE INTO contact_sync_memberships
+			(id, user_id, profile_id, account_id, address_book_id, enabled, status)
+		 SELECT id, user_id, profile_id, account_id, address_book_id, 1, 'active'
+		 FROM contact_cards
+		 WHERE kind = 'target' AND is_deleted = 0 AND (account_id != '' OR address_book_id != '')`
+		hasBooks, err := tableExistsTx(tx, "account_contact_address_books")
+		if err != nil {
+			return err
+		}
+		if hasBooks {
+			migrationSQL = `INSERT OR IGNORE INTO contact_sync_memberships
+				(id, user_id, profile_id, account_id, address_book_id, enabled, status)
+			 SELECT cc.id, cc.user_id, cc.profile_id,
+			        COALESCE(NULLIF(cc.account_id, ''), (SELECT ab.account_id FROM account_contact_address_books ab WHERE ab.user_id = cc.user_id AND ab.id = cc.address_book_id), ''),
+			        cc.address_book_id, 1, 'active'
+			 FROM contact_cards cc
+			 WHERE cc.kind = 'target' AND cc.is_deleted = 0 AND (cc.account_id != '' OR cc.address_book_id != '')`
+		}
+		if _, err := tx.Exec(migrationSQL); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM contact_cards WHERE kind = 'target'`); err != nil {
+			return err
+		}
+	}
+	return markSchemaVersion(tx, 71)
+}
+
+func migrateV71ToV72(tx *sql.Tx) error {
+	hasUsers, err := tableExistsTx(tx, "users")
+	if err != nil {
+		return err
+	}
+	if !hasUsers {
+		return markSchemaVersion(tx, 72)
+	}
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS contact_field_preferences (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+		field_kind TEXT NOT NULL,
+		preferred_normalized_value TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (user_id, profile_id, field_kind)
+	)`); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 72)
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

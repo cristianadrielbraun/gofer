@@ -2247,6 +2247,7 @@ class VirtualMailList {
     }
     var countEl = document.getElementById("mail-folder-count")
     if (countEl) {
+      countEl.className = "inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
       countEl.textContent = String(this.displayTotalCount)
     }
     if (typeof syncMailDeleteActionState === "function") syncMailDeleteActionState()

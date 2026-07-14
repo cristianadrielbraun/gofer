@@ -582,10 +582,10 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 	if saveTarget == "local" {
 		where += ` AND EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'local' AND cc.is_deleted = 0)`
 	} else if accountID, ok := strings.CutPrefix(saveTarget, "account:"); ok && accountID != "" {
-		where += ` AND EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.account_id = ? AND cc.is_deleted = 0)`
+		where += ` AND EXISTS (SELECT 1 FROM contact_sync_memberships csm WHERE csm.user_id = p.user_id AND csm.profile_id = p.id AND csm.account_id = ? AND csm.enabled = 1)`
 		args = append(args, accountID)
 	} else if bookID, ok := strings.CutPrefix(saveTarget, "book:"); ok && bookID != "" {
-		where += ` AND EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.address_book_id = ? AND cc.is_deleted = 0)`
+		where += ` AND EXISTS (SELECT 1 FROM contact_sync_memberships csm WHERE csm.user_id = p.user_id AND csm.profile_id = p.id AND csm.address_book_id = ? AND csm.enabled = 1)`
 		args = append(args, bookID)
 	}
 	return where, args
@@ -1200,25 +1200,31 @@ func (db *DB) getProfileContactSaveTargets(ctx context.Context, userID, profileI
 		return nil, false, nil
 	}
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT kind, account_id, address_book_id
-		FROM contact_cards
-		WHERE user_id = ? AND profile_id = ? AND is_deleted = 0
-		ORDER BY CASE kind WHEN 'local' THEN 0 ELSE 1 END, account_id, address_book_id`, userID, profileID)
+		SELECT account_id, address_book_id
+		FROM contact_sync_memberships
+		WHERE user_id = ? AND profile_id = ? AND enabled = 1
+		ORDER BY account_id, address_book_id`, userID, profileID)
 	if err != nil {
 		return nil, true, err
 	}
 	defer rows.Close()
 	seen := make(map[string]bool)
 	var targets []string
+	var localCount int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_cards WHERE user_id = ? AND profile_id = ? AND kind = 'local' AND is_deleted = 0`, userID, profileID).Scan(&localCount); err != nil {
+		return nil, true, err
+	}
+	if localCount > 0 {
+		seen["local"] = true
+		targets = append(targets, "local")
+	}
 	for rows.Next() {
-		var kind, accountID, bookID string
-		if err := rows.Scan(&kind, &accountID, &bookID); err != nil {
+		var accountID, bookID string
+		if err := rows.Scan(&accountID, &bookID); err != nil {
 			return nil, true, err
 		}
 		target := ""
 		switch {
-		case kind == "local":
-			target = "local"
 		case strings.TrimSpace(bookID) != "":
 			target = "book:" + strings.TrimSpace(bookID)
 		case strings.TrimSpace(accountID) != "":
@@ -1251,15 +1257,21 @@ func (db *DB) AddContactSaveTarget(ctx context.Context, userID, contactID, targe
 		case target == "local":
 			card.Kind = "local"
 		case strings.HasPrefix(target, "account:"):
-			card.Kind = "target"
-			card.AccountID = strings.TrimSpace(strings.TrimPrefix(target, "account:"))
+			current, err := db.GetContactSaveTargets(ctx, userID, contactID)
+			if err != nil {
+				return err
+			}
+			return db.ReplaceContactSyncMemberships(ctx, userID, contactID, append(current, target))
 		case strings.HasPrefix(target, "book:"):
-			card.Kind = "target"
-			card.AddressBookID = strings.TrimSpace(strings.TrimPrefix(target, "book:"))
+			current, err := db.GetContactSaveTargets(ctx, userID, contactID)
+			if err != nil {
+				return err
+			}
+			return db.ReplaceContactSyncMemberships(ctx, userID, contactID, append(current, target))
 		default:
 			return nil
 		}
-		if card.Kind == "" || (card.Kind == "target" && card.AccountID == "" && card.AddressBookID == "") {
+		if card.Kind == "" {
 			return nil
 		}
 		return db.upsertContactCard(ctx, card)
@@ -1865,7 +1877,7 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		SortName:     name,
 		PrimaryEmail: email,
 		Notes:        strings.TrimSpace(contact.Notes),
-		Cards:        contactCardsForSaveTargets(userID, contactID, contact.SaveTargets),
+		Cards:        nil,
 		Fields: []models.ContactField{{
 			Kind:      "email",
 			Label:     contactStoredFieldLabel(contact.EmailLabel, "primary"),
@@ -1874,7 +1886,16 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 			Source:    "manual",
 		}},
 	}
+	profile.Fields = append(profile.Fields, models.ContactField{Kind: "name", Value: name, IsPrimary: true, Source: "manual"})
 	if existingProfile != nil {
+		profile.Cards = existingProfile.Cards
+	} else {
+		profile.Cards = []models.ContactCard{{UserID: userID, ProfileID: contactID, Kind: "local"}}
+	}
+	if avatarURL := strings.TrimSpace(contact.AvatarURL); avatarURL != "" {
+		profile.AvatarURL = avatarURL
+		profile.Fields = append(profile.Fields, models.ContactField{Kind: "avatar", Value: avatarURL, IsPrimary: true, Source: "manual"})
+	} else if existingProfile != nil && !contact.RemoveAvatar {
 		profile.AvatarURL = existingProfile.AvatarURL
 	}
 	if phone := strings.TrimSpace(contact.Phone); phone != "" {
@@ -1896,15 +1917,30 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		profile.Fields = append(profile.Fields, models.ContactField{Kind: "notes", Value: notes, IsPrimary: true, Source: "manual"})
 	}
 	if existingProfile != nil {
+		manualKinds := make(map[string]bool)
+		for _, field := range profile.Fields {
+			if field.Source == "manual" {
+				manualKinds[field.Kind] = true
+			}
+		}
 		for _, field := range existingProfile.Fields {
 			if field.Source == "manual" {
+				if field.Kind == "avatar" && strings.TrimSpace(contact.AvatarURL) == "" && !contact.RemoveAvatar {
+					profile.Fields = append(profile.Fields, field)
+				}
 				continue
+			}
+			if manualKinds[field.Kind] {
+				field.IsPrimary = false
 			}
 			profile.Fields = append(profile.Fields, field)
 		}
 	}
 	savedProfile, err := db.SaveContactProfile(ctx, userID, profile)
 	if err != nil {
+		return models.Contact{}, err
+	}
+	if err := db.ReplaceContactSyncMemberships(ctx, userID, savedProfile.ID, contact.SaveTargets); err != nil {
 		return models.Contact{}, err
 	}
 	saved, err := db.GetContact(ctx, userID, savedProfile.ID)
@@ -1915,31 +1951,6 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		_ = db.LogContactActivity(ctx, userID, "manual_contact_added", email, "Manual contact added", 1)
 	}
 	return *saved, nil
-}
-
-func contactCardsForSaveTargets(userID, profileID string, targets []string) []models.ContactCard {
-	targets = normalizeContactSaveTargets(targets)
-	cards := make([]models.ContactCard, 0, len(targets))
-	for _, target := range targets {
-		switch {
-		case target == "local":
-			cards = append(cards, models.ContactCard{UserID: userID, ProfileID: profileID, Kind: "local"})
-		case strings.HasPrefix(target, "account:"):
-			accountID := strings.TrimSpace(strings.TrimPrefix(target, "account:"))
-			if accountID != "" {
-				cards = append(cards, models.ContactCard{UserID: userID, ProfileID: profileID, Kind: "target", AccountID: accountID})
-			}
-		case strings.HasPrefix(target, "book:"):
-			bookID := strings.TrimSpace(strings.TrimPrefix(target, "book:"))
-			if bookID != "" {
-				cards = append(cards, models.ContactCard{UserID: userID, ProfileID: profileID, Kind: "target", AddressBookID: bookID})
-			}
-		}
-	}
-	if len(cards) == 0 {
-		cards = append(cards, models.ContactCard{UserID: userID, ProfileID: profileID, Kind: "local"})
-	}
-	return cards
 }
 
 func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, email string) (string, bool, error) {
@@ -1968,6 +1979,7 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 	var contactID string
 	var currentDisplay string
 	manualCount := 0
+	manualAvatarCount := 0
 	err = tx.QueryRowContext(ctx, `
 		SELECT ci.profile_id, cp.display_name
 		FROM contact_identities ci
@@ -1997,8 +2009,14 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 		}
 		created = true
 	} else {
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_fields WHERE user_id = ? AND profile_id = ? AND source = 'manual'`, userID, contactID).Scan(&manualCount); err != nil {
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*), COALESCE(SUM(CASE WHEN kind = 'avatar' THEN 1 ELSE 0 END), 0)
+			FROM contact_fields
+			WHERE user_id = ? AND profile_id = ? AND source = 'manual'`, userID, contactID).Scan(&manualCount, &manualAvatarCount); err != nil {
 			return "", false, err
+		}
+		if manualAvatarCount > 0 {
+			avatarURL = ""
 		}
 		if manualCount > 0 || (strings.TrimSpace(currentDisplay) != "" && normalizeContactEmail(currentDisplay) != normalized) {
 			display = currentDisplay
@@ -2051,27 +2069,6 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 			updated_at = CURRENT_TIMESTAMP`, userID, contactID, normalized); err != nil {
 		return "", false, err
 	}
-	var targetCardID string
-	err = tx.QueryRowContext(ctx, `
-		SELECT id
-		FROM contact_cards
-		WHERE user_id = ? AND profile_id = ? AND kind = 'target' AND account_id = ? AND address_book_id = '' AND remote_id = ''
-		ORDER BY updated_at DESC
-		LIMIT 1`, userID, contactID, accountID).Scan(&targetCardID)
-	if err != nil && err != sql.ErrNoRows {
-		return "", false, err
-	}
-	if targetCardID == "" {
-		targetCardID = uuid.NewString()
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO contact_cards (id, user_id, profile_id, kind, provider, account_id, address_book_id, remote_id, is_deleted)
-		VALUES (?, ?, ?, 'target', '', ?, '', '', 0)
-		ON CONFLICT(id) DO UPDATE SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP`,
-		targetCardID, userID, contactID, accountID); err != nil {
-		return "", false, err
-	}
-
 	if err := tx.Commit(); err != nil {
 		return "", false, err
 	}
@@ -2081,7 +2078,7 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 func replaceSyncedContactFieldsTx(ctx context.Context, tx *sql.Tx, userID, profileID, source string, contact models.Contact) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM contact_fields
-		WHERE user_id = ? AND profile_id = ? AND source = ? AND kind IN ('email', 'phone', 'organization', 'title', 'notes')`, userID, profileID, source); err != nil {
+		WHERE user_id = ? AND profile_id = ? AND source = ? AND kind IN ('name', 'email', 'phone', 'organization', 'title', 'notes')`, userID, profileID, source); err != nil {
 		return err
 	}
 	fields := []struct {
@@ -2089,6 +2086,7 @@ func replaceSyncedContactFieldsTx(ctx context.Context, tx *sql.Tx, userID, profi
 		label string
 		value string
 	}{
+		{kind: "name", value: contact.Name},
 		{kind: "email", label: contactStoredFieldLabel(contact.EmailLabel, "primary"), value: contact.Email},
 		{kind: "phone", label: contactStoredFieldLabel(contact.PhoneLabel, "primary"), value: contact.Phone},
 		{kind: "organization", value: contact.Organization},
@@ -2122,7 +2120,15 @@ func replaceSyncedContactFieldsTx(ctx context.Context, tx *sql.Tx, userID, profi
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_fields WHERE user_id = ? AND profile_id = ? AND kind = ? AND source = 'manual'`, userID, profileID, field.kind).Scan(&manualCount); err != nil {
 			return err
 		}
-		isPrimary := manualCount == 0 && field.label == "primary"
+		var preferredNormalized string
+		err := tx.QueryRowContext(ctx, `SELECT preferred_normalized_value FROM contact_field_preferences WHERE user_id = ? AND profile_id = ? AND field_kind = ?`, userID, profileID, field.kind).Scan(&preferredNormalized)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		isPrimary := preferredNormalized != "" && preferredNormalized == normalized
+		if preferredNormalized == "" {
+			isPrimary = manualCount == 0 && (field.label == "primary" || (field.kind != "email" && field.kind != "phone"))
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO contact_fields (id, user_id, profile_id, kind, label, value, normalized_value, is_primary, ordinal, source, confidence)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.9)`,

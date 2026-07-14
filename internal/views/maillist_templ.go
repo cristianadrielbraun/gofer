@@ -168,14 +168,14 @@ func MailListHeader(activeFolder string, totalCount int) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if totalCount >= 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<span id=\"mail-folder-count\" class=\"text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<span id=\"mail-folder-count\" class=\"inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 40, Col: 185}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 40, Col: 231}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -186,7 +186,7 @@ func MailListHeader(activeFolder string, totalCount int) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<span id=\"mail-folder-count\" class=\"h-5 w-10 rounded-full bg-muted animate-pulse\"></span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<span id=\"mail-folder-count\" class=\"inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse\"></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -199,7 +199,7 @@ func MailListHeader(activeFolder string, totalCount int) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<input type=\"text\" name=\"q\" placeholder=\"Quick search\" class=\"h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none focus:ring-2 focus:ring-ring\" data-mail-search-input autocomplete=\"off\"></div><div class=\"mail-list-search-actions\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<input type=\"text\" name=\"q\" placeholder=\"Search, or use from: subject: body: then Enter\" class=\"h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none focus:ring-2 focus:ring-ring\" data-mail-search-input autocomplete=\"off\"></div><div class=\"mail-list-search-actions\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

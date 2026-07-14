@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -79,6 +81,7 @@ const (
 	composeAttachmentMaxBytes     int64 = 25 << 20
 	composeMessageMaxBytes        int64 = 35 << 20
 	contactImportMaxBytes         int64 = 5 << 20
+	contactAvatarMaxBytes         int64 = 2 << 20
 	composeStagedAttachmentMaxAge       = 24 * time.Hour
 	outgoingSendTimeout                 = 5 * time.Minute
 )
@@ -763,6 +766,11 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(ctx)
 	additionalEmails, additionalEmailLabels := contactListFields(r.Form["additional_emails"], r.Form["additional_email_labels"])
 	additionalPhones, additionalPhoneLabels := contactListFields(r.Form["additional_phones"], r.Form["additional_phone_labels"])
+	avatarURL, removeAvatar, err := contactAvatarFromForm(r.FormValue("avatar_action"), r.FormValue("avatar_data_url"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	contact := models.Contact{
 		ID:                    strings.TrimSpace(r.URL.Query().Get("id")),
 		Name:                  strings.TrimSpace(r.FormValue("name")),
@@ -778,10 +786,16 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		Title:                 strings.TrimSpace(r.FormValue("title")),
 		Notes:                 strings.TrimSpace(r.FormValue("notes")),
 		SaveTargets:           h.contactSaveTargets(ctx, r.FormValue("save_targets")),
+		AvatarURL:             avatarURL,
+		RemoveAvatar:          removeAvatar,
 	}
 	var previous *models.Contact
 	if contact.ID != "" {
 		previous, _ = h.db.GetContact(ctx, userID, contact.ID)
+	}
+	if err := h.preflightNewContactSyncTargets(ctx, userID, contact, previous); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
 	}
 	saved, err := h.db.SaveContact(ctx, userID, contact)
 	if err != nil {
@@ -796,10 +810,61 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 			"contact_id":          saved.ID,
 			"location":            "/contacts?contact=" + saved.ID,
 			"contact_sync_queued": syncQueued,
+			"refresh_detail":      previous != nil,
+			"avatar_hash":         saved.AvatarHash,
+			"avatar_url":          saved.AvatarURL,
 		})
 		return
 	}
 	http.Redirect(w, r, "/contacts?contact="+saved.ID, http.StatusSeeOther)
+}
+
+func contactAvatarFromForm(action, rawDataURL string) (string, bool, error) {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "", "preserve":
+		return "", false, nil
+	case "remove":
+		return "", true, nil
+	case "replace":
+	default:
+		return "", false, fmt.Errorf("invalid contact avatar action")
+	}
+
+	rawDataURL = strings.TrimSpace(rawDataURL)
+	comma := strings.IndexByte(rawDataURL, ',')
+	if comma <= len("data:") || comma == len(rawDataURL)-1 {
+		return "", false, fmt.Errorf("invalid contact avatar")
+	}
+	mediaHeader := rawDataURL[len("data:"):comma]
+	if !strings.HasSuffix(strings.ToLower(mediaHeader), ";base64") {
+		return "", false, fmt.Errorf("invalid contact avatar")
+	}
+	mediaType, _, err := mime.ParseMediaType(mediaHeader[:len(mediaHeader)-len(";base64")])
+	if err != nil {
+		return "", false, fmt.Errorf("invalid contact avatar")
+	}
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	switch mediaType {
+	case "image/jpeg", "image/png", "image/webp":
+	default:
+		return "", false, fmt.Errorf("contact avatar must be a JPEG, PNG, or WebP image")
+	}
+	payload := rawDataURL[comma+1:]
+	if int64(base64.StdEncoding.DecodedLen(len(payload))) > contactAvatarMaxBytes {
+		return "", false, fmt.Errorf("contact avatar exceeds %d MB", contactAvatarMaxBytes>>20)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil || len(data) == 0 {
+		return "", false, fmt.Errorf("invalid contact avatar")
+	}
+	if int64(len(data)) > contactAvatarMaxBytes {
+		return "", false, fmt.Errorf("contact avatar exceeds %d MB", contactAvatarMaxBytes>>20)
+	}
+	detected := strings.ToLower(strings.TrimSpace(strings.SplitN(http.DetectContentType(data), ";", 2)[0]))
+	if detected != mediaType {
+		return "", false, fmt.Errorf("contact avatar content does not match its image type")
+	}
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data), false, nil
 }
 
 func contactListValues(rawValues ...string) []string {

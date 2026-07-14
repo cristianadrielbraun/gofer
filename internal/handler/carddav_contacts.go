@@ -532,9 +532,6 @@ func (h *Handler) syncCardDAVContacts(ctx context.Context, userID string, accoun
 				if err != nil {
 					return imported, err
 				}
-				if book.ID != "" {
-					_ = h.db.AddContactSaveTarget(ctx, userID, contactID, "book:"+book.ID)
-				}
 				if contactID != "" && remoteID != "" {
 					if err := h.db.UpsertContactSource(ctx, storage.ContactSource{
 						ContactID:     contactID,
@@ -620,14 +617,6 @@ func (h *Handler) pushContactToCardDAVAccount(ctx context.Context, userID string
 				copySource.AddressBookID = bookID
 				byBook[bookID] = &copySource
 				continue
-			}
-			if strings.TrimSpace(source.RemoteID) != "" {
-				if err := h.deleteCardDAVContact(ctx, userID, source); err != nil {
-					return err
-				}
-				if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, providers.ProviderCardDAV, accountID, source.RemoteID); err != nil {
-					return err
-				}
 			}
 		}
 		for _, book := range selectedBooks {

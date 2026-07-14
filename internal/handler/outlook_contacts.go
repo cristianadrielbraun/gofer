@@ -256,14 +256,28 @@ func (h *Handler) pushContactToOutlookAccount(ctx context.Context, userID string
 		return err
 	}
 	if source == nil || strings.TrimSpace(source.RemoteID) == "" {
-		remote, err := h.createOutlookContact(ctx, token, contact)
+		matches, err := h.searchOutlookContactsByEmail(ctx, token, contact.Email)
 		if err != nil {
-			return err
+			return fmt.Errorf("preflight Outlook contact: %w", err)
 		}
-		if strings.TrimSpace(remote.ID) == "" {
-			return fmt.Errorf("graph contacts api did not return a contact id")
+		if len(matches) > 1 {
+			return fmt.Errorf("Outlook has multiple contacts with %s; choose the copy to use before enabling Gofer Sync", contact.Email)
 		}
-		return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remote.ID, Etag: outlookContactVersion(remote)})
+		if len(matches) == 1 && strings.TrimSpace(matches[0].ID) != "" {
+			source = &storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: matches[0].ID, Etag: outlookContactVersion(matches[0])}
+			if err := h.db.UpsertContactSource(ctx, *source); err != nil {
+				return err
+			}
+		} else {
+			remote, err := h.createOutlookContact(ctx, token, contact)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(remote.ID) == "" {
+				return fmt.Errorf("graph contacts api did not return a contact id")
+			}
+			return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remote.ID, Etag: outlookContactVersion(remote)})
+		}
 	}
 
 	remote, err := h.updateOutlookContact(ctx, token, source.RemoteID, contact)

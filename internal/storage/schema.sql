@@ -812,6 +812,26 @@ ON contact_cards(user_id, provider, account_id, address_book_id, remote_id);
 CREATE INDEX IF NOT EXISTS idx_contact_cards_account
 ON contact_cards(account_id);
 
+CREATE TABLE IF NOT EXISTS contact_sync_memberships (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL DEFAULT '',
+    address_book_id TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'active',
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, profile_id, account_id, address_book_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sync_memberships_profile
+ON contact_sync_memberships(user_id, profile_id, enabled);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sync_memberships_account
+ON contact_sync_memberships(account_id, enabled);
+
 CREATE TABLE IF NOT EXISTS contact_fields (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -834,6 +854,16 @@ ON contact_fields(user_id, profile_id, kind, ordinal);
 
 CREATE INDEX IF NOT EXISTS idx_contact_fields_lookup
 ON contact_fields(user_id, kind, normalized_value);
+
+CREATE TABLE IF NOT EXISTS contact_field_preferences (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+    field_kind TEXT NOT NULL,
+    preferred_normalized_value TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, profile_id, field_kind)
+);
 
 CREATE TABLE IF NOT EXISTS contact_identities (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1039,4 +1069,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (70);
+INSERT OR REPLACE INTO schema_version (version) VALUES (72);
