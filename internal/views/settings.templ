@@ -696,6 +696,29 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 					}
 				</div>
 			</div>
+			<div class="flex flex-col gap-4 rounded-lg border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Email links</h4>
+					<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Open <span class="font-mono">mailto:</span> links from websites in a new Gofer message.</p>
+					<p id="mailto-handler-status" class="text-xs text-muted-foreground mt-2" data-mailto-handler-status>Your browser will ask you to confirm.</p>
+				</div>
+				<div class="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
+					<button type="button" class="inline-flex h-8 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 sm:w-auto" data-mailto-handler-button aria-describedby="mailto-handler-status">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
+							<circle cx="12" cy="12" r="4"></circle>
+							<path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"></path>
+						</svg>
+						Use Gofer
+					</button>
+					<button type="button" class="inline-flex h-8 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 sm:w-auto" data-mailto-handler-test-button aria-describedby="mailto-handler-status">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
+							<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+							<path d="m9 11 3 3L22 4"></path>
+						</svg>
+						Test email link
+					</button>
+				</div>
+			</div>
 		</div>
 	</div>
 	<script>

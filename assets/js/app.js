@@ -54,6 +54,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupBodyPrefetch()
   setupEmailBodyModeTabs()
   setupEmailTranslation()
+  setupMailtoIntent()
   setupMailSyncSidebarControls()
   setupMailSyncCancelControls()
   setupDesktopNotifications()
@@ -10255,6 +10256,19 @@ function composeValuesFromSource(source, mode) {
 
 function focusComposePrefill(form, mode) {
   if (!form) return
+  if (mode === "new") {
+    var newToInput = form.querySelector('[data-recipient-name="to"] [data-compose-recipient-input]')
+    var subjectInput = form.querySelector('input[name="subject"]')
+    var toValue = form.querySelector('input[name="to"]')
+    if ((!toValue || !String(toValue.value || "").trim()) && newToInput) {
+      newToInput.focus()
+      return
+    }
+    if (subjectInput && !String(subjectInput.value || "").trim()) {
+      subjectInput.focus()
+      return
+    }
+  }
   if (mode === "forward") {
     var toInput = form.querySelector('[data-recipient-name="to"] [data-compose-recipient-input]')
     if (toInput) {
@@ -10277,7 +10291,7 @@ function focusComposePrefill(form, mode) {
 
 function writeComposePrefill(form, vals, prefix, mode) {
   _writeComposeFormValues(form, vals, prefix)
-  setComposeMode(form, mode === "forward" ? "forward" : "reply")
+  setComposeMode(form, mode === "forward" ? "forward" : (mode === "new" ? "new" : "reply"))
   _showComposeOptionalFields(form, vals)
   setComposeAccount(form, vals.account_id)
   applyDefaultComposeSignature(form, true)
@@ -10285,23 +10299,142 @@ function writeComposePrefill(form, vals, prefix, mode) {
 }
 
 function openComposePrefill(vals, mode) {
-  if (!_activeComposeCanBeReplaced()) return
+  if (!_activeComposeCanBeReplaced()) return false
   var activePane = document.querySelector("[data-compose-pane]")
   if (activePane) {
     writeComposePrefill(document.getElementById("compose-pane-form"), vals, "compose-pane-", mode)
-    return
+    return true
   }
-  var view = composeViewPreference("reply")
+  var view = composeViewPreference(mode === "new" ? "new" : "reply")
   if ((view === "pane" || view === "full") && document.getElementById("mail-list") && document.getElementById("mail-view")) {
     fetch("/compose/pane").then(function (r) { return r.text() }).then(function (html) {
       writeComposePane(html, vals, view === "full", view === "full")
       writeComposePrefill(document.getElementById("compose-pane-form"), vals, "compose-pane-", mode)
     }).catch(function () {})
-    return
+    return true
   }
   var form = document.getElementById("compose-form")
   writeComposePrefill(form, vals, "compose-", mode)
   if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  return true
+}
+
+function mailtoDecodedPath(pathname) {
+  try {
+    return decodeURIComponent(pathname || "")
+  } catch (_) {
+    return pathname || ""
+  }
+}
+
+function parseMailtoIntent(raw) {
+  raw = String(raw || "").trim()
+  if (!raw || raw.length > 65536 || !/^mailto:/i.test(raw)) return null
+
+  var parsed
+  try {
+    parsed = new URL(raw)
+  } catch (_) {
+    return null
+  }
+  if (String(parsed.protocol || "").toLowerCase() !== "mailto:") return null
+
+  var headers = Object.create(null)
+  parsed.searchParams.forEach(function (value, key) {
+    key = String(key || "").toLowerCase()
+    if (!headers[key]) headers[key] = []
+    headers[key].push(value)
+  })
+
+  function joinedHeader(name) {
+    return (headers[name] || []).filter(function (value) { return String(value || "").trim() }).join(", ")
+  }
+
+  var pathRecipients = mailtoDecodedPath(parsed.pathname)
+  var to = [pathRecipients, joinedHeader("to")].filter(Boolean).join(", ")
+  var cc = joinedHeader("cc")
+  var bcc = joinedHeader("bcc")
+  return {
+    draft_id: "",
+    to: to,
+    cc: cc,
+    bcc: bcc,
+    subject: (headers.subject && headers.subject[0]) || "",
+    body: (headers.body && headers.body[0]) || "",
+    html_body: "",
+    compose_mode: "new",
+    in_reply_to: "",
+    references: "",
+    attachments: [],
+    inline_images: [],
+    _handlerTestToken: (headers["x-gofer-handler-test"] && headers["x-gofer-handler-test"][0]) || "",
+    _ccVisible: !!cc,
+    _bccVisible: !!bcc,
+    _composeDirty: "true"
+  }
+}
+
+function clearMailtoIntentFromURL() {
+  try {
+    var clean = new URL(window.location.href)
+    clean.searchParams.delete("mailto")
+    window.history.replaceState(window.history.state, "", clean.pathname + clean.search + clean.hash)
+  } catch (_) {}
+}
+
+function setupMailtoIntent() {
+  var params
+  try {
+    params = new URL(window.location.href).searchParams
+  } catch (_) {
+    return
+  }
+  if (!params.has("mailto")) return
+
+  var values = parseMailtoIntent(params.get("mailto"))
+  if (!values) {
+    clearMailtoIntentFromURL()
+    if (typeof showGoferToast === "function") {
+      showGoferToast({
+        id: "mailto-intent-error",
+        title: "Could not open email link",
+        description: "The mail link is invalid or too large.",
+        variant: "error",
+        icon: "error",
+        position: "bottom-right",
+        duration: 6000,
+        dismissible: true,
+      })
+    }
+    return
+  }
+
+  var handlerTest = false
+  try {
+    var expectedTestToken = window.localStorage.getItem("gofer_mailto_handler_test_token") || ""
+    handlerTest = !!values._handlerTestToken && values._handlerTestToken === expectedTestToken
+    if (handlerTest) window.localStorage.removeItem("gofer_mailto_handler_test_token")
+    window.localStorage.setItem("gofer_mailto_handler_state", JSON.stringify({ status: "confirmed", updated_at: Date.now() }))
+  } catch (_) {}
+
+  if (handlerTest) {
+    clearMailtoIntentFromURL()
+    if (typeof showGoferToast === "function") {
+      showGoferToast({
+        id: "mailto-handler-confirmed",
+        title: "Gofer opened the email link",
+        description: "Email-link handling was confirmed on this browser.",
+        variant: "success",
+        icon: "success",
+        position: "bottom-right",
+        duration: 6000,
+        dismissible: true,
+      })
+    }
+    return
+  }
+
+  if (openComposePrefill(values, "new")) clearMailtoIntentFromURL()
 }
 
 function handleReply(el, mode) {

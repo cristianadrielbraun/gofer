@@ -30,37 +30,44 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 
 		token := GetSessionToken(r)
 		if token == "" {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			redirectToLogin(w, r)
 			return
 		}
 
 		session, err := m.GetSessionByToken(r.Context(), token)
 		if err != nil {
 			log.Printf("session lookup error: %v", err)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			redirectToLogin(w, r)
 			return
 		}
 		if session == nil {
 			ClearSessionCookie(w)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			redirectToLogin(w, r)
 			return
 		}
 
 		user, err := m.GetUserByID(r.Context(), session.UserID)
 		if err != nil {
 			log.Printf("user lookup error: %v", err)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			redirectToLogin(w, r)
 			return
 		}
 		if user == nil {
 			ClearSessionCookie(w)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			redirectToLogin(w, r)
 			return
 		}
 
 		ctx := ContextWithUser(r.Context(), user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		SetReturnToCookie(w, r.URL.RequestURI())
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func isPublicPath(path string) bool {

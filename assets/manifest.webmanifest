@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "Gofer",
+  "short_name": "Gofer",
+  "description": "A self-hosted email client",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "/assets/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "mailto",
+      "url": "/?mailto=%s"
+    }
+  ]
+}

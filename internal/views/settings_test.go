@@ -37,6 +37,26 @@ func TestSettingsSyncTabIncludesUnifiedFoldersPanel(t *testing.T) {
 	}
 }
 
+func TestSettingsAdvancedTabIncludesEmailLinkRegistration(t *testing.T) {
+	var out bytes.Buffer
+	if err := SettingsAdvancedTab(nil).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsAdvancedTab.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Email links",
+		`data-mailto-handler-button`,
+		`data-mailto-handler-test-button`,
+		`data-mailto-handler-status`,
+		"Test email link",
+		"Use Gofer",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered advanced settings missing %q: %s", want, html)
+		}
+	}
+}
+
 func TestSettingsAccountCardKeepsPrimaryActionsVisibleAndMovesSecondaryActionsToMenu(t *testing.T) {
 	tests := []struct {
 		name             string

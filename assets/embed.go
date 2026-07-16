@@ -8,5 +8,5 @@ import "embed"
 //
 // Build with `-tags embedded_assets` after generating css/output.css.
 //
-//go:embed css/output.css js/*.js logo.svg logo.png
+//go:embed css/output.css js/*.js logo.svg logo.png manifest.webmanifest
 var FS embed.FS

@@ -385,6 +385,9 @@ func setupAssetsRoutes(mux *http.ServeMux) {
 	assetServer := http.FileServer(assetFileSystem())
 
 	assetHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".webmanifest") {
+			w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+		}
 		if isDevelopment {
 			w.Header().Set("Cache-Control", "no-store")
 		} else {
@@ -5585,7 +5588,12 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	_ = user
 	auth.SetSessionCookie(w, session.Token)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	returnTo := auth.GetReturnTo(r)
+	auth.ClearReturnToCookie(w)
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -5594,6 +5602,7 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		h.auth.DeleteSession(r.Context(), token)
 	}
 	auth.ClearSessionCookie(w)
+	auth.ClearReturnToCookie(w)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 

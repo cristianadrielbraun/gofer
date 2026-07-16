@@ -18,6 +18,7 @@ import (
 
 templ AppIcon() {
 	<link rel="icon" type="image/svg+xml" href="/assets/logo.svg"/>
+	<link rel="manifest" href="/assets/manifest.webmanifest"/>
 }
 
 templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {

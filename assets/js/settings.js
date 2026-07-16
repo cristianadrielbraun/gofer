@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupModePickers()
   setupAccountColorPickers()
   setupAccountSignaturesDialog(document)
+  setupEmailLinkHandler()
 
   function setupTestButtonAnimation() {
     document.body.addEventListener("htmx:beforeRequest", function (e) {
@@ -732,6 +733,111 @@ function setupSettingsSidebar() {
   })
 }
 
+function refreshEmailLinkHandler() {
+  var button = document.querySelector("[data-mailto-handler-button]")
+  var testButton = document.querySelector("[data-mailto-handler-test-button]")
+  var status = document.querySelector("[data-mailto-handler-status]")
+  if (!button || !status) return
+
+  if (!window.isSecureContext) {
+    button.disabled = true
+    if (testButton) testButton.disabled = true
+    status.textContent = "Available when Gofer is served over HTTPS or from localhost."
+    return
+  }
+  if (!navigator.registerProtocolHandler) {
+    button.disabled = true
+    if (testButton) testButton.disabled = true
+    status.textContent = "This browser does not support registering web email clients."
+    return
+  }
+
+  button.disabled = false
+  if (testButton) testButton.disabled = false
+  var state = readEmailLinkHandlerState()
+  if (state === "confirmed") {
+    status.textContent = "Previously confirmed on this browser. You can test it again if your browser settings have changed."
+  } else if (state === "requested") {
+    status.textContent = "Registration was requested on this browser. Test an email link to confirm it."
+  } else {
+    status.textContent = "Your browser will ask you to confirm. Installed Gofer apps can also handle links from other applications."
+  }
+}
+
+function readEmailLinkHandlerState() {
+  try {
+    var stored = JSON.parse(window.localStorage.getItem("gofer_mailto_handler_state") || "null")
+    return stored && (stored.status === "requested" || stored.status === "confirmed") ? stored.status : ""
+  } catch (_) {
+    return ""
+  }
+}
+
+function writeEmailLinkHandlerState(status) {
+  try {
+    var current = readEmailLinkHandlerState()
+    if (current === "confirmed" && status === "requested") return
+    window.localStorage.setItem("gofer_mailto_handler_state", JSON.stringify({ status: status, updated_at: Date.now() }))
+  } catch (_) {}
+}
+
+function setupEmailLinkHandler() {
+  refreshEmailLinkHandler()
+  if (setupEmailLinkHandler.ready) return
+  setupEmailLinkHandler.ready = true
+
+  document.addEventListener("click", function (event) {
+    var testButton = event.target.closest && event.target.closest("[data-mailto-handler-test-button]")
+    if (testButton && !testButton.disabled) {
+      event.preventDefault()
+      var token = ""
+      try {
+        token = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2)
+        window.localStorage.setItem("gofer_mailto_handler_test_token", token)
+      } catch (_) {}
+      window.location.href = "mailto:?x-gofer-handler-test=" + encodeURIComponent(token)
+      return
+    }
+
+    var button = event.target.closest && event.target.closest("[data-mailto-handler-button]")
+    if (!button || button.disabled) return
+    event.preventDefault()
+
+    var status = document.querySelector("[data-mailto-handler-status]")
+    try {
+      navigator.registerProtocolHandler("mailto", window.location.origin + "/?mailto=%s")
+      writeEmailLinkHandlerState("requested")
+      refreshEmailLinkHandler()
+      if (typeof showGoferToast === "function") {
+        showGoferToast({
+          id: "mailto-handler-registration",
+          title: "Email-link registration requested",
+          description: "Confirm the request in your browser to open mail links with Gofer.",
+          variant: "success",
+          icon: "success",
+          position: "bottom-right",
+          duration: 6000,
+          dismissible: true,
+        })
+      }
+    } catch (error) {
+      if (status) status.textContent = "Gofer could not request registration in this browser."
+      if (typeof showGoferToast === "function") {
+        showGoferToast({
+          id: "mailto-handler-registration",
+          title: "Could not register Gofer",
+          description: error && error.message ? error.message : "Check your browser's protocol-handler settings and try again.",
+          variant: "error",
+          icon: "error",
+          position: "bottom-right",
+          duration: 8000,
+          dismissible: true,
+        })
+      }
+    }
+  })
+}
+
 function settingsTabFromLocation() {
   var parts = window.location.pathname.replace(/\/+$/, "").split("/")
   var tab = parts[2] || "accounts"
@@ -770,6 +876,7 @@ document.body.addEventListener("htmx:afterSettle", function (e) {
   setupSettingsHistory()
   setSettingsSidebarActive(settingsTabFromLocation())
   setupModePickers()
+  setupEmailLinkHandler()
   requestAnimationFrame(function () {
     refreshModePickers(false)
   })

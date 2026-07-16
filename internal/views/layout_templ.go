@@ -45,7 +45,7 @@ func AppIcon() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<link rel=\"icon\" type=\"image/svg+xml\" href=\"/assets/logo.svg\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<link rel=\"icon\" type=\"image/svg+xml\" href=\"/assets/logo.svg\"><link rel=\"manifest\" href=\"/assets/manifest.webmanifest\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -103,7 +103,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 25, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 26, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -184,7 +184,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 49, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 50, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -197,7 +197,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(initialEmailID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 49, Col: 157}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 50, Col: 157}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -240,7 +240,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 53, Col: 203}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 54, Col: 203}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -494,7 +494,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 141, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 142, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -575,7 +575,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		var templ_7745c5c3_Var21 string
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 165, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 166, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 		if templ_7745c5c3_Err != nil {
@@ -691,7 +691,7 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 222, Col: 201}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 223, Col: 201}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -907,7 +907,7 @@ func ContactsLayout(accounts []models.Account, contacts []models.Contact, select
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 264, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 265, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -988,7 +988,7 @@ func ContactsLayout(accounts []models.Account, contacts []models.Contact, select
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 288, Col: 117}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 289, Col: 117}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {
@@ -1166,7 +1166,7 @@ func AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus,
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 346, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 347, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 		if templ_7745c5c3_Err != nil {
@@ -1243,7 +1243,7 @@ func AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus,
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 369, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 370, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 		if templ_7745c5c3_Err != nil {
@@ -1323,7 +1323,7 @@ func ResizeHandle(panel string) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(panel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 395, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 396, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 		if templ_7745c5c3_Err != nil {
@@ -1464,7 +1464,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 		var templ_7745c5c3_Var47 string
 		templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 454, Col: 200}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 455, Col: 200}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 		if templ_7745c5c3_Err != nil {
