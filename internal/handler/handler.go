@@ -2725,7 +2725,11 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	case providers.ProviderGmail:
+		h.writeConnectionTestResults(w, r, h.testGmailAPIMail(r.Context(), accountID), accountID)
+		return
+	case providers.ProviderOutlook:
 		h.writeConnectionTestResults(w, r, h.testOutlookGraphMail(r.Context(), accountID), accountID)
 		return
 	}
@@ -2738,7 +2742,9 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 
 	results := []models.ConnectionTestResult{}
 
-	imapErr := imap.TestConnection(r.Context(), cfg, password)
+	imapErr := runAccountConnectionTest(r.Context(), accountConnectionTestRetryDelay, func() error {
+		return imap.TestConnection(r.Context(), cfg, password)
+	})
 	imapResult := models.ConnectionTestResult{
 		Service: "imap",
 		Message: fmt.Sprintf("%s:%d (%s)", cfg.IMAPHost, cfg.IMAPPort, cfg.IMAPTLSMode),
@@ -2761,7 +2767,9 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		smtpPassword = smtpPw
 	}
 
-	smtpErr := smtpclient.TestConnection(r.Context(), cfg, smtpPassword)
+	smtpErr := runAccountConnectionTest(r.Context(), accountConnectionTestRetryDelay, func() error {
+		return smtpclient.TestConnection(r.Context(), cfg, smtpPassword)
+	})
 	smtpResult := models.ConnectionTestResult{
 		Service: "smtp",
 		Message: fmt.Sprintf("%s:%d (%s)", cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPTLSMode),

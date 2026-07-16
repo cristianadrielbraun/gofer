@@ -1832,6 +1832,9 @@ templ SettingsAccountCard(account models.Account) {
 				</div>
 			</div>
 		</div>
+		if !account.IsDeleting {
+			@SettingsAccountConnectionTestDialog(account)
+		}
 		if account.Provider == "gmail" && account.EmailSyncEnabled && !account.IsDeleting {
 			@dialog.Dialog(dialog.Props{ID: fmt.Sprintf("repair-account-%s", account.ID)}) {
 				@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
@@ -1921,13 +1924,114 @@ templ SettingsAccountCard(account models.Account) {
 	</div>
 }
 
+type accountConnectionTestService struct {
+	ID          string
+	Label       string
+	Description string
+}
+
+func accountConnectionTestServices(account models.Account) []accountConnectionTestService {
+	switch strings.ToLower(strings.TrimSpace(account.Provider)) {
+	case "gmail":
+		return []accountConnectionTestService{{
+			ID:          "gmail",
+			Label:       "Gmail API",
+			Description: "Checking Gmail API mail access...",
+		}}
+	case "outlook":
+		return []accountConnectionTestService{{
+			ID:          "graph",
+			Label:       "Microsoft Graph",
+			Description: "Checking Microsoft Graph mail access...",
+		}}
+	}
+	return []accountConnectionTestService{
+		{ID: "imap", Label: "IMAP", Description: "Checking incoming mail access..."},
+		{ID: "smtp", Label: "SMTP", Description: "Checking outgoing mail delivery..."},
+	}
+}
+
+templ AccountConnectionTestStateIcon() {
+	<span class="relative block size-5 shrink-0" aria-hidden="true">
+		<span class="account-test-state-icon text-muted-foreground" data-account-test-icon="testing">
+			@icon.LoaderCircle(icon.Props{Class: "size-5 animate-spin"})
+		</span>
+		<span class="account-test-state-icon text-emerald-600 dark:text-emerald-400" data-account-test-icon="success">
+			@icon.CircleCheck(icon.Props{Class: "size-5"})
+		</span>
+		<span class="account-test-state-icon text-destructive" data-account-test-icon="error">
+			@icon.CircleX(icon.Props{Class: "size-5"})
+		</span>
+	</span>
+}
+
+templ SettingsAccountConnectionTestDialog(account models.Account) {
+	{{ dialogID := fmt.Sprintf("test-account-%s", account.ID) }}
+	@dialog.Dialog(dialog.Props{ID: dialogID}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Test Account Connection
+				}
+			}
+			<div class="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3" data-account-test-identity>
+				<div class="account-color-marker size-5 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
+				<div class="min-w-0 flex-1">
+					<p class="truncate text-sm font-medium">{ account.Name }</p>
+					<p class="truncate text-xs text-muted-foreground">{ account.Email }</p>
+				</div>
+			</div>
+			<div class="space-y-3" data-account-test-status aria-live="polite">
+				<div class="grid grid-cols-1 gap-3">
+					for _, service := range accountConnectionTestServices(account) {
+						<div
+							class="account-test-service-card flex min-h-[72px] items-center gap-3 rounded-lg border p-3"
+							data-account-test-service={ service.ID }
+							data-account-test-loading-label={ service.Description }
+							data-state="testing"
+						>
+							@AccountConnectionTestStateIcon()
+							<div class="min-w-0 flex-1">
+								<p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ service.Label }</p>
+								<p class="mt-0.5 text-xs font-medium text-foreground" data-account-test-service-status>{ service.Description }</p>
+								<p class="mt-0.5 hidden break-words text-xs text-muted-foreground" data-account-test-service-detail></p>
+							</div>
+						</div>
+					}
+				</div>
+			</div>
+			@dialog.Footer() {
+				@dialog.Close() {
+					<button type="button" class="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">
+						Close
+					</button>
+				}
+				<button
+					type="button"
+					class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+					hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
+					hx-swap="none"
+					hx-on::before-request="handleAccountTestStart(event)"
+					hx-on::after-request="handleAccountTestResult(event)"
+					data-account-test-dialog={ dialogID }
+					data-account-test-retry
+					disabled
+				>
+					@icon.RefreshCw(icon.Props{Class: "size-4"})
+					Test Again
+				</button>
+			}
+		}
+	}
+}
+
 templ SettingsAccountActionsMenu(account models.Account) {
 	@dropdown.Dropdown(dropdown.Props{ID: fmt.Sprintf("account-actions-menu-%s", account.ID)}) {
 		@dropdown.Trigger() {
 			@button.Button(button.Props{
 				Variant: button.VariantOutline,
 				Size:    button.SizeIcon,
-				Class:   "size-[30px] text-muted-foreground shadow-none",
+				Class:   "account-action-btn size-[30px] text-muted-foreground hover:text-foreground shadow-none",
 				Attributes: templ.Attributes{
 					"aria-label": fmt.Sprintf("More actions for %s", account.Name),
 				},
@@ -1939,22 +2043,26 @@ templ SettingsAccountActionsMenu(account models.Account) {
 			@dropdown.Label(dropdown.LabelProps{Class: "text-[10px] uppercase tracking-wider text-muted-foreground"}) {
 				Account actions
 			}
-			@dropdown.Item(dropdown.ItemProps{
-				ID:    fmt.Sprintf("test-btn-%s", account.ID),
-				Class: "justify-start gap-2",
-				Attributes: templ.Attributes{
-					"type":                        "button",
-					"data-test-btn":               "",
-					"data-account-id":             account.ID,
-					"data-account-primary-action": "test",
-					"hx-post":                     fmt.Sprintf("/api/accounts/%s/test", account.ID),
-					"hx-swap":                     "none",
-				},
-			}) {
-				<span data-test-btn-content class="inline-flex items-center gap-2">
+			@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("test-account-%s", account.ID)}) {
+				{{ testDialogID := fmt.Sprintf("test-account-%s", account.ID) }}
+				@dropdown.Item(dropdown.ItemProps{
+					ID:    fmt.Sprintf("test-btn-%s", account.ID),
+					Class: "justify-start gap-2",
+					Attributes: templ.Attributes{
+						"type":                         "button",
+						"data-account-id":              account.ID,
+						"data-account-primary-action":  "test",
+						"data-account-test-dialog-open": "",
+						"data-account-test-dialog":      testDialogID,
+						"hx-post":                      fmt.Sprintf("/api/accounts/%s/test", account.ID),
+						"hx-swap":                      "none",
+						"hx-on::before-request":         "handleAccountTestStart(event)",
+						"hx-on::after-request":          "handleAccountTestResult(event)",
+					},
+				}) {
 					@icon.Wifi(icon.Props{Class: "size-3.5"})
 					Test
-				</span>
+				}
 			}
 			if account.Provider == "gmail" {
 				@GmailReauthForm(account)

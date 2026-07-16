@@ -987,6 +987,51 @@ input[role="switch"] + .gofer-switch-track::after {
   background: var(--secondary);
 }
 
+.account-test-service-card {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--muted) 28%, var(--card));
+  transition:
+    background-color 320ms ease,
+    border-color 320ms ease,
+    box-shadow 320ms ease,
+    transform 320ms ease;
+}
+
+.account-test-service-card[data-state="success"] {
+  border-color: color-mix(in srgb, #10b981 28%, var(--border));
+  background: color-mix(in srgb, #10b981 10%, var(--card));
+  box-shadow: 0 1px 0 color-mix(in srgb, #10b981 14%, transparent);
+}
+
+.account-test-service-card[data-state="error"] {
+  border-color: color-mix(in srgb, var(--destructive) 28%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 10%, var(--card));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--destructive) 12%, transparent);
+}
+
+.account-test-state-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(.72) rotate(-8deg);
+  transition: opacity 220ms ease, transform 320ms cubic-bezier(.2,.8,.2,1);
+}
+
+[data-state="testing"] .account-test-state-icon[data-account-test-icon="testing"],
+[data-state="success"] .account-test-state-icon[data-account-test-icon="success"],
+[data-state="error"] .account-test-state-icon[data-account-test-icon="error"] {
+  opacity: 1;
+  transform: scale(1) rotate(0);
+}
+
+[data-state="success"] .account-test-state-icon[data-account-test-icon="testing"],
+[data-state="error"] .account-test-state-icon[data-account-test-icon="testing"] {
+  transform: scale(.72) rotate(16deg);
+}
+
 .settings-select .select-trigger,
 .settings-select .select-item,
 [data-avatar-admin] .select-trigger,

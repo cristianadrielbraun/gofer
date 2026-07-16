@@ -109,6 +109,19 @@ func TestSettingsAccountCardKeepsPrimaryActionsVisibleAndMovesSecondaryActionsTo
 				`id="account-actions-menu-` + tt.account.ID + `"`,
 				`aria-label="More actions for ` + tt.account.Name + `"`,
 				`data-account-actions-menu="` + tt.account.ID + `"`,
+				`id="test-account-` + tt.account.ID + `"`,
+				`data-account-test-dialog-open`,
+				`hx-post="/api/accounts/` + tt.account.ID + `/test"`,
+				`hx-swap="none"`,
+				`data-account-test-service`,
+				`data-account-test-icon="testing"`,
+				`data-account-test-icon="success"`,
+				`data-account-test-retry`,
+				`data-account-test-identity`,
+				tt.account.Name,
+				tt.account.Email,
+				"Test Account Connection",
+				"Test Again",
 				"Account actions",
 			} {
 				if !strings.Contains(html, want) {
@@ -117,6 +130,49 @@ func TestSettingsAccountCardKeepsPrimaryActionsVisibleAndMovesSecondaryActionsTo
 			}
 			if got := strings.Count(html, `data-account-primary-action=`); got != 2 {
 				t.Errorf("primary action count = %d, want 2", got)
+			}
+			if got := strings.Count(html, `account-action-btn`); got != 2 {
+				t.Errorf("account action style count = %d, want 2", got)
+			}
+			if strings.Contains(html, `data-test-btn`) {
+				t.Errorf("account card should not render the removed inline test-button animation hook")
+			}
+			if strings.Contains(html, `data-account-test-summary`) {
+				t.Errorf("account test dialog should render only provider service cards: %s", html)
+			}
+			if strings.Contains(html, "Gofer will check the configured mail services") {
+				t.Errorf("account test dialog should not render the removed subtitle: %s", html)
+			}
+			switch tt.account.Provider {
+			case "gmail":
+				if got := strings.Count(html, `data-account-test-service=`); got != 1 {
+					t.Errorf("Gmail account test service count = %d, want 1", got)
+				}
+				if !strings.Contains(html, `data-account-test-service="gmail"`) || !strings.Contains(html, "Gmail API") {
+					t.Errorf("Gmail account card should render the Gmail API test section: %s", html)
+				}
+				if strings.Contains(html, `data-account-test-service="imap"`) || strings.Contains(html, `data-account-test-service="smtp"`) {
+					t.Errorf("Gmail account card should not render IMAP/SMTP test sections: %s", html)
+				}
+			case "outlook":
+				if got := strings.Count(html, `data-account-test-service=`); got != 1 {
+					t.Errorf("Outlook account test service count = %d, want 1", got)
+				}
+				if !strings.Contains(html, `data-account-test-service="graph"`) {
+					t.Errorf("Outlook account card should render the Graph test section: %s", html)
+				}
+				if strings.Contains(html, `data-account-test-service="imap"`) || strings.Contains(html, `data-account-test-service="smtp"`) {
+					t.Errorf("Outlook account card should not render IMAP/SMTP test sections: %s", html)
+				}
+			default:
+				if got := strings.Count(html, `data-account-test-service=`); got != 2 {
+					t.Errorf("account test service count = %d, want 2", got)
+				}
+				for _, service := range []string{"imap", "smtp"} {
+					if !strings.Contains(html, `data-account-test-service="`+service+`"`) {
+						t.Errorf("account card missing %s test section: %s", service, html)
+					}
+				}
 			}
 			for _, action := range tt.secondaryActions {
 				if !strings.Contains(html, `data-account-secondary-action="`+action+`"`) {

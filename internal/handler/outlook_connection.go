@@ -27,7 +27,9 @@ func (h *Handler) testOutlookGraphMail(ctx context.Context, accountID string) []
 			ID string `json:"id"`
 		} `json:"value"`
 	}
-	if err := h.doOutlookJSON(ctx, http.MethodGet, outlookGraphMailFoldersProbeEndpoint(), token, nil, &response); err != nil {
+	if err := runAccountConnectionTest(ctx, accountConnectionTestRetryDelay, func() error {
+		return h.doOutlookJSON(ctx, http.MethodGet, outlookGraphMailFoldersProbeEndpoint(), token, nil, &response)
+	}); err != nil {
 		result.Error = err.Error()
 		return []models.ConnectionTestResult{result}
 	}
