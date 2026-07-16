@@ -987,10 +987,6 @@ input[role="switch"] + .gofer-switch-track::after {
   background: var(--secondary);
 }
 
-.account-action-btn-danger:hover {
-  background: color-mix(in srgb, var(--destructive) 10%, var(--card));
-}
-
 .settings-select .select-trigger,
 .settings-select .select-item,
 [data-avatar-admin] .select-trigger,

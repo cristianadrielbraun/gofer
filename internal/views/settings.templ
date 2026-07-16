@@ -913,7 +913,7 @@ templ SettingsContactsTab(accounts []models.Account, uiSettings map[string]strin
 }
 
 templ GmailReauthForm(account models.Account) {
-	<form method="POST" action="/api/accounts/oauth2/authorize">
+	<form method="POST" action="/api/accounts/oauth2/authorize" class="contents">
 		<input type="hidden" name="flow_action" value="reconnect"/>
 		<input type="hidden" name="provider" value="gmail"/>
 		<input type="hidden" name="email_address" value={ account.Email }/>
@@ -926,23 +926,23 @@ templ GmailReauthForm(account models.Account) {
 		<input type="hidden" name="smtp_tls_mode" value="tls"/>
 		<input type="hidden" name="auth_method" value="oauth2"/>
 		<input type="hidden" name="username" value={ account.Email }/>
-		<button type="submit" class="account-action-btn inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border">
+		@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "submit", "data-account-secondary-action": "reconnect"}}) {
 			@icon.RefreshCw(icon.Props{Class: "size-3.5"})
 			Reconnect
-		</button>
+		}
 	</form>
 }
 
 templ OutlookReauthForm(account models.Account) {
-	<form method="POST" action="/api/accounts/oauth2/authorize">
+	<form method="POST" action="/api/accounts/oauth2/authorize" class="contents">
 		<input type="hidden" name="flow_action" value="reconnect"/>
 		<input type="hidden" name="provider" value="outlook"/>
 		<input type="hidden" name="email_address" value={ account.Email }/>
 		<input type="hidden" name="display_name" value={ account.Name }/>
-		<button type="submit" class="account-action-btn inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border">
+		@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "submit", "data-account-secondary-action": "reconnect"}}) {
 			@icon.RefreshCw(icon.Props{Class: "size-3.5"})
 			Reconnect
-		</button>
+		}
 	</form>
 }
 
@@ -1766,14 +1766,11 @@ templ SettingsAccountCard(account models.Account) {
 				<div class="flex min-w-0 items-start gap-3">
 					@AccountColorPopover(account)
 					<div class="min-w-0">
-						<div class="flex flex-wrap items-center gap-2">
-							<p class="min-w-0 truncate text-sm font-semibold text-foreground">{ account.Name }</p>
-							<span class="rounded-md border border-border/70 bg-muted/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{ accountProviderName(account.Provider) }</span>
-						</div>
+						<p class="min-w-0 truncate text-sm font-semibold text-foreground">{ account.Name }</p>
 						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ account.Email }</p>
 					</div>
 				</div>
-				<div class="flex flex-wrap items-center gap-2 sm:justify-end" data-account-actions>
+				<div class="flex shrink-0 items-center gap-2 self-end sm:self-auto sm:justify-end" data-account-actions>
 					if account.IsDeleting {
 						<button type="button" data-account-deleting-status role="status" aria-live="polite" class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default" disabled>
 							@icon.RefreshCw(icon.Props{Class: "size-3.5 animate-spin"})
@@ -1781,7 +1778,9 @@ templ SettingsAccountCard(account models.Account) {
 						</button>
 					} else {
 						<button
-							class="account-action-btn inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1.5 rounded-md border border-border"
+							type="button"
+							data-account-primary-action="edit"
+							class="account-action-btn inline-flex h-[30px] items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 rounded-md border border-border"
 							hx-get={ fmt.Sprintf("/api/accounts/%s/edit", account.ID) }
 							hx-target="#edit-account-container"
 							hx-swap="innerHTML"
@@ -1789,45 +1788,7 @@ templ SettingsAccountCard(account models.Account) {
 							@icon.Pencil(icon.Props{Class: "size-3.5"})
 							Edit
 						</button>
-						<button
-							id={ fmt.Sprintf("test-btn-%s", account.ID) }
-							data-test-btn
-							data-account-id={ account.ID }
-							class="account-action-btn inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-all duration-300 px-2.5 py-1.5 rounded-md border border-border"
-							hx-post={ fmt.Sprintf("/api/accounts/%s/test", account.ID) }
-							hx-swap="none"
-						>
-							<span data-test-btn-content class="inline-flex items-center gap-1.5">
-								@icon.Wifi(icon.Props{Class: "size-3.5"})
-								Test
-							</span>
-						</button>
-						if account.Provider == "gmail" {
-							@GmailReauthForm(account)
-							if account.EmailSyncEnabled {
-								@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("repair-account-%s", account.ID)}) {
-									<button
-										type="button"
-										data-mail-account-sync-button={ account.ID }
-										class="account-action-btn inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-									>
-										@icon.RefreshCw(icon.Props{Class: "size-3.5"})
-										Repair
-									</button>
-								}
-							}
-						} else if account.Provider == "outlook" {
-							@OutlookReauthForm(account)
-						}
-						@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("delete-account-%s", account.ID)}) {
-							<button
-								type="button"
-								class="account-action-btn account-action-btn-danger inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors px-2.5 py-1.5 rounded-md border border-border hover:border-destructive/30"
-							>
-								@icon.Trash2(icon.Props{Class: "size-3.5"})
-								Delete
-							</button>
-						}
+						@SettingsAccountActionsMenu(account)
 					}
 				</div>
 			</div>
@@ -1836,9 +1797,15 @@ templ SettingsAccountCard(account models.Account) {
 					<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Enabled services</p>
 					<p class="text-[11px] text-muted-foreground">Use Edit to enable/disable services.</p>
 				</div>
-				<div class="flex flex-wrap gap-2">
-					@AccountServiceIndicator(account, "email", "Email", "Fetches mail and keeps folders up to date.", account.EmailSyncEnabled)
-					@AccountServiceIndicator(account, "contacts", "Contacts", accountContactSyncStatusDescription(account), account.ContactSyncEnabled)
+				<div class="flex items-end justify-between gap-3">
+					<div class="flex flex-wrap gap-2">
+						@AccountServiceIndicator(account, "email", "Email", "Fetches mail and keeps folders up to date.", account.EmailSyncEnabled)
+						@AccountServiceIndicator(account, "contacts", "Contacts", accountContactSyncStatusDescription(account), account.ContactSyncEnabled)
+					</div>
+					<span class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+						@AccountProviderIcon(account.Provider, "size-3.5 shrink-0")
+						{ accountProviderName(account.Provider) }
+					</span>
 				</div>
 			</div>
 		</div>
@@ -1930,6 +1897,78 @@ templ SettingsAccountCard(account models.Account) {
 		}
 	</div>
 }
+
+templ SettingsAccountActionsMenu(account models.Account) {
+	@dropdown.Dropdown(dropdown.Props{ID: fmt.Sprintf("account-actions-menu-%s", account.ID)}) {
+		@dropdown.Trigger() {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Size:    button.SizeIcon,
+				Class:   "size-[30px] text-muted-foreground shadow-none",
+				Attributes: templ.Attributes{
+					"aria-label": fmt.Sprintf("More actions for %s", account.Name),
+				},
+			}) {
+				@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+			}
+		}
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-48 normal-case tracking-normal", Attributes: templ.Attributes{"data-account-actions-menu": account.ID}}) {
+			@dropdown.Label(dropdown.LabelProps{Class: "text-[10px] uppercase tracking-wider text-muted-foreground"}) {
+				Account actions
+			}
+			@dropdown.Item(dropdown.ItemProps{
+				ID:    fmt.Sprintf("test-btn-%s", account.ID),
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":                        "button",
+					"data-test-btn":               "",
+					"data-account-id":             account.ID,
+					"data-account-primary-action": "test",
+					"hx-post":                     fmt.Sprintf("/api/accounts/%s/test", account.ID),
+					"hx-swap":                     "none",
+				},
+			}) {
+				<span data-test-btn-content class="inline-flex items-center gap-2">
+					@icon.Wifi(icon.Props{Class: "size-3.5"})
+					Test
+				</span>
+			}
+			if account.Provider == "gmail" {
+				@GmailReauthForm(account)
+				if account.EmailSyncEnabled {
+					@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("repair-account-%s", account.ID)}) {
+						@dropdown.Item(dropdown.ItemProps{
+							Class: "justify-start gap-2",
+							Attributes: templ.Attributes{
+								"type":                          "button",
+								"data-account-secondary-action": "repair",
+								"data-mail-account-sync-button": account.ID,
+							},
+						}) {
+							@icon.Wrench(icon.Props{Class: "size-3.5"})
+							Repair
+						}
+					}
+				}
+			} else if account.Provider == "outlook" {
+				@OutlookReauthForm(account)
+			}
+			@dropdown.Separator()
+			@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("delete-account-%s", account.ID)}) {
+				@dropdown.Item(dropdown.ItemProps{
+					Class: "justify-start gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive",
+					Attributes: templ.Attributes{
+						"type":                          "button",
+						"data-account-secondary-action": "delete",
+					},
+				}) {
+					@icon.Trash2(icon.Props{Class: "size-3.5"})
+					Delete
+				}
+			}
+		}
+	}
+}
 	templ AccountServiceIndicator(account models.Account, service string, label string, description string, enabled bool) {
 		<div
 			title={ description }
@@ -1944,12 +1983,9 @@ templ SettingsAccountCard(account models.Account) {
 				@icon.Mail(icon.Props{Class: "size-3"})
 			} else {
 				@icon.Users(icon.Props{Class: "size-3"})
-			}
-			<span>{ label }</span>
-			if service == "contacts" && account.ContactSyncEnabled {
-				<span class="text-[10px] opacity-75">{ contactProviderLabel(account) }</span>
-			}
-			<span class="text-[10px] font-semibold uppercase tracking-wide opacity-75">{ serviceStateLabel(enabled) }</span>
+		}
+		<span>{ label }</span>
+		<span class="text-[10px] font-semibold uppercase tracking-wide opacity-75">{ serviceStateLabel(enabled) }</span>
 		</div>
 	}
 
@@ -1983,6 +2019,21 @@ func accountProviderName(provider string) string {
 		return "Outlook"
 	default:
 		return "IMAP"
+	}
+}
+
+templ AccountProviderIcon(provider string, class string) {
+	if strings.TrimSpace(provider) == "gmail" {
+		<svg class={ class } role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+			<title>Gmail</title>
+			<path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457Z"/>
+		</svg>
+	} else if strings.TrimSpace(provider) == "outlook" {
+		<svg class={ class } viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+			<path d="m13 4.69375 0 5.239c0 .115-.04.212-.119.288-.079.077-.176.115-.29.115h-4.2735v-3.4795l.8.6145c.051.0425.1145.063.1895.063.074 0 .1385-.0205.1945-.0635L13 4.69375Zm-4.6825-1.0105h4.2735c.1055 0 .1965.0315.2715.096.075.064.117.15.124.255l-3.6845 2.938-.9845-.7745v-2.5145Zm-.6155-2.251v11.1355L1 11.40975v-8.7875l6.703-1.19-.001 0Zm-2.0245 5.59c-.01-.5665-.1565-1.036-.4395-1.407-.2775-.37-.6375-.5655-1.0655-.582-.412.0165-.7645.2115-1.05.582-.285.371-.4275.841-.435 1.407.0075.5585.1575 1.0235.4425 1.3955.2855.37.637.5665 1.0505.588.4275-.0175.787-.212 1.0725-.585.285-.374.435-.84.4425-1.3985h-.018Zm-1.56-1.241c.2155.01.397.128.5415.3585.1425.2305.2175.5225.2175.876 0 .3605-.0745.6535-.2175.8855-.1505.232-.33.352-.548.352-.218 0-.3975-.113-.5475-.345-.15-.232-.2175-.525-.2175-.877 0-.3525.0675-.6455.2175-.87.142-.225.323-.345.5405-.3605l.0135-.0195Z"/>
+		</svg>
+	} else {
+		@icon.Mail(icon.Props{Class: class})
 	}
 }
 
@@ -2356,10 +2407,7 @@ templ ChooseAccountTypeDialog() {
 		<div class="space-y-3 px-1 pt-2 pb-4">
 				<button type="button" onclick="if(window.tui&&window.tui.dialog){window.tui.dialog.close('choose-account-type-dialog')}setTimeout(function(){if(window.tui&&window.tui.dialog)window.tui.dialog.open('add-account-dialog')},150)" class="w-full group flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all duration-200 text-left">
 					<div class="flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-muted-foreground group-hover:text-foreground transition-colors">
-						<svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<rect width="20" height="16" x="2" y="4" rx="2"/>
-							<path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
-						</svg>
+						@AccountProviderIcon("imap", "size-5")
 					</div>
 					<div class="flex-1 min-w-0">
 						<div class="text-sm font-medium text-foreground">IMAP / SMTP</div>
@@ -2369,12 +2417,7 @@ templ ChooseAccountTypeDialog() {
 				</button>
 				<button type="button" onclick="if(window.tui&&window.tui.dialog){window.tui.dialog.close('choose-account-type-dialog')}setTimeout(function(){if(window.tui&&window.tui.dialog)window.tui.dialog.open('gmail-account-dialog')},150)" class="w-full group flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all duration-200 text-left">
 					<div class="flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-muted-foreground group-hover:text-foreground transition-colors">
-						<svg class="size-5" viewBox="0 0 24 24">
-							<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="currentColor" opacity="0.8"/>
-							<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="currentColor" opacity="0.6"/>
-							<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="currentColor" opacity="0.4"/>
-							<path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="currentColor" opacity="0.9"/>
-						</svg>
+						@AccountProviderIcon("gmail", "size-5")
 					</div>
 					<div class="flex-1 min-w-0">
 						<div class="text-sm font-medium text-foreground">Gmail</div>
@@ -2384,12 +2427,7 @@ templ ChooseAccountTypeDialog() {
 				</button>
 				<button type="button" onclick="if(window.tui&&window.tui.dialog){window.tui.dialog.close('choose-account-type-dialog')}setTimeout(function(){if(window.tui&&window.tui.dialog)window.tui.dialog.open('outlook-account-dialog')},150)" class="w-full group flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all duration-200 text-left">
 					<div class="flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-muted-foreground group-hover:text-foreground transition-colors">
-						<svg class="size-5" viewBox="0 0 24 24" aria-hidden="true">
-							<rect x="3" y="3" width="8" height="8" rx="1" fill="currentColor" opacity="0.9"/>
-							<rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor" opacity="0.65"/>
-							<rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor" opacity="0.45"/>
-							<rect x="13" y="13" width="8" height="8" rx="1" fill="currentColor" opacity="0.8"/>
-						</svg>
+						@AccountProviderIcon("outlook", "size-5")
 					</div>
 					<div class="flex-1 min-w-0">
 						<div class="text-sm font-medium text-foreground">Outlook</div>
@@ -2450,12 +2488,7 @@ templ GmailAccountDialog() {
 					</div>
 				</div>
 				<button type="submit" class="w-full inline-flex items-center justify-center gap-2.5 text-sm font-medium px-4 py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-					<svg class="w-4 h-4" viewBox="0 0 24 24">
-						<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-						<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-						<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-						<path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-					</svg>
+					@AccountProviderIcon("gmail", "size-4 shrink-0")
 					Continue with Google
 				</button>
 			</form>
@@ -2509,12 +2542,7 @@ templ OutlookAccountDialog() {
 					</div>
 				</div>
 				<button type="submit" class="w-full inline-flex items-center justify-center gap-2.5 text-sm font-medium px-4 py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-					<svg class="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
-						<rect x="3" y="3" width="8" height="8" rx="1" fill="#f25022"/>
-						<rect x="13" y="3" width="8" height="8" rx="1" fill="#7fba00"/>
-						<rect x="3" y="13" width="8" height="8" rx="1" fill="#00a4ef"/>
-						<rect x="13" y="13" width="8" height="8" rx="1" fill="#ffb900"/>
-					</svg>
+					@AccountProviderIcon("outlook", "size-4 shrink-0")
 					Continue with Microsoft
 				</button>
 			</form>

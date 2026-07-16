@@ -1157,6 +1157,10 @@ func remoteImagesDetectScript(emailID string) []byte {
 	return []byte(fmt.Sprintf(`<script>(function(){var id=%q;if(document.querySelector('[data-remote-src]')){parent.postMessage({type:'remoteContentBlocked',emailId:id},'*')}})();</script>`, emailID))
 }
 
+func emailExternalLinksScript() []byte {
+	return []byte(`<script>(function(){function secureLink(link){if(!link)return;var href=(link.getAttribute('href')||'').trim();if(!href||href.charAt(0)==='#'||/^(?:javascript|data):/i.test(href))return;link.setAttribute('target','_blank');if(link.relList){link.relList.add('noopener','noreferrer')}else{link.setAttribute('rel','noopener noreferrer')}}document.querySelectorAll('a[href]').forEach(secureLink);document.addEventListener('click',function(event){var target=event.target;var link=target&&target.closest?target.closest('a[href]'):null;secureLink(link)},true)})();</script>`)
+}
+
 func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	emailID := r.PathValue("id")
 	if emailID == "" {
@@ -1359,7 +1363,7 @@ func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor s
 	s := string(body)
 	lower := strings.ToLower(s)
 	isDark := theme == "dark"
-	injection := string(resizeScript)
+	injection := string(emailExternalLinksScript()) + string(resizeScript)
 
 	if original {
 		if strings.Contains(lower, "<html") {

@@ -37,6 +37,79 @@ func TestSettingsSyncTabIncludesUnifiedFoldersPanel(t *testing.T) {
 	}
 }
 
+func TestSettingsAccountCardKeepsPrimaryActionsVisibleAndMovesSecondaryActionsToMenu(t *testing.T) {
+	tests := []struct {
+		name             string
+		account          models.Account
+		secondaryActions []string
+	}{
+		{
+			name: "gmail",
+			account: models.Account{
+				ID:               "acc-gmail",
+				Name:             "Personal Gmail",
+				Email:            "person@gmail.com",
+				Provider:         "gmail",
+				EmailSyncEnabled: true,
+			},
+			secondaryActions: []string{"reconnect", "repair", "delete"},
+		},
+		{
+			name: "outlook",
+			account: models.Account{
+				ID:       "acc-outlook",
+				Name:     "Work Outlook",
+				Email:    "person@outlook.com",
+				Provider: "outlook",
+			},
+			secondaryActions: []string{"reconnect", "delete"},
+		},
+		{
+			name: "imap",
+			account: models.Account{
+				ID:       "acc-imap",
+				Name:     "Other mail",
+				Email:    "person@example.com",
+				Provider: "imap",
+			},
+			secondaryActions: []string{"delete"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := SettingsAccountCard(tt.account).Render(context.Background(), &out); err != nil {
+				t.Fatalf("SettingsAccountCard.Render() error = %v", err)
+			}
+			html := out.String()
+			for _, want := range []string{
+				`data-account-primary-action="edit"`,
+				`data-account-primary-action="test"`,
+				`id="account-actions-menu-` + tt.account.ID + `"`,
+				`aria-label="More actions for ` + tt.account.Name + `"`,
+				`data-account-actions-menu="` + tt.account.ID + `"`,
+				"Account actions",
+			} {
+				if !strings.Contains(html, want) {
+					t.Errorf("account card missing %q", want)
+				}
+			}
+			if got := strings.Count(html, `data-account-primary-action=`); got != 2 {
+				t.Errorf("primary action count = %d, want 2", got)
+			}
+			for _, action := range tt.secondaryActions {
+				if !strings.Contains(html, `data-account-secondary-action="`+action+`"`) {
+					t.Errorf("account actions menu missing %q", action)
+				}
+			}
+			if got := strings.Count(html, `data-account-secondary-action=`); got != len(tt.secondaryActions) {
+				t.Errorf("secondary action count = %d, want %d", got, len(tt.secondaryActions))
+			}
+		})
+	}
+}
+
 func TestSettingsSyncTabRendersUnifiedFolderAccountSwitches(t *testing.T) {
 	settings := models.SyncSettings{
 		SyncIntervalMinutes: 5,
