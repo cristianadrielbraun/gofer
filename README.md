@@ -120,7 +120,7 @@ That writes:
 For cross-platform release archives:
 
 ```sh
-VERSION=v0.2.0-alpha.1 task release:all
+VERSION=v0.3.0-alpha.1 task release:all
 ```
 
 That writes Linux, macOS, and Windows archives plus `dist/checksums.txt`.
