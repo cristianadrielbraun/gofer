@@ -47,3 +47,16 @@ func TestEmailFilterSQLSupportsSingleMessagesOnly(t *testing.T) {
 		t.Fatalf("single-message filter SQL = %q", parts.outerClause)
 	}
 }
+
+func TestEmailFilterSQLSupportsExactParticipant(t *testing.T) {
+	parts := emailFilterSQL(models.EmailFilters{Participant: " Person@Example.com "})
+	for _, want := range []string{"lower(trim(m.from_email)) = ?", "lower(trim(participant_recipient.email)) = ?"} {
+		if !strings.Contains(parts.cteClause, want) {
+			t.Fatalf("participant filter SQL missing %q: %s", want, parts.cteClause)
+		}
+	}
+	wantArgs := []any{"person@example.com", "person@example.com"}
+	if !reflect.DeepEqual(parts.args, wantArgs) {
+		t.Fatalf("participant filter args = %#v, want %#v", parts.args, wantArgs)
+	}
+}

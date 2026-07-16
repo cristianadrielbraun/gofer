@@ -4535,14 +4535,17 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 		return db.GetFolderEmailCountUnfiltered(ctx, folderID)
 	}
 
-	if !isUnifiedFolderID(folderID) {
+	if !isUnifiedFolderID(folderID) && filters.Participant == "" {
 		return db.GetFolderEmailCountFiltered(ctx, folderID, filters)
 	}
 
 	filterSQL := emailFilterSQL(filters)
 	var where string
 	var args []any
-	if folderID == "starred" {
+	if filters.Participant != "" {
+		where = participantMailScopeWhere()
+		args = []any{userID}
+	} else if folderID == "starred" {
 		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 		if err != nil {
 			return 0, err
@@ -4701,7 +4704,7 @@ func (db *DB) GetEmailsRangeFilteredForUser(ctx context.Context, userID, folderI
 }
 
 func (db *DB) GetEmailsRangeFilteredForUserWithTotal(ctx context.Context, userID, folderID string, start, limit int, filters models.EmailFilters, knownTotal int) (*models.EmailPage, error) {
-	if !isUnifiedFolderID(folderID) {
+	if !isUnifiedFolderID(folderID) && filters.Participant == "" {
 		return db.GetEmailsRangeFilteredWithTotal(ctx, folderID, start, limit, filters, knownTotal)
 	}
 
@@ -4823,7 +4826,32 @@ type emailFilterParts struct {
 }
 
 func emailFiltersEmpty(filters models.EmailFilters) bool {
-	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.NoTags && !filters.ThreadsOnly && !filters.NoThreads && filters.From == "" && filters.To == "" && filters.RecipientType == "" && filters.RecipientDomain == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.AttachmentType == "" && filters.AttachmentExt == "" && filters.MinSizeBytes == 0 && filters.MaxSizeBytes == 0 && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
+	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.NoTags && !filters.ThreadsOnly && !filters.NoThreads && filters.Participant == "" && filters.From == "" && filters.To == "" && filters.RecipientType == "" && filters.RecipientDomain == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.AttachmentType == "" && filters.AttachmentExt == "" && filters.MinSizeBytes == 0 && filters.MaxSizeBytes == 0 && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
+}
+
+func participantMailScopeWhere() string {
+	return `JOIN folders f ON mfs.folder_id = f.id
+		 JOIN accounts a ON m.account_id = a.id
+		 WHERE a.user_id = ?
+		   AND mfs.is_deleted = 0
+		   AND mfs.folder_id = (
+		     SELECT ranked_mfs.folder_id
+		     FROM message_folder_state ranked_mfs
+		     JOIN folders ranked_folder ON ranked_folder.id = ranked_mfs.folder_id
+		     WHERE ranked_mfs.message_id = m.id AND ranked_mfs.is_deleted = 0
+		     ORDER BY CASE ranked_folder.role
+		       WHEN 'inbox' THEN 0
+		       WHEN 'sent' THEN 1
+		       WHEN 'archive' THEN 2
+		       WHEN 'custom' THEN 3
+		       WHEN 'drafts' THEN 4
+		       WHEN 'spam' THEN 5
+		       WHEN 'junk' THEN 5
+		       WHEN 'trash' THEN 6
+		       ELSE 7
+		     END, ranked_folder.sort_order, ranked_folder.name, ranked_folder.id
+		     LIMIT 1
+		   )`
 }
 
 func emailUsesDefaultSort(filters models.EmailFilters) bool {
@@ -4923,6 +4951,14 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		if query := ftsQuery(filters.Query); query != "" {
 			matchParts = append(matchParts, query)
 		}
+	}
+	if filters.Participant != "" {
+		participant := strings.ToLower(strings.TrimSpace(filters.Participant))
+		cteParts = append(cteParts, `(lower(trim(m.from_email)) = ? OR EXISTS (
+			SELECT 1 FROM message_recipients participant_recipient
+			WHERE participant_recipient.message_id = m.id AND lower(trim(participant_recipient.email)) = ?
+		))`)
+		args = append(args, participant, participant)
 	}
 	if filters.From != "" {
 		cteParts = append(cteParts, "(m.from_name LIKE ? OR m.from_email LIKE ?)")
@@ -5517,7 +5553,10 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 	filterSQL := emailFilterSQL(filters)
 	var where string
 	var args []any
-	if folderID == "starred" {
+	if filters.Participant != "" {
+		where = participantMailScopeWhere()
+		args = []any{userID}
+	} else if folderID == "starred" {
 		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 		if err != nil {
 			return nil, err

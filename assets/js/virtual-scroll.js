@@ -1906,6 +1906,7 @@ class VirtualMailList {
       ["no_tags", filters.noTags ? "1" : ""],
       ["threads_only", filters.threadsOnly ? "1" : ""],
       ["no_threads", filters.noThreads ? "1" : ""],
+      ["participant", filters.participant || ""],
       ["from", filters.from || ""],
       ["to", filters.to || ""],
       ["recipient_type", filters.recipientType || ""],
@@ -1962,6 +1963,7 @@ class VirtualMailList {
       noTags: false,
       threadsOnly: false,
       noThreads: false,
+      participant: "",
       from: "",
       to: "",
       recipientType: "",
@@ -1996,6 +1998,7 @@ class VirtualMailList {
     filters.noTags = params.get("no_tags") === "1"
     filters.threadsOnly = params.get("threads_only") === "1"
     filters.noThreads = params.get("no_threads") === "1"
+    filters.participant = (params.get("participant") || "").trim()
     filters.from = (params.get("from") || "").trim()
     filters.to = (params.get("to") || "").trim()
     filters.recipientType = (params.get("recipient_type") || "").trim()
@@ -2083,6 +2086,7 @@ class VirtualMailList {
     if (filters.noTags) params.set("no_tags", "1")
     if (filters.threadsOnly) params.set("threads_only", "1")
     if (filters.noThreads) params.set("no_threads", "1")
+    if (filters.participant) params.set("participant", filters.participant)
     if (filters.from) params.set("from", filters.from)
     if (filters.to) params.set("to", filters.to)
     if (filters.recipientType) params.set("recipient_type", filters.recipientType)
@@ -2114,7 +2118,7 @@ class VirtualMailList {
     var filters = this.filters || this.emptyFilters()
     return (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
       (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) + (filters.noTags ? 1 : 0) +
-      (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
+      (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.participant ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
       (filters.recipientType ? 1 : 0) + (filters.recipientDomain ? 1 : 0) + (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
       (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
       (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)

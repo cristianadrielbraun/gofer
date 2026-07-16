@@ -282,7 +282,7 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 			if strings.TrimSpace(contact.Email) == "" {
 				continue
 			}
-			contactID, _, err := h.db.UpsertSyncedContactFromContact(ctx, userID, accountID, contact)
+			contactID, canonicalChanged, err := h.upsertInboundSyncedContact(ctx, userID, providers.ProviderGmail, accountID, person.ResourceName, contact)
 			if err != nil {
 				return imported, err
 			}
@@ -298,6 +298,11 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 					return imported, err
 				}
 			}
+			if canonicalChanged {
+				if err := h.scheduleInboundContactFanout(ctx, userID, contactID, accountID); err != nil {
+					return imported, err
+				}
+			}
 			imported++
 		}
 
@@ -307,6 +312,55 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 		}
 	}
 	return imported, nil
+}
+
+func (h *Handler) scheduleInboundContactFanout(ctx context.Context, userID, contactID, sourceAccountID string) error {
+	contact, err := h.db.GetContact(ctx, userID, contactID)
+	if err != nil {
+		return err
+	}
+	if contact == nil || !contact.GoferSyncEnabled {
+		return nil
+	}
+	targets, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
+	if err != nil {
+		return err
+	}
+	hasDestination := false
+	for accountID := range targets {
+		if accountID != sourceAccountID {
+			hasDestination = true
+			break
+		}
+	}
+	if !hasDestination {
+		return nil
+	}
+	opID, err := h.db.EnqueueContactSyncOperationFromAccount(ctx, userID, *contact, nil, sourceAccountID)
+	if err != nil {
+		return err
+	}
+	if opID == "" {
+		return nil
+	}
+	_ = h.db.LogContactSyncActivity(ctx, userID, contact.ID, "contact_sync_queued", contact.Email, "pending", "Gofer Sync queued", "")
+	h.signalContactSyncOperationWorker()
+	return nil
+}
+
+func (h *Handler) upsertInboundSyncedContact(ctx context.Context, userID, provider, accountID, remoteID string, contact models.Contact) (string, bool, error) {
+	profileID := ""
+	if strings.TrimSpace(remoteID) != "" {
+		source, err := h.db.GetContactSourceByRemoteID(ctx, userID, provider, accountID, remoteID)
+		if err != nil {
+			return "", false, err
+		}
+		if source != nil {
+			profileID = source.ContactID
+		}
+	}
+	contactID, _, canonicalChanged, err := h.db.UpsertSyncedContactForProfileWithChange(ctx, userID, accountID, profileID, contact)
+	return contactID, canonicalChanged, err
 }
 
 func googlePersonName(person googlePerson) string {
@@ -433,8 +487,8 @@ func googleContactLabel(value, fallback string) string {
 	return value
 }
 
-func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) error {
-	if contact.ID == "" || contact.Email == "" {
+func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string, contact models.Contact, previous *models.Contact, excludedAccountID string) error {
+	if !contact.GoferSyncEnabled || contact.ID == "" || contact.Email == "" {
 		return nil
 	}
 
@@ -443,6 +497,9 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 		return err
 	}
 	for accountID, account := range desired {
+		if accountID == excludedAccountID {
+			continue
+		}
 		switch account.Provider {
 		case providers.ProviderGmail:
 			if err := h.pushContactToGmailAccount(ctx, userID, contact, accountID); err != nil {
@@ -467,12 +524,15 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 // profile is saved. Exact email matches are safe to attach automatically;
 // ambiguous matches stop the save and are surfaced to the editor.
 func (h *Handler) preflightNewContactSyncTargets(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) error {
+	if !contact.GoferSyncEnabled {
+		return nil
+	}
 	desired, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
 	if err != nil || len(desired) == 0 {
 		return err
 	}
 	existing := map[string]contactSyncAccount{}
-	if previous != nil {
+	if previous != nil && previous.GoferSyncEnabled {
 		existing, err = h.contactTargetAccountSet(ctx, userID, previous.SaveTargets)
 		if err != nil {
 			return err
@@ -532,16 +592,52 @@ func (h *Handler) scheduleContactAccountSync(ctx context.Context, userID string,
 	if !h.contactNeedsAccountSync(ctx, userID, contact, previous) {
 		return false
 	}
-	if _, err := h.db.EnqueueContactSyncOperation(ctx, userID, contact, previous); err != nil {
+	opID, err := h.db.EnqueueContactSyncOperation(ctx, userID, contact, previous)
+	if err != nil {
 		log.Printf("contacts sync: enqueue %s: %v", contact.ID, err)
 		return false
 	}
+	if opID == "" {
+		return false
+	}
+	_ = h.db.LogContactSyncActivity(ctx, userID, contact.ID, "contact_sync_queued", contact.Email, "pending", "Gofer Sync queued", "")
 	h.signalContactSyncOperationWorker()
 	return true
 }
 
 func (h *Handler) scheduleContactGmailSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
 	return h.scheduleContactAccountSync(ctx, userID, contact, previous)
+}
+
+func (h *Handler) handleSyncContactNow(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	contactID := strings.TrimSpace(r.PathValue("id"))
+	contact, err := h.db.GetContact(ctx, userID, contactID)
+	if err != nil {
+		http.Error(w, "Could not load contact", http.StatusInternalServerError)
+		return
+	}
+	if contact == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !contact.GoferSyncEnabled {
+		http.Error(w, "Gofer Sync is disabled for this contact", http.StatusConflict)
+		return
+	}
+	if !h.scheduleContactAccountSync(ctx, userID, *contact, nil) {
+		http.Error(w, "No enabled sync locations are available", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":                  true,
+		"contact_id":          contact.ID,
+		"contact_sync_queued": true,
+		"status":              "pending",
+	})
 }
 
 func (h *Handler) signalContactSyncOperationWorker() {
@@ -597,22 +693,33 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 
 	contact := op.Payload.Contact
 	previous := op.Payload.Previous
-	// Memberships are policy, so a queued operation must honor their latest
-	// state. This prevents a stale job from pushing after the user stops sync.
+	// A queued operation must honor the profile's latest explicit sync state and
+	// target selection. This prevents stale jobs from pushing after sync is off.
 	if current, err := h.db.GetContact(ctx, op.UserID, contact.ID); err == nil && current != nil {
 		contact = *current
 	}
-	logSyncResult := func(eventType, message string) {
+	if !contact.GoferSyncEnabled {
+		if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
+			log.Printf("contacts sync operation %s: cancel disabled sync: %v", op.ID, err)
+		}
+		return
+	}
+	logSyncResult := func(eventType, status, message, syncError string) {
 		logCtx, logCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer logCancel()
-		_ = h.db.LogContactActivity(logCtx, op.UserID, eventType, contact.Email, message, 1)
+		_ = h.db.LogContactSyncActivity(logCtx, op.UserID, contact.ID, eventType, contact.Email, status, message, syncError)
 	}
-	if err := h.syncContactToAccountTargets(ctx, op.UserID, contact, previous); err != nil {
+	logSyncResult("contact_sync_started", "running", "Gofer Sync started", "")
+	if err := h.syncContactToAccountTargets(ctx, op.UserID, contact, previous, op.Payload.ExcludedAccountID); err != nil {
 		retry := op.AttemptCount < 3
 		if markErr := h.db.MarkContactSyncOperationError(context.Background(), op.ID, err.Error(), retry); markErr != nil {
 			log.Printf("contacts sync operation %s: mark error: %v", op.ID, markErr)
 		}
-		logSyncResult("contact_sync_failed", "Contact sync failed: "+err.Error())
+		status := "error"
+		if retry {
+			status = "pending"
+		}
+		logSyncResult("contact_sync_failed", status, "Gofer Sync failed: "+err.Error(), err.Error())
 		if retry {
 			h.signalContactSyncOperationWorker()
 		}
@@ -621,11 +728,11 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 	if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
 		log.Printf("contacts sync operation %s: mark success: %v", op.ID, err)
 	}
-	logSyncResult("contact_synced", "Contact synced")
+	logSyncResult("contact_synced", "done", "Gofer Sync complete", "")
 }
 
 func (h *Handler) contactNeedsAccountSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
-	if contact.ID == "" || contact.Email == "" {
+	if !contact.GoferSyncEnabled || contact.ID == "" || contact.Email == "" {
 		return false
 	}
 	currentTargets, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
@@ -750,6 +857,13 @@ func (h *Handler) deleteContactFromGmail(ctx context.Context, userID string, con
 	return h.deleteContactFromAccounts(ctx, userID, contact)
 }
 
+func (h *Handler) upsertContactSourceAndSnapshot(ctx context.Context, userID string, contact models.Contact, source storage.ContactSource) error {
+	if err := h.db.UpsertContactSource(ctx, source); err != nil {
+		return err
+	}
+	return h.db.ReplaceSyncedContactFieldsForProfile(ctx, userID, contact.ID, source.AccountID, contact)
+}
+
 func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, contact models.Contact, accountID string) error {
 	token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
 	if err != nil {
@@ -780,7 +894,7 @@ func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, 
 			if strings.TrimSpace(person.ResourceName) == "" {
 				return fmt.Errorf("people api did not return a contact resource name")
 			}
-			return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
+			return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
 		}
 	}
 
@@ -797,7 +911,7 @@ func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, 
 				if strings.TrimSpace(person.ResourceName) == "" {
 					return fmt.Errorf("people api did not return a contact resource name")
 				}
-				return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
+				return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
 			}
 			return err
 		}
@@ -815,7 +929,7 @@ func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, 
 			if strings.TrimSpace(person.ResourceName) == "" {
 				return fmt.Errorf("people api did not return a contact resource name")
 			}
-			return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
+			return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: person.ResourceName, Etag: person.Etag})
 		}
 		if apiErr.Status == http.StatusBadRequest || apiErr.Status == http.StatusConflict || apiErr.Status == http.StatusPreconditionFailed {
 			latest, getErr := h.getGoogleContact(ctx, token, source.RemoteID)
@@ -832,7 +946,7 @@ func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, 
 	if remoteID == "" {
 		remoteID = source.RemoteID
 	}
-	return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: remoteID, Etag: person.Etag})
+	return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderGmail, AccountID: accountID, RemoteID: remoteID, Etag: person.Etag})
 }
 
 func (h *Handler) createGoogleContact(ctx context.Context, accessToken string, contact models.Contact) (googlePerson, error) {
@@ -922,8 +1036,25 @@ func (h *Handler) deleteGoogleContactsByEmail(ctx context.Context, accessToken, 
 }
 
 func (h *Handler) searchGoogleContactsByEmail(ctx context.Context, accessToken, email string) ([]googlePerson, error) {
+	results, err := h.searchGoogleContacts(ctx, accessToken, email)
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]googlePerson, 0, len(results))
+	for _, person := range results {
+		for _, candidate := range person.EmailAddresses {
+			if strings.EqualFold(strings.TrimSpace(candidate.Value), email) {
+				matches = append(matches, person)
+				break
+			}
+		}
+	}
+	return matches, nil
+}
+
+func (h *Handler) searchGoogleContacts(ctx context.Context, accessToken, query string) ([]googlePerson, error) {
 	values := url.Values{}
-	values.Set("query", email)
+	values.Set("query", strings.TrimSpace(query))
 	values.Set("readMask", googleContactPersonFields())
 	values.Set("pageSize", "10")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googlePeopleAPIBaseURL+"/people:searchContacts?"+values.Encode(), nil)
@@ -946,12 +1077,7 @@ func (h *Handler) searchGoogleContactsByEmail(ctx context.Context, accessToken, 
 	}
 	matches := make([]googlePerson, 0, len(result.Results))
 	for _, item := range result.Results {
-		for _, candidate := range item.Person.EmailAddresses {
-			if strings.EqualFold(strings.TrimSpace(candidate.Value), email) {
-				matches = append(matches, item.Person)
-				break
-			}
-		}
+		matches = append(matches, item.Person)
 	}
 	return matches, nil
 }

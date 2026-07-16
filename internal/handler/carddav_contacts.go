@@ -528,7 +528,7 @@ func (h *Handler) syncCardDAVContacts(ctx context.Context, userID string, accoun
 				return imported, err
 			}
 			for _, contact := range contacts {
-				contactID, _, err := h.db.UpsertSyncedContactFromContact(ctx, userID, account.ID, contact)
+				contactID, canonicalChanged, err := h.upsertInboundSyncedContact(ctx, userID, providers.ProviderCardDAV, account.ID, remoteID, contact)
 				if err != nil {
 					return imported, err
 				}
@@ -542,6 +542,11 @@ func (h *Handler) syncCardDAVContacts(ctx context.Context, userID string, accoun
 						RemoteID:      remoteID,
 						Etag:          response.etag(),
 					}); err != nil {
+						return imported, err
+					}
+				}
+				if canonicalChanged {
+					if err := h.scheduleInboundContactFanout(ctx, userID, contactID, account.ID); err != nil {
 						return imported, err
 					}
 				}
@@ -705,7 +710,7 @@ func (h *Handler) pushContactToCardDAVBook(ctx context.Context, userID string, c
 	if err != nil {
 		return err
 	}
-	return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderCardDAV, AccountID: cfg.AccountID, AddressBookID: book.ID, RemoteID: remoteID, Etag: newEtag})
+	return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderCardDAV, AccountID: cfg.AccountID, AddressBookID: book.ID, RemoteID: remoteID, Etag: newEtag})
 }
 
 func cardDAVConfigForSource(cfg models.ContactSyncConfig, source *storage.ContactSource) (models.ContactSyncConfig, models.ContactAddressBook) {

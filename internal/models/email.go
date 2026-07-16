@@ -94,6 +94,7 @@ type Contact struct {
 	AvatarURL             string
 	AvatarDataURL         string
 	RemoveAvatar          bool
+	GoferSyncEnabled      bool
 	SourceBooks           []ContactAddressBook
 	SyncStatus            string
 	SyncError             string
@@ -176,6 +177,7 @@ type EmailFilters struct {
 	NoTags          bool
 	ThreadsOnly     bool
 	NoThreads       bool
+	Participant     string
 	From            string
 	To              string
 	RecipientType   string

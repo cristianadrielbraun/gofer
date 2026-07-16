@@ -1385,7 +1385,6 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
     gap: 0.5rem;
   }
 
-  .mail-list-quick-filter-button,
   .mail-list-advanced-filter-button {
     width: 100%;
     justify-content: center;

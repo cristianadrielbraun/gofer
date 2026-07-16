@@ -93,7 +93,7 @@ func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, ac
 			if strings.TrimSpace(contact.Email) == "" {
 				continue
 			}
-			contactID, _, err := h.db.UpsertSyncedContactFromContact(ctx, userID, accountID, contact)
+			contactID, canonicalChanged, err := h.upsertInboundSyncedContact(ctx, userID, providers.ProviderOutlook, accountID, remote.ID, contact)
 			if err != nil {
 				return imported, err
 			}
@@ -106,6 +106,11 @@ func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, ac
 					RemoteID:  remote.ID,
 					Etag:      outlookContactVersion(remote),
 				}); err != nil {
+					return imported, err
+				}
+			}
+			if canonicalChanged {
+				if err := h.scheduleInboundContactFanout(ctx, userID, contactID, accountID); err != nil {
 					return imported, err
 				}
 			}
@@ -276,7 +281,7 @@ func (h *Handler) pushContactToOutlookAccount(ctx context.Context, userID string
 			if strings.TrimSpace(remote.ID) == "" {
 				return fmt.Errorf("graph contacts api did not return a contact id")
 			}
-			return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remote.ID, Etag: outlookContactVersion(remote)})
+			return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remote.ID, Etag: outlookContactVersion(remote)})
 		}
 	}
 
@@ -291,7 +296,7 @@ func (h *Handler) pushContactToOutlookAccount(ctx context.Context, userID string
 			if strings.TrimSpace(remote.ID) == "" {
 				return fmt.Errorf("graph contacts api did not return a contact id")
 			}
-			return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remote.ID, Etag: outlookContactVersion(remote)})
+			return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remote.ID, Etag: outlookContactVersion(remote)})
 		}
 		return err
 	}
@@ -299,7 +304,7 @@ func (h *Handler) pushContactToOutlookAccount(ctx context.Context, userID string
 	if remoteID == "" {
 		remoteID = source.RemoteID
 	}
-	return h.db.UpsertContactSource(ctx, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remoteID, Etag: outlookContactVersion(remote)})
+	return h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderOutlook, AccountID: accountID, RemoteID: remoteID, Etag: outlookContactVersion(remote)})
 }
 
 func (h *Handler) createOutlookContact(ctx context.Context, accessToken string, contact models.Contact) (outlookContact, error) {
@@ -374,6 +379,62 @@ func (h *Handler) searchOutlookContactsByEmail(ctx context.Context, accessToken,
 		endpoint = page.NextLink
 	}
 	return matches, nil
+}
+
+func (h *Handler) searchOutlookContacts(ctx context.Context, accessToken, query string) ([]outlookContact, error) {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return nil, nil
+	}
+	values := outlookContactListQuery()
+	values.Set("$top", "100")
+	endpoint := outlookGraphBaseURL + "/me/contacts?" + values.Encode()
+	var matches []outlookContact
+	for endpoint != "" && len(matches) < 10 {
+		var page outlookContactsResponse
+		if err := h.doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &page); err != nil {
+			return nil, err
+		}
+		for _, remote := range page.Contacts {
+			matched := strings.Contains(strings.ToLower(strings.TrimSpace(remote.DisplayName)), query)
+			for _, email := range remote.EmailAddresses {
+				if strings.Contains(strings.ToLower(strings.TrimSpace(email.Address)), query) {
+					matched = true
+					break
+				}
+			}
+			queryPhone := normalizedContactSyncPhone(query)
+			if !matched && len(queryPhone) >= 7 {
+				phones := append(append([]string{}, remote.BusinessPhones...), remote.HomePhones...)
+				phones = append(phones, remote.MobilePhone)
+				for _, phone := range phones {
+					if strings.Contains(normalizedContactSyncPhone(phone), queryPhone) {
+						matched = true
+						break
+					}
+				}
+			}
+			if matched {
+				matches = append(matches, remote)
+				if len(matches) == 10 {
+					break
+				}
+			}
+		}
+		endpoint = page.NextLink
+	}
+	return matches, nil
+}
+
+func (h *Handler) getOutlookContact(ctx context.Context, accessToken, remoteID string) (outlookContact, error) {
+	var remote outlookContact
+	values := outlookContactListQuery()
+	values.Del("$top")
+	endpoint := outlookGraphBaseURL + "/me/contacts/" + url.PathEscape(strings.TrimSpace(remoteID)) + "?" + values.Encode()
+	if err := h.doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &remote); err != nil {
+		return outlookContact{}, err
+	}
+	return remote, nil
 }
 
 func outlookContactHasEmail(remote outlookContact, email string) bool {

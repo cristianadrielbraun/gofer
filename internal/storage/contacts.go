@@ -33,8 +33,9 @@ type ContactSource struct {
 }
 
 type ContactSyncOperationPayload struct {
-	Contact  models.Contact  `json:"contact"`
-	Previous *models.Contact `json:"previous,omitempty"`
+	Contact           models.Contact  `json:"contact"`
+	Previous          *models.Contact `json:"previous,omitempty"`
+	ExcludedAccountID string          `json:"excluded_account_id,omitempty"`
 }
 
 type ContactSyncOperation struct {
@@ -93,19 +94,35 @@ func (db *DB) GetContactSettings(ctx context.Context, userID string) ContactSett
 }
 
 func (db *DB) LogContactActivity(ctx context.Context, userID, eventType, email, message string, count int) error {
+	return db.logContactActivity(ctx, ContactActivityNotification{UserID: userID, EventType: eventType, Email: email, Message: message, Count: count})
+}
+
+func (db *DB) LogContactSyncActivity(ctx context.Context, userID, contactID, eventType, email, status, message, syncError string) error {
+	return db.logContactActivity(ctx, ContactActivityNotification{
+		UserID: userID, ContactID: strings.TrimSpace(contactID), EventType: eventType,
+		Email: email, Status: strings.TrimSpace(status), Error: strings.TrimSpace(syncError), Message: message, Count: 1,
+	})
+}
+
+func (db *DB) logContactActivity(ctx context.Context, event ContactActivityNotification) error {
+	userID := strings.TrimSpace(event.UserID)
+	eventType := strings.TrimSpace(event.EventType)
 	if userID == "" || eventType == "" {
 		return nil
 	}
-	if count < 0 {
-		count = 0
+	if event.Count < 0 {
+		event.Count = 0
 	}
-	email = strings.TrimSpace(email)
-	message = strings.TrimSpace(message)
+	event.UserID = userID
+	event.EventType = eventType
+	event.Email = strings.TrimSpace(event.Email)
+	event.Message = strings.TrimSpace(event.Message)
 	_, err := db.Write().ExecContext(ctx, `
 		INSERT INTO contact_activity_events (user_id, event_type, email, message, event_count)
-		VALUES (?, ?, ?, ?, ?)`, userID, eventType, email, message, count)
+		VALUES (?, ?, ?, ?, ?)`, event.UserID, event.EventType, event.Email, event.Message, event.Count)
 	if err == nil {
-		db.notifyContactActivity(ContactActivityNotification{UserID: userID, EventType: eventType, Email: email, Message: message, Count: count, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+		event.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		db.notifyContactActivity(event)
 	}
 	return err
 }
@@ -481,16 +498,8 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 	args = append(args, limit)
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT p.id, p.display_name, COALESCE(email.value, p.primary_email), p.avatar_url, p.is_deleted,
-		       CASE
-		         WHEN EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual') THEN 'manual'
-		         WHEN EXISTS (SELECT 1 FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0) THEN 'observed'
-		         WHEN EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source LIKE 'synced:%') THEN 'synced'
-		         ELSE 'manual'
-		       END AS source,
-		       CASE
-		         WHEN EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual') THEN 1
-		         ELSE 0
-		       END AS is_manual,
+		       p.origin AS source,
+		       CASE WHEN p.origin = 'manual' THEN 1 ELSE 0 END AS is_manual,
 		       COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0), 0) AS message_count,
 		       (SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0) AS last_seen_at,
 		       p.created_at, p.updated_at
@@ -559,17 +568,14 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 	}
 	switch filters.Source {
 	case "manual":
-		where += ` AND EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual')`
+		where += ` AND p.origin = 'manual'`
 	case "observed":
-		where += ` AND EXISTS (SELECT 1 FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0)
-			AND NOT EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual')`
+		where += ` AND p.origin = 'observed'`
 	case "synced":
-		where += ` AND EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source LIKE 'synced:%')
-			AND NOT EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual')`
+		where += ` AND p.origin LIKE 'synced:%'`
 	default:
 		if strings.HasPrefix(filters.Source, "synced:") {
-			where += ` AND EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = ?)
-				AND NOT EXISTS (SELECT 1 FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual')`
+			where += ` AND p.origin = ?`
 			args = append(args, filters.Source)
 		}
 	}
@@ -890,18 +896,36 @@ func contactLegacySearchSQL() string {
 }
 
 func (db *DB) contactFromProfile(ctx context.Context, userID string, profile models.ContactProfile) (models.Contact, error) {
+	effectiveFields := profile.Fields
+	if profile.SyncEnabled {
+		canonicalFields := make([]models.ContactField, 0, len(profile.Fields))
+		for _, field := range profile.Fields {
+			if field.Source == "canonical" {
+				canonicalFields = append(canonicalFields, field)
+			}
+		}
+		if len(canonicalFields) > 0 {
+			effectiveFields = canonicalFields
+		}
+	}
 	contact := models.Contact{
-		ID:        profile.ID,
-		Name:      profile.DisplayName,
-		Email:     profile.PrimaryEmail,
-		AvatarURL: strings.TrimSpace(profile.AvatarURL),
-		Source:    "manual",
-		IsDeleted: profile.IsDeleted,
+		ID:               profile.ID,
+		Name:             profile.DisplayName,
+		Email:            profile.PrimaryEmail,
+		AvatarURL:        strings.TrimSpace(profile.AvatarURL),
+		Source:           profile.Origin,
+		IsManual:         profile.Origin == "manual",
+		GoferSyncEnabled: profile.SyncEnabled,
+		IsDeleted:        profile.IsDeleted,
 	}
+	loc := timezoneLocationFromContext(ctx)
+	contact.CreatedAt = formatContactTime(profile.CreatedAt, loc)
+	contact.UpdatedSort = profile.UpdatedAt
+	contact.UpdatedAt = formatContactTime(profile.UpdatedAt, loc)
 	if contact.Email == "" {
-		contact.Email = bestContactProfileFieldValue(profile.Fields, "email")
+		contact.Email = bestContactProfileFieldValue(effectiveFields, "email")
 	}
-	emailField := bestContactProfileField(profile.Fields, "email")
+	emailField := bestContactProfileField(effectiveFields, "email")
 	if contact.Email == "" {
 		contact.Email = strings.TrimSpace(emailField.Value)
 	}
@@ -909,16 +933,16 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 		contact.AvatarURL = db.providerContactAvatarFallback(ctx, userID, profile, contact.Email)
 	}
 	contact.EmailLabel = contactStoredFieldLabel(emailField.Label, "primary")
-	phoneField := bestContactProfileField(profile.Fields, "phone")
+	phoneField := bestContactProfileField(effectiveFields, "phone")
 	contact.Phone = strings.TrimSpace(phoneField.Value)
 	contact.PhoneLabel = contactStoredFieldLabel(phoneField.Label, "primary")
-	contact.Organization = bestContactProfileFieldValue(profile.Fields, "organization")
-	contact.Title = bestContactProfileFieldValue(profile.Fields, "title")
-	contact.Notes = bestContactProfileFieldValue(profile.Fields, "notes")
+	contact.Organization = bestContactProfileFieldValue(effectiveFields, "organization")
+	contact.Title = bestContactProfileFieldValue(effectiveFields, "title")
+	contact.Notes = bestContactProfileFieldValue(effectiveFields, "notes")
 	if contact.Notes == "" {
-		contact.Notes = bestContactProfileFieldValue(profile.Fields, "note")
+		contact.Notes = bestContactProfileFieldValue(effectiveFields, "note")
 	}
-	for _, field := range profile.Fields {
+	for _, field := range effectiveFields {
 		switch field.Kind {
 		case "email":
 			if !sameContactValue(field.Value, contact.Email) {
@@ -938,22 +962,14 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 			}
 		}
 	}
-	var manualCount, syncedCount, messageCount int
+	var messageCount int
 	var lastSeen sql.NullString
 	if err := db.Read().QueryRowContext(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM contact_fields cf WHERE cf.user_id = ? AND cf.profile_id = ? AND cf.source = 'manual'),
-			(SELECT COUNT(*) FROM contact_fields cf WHERE cf.user_id = ? AND cf.profile_id = ? AND cf.source LIKE 'synced:%'),
 			COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0), 0),
 			(SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0)`,
-		userID, profile.ID, userID, profile.ID, userID, profile.ID, userID, profile.ID).Scan(&manualCount, &syncedCount, &messageCount, &lastSeen); err != nil {
+		userID, profile.ID, userID, profile.ID).Scan(&messageCount, &lastSeen); err != nil {
 		return contact, err
-	}
-	contact.IsManual = manualCount > 0
-	if !contact.IsManual && messageCount > 0 {
-		contact.Source = "observed"
-	} else if !contact.IsManual && syncedCount > 0 {
-		contact.Source = "synced"
 	}
 	contact.MessageCount = messageCount
 	if lastSeen.Valid {
@@ -1237,9 +1253,6 @@ func (db *DB) getProfileContactSaveTargets(ctx context.Context, userID, profileI
 	}
 	if err := rows.Err(); err != nil {
 		return nil, true, err
-	}
-	if len(targets) == 0 {
-		targets = []string{"local"}
 	}
 	return targets, true, nil
 }
@@ -1559,10 +1572,14 @@ func scanContactSourceRows(rows *sql.Rows) ([]ContactSource, error) {
 }
 
 func (db *DB) EnqueueContactSyncOperation(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) (string, error) {
+	return db.EnqueueContactSyncOperationFromAccount(ctx, userID, contact, previous, "")
+}
+
+func (db *DB) EnqueueContactSyncOperationFromAccount(ctx context.Context, userID string, contact models.Contact, previous *models.Contact, excludedAccountID string) (string, error) {
 	if userID == "" || strings.TrimSpace(contact.ID) == "" || normalizeContactEmail(contact.Email) == "" {
 		return "", nil
 	}
-	payload, err := json.Marshal(ContactSyncOperationPayload{Contact: contact, Previous: previous})
+	payload, err := json.Marshal(ContactSyncOperationPayload{Contact: contact, Previous: previous, ExcludedAccountID: strings.TrimSpace(excludedAccountID)})
 	if err != nil {
 		return "", err
 	}
@@ -1877,6 +1894,7 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		SortName:     name,
 		PrimaryEmail: email,
 		Notes:        strings.TrimSpace(contact.Notes),
+		SyncEnabled:  contact.GoferSyncEnabled,
 		Cards:        nil,
 		Fields: []models.ContactField{{
 			Kind:      "email",
@@ -1887,10 +1905,30 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		}},
 	}
 	profile.Fields = append(profile.Fields, models.ContactField{Kind: "name", Value: name, IsPrimary: true, Source: "manual"})
+	targets := normalizeContactSaveTargets(contact.SaveTargets)
+	localSelected := false
+	for _, target := range targets {
+		if target == "local" {
+			localSelected = true
+			break
+		}
+	}
 	if existingProfile != nil {
 		profile.Cards = existingProfile.Cards
+		foundLocal := false
+		for i := range profile.Cards {
+			if profile.Cards[i].Kind == "local" {
+				profile.Cards[i].IsDeleted = !localSelected
+				foundLocal = true
+			}
+		}
+		if localSelected && !foundLocal {
+			profile.Cards = append(profile.Cards, models.ContactCard{UserID: userID, ProfileID: contactID, Kind: "local"})
+		}
 	} else {
-		profile.Cards = []models.ContactCard{{UserID: userID, ProfileID: contactID, Kind: "local"}}
+		if localSelected {
+			profile.Cards = []models.ContactCard{{UserID: userID, ProfileID: contactID, Kind: "local"}}
+		}
 	}
 	if avatarURL := strings.TrimSpace(contact.AvatarURL); avatarURL != "" {
 		profile.AvatarURL = avatarURL
@@ -1940,8 +1978,16 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 	if err != nil {
 		return models.Contact{}, err
 	}
-	if err := db.ReplaceContactSyncMemberships(ctx, userID, savedProfile.ID, contact.SaveTargets); err != nil {
+	if err := db.ReplaceContactSyncMemberships(ctx, userID, savedProfile.ID, targets); err != nil {
 		return models.Contact{}, err
+	}
+	if contact.GoferSyncEnabled {
+		contact.ID = savedProfile.ID
+		contact.Name = name
+		contact.Email = email
+		if err := db.ReplaceCanonicalContact(ctx, userID, savedProfile.ID, contact); err != nil {
+			return models.Contact{}, err
+		}
 	}
 	saved, err := db.GetContact(ctx, userID, savedProfile.ID)
 	if err != nil || saved == nil {
@@ -1958,13 +2004,29 @@ func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, 
 }
 
 func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accountID string, contact models.Contact) (string, bool, error) {
+	contactID, created, _, err := db.UpsertSyncedContactFromContactWithChange(ctx, userID, accountID, contact)
+	return contactID, created, err
+}
+
+func (db *DB) UpsertSyncedContactFromContactWithChange(ctx context.Context, userID, accountID string, contact models.Contact) (string, bool, bool, error) {
+	return db.upsertSyncedContactFromContactWithChange(ctx, userID, accountID, "", contact)
+}
+
+// UpsertSyncedContactForProfileWithChange applies a provider snapshot to a
+// profile already linked by remote ID. That stable link is required when the
+// provider-side edit changes the contact's primary email address.
+func (db *DB) UpsertSyncedContactForProfileWithChange(ctx context.Context, userID, accountID, profileID string, contact models.Contact) (string, bool, bool, error) {
+	return db.upsertSyncedContactFromContactWithChange(ctx, userID, accountID, profileID, contact)
+}
+
+func (db *DB) upsertSyncedContactFromContactWithChange(ctx context.Context, userID, accountID, preferredProfileID string, contact models.Contact) (string, bool, bool, error) {
 	name := strings.TrimSpace(contact.Name)
 	email := strings.TrimSpace(contact.Email)
 	email = strings.TrimSpace(email)
 	normalized := normalizeContactEmail(email)
 	accountID = strings.TrimSpace(accountID)
 	if userID == "" || accountID == "" || normalized == "" {
-		return "", false, nil
+		return "", false, false, nil
 	}
 	display := contactDisplayName(name, email)
 	avatarURL := strings.TrimSpace(contact.AvatarURL)
@@ -1972,21 +2034,34 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	defer tx.Rollback()
 
-	var contactID string
+	contactID := strings.TrimSpace(preferredProfileID)
 	var currentDisplay string
 	manualCount := 0
 	manualAvatarCount := 0
-	err = tx.QueryRowContext(ctx, `
-		SELECT ci.profile_id, cp.display_name
-		FROM contact_identities ci
-		JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
-		WHERE ci.user_id = ? AND ci.kind = 'email' AND ci.normalized_value = ? AND cp.is_deleted = 0`, userID, normalized).Scan(&contactID, &currentDisplay)
-	if err != nil && err != sql.ErrNoRows {
-		return "", false, err
+	if contactID != "" {
+		err = tx.QueryRowContext(ctx, `
+			SELECT display_name
+			FROM contact_profiles
+			WHERE user_id = ? AND id = ? AND is_deleted = 0`, userID, contactID).Scan(&currentDisplay)
+		if err == sql.ErrNoRows {
+			contactID = ""
+		} else if err != nil {
+			return "", false, false, err
+		}
+	}
+	if contactID == "" {
+		err = tx.QueryRowContext(ctx, `
+			SELECT ci.profile_id, cp.display_name
+			FROM contact_identities ci
+			JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
+			WHERE ci.user_id = ? AND ci.kind = 'email' AND ci.normalized_value = ? AND cp.is_deleted = 0`, userID, normalized).Scan(&contactID, &currentDisplay)
+		if err != nil && err != sql.ErrNoRows {
+			return "", false, false, err
+		}
 	}
 	if contactID == "" {
 		err = tx.QueryRowContext(ctx, `
@@ -1995,7 +2070,7 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 			JOIN contacts c ON ce.contact_id = c.id
 			WHERE ce.user_id = ? AND ce.normalized_email = ?`, userID, normalized).Scan(&contactID, &currentDisplay)
 		if err != nil && err != sql.ErrNoRows {
-			return "", false, err
+			return "", false, false, err
 		}
 	}
 
@@ -2003,9 +2078,9 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 	if contactID == "" {
 		contactID = uuid.NewString()
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, is_deleted)
-			VALUES (?, ?, ?, ?, ?, ?, 0)`, contactID, userID, display, display, email, avatarURL); err != nil {
-			return "", false, err
+			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, origin, is_deleted)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0)`, contactID, userID, display, display, email, avatarURL, source); err != nil {
+			return "", false, false, err
 		}
 		created = true
 	} else {
@@ -2013,7 +2088,7 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 			SELECT COUNT(*), COALESCE(SUM(CASE WHEN kind = 'avatar' THEN 1 ELSE 0 END), 0)
 			FROM contact_fields
 			WHERE user_id = ? AND profile_id = ? AND source = 'manual'`, userID, contactID).Scan(&manualCount, &manualAvatarCount); err != nil {
-			return "", false, err
+			return "", false, false, err
 		}
 		if manualAvatarCount > 0 {
 			avatarURL = ""
@@ -2022,43 +2097,25 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 			display = currentDisplay
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, is_deleted)
-			VALUES (?, ?, ?, ?, ?, ?, 0)
+			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, origin, is_deleted)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0)
 			ON CONFLICT(id) DO UPDATE SET
 				display_name = excluded.display_name,
 				sort_name = excluded.sort_name,
 				primary_email = CASE WHEN contact_profiles.primary_email = '' THEN excluded.primary_email ELSE contact_profiles.primary_email END,
 				avatar_url = CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE contact_profiles.avatar_url END,
 				is_deleted = 0,
-				updated_at = CURRENT_TIMESTAMP`, contactID, userID, display, display, email, avatarURL); err != nil {
-			return "", false, err
+				updated_at = CURRENT_TIMESTAMP`, contactID, userID, display, display, email, avatarURL, source); err != nil {
+			return "", false, false, err
 		}
 	}
 
-	res, err := tx.ExecContext(ctx, `
-		UPDATE contact_fields
-		SET value = ?, normalized_value = ?, is_primary = ?, source = ?, confidence = 0.9, updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = ? AND profile_id = ? AND kind = 'email' AND normalized_value = ? AND source = ?`,
-		email, normalized, boolInt(manualCount == 0), source, userID, contactID, normalized, source)
+	sourceChanged, err := contactFieldsForSourceChangedTx(ctx, tx, userID, contactID, source, contact)
 	if err != nil {
-		return "", false, err
-	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		var emailFieldCount int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_fields WHERE user_id = ? AND profile_id = ? AND kind = 'email' AND normalized_value = ? AND source = ?`, userID, contactID, normalized, source).Scan(&emailFieldCount); err != nil {
-			return "", false, err
-		}
-		if emailFieldCount == 0 {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO contact_fields (id, user_id, profile_id, kind, value, normalized_value, is_primary, ordinal, source, confidence)
-				VALUES (?, ?, ?, 'email', ?, ?, ?, 1, ?, 0.9)`, uuid.NewString(), userID, contactID, email, normalized, boolInt(manualCount == 0), source); err != nil {
-				return "", false, err
-			}
-		}
+		return "", false, false, err
 	}
 	if err := replaceSyncedContactFieldsTx(ctx, tx, userID, contactID, source, contact); err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO contact_identities (user_id, profile_id, kind, normalized_value, confidence)
@@ -2067,46 +2124,118 @@ func (db *DB) UpsertSyncedContactFromContact(ctx context.Context, userID, accoun
 			profile_id = excluded.profile_id,
 			confidence = MAX(contact_identities.confidence, excluded.confidence),
 			updated_at = CURRENT_TIMESTAMP`, userID, contactID, normalized); err != nil {
-		return "", false, err
+		return "", false, false, err
+	}
+	canonicalChanged := false
+	if sourceChanged {
+		var syncEnabled, membershipEnabled int
+		if err := tx.QueryRowContext(ctx, `SELECT sync_enabled FROM contact_profiles WHERE user_id = ? AND id = ?`, userID, contactID).Scan(&syncEnabled); err != nil {
+			return "", false, false, err
+		}
+		if syncEnabled == 1 {
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+				SELECT 1 FROM contact_sync_memberships
+				WHERE user_id = ? AND profile_id = ? AND account_id = ? AND enabled = 1
+			)`, userID, contactID, accountID).Scan(&membershipEnabled); err != nil {
+				return "", false, false, err
+			}
+		}
+		if syncEnabled == 1 && membershipEnabled == 1 {
+			canonicalChanged, err = contactFieldsForSourceChangedTx(ctx, tx, userID, contactID, "canonical", contact)
+			if err != nil {
+				return "", false, false, err
+			}
+			if canonicalChanged {
+				if err := replaceCanonicalContactFieldsTx(ctx, tx, userID, contactID, contact); err != nil {
+					return "", false, false, err
+				}
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
-	return contactID, created, nil
+	return contactID, created, canonicalChanged, nil
 }
 
-func replaceSyncedContactFieldsTx(ctx context.Context, tx *sql.Tx, userID, profileID, source string, contact models.Contact) error {
+type contactFieldSnapshotValue struct {
+	kind      string
+	label     string
+	value     string
+	isPrimary bool
+}
+
+func contactFieldSnapshotValues(contact models.Contact) []contactFieldSnapshotValue {
+	fields := []contactFieldSnapshotValue{
+		{kind: "name", value: contact.Name, isPrimary: true},
+		{kind: "email", label: contactStoredFieldLabel(contact.EmailLabel, "primary"), value: contact.Email, isPrimary: true},
+		{kind: "phone", label: contactStoredFieldLabel(contact.PhoneLabel, "primary"), value: contact.Phone, isPrimary: true},
+		{kind: "organization", value: contact.Organization, isPrimary: true},
+		{kind: "title", value: contact.Title, isPrimary: true},
+		{kind: "notes", value: contact.Notes, isPrimary: true},
+	}
+	for i, email := range normalizedAdditionalContactValues(contact.AdditionalEmails, contact.Email) {
+		fields = append(fields, contactFieldSnapshotValue{kind: "email", label: contactAdditionalFieldLabel(contact.AdditionalEmailLabels, i), value: email})
+	}
+	for i, phone := range normalizedAdditionalContactValues(contact.AdditionalPhones, contact.Phone) {
+		fields = append(fields, contactFieldSnapshotValue{kind: "phone", label: contactAdditionalFieldLabel(contact.AdditionalPhoneLabels, i), value: phone})
+	}
+	return fields
+}
+
+func contactFieldSnapshotKey(kind, label, normalized string, primary bool) string {
+	return strings.Join([]string{strings.ToLower(strings.TrimSpace(kind)), strings.ToLower(strings.TrimSpace(label)), strings.TrimSpace(normalized), fmt.Sprintf("%t", primary)}, "\x00")
+}
+
+func contactFieldsForSourceChangedTx(ctx context.Context, tx *sql.Tx, userID, profileID, source string, contact models.Contact) (bool, error) {
+	expected := map[string]int{}
+	for _, field := range contactFieldSnapshotValues(contact) {
+		value := strings.TrimSpace(field.value)
+		normalized := normalizeContactFieldValue(field.kind, value)
+		if normalized == "" {
+			continue
+		}
+		expected[contactFieldSnapshotKey(field.kind, field.label, normalized, field.isPrimary)]++
+	}
+	actual := map[string]int{}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT kind, label, normalized_value, is_primary
+		FROM contact_fields
+		WHERE user_id = ? AND profile_id = ? AND source = ?
+		  AND kind IN ('name', 'email', 'phone', 'organization', 'title', 'notes')`, userID, profileID, source)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind, label, normalized string
+		var primary int
+		if err := rows.Scan(&kind, &label, &normalized, &primary); err != nil {
+			return false, err
+		}
+		actual[contactFieldSnapshotKey(kind, label, normalized, primary == 1)]++
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	if len(expected) != len(actual) {
+		return true, nil
+	}
+	for key, count := range expected {
+		if actual[key] != count {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func replaceContactFieldsForSourceTx(ctx context.Context, tx *sql.Tx, userID, profileID, source string, contact models.Contact, confidence float64) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM contact_fields
 		WHERE user_id = ? AND profile_id = ? AND source = ? AND kind IN ('name', 'email', 'phone', 'organization', 'title', 'notes')`, userID, profileID, source); err != nil {
 		return err
 	}
-	fields := []struct {
-		kind  string
-		label string
-		value string
-	}{
-		{kind: "name", value: contact.Name},
-		{kind: "email", label: contactStoredFieldLabel(contact.EmailLabel, "primary"), value: contact.Email},
-		{kind: "phone", label: contactStoredFieldLabel(contact.PhoneLabel, "primary"), value: contact.Phone},
-		{kind: "organization", value: contact.Organization},
-		{kind: "title", value: contact.Title},
-		{kind: "notes", value: contact.Notes},
-	}
-	for i, email := range normalizedAdditionalContactValues(contact.AdditionalEmails, contact.Email) {
-		fields = append(fields, struct {
-			kind  string
-			label string
-			value string
-		}{kind: "email", label: contactAdditionalFieldLabel(contact.AdditionalEmailLabels, i), value: email})
-	}
-	for i, phone := range normalizedAdditionalContactValues(contact.AdditionalPhones, contact.Phone) {
-		fields = append(fields, struct {
-			kind  string
-			label string
-			value string
-		}{kind: "phone", label: contactAdditionalFieldLabel(contact.AdditionalPhoneLabels, i), value: phone})
-	}
+	fields := contactFieldSnapshotValues(contact)
 	for i, field := range fields {
 		value := strings.TrimSpace(field.value)
 		if value == "" {
@@ -2116,27 +2245,228 @@ func replaceSyncedContactFieldsTx(ctx context.Context, tx *sql.Tx, userID, profi
 		if normalized == "" {
 			continue
 		}
-		var manualCount int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_fields WHERE user_id = ? AND profile_id = ? AND kind = ? AND source = 'manual'`, userID, profileID, field.kind).Scan(&manualCount); err != nil {
-			return err
-		}
-		var preferredNormalized string
-		err := tx.QueryRowContext(ctx, `SELECT preferred_normalized_value FROM contact_field_preferences WHERE user_id = ? AND profile_id = ? AND field_kind = ?`, userID, profileID, field.kind).Scan(&preferredNormalized)
-		if err != nil && err != sql.ErrNoRows {
-			return err
-		}
-		isPrimary := preferredNormalized != "" && preferredNormalized == normalized
-		if preferredNormalized == "" {
-			isPrimary = manualCount == 0 && (field.label == "primary" || (field.kind != "email" && field.kind != "phone"))
-		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO contact_fields (id, user_id, profile_id, kind, label, value, normalized_value, is_primary, ordinal, source, confidence)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.9)`,
-			uuid.NewString(), userID, profileID, field.kind, field.label, value, normalized, boolInt(isPrimary), i+2, source); err != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			uuid.NewString(), userID, profileID, field.kind, field.label, value, normalized, boolInt(field.isPrimary), i+1, source, confidence); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func replaceSyncedContactFieldsTx(ctx context.Context, tx *sql.Tx, userID, profileID, source string, contact models.Contact) error {
+	return replaceContactFieldsForSourceTx(ctx, tx, userID, profileID, source, contact, 0.9)
+}
+
+func replaceCanonicalContactFieldsTx(ctx context.Context, tx *sql.Tx, userID, profileID string, contact models.Contact) error {
+	if err := replaceContactFieldsForSourceTx(ctx, tx, userID, profileID, "canonical", contact, 1); err != nil {
+		return err
+	}
+	display := contactDisplayName(contact.Name, contact.Email)
+	_, err := tx.ExecContext(ctx, `
+		UPDATE contact_profiles
+		SET display_name = ?, sort_name = ?, primary_email = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND id = ?`, display, display, strings.TrimSpace(contact.Email), strings.TrimSpace(contact.Notes), userID, profileID)
+	return err
+}
+
+func (db *DB) ReplaceCanonicalContact(ctx context.Context, userID, profileID string, contact models.Contact) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(profileID) == "" {
+		return fmt.Errorf("user and profile are required")
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := replaceCanonicalContactFieldsTx(ctx, tx, userID, profileID, contact); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+type canonicalContactValueGroup struct {
+	fields []models.ContactField
+}
+
+func canonicalContactValueGroups(fields []models.ContactField, kind string) []canonicalContactValueGroup {
+	groups := []canonicalContactValueGroup{}
+	indexes := map[string]int{}
+	for _, field := range fields {
+		if field.Source == "canonical" || strings.ToLower(strings.TrimSpace(field.Kind)) != kind {
+			continue
+		}
+		key := strings.TrimSpace(field.NormalizedValue)
+		if key == "" {
+			key = normalizeContactFieldValue(kind, field.Value)
+		}
+		if key == "" {
+			continue
+		}
+		index, ok := indexes[key]
+		if !ok {
+			index = len(groups)
+			indexes[key] = index
+			groups = append(groups, canonicalContactValueGroup{})
+		}
+		groups[index].fields = append(groups[index].fields, field)
+	}
+	return groups
+}
+
+func canonicalContactGroupField(group canonicalContactValueGroup, selectedID string) models.ContactField {
+	for _, field := range group.fields {
+		if selectedID != "" && field.ID == selectedID {
+			return field
+		}
+	}
+	for _, field := range group.fields {
+		if field.IsPrimary {
+			return field
+		}
+	}
+	for _, field := range group.fields {
+		if field.Source == "manual" {
+			return field
+		}
+	}
+	if len(group.fields) > 0 {
+		return group.fields[0]
+	}
+	return models.ContactField{}
+}
+
+func canonicalContactPrimaryGroup(groups []canonicalContactValueGroup, selectedID string) int {
+	if selectedID != "" {
+		for index, group := range groups {
+			for _, field := range group.fields {
+				if field.ID == selectedID {
+					return index
+				}
+			}
+		}
+	}
+	for index, group := range groups {
+		for _, field := range group.fields {
+			if field.IsPrimary {
+				return index
+			}
+		}
+	}
+	for index, group := range groups {
+		for _, field := range group.fields {
+			if field.Source == "manual" {
+				return index
+			}
+		}
+	}
+	if len(groups) > 0 {
+		return 0
+	}
+	return -1
+}
+
+// InitializeContactCanonicalFields turns the one-time setup choices into the
+// contact's current canonical state. The selected field IDs are not retained as
+// an authority rule after this method returns.
+func (db *DB) InitializeContactCanonicalFields(ctx context.Context, userID, profileID string, selectedFieldIDs map[string]string) error {
+	profile, err := db.GetContactProfile(ctx, userID, profileID)
+	if err != nil {
+		return err
+	}
+	if profile == nil {
+		return fmt.Errorf("contact profile not found")
+	}
+	selectedByKind := map[string]string{}
+	for kind, fieldID := range selectedFieldIDs {
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		fieldID = strings.TrimSpace(fieldID)
+		if kind == "" || fieldID == "" {
+			continue
+		}
+		found := false
+		for _, field := range profile.Fields {
+			if field.ID == fieldID && strings.EqualFold(field.Kind, kind) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("selected %s value is not part of this contact", kind)
+		}
+		selectedByKind[kind] = fieldID
+	}
+	canonical := models.Contact{ID: profileID, AvatarURL: profile.AvatarURL}
+	for _, kind := range []string{"name", "email", "phone", "organization", "title", "notes"} {
+		groups := canonicalContactValueGroups(profile.Fields, kind)
+		primaryIndex := canonicalContactPrimaryGroup(groups, selectedByKind[kind])
+		if primaryIndex < 0 {
+			continue
+		}
+		primary := canonicalContactGroupField(groups[primaryIndex], selectedByKind[kind])
+		switch kind {
+		case "name":
+			canonical.Name = primary.Value
+		case "organization":
+			canonical.Organization = primary.Value
+		case "title":
+			canonical.Title = primary.Value
+		case "notes":
+			canonical.Notes = primary.Value
+		case "email":
+			canonical.Email = primary.Value
+			canonical.EmailLabel = contactStoredFieldLabel(primary.Label, "primary")
+			for index, group := range groups {
+				if index == primaryIndex {
+					continue
+				}
+				field := canonicalContactGroupField(group, "")
+				canonical.AdditionalEmails = append(canonical.AdditionalEmails, field.Value)
+				canonical.AdditionalEmailLabels = append(canonical.AdditionalEmailLabels, contactStoredFieldLabel(field.Label, "alternate"))
+			}
+		case "phone":
+			canonical.Phone = primary.Value
+			canonical.PhoneLabel = contactStoredFieldLabel(primary.Label, "primary")
+			for index, group := range groups {
+				if index == primaryIndex {
+					continue
+				}
+				field := canonicalContactGroupField(group, "")
+				canonical.AdditionalPhones = append(canonical.AdditionalPhones, field.Value)
+				canonical.AdditionalPhoneLabels = append(canonical.AdditionalPhoneLabels, contactStoredFieldLabel(field.Label, "alternate"))
+			}
+		}
+	}
+	if strings.TrimSpace(canonical.Email) == "" {
+		return fmt.Errorf("contact email is required")
+	}
+	return db.ReplaceCanonicalContact(ctx, userID, profileID, canonical)
+}
+
+func (db *DB) ReplaceSyncedContactFieldsForProfile(ctx context.Context, userID, profileID, accountID string, contact models.Contact) error {
+	userID = strings.TrimSpace(userID)
+	profileID = strings.TrimSpace(profileID)
+	accountID = strings.TrimSpace(accountID)
+	if userID == "" || profileID == "" || accountID == "" {
+		return fmt.Errorf("user, profile, and account are required")
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_profiles WHERE user_id = ? AND id = ? AND is_deleted = 0`, userID, profileID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return fmt.Errorf("contact profile not found")
+	}
+	if err := replaceSyncedContactFieldsTx(ctx, tx, userID, profileID, "synced:"+accountID, contact); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func normalizedAdditionalContactValues(values []string, primary string) []string {
@@ -2517,7 +2847,8 @@ func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email str
 			DisplayName:  display,
 			SortName:     display,
 			PrimaryEmail: email,
-			Cards:        []models.ContactCard{{Kind: "observed"}},
+			Origin:       "observed",
+			Cards:        []models.ContactCard{{Kind: "local"}},
 			Fields: []models.ContactField{{
 				Kind:      "email",
 				Label:     "observed",

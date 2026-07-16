@@ -31,18 +31,41 @@ func (db *DB) ListContactSyncMemberships(ctx context.Context, userID, profileID 
 	return memberships, rows.Err()
 }
 
-// ReplaceContactSyncMemberships changes Gofer's replication policy only. It
-// intentionally does not alter contact_cards or delete any provider contact.
+// ReplaceContactSyncMemberships changes Gofer's replication targets. Local is
+// represented by a local card; external targets are memberships. Disabling an
+// external target never deletes its existing provider card.
 func (db *DB) ReplaceContactSyncMemberships(ctx context.Context, userID, profileID string, targets []string) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	normalizedTargets := normalizeContactSaveTargets(targets)
+	localSelected := false
+	for _, target := range normalizedTargets {
+		if target == "local" {
+			localSelected = true
+			break
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE contact_cards SET is_deleted = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND profile_id = ? AND kind = 'local'`, boolInt(!localSelected), userID, profileID); err != nil {
+		return err
+	}
+	if localSelected {
+		var localCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_cards WHERE user_id = ? AND profile_id = ? AND kind = 'local'`, userID, profileID).Scan(&localCount); err != nil {
+			return err
+		}
+		if localCount == 0 {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO contact_cards (id, user_id, profile_id, kind) VALUES (?, ?, ?, 'local')`, uuid.NewString(), userID, profileID); err != nil {
+				return err
+			}
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE contact_sync_memberships SET enabled = 0, status = 'stopped', last_error = '', updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND profile_id = ?`, userID, profileID); err != nil {
 		return err
 	}
-	for _, target := range normalizeContactSaveTargets(targets) {
+	for _, target := range normalizedTargets {
 		var accountID, bookID string
 		switch {
 		case strings.HasPrefix(target, "account:"):

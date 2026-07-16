@@ -773,6 +773,8 @@ CREATE TABLE IF NOT EXISTS contact_profiles (
     primary_email TEXT NOT NULL DEFAULT '',
     avatar_url TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL DEFAULT 'manual',
+    sync_enabled INTEGER NOT NULL DEFAULT 0,
     is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -783,6 +785,9 @@ ON contact_profiles(user_id, is_deleted, sort_name COLLATE NOCASE, display_name 
 
 CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_updated
 ON contact_profiles(user_id, is_deleted, updated_at DESC, display_name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_origin
+ON contact_profiles(user_id, origin, is_deleted);
 
 CREATE TABLE IF NOT EXISTS contact_cards (
     id TEXT PRIMARY KEY,
@@ -854,16 +859,6 @@ ON contact_fields(user_id, profile_id, kind, ordinal);
 
 CREATE INDEX IF NOT EXISTS idx_contact_fields_lookup
 ON contact_fields(user_id, kind, normalized_value);
-
-CREATE TABLE IF NOT EXISTS contact_field_preferences (
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
-    field_kind TEXT NOT NULL,
-    preferred_normalized_value TEXT NOT NULL DEFAULT '',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, profile_id, field_kind)
-);
 
 CREATE TABLE IF NOT EXISTS contact_identities (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1069,4 +1064,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (72);
+INSERT OR REPLACE INTO schema_version (version) VALUES (75);

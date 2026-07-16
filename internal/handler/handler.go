@@ -127,8 +127,11 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		}
 		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactActivity, Payload: map[string]any{
 			"user_id":     event.UserID,
+			"contact_id":  event.ContactID,
 			"event_type":  event.EventType,
 			"email":       event.Email,
+			"status":      event.Status,
+			"error":       event.Error,
 			"message":     event.Message,
 			"event_count": event.Count,
 			"created_at":  event.CreatedAt,
@@ -268,9 +271,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)
 	mux.HandleFunc("GET /api/contacts/search", h.handleContactSearch)
 	mux.HandleFunc("POST /api/contacts", h.handleSaveContact)
+	mux.HandleFunc("GET /api/contacts/{id}/sync-setup", h.handleContactSyncSetup)
+	mux.HandleFunc("GET /api/contacts/{id}/sync-setup/findings", h.handleContactSyncSetupFindings)
+	mux.HandleFunc("POST /api/contacts/{id}/sync-setup/preview", h.handlePreviewContactSyncSetup)
+	mux.HandleFunc("POST /api/contacts/{id}/sync-setup/confirm", h.handleConfirmContactSyncSetup)
+	mux.HandleFunc("POST /api/contacts/{id}/sync-now", h.handleSyncContactNow)
 	mux.HandleFunc("POST /api/contacts/import", h.handleImportContacts)
 	mux.HandleFunc("POST /api/contacts/{id}/unify", h.handleUnifyContact)
-	mux.HandleFunc("POST /api/contacts/{id}/fields/{fieldID}/prefer", h.handlePreferContactField)
 	mux.HandleFunc("POST /api/contacts/{id}/delete", h.handleDeleteContact)
 	mux.HandleFunc("POST /api/accounts/discover", h.handleDiscoverAccount)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
@@ -785,6 +792,7 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		Organization:          strings.TrimSpace(r.FormValue("organization")),
 		Title:                 strings.TrimSpace(r.FormValue("title")),
 		Notes:                 strings.TrimSpace(r.FormValue("notes")),
+		GoferSyncEnabled:      r.FormValue("sync_enabled") == "on",
 		SaveTargets:           h.contactSaveTargets(ctx, r.FormValue("save_targets")),
 		AvatarURL:             avatarURL,
 		RemoveAvatar:          removeAvatar,
@@ -793,19 +801,28 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 	if contact.ID != "" {
 		previous, _ = h.db.GetContact(ctx, userID, contact.ID)
 	}
-	if err := h.preflightNewContactSyncTargets(ctx, userID, contact, previous); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
+	setupRequired := contactSyncSetupRequired(contact, previous)
+	if setupRequired {
+		contact.GoferSyncEnabled = false
+	}
+	if !setupRequired {
+		if err := h.preflightNewContactSyncTargets(ctx, userID, contact, previous); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 	}
 	saved, err := h.db.SaveContact(ctx, userID, contact)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	syncQueued := h.scheduleContactAccountSync(ctx, userID, saved, previous)
+	syncQueued := false
+	if !setupRequired {
+		syncQueued = h.scheduleContactAccountSync(ctx, userID, saved, previous)
+	}
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		response := map[string]any{
 			"ok":                  true,
 			"contact_id":          saved.ID,
 			"location":            "/contacts?contact=" + saved.ID,
@@ -813,10 +830,18 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 			"refresh_detail":      previous != nil,
 			"avatar_hash":         saved.AvatarHash,
 			"avatar_url":          saved.AvatarURL,
-		})
+		}
+		if setupRequired {
+			response["contact_sync_setup_url"] = "/api/contacts/" + url.PathEscape(saved.ID) + "/sync-setup"
+		}
+		_ = json.NewEncoder(w).Encode(response)
 		return
 	}
-	http.Redirect(w, r, "/contacts?contact="+saved.ID, http.StatusSeeOther)
+	location := "/contacts?contact=" + saved.ID
+	if setupRequired {
+		location += "&sync_setup=1"
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
 }
 
 func contactAvatarFromForm(action, rawDataURL string) (string, bool, error) {
@@ -1065,37 +1090,6 @@ func (h *Handler) handleUnifyContact(w http.ResponseWriter, r *http.Request) {
 			"refresh_detail":      true,
 		})
 		return
-	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Redirect", location)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	http.Redirect(w, r, location, http.StatusSeeOther)
-}
-
-func (h *Handler) handlePreferContactField(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	userID := h.userID(ctx)
-	contactID := strings.TrimSpace(r.PathValue("id"))
-	fieldID := strings.TrimSpace(r.PathValue("fieldID"))
-	previous, _ := h.db.GetContact(ctx, userID, contactID)
-	profile, err := h.db.PreferContactField(ctx, userID, contactID, fieldID)
-	if err != nil {
-		http.Error(w, "failed to prefer contact field", http.StatusBadRequest)
-		return
-	}
-	if profile == nil {
-		http.NotFound(w, r)
-		return
-	}
-	syncQueued := false
-	if updated, err := h.db.GetContact(ctx, userID, contactID); err == nil && updated != nil {
-		syncQueued = h.scheduleContactAccountSync(ctx, userID, *updated, previous)
-	}
-	location := "/contacts?contact=" + url.QueryEscape(contactID)
-	if syncQueued {
-		location += "&sync=queued"
 	}
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", location)
@@ -2019,6 +2013,7 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 		NoTags:          q.Get("no_tags") == "1",
 		ThreadsOnly:     q.Get("threads_only") == "1",
 		NoThreads:       q.Get("no_threads") == "1",
+		Participant:     strings.TrimSpace(q.Get("participant")),
 		From:            strings.TrimSpace(q.Get("from")),
 		To:              strings.TrimSpace(q.Get("to")),
 		RecipientType:   normalizeRecipientType(q.Get("recipient_type")),
@@ -2129,7 +2124,7 @@ func normalizeEmailSortBy(value string) string {
 }
 
 func emailFiltersActive(filters models.EmailFilters) bool {
-	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.NoTags || filters.ThreadsOnly || filters.NoThreads || filters.From != "" || filters.To != "" || filters.RecipientType != "" || filters.RecipientDomain != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.AttachmentType != "" || filters.AttachmentExt != "" || filters.MinSizeBytes > 0 || filters.MaxSizeBytes > 0 || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != "" || (filters.SortBy != "" && filters.SortBy != "date") || (filters.SortOrder != "" && filters.SortOrder != "desc")
+	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.NoTags || filters.ThreadsOnly || filters.NoThreads || filters.Participant != "" || filters.From != "" || filters.To != "" || filters.RecipientType != "" || filters.RecipientDomain != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.AttachmentType != "" || filters.AttachmentExt != "" || filters.MinSizeBytes > 0 || filters.MaxSizeBytes > 0 || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != "" || (filters.SortBy != "" && filters.SortBy != "date") || (filters.SortOrder != "" && filters.SortOrder != "desc")
 }
 
 func (h *Handler) resolveFolderID(ctx context.Context, userID, requested string) (string, error) {

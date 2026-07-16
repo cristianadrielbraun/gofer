@@ -36,6 +36,10 @@ func (db *DB) SaveContactProfile(ctx context.Context, userID string, profile mod
 		profile.SortName = profile.DisplayName
 	}
 	profile.PrimaryEmail = strings.TrimSpace(profile.PrimaryEmail)
+	profile.Origin = strings.TrimSpace(profile.Origin)
+	if profile.Origin == "" {
+		profile.Origin = "manual"
+	}
 
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -44,17 +48,18 @@ func (db *DB) SaveContactProfile(ctx context.Context, userID string, profile mod
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, notes, is_deleted)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			display_name = excluded.display_name,
 			sort_name = excluded.sort_name,
 			primary_email = excluded.primary_email,
 			avatar_url = excluded.avatar_url,
 			notes = excluded.notes,
+			sync_enabled = excluded.sync_enabled,
 			is_deleted = excluded.is_deleted,
 			updated_at = CURRENT_TIMESTAMP`,
-		profile.ID, profile.UserID, profile.DisplayName, profile.SortName, profile.PrimaryEmail, strings.TrimSpace(profile.AvatarURL), strings.TrimSpace(profile.Notes), boolInt(profile.IsDeleted))
+		profile.ID, profile.UserID, profile.DisplayName, profile.SortName, profile.PrimaryEmail, strings.TrimSpace(profile.AvatarURL), strings.TrimSpace(profile.Notes), profile.Origin, boolInt(profile.SyncEnabled), boolInt(profile.IsDeleted))
 	if err != nil {
 		return models.ContactProfile{}, err
 	}
@@ -146,16 +151,6 @@ func replaceContactFieldsTx(ctx context.Context, tx *sql.Tx, profile models.Cont
 			field.ID, profile.UserID, profile.ID, cardID, field.Kind, strings.TrimSpace(field.Label), field.Value, field.NormalizedValue, boolInt(field.IsPrimary), ordinal, strings.TrimSpace(field.Source), field.Confidence); err != nil {
 			return err
 		}
-		if field.IsPrimary {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO contact_field_preferences (user_id, profile_id, field_kind, preferred_normalized_value)
-				VALUES (?, ?, ?, ?)
-				ON CONFLICT(user_id, profile_id, field_kind) DO UPDATE SET
-					preferred_normalized_value = excluded.preferred_normalized_value,
-					updated_at = CURRENT_TIMESTAMP`, profile.UserID, profile.ID, field.Kind, field.NormalizedValue); err != nil {
-				return err
-			}
-		}
 		if field.Kind == "email" || field.Kind == "phone" {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO contact_identities (user_id, profile_id, kind, normalized_value, confidence)
@@ -174,11 +169,11 @@ func replaceContactFieldsTx(ctx context.Context, tx *sql.Tx, profile models.Cont
 
 func (db *DB) GetContactProfile(ctx context.Context, userID, profileID string) (*models.ContactProfile, error) {
 	var profile models.ContactProfile
-	var isDeleted int
+	var syncEnabled, isDeleted int
 	err := db.Read().QueryRowContext(ctx, `
-		SELECT id, user_id, display_name, sort_name, primary_email, avatar_url, notes, is_deleted
+		SELECT id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted, created_at, updated_at
 		FROM contact_profiles
-		WHERE user_id = ? AND id = ?`, userID, profileID).Scan(&profile.ID, &profile.UserID, &profile.DisplayName, &profile.SortName, &profile.PrimaryEmail, &profile.AvatarURL, &profile.Notes, &isDeleted)
+		WHERE user_id = ? AND id = ?`, userID, profileID).Scan(&profile.ID, &profile.UserID, &profile.DisplayName, &profile.SortName, &profile.PrimaryEmail, &profile.AvatarURL, &profile.Notes, &profile.Origin, &syncEnabled, &isDeleted, &profile.CreatedAt, &profile.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -186,6 +181,7 @@ func (db *DB) GetContactProfile(ctx context.Context, userID, profileID string) (
 		return nil, err
 	}
 	profile.IsDeleted = isDeleted == 1
+	profile.SyncEnabled = syncEnabled == 1
 	cards, err := db.ListContactCards(ctx, userID, profileID)
 	if err != nil {
 		return nil, err
@@ -205,16 +201,29 @@ func (db *DB) GetContactProfile(ctx context.Context, userID, profileID string) (
 	return &profile, nil
 }
 
+func (db *DB) SetContactProfileSyncEnabled(ctx context.Context, userID, profileID string, enabled bool) error {
+	result, err := db.Write().ExecContext(ctx, `
+		UPDATE contact_profiles
+		SET sync_enabled = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND id = ? AND is_deleted = 0`, boolInt(enabled), userID, profileID)
+	if err != nil {
+		return err
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("contact profile not found")
+	}
+	return nil
+}
+
 func ContactProfileInsights(profile models.ContactProfile) []models.ContactInsight {
 	var insights []models.ContactInsight
-	activeCards := make([]models.ContactCard, 0, len(profile.Cards))
 	providerCards := make([]models.ContactCard, 0, len(profile.Cards))
 	providerKeys := make(map[string]bool)
 	for _, card := range profile.Cards {
 		if card.IsDeleted {
 			continue
 		}
-		activeCards = append(activeCards, card)
 		if card.Kind == "provider" {
 			providerCards = append(providerCards, card)
 			key := strings.TrimSpace(card.Provider) + ":" + strings.TrimSpace(card.AccountID) + ":" + strings.TrimSpace(card.AddressBookID)
@@ -230,12 +239,12 @@ func ContactProfileInsights(profile models.ContactProfile) []models.ContactInsig
 			Count:    len(providerCards),
 		})
 	}
-	if len(activeCards) == 1 && activeCards[0].Kind == "observed" {
+	if profile.Origin == "observed" {
 		insights = append(insights, models.ContactInsight{
 			Kind:     "observed_only",
 			Severity: "info",
 			Title:    "Only observed from mail",
-			Message:  "This contact was inferred from email activity and is not saved to an address book yet.",
+			Message:  "This contact originated from email activity and is currently stored in Local.",
 			Count:    1,
 		})
 	}
@@ -375,87 +384,6 @@ func (db *DB) ListContactFields(ctx context.Context, userID, profileID string) (
 		fields = append(fields, field)
 	}
 	return fields, rows.Err()
-}
-
-func (db *DB) PreferContactField(ctx context.Context, userID, profileID, fieldID string) (*models.ContactProfile, error) {
-	userID = strings.TrimSpace(userID)
-	profileID = strings.TrimSpace(profileID)
-	fieldID = strings.TrimSpace(fieldID)
-	if userID == "" || profileID == "" || fieldID == "" {
-		return nil, fmt.Errorf("contact field is required")
-	}
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var field models.ContactField
-	var isPrimary int
-	err = tx.QueryRowContext(ctx, `
-		SELECT id, user_id, profile_id, COALESCE(card_id, ''), kind, label, value, normalized_value, is_primary, ordinal, source, confidence
-		FROM contact_fields
-		WHERE user_id = ? AND profile_id = ? AND id = ?`, userID, profileID, fieldID).Scan(&field.ID, &field.UserID, &field.ProfileID, &field.CardID, &field.Kind, &field.Label, &field.Value, &field.NormalizedValue, &isPrimary, &field.Ordinal, &field.Source, &field.Confidence)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	field.IsPrimary = isPrimary == 1
-	field.Kind = strings.ToLower(strings.TrimSpace(field.Kind))
-	if field.Kind == "" || strings.TrimSpace(field.Value) == "" {
-		return nil, fmt.Errorf("contact field cannot be preferred")
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE contact_fields
-		SET is_primary = 0, updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = ? AND profile_id = ? AND kind = ?`, userID, profileID, field.Kind); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO contact_field_preferences (user_id, profile_id, field_kind, preferred_normalized_value)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(user_id, profile_id, field_kind) DO UPDATE SET
-			preferred_normalized_value = excluded.preferred_normalized_value,
-			updated_at = CURRENT_TIMESTAMP`, userID, profileID, field.Kind, normalizeContactFieldValue(field.Kind, field.Value)); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE contact_fields
-		SET is_primary = 1, updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = ? AND profile_id = ? AND id = ?`, userID, profileID, fieldID); err != nil {
-		return nil, err
-	}
-	switch field.Kind {
-	case "email":
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE contact_profiles
-			SET primary_email = ?, updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = ? AND id = ?`, strings.TrimSpace(field.Value), userID, profileID); err != nil {
-			return nil, err
-		}
-	case "name", "full_name", "display_name":
-		display := strings.TrimSpace(field.Value)
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE contact_profiles
-			SET display_name = ?, sort_name = ?, updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = ? AND id = ?`, display, display, userID, profileID); err != nil {
-			return nil, err
-		}
-	default:
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE contact_profiles
-			SET updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = ? AND id = ?`, userID, profileID); err != nil {
-			return nil, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return db.GetContactProfile(ctx, userID, profileID)
 }
 
 func (db *DB) FindContactProfileByIdentity(ctx context.Context, userID, kind, value string) (*models.ContactProfile, error) {

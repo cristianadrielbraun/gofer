@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseEmailFiltersNormalizesAdvancedValues(t *testing.T) {
-	req := httptest.NewRequest("GET", "/?has_tags=1&no_tags=1&threads_only=1&no_threads=1&recipient_type=CC&recipient_domain=Example.com&attachment_type=custom&attachment_extension=.EML&min_size_mb=10&max_size_mb=2.5", nil)
+	req := httptest.NewRequest("GET", "/?has_tags=1&no_tags=1&threads_only=1&no_threads=1&participant=Person%40Example.com&recipient_type=CC&recipient_domain=Example.com&attachment_type=custom&attachment_extension=.EML&min_size_mb=10&max_size_mb=2.5", nil)
 	filters := parseEmailFilters(req)
 
 	if !filters.HasTags || filters.NoTags {
@@ -17,6 +17,9 @@ func TestParseEmailFiltersNormalizesAdvancedValues(t *testing.T) {
 	}
 	if filters.RecipientType != "cc" || filters.RecipientDomain != "Example.com" {
 		t.Fatalf("recipient filters = %q, %q", filters.RecipientType, filters.RecipientDomain)
+	}
+	if filters.Participant != "Person@Example.com" {
+		t.Fatalf("participant filter = %q", filters.Participant)
 	}
 	if filters.AttachmentType != "custom" || filters.AttachmentExt != "eml" {
 		t.Fatalf("attachment filters = %q, %q", filters.AttachmentType, filters.AttachmentExt)

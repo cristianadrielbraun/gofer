@@ -16,7 +16,6 @@ document.addEventListener("DOMContentLoaded", function () {
   var processingStatusHandler = null
   var syncStatesByFolder = Object.create(null)
   var appEventSource = null
-  var contactGmailSyncEmail = ""
   var prefetchedBodies = Object.create(null)
   var avatarWarmupTimer = null
   var avatarWarmupSent = Object.create(null)
@@ -248,6 +247,13 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      var syncContactNowButton = e.target.closest && e.target.closest("[data-contact-sync-now]")
+      if (syncContactNowButton) {
+        e.preventDefault()
+        syncContactNow(syncContactNowButton)
+        return
+      }
+
       var editContact = e.target.closest && e.target.closest("[data-contact-edit-trigger]")
       if (editContact) {
         var editDialogID = editContact.getAttribute("data-contact-edit-dialog") || ""
@@ -277,6 +283,38 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      var cancelSyncSetup = e.target.closest && e.target.closest("[data-contact-sync-setup-cancel]")
+      if (cancelSyncSetup) {
+        e.preventDefault()
+        if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
+        window.setTimeout(function () {
+          var host = document.getElementById("contact-sync-setup-host")
+          if (host) host.remove()
+        }, 220)
+        return
+      }
+
+      var toggleSyncLocationSearch = e.target.closest && e.target.closest("[data-contact-sync-location-search-toggle]")
+      if (toggleSyncLocationSearch) {
+        e.preventDefault()
+        var toggleLocation = toggleSyncLocationSearch.closest("[data-contact-sync-setup-location]")
+        var togglePanel = toggleLocation && toggleLocation.querySelector("[data-contact-sync-location-search-panel]")
+        if (!togglePanel) return
+        togglePanel.classList.toggle("hidden")
+        if (!togglePanel.classList.contains("hidden")) {
+          var toggleInput = togglePanel.querySelector("[data-contact-sync-location-search-query]")
+          if (toggleInput) window.requestAnimationFrame(function () { toggleInput.focus() })
+        }
+        return
+      }
+
+      var submitSyncLocationSearch = e.target.closest && e.target.closest("[data-contact-sync-location-search-submit]")
+      if (submitSyncLocationSearch) {
+        e.preventDefault()
+        searchContactSyncLocation(submitSyncLocationSearch)
+        return
+      }
+
       var sidebarLink = e.target.closest && e.target.closest("[data-contact-sidebar-link]")
       if (sidebarLink) {
         setContactsSidebarActive(sidebarLink.getAttribute("data-contact-sidebar-target") || "")
@@ -295,6 +333,16 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("submit", function (e) {
+      if (e.target && e.target.matches("[data-contact-sync-setup-form]")) {
+        e.preventDefault()
+        submitContactSyncSetup(e.target, false)
+        return
+      }
+      if (e.target && e.target.matches("[data-contact-sync-setup-confirm]")) {
+        e.preventDefault()
+        submitContactSyncSetup(e.target, true)
+        return
+      }
       if (e.target && e.target.matches("[data-contact-editor-form]")) {
         e.preventDefault()
         saveContactEditor(e.target, e.submitter || null)
@@ -323,8 +371,170 @@ document.addEventListener("DOMContentLoaded", function () {
       htmx.ajax("GET", contactDetailURL(contactId, syncQueued), { target: "#contacts-detail", swap: "outerHTML" })
     }
 
+    function syncContactNow(button) {
+      if (!button || button.disabled) return
+      var contactID = button.getAttribute("data-contact-id") || ""
+      if (!contactID) return
+      setupSSE()
+      setContactSyncButtonsBusy(contactID, true)
+      fetch("/api/contacts/" + encodeURIComponent(contactID) + "/sync-now", {
+        method: "POST",
+        headers: { "Accept": "application/json" },
+      }).then(function (res) {
+        if (!res.ok) return res.text().then(function (text) { throw new Error((text || "Could not start Gofer Sync").trim()) })
+        return res.json()
+      }).then(function (data) {
+        updateContactSyncLiveState({ contact_id: contactID, status: (data && data.status) || "pending" })
+        showGoferToast({
+          id: "contact-sync-toast",
+          title: "Gofer Sync queued",
+          description: "The selected locations will be synchronized now.",
+          variant: "info",
+          icon: "spinner",
+          position: "bottom-right",
+          duration: 0,
+          dismissible: false,
+        })
+      }).catch(function (err) {
+        setContactSyncButtonsBusy(contactID, false)
+        showGoferToast({
+          id: "contact-sync-toast",
+          title: "Could not start Gofer Sync",
+          description: err && err.message ? err.message : "The contact could not be queued for synchronization.",
+          variant: "error",
+          icon: "error",
+          position: "bottom-right",
+          duration: 8000,
+          dismissible: true,
+        })
+      })
+    }
+
     function contactEditorState(form) {
       return new URLSearchParams(new FormData(form)).toString()
+    }
+
+    function contactSyncSetupHost() {
+      var host = document.getElementById("contact-sync-setup-host")
+      if (host) return host
+      host = document.createElement("div")
+      host.id = "contact-sync-setup-host"
+      document.body.appendChild(host)
+      return host
+    }
+
+    function renderContactSyncSetup(html, replaceDialogID) {
+      var host = contactSyncSetupHost()
+      if (window.tui && window.tui.dialog && window.tui.dialog.isOpen("contact-sync-setup-dialog")) {
+        window.tui.dialog.close("contact-sync-setup-dialog")
+      }
+      host.innerHTML = html
+      window.requestAnimationFrame(function () {
+        if (window.tui && window.tui.dialog) {
+          if (replaceDialogID) window.tui.dialog.close(replaceDialogID)
+          window.tui.dialog.open("contact-sync-setup-dialog")
+        }
+        startContactSyncSetupSearch(host)
+      })
+    }
+
+    function startContactSyncSetupSearch(root) {
+      var pending = root && root.querySelector("[data-contact-sync-setup-auto-search]")
+      if (!pending || pending.dataset.searchStarted === "true") return
+      pending.dataset.searchStarted = "true"
+      loadContactSyncSetupBody(pending.getAttribute("data-contact-sync-setup-auto-search") || "")
+    }
+
+    function renderContactSyncSetupBody(html) {
+      var body = document.querySelector("#contact-sync-setup-dialog [data-contact-sync-setup-body]")
+      if (!body) {
+        renderContactSyncSetup(html)
+        return
+      }
+      body.innerHTML = html
+      startContactSyncSetupSearch(body)
+    }
+
+    function loadContactSyncSetupBody(url) {
+      if (!url) return
+      fetch(url, { headers: { "Accept": "text/html" } }).then(function (res) {
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not search sync locations") })
+        return res.text()
+      }).then(renderContactSyncSetupBody).catch(function (err) {
+        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not search sync locations.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+      })
+    }
+
+    function searchContactSyncLocation(button) {
+      var location = button && button.closest("[data-contact-sync-setup-location]")
+      var panel = location && location.querySelector("[data-contact-sync-location-search-panel]")
+      var input = panel && panel.querySelector("[data-contact-sync-location-search-query]")
+      var query = input ? input.value.trim() : ""
+      if (!location || !panel || !query) {
+        if (input) input.focus()
+        return
+      }
+      var searchURL = new URL(panel.getAttribute("data-contact-sync-location-search-url") || "", window.location.origin)
+      searchURL.searchParams.set("query", query)
+      button.disabled = true
+      fetch(searchURL.pathname + searchURL.search, { headers: { "Accept": "text/html" } }).then(function (res) {
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not search this account") })
+        return res.text()
+      }).then(function (html) {
+        location.outerHTML = html
+      }).catch(function (err) {
+        showGoferToast({ id: "contact-sync-location-search-error", title: "Account search failed", description: err.message || "Could not search this account.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+      }).finally(function () {
+        if (button.isConnected) button.disabled = false
+      })
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" || !e.target || !e.target.matches("[data-contact-sync-location-search-query]")) return
+      e.preventDefault()
+      var panel = e.target.closest("[data-contact-sync-location-search-panel]")
+      var button = panel && panel.querySelector("[data-contact-sync-location-search-submit]")
+      if (button) searchContactSyncLocation(button)
+    })
+
+    function loadContactSyncSetup(url, replaceDialogID) {
+      fetch(url, { headers: { "Accept": "text/html" } }).then(function (res) {
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not load sync setup") })
+        return res.text()
+      }).then(function (html) {
+        renderContactSyncSetup(html, replaceDialogID || "")
+      }).catch(function (err) {
+        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not load sync setup.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+      })
+    }
+
+    function submitContactSyncSetup(form, confirming) {
+      var submit = form.querySelector('button[type="submit"]')
+      if (submit) submit.disabled = true
+      fetch(form.action, {
+        method: "POST",
+        body: new URLSearchParams(new FormData(form)),
+        headers: { "Accept": confirming ? "application/json" : "text/html", "Content-Type": "application/x-www-form-urlencoded" },
+      }).then(function (res) {
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Sync setup failed") })
+        return confirming ? res.json() : res.text()
+      }).then(function (data) {
+        if (!confirming) {
+          renderContactSyncSetupBody(data)
+          return
+        }
+        if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
+        var host = document.getElementById("contact-sync-setup-host")
+        if (host) window.setTimeout(function () { host.remove() }, 220)
+        var syncQueued = !!data.contact_sync_queued
+        if (data.contact_id) refreshContactsDetail(data.contact_id, null, syncQueued)
+        if (syncQueued) setupSSE()
+        showGoferToast({ id: "contact-sync-toast", title: "Gofer Sync enabled", description: syncQueued ? "The resolved contact is being synchronized across all selected locations." : "Sync is enabled for the selected locations.", variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
+      }).catch(function (err) {
+        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not finish sync setup.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+      }).finally(function () {
+        if (submit) submit.disabled = false
+      })
     }
 
     function setContactAvatarEditorValue(editor, dataURL, action) {
@@ -459,19 +669,21 @@ document.addEventListener("DOMContentLoaded", function () {
           if (data.location) history.replaceState({ contacts: true, contact: data.contact_id }, "", data.location)
         }
         var syncQueued = !!(data && (data.contact_sync_queued || data.gmail_sync_queued))
+        var syncSetupURL = data && data.contact_sync_setup_url ? data.contact_sync_setup_url : ""
         if (data && data.avatar_hash) updateVisibleAvatars(data.avatar_hash, data.avatar_url || "")
         if (data && data.contact_id) updateContactListPreview(data.contact_id, form)
         if (data && data.refresh_detail && data.contact_id) {
           refreshContactsDetail(data.contact_id, form, syncQueued)
         }
-        if (syncQueued) {
+        if (syncSetupURL) {
+          var editDialogID = form.getAttribute("data-contact-edit-dialog") || ""
+          loadContactSyncSetup(syncSetupURL, editDialogID)
+        } else if (syncQueued) {
           setupSSE()
-          var emailInput = form.querySelector('[name="email"]')
-          contactGmailSyncEmail = emailInput ? emailInput.value || "" : ""
           showGoferToast({
             id: "contact-sync-toast",
             title: "Contact saved",
-            description: "Gofer Sync is updating the selected destinations...",
+            description: "Gofer Sync is updating the selected locations...",
             variant: "info",
             icon: "spinner",
             position: "bottom-right",
@@ -522,6 +734,29 @@ document.addEventListener("DOMContentLoaded", function () {
         var file = e.target.files && e.target.files[0]
         prepareContactAvatar(file, e.target.closest("[data-contact-avatar-editor]"))
         e.target.value = ""
+        return
+      }
+      if (e.target && e.target.matches("[data-contact-sync-enabled]")) {
+        var form = e.target.closest("form")
+        var targets = form && form.querySelector("[data-contact-sync-targets]")
+        var label = form && form.querySelector("[data-contact-sync-state-label]")
+        var enabled = e.target.checked
+        if (targets) {
+          targets.classList.toggle("pointer-events-none", !enabled)
+          targets.classList.toggle("select-none", !enabled)
+          targets.classList.toggle("opacity-45", !enabled)
+          targets.setAttribute("aria-disabled", enabled ? "false" : "true")
+        }
+        if (label) {
+          label.textContent = enabled ? "Enabled" : "Disabled"
+          label.classList.toggle("border-emerald-500/20", enabled)
+          label.classList.toggle("bg-emerald-500/[0.08]", enabled)
+          label.classList.toggle("text-emerald-700", enabled)
+          label.classList.toggle("dark:text-emerald-300", enabled)
+          label.classList.toggle("border-ink/10", !enabled)
+          label.classList.toggle("bg-ink/[0.03]", !enabled)
+          label.classList.toggle("text-ink/35", !enabled)
+        }
         return
       }
       if (!e.target || !e.target.closest("[data-contact-filter-form]")) return
@@ -1578,6 +1813,9 @@ document.addEventListener("DOMContentLoaded", function () {
   function setupMailFilters() {
     var searchTimer = null
     var committedQuery = ""
+    var committedParticipant = ""
+    var contactFilterSearchTimer = null
+    var contactFilterSearchSequence = 0
     var activePillOverflowFrame = null
     var filterResultsTimer = null
     var activePillAnimationDelay = 190
@@ -1593,6 +1831,7 @@ document.addEventListener("DOMContentLoaded", function () {
         noTags: false,
         threadsOnly: false,
         noThreads: false,
+        participant: "",
         from: "",
         to: "",
         recipientType: "",
@@ -1645,6 +1884,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       var advanced = document.querySelector("[data-mail-advanced-filter-form]")
       if (advanced) {
+        filters.participant = ((advanced.querySelector('input[name="participant"]') || {}).value || "").trim()
         filters.from = (advanced.querySelector('input[name="from"]') || {}).value || ""
         filters.to = (advanced.querySelector('input[name="to"]') || {}).value || ""
         filters.recipientType = (advanced.querySelector('input[name="recipient_type"]') || {}).value || ""
@@ -1679,6 +1919,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var search = document.querySelector("[data-mail-search-input]")
       var pendingQuery = search ? (search.value || "").trim() : ""
       filters.query = [committedQuery, pendingQuery].filter(Boolean).join(" ")
+      if (!advanced) filters.participant = committedParticipant
       return filters
     }
 
@@ -1689,7 +1930,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function syncFilterButton(filters) {
       var count = (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
         (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) + (filters.noTags ? 1 : 0) +
-        (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
+        (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.participant ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
         (filters.recipientType ? 1 : 0) + (filters.recipientDomain ? 1 : 0) + (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
         (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
         (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
@@ -1708,6 +1949,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function advancedFilterDefs() {
       return [
+        { key: "participant", name: "participant", label: "Contact" },
         { key: "accountId", name: "account_id", label: "Account" },
         { key: "afterDate", name: "after_date", label: "After" },
         { key: "beforeDate", name: "before_date", label: "Before" },
@@ -1874,6 +2116,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (filters.noTags) pills.push({ name: "no_tags", label: "Tags", value: "No" })
       if (filters.threadsOnly) pills.push({ name: "threads_only", label: "Threads", value: "Yes" })
       if (filters.noThreads) pills.push({ name: "no_threads", label: "Threads", value: "No" })
+      if (filters.participant) pills.push({ name: "participant", label: "Contact", value: filters.participant })
       if (filters.accountId) pills.push({ name: "account_id", label: "Account", value: displayValueForAdvanced("account_id", filters.accountId) })
       if (filters.afterDate) pills.push({ name: "after_date", label: "After", value: filters.afterDate })
       if (filters.beforeDate) pills.push({ name: "before_date", label: "Before", value: filters.beforeDate })
@@ -2088,6 +2331,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function syncFilterControls(filters) {
       filters = filters || emptyFilters()
       committedQuery = (filters.query || "").trim()
+      committedParticipant = (filters.participant || "").trim()
       var search = document.querySelector("[data-mail-search-input]")
       if (search) {
         search.dataset.mailCommittedQuery = committedQuery
@@ -2098,6 +2342,7 @@ document.addEventListener("DOMContentLoaded", function () {
       setFilterTriState("tags", filters.hasTags ? "yes" : (filters.noTags ? "no" : ""))
       setFilterTriState("threads", filters.threadsOnly ? "yes" : (filters.noThreads ? "no" : ""))
       setBooleanFilterControl("starred", !!filters.starred)
+      setContactFilterValue(committedParticipant)
       setInputValue("from", filters.from || "")
       setInputValue("from_domain", filters.fromDomain || "")
       setInputValue("to", filters.to || "")
@@ -2115,8 +2360,16 @@ document.addEventListener("DOMContentLoaded", function () {
       setInputValue("after_date", filters.afterDate || "")
       setInputValue("before_date", filters.beforeDate || "")
       syncAttachmentExtensionField()
+      syncMailFolderHeading(filters)
       renderActivePills(filters)
       syncFilterButton(filters)
+    }
+
+    function syncMailFolderHeading(filters) {
+      var heading = document.getElementById("mail-folder-name")
+      if (!heading) return
+      var defaultName = heading.getAttribute("data-mail-folder-default-name") || "Inbox"
+      heading.textContent = filters && filters.participant ? "All mail" : defaultName
     }
 
     function clearAdvancedFilter(name) {
@@ -2172,6 +2425,8 @@ document.addEventListener("DOMContentLoaded", function () {
     function applyCurrentFilters(options) {
       options = options || {}
       var filters = readFilters()
+      committedParticipant = filters.participant || ""
+      syncMailFolderHeading(filters)
       syncFilterButton(filters)
       renderActivePills()
       applyFiltersToResults(filters, options.delayResults === false ? 0 : activePillAnimationDelay)
@@ -2205,6 +2460,121 @@ document.addEventListener("DOMContentLoaded", function () {
       return tokens
     }
 
+    function contactFilterSelect() {
+      return document.querySelector("[data-mail-contact-filter-select]")
+    }
+
+    function contactFilterOption(email, label, selected) {
+      var item = document.createElement("div")
+      item.className = "select-item group relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm font-light outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-[tui-selectbox-selected=true]:bg-accent data-[tui-selectbox-selected=true]:text-accent-foreground"
+      item.setAttribute("role", "option")
+      item.setAttribute("tabindex", "0")
+      item.setAttribute("data-tui-selectbox-value", email)
+      item.setAttribute("data-tui-selectbox-selected", selected ? "true" : "false")
+      item.setAttribute("data-tui-selectbox-disabled", "false")
+
+      var text = document.createElement("span")
+      text.className = "select-item-text min-w-0 truncate pr-6"
+      text.textContent = label || email
+      item.appendChild(text)
+
+      var check = document.createElement("span")
+      check.className = "select-check absolute right-2 flex h-3.5 w-3.5 items-center justify-center text-xs opacity-0 group-data-[tui-selectbox-selected=true]:opacity-100"
+      check.textContent = "✓"
+      item.appendChild(check)
+      return item
+    }
+
+    function contactFilterStatus(options, text) {
+      var status = document.createElement("p")
+      status.className = "px-2 py-3 text-center text-xs text-muted-foreground"
+      status.setAttribute("data-mail-contact-filter-status", "")
+      status.textContent = text
+      options.appendChild(status)
+    }
+
+    function contactFilterEmail(value) {
+      value = String(value || "").trim()
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : ""
+    }
+
+    function renderContactFilterOptions(results, query) {
+      var root = contactFilterSelect()
+      var options = root && root.querySelector("[data-mail-contact-filter-options]")
+      var hidden = root && root.querySelector('input[name="participant"]')
+      if (!options || !hidden) return
+      options.innerHTML = ""
+
+      var selected = (hidden.value || "").trim()
+      var seen = Object.create(null)
+      var count = 0
+      ;(results || []).forEach(function (contact) {
+        var email = String(contact && contact.email || "").trim()
+        var key = email.toLowerCase()
+        if (!email || seen[key]) return
+        seen[key] = true
+        var name = String(contact.name || "").trim()
+        var label = name && name.toLowerCase() !== key ? name + " — " + email : email
+        options.appendChild(contactFilterOption(email, label, selected.toLowerCase() === key))
+        count++
+      })
+
+      var customEmail = contactFilterEmail(query)
+      if (customEmail && !seen[customEmail.toLowerCase()]) {
+        options.appendChild(contactFilterOption(customEmail, customEmail + " — use this address", selected.toLowerCase() === customEmail.toLowerCase()))
+        count++
+      }
+      if (!count && selected && (!query || selected.toLowerCase().indexOf(String(query).toLowerCase()) >= 0)) {
+        options.appendChild(contactFilterOption(selected, selected, true))
+        count++
+      }
+      if (!count) contactFilterStatus(options, query ? "No matching contacts." : "Type at least 2 characters to search contacts.")
+    }
+
+    function setContactFilterValue(value) {
+      var root = contactFilterSelect()
+      var input = root && root.querySelector('input[name="participant"]')
+      var options = root && root.querySelector("[data-mail-contact-filter-options]")
+      if (!input || !options) return false
+      value = String(value || "").trim()
+      contactFilterSearchSequence++
+      options.innerHTML = ""
+      if (value) options.appendChild(contactFilterOption(value, value, true))
+      else contactFilterStatus(options, "Type at least 2 characters to search contacts.")
+      input.value = value
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+      return true
+    }
+
+    function scheduleContactFilterSearch(searchInput) {
+      var query = String(searchInput && searchInput.value || "").trim()
+      var root = searchInput && searchInput.closest("[data-mail-contact-filter-select]")
+      var options = root && root.querySelector("[data-mail-contact-filter-options]")
+      if (!options) return
+      if (contactFilterSearchTimer) window.clearTimeout(contactFilterSearchTimer)
+      var sequence = ++contactFilterSearchSequence
+      if (query.length < 2) {
+        renderContactFilterOptions([], "")
+        return
+      }
+      options.innerHTML = ""
+      contactFilterStatus(options, "Searching contacts…")
+      contactFilterSearchTimer = window.setTimeout(function () {
+        contactFilterSearchTimer = null
+        fetch("/api/contacts/search?q=" + encodeURIComponent(query), { headers: { "Accept": "application/json" } })
+          .then(function (response) { return response.ok ? response.json() : { results: [] } })
+          .then(function (data) {
+            if (sequence !== contactFilterSearchSequence) return
+            renderContactFilterOptions(data.results || [], query)
+          })
+          .catch(function () {
+            if (sequence !== contactFilterSearchSequence) return
+            options.innerHTML = ""
+            contactFilterStatus(options, "Contacts could not be loaded.")
+          })
+      }, 160)
+    }
+
     function setInputValue(name, value) {
       var form = document.querySelector("[data-mail-advanced-filter-form]")
       var input = form && form.querySelector('[name="' + name + '"]')
@@ -2236,6 +2606,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (value) committedQuery = committedQuery ? (committedQuery + " " + value) : value
         return true
       }
+      if (key === "contact" || key === "participant") return setContactFilterValue(value)
       if (key === "from") return setInputValue("from", value)
       if (key === "to" || key === "cc" || key === "bcc" || key === "recipient" || key === "recipients") return setInputValue("to", value)
       if (key === "subject" || key === "subj") return setInputValue("subject", value)
@@ -2305,8 +2676,10 @@ document.addEventListener("DOMContentLoaded", function () {
           search.value = ""
           search.dataset.mailCommittedQuery = ""
         }
-      }
-      else if (name === "unread" || name === "read") {
+      } else if (name === "participant") {
+        committedParticipant = ""
+        setContactFilterValue("")
+      } else if (name === "unread" || name === "read") {
         setFilterTriState("status", "")
       } else if (name === "attachments" || name === "no_attachments") {
         setFilterTriState("attachments", "")
@@ -2338,6 +2711,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (virtualMailList && virtualMailList.filters) syncFilterControls(virtualMailList.filters)
       var search = document.querySelector("[data-mail-search-input]")
       committedQuery = search ? (search.dataset.mailCommittedQuery || search.value || "").trim() : ""
+      committedParticipant = virtualMailList && virtualMailList.filters ? (virtualMailList.filters.participant || "").trim() : committedParticipant
       if (search) {
         search.dataset.mailCommittedQuery = committedQuery
         search.value = ""
@@ -2395,12 +2769,17 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
-      var advancedOpen = e.target && e.target.closest && e.target.closest("[data-mail-advanced-filter-open]")
-      if (advancedOpen) {
-        e.preventDefault()
+      var filtersOpen = e.target && e.target.closest && e.target.closest("[data-mail-filter-button]")
+      if (filtersOpen) {
         syncAttachmentExtensionField()
         syncAdvancedFilterCount()
-        if (window.tui && window.tui.dialog) window.tui.dialog.open("mail-advanced-filter-dialog")
+        return
+      }
+
+      var filtersClose = e.target && e.target.closest && e.target.closest("[data-mail-filters-close]")
+      if (filtersClose) {
+        e.preventDefault()
+        if (window.tui && window.tui.popover) window.tui.popover.close("mail-filters-popover")
         return
       }
 
@@ -2410,6 +2789,7 @@ document.addEventListener("DOMContentLoaded", function () {
       clearInputs("[data-mail-filter-form]")
       clearInputs("[data-mail-advanced-filter-form]")
       committedQuery = ""
+      committedParticipant = ""
       var search = document.querySelector("[data-mail-search-input]")
       if (search) {
         search.value = ""
@@ -2448,7 +2828,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!form) return
       e.preventDefault()
       applyCurrentFilters()
-      if (window.tui && window.tui.dialog) window.tui.dialog.close("mail-advanced-filter-dialog")
+      if (window.tui && window.tui.popover) window.tui.popover.close("mail-filters-popover")
     })
 
     document.addEventListener("click", function (e) {
@@ -2476,6 +2856,9 @@ document.addEventListener("DOMContentLoaded", function () {
           applyCurrentFilters()
         }, 250)
         return
+      }
+      if (e.target && e.target.matches && e.target.matches("[data-tui-selectbox-search]") && e.target.closest("[data-mail-contact-filter-select]")) {
+        scheduleContactFilterSearch(e.target)
       }
       if (!e.target || !e.target.closest || !e.target.closest("[data-mail-advanced-filter-form]")) return
       syncAdvancedFilterCount()
@@ -3459,21 +3842,98 @@ document.addEventListener("DOMContentLoaded", function () {
     setTimeout(function () { notification.close() }, 12000)
   }
 
+  function openContactDetail(contactID) {
+    var detail = document.getElementById("contacts-detail")
+    if (!detail || !contactID || detail.getAttribute("data-contact-detail-id") !== String(contactID)) return null
+    return detail
+  }
+
+  function setContactSyncButtonsBusy(contactID, busy) {
+    var detail = openContactDetail(contactID)
+    if (!detail) return
+    var buttons = detail.querySelectorAll("[data-contact-sync-now]")
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].disabled = !!busy
+      var icon = buttons[i].querySelector("svg")
+      if (icon) icon.classList.toggle("animate-spin", !!busy)
+    }
+  }
+
+  function updateContactSyncLiveState(data) {
+    var detail = openContactDetail(data && data.contact_id)
+    if (!detail) return false
+    var status = String((data && data.status) || "")
+    var statusLabel = ""
+    if (status === "pending") statusLabel = "Sync pending"
+    else if (status === "running") statusLabel = "Syncing"
+    else if (status === "done") statusLabel = "Synced"
+    else if (status === "error") statusLabel = "Sync failed"
+    if (statusLabel) {
+      var statusNodes = detail.querySelectorAll("[data-contact-sync-operation-status]")
+      for (var i = 0; i < statusNodes.length; i++) statusNodes[i].textContent = statusLabel
+    }
+    setContactSyncButtonsBusy(data.contact_id, status === "pending" || status === "running")
+    return true
+  }
+
+  function refreshOpenContactDetail(contactID) {
+    var detail = openContactDetail(contactID)
+    if (!detail || typeof htmx === "undefined") return
+    var editForm = detail.querySelector("[data-contact-edit-form]")
+    var editDialogID = editForm && editForm.getAttribute("data-contact-edit-dialog")
+    if (editDialogID && window.tui && window.tui.dialog && window.tui.dialog.isOpen(editDialogID)) return
+    htmx.ajax("GET", "/contacts?partial=detail&contact=" + encodeURIComponent(contactID), { target: "#contacts-detail", swap: "outerHTML" })
+  }
+
   function handleContactActivityEvent(data) {
-    if (data.event_type !== "gmail_contact_synced" && data.event_type !== "gmail_contact_sync_failed") return
-    if (contactGmailSyncEmail && data.email && data.email !== contactGmailSyncEmail) return
-    var failed = data.event_type === "gmail_contact_sync_failed"
+    var eventType = String((data && data.event_type) || "")
+    if (["contact_sync_queued", "contact_sync_started", "contact_synced", "contact_sync_failed"].indexOf(eventType) === -1) return
+    if (!updateContactSyncLiveState(data)) return
+    var retryScheduled = eventType === "contact_sync_failed" && data.status === "pending"
+    var title = "Gofer Sync queued"
+    var description = data.message || "The contact is waiting to be synchronized."
+    var variant = "info"
+    var icon = "spinner"
+    var duration = 0
+    var dismissible = false
+    if (eventType === "contact_sync_started") {
+      title = "Gofer Sync in progress"
+      description = data.message || "The selected locations are being synchronized."
+    } else if (eventType === "contact_synced") {
+      title = "Gofer Sync complete"
+      description = data.message || "The contact is synchronized across all selected locations."
+      variant = "success"
+      icon = "success"
+      duration = 3500
+      dismissible = true
+    } else if (retryScheduled) {
+      title = "Gofer Sync will retry"
+      description = data.error || data.message || "A location could not be updated yet. Gofer will retry automatically."
+      variant = "warning"
+      icon = "spinner"
+      duration = 7000
+      dismissible = true
+    } else if (eventType === "contact_sync_failed") {
+      title = "Gofer Sync failed"
+      description = data.error || data.message || "The selected locations could not be synchronized."
+      variant = "error"
+      icon = "error"
+      duration = 8000
+      dismissible = true
+    }
     showGoferToast({
       id: "contact-sync-toast",
-      title: failed ? "Gmail sync failed" : "Gmail sync complete",
-      description: data.message || (failed ? "Could not sync contact to Gmail." : "Contact synced to Gmail."),
-      variant: failed ? "error" : "success",
-      icon: failed ? "error" : "success",
+      title: title,
+      description: description,
+      variant: variant,
+      icon: icon,
       position: "bottom-right",
-      duration: failed ? 7000 : 3500,
-      dismissible: true,
+      duration: duration,
+      dismissible: dismissible,
     })
-    contactGmailSyncEmail = ""
+    if (eventType === "contact_synced" || (eventType === "contact_sync_failed" && !retryScheduled)) {
+      window.setTimeout(function () { refreshOpenContactDetail(String(data.contact_id || "")) }, 150)
+    }
   }
 
   function updateVisibleAvatars(hash, avatarURL) {
@@ -4098,8 +4558,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<input type="text" placeholder="Search, or use from: subject: body: then Enter" disabled class="h-9 w-full pl-3 pr-3 rounded-lg text-sm bg-background border border-border/50 opacity-60" />' +
       '</div>' +
       '<div class="mail-list-search-actions">' +
-      '<button type="button" disabled class="mail-list-quick-filter-button inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-muted-foreground opacity-60">' + pendingIcon("size-3.5") + '</button>' +
-      '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground opacity-60">Advanced filters</button>' +
+      '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground opacity-60"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>' +
       '</div>' +
       '</div>' +
       '</div>' +
@@ -4332,8 +4791,7 @@ document.addEventListener("DOMContentLoaded", function () {
           '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
           '<input type="text" disabled placeholder="Search, or use from: subject: body: then Enter" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
         '</div><div class="mail-list-search-actions">' +
-          pendingFilterButton("Filter messages", "mail-list-quick-filter-button relative inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card px-2.5 text-foreground opacity-70") +
-          '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Advanced filters</span>' + pendingIcon("size-3.5") + '</button>' +
+          '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>' +
         '</div></div></div>' +
     '</div>'
   }

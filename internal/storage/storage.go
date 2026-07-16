@@ -30,8 +30,11 @@ type DB struct {
 
 type ContactActivityNotification struct {
 	UserID    string
+	ContactID string
 	EventType string
 	Email     string
+	Status    string
+	Error     string
 	Message   string
 	Count     int
 	CreatedAt string
@@ -138,7 +141,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 72
+	const targetSchemaVersion = 75
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -579,6 +582,24 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 71 {
 		if err := migrateV71ToV72(tx); err != nil {
 			return fmt.Errorf("migrate v71 to v72: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 72 {
+		if err := migrateV72ToV73(tx); err != nil {
+			return fmt.Errorf("migrate v72 to v73: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 73 {
+		if err := migrateV73ToV74(tx); err != nil {
+			return fmt.Errorf("migrate v73 to v74: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 74 {
+		if err := migrateV74ToV75(tx); err != nil {
+			return fmt.Errorf("migrate v74 to v75: %w", err)
 		}
 	}
 
@@ -3103,6 +3124,197 @@ func migrateV71ToV72(tx *sql.Tx) error {
 		return err
 	}
 	return markSchemaVersion(tx, 72)
+}
+
+func migrateV72ToV73(tx *sql.Tx) error {
+	hasProfiles, err := tableExistsTx(tx, "contact_profiles")
+	if err != nil {
+		return err
+	}
+	if !hasProfiles {
+		return markSchemaVersion(tx, 73)
+	}
+	hasOrigin, err := columnExistsTx(tx, "contact_profiles", "origin")
+	if err != nil {
+		return err
+	}
+	if !hasOrigin {
+		if _, err := tx.Exec(`ALTER TABLE contact_profiles ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`
+		UPDATE contact_profiles
+		SET origin = CASE
+			WHEN EXISTS (
+				SELECT 1 FROM contact_observations co
+				WHERE co.user_id = contact_profiles.user_id AND co.profile_id = contact_profiles.id
+			) OR EXISTS (
+				SELECT 1 FROM contact_cards cc
+				WHERE cc.user_id = contact_profiles.user_id AND cc.profile_id = contact_profiles.id AND cc.kind = 'observed'
+			) THEN 'observed'
+			ELSE COALESCE((
+				SELECT cf.source FROM contact_fields cf
+				WHERE cf.user_id = contact_profiles.user_id
+				  AND cf.profile_id = contact_profiles.id
+				  AND cf.source LIKE 'synced:%'
+				ORDER BY cf.created_at, cf.id
+				LIMIT 1
+			), 'manual')
+		END`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE contact_cards SET kind = 'local', updated_at = CURRENT_TIMESTAMP WHERE kind = 'observed'`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_contact_profiles_user_origin ON contact_profiles(user_id, origin, is_deleted)`); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 73)
+}
+
+func migrateV73ToV74(tx *sql.Tx) error {
+	hasProfiles, err := tableExistsTx(tx, "contact_profiles")
+	if err != nil {
+		return err
+	}
+	if !hasProfiles {
+		return markSchemaVersion(tx, 74)
+	}
+	hasSyncEnabled, err := columnExistsTx(tx, "contact_profiles", "sync_enabled")
+	if err != nil {
+		return err
+	}
+	if !hasSyncEnabled {
+		if _, err := tx.Exec(`ALTER TABLE contact_profiles ADD COLUMN sync_enabled INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	hasMemberships, err := tableExistsTx(tx, "contact_sync_memberships")
+	if err != nil {
+		return err
+	}
+	if hasMemberships {
+		if _, err := tx.Exec(`
+			UPDATE contact_profiles
+			SET sync_enabled = CASE WHEN EXISTS (
+				SELECT 1 FROM contact_sync_memberships csm
+				WHERE csm.user_id = contact_profiles.user_id
+				  AND csm.profile_id = contact_profiles.id
+				  AND csm.enabled = 1
+			) THEN 1 ELSE 0 END`); err != nil {
+			return err
+		}
+	}
+	return markSchemaVersion(tx, 74)
+}
+
+func migrateV74ToV75(tx *sql.Tx) error {
+	hasUsers, err := tableExistsTx(tx, "users")
+	if err != nil {
+		return err
+	}
+	hasProfiles, err := tableExistsTx(tx, "contact_profiles")
+	if err != nil {
+		return err
+	}
+	hasFields, err := tableExistsTx(tx, "contact_fields")
+	if err != nil {
+		return err
+	}
+	if hasUsers && hasProfiles && hasFields {
+		// Some development databases reached v74 without this table. Recreate it
+		// only long enough to preserve any persisted bootstrap choices below.
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS contact_field_preferences (
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+			field_kind TEXT NOT NULL,
+			preferred_normalized_value TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, profile_id, field_kind)
+		)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM contact_fields WHERE source = 'canonical'`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`
+			WITH candidates AS (
+				SELECT f.*,
+					CASE WHEN p.preferred_normalized_value != ''
+						AND p.preferred_normalized_value = f.normalized_value THEN 0 ELSE 1 END AS preference_rank,
+					CASE WHEN f.source = 'manual' THEN 0 ELSE 1 END AS manual_rank,
+					CASE WHEN f.is_primary = 1 THEN 0 ELSE 1 END AS primary_rank
+				FROM contact_fields f
+				JOIN contact_profiles cp ON cp.user_id = f.user_id AND cp.id = f.profile_id
+				LEFT JOIN contact_field_preferences p
+					ON p.user_id = f.user_id AND p.profile_id = f.profile_id AND p.field_kind = f.kind
+				WHERE cp.sync_enabled = 1
+				  AND f.source != 'canonical'
+				  AND f.kind IN ('name', 'email', 'phone', 'organization', 'title', 'notes')
+				  AND TRIM(f.value) != ''
+			), deduped AS (
+				SELECT candidates.*,
+					ROW_NUMBER() OVER (
+						PARTITION BY user_id, profile_id, kind, normalized_value
+						ORDER BY preference_rank, manual_rank, primary_rank, ordinal, id
+					) AS duplicate_rank
+				FROM candidates
+			), unique_fields AS (
+				SELECT * FROM deduped WHERE duplicate_rank = 1
+			), ranked AS (
+				SELECT unique_fields.*,
+					ROW_NUMBER() OVER (
+						PARTITION BY user_id, profile_id, kind
+						ORDER BY preference_rank, manual_rank, primary_rank, ordinal, id
+					) AS value_rank
+				FROM unique_fields
+			)
+			INSERT INTO contact_fields (
+				id, user_id, profile_id, kind, label, value, normalized_value,
+				is_primary, ordinal, source, confidence
+			)
+			SELECT lower(hex(randomblob(16))), user_id, profile_id, kind, label, value, normalized_value,
+				CASE WHEN value_rank = 1 THEN 1 ELSE 0 END, value_rank, 'canonical', 1.0
+			FROM ranked
+			WHERE kind IN ('email', 'phone') OR value_rank = 1`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`
+			UPDATE contact_profiles
+			SET display_name = COALESCE(NULLIF((
+					SELECT value FROM contact_fields f
+					WHERE f.user_id = contact_profiles.user_id AND f.profile_id = contact_profiles.id
+					  AND f.source = 'canonical' AND f.kind = 'name' AND f.is_primary = 1
+					LIMIT 1
+				), ''), display_name),
+				sort_name = COALESCE(NULLIF((
+					SELECT value FROM contact_fields f
+					WHERE f.user_id = contact_profiles.user_id AND f.profile_id = contact_profiles.id
+					  AND f.source = 'canonical' AND f.kind = 'name' AND f.is_primary = 1
+					LIMIT 1
+				), ''), sort_name),
+				primary_email = COALESCE(NULLIF((
+					SELECT value FROM contact_fields f
+					WHERE f.user_id = contact_profiles.user_id AND f.profile_id = contact_profiles.id
+					  AND f.source = 'canonical' AND f.kind = 'email' AND f.is_primary = 1
+					LIMIT 1
+				), ''), primary_email),
+				notes = COALESCE((
+					SELECT value FROM contact_fields f
+					WHERE f.user_id = contact_profiles.user_id AND f.profile_id = contact_profiles.id
+					  AND f.source = 'canonical' AND f.kind = 'notes' AND f.is_primary = 1
+					LIMIT 1
+				), notes)
+			WHERE sync_enabled = 1`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS contact_field_preferences`); err != nil {
+			return err
+		}
+	}
+	return markSchemaVersion(tx, 75)
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

@@ -40,7 +40,7 @@ func TestMigrateV70SeparatesContactSyncMembershipsFromCards(t *testing.T) {
 	if _, err := db.Write().Exec(`INSERT INTO contact_cards (id, user_id, profile_id, kind, account_id) VALUES ('target-1', 'default', 'profile-1', 'target', 'acc')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Write().Exec(`DELETE FROM schema_version WHERE version = 72`); err != nil {
+	if _, err := db.Write().Exec(`DELETE FROM schema_version`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Write().Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (70)`); err != nil {
@@ -66,19 +66,29 @@ func TestMigrateV70SeparatesContactSyncMembershipsFromCards(t *testing.T) {
 	}
 }
 
-func TestMigrateV71CreatesContactFieldPreferences(t *testing.T) {
+func TestMigrateV74ConvertsPreferencesToCanonicalFieldsAndDropsPreferenceTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gofer.db")
 	db, err := New(path)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := db.Write().Exec(`DROP TABLE contact_field_preferences`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Write().Exec(`DELETE FROM schema_version WHERE version = 72`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Write().Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (71)`); err != nil {
+	if _, err := db.Write().Exec(`
+		INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default');
+		INSERT INTO contact_profiles (id, user_id, display_name, primary_email, sync_enabled)
+		VALUES ('profile-1', 'default', 'Jane', 'jane@example.com', 1);
+		INSERT INTO contact_fields (id, user_id, profile_id, kind, value, normalized_value, is_primary, ordinal, source)
+		VALUES
+			('email-a', 'default', 'profile-1', 'email', 'jane@example.com', 'jane@example.com', 1, 1, 'manual'),
+			('email-b', 'default', 'profile-1', 'email', 'jane.alt@example.com', 'jane.alt@example.com', 1, 1, 'synced:acc');
+		CREATE TABLE contact_field_preferences (
+			user_id TEXT NOT NULL, profile_id TEXT NOT NULL, field_kind TEXT NOT NULL,
+			preferred_normalized_value TEXT NOT NULL DEFAULT '', created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, profile_id, field_kind)
+		);
+		INSERT INTO contact_field_preferences (user_id, profile_id, field_kind, preferred_normalized_value)
+		VALUES ('default', 'profile-1', 'email', 'jane.alt@example.com');
+		DELETE FROM schema_version;
+		INSERT INTO schema_version (version) VALUES (74)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -89,9 +99,86 @@ func TestMigrateV71CreatesContactFieldPreferences(t *testing.T) {
 		t.Fatalf("reopen migrated DB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	var tableName string
-	if err := db.Read().QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'contact_field_preferences'`).Scan(&tableName); err != nil {
-		t.Fatalf("contact_field_preferences missing after v72 migration: %v", err)
+	var preferenceTables int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'contact_field_preferences'`).Scan(&preferenceTables); err != nil {
+		t.Fatal(err)
+	}
+	if preferenceTables != 0 {
+		t.Fatalf("contact_field_preferences tables = %d, want removed", preferenceTables)
+	}
+	var primary string
+	if err := db.Read().QueryRow(`SELECT value FROM contact_fields WHERE profile_id = 'profile-1' AND source = 'canonical' AND kind = 'email' AND is_primary = 1`).Scan(&primary); err != nil {
+		t.Fatalf("canonical primary email missing after migration: %v", err)
+	}
+	if primary != "jane.alt@example.com" {
+		t.Fatalf("canonical primary email = %q, want persisted bootstrap choice", primary)
+	}
+}
+
+func TestMigrateV72SeparatesObservedOriginFromLocalTarget(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO contact_profiles (id, user_id, display_name, primary_email, origin) VALUES ('observed-profile', 'default', 'Observed', 'observed@example.com', 'manual')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO contact_cards (id, user_id, profile_id, kind) VALUES ('observed-card', 'default', 'observed-profile', 'observed')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO contact_observations (id, user_id, profile_id, email, normalized_email, observed_name, message_count) VALUES ('observation', 'default', 'observed-profile', 'observed@example.com', 'observed@example.com', 'Observed', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateV72ToV73(tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("migrateV72ToV73() error = %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var origin, kind string
+	if err := db.Read().QueryRowContext(ctx, `SELECT origin FROM contact_profiles WHERE id = 'observed-profile'`).Scan(&origin); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `SELECT kind FROM contact_cards WHERE id = 'observed-card'`).Scan(&kind); err != nil {
+		t.Fatal(err)
+	}
+	if origin != "observed" || kind != "local" {
+		t.Fatalf("origin=%q kind=%q, want observed/local", origin, kind)
+	}
+}
+
+func TestMigrateV73BackfillsExplicitContactSyncEnablement(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO contact_profiles (id, user_id, display_name, primary_email, sync_enabled) VALUES ('synced-profile', 'default', 'Synced', 'synced@example.com', 0), ('local-profile', 'default', 'Local', 'local@example.com', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO contact_sync_memberships (id, user_id, profile_id, account_id, enabled) VALUES ('membership-1', 'default', 'synced-profile', 'account-1', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateV73ToV74(tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var syncedEnabled, localEnabled int
+	if err := db.Read().QueryRowContext(ctx, `SELECT sync_enabled FROM contact_profiles WHERE id = 'synced-profile'`).Scan(&syncedEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `SELECT sync_enabled FROM contact_profiles WHERE id = 'local-profile'`).Scan(&localEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if syncedEnabled != 1 || localEnabled != 0 {
+		t.Fatalf("sync flags = %d/%d, want 1/0", syncedEnabled, localEnabled)
 	}
 }
 
@@ -124,8 +211,8 @@ func TestObservedContactManualNameWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveContact() error = %v", err)
 	}
-	if !manual.IsManual {
-		t.Fatalf("SaveContact() IsManual = false, want true")
+	if manual.IsManual || manual.Source != "observed" {
+		t.Fatalf("edited observed contact origin = %q/manual:%v, want immutable observed origin", manual.Source, manual.IsManual)
 	}
 
 	if err := db.UpsertObservedContact(ctx, "default", "Jane Changed", "jane@example.com", time.Now()); err != nil {
@@ -311,10 +398,11 @@ func TestSaveContactPersistsSaveTargets(t *testing.T) {
 	}
 
 	saved, err = db.SaveContact(ctx, "default", models.Contact{
-		ID:          saved.ID,
-		Name:        "Jane",
-		Email:       "jane@example.com",
-		SaveTargets: []string{"account:acc", "local", "account:acc"},
+		ID:               saved.ID,
+		Name:             "Jane",
+		Email:            "jane@example.com",
+		GoferSyncEnabled: true,
+		SaveTargets:      []string{"account:acc", "local", "account:acc"},
 	})
 	if err != nil {
 		t.Fatalf("SaveContact() update error = %v", err)
@@ -322,6 +410,21 @@ func TestSaveContactPersistsSaveTargets(t *testing.T) {
 	want := []string{"local", "account:acc"}
 	if !reflect.DeepEqual(saved.SaveTargets, want) {
 		t.Fatalf("updated SaveTargets = %#v, want %#v", saved.SaveTargets, want)
+	}
+	if !saved.GoferSyncEnabled {
+		t.Fatal("updated GoferSyncEnabled = false, want true")
+	}
+	saved, err = db.SaveContact(ctx, "default", models.Contact{
+		ID:          saved.ID,
+		Name:        "Jane",
+		Email:       "jane@example.com",
+		SaveTargets: want,
+	})
+	if err != nil {
+		t.Fatalf("SaveContact() disable sync error = %v", err)
+	}
+	if saved.GoferSyncEnabled || !reflect.DeepEqual(saved.SaveTargets, want) {
+		t.Fatalf("disabled contact = enabled:%v targets:%#v, want disabled with saved targets %#v", saved.GoferSyncEnabled, saved.SaveTargets, want)
 	}
 }
 
@@ -487,7 +590,7 @@ func TestUpsertSyncedContactPersistsProfileSourceCard(t *testing.T) {
 		t.Fatalf("synced filter = %#v, %v; want non-manual synced contact", contacts, err)
 	}
 	got, err := db.GetContact(ctx, "default", contactID)
-	if err != nil || got == nil || got.Source != "synced" || got.IsManual {
+	if err != nil || got == nil || got.Source != "synced:acc" || got.IsManual {
 		t.Fatalf("GetContact() = %#v, %v; want synced non-manual contact", got, err)
 	}
 
@@ -662,7 +765,7 @@ func TestUpsertSyncedContactFromContactPersistsProviderFields(t *testing.T) {
 	}
 }
 
-func TestPreferredProviderValueSurvivesProviderRefresh(t *testing.T) {
+func TestSyncedProviderChangeBecomesCanonicalOnceAndUnchangedReadbackDoesNotEcho(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
 	contactID, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-a", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0100"})
@@ -676,33 +779,45 @@ func TestPreferredProviderValueSurvivesProviderRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetContactProfile() error = %v", err)
 	}
-	preferredID := ""
+	selectedPhoneID := ""
 	for _, field := range profile.Fields {
 		if field.Source == "synced:acc-b" && field.Kind == "phone" {
-			preferredID = field.ID
+			selectedPhoneID = field.ID
 		}
 	}
-	if preferredID == "" {
+	if selectedPhoneID == "" {
 		t.Fatal("second provider phone field not found")
 	}
-	if _, err := db.PreferContactField(ctx, "default", contactID, preferredID); err != nil {
-		t.Fatalf("PreferContactField() error = %v", err)
+	if err := db.InitializeContactCanonicalFields(ctx, "default", contactID, map[string]string{"phone": selectedPhoneID}); err != nil {
+		t.Fatalf("InitializeContactCanonicalFields() error = %v", err)
 	}
-	if _, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-b", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0200"}); err != nil {
-		t.Fatalf("provider refresh: %v", err)
+	if err := db.ReplaceContactSyncMemberships(ctx, "default", contactID, []string{"account:acc-a", "account:acc-b"}); err != nil {
+		t.Fatalf("ReplaceContactSyncMemberships() error = %v", err)
 	}
-	profile, err = db.GetContactProfile(ctx, "default", contactID)
+	if err := db.SetContactProfileSyncEnabled(ctx, "default", contactID, true); err != nil {
+		t.Fatalf("SetContactProfileSyncEnabled() error = %v", err)
+	}
+	changedContact := models.Contact{Name: "Jane Updated", Email: "jane@example.com", Phone: "+1 555 0300"}
+	_, _, canonicalChanged, err := db.UpsertSyncedContactFromContactWithChange(ctx, "default", "acc-b", changedContact)
 	if err != nil {
-		t.Fatalf("GetContactProfile() after refresh: %v", err)
+		t.Fatalf("provider change: %v", err)
 	}
-	foundPreferred := false
-	for _, field := range profile.Fields {
-		if field.Kind == "phone" && field.Value == "+1 555 0200" && field.IsPrimary {
-			foundPreferred = true
-		}
+	if !canonicalChanged {
+		t.Fatal("provider change did not update canonical contact")
 	}
-	if !foundPreferred {
-		t.Fatalf("preferred provider phone was lost after refresh: %#v", profile.Fields)
+	contact, err := db.GetContact(ctx, "default", contactID)
+	if err != nil {
+		t.Fatalf("GetContact() after provider change: %v", err)
+	}
+	if contact == nil || contact.Phone != "+1 555 0300" || contact.Name != "Jane Updated" {
+		t.Fatalf("canonical contact = %#v, want provider change", contact)
+	}
+	_, _, canonicalChanged, err = db.UpsertSyncedContactFromContactWithChange(ctx, "default", "acc-b", changedContact)
+	if err != nil {
+		t.Fatalf("unchanged provider readback: %v", err)
+	}
+	if canonicalChanged {
+		t.Fatal("unchanged provider readback incorrectly changed canonical contact")
 	}
 }
 
@@ -763,13 +878,23 @@ func TestListContactsFilters(t *testing.T) {
 	if err := db.UpsertObservedContact(ctx, "default", "Observed", "observed@example.com", time.Now()); err != nil {
 		t.Fatalf("UpsertObservedContact() error = %v", err)
 	}
+	observedMatches, err := db.SearchContacts(ctx, "default", "observed@example.com", 10)
+	if err != nil || len(observedMatches) != 1 {
+		t.Fatalf("SearchContacts(observed) = %#v, %v", observedMatches, err)
+	}
+	observed := observedMatches[0]
+	observed.Name = "Edited Observed"
+	observed.SaveTargets = []string{"local"}
+	if _, err := db.SaveContact(ctx, "default", observed); err != nil {
+		t.Fatalf("SaveContact(observed edit) error = %v", err)
+	}
 
 	contacts, err := db.ListContacts(ctx, "default", models.ContactFilters{Source: "manual"}, 10, 0)
 	if err != nil || len(contacts) != 1 || contacts[0].ID != manual.ID {
 		t.Fatalf("manual filter = %#v, %v; want manual contact", contacts, err)
 	}
 	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{Source: "observed"}, 10, 0)
-	if err != nil || len(contacts) != 1 || contacts[0].Email != "observed@example.com" {
+	if err != nil || len(contacts) != 1 || contacts[0].Email != "observed@example.com" || contacts[0].Source != "observed" {
 		t.Fatalf("observed filter = %#v, %v; want observed contact", contacts, err)
 	}
 	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{SaveTarget: "account:acc"}, 10, 0)

@@ -210,3 +210,26 @@ func TestPushContactToGmailAccountUsesPeopleAPIAndStoresSource(t *testing.T) {
 		t.Fatalf("source = %#v, want created People source", source)
 	}
 }
+
+func TestContactSyncRequiresExplicitEnablement(t *testing.T) {
+	ctx := context.Background()
+	h, db := newGmailAPITestHandler(t, ctx)
+	contact, err := db.SaveContact(ctx, "default", models.Contact{
+		Name:        "Jane Disabled",
+		Email:       "jane@example.com",
+		SaveTargets: []string{"account:acc"},
+	})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	if h.contactNeedsAccountSync(ctx, "default", contact, nil) {
+		t.Fatal("disabled contact unexpectedly requested provider sync")
+	}
+	if err := h.preflightNewContactSyncTargets(ctx, "default", contact, nil); err != nil {
+		t.Fatalf("disabled contact ran provider preflight: %v", err)
+	}
+	contact.GoferSyncEnabled = true
+	if !h.contactNeedsAccountSync(ctx, "default", contact, nil) {
+		t.Fatal("enabled contact with an account target did not request provider sync")
+	}
+}

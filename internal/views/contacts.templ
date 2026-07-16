@@ -5,10 +5,15 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -245,25 +250,23 @@ func appendUniqueContactReadLabel(labels []string, seen map[string]bool, label s
 	return append(labels, label)
 }
 
-func contactReadOnlySourceLabels(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) []string {
-	labels := []string{}
-	seen := map[string]bool{}
+func contactReadOnlyOriginLabel(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) string {
 	if profile != nil {
-		for _, label := range contactProfileSourceLabels(profile.Cards, accounts) {
-			labels = appendUniqueContactReadLabel(labels, seen, label)
-		}
+		return contactSourceLabel(profile.Origin, profile.Origin == "manual", accounts)
 	}
-	for _, book := range contact.SourceBooks {
-		labels = appendUniqueContactReadLabel(labels, seen, book.AccountName+" / "+contactAddressBookDisplayName(book))
-	}
-	labels = appendUniqueContactReadLabel(labels, seen, contactSourceLabel(contact.Source, contact.IsManual, accounts))
-	return labels
+	return contactSourceLabel(contact.Source, contact.IsManual, accounts)
 }
 
 func contactReadOnlyMirrorLabels(contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) []string {
 	labels := []string{}
 	seen := map[string]bool{}
 	if profile != nil {
+		for _, card := range profile.Cards {
+			if !card.IsDeleted && card.Kind == "local" {
+				labels = appendUniqueContactReadLabel(labels, seen, "Local")
+				break
+			}
+		}
 		for _, membership := range profile.SyncMemberships {
 			if membership.Enabled {
 				labels = appendUniqueContactReadLabel(labels, seen, contactSyncMembershipLabel(membership, accounts))
@@ -272,13 +275,252 @@ func contactReadOnlyMirrorLabels(contact *models.Contact, profile *models.Contac
 	}
 	if contact != nil {
 		for _, target := range contact.SaveTargets {
-			if strings.TrimSpace(target) == "" || target == "local" {
+			if strings.TrimSpace(target) == "" {
 				continue
 			}
 			labels = appendUniqueContactReadLabel(labels, seen, contactSaveTargetLabel(target, accounts))
 		}
 	}
 	return labels
+}
+
+func contactProfileSyncEnabled(profile *models.ContactProfile) bool {
+	return profile != nil && profile.SyncEnabled
+}
+
+func contactSyncEnabledID(contact *models.Contact) string {
+	if contact != nil && strings.TrimSpace(contact.ID) != "" {
+		return "contact-sync-enabled-" + contact.ID
+	}
+	return "contact-sync-enabled-new"
+}
+
+func contactSyncTargetsClass(enabled bool) string {
+	if enabled {
+		return "transition-opacity duration-200"
+	}
+	return "pointer-events-none select-none opacity-45 transition-opacity duration-200"
+}
+
+func contactSyncSetupCandidateChecked(candidates []models.ContactSyncSetupCandidate, index int) bool {
+	if index < 0 || index >= len(candidates) {
+		return false
+	}
+	bestIndex := 0
+	bestScore := -1
+	for candidateIndex, candidate := range candidates {
+		score := contactSyncSetupCandidateMatchScore(candidate)
+		if score > bestScore {
+			bestIndex = candidateIndex
+			bestScore = score
+		}
+	}
+	return bestScore > 0 && index == bestIndex
+}
+
+func contactSyncSetupHasRecommendedCandidate(candidates []models.ContactSyncSetupCandidate) bool {
+	for _, candidate := range candidates {
+		if contactSyncSetupCandidateMatchScore(candidate) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func contactSyncSetupCandidateMatchScore(candidate models.ContactSyncSetupCandidate) int {
+	score := 0
+	if candidate.MatchEmail {
+		score += 4
+	}
+	if candidate.MatchPhone {
+		score += 2
+	}
+	if candidate.MatchName {
+		score++
+	}
+	return score
+}
+
+func contactSyncSetupCandidateMatchLabel(candidate models.ContactSyncSetupCandidate) string {
+	labels := []string{}
+	if candidate.MatchEmail {
+		labels = append(labels, "Email")
+	}
+	if candidate.MatchPhone {
+		labels = append(labels, "phone")
+	}
+	if candidate.MatchName {
+		labels = append(labels, "name")
+	}
+	if len(labels) == 0 {
+		return "Related result"
+	}
+	return strings.Join(labels, " + ") + " match"
+}
+
+func contactSyncSetupSourceDisplay(source string, locations []models.ContactSyncSetupLocation) string {
+	source = strings.TrimSpace(source)
+	if source == "manual" || source == "observed" {
+		return "Local"
+	}
+	if source == "canonical" || source == "" {
+		return ""
+	}
+	accountID := strings.TrimPrefix(source, "synced:")
+	for _, location := range locations {
+		if location.AccountID == accountID {
+			return location.Label
+		}
+	}
+	return contactFieldSourceDisplay(source, nil)
+}
+
+func contactSyncSetupLocationLabels(sources []string, locations []models.ContactSyncSetupLocation) []string {
+	labels := []string{}
+	for _, source := range sources {
+		label := contactSyncSetupSourceDisplay(source, locations)
+		labels = appendUniqueContactResolverValue(labels, label)
+	}
+	return labels
+}
+
+func contactSyncSetupLocationCountLabel(count int) string {
+	if count == 1 {
+		return "Found in 1 location"
+	}
+	return fmt.Sprintf("Found in %d locations", count)
+}
+
+func contactSyncSetupConflictHelp(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "email":
+		return "This address becomes primary. Every other address shown below remains an additional email address and is synchronized to every location."
+	case "phone":
+		return "This number becomes primary. Every other number shown below remains an additional phone number and is synchronized to every location."
+	default:
+		return "This value is written to every synchronized location. The other values stop being active there, but remain stored in Gofer as source history."
+	}
+}
+
+type contactResolverValueGroup struct {
+	Field              models.ContactField
+	Labels             []string
+	Sources            []string
+	IsPrimary          bool
+	IsCanonicalPrimary bool
+	IsLocalPrimary     bool
+}
+
+func appendUniqueContactResolverValue(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if strings.EqualFold(strings.TrimSpace(existing), value) {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func contactResolverValueGroups(fields []models.ContactField, kind string) []contactResolverValueGroup {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	groups := []contactResolverValueGroup{}
+	indexByValue := map[string]int{}
+	for _, field := range fields {
+		if contactProfileResolverFieldKind(field) != kind {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(field.NormalizedValue))
+		if key == "" {
+			key = strings.ToLower(strings.TrimSpace(field.Value))
+		}
+		if key == "" {
+			continue
+		}
+		index, exists := indexByValue[key]
+		if !exists {
+			index = len(groups)
+			indexByValue[key] = index
+			groups = append(groups, contactResolverValueGroup{Field: field})
+		}
+		group := &groups[index]
+		group.IsPrimary = group.IsPrimary || field.IsPrimary
+		if field.Source == "canonical" && field.IsPrimary {
+			group.IsCanonicalPrimary = true
+		}
+		if (field.Source == "manual" || field.Source == "observed") && field.IsPrimary {
+			group.IsLocalPrimary = true
+		}
+		group.Labels = appendUniqueContactResolverValue(group.Labels, contactFieldDisplayLabel(field))
+		group.Sources = appendUniqueContactResolverValue(group.Sources, field.Source)
+	}
+	return groups
+}
+
+func contactResolverValueGroupChecked(groups []contactResolverValueGroup, index int) bool {
+	if index < 0 || index >= len(groups) {
+		return false
+	}
+	selected := 0
+	for groupIndex, group := range groups {
+		if group.IsCanonicalPrimary {
+			return index == groupIndex
+		}
+	}
+	for groupIndex, group := range groups {
+		if group.IsLocalPrimary {
+			return index == groupIndex
+		}
+	}
+	for groupIndex, group := range groups {
+		if group.IsPrimary {
+			selected = groupIndex
+			break
+		}
+	}
+	return index == selected
+}
+
+func contactSyncSetupStep(phase string) string {
+	if phase == "resolve" {
+		return "Step 2 of 2"
+	}
+	return "Step 1 of 2"
+}
+
+func contactProfileSyncLabel(profile *models.ContactProfile) string {
+	if contactProfileSyncEnabled(profile) {
+		return "Enabled"
+	}
+	return "Disabled"
+}
+
+func contactSyncLabel(contact *models.Contact) string {
+	if contact != nil && contact.GoferSyncEnabled {
+		return "Enabled"
+	}
+	return "Disabled"
+}
+
+func contactSyncEnabledBadgeClass(enabled bool) string {
+	base := "rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors "
+	if enabled {
+		return base + "border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300"
+	}
+	return base + "border-ink/10 bg-ink/[0.03] text-ink/35"
+}
+
+func contactSyncOperationActive(contact models.Contact, syncQueued bool) bool {
+	return syncQueued || contact.SyncStatus == "pending" || contact.SyncStatus == "running"
+}
+
+func contactSyncNowIconClass(contact models.Contact, syncQueued bool) string {
+	if contactSyncOperationActive(contact, syncQueued) {
+		return "size-3.5 animate-spin"
+	}
+	return "size-3.5"
 }
 
 func contactReadOnlySyncStatus(contact models.Contact, syncQueued bool) string {
@@ -532,9 +774,9 @@ func contactActivitySubject(email models.Email) string {
 func contactSaveTargetLabel(target string, accounts []models.Account) string {
 	switch target {
 	case "local":
-		return "Gofer local"
+		return "Local"
 	case "":
-		return "Any account"
+		return "Any sync location"
 	}
 	for _, account := range accounts {
 		if target == contactSaveTargetValue(account) {
@@ -578,11 +820,11 @@ func contactSyncStatusLabel(status string) string {
 func contactSyncStatusClass(status string) string {
 	switch status {
 	case "pending", "running":
-		return "border-amber-500/20 bg-amber-500/10 text-amber-700"
+		return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-200"
 	case "error":
 		return "border-destructive/20 bg-destructive/10 text-destructive"
 	case "done":
-		return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+		return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
 	default:
 		return "border-ink/10 bg-ink/[0.04] text-ink/45"
 	}
@@ -757,52 +999,8 @@ func contactProfileResolverFieldsForKind(fields []models.ContactField, kind stri
 	return out
 }
 
-func contactProfileExistingCopies(cards []models.ContactCard) []models.ContactCard {
-	copies := make([]models.ContactCard, 0, len(cards))
-	for _, card := range cards {
-		if card.IsDeleted {
-			continue
-		}
-		if card.Kind == "provider" || card.Kind == "local" || card.Kind == "observed" {
-			copies = append(copies, card)
-		}
-	}
-	return copies
-}
-
-func contactProfileSourceLabels(cards []models.ContactCard, accounts []models.Account) []string {
-	labels := make([]string, 0, len(cards))
-	seen := map[string]bool{}
-	for _, card := range contactProfileExistingCopies(cards) {
-		label := ""
-		switch card.Kind {
-		case "local":
-			label = "Gofer Local"
-		case "observed":
-			label = "Mail history"
-		case "provider":
-			label = contactCardAccountLabel(card, accounts)
-		default:
-			label = contactCardKindLabel(card)
-		}
-		label = strings.TrimSpace(label)
-		if label == "" || seen[strings.ToLower(label)] {
-			continue
-		}
-		seen[strings.ToLower(label)] = true
-		labels = append(labels, label)
-	}
-	return labels
-}
-
 func contactUnifiedStatusLabel(profile models.ContactProfile) string {
-	locations := len(contactProfileExistingCopies(profile.Cards))
-	activeSync := 0
-	for _, membership := range profile.SyncMemberships {
-		if membership.Enabled { activeSync++ }
-	}
-	if activeSync > 0 { return fmt.Sprintf("%d location(s) · Gofer Sync on", locations) }
-	return fmt.Sprintf("%d location(s) · Gofer Sync off", locations)
+	return contactProfileSyncLabel(&profile)
 }
 
 func contactSyncMembershipLabel(membership models.ContactSyncMembership, accounts []models.Account) string {
@@ -928,9 +1126,9 @@ func contactSourceDescription(card models.ContactCard, accounts []models.Account
 func contactInsightSeverityClass(severity string) string {
 	switch severity {
 	case "warning":
-		return "border-amber-500/25 bg-amber-500/10 text-amber-800"
+		return "border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200"
 	case "notice":
-		return "border-sky-500/20 bg-sky-500/10 text-sky-800"
+		return "border-sky-500/20 bg-sky-500/10 text-sky-800 dark:text-sky-200"
 	default:
 		return "border-ink/10 bg-ink/[0.04] text-ink/55"
 	}
@@ -1024,17 +1222,17 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 							}
 						</div>
 						<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
-							<span>Sync with accounts</span>
+							<span>Sync locations</span>
 							@selectbox.SelectBox() {
 								@selectbox.Trigger(selectbox.TriggerProps{Name: "save_target", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-									@selectbox.Value(selectbox.ValueProps{Placeholder: "Any account"})
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Any sync location"})
 								}
 								@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 									@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.SaveTarget == ""}) {
-										Any account
+										Any sync location
 									}
 									@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: filters.SaveTarget == "local"}) {
-										Gofer local
+										Local
 									}
 									for _, account := range accounts {
 										if !account.IsDeleting && accountContactSyncCapable(account) {
@@ -1393,7 +1591,13 @@ templ ContactsImportDialog(accounts []models.Account) {
 }
 
 templ ContactsDetail(contact *models.Contact, profile *models.ContactProfile, showNew bool, syncQueued bool, accounts []models.Account) {
-	<div id="contacts-detail" class="flex flex-col h-full p-2">
+	<div
+		id="contacts-detail"
+		class="flex flex-col h-full p-2"
+		if contact != nil {
+			data-contact-detail-id={ contact.ID }
+		}
+	>
 		if contact != nil || showNew {
 			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 				@ContactEditor(contact, profile, syncQueued, accounts)
@@ -1448,6 +1652,7 @@ templ ContactReadOnlyView(contact models.Contact, profile *models.ContactProfile
 		@ContactReadOnlyContactInfo(contact)
 		@ContactReadOnlySyncInfo(contact, profile, syncQueued, accounts)
 		@ContactReadOnlyActivityInfo(contact)
+		@ContactRecentActivityLoader(contact)
 	</div>
 }
 
@@ -1471,27 +1676,33 @@ templ ContactReadOnlyContactInfo(contact models.Contact) {
 }
 
 templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactProfile, syncQueued bool, accounts []models.Account) {
-	{{ sourceLabels := contactReadOnlySourceLabels(contact, profile, accounts) }}
-	{{ mirrorLabels := contactReadOnlyMirrorLabels(&contact, profile, accounts) }}
-	{{ resolverFields := []models.ContactField{} }}
-	if profile != nil {
-		{{ resolverFields = contactProfileResolverFields(profile.Fields) }}
-	}
+	{{ originLabel := contactReadOnlyOriginLabel(contact, profile, accounts) }}
+	{{ targetLabels := contactReadOnlyMirrorLabels(&contact, profile, accounts) }}
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
-		<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
-			@icon.Route(icon.Props{Class: "size-3.5 text-ink/40"})
-			<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Sync</h2>
+		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+			<div class="flex flex-wrap items-center gap-2">
+				@icon.Route(icon.Props{Class: "size-3.5 text-ink/40"})
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/55">Gofer Sync</h2>
+				<span class={ contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile)) } data-contact-sync-enabled-status>{ contactProfileSyncLabel(profile) }</span>
+			</div>
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Size: button.SizeSm,
+				Disabled: !contactProfileSyncEnabled(profile) || contactSyncOperationActive(contact, syncQueued),
+				Class: "h-7 gap-1.5 border-ink/10 bg-ink/[0.025] px-2.5 text-xs text-ink/55 shadow-none",
+				Attributes: templ.Attributes{"data-contact-sync-now": "", "data-contact-id": contact.ID, "aria-label": "Sync this contact now"},
+			}) {
+				@icon.RefreshCw(icon.Props{Class: contactSyncNowIconClass(contact, syncQueued)})
+				Sync now
+			}
 		</div>
 		<div class="grid gap-x-6 px-4 lg:grid-cols-2">
-			@ContactReadOnlyPillListField("Locations", sourceLabels)
-			@ContactReadOnlyPillListField("Gofer Sync", mirrorLabels)
-			@ContactReadOnlyTextField("Sync status", contactReadOnlySyncStatus(contact, syncQueued))
+			@ContactReadOnlyPillListField("Sync locations", targetLabels)
+			@ContactReadOnlyTextField("Origin", originLabel)
+			@ContactReadOnlySyncStatusField(contactReadOnlySyncStatus(contact, syncQueued))
 			@ContactReadOnlyTextField("Sync updated", contact.SyncUpdatedAt)
 			@ContactReadOnlyLongField("Sync error", contact.SyncError)
 		</div>
-		if len(resolverFields) > 0 {
-			@ContactReadOnlyDefaultInfo(resolverFields, accounts)
-		}
 	</section>
 }
 
@@ -1504,8 +1715,8 @@ templ ContactReadOnlyActivityInfo(contact models.Contact) {
 		<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">
 			@ContactReadOnlyTextField("Messages", fmt.Sprintf("%d", contact.MessageCount))
 			@ContactReadOnlyTextField("Last seen", contact.LastSeenAt)
-			@ContactReadOnlyTextField("Created", contact.CreatedAt)
-			@ContactReadOnlyTextField("Updated", contact.UpdatedAt)
+			@ContactReadOnlyTextField("Added to Gofer", contact.CreatedAt)
+			@ContactReadOnlyTextField("Contact updated", contact.UpdatedAt)
 		</div>
 	</section>
 }
@@ -1563,7 +1774,7 @@ templ ContactReadOnlyListField(label string, values []string, labels []string, f
 }
 
 templ ContactReadOnlyPillListField(label string, values []string) {
-	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:col-span-2">
 		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">{ label }</div>
 		if len(values) > 0 {
 			<div class="mt-1 flex min-h-5 flex-wrap items-center gap-1.5">
@@ -1577,53 +1788,10 @@ templ ContactReadOnlyPillListField(label string, values []string) {
 	</div>
 }
 
-templ ContactReadOnlyDefaultInfo(fields []models.ContactField, accounts []models.Account) {
-	<div class="border-t border-ink/10 px-4 py-4">
-		<div class="mb-3 flex items-center gap-2">
-			@icon.GitMergeConflict(icon.Props{Class: "size-3.5 text-ink/40"})
-			<div>
-				<h3 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Preferred values</h3>
-				<p class="mt-0.5 text-xs text-ink/40">Choose which value Gofer Sync sends when locations disagree.</p>
-			</div>
-		</div>
-		<div class="space-y-3">
-			for _, kind := range contactProfileResolverKinds(fields) {
-				<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">
-					<div class="flex items-center gap-2 border-b border-ink/10 px-3 py-2">
-						if kind == "email" {
-							@icon.Mail(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
-						} else if kind == "phone" {
-							@icon.Phone(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
-						} else {
-							@icon.BadgeInfo(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
-						}
-						<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">{ contactFieldKindLabel(kind) }</div>
-					</div>
-					<div class="divide-y divide-ink/10">
-						for _, field := range contactProfileResolverFieldsForKind(fields, kind) {
-							<div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-								<div class="min-w-0">
-									<div class="truncate text-sm font-semibold text-ink">{ field.Value }</div>
-									<div class="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/40">
-										if contactFieldDisplayLabel(field) != "" {
-											<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldDisplayLabel(field) }</span>
-										}
-										if contactFieldSourceDisplay(field.Source, accounts) != "" {
-											<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldSourceDisplay(field.Source, accounts) }</span>
-										}
-									</div>
-								</div>
-								if field.IsPrimary {
-									<span class="inline-flex h-7 items-center justify-center rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">Preferred</span>
-								} else {
-									<span class="inline-flex h-7 items-center justify-center rounded-md border border-ink/10 bg-ink/[0.04] px-2 text-[10px] font-semibold uppercase tracking-wider text-ink/35">Alternative</span>
-								}
-							</div>
-						}
-					</div>
-				</div>
-			}
-		</div>
+templ ContactReadOnlySyncStatusField(value string) {
+	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">Sync status</div>
+		<div class={ "mt-1 min-h-5 truncate text-sm font-medium " + contactReadOnlyValueClass(value) } data-contact-sync-operation-status>{ contactReadOnlyValue(value) }</div>
 	</div>
 }
 
@@ -1865,31 +2033,31 @@ templ ContactEditSyncPanel(contact *models.Contact, profile *models.ContactProfi
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-ink/40"})
-				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Sync</h2>
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/55">Gofer Sync</h2>
 			</div>
-			<span class="rounded-md border border-ink/10 bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/45">
-				if profile != nil {
-					{ contactUnifiedStatusLabel(*profile) }
-				} else {
-					{ contactEditorStatusLabel(contact, nil, accounts) }
-				}
-			</span>
+			<div class="flex items-center gap-2">
+				<span class={ contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile)) } data-contact-sync-state-label>
+					{ contactProfileSyncLabel(profile) }
+				</span>
+				@switchcomp.Switch(switchcomp.Props{
+					ID: contactSyncEnabledID(contact),
+					Name: "sync_enabled",
+					Checked: contactProfileSyncEnabled(profile),
+					Attributes: templ.Attributes{"aria-label": "Enable Gofer Sync", "data-contact-sync-enabled": ""},
+				})
+			</div>
 		</div>
-		<div class="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+		<div class="space-y-4 p-4">
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
-				<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">Locations</div>
-				if profile != nil && len(contactProfileSourceLabels(profile.Cards, accounts)) > 0 {
-					<div class="mt-2 flex flex-wrap gap-1.5">
-						for _, label := range contactProfileSourceLabels(profile.Cards, accounts) {
-							<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink/45">{ label }</span>
-						}
-					</div>
+				<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">Origin</div>
+				if profile != nil {
+					<div class="mt-1 text-sm font-semibold text-ink">{ contactSourceLabel(profile.Origin, profile.Origin == "manual", accounts) }</div>
 				} else {
-					<div class="mt-1 text-sm font-semibold text-ink">Gofer Local</div>
+					<div class="mt-1 text-sm font-semibold text-ink">Manual</div>
 				}
-				<p class="mt-2 text-xs leading-relaxed text-ink/50">These are copies that currently exist. Editing the aggregate profile does not move or delete them.</p>
+				<p class="mt-2 text-xs leading-relaxed text-ink/50">How this contact was first created. Editing or syncing it does not change its origin.</p>
 			</div>
-			@ContactSyncTargetsSelect(contact, accounts)
+			<div class="w-full">@ContactSyncTargetsSelect(contact, accounts, contactProfileSyncEnabled(profile))</div>
 		</div>
 	</section>
 }
@@ -1968,11 +2136,21 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-ink/40"})
-				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Sync</h2>
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/55">Gofer Sync</h2>
 			</div>
-			<span class="rounded-md border border-ink/10 bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/45">{ contactEditorStatusLabel(contact, nil, accounts) }</span>
+			<div class="flex items-center gap-2">
+				<span class={ contactSyncEnabledBadgeClass(contact != nil && contact.GoferSyncEnabled) } data-contact-sync-state-label>
+					{ contactSyncLabel(contact) }
+				</span>
+				@switchcomp.Switch(switchcomp.Props{
+					ID: contactSyncEnabledID(contact),
+					Name: "sync_enabled",
+					Checked: contact != nil && contact.GoferSyncEnabled,
+					Attributes: templ.Attributes{"aria-label": "Enable Gofer Sync", "data-contact-sync-enabled": ""},
+				})
+			</div>
 		</div>
-		<div class="grid gap-4 p-4 lg:grid-cols-2">
+		<div class="space-y-4 p-4">
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 				<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">Source</div>
 				if contact != nil && len(contact.SourceBooks) > 0 {
@@ -1986,41 +2164,30 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 					<div class="mt-0.5 text-xs text-ink/40">Local editable contact</div>
 				}
 			</div>
-			<div>
-				@ContactSyncTargetsSelect(contact, accounts)
+			<div class="w-full">
+				@ContactSyncTargetsSelect(contact, accounts, contact != nil && contact.GoferSyncEnabled)
 			</div>
 		</div>
 	</section>
 }
 
 templ ContactProfileInsight(profile models.ContactProfile, contact *models.Contact, accounts []models.Account) {
-	{{ resolverFields := contactProfileResolverFields(profile.Fields) }}
-	{{ sourceLabels := contactProfileSourceLabels(profile.Cards, accounts) }}
 	<section class="w-full rounded-lg border border-ink/10 bg-ink/[0.02]">
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-ink/40"})
-				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Sync</h2>
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/55">Gofer Sync</h2>
 			</div>
-			<span class="rounded-md border border-ink/10 bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/45">{ contactUnifiedStatusLabel(profile) }</span>
+			<span class={ contactSyncEnabledBadgeClass(profile.SyncEnabled) }>{ contactUnifiedStatusLabel(profile) }</span>
 		</div>
-		<div class="grid gap-4 p-4 lg:grid-cols-2">
+		<div class="space-y-4 p-4">
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
-				<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">Locations</div>
-				if len(sourceLabels) > 0 {
-					<div class="mt-2 flex flex-wrap items-center gap-1.5">
-						for _, label := range sourceLabels {
-							<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink/45">{ label }</span>
-						}
-					</div>
-				}
-				<p class="mt-2 text-xs leading-relaxed text-ink/45">Each pill is an actual copy or observed source, independent from Gofer Sync.</p>
+				<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">Origin</div>
+				<div class="mt-1 text-sm font-semibold text-ink">{ contactSourceLabel(profile.Origin, profile.Origin == "manual", accounts) }</div>
+				<p class="mt-2 text-xs leading-relaxed text-ink/45">How this contact was first created. This value does not change when the contact is edited or synchronized.</p>
 			</div>
-			<div>@ContactSyncTargetsSelect(contact, accounts)</div>
+			<div class="w-full">@ContactSyncTargetsSelect(contact, accounts, profile.SyncEnabled)</div>
 		</div>
-		if len(resolverFields) > 0 {
-			@ContactProfileConflictResolver(resolverFields, accounts)
-		}
 	</section>
 }
 
@@ -2038,14 +2205,17 @@ templ ContactSyncStatusNotice(contact models.Contact) {
 	</div>
 }
 
-templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account) {
-	<div>
-		<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Gofer Sync destinations</label>
+templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account, syncEnabled bool) {
+	<div class={ contactSyncTargetsClass(syncEnabled) } data-contact-sync-targets aria-disabled={ fmt.Sprintf("%t", !syncEnabled) }>
+		<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/40">Sync locations</label>
 		@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} address books selected"}) {
-				@selectbox.Value(selectbox.ValueProps{Placeholder: "No external sync", Multiple: true, Class: "text-left"})
+			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: "{n} locations selected"}) {
+				@selectbox.Value(selectbox.ValueProps{Placeholder: "No targets selected", Multiple: true, Class: "text-left"})
 			}
 			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+				@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local")}) {
+					Local
+				}
 				for _, account := range accounts {
 					if !account.IsDeleting && accountContactSyncCapable(account) {
 						if len(account.ContactAddressBooks) == 0 {
@@ -2062,8 +2232,219 @@ templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Accoun
 				}
 			}
 		}
-		<p class="mt-1.5 text-xs leading-relaxed text-ink/40">Selected address books receive preferred values. Turning one off stops future updates; it never deletes the existing copy.</p>
+		<p class="mt-1.5 text-xs leading-relaxed text-ink/40">Selected locations participate in Gofer Sync. Turning sync off keeps this selection for later.</p>
 	</div>
+}
+
+templ ContactSyncSetupDialog(setup models.ContactSyncSetup) {
+	@dialog.Dialog(dialog.Props{ID: "contact-sync-setup-dialog", Open: true, DisableClickAway: true, DisableESC: true}) {
+		@dialog.Content(dialog.ContentProps{HideCloseButton: true, Class: "max-h-[calc(100dvh-2rem)] overflow-hidden sm:max-w-4xl [&_[data-tui-dialog-panel]]:flex [&_[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&_[data-tui-dialog-panel]]:min-h-0 [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:overflow-hidden [&_[data-tui-dialog-panel]]:p-0"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 flex-row items-start justify-between gap-4 border-b border-ink/10 px-5 py-4 text-left sm:px-6"}) {
+				<div>
+					<div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/35">
+						{ contactSyncSetupStep(setup.Phase) }
+					</div>
+					@dialog.Title(dialog.TitleProps{Class: "mt-1 text-lg text-ink"}) { Set up Gofer Sync }
+					@dialog.Description(dialog.DescriptionProps{Class: "mt-1 max-w-2xl text-sm leading-relaxed text-ink/50"}) {
+						if setup.Phase == "resolve" {
+							Choose which conflicting values Gofer should use across every synchronized copy.
+						} else {
+							Find existing copies of this contact and decide which ones should join the synchronized profile.
+						}
+					}
+				</div>
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 shrink-0 text-ink/40 hover:text-ink", Attributes: templ.Attributes{"data-contact-sync-setup-cancel": "", "aria-label": "Cancel sync setup"}}) {
+					@icon.X(icon.Props{Class: "size-4"})
+				}
+			}
+			<div class="flex min-h-0 flex-1 flex-col overflow-hidden" data-contact-sync-setup-body>
+				if setup.Phase == "searching" {
+					@ContactSyncSetupSearching(setup)
+				} else if setup.Phase == "resolve" {
+					@ContactSyncSetupResolve(setup)
+				} else {
+					@ContactSyncSetupDiscover(setup)
+				}
+			</div>
+		}
+	}
+}
+
+templ ContactSyncSetupSearching(setup models.ContactSyncSetup) {
+	<div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10" data-contact-sync-setup-auto-search={ fmt.Sprintf("/api/contacts/%s/sync-setup/findings?mode=automatic", setup.Contact.ID) }>
+		<div class="max-w-sm text-center">
+			<div class="mx-auto flex size-11 items-center justify-center rounded-full bg-ink/[0.04] text-ink/45">
+				@icon.LoaderCircle(icon.Props{Class: "size-5 animate-spin"})
+			</div>
+			<div class="mt-4 text-sm font-semibold text-ink">Searching sync locations</div>
+			<p class="mt-1 text-xs leading-relaxed text-ink/45">Gofer is comparing email addresses, phone numbers, and names. You can refine or replace this search when the findings appear.</p>
+		</div>
+	</div>
+}
+
+templ ContactSyncSetupDiscover(setup models.ContactSyncSetup) {
+	{{ selectionFormID := "contact-sync-setup-selection-" + setup.Contact.ID }}
+	<div class="flex min-h-0 flex-1 flex-col">
+		<div class="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+			<form id={ selectionFormID } method="post" action={ fmt.Sprintf("/api/contacts/%s/sync-setup/preview", setup.Contact.ID) } class="space-y-3" data-contact-sync-setup-form>
+			<div class="rounded-lg border border-ink/10 bg-paper/45 px-4 py-3">
+				<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">Local</div>
+				<div class="mt-1 text-sm font-semibold text-ink">{ contactDisplay(setup.Contact) }</div>
+				<div class="text-xs text-ink/45">{ setup.Contact.Email }</div>
+			</div>
+				for _, location := range setup.Locations {
+					@ContactSyncSetupLocation(setup.Contact.ID, location)
+				}
+			</form>
+		</div>
+		@dialog.Footer(dialog.FooterProps{Class: "shrink-0 items-center justify-between border-t border-ink/10 bg-card px-5 py-4 sm:justify-between sm:px-6"}) {
+			@button.Button(button.Props{Variant: button.VariantOutline, Class: "text-ink/55", Attributes: templ.Attributes{"data-contact-sync-setup-cancel": ""}}) { Keep sync disabled }
+			@button.Button(button.Props{Type: button.TypeSubmit, Form: selectionFormID, Class: "btn-skeuo"}) {
+				Review values
+				@icon.ArrowRight(icon.Props{Class: "size-4"})
+			}
+		}
+	</div>
+}
+
+templ ContactSyncSetupLocation(contactID string, location models.ContactSyncSetupLocation) {
+	<div class="overflow-hidden rounded-lg border border-ink/10 bg-paper/45" data-contact-sync-setup-location={ location.AccountID }>
+						<div class="flex items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+							<div>
+								<div class="text-sm font-semibold text-ink">{ location.Label }</div>
+								<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">{ location.Provider }</div>
+							</div>
+							<div class="flex items-center gap-2">
+								if len(location.Candidates) == 0 {
+									<span class="rounded-md bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">No match found</span>
+								} else if len(location.Candidates) == 1 {
+									<span class="rounded-md bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">1 possible match</span>
+								} else {
+									<span class="rounded-md bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">{ fmt.Sprintf("%d possible matches", len(location.Candidates)) }</span>
+								}
+								@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "text-xs text-ink/55", Attributes: templ.Attributes{"data-contact-sync-location-search-toggle": ""}}) {
+									@icon.Search(icon.Props{Class: "size-3.5"})
+									Search manually
+								}
+							</div>
+						</div>
+						<div class="hidden border-b border-ink/10 bg-ink/[0.02] px-4 py-3" data-contact-sync-location-search-panel data-contact-sync-location-search-url={ fmt.Sprintf("/api/contacts/%s/sync-setup/findings?mode=custom&account_id=%s", contactID, url.QueryEscape(location.AccountID)) }>
+							<div class="flex flex-col gap-2 sm:flex-row">
+								@input.Input(input.Props{Type: input.TypeSearch, Placeholder: "Name, email, or phone number", Class: "h-9 bg-paper", Attributes: templ.Attributes{"data-contact-sync-location-search-query": ""}})
+								@button.Button(button.Props{Variant: button.VariantOutline, Class: "text-ink/60", Attributes: templ.Attributes{"data-contact-sync-location-search-submit": ""}}) { Search this account }
+							</div>
+						</div>
+					if location.Error != "" {
+						<div class="border-b border-amber-500/15 bg-amber-500/[0.07] px-4 py-2 text-xs text-amber-800 dark:text-amber-200">{ location.Error }</div>
+					}
+					<div class="divide-y divide-ink/10">
+						for index, candidate := range location.Candidates {
+							<label class="grid cursor-pointer gap-3 px-4 py-3 transition-colors hover:bg-ink/[0.025] has-[:checked]:bg-primary/[0.045] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+								@radio.Radio(radio.Props{Name: "candidate_" + location.AccountID, Value: candidate.Key, Checked: contactSyncSetupCandidateChecked(location.Candidates, index)})
+								<div class="min-w-0">
+									<div class="truncate text-sm font-semibold text-ink">{ contactReadOnlyValue(candidate.Name) }</div>
+									<div class="truncate text-xs text-ink/45">{ contactReadOnlyValue(candidate.Email) }</div>
+									if candidate.Phone != "" || candidate.Organization != "" {
+										<div class="mt-1 truncate text-[11px] text-ink/35">{ strings.Trim(strings.Join([]string{candidate.Phone, candidate.Organization}, " · "), " ·") }</div>
+									}
+								</div>
+								<div class="flex flex-wrap items-center gap-1.5 sm:justify-end">
+									if contactSyncSetupCandidateChecked(location.Candidates, index) {
+										<span class="rounded-md bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary">Recommended</span>
+									}
+									<span class="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">{ contactSyncSetupCandidateMatchLabel(candidate) }</span>
+								</div>
+							</label>
+						}
+						<label class="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-ink/[0.025] has-[:checked]:bg-primary/[0.045]">
+							@radio.Radio(radio.Props{Name: "candidate_" + location.AccountID, Value: "none", Checked: !contactSyncSetupHasRecommendedCandidate(location.Candidates)})
+							<div class="min-w-0">
+								if len(location.Candidates) == 0 {
+									<div class="text-sm font-semibold text-ink/70">Create a new contact in this account</div>
+								} else {
+									<div class="text-sm font-semibold text-ink/70">None of these contacts are the same person</div>
+									<div class="mt-0.5 text-xs text-ink/40">Do not link a match; create a separate contact in this account instead.</div>
+								}
+							</div>
+						</label>
+					</div>
+	</div>
+}
+
+templ ContactSyncSetupResolve(setup models.ContactSyncSetup) {
+	{{ resolverFields := contactProfileResolverFields(setup.ConflictFields) }}
+	<form method="post" action={ fmt.Sprintf("/api/contacts/%s/sync-setup/confirm", setup.Contact.ID) } class="flex min-h-0 flex-1 flex-col" data-contact-sync-setup-confirm>
+		<div class="min-h-0 overflow-y-auto px-5 py-5 sm:px-6">
+			if len(resolverFields) == 0 {
+				<div class="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.07] px-4 py-5 text-center">
+					@icon.CircleCheck(icon.Props{Class: "mx-auto size-6 text-emerald-700"})
+					<div class="mt-2 text-sm font-semibold text-ink">No conflicting values found</div>
+					<p class="mt-1 text-xs text-ink/45">The selected copies agree, so Gofer can enable synchronization safely.</p>
+				</div>
+			} else {
+				<div class="space-y-3">
+					for _, kind := range contactProfileResolverKinds(resolverFields) {
+						{{ groups := contactResolverValueGroups(resolverFields, kind) }}
+						<div class="overflow-hidden rounded-lg border border-ink/10 bg-paper/45">
+							<div class="border-b border-ink/10 px-4 py-3">
+								<div class="text-xs font-semibold uppercase tracking-wider text-ink/55">Choose the primary { strings.ToLower(contactFieldKindLabel(kind)) }</div>
+								<p class="mt-1 text-xs leading-relaxed text-ink/40">{ contactSyncSetupConflictHelp(kind) }</p>
+							</div>
+							<div class="divide-y divide-ink/10">
+								for index, group := range groups {
+									{{ inputID := fmt.Sprintf("contact-sync-primary-%s-%d", kind, index) }}
+									{{ locationLabels := contactSyncSetupLocationLabels(group.Sources, setup.Locations) }}
+									<div class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 px-4 py-3 transition-colors hover:bg-ink/[0.025] has-[:checked]:bg-primary/[0.045]">
+										@radio.Radio(radio.Props{ID: inputID, Name: "preferred_" + kind, Value: group.Field.ID, Checked: contactResolverValueGroupChecked(groups, index), Class: "mt-0.5"})
+										<div class="min-w-0">
+											<label for={ inputID } class="block cursor-pointer break-all text-sm font-semibold leading-relaxed text-ink">{ group.Field.Value }</label>
+											<div class="mt-1.5 flex flex-wrap items-center gap-2">
+												if group.IsCanonicalPrimary {
+													<span class="rounded-md border border-ink/10 bg-ink/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">Current primary</span>
+												}
+												if len(locationLabels) > 0 {
+													@ContactSyncSetupValueLocations(locationLabels)
+												}
+											</div>
+										</div>
+									</div>
+								}
+							</div>
+						</div>
+					}
+				</div>
+			}
+		</div>
+		@dialog.Footer(dialog.FooterProps{Class: "shrink-0 items-center justify-between border-t border-ink/10 bg-card px-5 py-4 sm:justify-between sm:px-6"}) {
+			@button.Button(button.Props{Variant: button.VariantOutline, Class: "text-ink/55", Attributes: templ.Attributes{"data-contact-sync-setup-cancel": ""}}) { Keep sync disabled }
+			@button.Button(button.Props{Type: button.TypeSubmit, Class: "btn-skeuo"}) {
+				@icon.CloudSync(icon.Props{Class: "size-4"})
+				Use selected values and sync
+			}
+		}
+	</form>
+}
+
+templ ContactSyncSetupValueLocations(labels []string) {
+	@popover.Root(popover.RootProps{Class: "inline-flex"}) {
+		@popover.Trigger() {
+			<button type="button" class="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink/40 transition-colors hover:bg-ink/[0.05] hover:text-ink/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20" aria-label={ contactSyncSetupLocationCountLabel(len(labels)) + "; show locations" }>
+				@icon.MapPin(icon.Props{Class: "size-3 shrink-0"})
+				{ contactSyncSetupLocationCountLabel(len(labels)) }
+			</button>
+		}
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "w-72 border-ink/10 bg-card p-3 text-ink shadow-raised"}) {
+			<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/40">Locations using this value</div>
+			<div class="mt-2 space-y-1.5">
+				for _, label := range labels {
+					<div class="flex min-w-0 items-start gap-2 rounded-md bg-ink/[0.035] px-2.5 py-2">
+						@icon.MapPin(icon.Props{Class: "mt-0.5 size-3.5 shrink-0 text-ink/35"})
+						<span class="min-w-0 break-words text-xs font-medium leading-relaxed text-ink/65">{ label }</span>
+					</div>
+				}
+			</div>
+		}
+	}
 }
 
 templ ContactSyncQueuedNotice() {
@@ -2117,65 +2498,6 @@ templ ContactProfileInsights(insights []models.ContactInsight) {
 			}
 		</div>
 	</div>
-}
-
-templ ContactProfileConflictResolver(fields []models.ContactField, accounts []models.Account) {
-	if len(fields) > 0 {
-		<div class="border-t border-ink/10 px-4 py-4">
-			<div class="mb-3 flex items-center gap-2">
-				@icon.GitMergeConflict(icon.Props{Class: "size-3.5 text-ink/40"})
-				<div>
-					<h3 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Preferred values</h3>
-					<p class="mt-0.5 text-xs text-ink/40">Choose which value Gofer Sync sends when locations disagree. Editing a value makes the edited value preferred.</p>
-				</div>
-			</div>
-			<div class="space-y-3">
-				for _, kind := range contactProfileResolverKinds(fields) {
-					<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">
-						<div class="flex items-center gap-2 border-b border-ink/10 px-3 py-2">
-							if kind == "email" {
-								@icon.Mail(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
-							} else if kind == "phone" {
-								@icon.Phone(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
-							} else {
-								@icon.BadgeInfo(icon.Props{Class: "size-3.5 shrink-0 text-ink/40"})
-							}
-							<div class="text-xs font-semibold uppercase tracking-wider text-ink/40">{ contactFieldKindLabel(kind) }</div>
-						</div>
-						<div class="divide-y divide-ink/10">
-							for _, field := range contactProfileResolverFieldsForKind(fields, kind) {
-								<div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-									<div class="min-w-0">
-										<div class="truncate text-sm font-semibold text-ink">{ field.Value }</div>
-										<div class="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/40">
-											if contactFieldDisplayLabel(field) != "" {
-												<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldDisplayLabel(field) }</span>
-											}
-											if contactFieldSourceDisplay(field.Source, accounts) != "" {
-												<span class="rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5">{ contactFieldSourceDisplay(field.Source, accounts) }</span>
-											}
-										</div>
-									</div>
-									if field.IsPrimary {
-										<span class="inline-flex h-7 items-center justify-center rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">Preferred</span>
-									} else {
-										<button
-											type="submit"
-											formmethod="post"
-											formaction={ fmt.Sprintf("/api/contacts/%s/fields/%s/prefer", field.ProfileID, field.ID) }
-											class="inline-flex h-7 items-center justify-center rounded-md border border-ink/10 bg-ink/[0.04] px-2 text-[11px] font-semibold text-ink/45 hover:bg-ink/[0.08] hover:text-ink/70"
-										>
-											Use this value
-										</button>
-									}
-								</div>
-							}
-						</div>
-					</div>
-				}
-			</div>
-		</div>
-	}
 }
 
 templ ContactProfileSyncTargetRow(card models.ContactCard, accounts []models.Account) {
@@ -2264,16 +2586,6 @@ templ ContactProfileFieldRow(field models.ContactField, accounts []models.Accoun
 				</div>
 			</div>
 			<div class="flex shrink-0 items-center gap-1.5">
-				if !field.IsPrimary {
-					<button
-						type="submit"
-						formmethod="post"
-						formaction={ fmt.Sprintf("/api/contacts/%s/fields/%s/prefer", field.ProfileID, field.ID) }
-						class="inline-flex h-6 items-center rounded border border-ink/10 bg-ink/[0.04] px-2 text-[10px] font-semibold uppercase tracking-wider text-ink/45 hover:bg-ink/[0.08] hover:text-ink/70"
-					>
-						Prefer + sync
-					</button>
-				}
 				<span class="text-[10px] tabular-nums text-ink/35">{ fmt.Sprintf("%.0f%%", field.Confidence*100) }</span>
 			</div>
 		</div>
@@ -2287,9 +2599,48 @@ func contactRecentActivityURL(contactID string) string {
 	return "/contacts?" + values.Encode()
 }
 
+func contactActivityMailURL(email string) string {
+	values := url.Values{}
+	values.Set("participant", strings.TrimSpace(email))
+	return "/?" + values.Encode()
+}
+
+templ ContactRecentActivityHeader(contact models.Contact) {
+	<div class="mb-3 flex items-center justify-between gap-3">
+		<div>
+			<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Recent activity</h2>
+			<p class="mt-1 text-xs text-ink/35">Latest emails involving this contact.</p>
+		</div>
+		<div class="flex shrink-0 items-center gap-2">
+			<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">Top 10</span>
+			if strings.TrimSpace(contact.Email) != "" {
+				{{ activityURL := contactActivityMailURL(contact.Email) }}
+				@button.Button(button.Props{
+					Href: activityURL,
+					Variant: button.VariantOutline,
+					Size: button.SizeSm,
+					Class: "h-7 gap-1.5 border-ink/10 bg-paper/45 px-2.5 text-xs text-ink/55 shadow-none",
+					Attributes: templ.Attributes{
+						"data-sidebar-app-button": "mail",
+						"hx-get": activityURL,
+						"hx-target": "#mail-list",
+						"hx-select": "#mail-list",
+						"hx-select-oob": "#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML,#mail-view:outerHTML,#app-pane-dialogs:outerHTML",
+						"hx-swap": "outerHTML",
+						"hx-push-url": activityURL,
+					},
+				}) {
+					See all
+					@icon.ArrowRight(icon.Props{Class: "size-3.5"})
+				}
+			}
+		</div>
+	</div>
+}
+
 templ ContactRecentActivityLoader(contact models.Contact) {
 	<div
-		class="mt-6 w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4"
+		class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4"
 		hx-get={ templ.URL(contactRecentActivityURL(contact.ID)) }
 		hx-trigger="load"
 		hx-target="this"
@@ -2297,13 +2648,7 @@ templ ContactRecentActivityLoader(contact models.Contact) {
 		aria-busy="true"
 		data-contact-recent-activity-loading
 	>
-		<div class="mb-3 flex items-center justify-between gap-3">
-			<div>
-				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Recent activity</h2>
-				<p class="mt-1 text-xs text-ink/35">Latest emails involving this contact.</p>
-			</div>
-			<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">Top 10</span>
-		</div>
+		@ContactRecentActivityHeader(contact)
 		<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">
 			for i := 0; i < 4; i++ {
 				<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">
@@ -2322,14 +2667,8 @@ templ ContactRecentActivityLoader(contact models.Contact) {
 }
 
 templ ContactRecentActivity(contact models.Contact, emails []models.Email) {
-	<div class="mt-6 w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
-		<div class="mb-3 flex items-center justify-between gap-3">
-			<div>
-				<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Recent activity</h2>
-				<p class="mt-1 text-xs text-ink/35">Latest emails involving this contact.</p>
-			</div>
-			<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">Top 10</span>
-		</div>
+	<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
+		@ContactRecentActivityHeader(contact)
 		if len(emails) == 0 {
 			<div class="rounded-md border border-dashed border-ink/10 px-3 py-4 text-sm text-ink/40">No recent emails found for this contact.</div>
 		} else {
