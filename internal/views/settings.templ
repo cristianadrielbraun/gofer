@@ -1776,6 +1776,8 @@ templ SettingsNoAccounts() {
 }
 
 templ SettingsAccountCard(account models.Account) {
+	{{ syncError := strings.TrimSpace(account.EmailSyncError) }}
+	{{ syncErrorAt := strings.TrimSpace(account.EmailSyncErrorAt) }}
 	<div
 		id={ fmt.Sprintf("account-card-%s", account.ID) }
 		data-settings-account-card
@@ -1789,7 +1791,10 @@ templ SettingsAccountCard(account models.Account) {
 				<div class="flex min-w-0 items-start gap-3">
 					@AccountColorPopover(account)
 					<div class="min-w-0">
-						<p class="min-w-0 truncate text-sm font-semibold text-foreground">{ account.Name }</p>
+						<div class="flex min-w-0 items-center gap-1.5">
+							<p class="min-w-0 truncate text-sm font-semibold text-foreground">{ account.Name }</p>
+							@SettingsAccountSyncErrorPopover(account, syncError, syncErrorAt)
+						</div>
 						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ account.Email }</p>
 					</div>
 				</div>
@@ -1922,6 +1927,44 @@ templ SettingsAccountCard(account models.Account) {
 			}
 		}
 	</div>
+}
+
+templ SettingsAccountSyncErrorPopover(account models.Account, syncError string, syncErrorAt string) {
+	<span
+		data-settings-account-sync-error={ account.ID }
+		hidden?={ !account.EmailSyncEnabled || syncError == "" }
+		class="inline-flex shrink-0"
+		aria-live="polite"
+	>
+		@popover.Root(popover.RootProps{ID: fmt.Sprintf("account-sync-error-%s", account.ID), Class: "shrink-0"}) {
+			@popover.Trigger() {
+				<button
+					type="button"
+					class="inline-flex size-6 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+					aria-label={ fmt.Sprintf("Show mail sync error for %s", account.Name) }
+				>
+					@icon.CircleAlert(icon.Props{Class: "size-4"})
+				</button>
+			}
+			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "w-80 p-3"}) {
+				<div class="flex items-start gap-2.5">
+					@icon.CircleAlert(icon.Props{Class: "mt-0.5 size-4 shrink-0 text-destructive"})
+					<div class="min-w-0 flex-1">
+						<p class="text-sm font-semibold text-popover-foreground">Mail sync failed</p>
+						<p
+							data-settings-account-sync-error-at-wrapper
+							hidden?={ syncErrorAt == "" }
+							class="mt-0.5 text-[11px] text-muted-foreground"
+						>
+							Last failure:
+							<span data-account-sync-error-at={ syncErrorAt }>{ formatAccountSyncErrorAt(syncErrorAt, nil) }</span>
+						</p>
+						<p class="mt-2 break-words text-xs leading-relaxed text-muted-foreground" data-settings-account-sync-error-message>{ syncError }</p>
+					</div>
+				</div>
+			}
+		}
+	</span>
 }
 
 type accountConnectionTestService struct {

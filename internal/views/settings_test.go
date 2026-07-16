@@ -186,6 +186,80 @@ func TestSettingsAccountCardKeepsPrimaryActionsVisibleAndMovesSecondaryActionsTo
 	}
 }
 
+func TestSettingsAccountCardShowsCurrentMailSyncError(t *testing.T) {
+	account := models.Account{
+		ID:               "acc-error",
+		Name:             "Work account",
+		Email:            "person@example.com",
+		Provider:         "imap",
+		EmailSyncEnabled: true,
+		EmailSyncError:   "authentication failed",
+		EmailSyncErrorAt: "2026-07-16T08:30:00Z",
+	}
+
+	var out bytes.Buffer
+	if err := SettingsAccountCard(account).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsAccountCard.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`data-settings-account-sync-error="acc-error"`,
+		"Mail sync failed",
+		`aria-label="Show mail sync error for Work account"`,
+		`data-tui-popover-type="click"`,
+		`data-tui-popover-placement="bottom-start"`,
+		`data-settings-account-sync-error-message`,
+		"authentication failed",
+		`data-account-sync-error-at="2026-07-16T08:30:00Z"`,
+		"Last failure:",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("account card sync error missing %q: %s", want, html)
+		}
+	}
+
+	marker := `data-settings-account-sync-error="acc-error"`
+	start := strings.Index(html, marker)
+	if start == -1 {
+		t.Fatalf("account card sync error markup not found: %s", html)
+	}
+	end := strings.Index(html[start:], `data-tui-popover-root`)
+	if end == -1 {
+		t.Fatalf("account card sync error popover not found: %s", html)
+	}
+	if strings.Contains(html[start:start+end], " hidden") {
+		t.Fatalf("current account sync error should be visible: %s", html[start:start+end])
+	}
+}
+
+func TestSettingsAccountCardHidesMailSyncErrorWithoutCurrentIssue(t *testing.T) {
+	account := models.Account{
+		ID:               "acc-healthy",
+		Name:             "Healthy account",
+		Email:            "healthy@example.com",
+		Provider:         "imap",
+		EmailSyncEnabled: true,
+	}
+
+	var out bytes.Buffer
+	if err := SettingsAccountCard(account).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsAccountCard.Render() error = %v", err)
+	}
+	html := out.String()
+	marker := `data-settings-account-sync-error="acc-healthy"`
+	start := strings.Index(html, marker)
+	if start == -1 {
+		t.Fatalf("account card sync error live region not found: %s", html)
+	}
+	end := strings.Index(html[start:], `data-tui-popover-root`)
+	if end == -1 {
+		t.Fatalf("account card sync error popover region not found: %s", html)
+	}
+	if !strings.Contains(html[start:start+end], " hidden") {
+		t.Fatalf("healthy account sync error should be hidden: %s", html[start:start+end])
+	}
+}
+
 func TestSettingsSyncTabRendersUnifiedFolderAccountSwitches(t *testing.T) {
 	settings := models.SyncSettings{
 		SyncIntervalMinutes: 5,

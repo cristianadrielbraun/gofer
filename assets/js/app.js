@@ -6502,6 +6502,7 @@ function syncMailSyncIssuesFromDOM(root, reset) {
 function applyMailSyncIssueStatus(data) {
   if (!data || !data.account_id) return
   var status = data.status || ""
+  updateSettingsAccountSyncError(data)
   if (status === "error") {
     upsertMailSyncIssue({
       id: data.account_id,
@@ -6516,6 +6517,49 @@ function applyMailSyncIssueStatus(data) {
   if (status === "ok" || status === "synced" || status === "complete") {
     removeMailSyncIssue(data.account_id)
     updateMailSyncErrorIndicator()
+  }
+}
+
+function updateSettingsAccountSyncError(data) {
+  var accountID = String((data && data.account_id) || "")
+  if (!accountID) return
+  var status = String(data.status || "")
+  if (status !== "error" && status !== "ok" && status !== "synced" && status !== "complete") return
+
+  var nodes = document.querySelectorAll("[data-settings-account-sync-error]")
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i]
+    if (node.getAttribute("data-settings-account-sync-error") !== accountID) continue
+    if (status !== "error") {
+      var popoverRoot = node.querySelector("[data-tui-popover-root]")
+      if (popoverRoot && popoverRoot.id && window.tui && window.tui.popover) {
+        window.tui.popover.close(popoverRoot.id)
+      }
+      node.hidden = true
+      continue
+    }
+
+    var message = String(data.error || data.message || "Sync failed").trim()
+    var failedAt = String(data.failed_at || data.email_sync_error_at || "").trim()
+    var messageNode = node.querySelector("[data-settings-account-sync-error-message]")
+    if (messageNode) messageNode.textContent = message
+
+    var failedAtWrapper = node.querySelector("[data-settings-account-sync-error-at-wrapper]")
+    var failedAtNode = node.querySelector("[data-account-sync-error-at]")
+    if (failedAtWrapper) failedAtWrapper.hidden = !failedAt
+    if (failedAtNode) {
+      failedAtNode.setAttribute("data-account-sync-error-at", failedAt)
+      var date = parseMailSyncUTCInstant(failedAt)
+      failedAtNode.textContent = date ? formatGoferDateTime(date, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      }) : failedAt
+    }
+    node.hidden = false
   }
 }
 
