@@ -919,6 +919,267 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 	}
 }
 
+func TestSyncGmailAPIHistoryAppliesExplicitMessageDeletion(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	msgID := seedGmailAPIHistoryTestState(t, db, "gmail-deleted")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]any{
+				{"id": "INBOX", "name": "INBOX", "type": "system"},
+			}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
+			historyTypes := strings.Join(r.URL.Query()["historyTypes"], ",")
+			if !strings.Contains(historyTypes, "messageDeleted") {
+				t.Fatalf("historyTypes = %q, want messageDeleted", historyTypes)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"historyId": "110",
+				"history": []map[string]any{{
+					"messagesDeleted": []map[string]any{{
+						"message": map[string]string{"id": "gmail-deleted"},
+					}},
+				}},
+			})
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), labelSyncTestTokens{})
+	if err := orchestrator.syncGmailAPIAccount(ctx, "acc", true); err != nil {
+		t.Fatalf("syncGmailAPIAccount() error = %v", err)
+	}
+	var deleted, queued int
+	if err := db.Read().QueryRowContext(ctx, `SELECT is_deleted FROM message_folder_state WHERE message_id = ?`, msgID).Scan(&deleted); err != nil {
+		t.Fatalf("query deleted provider message: %v", err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM gmail_message_fetch_queue WHERE account_id = 'acc'`).Scan(&queued); err != nil {
+		t.Fatalf("query Gmail fetch queue: %v", err)
+	}
+	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if deleted != 1 || queued != 0 || state.Cursor != "110" || state.LastError != "" || state.LastSkippedMessages != 1 || state.LastFailedMessages != 0 {
+		t.Fatalf("explicit deletion state deleted=%d queued=%d sync=%#v", deleted, queued, state)
+	}
+}
+
+func TestSyncGmailAPIHistoryQueuesAndRecoversTransientMessage404(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	seedGmailAPIHistoryTestState(t, db, "")
+	disableGmailAPIRetryWait(t)
+
+	phase := 0
+	messageGets := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]any{
+				{"id": "INBOX", "name": "INBOX", "type": "system"},
+			}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
+			if r.URL.Query().Get("startHistoryId") == "105" {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"historyId": "110",
+					"history": []map[string]any{{
+						"messagesAdded": []map[string]any{{"message": map[string]string{"id": "gmail-late"}}},
+					}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"historyId": "110"})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-late":
+			messageGets++
+			if phase == 0 {
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":           "gmail-late",
+				"threadId":     "thread-late",
+				"labelIds":     []string{"INBOX"},
+				"historyId":    "110",
+				"internalDate": "1760000000000",
+				"payload": map[string]any{"headers": []map[string]string{
+					{"name": "Message-ID", "value": "<gmail-late@example.com>"},
+					{"name": "Subject", "value": "Eventually available"},
+					{"name": "From", "value": "Sender <sender@example.com>"},
+					{"name": "Date", "value": "Fri, 26 Jun 2026 12:00:00 +0000"},
+				}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/profile":
+			_ = json.NewEncoder(w).Encode(map[string]any{"historyId": "110"})
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+	orchestrator := NewSyncOrchestrator(db, nil, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), labelSyncTestTokens{})
+
+	if err := orchestrator.syncGmailAPIAccount(ctx, "acc", true); err != nil {
+		t.Fatalf("first syncGmailAPIAccount() error = %v", err)
+	}
+	var queued, attempts int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(attempts), 0) FROM gmail_message_fetch_queue WHERE account_id = 'acc'`).Scan(&queued, &attempts); err != nil {
+		t.Fatalf("query queued Gmail message: %v", err)
+	}
+	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
+	if err != nil {
+		t.Fatalf("GetLabelSyncState() error = %v", err)
+	}
+	if messageGets != gmailAPIMessageMetadataMaxAttempts || queued != 1 || attempts != 1 || state.Cursor != "110" || state.LastError != "" || state.LastMissingProviderMessages != 1 || state.LastFailedMessages != 0 {
+		t.Fatalf("queued 404 state gets=%d queued=%d attempts=%d sync=%#v", messageGets, queued, attempts, state)
+	}
+	forceGmailMessageFetchDue(t, db, "gmail-late")
+	changed, profileHistoryID, err := orchestrator.checkGmailAPIProfile(ctx, "acc")
+	if err != nil || !changed || profileHistoryID != "110" {
+		t.Fatalf("checkGmailAPIProfile() = changed:%v history:%q err:%v, want due queue trigger", changed, profileHistoryID, err)
+	}
+
+	phase = 1
+	if err := orchestrator.syncGmailAPIAccount(ctx, "acc", true); err != nil {
+		t.Fatalf("second syncGmailAPIAccount() error = %v", err)
+	}
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM gmail_message_fetch_queue WHERE account_id = 'acc'`).Scan(&queued); err != nil {
+		t.Fatalf("query recovered Gmail queue: %v", err)
+	}
+	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<gmail-late@example.com>")
+	if err != nil || msgID == 0 || queued != 0 || messageGets != gmailAPIMessageMetadataMaxAttempts+1 {
+		t.Fatalf("recovered Gmail message id=%d queued=%d gets=%d err=%v", msgID, queued, messageGets, err)
+	}
+}
+
+func TestSyncGmailAPIHistoryRequiresRepeated404BeforeSoftDelete(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	msgID := seedGmailAPIHistoryTestState(t, db, "gmail-stale")
+	disableGmailAPIRetryWait(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]any{
+				{"id": "INBOX", "name": "INBOX", "type": "system"},
+			}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
+			if r.URL.Query().Get("startHistoryId") == "105" {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"historyId": "110",
+					"history": []map[string]any{{
+						"labelsRemoved": []map[string]any{{"message": map[string]string{"id": "gmail-stale"}, "labelIds": []string{"INBOX"}}},
+					}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"historyId": "110"})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-stale":
+			http.NotFound(w, r)
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+	orchestrator := NewSyncOrchestrator(db, nil, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), labelSyncTestTokens{})
+
+	assertDeleted := func(want int) {
+		t.Helper()
+		var deleted int
+		if err := db.Read().QueryRowContext(ctx, `SELECT is_deleted FROM message_folder_state WHERE message_id = ?`, msgID).Scan(&deleted); err != nil {
+			t.Fatalf("query provider message deletion: %v", err)
+		}
+		if deleted != want {
+			t.Fatalf("provider message deleted=%d, want %d", deleted, want)
+		}
+	}
+	if err := orchestrator.syncGmailAPIAccount(ctx, "acc", true); err != nil {
+		t.Fatalf("initial syncGmailAPIAccount() error = %v", err)
+	}
+	assertDeleted(0)
+	forceGmailMessageFetchDue(t, db, "gmail-stale")
+	if err := orchestrator.syncGmailAPIAccount(ctx, "acc", true); err != nil {
+		t.Fatalf("second syncGmailAPIAccount() error = %v", err)
+	}
+	assertDeleted(0)
+	forceGmailMessageFetchDue(t, db, "gmail-stale")
+	if err := orchestrator.syncGmailAPIAccount(ctx, "acc", true); err != nil {
+		t.Fatalf("third syncGmailAPIAccount() error = %v", err)
+	}
+	assertDeleted(1)
+	var queued int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM gmail_message_fetch_queue WHERE account_id = 'acc'`).Scan(&queued); err != nil {
+		t.Fatalf("query confirmed Gmail queue: %v", err)
+	}
+	if queued != 0 {
+		t.Fatalf("confirmed Gmail fetch queue count=%d, want 0", queued)
+	}
+}
+
+func seedGmailAPIHistoryTestState(t *testing.T, db *storage.DB, providerMessageID string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderGmail); err != nil {
+		t.Fatalf("insert Gmail account: %v", err)
+	}
+	folderID := gmailAPITestFolderID("INBOX")
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{
+		ID: folderID, AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	var msgID int64
+	if providerMessageID != "" {
+		ids, err := db.UpsertProviderSyncMessages(ctx, []storage.ProviderSyncMessage{{
+			AccountID: "acc", FolderID: folderID, ProviderMessageID: providerMessageID,
+			InternetMessageID: "<" + providerMessageID + "@example.com>", Subject: "Gmail history message",
+			FromEmail: "sender@example.com", DateSent: mustParseGmailAPITestTime(t), DateReceived: mustParseGmailAPITestTime(t), IsRead: true,
+		}})
+		if err != nil {
+			t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
+		}
+		msgID = ids[providerMessageID]
+	}
+	if err := db.MarkLabelSyncRun(ctx, storage.LabelSyncRunStats{
+		AccountID: "acc", ProviderType: storage.LabelProviderGmail, Scope: "messages", Cursor: "105", Full: true,
+	}, nil); err != nil {
+		t.Fatalf("MarkLabelSyncRun() error = %v", err)
+	}
+	return msgID
+}
+
+func disableGmailAPIRetryWait(t *testing.T) {
+	t.Helper()
+	previous := gmailAPIMessageMetadataWaitBeforeRetry
+	gmailAPIMessageMetadataWaitBeforeRetry = func(ctx context.Context, _ int) error {
+		return ctx.Err()
+	}
+	t.Cleanup(func() { gmailAPIMessageMetadataWaitBeforeRetry = previous })
+}
+
+func forceGmailMessageFetchDue(t *testing.T, db *storage.DB, providerMessageID string) {
+	t.Helper()
+	if _, err := db.Write().Exec(`UPDATE gmail_message_fetch_queue SET next_attempt_at = '2000-01-01 00:00:00' WHERE account_id = 'acc' AND provider_message_id = ?`, providerMessageID); err != nil {
+		t.Fatalf("force Gmail message fetch due: %v", err)
+	}
+}
+
 func mustParseGmailAPITestTime(t *testing.T) time.Time {
 	t.Helper()
 	parsed, err := time.Parse(time.RFC3339, "2026-06-26T12:00:00Z")

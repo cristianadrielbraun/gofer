@@ -141,7 +141,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 75
+	const targetSchemaVersion = 76
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -600,6 +600,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 74 {
 		if err := migrateV74ToV75(tx); err != nil {
 			return fmt.Errorf("migrate v74 to v75: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 75 {
+		if err := migrateV75ToV76(tx); err != nil {
+			return fmt.Errorf("migrate v75 to v76: %w", err)
 		}
 	}
 
@@ -3315,6 +3321,27 @@ func migrateV74ToV75(tx *sql.Tx) error {
 		}
 	}
 	return markSchemaVersion(tx, 75)
+}
+
+func migrateV75ToV76(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS gmail_message_fetch_queue (
+		account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+		provider_message_id TEXT NOT NULL,
+		history_id TEXT NOT NULL DEFAULT '',
+		attempts INTEGER NOT NULL DEFAULT 1,
+		next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_error TEXT NOT NULL DEFAULT '',
+		first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (account_id, provider_message_id)
+	)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_gmail_message_fetch_queue_due
+		ON gmail_message_fetch_queue(account_id, next_attempt_at)`); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 76)
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

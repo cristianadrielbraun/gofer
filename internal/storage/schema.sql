@@ -259,6 +259,18 @@ CREATE TABLE IF NOT EXISTS label_mutation_queue (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS gmail_message_fetch_queue (
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    provider_message_id TEXT NOT NULL,
+    history_id TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 1,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_error TEXT NOT NULL DEFAULT '',
+    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_id, provider_message_id)
+);
+
 CREATE TABLE IF NOT EXISTS message_mutations (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -434,6 +446,9 @@ ON label_mutation_queue(account_id, provider_type, next_attempt_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_label_mutation_queue_unique
 ON label_mutation_queue(message_id, provider_type, operation, label_name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS idx_gmail_message_fetch_queue_due
+ON gmail_message_fetch_queue(account_id, next_attempt_at);
 
 CREATE INDEX IF NOT EXISTS idx_message_mutations_due
 ON message_mutations(status, next_attempt_at, created_at);
@@ -1064,4 +1079,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (75);
+INSERT OR REPLACE INTO schema_version (version) VALUES (76);

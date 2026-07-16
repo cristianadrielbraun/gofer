@@ -209,9 +209,16 @@ type gmailHistoryResponse struct {
 }
 
 type gmailHistoryRecord struct {
-	MessagesAdded []gmailHistoryMessageChange `json:"messagesAdded"`
-	LabelsAdded   []gmailHistoryLabelChange   `json:"labelsAdded"`
-	LabelsRemoved []gmailHistoryLabelChange   `json:"labelsRemoved"`
+	MessagesAdded   []gmailHistoryMessageChange `json:"messagesAdded"`
+	MessagesDeleted []gmailHistoryMessageChange `json:"messagesDeleted"`
+	LabelsAdded     []gmailHistoryLabelChange   `json:"labelsAdded"`
+	LabelsRemoved   []gmailHistoryLabelChange   `json:"labelsRemoved"`
+}
+
+type gmailHistoryDelta struct {
+	ChangedMessageIDs []string
+	DeletedMessageIDs []string
+	LatestCursor      string
 }
 
 type gmailHistoryMessageChange struct {
@@ -564,16 +571,21 @@ func (o *SyncOrchestrator) getGmailProfileHistoryIDWithAuthRetry(ctx context.Con
 }
 
 func (o *SyncOrchestrator) gmailHistoryChangedMessageIDsWithAuthRetry(ctx context.Context, accountID string, token *string, cursor string) ([]string, string, error) {
+	delta, err := o.gmailHistoryChangesWithAuthRetry(ctx, accountID, token, cursor)
+	return delta.ChangedMessageIDs, delta.LatestCursor, err
+}
+
+func (o *SyncOrchestrator) gmailHistoryChangesWithAuthRetry(ctx context.Context, accountID string, token *string, cursor string) (gmailHistoryDelta, error) {
 	current := ""
 	if token != nil {
 		current = *token
 	}
-	ids, latestCursor, err := gmailHistoryChangedMessageIDs(ctx, current, cursor)
+	delta, err := gmailHistoryChanges(ctx, current, cursor)
 	refreshed, ok := o.refreshGmailTokenAfterUnauthorized(ctx, accountID, token, err)
 	if !ok {
-		return ids, latestCursor, err
+		return delta, err
 	}
-	return gmailHistoryChangedMessageIDs(ctx, refreshed, cursor)
+	return gmailHistoryChanges(ctx, refreshed, cursor)
 }
 
 func (o *SyncOrchestrator) refreshGmailTokenAfterUnauthorized(ctx context.Context, accountID string, token *string, err error) (string, bool) {
@@ -594,12 +606,17 @@ func (o *SyncOrchestrator) refreshGmailTokenAfterUnauthorized(ctx context.Contex
 }
 
 func gmailHistoryChangedMessageIDs(ctx context.Context, token, cursor string) ([]string, string, error) {
+	delta, err := gmailHistoryChanges(ctx, token, cursor)
+	return delta.ChangedMessageIDs, delta.LatestCursor, err
+}
+
+func gmailHistoryChanges(ctx context.Context, token, cursor string) (gmailHistoryDelta, error) {
 	cursor = strings.TrimSpace(cursor)
 	if cursor == "" {
-		return nil, "", nil
+		return gmailHistoryDelta{}, nil
 	}
-	seen := map[string]bool{}
-	var ids []string
+	changed := map[string]bool{}
+	deleted := map[string]bool{}
 	latestCursor := cursor
 	pageToken := ""
 	for {
@@ -607,6 +624,7 @@ func gmailHistoryChangedMessageIDs(ctx context.Context, token, cursor string) ([
 		values.Set("startHistoryId", cursor)
 		values.Set("maxResults", "500")
 		values.Add("historyTypes", "messageAdded")
+		values.Add("historyTypes", "messageDeleted")
 		values.Add("historyTypes", "labelAdded")
 		values.Add("historyTypes", "labelRemoved")
 		if pageToken != "" {
@@ -616,26 +634,37 @@ func gmailHistoryChangedMessageIDs(ctx context.Context, token, cursor string) ([
 		var response gmailHistoryResponse
 		endpoint := gmailAPIBaseURL + "/users/me/history?" + values.Encode()
 		if err := providerJSON(ctx, http.MethodGet, endpoint, token, nil, nil, &response); err != nil {
-			return nil, "", err
+			return gmailHistoryDelta{}, err
 		}
 		latestCursor = newerGmailHistoryID(latestCursor, response.HistoryID)
-		add := func(providerID string) {
+		markChanged := func(providerID string) {
 			providerID = strings.TrimSpace(providerID)
-			if providerID == "" || seen[providerID] {
+			if providerID == "" {
 				return
 			}
-			seen[providerID] = true
-			ids = append(ids, providerID)
+			delete(deleted, providerID)
+			changed[providerID] = true
+		}
+		markDeleted := func(providerID string) {
+			providerID = strings.TrimSpace(providerID)
+			if providerID == "" {
+				return
+			}
+			delete(changed, providerID)
+			deleted[providerID] = true
 		}
 		for _, record := range response.History {
 			for _, change := range record.MessagesAdded {
-				add(change.Message.ID)
+				markChanged(change.Message.ID)
 			}
 			for _, change := range record.LabelsAdded {
-				add(change.Message.ID)
+				markChanged(change.Message.ID)
 			}
 			for _, change := range record.LabelsRemoved {
-				add(change.Message.ID)
+				markChanged(change.Message.ID)
+			}
+			for _, change := range record.MessagesDeleted {
+				markDeleted(change.Message.ID)
 			}
 		}
 		if strings.TrimSpace(response.NextPageToken) == "" {
@@ -643,8 +672,16 @@ func gmailHistoryChangedMessageIDs(ctx context.Context, token, cursor string) ([
 		}
 		pageToken = strings.TrimSpace(response.NextPageToken)
 	}
-	sort.Strings(ids)
-	return ids, latestCursor, nil
+	delta := gmailHistoryDelta{LatestCursor: latestCursor}
+	for providerID := range changed {
+		delta.ChangedMessageIDs = append(delta.ChangedMessageIDs, providerID)
+	}
+	for providerID := range deleted {
+		delta.DeletedMessageIDs = append(delta.DeletedMessageIDs, providerID)
+	}
+	sort.Strings(delta.ChangedMessageIDs)
+	sort.Strings(delta.DeletedMessageIDs)
+	return delta, nil
 }
 
 func gmailStateInternetMessageID(state gmailMessageState) string {
