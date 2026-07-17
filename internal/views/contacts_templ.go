@@ -1240,14 +1240,14 @@ func ContactsListPane(contacts []models.Contact, selected *models.Contact, filte
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" data-contact-list-shell><div class=\"px-4 py-4 space-y-3\"><div class=\"flex items-center justify-between\"><div class=\"flex items-center gap-2\"><h2 class=\"text-lg font-bold tracking-tight\" style=\"font-family: var(--font-serif)\">Contacts</h2><span id=\"contacts-count\" class=\"rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" data-contact-list-shell><div class=\"px-4 py-4 space-y-3\"><div class=\"flex items-center justify-between\"><div class=\"flex items-center gap-2\"><h2 class=\"text-lg font-bold tracking-tight\" style=\"font-family: var(--font-serif)\">Contacts</h2><span id=\"contacts-count\" class=\"inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1152, Col: 182}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 1152, Col: 226}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {

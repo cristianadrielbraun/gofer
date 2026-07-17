@@ -4799,7 +4799,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingHeaderHTML() {
     return '<div class="px-4 py-4 space-y-3">' +
-      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Contacts</h2><span id="contacts-count" class="h-5 w-10 rounded-full bg-muted animate-pulse"></span></div></div>' +
+      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Contacts</h2><span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
         '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
         '<input type="search" disabled placeholder="Search contacts" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
@@ -5202,21 +5202,59 @@ document.addEventListener("DOMContentLoaded", function () {
     var row = trigger && trigger.closest && trigger.closest(".mail-list-item")
     if (!row) return null
     var fallback = row.querySelector("[data-avatar-fallback]")
+    var avatar = row.querySelector("[data-avatar-image]")
     var name = textFrom(row, "[data-contact-name]")
     var email = textFrom(row, "[data-contact-email]")
     return {
       initials: fallback ? fallback.textContent.trim() : "",
+      avatar: avatar && !avatar.classList.contains("hidden") ? (avatar.currentSrc || avatar.getAttribute("src") || "") : "",
       name: name || email || "Loading contact",
       email: email,
     }
   }
 
-  function skeletonField(widthClass) {
-    return '<div class="space-y-1.5">' +
-      '<div class="h-3 w-16 rounded bg-ink/5 animate-pulse"></div>' +
-      '<div class="h-10 rounded-lg border border-ink/10 bg-ink/[0.04] flex items-center px-3">' +
-        '<div class="h-3 ' + widthClass + ' rounded bg-ink/5 animate-pulse"></div>' +
+  function contactDetailSkeletonField(label, widthClass, className) {
+    return '<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0 ' + (className || "") + '">' +
+      '<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">' + label + '</div>' +
+      '<div class="mt-1 flex min-h-5 items-center">' +
+        '<div class="h-3 ' + widthClass + ' max-w-full rounded bg-ink/5 animate-pulse"></div>' +
       '</div>' +
+    '</div>'
+  }
+
+  function contactDetailSkeletonSectionHeader(label) {
+    return '<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3 text-ink/40">' +
+      pendingIcon("size-3.5") +
+      '<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">' + label + '</h2>' +
+    '</div>'
+  }
+
+  function contactDetailRecentActivitySkeleton() {
+    var rows = ""
+    for (var i = 0; i < 4; i++) {
+      rows += '<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">' +
+        '<div class="flex items-start justify-between gap-3">' +
+          '<div class="min-w-0 flex flex-1 items-center gap-2">' +
+            '<div class="h-5 w-9 shrink-0 rounded border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
+            '<div class="h-3 min-w-0 flex-1 rounded bg-ink/5 animate-pulse"></div>' +
+          '</div>' +
+          '<div class="h-3 w-16 shrink-0 rounded bg-ink/5 animate-pulse"></div>' +
+        '</div>' +
+        '<div class="mt-2 h-3 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
+      '</div>'
+    }
+    return '<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">' +
+      '<div class="mb-3 flex items-center justify-between gap-3">' +
+        '<div>' +
+          '<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/45">Recent activity</h2>' +
+          '<p class="mt-1 text-xs text-ink/35">Latest emails involving this contact.</p>' +
+        '</div>' +
+        '<div class="flex shrink-0 items-center gap-2">' +
+          '<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/40">Top 10</span>' +
+          '<div class="h-7 w-16 rounded-md border border-ink/10 bg-paper/45"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">' + rows + '</div>' +
     '</div>'
   }
 
@@ -5225,60 +5263,74 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!detail) return
     var preview = getContactRowPreview(trigger) || {}
     var initials = escapeHTML(preview.initials || "")
+    var avatar = escapeHTML(preview.avatar || "")
     var name = escapeHTML(preview.name || "Loading contact")
-    var email = escapeHTML(preview.email || "")
+    var avatarHTML = avatar
+      ? '<div class="size-14 shrink-0 overflow-hidden rounded-full bg-ink/5 shadow-[0_8px_22px_rgba(0,0,0,0.16)]"><img src="' + avatar + '" alt="" class="block size-full object-cover"/></div>'
+      : '<div class="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-base font-bold text-amber-100 shadow-[0_8px_22px_rgba(0,0,0,0.16)]">' + initials + '</div>'
     detail.setAttribute("aria-busy", "true")
     detail.innerHTML =
       '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden" data-contact-detail-loading>' +
-        '<div class="flex items-center justify-between gap-3 px-6 py-2.5">' +
-          '<div class="flex items-center gap-1">' +
-            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
-            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
-            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
-            '<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>' +
+        '<span class="sr-only" role="status">Loading contact details</span>' +
+        '<div class="shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">' +
+          '<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">' +
+            '<div class="flex min-w-0 items-start gap-4">' +
+              avatarHTML +
+              '<div class="min-w-0 pt-0.5">' +
+                '<h1 class="min-w-0 truncate text-2xl font-bold leading-tight tracking-tight text-ink" style="font-family: var(--font-serif)">' + name + '</h1>' +
+                '<div class="mt-1 text-sm text-ink/45">Contact entry</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="flex flex-wrap items-center gap-2 xl:justify-end" aria-hidden="true">' +
+              '<div class="h-9 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
+              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
+              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
+              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
+            '</div>' +
           '</div>' +
-          '<div class="h-6 w-24 rounded bg-ink/5 animate-pulse"></div>' +
         '</div>' +
-        '<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>' +
         '<div class="flex-1 overflow-y-auto">' +
-          '<div class="w-full px-8 py-6">' +
-            '<div class="flex items-start gap-4">' +
-              '<div class="size-11 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-sm font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">' + initials + '</div>' +
-              '<div class="min-w-0 flex-1">' +
-                '<h1 class="truncate text-xl font-bold tracking-tight text-ink" style="font-family: var(--font-serif)">' + name + '</h1>' +
-                (email ? '<div class="mt-0.5 truncate text-xs text-ink/40">&lt;' + email + '&gt;</div>' : '<div class="mt-0.5 h-3 w-56 rounded bg-ink/5 animate-pulse"></div>') +
-                '<div class="mt-3 flex items-center gap-2 text-sm text-ink/45">' +
-                  '<div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div>' +
-                  '<span>Loading contact...</span>' +
+          '<div class="w-full space-y-5 px-5 py-5 sm:px-7" aria-hidden="true">' +
+            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
+              contactDetailSkeletonSectionHeader("Contact") +
+              '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
+                contactDetailSkeletonField("Name", "w-40") +
+                contactDetailSkeletonField("Email", "w-52") +
+                contactDetailSkeletonField("Additional emails", "w-24") +
+                contactDetailSkeletonField("Phone", "w-28") +
+                contactDetailSkeletonField("Additional phones", "w-24") +
+                contactDetailSkeletonField("Title", "w-32") +
+                contactDetailSkeletonField("Organization", "w-36") +
+                contactDetailSkeletonField("Notes", "w-48") +
+              '</div>' +
+            '</section>' +
+            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
+              '<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">' +
+                '<div class="flex flex-wrap items-center gap-2 text-ink/40">' +
+                  pendingIcon("size-3.5") +
+                  '<h2 class="text-xs font-semibold uppercase tracking-wider text-ink/55">Gofer Sync</h2>' +
+                  '<div class="h-6 w-16 rounded-md border border-ink/10 bg-ink/[0.03] animate-pulse"></div>' +
                 '</div>' +
+                '<div class="h-7 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
               '</div>' +
-            '</div>' +
-            '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>' +
-            '<div class="space-y-5 w-full" aria-hidden="true">' +
-              '<div class="grid gap-5 sm:grid-cols-2">' +
-                skeletonField("w-36") +
-                skeletonField("w-52") +
+              '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
+                contactDetailSkeletonField("Sync locations", "w-16", "lg:col-span-2") +
+                contactDetailSkeletonField("Origin", "w-24") +
+                contactDetailSkeletonField("Sync status", "w-20") +
+                contactDetailSkeletonField("Sync updated", "w-32") +
+                contactDetailSkeletonField("Sync error", "w-24") +
               '</div>' +
-              '<div class="grid gap-5 sm:grid-cols-2">' +
-                skeletonField("w-32") +
-                skeletonField("w-40") +
+            '</section>' +
+            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
+              contactDetailSkeletonSectionHeader("Activity") +
+              '<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">' +
+                contactDetailSkeletonField("Messages", "w-10") +
+                contactDetailSkeletonField("Last seen", "w-28") +
+                contactDetailSkeletonField("Added to Gofer", "w-24") +
+                contactDetailSkeletonField("Contact updated", "w-24") +
               '</div>' +
-              skeletonField("w-64") +
-              '<div class="space-y-1.5">' +
-                '<div class="h-3 w-16 rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-20 rounded-lg border border-ink/10 bg-ink/[0.04] p-3 space-y-2">' +
-                  '<div class="h-3 w-full rounded bg-ink/5 animate-pulse"></div>' +
-                  '<div class="h-3 w-11/12 rounded bg-ink/5 animate-pulse"></div>' +
-                  '<div class="h-3 w-2/3 rounded bg-ink/5 animate-pulse"></div>' +
-                '</div>' +
-              '</div>' +
-              '<div class="grid w-full gap-3 rounded-lg border border-ink/10 bg-ink/[0.025] p-4 sm:grid-cols-4">' +
-                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-10 rounded bg-ink/5 animate-pulse"></div>' +
-              '</div>' +
-            '</div>' +
+            '</section>' +
+            contactDetailRecentActivitySkeleton() +
           '</div>' +
         '</div>' +
       '</div>'

@@ -22,6 +22,19 @@ func TestContactsDetailShowsSyncQueuedNotice(t *testing.T) {
 	}
 }
 
+func TestContactsListCountUsesStableThemeAwareGeometry(t *testing.T) {
+	var out bytes.Buffer
+	if err := ContactsListPane(nil, nil, models.ContactFilters{}, 123, "", nil).Render(context.Background(), &out); err != nil {
+		t.Fatalf("ContactsListPane.Render() error = %v", err)
+	}
+
+	html := out.String()
+	expected := `id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">123</span>`
+	if !strings.Contains(html, expected) {
+		t.Fatalf("rendered contacts count does not reserve stable, theme-aware geometry: %s", html)
+	}
+}
+
 func TestContactActivityLabelsDescribeProfileTimestamps(t *testing.T) {
 	var out bytes.Buffer
 	contact := models.Contact{CreatedAt: "Jan 2, 2025", UpdatedAt: "Mar 4, 2025"}
