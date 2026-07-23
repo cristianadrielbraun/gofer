@@ -8,6 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/handler"
+	"github.com/cristianadrielbraun/gofer/internal/httpguard"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/notifications"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -24,6 +25,19 @@ import (
 func main() {
 	godotenv.Load()
 	log.Printf("boot: loading configuration")
+
+	httpConfig, err := httpguard.LoadConfig()
+	if err != nil {
+		log.Fatalf("invalid HTTP configuration: %v", err)
+	}
+	authConfig := auth.LoadConfig(httpConfig.BaseURL)
+	authConfig.SecureCookies = httpConfig.SecureCookies()
+	if err := httpConfig.ValidateExposure(authConfig.Enabled); err != nil {
+		log.Fatalf("unsafe HTTP configuration: %v", err)
+	}
+	if httpConfig.WarnUnauthenticatedRemote(authConfig.Enabled) {
+		log.Printf("WARNING: unauthenticated remote access is explicitly enabled; anyone who can reach %s can control Gofer", httpConfig.BaseURL)
+	}
 
 	dbPath := os.Getenv("GOFER_DB_PATH")
 	if dbPath == "" {
@@ -52,7 +66,6 @@ func main() {
 	blobStore := store.NewBlobStore(filepath.Join(dataDir, "accounts"))
 	log.Printf("boot: blob store initialized")
 
-	authConfig := auth.LoadConfig()
 	authManager := auth.NewManager(authConfig, db)
 	log.Printf("boot: auth manager initialized (enabled=%t)", authConfig.Enabled)
 
@@ -109,19 +122,17 @@ func main() {
 
 	var handler http.Handler = mux
 	handler = authManager.Middleware(handler)
+	handler = httpConfig.Middleware(handler)
 
-	addr := os.Getenv("GOFER_ADDR")
-	if addr == "" {
-		addr = ":8090"
-	}
-	fmt.Printf("Gofer running on http://localhost%s\n", addr)
+	fmt.Printf("Gofer running on %s\n", httpConfig.BaseURL)
+	fmt.Printf("listening on %s\n", httpConfig.ListenAddr)
 	fmt.Printf("database: %s\n", db.Path())
 	if authConfig.Enabled {
 		fmt.Printf("auth: enabled (Google OAuth2)\n")
 	} else {
 		fmt.Printf("auth: disabled (local mode)\n")
 	}
-	log.Fatal(http.ListenAndServe(addr, handler))
+	log.Fatal(http.ListenAndServe(httpConfig.ListenAddr, handler))
 }
 
 func loadOrGenerateVAPIDKeys(privatePath, publicPath string) (string, string) {

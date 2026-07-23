@@ -27,7 +27,7 @@ func SafeReturnTo(raw string) string {
 	return parsed.RequestURI()
 }
 
-func SetReturnToCookie(w http.ResponseWriter, raw string) {
+func SetReturnToCookie(w http.ResponseWriter, raw string, secure bool) {
 	returnTo := SafeReturnTo(raw)
 	if returnTo == "" {
 		return
@@ -38,7 +38,7 @@ func SetReturnToCookie(w http.ResponseWriter, raw string) {
 		Path:     "/",
 		MaxAge:   10 * 60,
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -55,14 +55,14 @@ func GetReturnTo(r *http.Request) string {
 	return SafeReturnTo(string(decoded))
 }
 
-func ClearReturnToCookie(w http.ResponseWriter) {
+func ClearReturnToCookie(w http.ResponseWriter, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     returnToCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }

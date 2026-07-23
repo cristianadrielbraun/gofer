@@ -158,8 +158,10 @@ Useful env vars:
 GO_ENV=development
 GOFER_DB_PATH=data/gofer.db
 GOFER_SECRET_KEY=64_hex_chars_if_you_want_to_provide_your_own_key
-GOFER_AUTH_ENABLED=false
+GOFER_ADDR=127.0.0.1:8090
 GOFER_BASE_URL=http://local.localhost:8090
+GOFER_ALLOW_UNAUTHENTICATED_REMOTE=false
+GOFER_AUTH_ENABLED=false
 GOOGLE_OAUTH_CLIENT_ID=optional_for_google_login_gmail_contacts
 GOOGLE_OAUTH_CLIENT_SECRET=optional_for_google_login_gmail_contacts
 MICROSOFT_OAUTH_CLIENT_ID=optional_for_outlook_oauth_mail
@@ -175,6 +177,12 @@ Google OAuth is used for optional Google login, Gmail mail through the Gmail API
 ## local security model
 
 Gofer stores mail, cached blobs, account credentials, OAuth tokens, and runtime state locally. The practical security model is simple and very glamorous: run it on a trusted local machine, keep `data/` private, keep OAuth client secrets out of git, and avoid exposing the app directly to the public Internet.
+
+The default HTTP listener is `127.0.0.1:8090`. Gofer refuses to start with authentication disabled when either the listener or canonical base URL is non-loopback. A trusted network or container setup can bypass that check with `GOFER_ALLOW_UNAUTHENTICATED_REMOTE=true`, but anyone who can reach the resulting service can control the application.
+
+`GOFER_BASE_URL` is the canonical browser origin and OAuth callback origin. Unsafe browser requests and the event stream are accepted only from that origin (plus exact loopback aliases in local mode), and requests with an unexpected Host are rejected. For remote authenticated access, use an HTTPS base URL and terminate TLS at a reverse proxy that preserves the original Host header.
+
+Non-browser automation that intentionally performs an unsafe request without browser Origin or Fetch Metadata headers must send `X-Gofer-Request: 1`. This header is a browser-CSRF signal, not an authentication mechanism.
 
 ## admin panel
 

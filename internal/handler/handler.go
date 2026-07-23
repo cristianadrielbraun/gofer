@@ -3585,7 +3585,6 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	userID := h.userID(r.Context())
 	if h.syncer != nil {
@@ -5546,6 +5545,7 @@ func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   600,
 		HttpOnly: true,
+		Secure:   h.auth.Config().SecureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -5572,10 +5572,13 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:   "oauth_state",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "oauth_state",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.auth.Config().SecureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	code := r.URL.Query().Get("code")
@@ -5595,9 +5598,9 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = user
-	auth.SetSessionCookie(w, session.Token)
+	auth.SetSessionCookie(w, session.Token, h.auth.Config().SecureCookies)
 	returnTo := auth.GetReturnTo(r)
-	auth.ClearReturnToCookie(w)
+	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
 	if returnTo == "" {
 		returnTo = "/"
 	}
@@ -5609,8 +5612,8 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if token != "" {
 		h.auth.DeleteSession(r.Context(), token)
 	}
-	auth.ClearSessionCookie(w)
-	auth.ClearReturnToCookie(w)
+	auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 

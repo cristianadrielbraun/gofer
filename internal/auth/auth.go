@@ -70,11 +70,12 @@ type Config struct {
 	GoogleClient    *oauth2.Config
 	MicrosoftClient *oauth2.Config
 	BaseURL         string
+	SecureCookies   bool
 }
 
-func LoadConfig() *Config {
+func LoadConfig(baseURL string) *Config {
 	enabled := os.Getenv("GOFER_AUTH_ENABLED") == "true"
-	baseURL := os.Getenv("GOFER_BASE_URL")
+	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
 		baseURL = "http://local.localhost:8090"
 	}

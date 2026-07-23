@@ -30,31 +30,31 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 
 		token := GetSessionToken(r)
 		if token == "" {
-			redirectToLogin(w, r)
+			m.redirectToLogin(w, r)
 			return
 		}
 
 		session, err := m.GetSessionByToken(r.Context(), token)
 		if err != nil {
 			log.Printf("session lookup error: %v", err)
-			redirectToLogin(w, r)
+			m.redirectToLogin(w, r)
 			return
 		}
 		if session == nil {
-			ClearSessionCookie(w)
-			redirectToLogin(w, r)
+			ClearSessionCookie(w, m.config.SecureCookies)
+			m.redirectToLogin(w, r)
 			return
 		}
 
 		user, err := m.GetUserByID(r.Context(), session.UserID)
 		if err != nil {
 			log.Printf("user lookup error: %v", err)
-			redirectToLogin(w, r)
+			m.redirectToLogin(w, r)
 			return
 		}
 		if user == nil {
-			ClearSessionCookie(w)
-			redirectToLogin(w, r)
+			ClearSessionCookie(w, m.config.SecureCookies)
+			m.redirectToLogin(w, r)
 			return
 		}
 
@@ -63,9 +63,9 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+func (m *Manager) redirectToLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		SetReturnToCookie(w, r.URL.RequestURI())
+		SetReturnToCookie(w, r.URL.RequestURI(), m.config.SecureCookies)
 	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
