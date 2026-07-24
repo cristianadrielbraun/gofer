@@ -154,7 +154,7 @@ func (h *Handler) handleTranslatedEmailBody(w http.ResponseWriter, r *http.Reque
 		if h.db.IsRemoteContentAllowedForMessage(ctx, msgID) {
 			loadRemote = true
 		} else {
-			senderEmail, _ := h.db.GetMessageSenderEmail(ctx, msgID)
+			senderEmail, _ := h.db.GetMessageSenderEmailForUser(ctx, msgID, h.userID(ctx))
 			if senderEmail != "" && h.db.IsRemoteContentAllowedForSender(ctx, senderEmail) {
 				loadRemote = true
 			}
@@ -353,8 +353,9 @@ func isHTMLTextSpace(r rune) bool {
 }
 
 func (h *Handler) messageTranslationSource(ctx context.Context, emailID string, msgID int64) (string, string, error) {
+	userID := h.userID(ctx)
 	if !h.db.IsBodyFetched(ctx, msgID) {
-		if info, err := h.db.GetMessageFetchInfo(ctx, msgID); err == nil && info != nil {
+		if info, err := h.db.GetMessageFetchInfoForUser(ctx, msgID, userID); err == nil && info != nil {
 			if parsed, err := h.fetchParsedBody(ctx, msgID, info.AccountID); err == nil && parsed != nil {
 				h.persistParsedBodyAsync(msgID, info.AccountID, parsed)
 				htmlSource := ""
@@ -373,12 +374,12 @@ func (h *Handler) messageTranslationSource(ctx context.Context, emailID string, 
 		}
 	}
 
-	email, err := h.db.GetEmailByID(ctx, emailID)
+	email, err := h.db.GetEmailByIDForUser(ctx, emailID, userID)
 	if err != nil || email == nil {
 		return "", "", fmt.Errorf("message not found")
 	}
 	htmlSource := ""
-	if body, err := h.db.GetEmailBody(ctx, emailID); err == nil && len(body) > 0 {
+	if body, err := h.db.GetEmailBodyForUser(ctx, emailID, userID); err == nil && len(body) > 0 {
 		htmlSource = string(body)
 	}
 	if text := strings.TrimSpace(email.TextBody); text != "" {
@@ -396,14 +397,8 @@ func (h *Handler) messageTranslationSource(ctx context.Context, emailID string, 
 }
 
 func (h *Handler) userOwnsMessage(ctx context.Context, msgID int64) bool {
-	var count int
-	err := h.db.Read().QueryRowContext(ctx,
-		`SELECT COUNT(1)
-		 FROM messages m
-		 JOIN accounts a ON a.id = m.account_id
-		 WHERE m.id = ? AND a.user_id = ?`, msgID, h.userID(ctx),
-	).Scan(&count)
-	return err == nil && count > 0
+	info, err := h.db.GetMessageStorageInfoForUser(ctx, msgID, h.userID(ctx))
+	return err == nil && info != nil
 }
 
 func normalizeTranslationProvider(value string) string {

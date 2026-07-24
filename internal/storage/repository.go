@@ -5066,15 +5066,50 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	return parts
 }
 
+func (db *DB) GetThreadAccountIDForUser(ctx context.Context, threadID, userID string) (string, error) {
+	threadID = strings.TrimSpace(threadID)
+	userID = strings.TrimSpace(userID)
+	if threadID == "" || userID == "" {
+		return "", nil
+	}
+
+	var accountID string
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT m.account_id
+		 FROM messages m
+		 JOIN accounts a ON a.id = m.account_id
+		 WHERE m.thread_id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+		 LIMIT 1`, threadID, userID,
+	).Scan(&accountID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("query thread account: %w", err)
+	}
+	return accountID, nil
+}
+
 func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string) ([]models.ThreadItem, error) {
+	return db.getThreadMessages(ctx, accountID, threadID, "")
+}
+
+func (db *DB) GetThreadMessagesForUser(ctx context.Context, accountID, threadID, userID string) ([]models.ThreadItem, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	return db.getThreadMessages(ctx, accountID, threadID, userID)
+}
+
+func (db *DB) getThreadMessages(ctx context.Context, accountID, threadID, userID string) ([]models.ThreadItem, error) {
 	if threadID == "" {
 		return nil, nil
 	}
 
 	now := time.Now()
 	loc := timezoneLocationFromContext(ctx)
-	rows, err := db.Read().QueryContext(ctx,
-		`SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email, m.snippet,
+	query := `SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email, m.snippet,
 		        m.date_received, m.has_attachments,
 		        COALESCE((SELECT is_read FROM message_folder_state WHERE message_id = m.id LIMIT 1), 1),
 		        COALESCE((SELECT is_starred FROM message_folder_state WHERE message_id = m.id LIMIT 1), 0),
@@ -5084,8 +5119,15 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 		        m.internet_message_id, m."references", m.body_text_path
 		 FROM messages m
 		 JOIN accounts a ON m.account_id = a.id
-		 WHERE m.account_id = ? AND m.thread_id = ?
-		 ORDER BY m.date_received ASC`, accountID, threadID)
+		 WHERE m.account_id = ? AND m.thread_id = ?`
+	args := []any{accountID, threadID}
+	if userID != "" {
+		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		args = append(args, userID)
+	}
+	query += ` ORDER BY m.date_received ASC`
+
+	rows, err := db.Read().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -5170,6 +5212,18 @@ func (db *DB) GetThreadMessages(ctx context.Context, accountID, threadID string)
 }
 
 func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error) {
+	return db.getEmailByID(ctx, id, "")
+}
+
+func (db *DB) GetEmailByIDForUser(ctx context.Context, id, userID string) (*models.Email, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	return db.getEmailByID(ctx, id, userID)
+}
+
+func (db *DB) getEmailByID(ctx context.Context, id, userID string) (*models.Email, error) {
 	msgID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return nil, nil
@@ -5194,14 +5248,19 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 		references           string
 	)
 
-	err = db.Read().QueryRowContext(ctx,
-		`SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email,
+	query := `SELECT m.id, m.account_id, a.color, m.subject, m.from_name, m.from_email,
 		        m.date_received, m.snippet, m.has_attachments,
 		        m.body_text_path, m.body_html_path, m.body_html_original_path, m.internet_message_id, m.thread_id, m.in_reply_to, m."references"
 		 FROM messages m
 		 JOIN accounts a ON m.account_id = a.id
-		 WHERE m.id = ?`, msgID,
-	).Scan(&msgID, &accountID, &accountColor, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach, &bodyTextPath, &bodyHTMLPath, &bodyHTMLOriginalPath, &internetMessageID, &threadID, &inReplyTo, &references)
+		 WHERE m.id = ?`
+	args := []any{msgID}
+	if userID != "" {
+		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		args = append(args, userID)
+	}
+	err = db.Read().QueryRowContext(ctx, query, args...).
+		Scan(&msgID, &accountID, &accountColor, &subject, &fromName, &fromEmail, &dateReceived, &snippet, &hasAttach, &bodyTextPath, &bodyHTMLPath, &bodyHTMLOriginalPath, &internetMessageID, &threadID, &inReplyTo, &references)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -5309,7 +5368,19 @@ func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error
 }
 
 func (db *DB) GetEmailByIDForFolder(ctx context.Context, id, folderID string) (*models.Email, error) {
-	email, err := db.GetEmailByID(ctx, id)
+	return db.getEmailByIDForFolder(ctx, id, folderID, "")
+}
+
+func (db *DB) GetEmailByIDForFolderForUser(ctx context.Context, id, folderID, userID string) (*models.Email, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	return db.getEmailByIDForFolder(ctx, id, folderID, userID)
+}
+
+func (db *DB) getEmailByIDForFolder(ctx context.Context, id, folderID, userID string) (*models.Email, error) {
+	email, err := db.getEmailByID(ctx, id, userID)
 	if err != nil || email == nil {
 		return email, err
 	}
@@ -6045,18 +6116,69 @@ type MessageFetchInfo struct {
 	RemoteUID      uint32
 }
 
+type MessageStorageInfo struct {
+	AccountID string
+	RawPath   string
+}
+
+func (db *DB) GetMessageStorageInfoForUser(ctx context.Context, messageID int64, userID string) (*MessageStorageInfo, error) {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return nil, nil
+	}
+
+	var info MessageStorageInfo
+	var rawPath sql.NullString
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT m.account_id, m.raw_path
+		 FROM messages m
+		 JOIN accounts a ON a.id = m.account_id
+		 WHERE m.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`,
+		messageID, userID,
+	).Scan(&info.AccountID, &rawPath)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query message storage info: %w", err)
+	}
+	if rawPath.Valid {
+		info.RawPath = rawPath.String
+	}
+	return &info, nil
+}
+
 func (db *DB) GetMessageFetchInfo(ctx context.Context, messageID int64) (*MessageFetchInfo, error) {
+	return db.getMessageFetchInfo(ctx, messageID, "")
+}
+
+func (db *DB) GetMessageFetchInfoForUser(ctx context.Context, messageID int64, userID string) (*MessageFetchInfo, error) {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return nil, nil
+	}
+	return db.getMessageFetchInfo(ctx, messageID, userID)
+}
+
+func (db *DB) getMessageFetchInfo(ctx context.Context, messageID int64, userID string) (*MessageFetchInfo, error) {
 	var info MessageFetchInfo
 	var remoteUID sql.NullInt64
 
-	err := db.Read().QueryRowContext(ctx,
-		`SELECT m.account_id, f.remote_id, mfs.remote_uid
+	query := `SELECT m.account_id, f.remote_id, mfs.remote_uid
 		 FROM messages m
 		 JOIN message_folder_state mfs ON m.id = mfs.message_id
 		 JOIN folders f ON mfs.folder_id = f.id
-		 WHERE m.id = ?
-		 LIMIT 1`, messageID,
-	).Scan(&info.AccountID, &info.FolderRemoteID, &remoteUID)
+		 JOIN accounts a ON a.id = m.account_id
+		 WHERE m.id = ?`
+	args := []any{messageID}
+	if userID != "" {
+		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		args = append(args, userID)
+	}
+	query += ` LIMIT 1`
+
+	err := db.Read().QueryRowContext(ctx, query, args...).
+		Scan(&info.AccountID, &info.FolderRemoteID, &remoteUID)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -6083,15 +6205,35 @@ func (db *DB) IsBodyFetched(ctx context.Context, messageID int64) bool {
 }
 
 func (db *DB) GetEmailBody(ctx context.Context, id string) ([]byte, error) {
+	return db.getEmailBody(ctx, id, "")
+}
+
+func (db *DB) GetEmailBodyForUser(ctx context.Context, id, userID string) ([]byte, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	return db.getEmailBody(ctx, id, userID)
+}
+
+func (db *DB) getEmailBody(ctx context.Context, id, userID string) ([]byte, error) {
 	msgID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return nil, nil
 	}
 
 	var bodyTextPath, bodyHTMLPath sql.NullString
-	err = db.Read().QueryRowContext(ctx,
-		`SELECT body_text_path, body_html_path FROM messages WHERE id = ?`, msgID,
-	).Scan(&bodyTextPath, &bodyHTMLPath)
+	query := `
+		SELECT m.body_text_path, m.body_html_path
+		FROM messages m
+		JOIN accounts a ON a.id = m.account_id
+		WHERE m.id = ?`
+	args := []any{msgID}
+	if userID != "" {
+		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		args = append(args, userID)
+	}
+	err = db.Read().QueryRowContext(ctx, query, args...).Scan(&bodyTextPath, &bodyHTMLPath)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -6121,15 +6263,35 @@ func (db *DB) GetEmailBody(ctx context.Context, id string) ([]byte, error) {
 }
 
 func (db *DB) GetEmailOriginalHTMLBody(ctx context.Context, id string) ([]byte, error) {
+	return db.getEmailOriginalHTMLBody(ctx, id, "")
+}
+
+func (db *DB) GetEmailOriginalHTMLBodyForUser(ctx context.Context, id, userID string) ([]byte, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	return db.getEmailOriginalHTMLBody(ctx, id, userID)
+}
+
+func (db *DB) getEmailOriginalHTMLBody(ctx context.Context, id, userID string) ([]byte, error) {
 	msgID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return nil, nil
 	}
 
 	var bodyHTMLOriginalPath sql.NullString
-	err = db.Read().QueryRowContext(ctx,
-		`SELECT body_html_original_path FROM messages WHERE id = ?`, msgID,
-	).Scan(&bodyHTMLOriginalPath)
+	query := `
+		SELECT m.body_html_original_path
+		FROM messages m
+		JOIN accounts a ON a.id = m.account_id
+		WHERE m.id = ?`
+	args := []any{msgID}
+	if userID != "" {
+		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		args = append(args, userID)
+	}
+	err = db.Read().QueryRowContext(ctx, query, args...).Scan(&bodyHTMLOriginalPath)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -7846,6 +8008,23 @@ func (db *DB) GetMessageSenderEmail(ctx context.Context, messageID int64) (strin
 	var email string
 	err := db.Read().QueryRowContext(ctx,
 		`SELECT from_email FROM messages WHERE id = ?`, messageID,
+	).Scan(&email)
+	return email, err
+}
+
+func (db *DB) GetMessageSenderEmailForUser(ctx context.Context, messageID int64, userID string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return "", sql.ErrNoRows
+	}
+
+	var email string
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT m.from_email
+		 FROM messages m
+		 JOIN accounts a ON a.id = m.account_id
+		 WHERE m.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`,
+		messageID, userID,
 	).Scan(&email)
 	return email, err
 }

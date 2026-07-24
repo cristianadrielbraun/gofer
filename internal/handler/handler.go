@@ -481,18 +481,19 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	ctx = h.contextWithUserTimezone(ctx, userID)
 
 	folderID := r.URL.Query().Get("folder_id")
 	if folderID != "" {
 		var err error
-		folderID, err = h.resolveFolderID(ctx, h.userID(ctx), folderID)
+		folderID, err = h.resolveFolderID(ctx, userID, folderID)
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
 	}
-	email, err := h.db.GetEmailByIDForFolder(ctx, emailID, folderID)
+	email, err := h.db.GetEmailByIDForFolderForUser(ctx, emailID, folderID, userID)
 	if err != nil || email == nil {
 		http.NotFound(w, r)
 		return
@@ -501,7 +502,7 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	var thread []models.ThreadItem
 	if r.URL.Query().Get("single") != "1" {
-		thread, _ = h.db.GetThreadMessages(ctx, email.AccountID, email.ThreadID)
+		thread, _ = h.db.GetThreadMessagesForUser(ctx, email.AccountID, email.ThreadID, userID)
 	}
 	views.MailViewContent(email, thread).Render(ctx, w)
 }
@@ -1173,7 +1174,18 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	msgID, _ := strconv.ParseInt(emailID, 10, 64)
+	msgID, err := strconv.ParseInt(emailID, 10, 64)
+	if err != nil || msgID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	userID := h.userID(ctx)
+	storageInfo, err := h.db.GetMessageStorageInfoForUser(ctx, msgID, userID)
+	if err != nil || storageInfo == nil {
+		http.NotFound(w, r)
+		return
+	}
+
 	theme := r.URL.Query().Get("theme")
 	bg := r.URL.Query().Get("bg")
 	fg := r.URL.Query().Get("fg")
@@ -1182,7 +1194,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	loadRemote := r.URL.Query().Get("remote") == "true"
 	var body []byte
 	if msgID > 0 && !h.db.IsBodyFetched(ctx, msgID) {
-		info, err := h.db.GetMessageFetchInfo(ctx, msgID)
+		info, err := h.db.GetMessageFetchInfoForUser(ctx, msgID, userID)
 		if err == nil && info != nil {
 			if parsed, err := h.fetchParsedBody(ctx, msgID, info.AccountID); err == nil {
 				if original {
@@ -1198,10 +1210,10 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	if body == nil {
 		var err error
 		if original && msgID > 0 {
-			body, err = h.originalBodyFromStoredMessage(ctx, emailID, msgID)
+			body, err = h.originalBodyFromStoredMessage(ctx, emailID, msgID, userID)
 		}
 		if err == nil && body == nil {
-			body, err = h.db.GetEmailBody(ctx, emailID)
+			body, err = h.db.GetEmailBodyForUser(ctx, emailID, userID)
 		}
 		if err != nil || body == nil {
 			http.NotFound(w, r)
@@ -1213,7 +1225,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 		if h.db.IsRemoteContentAllowedForMessage(ctx, msgID) {
 			loadRemote = true
 		} else {
-			senderEmail, _ := h.db.GetMessageSenderEmail(ctx, msgID)
+			senderEmail, _ := h.db.GetMessageSenderEmailForUser(ctx, msgID, userID)
 			if senderEmail != "" && h.db.IsRemoteContentAllowedForSender(ctx, senderEmail) {
 				loadRemote = true
 			}
@@ -1483,19 +1495,21 @@ func originalBodyFromParsedMessage(parsed *message.ParsedMessage, msgID int64) [
 	return message.RewriteCIDReferences(sanitized, cidToURL)
 }
 
-func (h *Handler) originalBodyFromStoredMessage(ctx context.Context, emailID string, msgID int64) ([]byte, error) {
-	body, err := h.db.GetEmailOriginalHTMLBody(ctx, emailID)
+func (h *Handler) originalBodyFromStoredMessage(ctx context.Context, emailID string, msgID int64, userID string) ([]byte, error) {
+	body, err := h.db.GetEmailOriginalHTMLBodyForUser(ctx, emailID, userID)
 	if err != nil {
 		return nil, err
 	}
 	if body == nil {
-		var accountID, rawPath string
-		_ = h.db.Read().QueryRowContext(ctx, `SELECT account_id, raw_path FROM messages WHERE id = ?`, msgID).Scan(&accountID, &rawPath)
-		if rawPath != "" {
-			if raw, readErr := os.ReadFile(rawPath); readErr == nil {
+		storageInfo, err := h.db.GetMessageStorageInfoForUser(ctx, msgID, userID)
+		if err != nil || storageInfo == nil {
+			return nil, err
+		}
+		if storageInfo.RawPath != "" {
+			if raw, readErr := os.ReadFile(storageInfo.RawPath); readErr == nil {
 				if extracted, extractErr := message.ExtractHTMLBody(bytes.NewReader(raw)); extractErr == nil && len(extracted) > 0 {
 					body = extracted
-					if p, storeErr := h.blobStore.StoreBodyOriginalHTML(ctx, accountID, msgID, extracted); storeErr == nil {
+					if p, storeErr := h.blobStore.StoreBodyOriginalHTML(ctx, storageInfo.AccountID, msgID, extracted); storeErr == nil {
 						_ = h.db.UpdateMessageOriginalHTMLPath(ctx, msgID, p)
 					}
 				}
@@ -1902,12 +1916,12 @@ func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, f
 		}
 	}
 	if selectedEmailID != "" {
-		window.selectedEmail = &models.Email{ID: h.visibleMailListSelectionID(ctx, window.emails, selectedEmailID)}
+		window.selectedEmail = &models.Email{ID: h.visibleMailListSelectionID(ctx, userID, window.emails, selectedEmailID)}
 	}
 	return window
 }
 
-func (h *Handler) visibleMailListSelectionID(ctx context.Context, emails []models.Email, selectedEmailID string) string {
+func (h *Handler) visibleMailListSelectionID(ctx context.Context, userID string, emails []models.Email, selectedEmailID string) string {
 	if selectedEmailID == "" {
 		return ""
 	}
@@ -1916,7 +1930,7 @@ func (h *Handler) visibleMailListSelectionID(ctx context.Context, emails []model
 			return selectedEmailID
 		}
 	}
-	selectedEmail, err := h.db.GetEmailByID(ctx, selectedEmailID)
+	selectedEmail, err := h.db.GetEmailByIDForUser(ctx, selectedEmailID, userID)
 	if err != nil || selectedEmail == nil || selectedEmail.ThreadID == "" {
 		return selectedEmailID
 	}
@@ -2149,17 +2163,16 @@ func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	ctx = h.contextWithUserTimezone(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	ctx = h.contextWithUserTimezone(ctx, userID)
 
-	var accountID string
-	row := h.db.Read().QueryRowContext(ctx,
-		`SELECT m.account_id FROM messages m WHERE m.thread_id = ? LIMIT 1`, threadID)
-	if err := row.Scan(&accountID); err != nil {
+	accountID, err := h.db.GetThreadAccountIDForUser(ctx, threadID, userID)
+	if err != nil || accountID == "" {
 		http.NotFound(w, r)
 		return
 	}
 
-	items, err := h.db.GetThreadMessages(ctx, accountID, threadID)
+	items, err := h.db.GetThreadMessagesForUser(ctx, accountID, threadID, userID)
 	if err != nil || len(items) == 0 {
 		http.NotFound(w, r)
 		return
@@ -3542,10 +3555,35 @@ func downloadRemoteResource(url string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
 }
 
+func validRemoteAssetFilename(filename string) bool {
+	filename = strings.TrimSpace(filename)
+	if filename == "" || filepath.Base(filename) != filename || strings.ContainsAny(filename, `/\`) {
+		return false
+	}
+	stem := filename
+	if dot := strings.IndexByte(filename, '.'); dot >= 0 {
+		stem = filename[:dot]
+		switch filename[dot:] {
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp":
+		default:
+			return false
+		}
+	}
+	if len(stem) != 16 {
+		return false
+	}
+	for _, r := range stem {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
 func (h *Handler) handleRemoteAsset(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("messageID")
 	filename := r.PathValue("filename")
-	if messageID == "" || filename == "" {
+	if messageID == "" || !validRemoteAssetFilename(filename) {
 		http.NotFound(w, r)
 		return
 	}
@@ -3557,13 +3595,13 @@ func (h *Handler) handleRemoteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	info, _ := h.db.GetMessageFetchInfo(ctx, msgID)
-	if info == nil {
+	storageInfo, err := h.db.GetMessageStorageInfoForUser(ctx, msgID, h.userID(ctx))
+	if err != nil || storageInfo == nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	assetPath := filepath.Join(h.blobStore.RemoteAssetsDir(info.AccountID, msgID), filename)
+	assetPath := filepath.Join(h.blobStore.RemoteAssetsDir(storageInfo.AccountID, msgID), filename)
 	f, err := os.Open(assetPath)
 	if err != nil {
 		http.NotFound(w, r)
@@ -3571,7 +3609,7 @@ func (h *Handler) handleRemoteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	w.Header().Set("Cache-Control", "public, max-age=31536000")
+	w.Header().Set("Cache-Control", "private, max-age=31536000")
 	http.ServeContent(w, r, filename, time.Time{}, f)
 }
 
@@ -4238,7 +4276,8 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	email, err := h.db.GetEmailByID(r.Context(), strconv.FormatInt(localID, 10))
+	userID := h.userID(r.Context())
+	email, err := h.db.GetEmailByIDForUser(r.Context(), strconv.FormatInt(localID, 10), userID)
 	if err != nil || email == nil {
 		http.NotFound(w, r)
 		return
@@ -4266,7 +4305,7 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	htmlBody := ""
-	if originalBody, err := h.originalBodyFromStoredMessage(r.Context(), email.ID, localID); err == nil && len(originalBody) > 0 {
+	if originalBody, err := h.originalBodyFromStoredMessage(r.Context(), email.ID, localID, userID); err == nil && len(originalBody) > 0 {
 		htmlBody = string(originalBody)
 	}
 	if htmlBody == "" {
