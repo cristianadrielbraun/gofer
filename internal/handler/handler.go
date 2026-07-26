@@ -71,6 +71,7 @@ type Handler struct {
 	sentCopyIMAPFactory        sentCopyIMAPClientFactory
 	messageMutationWake        chan struct{}
 	messageMutationIMAPFactory messageMutationIMAPClientFactory
+	remoteResourceDownloader   func(string) ([]byte, error)
 	retentionMu                sync.RWMutex
 	retentionState             models.MailRetentionDiagnostics
 	smtpProfileMu              sync.RWMutex
@@ -120,6 +121,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		messageMutationIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (messageMutationIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)
 		},
+		remoteResourceDownloader: downloadRemoteResource,
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
@@ -1222,11 +1224,11 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !loadRemote && msgID > 0 {
-		if h.db.IsRemoteContentAllowedForMessage(ctx, msgID) {
+		if h.db.IsRemoteContentAllowedForMessageForUser(ctx, msgID, userID) {
 			loadRemote = true
 		} else {
 			senderEmail, _ := h.db.GetMessageSenderEmailForUser(ctx, msgID, userID)
-			if senderEmail != "" && h.db.IsRemoteContentAllowedForSender(ctx, senderEmail) {
+			if senderEmail != "" && h.db.IsRemoteContentAllowedForSenderForUser(ctx, senderEmail, userID) {
 				loadRemote = true
 			}
 		}
@@ -3477,36 +3479,44 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 	}
 
 	ctx := r.Context()
+	userID := h.userID(ctx)
+	info, err := h.db.GetMessageFetchInfoForUser(ctx, msgID, userID)
+	if err != nil {
+		http.Error(w, "failed to load message", http.StatusInternalServerError)
+		return
+	}
+	if info == nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if req.Mode == "once" {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	}
-
-	senderEmail, err := h.db.GetMessageSenderEmail(ctx, msgID)
-	if err != nil {
-		http.Error(w, "message not found", http.StatusNotFound)
+	if req.Mode != "email" && req.Mode != "sender" {
+		http.Error(w, "invalid mode", http.StatusBadRequest)
 		return
 	}
 
-	info, _ := h.db.GetMessageFetchInfo(ctx, msgID)
-	if info == nil {
-		http.Error(w, "message info not found", http.StatusNotFound)
-		return
-	}
 	accountID := info.AccountID
 
-	body, err := h.db.GetEmailBody(ctx, emailID)
+	body, err := h.db.GetEmailBodyForUser(ctx, emailID, userID)
 	if err != nil || body == nil {
-		http.Error(w, "body not found", http.StatusNotFound)
+		http.NotFound(w, r)
 		return
 	}
 
 	remoteURLs := message.ExtractRemoteURLs(string(body))
 	urlToLocal := make(map[string]string)
 	for _, remoteURL := range remoteURLs {
-		data, err := downloadRemoteResource(remoteURL)
+		download := h.remoteResourceDownloader
+		if download == nil {
+			download = downloadRemoteResource
+		}
+		data, err := download(remoteURL)
 		if err != nil || len(data) == 0 {
 			continue
 		}
@@ -3524,21 +3534,37 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.db.UpdateMessageBodyHTMLPath(ctx, msgID, localBodyPath); err != nil {
+	if err := h.db.UpdateMessageBodyHTMLPathForUser(ctx, msgID, localBodyPath, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
 		http.Error(w, "update failed", http.StatusInternalServerError)
 		return
 	}
 
 	if req.Mode == "email" {
-		h.db.AllowRemoteContentForMessage(ctx, msgID)
+		if err := h.db.AllowRemoteContentForMessageForUser(ctx, msgID, userID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "update failed", http.StatusInternalServerError)
+			return
+		}
 	} else if req.Mode == "sender" {
-		h.db.AllowRemoteContentForMessage(ctx, msgID)
-		if senderEmail != "" {
-			h.db.AllowRemoteContentForSender(ctx, senderEmail)
+		if err := h.db.AllowRemoteContentForSenderFromMessageForUser(ctx, msgID, userID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "update failed", http.StatusInternalServerError)
+			return
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
@@ -4754,40 +4780,60 @@ func sentSnippet(body, subject string) string {
 	return snippet
 }
 
+var (
+	errInvalidMessageTarget  = errors.New("invalid message id")
+	errMessageTargetNotFound = errors.New("message not found")
+)
+
 func (h *Handler) getMessageInfo(ctx context.Context, idStr string) (int64, *storage.MessageMutationInfo, error) {
 	msgID, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		return 0, nil, fmt.Errorf("invalid message id")
+	if err != nil || msgID <= 0 {
+		return 0, nil, errInvalidMessageTarget
 	}
-	info, err := h.db.GetMessageMutationInfo(ctx, msgID)
+	info, err := h.db.GetMessageMutationInfoForUser(ctx, msgID, h.userID(ctx))
 	if err != nil {
 		return 0, nil, fmt.Errorf("get message info: %w", err)
 	}
 	if info == nil {
-		return 0, nil, fmt.Errorf("message not found")
+		return 0, nil, errMessageTargetNotFound
 	}
 	return msgID, info, nil
 }
 
 func (h *Handler) getMessageInfoForFolder(ctx context.Context, idStr, folderID string) (int64, *storage.MessageMutationInfo, error) {
 	msgID, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		return 0, nil, fmt.Errorf("invalid message id")
+	if err != nil || msgID <= 0 {
+		return 0, nil, errInvalidMessageTarget
 	}
 	if strings.TrimSpace(folderID) != "" {
 		folderID, err = h.resolveFolderID(ctx, h.userID(ctx), folderID)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return 0, nil, errMessageTargetNotFound
+			}
 			return 0, nil, fmt.Errorf("resolve folder: %w", err)
 		}
 	}
-	info, err := h.db.GetMessageMutationInfoForFolder(ctx, msgID, folderID)
+	info, err := h.db.GetMessageMutationInfoForFolderForUser(ctx, msgID, folderID, h.userID(ctx))
 	if err != nil {
 		return 0, nil, fmt.Errorf("get message info: %w", err)
 	}
 	if info == nil {
-		return 0, nil, fmt.Errorf("message not found")
+		return 0, nil, errMessageTargetNotFound
 	}
 	return msgID, info, nil
+}
+
+func writeMessageTargetError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, errInvalidMessageTarget):
+		http.Error(w, "invalid message id", http.StatusBadRequest)
+	case errors.Is(err, errMessageTargetNotFound), errors.Is(err, sql.ErrNoRows):
+		http.NotFound(w, r)
+	default:
+		log.Printf("message target lookup failed: %v", err)
+		http.Error(w, "failed to load message", http.StatusInternalServerError)
+	}
 }
 
 func (h *Handler) connectIMAP(ctx context.Context, accountID string) (*imap.Client, error) {
@@ -4844,6 +4890,51 @@ type messageBulkRequest struct {
 	Label    string              `json:"label"`
 }
 
+type ownedMessageTarget struct {
+	Target messageBulkTarget
+	Infos  []storage.ThreadMessageMutationInfo
+}
+
+func (h *Handler) resolveOwnedMessageTargets(ctx context.Context, targets []messageBulkTarget, sourceFolderID string, wholeThread bool) ([]ownedMessageTarget, error) {
+	if len(targets) == 0 {
+		return nil, errInvalidMessageTarget
+	}
+
+	userID := h.userID(ctx)
+	resolved := make([]ownedMessageTarget, 0, len(targets))
+	for _, target := range targets {
+		msgID, info, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
+		if err != nil {
+			return nil, err
+		}
+
+		infos := []storage.ThreadMessageMutationInfo{{
+			MessageID:           msgID,
+			MessageMutationInfo: *info,
+			IsRead:              info.IsRead,
+			IsStarred:           info.IsStarred,
+		}}
+		if target.Thread {
+			if strings.TrimSpace(info.ThreadID) == "" {
+				return nil, errMessageTargetNotFound
+			}
+			if wholeThread {
+				infos, err = h.db.GetThreadMutationInfosForUser(ctx, info.AccountID, info.ThreadID, userID)
+			} else {
+				infos, err = h.db.GetThreadMutationInfosForFolderForUser(ctx, info.AccountID, info.ThreadID, info.FolderID, userID)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("get thread mutation targets: %w", err)
+			}
+			if len(infos) == 0 {
+				return nil, errMessageTargetNotFound
+			}
+		}
+		resolved = append(resolved, ownedMessageTarget{Target: target, Infos: infos})
+	}
+	return resolved, nil
+}
+
 func decodeMessageBulkRequest(r *http.Request) (messageBulkRequest, error) {
 	var payload messageBulkRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -4888,16 +4979,11 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 
 	msgID, info, err := h.getMessageInfo(ctx, idStr)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
 
-	var currentState bool
-	h.db.Read().QueryRowContext(ctx,
-		`SELECT is_read FROM message_folder_state WHERE message_id = ? LIMIT 1`, msgID,
-	).Scan(&currentState)
-
-	targetRead := !currentState
+	targetRead := !info.IsRead
 	switch r.URL.Query().Get("state") {
 	case "read":
 		targetRead = true
@@ -4905,7 +4991,7 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		targetRead = false
 	}
 
-	if err := h.db.SetMessageReadAndQueue(ctx, msgID, targetRead); err != nil {
+	if err := h.db.SetMessageReadAndQueueForUser(ctx, msgID, targetRead, h.userID(ctx)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -4926,68 +5012,28 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 	}
 
 	ctx := context.WithoutCancel(r.Context())
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), true)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
 	updated := 0
-	seenMessages := map[string]bool{}
-	seenThreads := map[string]bool{}
-
-	for _, target := range messageBulkTargets(payload) {
-		id := strings.TrimSpace(target.ID)
-		if id == "" {
-			continue
+	for _, target := range targets {
+		messageIDs := make([]int64, 0, len(target.Infos))
+		for _, info := range target.Infos {
+			messageIDs = append(messageIDs, info.MessageID)
 		}
-
-		if target.Thread {
-			email, err := h.db.GetEmailByID(ctx, id)
-			if err != nil || email == nil || email.ThreadID == "" {
-				continue
-			}
-			threadKey := email.AccountID + ":" + email.ThreadID
-			if seenThreads[threadKey] {
-				continue
-			}
-			seenThreads[threadKey] = true
-
-			infos, err := h.db.GetThreadMutationInfos(ctx, email.AccountID, email.ThreadID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if len(infos) == 0 {
-				continue
-			}
-			messageIDs := make([]int64, 0, len(infos))
-			for _, info := range infos {
-				messageIDs = append(messageIDs, info.MessageID)
-			}
-			if err := h.db.SetMessagesReadAndQueue(ctx, messageIDs, true); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			updated++
-			h.signalMessageMutationWorker()
-
-			h.publishThreadMutation(infos)
-			continue
-		}
-
-		if seenMessages[id] {
-			continue
-		}
-		seenMessages[id] = true
-
-		msgID, info, err := h.getMessageInfo(ctx, id)
-		if err != nil {
-			continue
-		}
-		if err := h.db.SetMessageReadAndQueue(ctx, msgID, true); err != nil {
+		if err := h.db.SetMessagesReadAndQueueForUser(ctx, messageIDs, true, h.userID(ctx)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		updated++
-
 		h.signalMessageMutationWorker()
-
-		h.publishMutation(info.AccountID, info.FolderID)
+		if target.Target.Thread {
+			h.publishThreadMutation(target.Infos)
+		} else {
+			h.publishMutation(target.Infos[0].AccountID, target.Infos[0].FolderID)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -5003,44 +5049,29 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 	}
 	targetStarred := payload.State != "unstarred" && payload.State != "false"
 	ctx := context.WithoutCancel(r.Context())
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), true)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
 	updated := 0
 
-	for _, target := range messageBulkTargets(payload) {
-		if target.Thread {
-			email, err := h.db.GetEmailByID(ctx, target.ID)
-			if err != nil || email == nil || email.ThreadID == "" {
-				continue
-			}
-			infos, err := h.db.GetThreadMutationInfos(ctx, email.AccountID, email.ThreadID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			messageIDs := make([]int64, 0, len(infos))
-			for _, info := range infos {
-				messageIDs = append(messageIDs, info.MessageID)
-			}
-			if err := h.db.SetMessagesStarredAndQueue(ctx, messageIDs, targetStarred); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			updated++
-			h.signalMessageMutationWorker()
-			h.publishThreadMutation(infos)
-			continue
+	for _, target := range targets {
+		messageIDs := make([]int64, 0, len(target.Infos))
+		for _, info := range target.Infos {
+			messageIDs = append(messageIDs, info.MessageID)
 		}
-
-		msgID, info, err := h.getMessageInfo(ctx, target.ID)
-		if err != nil {
-			continue
-		}
-		if err := h.db.SetMessageStarredAndQueue(ctx, msgID, targetStarred); err != nil {
+		if err := h.db.SetMessagesStarredAndQueueForUser(ctx, messageIDs, targetStarred, h.userID(ctx)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		updated++
 		h.signalMessageMutationWorker()
-		h.publishMutation(info.AccountID, info.FolderID)
+		if target.Target.Thread {
+			h.publishThreadMutation(target.Infos)
+		} else {
+			h.publishMutation(target.Infos[0].AccountID, target.Infos[0].FolderID)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -5055,53 +5086,29 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ctx := context.WithoutCancel(r.Context())
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
 	updated := 0
 
-	for _, target := range messageBulkTargets(payload) {
-		if target.Thread {
-			_, currentInfo, err := h.getMessageInfo(ctx, target.ID)
-			if err != nil || currentInfo.FolderRole == "archive" || currentInfo.FolderRole == "trash" {
-				continue
-			}
-			email, err := h.db.GetEmailByID(ctx, target.ID)
-			if err != nil || email == nil || email.ThreadID == "" {
-				continue
-			}
-			archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "archive")
-			if err != nil || archiveFolderID == "" || archiveFolderID == currentInfo.FolderID {
-				continue
-			}
-			infos, err := h.db.GetThreadMutationInfosInFolder(ctx, email.AccountID, email.ThreadID, currentInfo.FolderID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if err := h.queueMessageMoves(ctx, infos, archiveFolderID); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			updated++
-			h.publishThreadMutation(infos)
-			h.publishMutation(email.AccountID, archiveFolderID)
+	for _, target := range targets {
+		currentInfo := target.Infos[0].MessageMutationInfo
+		if currentInfo.FolderRole == "archive" || currentInfo.FolderRole == "trash" {
 			continue
 		}
-
-		msgID, info, err := h.getMessageInfo(ctx, target.ID)
-		if err != nil || info.FolderRole == "archive" || info.FolderRole == "trash" {
+		archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "archive")
+		if err != nil || archiveFolderID == "" || archiveFolderID == currentInfo.FolderID {
 			continue
 		}
-		archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "archive")
-		if err != nil || archiveFolderID == "" || archiveFolderID == info.FolderID {
-			continue
-		}
-		if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, archiveFolderID); err != nil {
+		if err := h.queueMessageMoves(ctx, target.Infos, archiveFolderID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		h.signalMessageMutationWorker()
 		updated++
-		h.publishMutation(info.AccountID, info.FolderID)
-		h.publishMutation(info.AccountID, archiveFolderID)
+		h.publishThreadMutation(target.Infos)
+		h.publishMutation(currentInfo.AccountID, archiveFolderID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -5117,71 +5124,33 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := context.WithoutCancel(r.Context())
 	sourceFolderID := strings.TrimSpace(payload.FolderID)
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), sourceFolderID, false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
 	updated := 0
 
-	for _, target := range messageBulkTargets(payload) {
-		if target.Thread {
-			_, currentInfo, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
-			if err != nil {
-				continue
-			}
-			email, err := h.db.GetEmailByID(ctx, target.ID)
-			if err != nil || email == nil || email.ThreadID == "" {
-				continue
-			}
-			infos, err := h.db.GetThreadMutationInfosInFolder(ctx, email.AccountID, email.ThreadID, currentInfo.FolderID)
-			if err != nil {
+	for _, target := range targets {
+		currentInfo := target.Infos[0].MessageMutationInfo
+		if currentInfo.FolderRole == "trash" {
+			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if len(infos) == 0 {
-				continue
-			}
-			if currentInfo.FolderRole == "trash" {
-				if err := h.queuePermanentDeletes(ctx, infos); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-			} else {
-				trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "trash")
-				if err != nil || trashFolderID == "" {
-					continue
-				}
-				if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				h.publishMutation(email.AccountID, trashFolderID)
-			}
-			updated++
-			h.publishThreadMutation(infos)
-			continue
-		}
-
-		msgID, info, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
-		if err != nil {
-			continue
-		}
-		if info.FolderRole == "trash" {
-			if err := h.db.PermanentlyDeleteMessageAndQueue(ctx, msgID, info.FolderID); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			h.signalMessageMutationWorker()
 		} else {
-			trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
+			trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
 			if err != nil || trashFolderID == "" {
 				continue
 			}
-			if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, trashFolderID); err != nil {
+			if err := h.queueMessageMoves(ctx, target.Infos, trashFolderID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			h.signalMessageMutationWorker()
-			h.publishMutation(info.AccountID, trashFolderID)
+			h.publishMutation(currentInfo.AccountID, trashFolderID)
 		}
 		updated++
-		h.publishMutation(info.AccountID, info.FolderID)
+		h.publishThreadMutation(target.Infos)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -5210,45 +5179,25 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "destination folder not found", http.StatusBadRequest)
 		return
 	}
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), "", false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
 	updated := 0
 
-	for _, target := range messageBulkTargets(payload) {
-		if target.Thread {
-			_, currentInfo, err := h.getMessageInfo(ctx, target.ID)
-			if err != nil || currentInfo.FolderID == destFolderID {
-				continue
-			}
-			email, err := h.db.GetEmailByID(ctx, target.ID)
-			if err != nil || email == nil || email.ThreadID == "" {
-				continue
-			}
-			infos, err := h.db.GetThreadMutationInfosInFolder(ctx, email.AccountID, email.ThreadID, currentInfo.FolderID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if err := h.queueMessageMoves(ctx, infos, destFolderID); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			updated++
-			h.publishThreadMutation(infos)
-			h.publishMutation(email.AccountID, destFolderID)
+	for _, target := range targets {
+		currentInfo := target.Infos[0].MessageMutationInfo
+		if currentInfo.FolderID == destFolderID {
 			continue
 		}
-
-		msgID, info, err := h.getMessageInfo(ctx, target.ID)
-		if err != nil || info.FolderID == destFolderID {
-			continue
-		}
-		if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, destFolderID); err != nil {
+		if err := h.queueMessageMoves(ctx, target.Infos, destFolderID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		h.signalMessageMutationWorker()
 		updated++
-		h.publishMutation(info.AccountID, info.FolderID)
-		h.publishMutation(info.AccountID, destFolderID)
+		h.publishThreadMutation(target.Infos)
+		h.publishMutation(currentInfo.AccountID, destFolderID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -5262,16 +5211,12 @@ func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {
 
 	msgID, info, err := h.getMessageInfo(ctx, idStr)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
 
-	var currentState bool
-	h.db.Read().QueryRowContext(ctx,
-		`SELECT is_starred FROM message_folder_state WHERE message_id = ? LIMIT 1`, msgID,
-	).Scan(&currentState)
-
-	if err := h.db.SetMessageStarredAndQueue(ctx, msgID, !currentState); err != nil {
+	targetStarred := !info.IsStarred
+	if err := h.db.SetMessageStarredAndQueueForUser(ctx, msgID, targetStarred, h.userID(ctx)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -5282,33 +5227,26 @@ func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]bool{"is_starred": !currentState})
+	json.NewEncoder(w).Encode(map[string]bool{"is_starred": targetStarred})
 }
 
 func (h *Handler) handleToggleThreadRead(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	ctx := r.Context()
 
-	email, err := h.db.GetEmailByID(ctx, idStr)
-	if err != nil || email == nil || email.ThreadID == "" {
-		http.Error(w, "message not found", http.StatusBadRequest)
-		return
-	}
-
-	infos, err := h.db.GetThreadMutationInfos(ctx, email.AccountID, email.ThreadID)
+	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{{ID: idStr, Thread: true}}, "", true)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeMessageTargetError(w, r, err)
 		return
 	}
-	if len(infos) == 0 {
-		http.Error(w, "thread not found", http.StatusBadRequest)
-		return
-	}
+	infos := targets[0].Infos
 
-	hasUnread, err := h.db.ThreadHasUnread(ctx, email.AccountID, email.ThreadID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	hasUnread := false
+	for _, info := range infos {
+		if !info.IsRead {
+			hasUnread = true
+			break
+		}
 	}
 	targetRead := hasUnread
 	switch r.URL.Query().Get("state") {
@@ -5321,7 +5259,7 @@ func (h *Handler) handleToggleThreadRead(w http.ResponseWriter, r *http.Request)
 	for _, info := range infos {
 		messageIDs = append(messageIDs, info.MessageID)
 	}
-	if err := h.db.SetMessagesReadAndQueue(ctx, messageIDs, targetRead); err != nil {
+	if err := h.db.SetMessagesReadAndQueueForUser(ctx, messageIDs, targetRead, h.userID(ctx)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -5339,23 +5277,19 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	ctx := r.Context()
 
-	_, info, err := h.getMessageInfo(ctx, idStr)
+	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{{ID: idStr, Thread: true}}, "", false)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
+	infos := targets[0].Infos
+	info := infos[0].MessageMutationInfo
 	if info.FolderRole == "archive" || info.FolderRole == "trash" {
 		http.Error(w, "thread cannot be archived from this folder", http.StatusBadRequest)
 		return
 	}
 
-	email, err := h.db.GetEmailByID(ctx, idStr)
-	if err != nil || email == nil || email.ThreadID == "" {
-		http.Error(w, "message not found", http.StatusBadRequest)
-		return
-	}
-
-	archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "archive")
+	archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "archive")
 	if err != nil || archiveFolderID == "" {
 		http.Error(w, "no archive folder found", http.StatusBadRequest)
 		return
@@ -5365,22 +5299,12 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	infos, err := h.db.GetThreadMutationInfosInFolder(ctx, email.AccountID, email.ThreadID, info.FolderID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(infos) == 0 {
-		http.Error(w, "thread not found in current folder", http.StatusBadRequest)
-		return
-	}
-
 	if err := h.queueMessageMoves(ctx, infos, archiveFolderID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.publishThreadMutation(infos)
-	h.publishMutation(email.AccountID, archiveFolderID)
+	h.publishMutation(info.AccountID, archiveFolderID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -5390,27 +5314,13 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	ctx := r.Context()
-	_, currentInfo, err := h.getMessageInfoForFolder(ctx, idStr, r.URL.Query().Get("folder_id"))
+	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{{ID: idStr, Thread: true}}, r.URL.Query().Get("folder_id"), false)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
-
-	email, err := h.db.GetEmailByID(ctx, idStr)
-	if err != nil || email == nil || email.ThreadID == "" {
-		http.Error(w, "message not found", http.StatusBadRequest)
-		return
-	}
-
-	infos, err := h.db.GetThreadMutationInfosInFolder(ctx, email.AccountID, email.ThreadID, currentInfo.FolderID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(infos) == 0 {
-		http.Error(w, "thread not found", http.StatusBadRequest)
-		return
-	}
+	infos := targets[0].Infos
+	currentInfo := infos[0].MessageMutationInfo
 
 	if currentInfo.FolderRole == "trash" {
 		if err := h.queuePermanentDeletes(ctx, infos); err != nil {
@@ -5418,7 +5328,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, email.AccountID, "trash")
+		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
 		if err != nil || trashFolderID == "" {
 			http.Error(w, "no trash folder found", http.StatusBadRequest)
 			return
@@ -5427,7 +5337,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		h.publishMutation(email.AccountID, trashFolderID)
+		h.publishMutation(currentInfo.AccountID, trashFolderID)
 	}
 	h.publishThreadMutation(infos)
 
@@ -5442,12 +5352,12 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 	msgID, info, err := h.getMessageInfoForFolder(ctx, idStr, r.URL.Query().Get("folder_id"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
 
 	if info.FolderRole == "trash" {
-		if err := h.db.PermanentlyDeleteMessageAndQueue(ctx, msgID, info.FolderID); err != nil {
+		if err := h.db.PermanentlyDeleteMessageAndQueueForUser(ctx, msgID, info.FolderID, h.userID(ctx)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -5459,7 +5369,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, trashFolderID); err != nil {
+		if err := h.db.MoveMessageAndQueueForUser(ctx, msgID, info.FolderID, trashFolderID, h.userID(ctx)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -5497,7 +5407,7 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 
 	msgID, info, err := h.getMessageInfo(ctx, idStr)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
 
@@ -5507,7 +5417,7 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.db.MoveMessageAndQueue(ctx, msgID, info.FolderID, destFolderID); err != nil {
+	if err := h.db.MoveMessageAndQueueForUser(ctx, msgID, info.FolderID, destFolderID, h.userID(ctx)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -5526,11 +5436,15 @@ func (h *Handler) handleRefetchBody(w http.ResponseWriter, r *http.Request) {
 
 	msgID, info, err := h.getMessageInfo(ctx, idStr)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
 
-	if err := h.db.ClearEmailData(ctx, msgID); err != nil {
+	if err := h.db.ClearEmailDataForUser(ctx, msgID, h.userID(ctx)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
 		http.Error(w, "failed to clear message data", http.StatusInternalServerError)
 		return
 	}
@@ -5548,7 +5462,7 @@ func (h *Handler) handlePrefetchBody(w http.ResponseWriter, r *http.Request) {
 
 	msgID, info, err := h.getMessageInfo(ctx, idStr)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeMessageTargetError(w, r, err)
 		return
 	}
 

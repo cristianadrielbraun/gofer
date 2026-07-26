@@ -43,12 +43,13 @@ func (h *Handler) signalMessageMutationWorker() {
 }
 
 func (h *Handler) queueMessageMoves(ctx context.Context, infos []storage.ThreadMessageMutationInfo, destinationFolderID string) error {
+	userID := h.userID(ctx)
 	bySource := make(map[string][]int64)
 	for _, info := range infos {
 		bySource[info.FolderID] = append(bySource[info.FolderID], info.MessageID)
 	}
 	for sourceFolderID, messageIDs := range bySource {
-		if err := h.db.MoveMessagesAndQueue(ctx, messageIDs, sourceFolderID, destinationFolderID); err != nil {
+		if err := h.db.MoveMessagesAndQueueForUser(ctx, messageIDs, sourceFolderID, destinationFolderID, userID); err != nil {
 			return err
 		}
 	}
@@ -57,12 +58,13 @@ func (h *Handler) queueMessageMoves(ctx context.Context, infos []storage.ThreadM
 }
 
 func (h *Handler) queuePermanentDeletes(ctx context.Context, infos []storage.ThreadMessageMutationInfo) error {
+	userID := h.userID(ctx)
 	byFolder := make(map[string][]int64)
 	for _, info := range infos {
 		byFolder[info.FolderID] = append(byFolder[info.FolderID], info.MessageID)
 	}
 	for folderID, messageIDs := range byFolder {
-		if err := h.db.PermanentlyDeleteMessagesAndQueue(ctx, messageIDs, folderID); err != nil {
+		if err := h.db.PermanentlyDeleteMessagesAndQueueForUser(ctx, messageIDs, folderID, userID); err != nil {
 			return err
 		}
 	}

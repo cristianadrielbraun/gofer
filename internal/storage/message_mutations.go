@@ -51,6 +51,22 @@ func (db *DB) PermanentlyDeleteMessageAndQueue(ctx context.Context, messageID in
 }
 
 func (db *DB) PermanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs []int64, folderID string) error {
+	return db.permanentlyDeleteMessagesAndQueue(ctx, messageIDs, folderID, "")
+}
+
+func (db *DB) PermanentlyDeleteMessageAndQueueForUser(ctx context.Context, messageID int64, folderID, userID string) error {
+	return db.PermanentlyDeleteMessagesAndQueueForUser(ctx, []int64{messageID}, folderID, userID)
+}
+
+func (db *DB) PermanentlyDeleteMessagesAndQueueForUser(ctx context.Context, messageIDs []int64, folderID, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("message owner is required")
+	}
+	return db.permanentlyDeleteMessagesAndQueue(ctx, messageIDs, folderID, userID)
+}
+
+func (db *DB) permanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs []int64, folderID, userID string) error {
 	messageIDs = uniquePositiveInt64s(messageIDs)
 	folderID = strings.TrimSpace(folderID)
 	if len(messageIDs) == 0 {
@@ -68,13 +84,19 @@ func (db *DB) PermanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs 
 	for _, messageID := range messageIDs {
 		var accountID, provider string
 		var sourceUIDValidity int64
-		if err := tx.QueryRowContext(ctx, `
+		query := `
 			SELECT m.account_id, a.provider, COALESCE(f.uid_validity, 0)
 			FROM messages m
 			JOIN accounts a ON a.id = m.account_id
 			JOIN message_folder_state mfs ON mfs.message_id = m.id
 			JOIN folders f ON f.id = mfs.folder_id
-			WHERE m.id = ? AND mfs.folder_id = ? AND mfs.is_deleted = 0`, messageID, folderID).
+			WHERE m.id = ? AND mfs.folder_id = ? AND mfs.is_deleted = 0`
+		args := []any{messageID, folderID}
+		if userID != "" {
+			query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+			args = append(args, userID)
+		}
+		if err := tx.QueryRowContext(ctx, query, args...).
 			Scan(&accountID, &provider, &sourceUIDValidity); err != nil {
 			return fmt.Errorf("load message %d for permanent delete: %w", messageID, err)
 		}
@@ -146,6 +168,22 @@ func (db *DB) MoveMessageAndQueue(ctx context.Context, messageID int64, sourceFo
 }
 
 func (db *DB) MoveMessagesAndQueue(ctx context.Context, messageIDs []int64, sourceFolderID, destinationFolderID string) error {
+	return db.moveMessagesAndQueue(ctx, messageIDs, sourceFolderID, destinationFolderID, "")
+}
+
+func (db *DB) MoveMessageAndQueueForUser(ctx context.Context, messageID int64, sourceFolderID, destinationFolderID, userID string) error {
+	return db.MoveMessagesAndQueueForUser(ctx, []int64{messageID}, sourceFolderID, destinationFolderID, userID)
+}
+
+func (db *DB) MoveMessagesAndQueueForUser(ctx context.Context, messageIDs []int64, sourceFolderID, destinationFolderID, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("message owner is required")
+	}
+	return db.moveMessagesAndQueue(ctx, messageIDs, sourceFolderID, destinationFolderID, userID)
+}
+
+func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sourceFolderID, destinationFolderID, userID string) error {
 	messageIDs = uniquePositiveInt64s(messageIDs)
 	sourceFolderID = strings.TrimSpace(sourceFolderID)
 	destinationFolderID = strings.TrimSpace(destinationFolderID)
@@ -163,7 +201,17 @@ func (db *DB) MoveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 	defer tx.Rollback()
 
 	var destinationAccountID, destinationRemoteID string
-	if err := tx.QueryRowContext(ctx, `SELECT account_id, COALESCE(remote_id, '') FROM folders WHERE id = ?`, destinationFolderID).Scan(&destinationAccountID, &destinationRemoteID); err != nil {
+	destinationQuery := `SELECT f.account_id, COALESCE(f.remote_id, '') FROM folders f`
+	destinationArgs := []any{destinationFolderID}
+	if userID != "" {
+		destinationQuery += ` JOIN accounts a ON a.id = f.account_id`
+	}
+	destinationQuery += ` WHERE f.id = ?`
+	if userID != "" {
+		destinationQuery += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		destinationArgs = append(destinationArgs, userID)
+	}
+	if err := tx.QueryRowContext(ctx, destinationQuery, destinationArgs...).Scan(&destinationAccountID, &destinationRemoteID); err != nil {
 		return fmt.Errorf("load destination folder: %w", err)
 	}
 	if strings.TrimSpace(destinationRemoteID) == "" {
@@ -174,12 +222,18 @@ func (db *DB) MoveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 	for _, messageID := range messageIDs {
 		var accountID, provider string
 		var isRead, isStarred int
-		if err := tx.QueryRowContext(ctx, `
+		messageQuery := `
 			SELECT m.account_id, a.provider, mfs.is_read, mfs.is_starred
 			FROM messages m
 			JOIN accounts a ON a.id = m.account_id
 			JOIN message_folder_state mfs ON mfs.message_id = m.id
-			WHERE m.id = ? AND mfs.folder_id = ? AND mfs.is_deleted = 0`, messageID, sourceFolderID).
+			WHERE m.id = ? AND mfs.folder_id = ? AND mfs.is_deleted = 0`
+		messageArgs := []any{messageID, sourceFolderID}
+		if userID != "" {
+			messageQuery += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+			messageArgs = append(messageArgs, userID)
+		}
+		if err := tx.QueryRowContext(ctx, messageQuery, messageArgs...).
 			Scan(&accountID, &provider, &isRead, &isStarred); err != nil {
 			return fmt.Errorf("load message %d in source folder: %w", messageID, err)
 		}
@@ -260,7 +314,19 @@ func (db *DB) SetMessageReadAndQueue(ctx context.Context, messageID int64, read 
 }
 
 func (db *DB) SetMessagesReadAndQueue(ctx context.Context, messageIDs []int64, read bool) error {
-	return db.setMessageStateAndQueue(ctx, messageIDs, MessageMutationRead, read)
+	return db.setMessageStateAndQueue(ctx, messageIDs, MessageMutationRead, read, "")
+}
+
+func (db *DB) SetMessageReadAndQueueForUser(ctx context.Context, messageID int64, read bool, userID string) error {
+	return db.SetMessagesReadAndQueueForUser(ctx, []int64{messageID}, read, userID)
+}
+
+func (db *DB) SetMessagesReadAndQueueForUser(ctx context.Context, messageIDs []int64, read bool, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("message owner is required")
+	}
+	return db.setMessageStateAndQueue(ctx, messageIDs, MessageMutationRead, read, userID)
 }
 
 func (db *DB) SetMessageStarredAndQueue(ctx context.Context, messageID int64, starred bool) error {
@@ -268,10 +334,22 @@ func (db *DB) SetMessageStarredAndQueue(ctx context.Context, messageID int64, st
 }
 
 func (db *DB) SetMessagesStarredAndQueue(ctx context.Context, messageIDs []int64, starred bool) error {
-	return db.setMessageStateAndQueue(ctx, messageIDs, MessageMutationStarred, starred)
+	return db.setMessageStateAndQueue(ctx, messageIDs, MessageMutationStarred, starred, "")
 }
 
-func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, kind string, target bool) error {
+func (db *DB) SetMessageStarredAndQueueForUser(ctx context.Context, messageID int64, starred bool, userID string) error {
+	return db.SetMessagesStarredAndQueueForUser(ctx, []int64{messageID}, starred, userID)
+}
+
+func (db *DB) SetMessagesStarredAndQueueForUser(ctx context.Context, messageIDs []int64, starred bool, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("message owner is required")
+	}
+	return db.setMessageStateAndQueue(ctx, messageIDs, MessageMutationStarred, starred, userID)
+}
+
+func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, kind string, target bool, userID string) error {
 	if kind != MessageMutationRead && kind != MessageMutationStarred {
 		return fmt.Errorf("unsupported message mutation kind %q", kind)
 	}
@@ -287,10 +365,16 @@ func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, k
 	folderSet := make(map[string]struct{})
 	for _, messageID := range messageIDs {
 		var accountID, provider string
-		if err := tx.QueryRowContext(ctx, `
+		query := `
 			SELECT m.account_id, a.provider
 			FROM messages m JOIN accounts a ON a.id = m.account_id
-			WHERE m.id = ?`, messageID).Scan(&accountID, &provider); err != nil {
+			WHERE m.id = ?`
+		args := []any{messageID}
+		if userID != "" {
+			query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+			args = append(args, userID)
+		}
+		if err := tx.QueryRowContext(ctx, query, args...).Scan(&accountID, &provider); err != nil {
 			return fmt.Errorf("load message %d for mutation: %w", messageID, err)
 		}
 		providerType := messageMutationProviderType(provider)

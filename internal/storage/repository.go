@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -5393,13 +5395,13 @@ func (db *DB) getEmailByIDForFolder(ctx context.Context, id, folderID, userID st
 		return email, nil
 	}
 
-	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, false)
+	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, userID, false)
 	if err != nil {
 		return nil, err
 	}
 	if info == nil && isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
 		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs, false)
+		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs, userID, false)
 		if err != nil {
 			return nil, err
 		}
@@ -6334,11 +6336,39 @@ func (db *DB) ClearEmailBody(ctx context.Context, messageID int64) error {
 }
 
 func (db *DB) ClearEmailData(ctx context.Context, messageID int64) error {
+	return db.clearEmailData(ctx, messageID, "")
+}
+
+func (db *DB) ClearEmailDataForUser(ctx context.Context, messageID int64, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return sql.ErrNoRows
+	}
+	return db.clearEmailData(ctx, messageID, userID)
+}
+
+func (db *DB) clearEmailData(ctx context.Context, messageID int64, userID string) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
+
+	if userID != "" {
+		var owned int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS(
+				SELECT 1
+				FROM messages m
+				JOIN accounts a ON a.id = m.account_id
+				WHERE m.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+			)`, messageID, userID).Scan(&owned); err != nil {
+			return fmt.Errorf("check message ownership: %w", err)
+		}
+		if owned != 1 {
+			return sql.ErrNoRows
+		}
+	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM attachments WHERE message_id = ?`, messageID); err != nil {
 		return fmt.Errorf("delete attachments: %w", err)
@@ -6685,7 +6715,10 @@ type MessageMutationInfo struct {
 	FolderRole        string
 	RemoteMessageID   string
 	InternetMessageID string
+	ThreadID          string
 	ProviderThreadID  string
+	IsRead            bool
+	IsStarred         bool
 }
 
 type ThreadMessageMutationInfo struct {
@@ -6696,7 +6729,15 @@ type ThreadMessageMutationInfo struct {
 }
 
 func (db *DB) GetMessageMutationInfo(ctx context.Context, messageID int64) (*MessageMutationInfo, error) {
-	return db.getMessageMutationInfo(ctx, messageID, "", nil, false)
+	return db.getMessageMutationInfo(ctx, messageID, "", nil, "", false)
+}
+
+func (db *DB) GetMessageMutationInfoForUser(ctx context.Context, messageID int64, userID string) (*MessageMutationInfo, error) {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return nil, nil
+	}
+	return db.getMessageMutationInfo(ctx, messageID, "", nil, userID, false)
 }
 
 func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
@@ -6705,14 +6746,14 @@ func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int
 		return db.GetMessageMutationInfo(ctx, messageID)
 	}
 
-	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, false)
+	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, "", false)
 	if err != nil || info != nil {
 		return info, err
 	}
 
 	if isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
 		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs, false)
+		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs, "", false)
 		if err != nil || info != nil {
 			return info, err
 		}
@@ -6721,12 +6762,38 @@ func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int
 	return db.GetMessageMutationInfo(ctx, messageID)
 }
 
+func (db *DB) GetMessageMutationInfoForFolderForUser(ctx context.Context, messageID int64, folderID, userID string) (*MessageMutationInfo, error) {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return nil, nil
+	}
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return db.GetMessageMutationInfoForUser(ctx, messageID, userID)
+	}
+
+	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, userID, false)
+	if err != nil || info != nil {
+		return info, err
+	}
+
+	if isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		info, err = db.getMessageMutationInfo(ctx, messageID, rolePredicate, roleArgs, userID, false)
+		if err != nil || info != nil {
+			return info, err
+		}
+	}
+
+	return db.GetMessageMutationInfoForUser(ctx, messageID, userID)
+}
+
 func (db *DB) GetMessageMutationInfoInFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
 	folderID = strings.TrimSpace(folderID)
 	if folderID == "" {
 		return nil, nil
 	}
-	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, false)
+	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, "", false)
 }
 
 func (db *DB) GetMessageMutationInfoIncludingDeletedInFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
@@ -6734,23 +6801,29 @@ func (db *DB) GetMessageMutationInfoIncludingDeletedInFolder(ctx context.Context
 	if folderID == "" {
 		return nil, nil
 	}
-	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, true)
+	return db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, "", true)
 }
 
-func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folderPredicate string, folderArgs []any, includeDeleted bool) (*MessageMutationInfo, error) {
+func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folderPredicate string, folderArgs []any, userID string, includeDeleted bool) (*MessageMutationInfo, error) {
 	var info MessageMutationInfo
 	var remoteUID sql.NullInt64
 	var role string
-	var remoteMessageID, internetMessageID, providerThreadID sql.NullString
+	var remoteMessageID, internetMessageID, threadID, providerThreadID sql.NullString
+	var isRead, isStarred int
 
 	query := `SELECT m.account_id, a.provider, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role,
-	                 m.remote_message_id, m.internet_message_id, m.provider_thread_id
+	                 m.remote_message_id, m.internet_message_id, m.thread_id, m.provider_thread_id,
+	                 mfs.is_read, mfs.is_starred
 			  FROM messages m
 			  JOIN accounts a ON m.account_id = a.id
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
 			  JOIN folders f ON mfs.folder_id = f.id
 			  WHERE m.id = ?`
 	args := []any{messageID}
+	if userID != "" {
+		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		args = append(args, userID)
+	}
 	if !includeDeleted {
 		query += ` AND mfs.is_deleted = 0`
 	}
@@ -6765,7 +6838,8 @@ func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folde
 
 	err := db.Read().QueryRowContext(ctx,
 		query, args...,
-	).Scan(&info.AccountID, &info.AccountProvider, &info.FolderID, &info.FolderRemoteID, &remoteUID, &role, &remoteMessageID, &internetMessageID, &providerThreadID)
+	).Scan(&info.AccountID, &info.AccountProvider, &info.FolderID, &info.FolderRemoteID, &remoteUID, &role,
+		&remoteMessageID, &internetMessageID, &threadID, &providerThreadID, &isRead, &isStarred)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -6784,21 +6858,34 @@ func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folde
 	if internetMessageID.Valid {
 		info.InternetMessageID = internetMessageID.String
 	}
+	if threadID.Valid {
+		info.ThreadID = threadID.String
+	}
 	if providerThreadID.Valid {
 		info.ProviderThreadID = providerThreadID.String
 	}
+	info.IsRead = isRead == 1
+	info.IsStarred = isStarred == 1
 	return &info, nil
 }
 
 func (db *DB) GetThreadMutationInfos(ctx context.Context, accountID, threadID string) ([]ThreadMessageMutationInfo, error) {
-	return db.getThreadMutationInfos(ctx, accountID, threadID, "", nil)
+	return db.getThreadMutationInfos(ctx, accountID, threadID, "", nil, "")
+}
+
+func (db *DB) GetThreadMutationInfosForUser(ctx context.Context, accountID, threadID, userID string) ([]ThreadMessageMutationInfo, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	return db.getThreadMutationInfos(ctx, accountID, threadID, "", nil, userID)
 }
 
 func (db *DB) GetThreadMutationInfosInFolder(ctx context.Context, accountID, threadID, folderID string) ([]ThreadMessageMutationInfo, error) {
 	if strings.TrimSpace(folderID) == "" {
 		return db.GetThreadMutationInfos(ctx, accountID, threadID)
 	}
-	return db.getThreadMutationInfos(ctx, accountID, threadID, "mfs.folder_id = ?", []any{folderID})
+	return db.getThreadMutationInfos(ctx, accountID, threadID, "mfs.folder_id = ?", []any{folderID}, "")
 }
 
 func (db *DB) GetThreadMutationInfosForFolder(ctx context.Context, accountID, threadID, folderID string) ([]ThreadMessageMutationInfo, error) {
@@ -6814,12 +6901,34 @@ func (db *DB) GetThreadMutationInfosForFolder(ctx context.Context, accountID, th
 
 	if isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
 		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		return db.getThreadMutationInfos(ctx, accountID, threadID, rolePredicate, roleArgs)
+		return db.getThreadMutationInfos(ctx, accountID, threadID, rolePredicate, roleArgs, "")
 	}
 	return infos, nil
 }
 
-func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, folderPredicate string, folderArgs []any) ([]ThreadMessageMutationInfo, error) {
+func (db *DB) GetThreadMutationInfosForFolderForUser(ctx context.Context, accountID, threadID, folderID, userID string) ([]ThreadMessageMutationInfo, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return db.GetThreadMutationInfosForUser(ctx, accountID, threadID, userID)
+	}
+
+	infos, err := db.getThreadMutationInfos(ctx, accountID, threadID, "mfs.folder_id = ?", []any{folderID}, userID)
+	if err != nil || len(infos) > 0 {
+		return infos, err
+	}
+
+	if isUnifiedFolderID(folderID) && folderID != "starred" && folderID != "scheduled" {
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		return db.getThreadMutationInfos(ctx, accountID, threadID, rolePredicate, roleArgs, userID)
+	}
+	return infos, nil
+}
+
+func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, folderPredicate string, folderArgs []any, userID string) ([]ThreadMessageMutationInfo, error) {
 	if threadID == "" {
 		return nil, nil
 	}
@@ -6829,10 +6938,14 @@ func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, f
 	                 mfs.is_read, mfs.is_starred
 			 FROM messages m
 			 JOIN accounts a ON m.account_id = a.id
-			 JOIN message_folder_state mfs ON m.id = mfs.message_id
-			 JOIN folders f ON mfs.folder_id = f.id
-			 WHERE m.account_id = ? AND m.thread_id = ? AND mfs.is_deleted = 0`
+		 JOIN message_folder_state mfs ON m.id = mfs.message_id
+		 JOIN folders f ON mfs.folder_id = f.id
+		 WHERE m.account_id = ? AND m.thread_id = ? AND mfs.is_deleted = 0`
 	args := []any{accountID, threadID}
+	if userID != "" {
+		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
+		args = append(args, userID)
+	}
 	if strings.TrimSpace(folderPredicate) != "" {
 		query += ` AND (` + folderPredicate + `)`
 		args = append(args, folderArgs...)
@@ -6866,6 +6979,7 @@ func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, f
 		if providerThreadID.Valid {
 			info.ProviderThreadID = providerThreadID.String
 		}
+		info.ThreadID = threadID
 		info.IsRead = isRead == 1
 		info.IsStarred = isStarred == 1
 		infos = append(infos, info)
@@ -7974,34 +8088,163 @@ func (db *DB) GetMessageAllFolderStates(ctx context.Context, messageID int64) ([
 	return results, nil
 }
 
-func (db *DB) IsRemoteContentAllowedForSender(ctx context.Context, email string) bool {
-	var count int
-	db.Read().QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM remote_content_senders WHERE sender_email = ?`, strings.ToLower(email),
-	).Scan(&count)
-	return count > 0
+func (db *DB) IsRemoteContentAllowedForSenderForUser(ctx context.Context, email, userID string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	userID = strings.TrimSpace(userID)
+	if email == "" || userID == "" {
+		return false
+	}
+
+	var allowed int
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM app_settings
+			WHERE user_id = ? AND key = ? AND value = '1'
+		)`,
+		userID, remoteContentSenderSettingKey(email),
+	).Scan(&allowed)
+	if err == nil && allowed == 1 {
+		return true
+	}
+
+	// Legacy sender approvals predate user ownership. Preserve them only while
+	// the installation has a single account owner, and only for the owner with
+	// an approved message from this sender. Multi-user installations must
+	// re-approve the sender to create the per-user marker above.
+	err = db.Read().QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM remote_content_senders rcs
+			JOIN messages m ON LOWER(m.from_email) = rcs.sender_email
+			JOIN accounts a ON a.id = m.account_id
+			JOIN remote_content_messages rcm ON rcm.message_id = m.id
+			WHERE rcs.sender_email = ?
+			  AND a.user_id = ?
+			  AND COALESCE(a.is_deleting, 0) = 0
+			  AND NOT EXISTS (
+				  SELECT 1
+				  FROM accounts other
+				  WHERE other.user_id != ?
+				    AND COALESCE(other.is_deleting, 0) = 0
+			  )
+		)`,
+		email, userID, userID,
+	).Scan(&allowed)
+	return err == nil && allowed == 1
 }
 
-func (db *DB) IsRemoteContentAllowedForMessage(ctx context.Context, messageID int64) bool {
-	var count int
-	db.Read().QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM remote_content_messages WHERE message_id = ?`, messageID,
-	).Scan(&count)
-	return count > 0
+func remoteContentSenderSettingKey(email string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+	return "remote_content_sender_allow_" + hex.EncodeToString(sum[:])
 }
 
-func (db *DB) AllowRemoteContentForSender(ctx context.Context, email string) error {
-	_, err := db.Write().ExecContext(ctx,
-		`INSERT OR IGNORE INTO remote_content_senders (sender_email) VALUES (?)`, strings.ToLower(email),
+func (db *DB) IsRemoteContentAllowedForMessageForUser(ctx context.Context, messageID int64, userID string) bool {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return false
+	}
+	var allowed int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM remote_content_messages rcm
+			JOIN messages m ON m.id = rcm.message_id
+			JOIN accounts a ON a.id = m.account_id
+			WHERE rcm.message_id = ?
+			  AND a.user_id = ?
+			  AND COALESCE(a.is_deleting, 0) = 0
+		)`,
+		messageID, userID,
+	).Scan(&allowed)
+	return err == nil && allowed == 1
+}
+
+func (db *DB) AllowRemoteContentForMessageForUser(ctx context.Context, messageID int64, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return sql.ErrNoRows
+	}
+	result, err := db.Write().ExecContext(ctx, `
+		INSERT OR IGNORE INTO remote_content_messages (message_id)
+		SELECT m.id
+		FROM messages m
+		JOIN accounts a ON a.id = m.account_id
+		WHERE m.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`,
+		messageID, userID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		var owned int
+		if err := db.Read().QueryRowContext(ctx, `
+			SELECT EXISTS(
+				SELECT 1
+				FROM messages m
+				JOIN accounts a ON a.id = m.account_id
+				WHERE m.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+			)`, messageID, userID).Scan(&owned); err != nil {
+			return err
+		}
+		if owned != 1 {
+			return sql.ErrNoRows
+		}
+	}
+	return nil
 }
 
-func (db *DB) AllowRemoteContentForMessage(ctx context.Context, messageID int64) error {
-	_, err := db.Write().ExecContext(ctx,
-		`INSERT OR IGNORE INTO remote_content_messages (message_id) VALUES (?)`, messageID,
-	)
-	return err
+func (db *DB) AllowRemoteContentForSenderFromMessageForUser(ctx context.Context, messageID int64, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return sql.ErrNoRows
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var senderEmail string
+	err = tx.QueryRowContext(ctx, `
+		SELECT LOWER(COALESCE(m.from_email, ''))
+		FROM messages m
+		JOIN accounts a ON a.id = m.account_id
+		WHERE m.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+		`,
+		messageID, userID,
+	).Scan(&senderEmail)
+	if err == sql.ErrNoRows {
+		return sql.ErrNoRows
+	}
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO remote_content_messages (message_id) VALUES (?)`,
+		messageID,
+	); err != nil {
+		return err
+	}
+	if senderEmail != "" {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO app_settings (user_id, key, value, updated_at)
+			VALUES (?, ?, '1', CURRENT_TIMESTAMP)
+			ON CONFLICT(user_id, key) DO UPDATE SET
+				value = excluded.value,
+				updated_at = CURRENT_TIMESTAMP`,
+			userID, remoteContentSenderSettingKey(senderEmail),
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (db *DB) GetMessageSenderEmail(ctx context.Context, messageID int64) (string, error) {
@@ -8035,6 +8278,37 @@ func (db *DB) UpdateMessageBodyHTMLPath(ctx context.Context, messageID int64, ht
 	)
 	if err != nil {
 		return err
+	}
+	return db.ReindexMessageSearch(ctx, messageID)
+}
+
+func (db *DB) UpdateMessageBodyHTMLPathForUser(ctx context.Context, messageID int64, htmlPath, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if messageID <= 0 || userID == "" {
+		return sql.ErrNoRows
+	}
+	result, err := db.Write().ExecContext(ctx, `
+		UPDATE messages
+		SET body_html_path = ?
+		WHERE id = ?
+		  AND EXISTS (
+			  SELECT 1
+			  FROM accounts a
+			  WHERE a.id = messages.account_id
+			    AND a.user_id = ?
+			    AND COALESCE(a.is_deleting, 0) = 0
+		  )`,
+		htmlPath, messageID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return sql.ErrNoRows
 	}
 	return db.ReindexMessageSearch(ctx, messageID)
 }

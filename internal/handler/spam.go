@@ -42,8 +42,12 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 	}
 
 	ctx := context.WithoutCancel(r.Context())
-	targets := messageBulkTargets(payload)
 	sourceFolderID := strings.TrimSpace(payload.FolderID)
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), sourceFolderID, false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
 	updatedTargets := 0
 	updatedMessages := 0
 	failedMessages := 0
@@ -51,13 +55,7 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 	var firstErr error
 
 	for _, target := range targets {
-		infos, err := h.spamTargetInfos(ctx, target, sourceFolderID)
-		if err != nil || len(infos) == 0 {
-			if err != nil && firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
+		infos := target.Infos
 
 		destFolderID, destRemoteID, err := h.spamDestinationFolder(ctx, infos[0].AccountID, disposition)
 		if err != nil {
@@ -114,48 +112,6 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 		"failed":        failedMessages,
 		"remote_failed": remoteFailedMessages,
 	})
-}
-
-func (h *Handler) spamTargetInfos(ctx context.Context, target messageBulkTarget, sourceFolderID string) ([]storage.ThreadMessageMutationInfo, error) {
-	if target.Thread {
-		_, currentInfo, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
-		if err != nil {
-			return nil, err
-		}
-		email, err := h.db.GetEmailByID(ctx, target.ID)
-		if err != nil {
-			return nil, err
-		}
-		if email == nil || strings.TrimSpace(email.ThreadID) == "" {
-			return nil, nil
-		}
-		return h.db.GetThreadMutationInfosForFolder(ctx, email.AccountID, email.ThreadID, currentInfo.FolderID)
-	}
-
-	msgID, info, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
-	if err != nil {
-		return nil, err
-	}
-	isRead, isStarred := h.messageFolderState(ctx, msgID, info.FolderID)
-	return []storage.ThreadMessageMutationInfo{{
-		MessageID:           msgID,
-		MessageMutationInfo: *info,
-		IsRead:              isRead,
-		IsStarred:           isStarred,
-	}}, nil
-}
-
-func (h *Handler) messageFolderState(ctx context.Context, messageID int64, folderID string) (bool, bool) {
-	states, err := h.db.GetMessageAllFolderStates(ctx, messageID)
-	if err != nil {
-		return false, false
-	}
-	for _, state := range states {
-		if state.FolderID == folderID {
-			return state.IsRead, state.IsStarred
-		}
-	}
-	return false, false
 }
 
 func (h *Handler) spamDestinationFolder(ctx context.Context, accountID string, disposition spamDisposition) (string, string, error) {

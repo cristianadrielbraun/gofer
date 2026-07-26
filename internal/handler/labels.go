@@ -37,7 +37,12 @@ func (h *Handler) handleLabelMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.WithoutCancel(r.Context())
-	result := h.applyLabelToTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), labelName)
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
+	result := h.applyLabelToTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
 		http.Error(w, "label could not be applied", http.StatusBadGateway)
 		return
@@ -66,7 +71,12 @@ func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ctx := context.WithoutCancel(r.Context())
-	result := h.removeLabelFromTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), labelName)
+	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
+	result := h.removeLabelFromTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
 		http.Error(w, "label could not be removed", http.StatusBadGateway)
 		return
@@ -113,7 +123,13 @@ func (h *Handler) handleLabelMessage(w http.ResponseWriter, r *http.Request) {
 		ID:     strings.TrimSpace(r.PathValue("id")),
 		Thread: r.FormValue("thread") == "1" || strings.EqualFold(r.FormValue("thread"), "true"),
 	}
-	result := h.applyLabelToTargets(context.WithoutCancel(r.Context()), []messageBulkTarget{target}, strings.TrimSpace(r.FormValue("folder_id")), labelName)
+	ctx := context.WithoutCancel(r.Context())
+	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{target}, strings.TrimSpace(r.FormValue("folder_id")), false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
+	result := h.applyLabelToTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
 		http.Error(w, "label could not be applied", http.StatusBadGateway)
 		return
@@ -160,7 +176,13 @@ func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 		ID:     strings.TrimSpace(r.PathValue("id")),
 		Thread: r.FormValue("thread") == "1" || strings.EqualFold(r.FormValue("thread"), "true"),
 	}
-	result := h.removeLabelFromTargets(context.WithoutCancel(r.Context()), []messageBulkTarget{target}, strings.TrimSpace(r.FormValue("folder_id")), labelName)
+	ctx := context.WithoutCancel(r.Context())
+	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{target}, strings.TrimSpace(r.FormValue("folder_id")), false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
+	result := h.removeLabelFromTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
 		http.Error(w, "label could not be removed", http.StatusBadGateway)
 		return
@@ -176,17 +198,10 @@ func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) applyLabelToTargets(ctx context.Context, targets []messageBulkTarget, sourceFolderID, labelName string) labelMutationResult {
+func (h *Handler) applyLabelToTargets(ctx context.Context, targets []ownedMessageTarget, labelName string) labelMutationResult {
 	var result labelMutationResult
 	for _, target := range targets {
-		infos, err := h.spamTargetInfos(ctx, target, sourceFolderID)
-		if err != nil || len(infos) == 0 {
-			if err != nil {
-				log.Printf("label target lookup failed: %v", err)
-			}
-			result.Failed++
-			continue
-		}
+		infos := target.Infos
 
 		targetUpdated := false
 		for _, info := range infos {
@@ -217,17 +232,10 @@ func (h *Handler) applyLabelToTargets(ctx context.Context, targets []messageBulk
 	return result
 }
 
-func (h *Handler) removeLabelFromTargets(ctx context.Context, targets []messageBulkTarget, sourceFolderID, labelName string) labelMutationResult {
+func (h *Handler) removeLabelFromTargets(ctx context.Context, targets []ownedMessageTarget, labelName string) labelMutationResult {
 	var result labelMutationResult
 	for _, target := range targets {
-		infos, err := h.spamTargetInfos(ctx, target, sourceFolderID)
-		if err != nil || len(infos) == 0 {
-			if err != nil {
-				log.Printf("label target lookup failed: %v", err)
-			}
-			result.Failed++
-			continue
-		}
+		infos := target.Infos
 
 		targetUpdated := false
 		for _, info := range infos {
