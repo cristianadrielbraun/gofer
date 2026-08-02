@@ -89,13 +89,26 @@ func (s *BlobStore) StoreAttachment(ctx context.Context, accountID string, local
 	return p, nil
 }
 
-func (s *BlobStore) StoreComposeAttachment(ctx context.Context, filename string, r io.Reader) (id, path string, err error) {
+func composeOwnerKey(userID string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return "", fmt.Errorf("missing compose attachment owner")
+	}
+	hash := sha256.Sum256([]byte(userID))
+	return hex.EncodeToString(hash[:16]), nil
+}
+
+func (s *BlobStore) StoreComposeAttachment(ctx context.Context, userID, filename string, r io.Reader) (id, path string, err error) {
+	ownerKey, err := composeOwnerKey(userID)
+	if err != nil {
+		return "", "", err
+	}
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", "", err
 	}
 	id = hex.EncodeToString(b[:])
-	dir := filepath.Join(s.basePath, "_compose")
+	dir := filepath.Join(s.basePath, "_compose", ownerKey)
 	if err := s.ensureDir(dir); err != nil {
 		return "", "", fmt.Errorf("create compose attachments dir: %w", err)
 	}
@@ -116,19 +129,23 @@ func (s *BlobStore) StoreComposeAttachment(ctx context.Context, filename string,
 	return id, path, nil
 }
 
-func (s *BlobStore) ComposeAttachmentPath(id string) (string, error) {
+func (s *BlobStore) ComposeAttachmentPath(userID, id string) (string, error) {
 	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
 		return "", fmt.Errorf("invalid compose attachment id")
 	}
-	matches, err := filepath.Glob(filepath.Join(s.basePath, "_compose", id+"-*"))
+	ownerKey, err := composeOwnerKey(userID)
+	if err != nil {
+		return "", err
+	}
+	matches, err := filepath.Glob(filepath.Join(s.basePath, "_compose", ownerKey, id+"-*"))
 	if err != nil || len(matches) == 0 {
 		return "", os.ErrNotExist
 	}
 	return matches[0], nil
 }
 
-func (s *BlobStore) DeleteComposeAttachment(id string) error {
-	path, err := s.ComposeAttachmentPath(id)
+func (s *BlobStore) DeleteComposeAttachment(userID, id string) error {
+	path, err := s.ComposeAttachmentPath(userID, id)
 	if err != nil {
 		return nil
 	}
@@ -150,19 +167,30 @@ func (s *BlobStore) CleanupComposeAttachments(olderThan time.Duration, keep map[
 	cutoff := time.Now().Add(-olderThan)
 	removed := 0
 	for _, entry := range entries {
+		paths := []string{filepath.Join(dir, entry.Name())}
 		if entry.IsDir() {
-			continue
+			ownerEntries, readErr := os.ReadDir(paths[0])
+			if readErr != nil {
+				continue
+			}
+			paths = paths[:0]
+			for _, ownerEntry := range ownerEntries {
+				if !ownerEntry.IsDir() {
+					paths = append(paths, filepath.Join(dir, entry.Name(), ownerEntry.Name()))
+				}
+			}
 		}
-		path := filepath.Join(dir, entry.Name())
-		if keep != nil && keep[filepath.Clean(path)] {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || info.ModTime().After(cutoff) {
-			continue
-		}
-		if err := os.Remove(path); err == nil {
-			removed++
+		for _, path := range paths {
+			if keep != nil && keep[filepath.Clean(path)] {
+				continue
+			}
+			info, statErr := os.Stat(path)
+			if statErr != nil || info.ModTime().After(cutoff) {
+				continue
+			}
+			if err := os.Remove(path); err == nil {
+				removed++
+			}
 		}
 	}
 	return removed, nil

@@ -3285,7 +3285,7 @@ func (h *Handler) handleComposeAttachmentUpload(w http.ResponseWriter, r *http.R
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
-	id, path, err := h.blobStore.StoreComposeAttachment(r.Context(), header.Filename, bytes.NewReader(data))
+	id, path, err := h.blobStore.StoreComposeAttachment(r.Context(), h.userID(r.Context()), header.Filename, bytes.NewReader(data))
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -3306,7 +3306,7 @@ func (h *Handler) handleComposeAttachmentUpload(w http.ResponseWriter, r *http.R
 
 func (h *Handler) handleComposeAttachmentPreview(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	path, err := h.blobStore.ComposeAttachmentPath(id)
+	path, err := h.blobStore.ComposeAttachmentPath(h.userID(r.Context()), id)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -3329,7 +3329,11 @@ func (h *Handler) handleComposeAttachmentPreview(w http.ResponseWriter, r *http.
 }
 
 func (h *Handler) handleComposeAttachmentDelete(w http.ResponseWriter, r *http.Request) {
-	_ = h.blobStore.DeleteComposeAttachment(r.PathValue("id"))
+	if _, err := h.blobStore.ComposeAttachmentPath(h.userID(r.Context()), r.PathValue("id")); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	_ = h.blobStore.DeleteComposeAttachment(h.userID(r.Context()), r.PathValue("id"))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
@@ -4202,9 +4206,9 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 	contentTypes := r.Form["attachment_content_type"]
 	sizes := r.Form["attachment_size"]
 	for i, id := range ids {
-		path, err := h.blobStore.ComposeAttachmentPath(id)
+		path, err := h.blobStore.ComposeAttachmentPath(userID, id)
 		if err != nil {
-			continue
+			return nil, nil, fmt.Errorf("attachment not found")
 		}
 		filename := formValueAt(filenames, i, filepath.Base(path))
 		contentType := formValueAt(contentTypes, i, "application/octet-stream")
@@ -4219,9 +4223,9 @@ func (h *Handler) collectComposeAttachments(r *http.Request) ([]message.Outgoing
 	inlineContentTypes := r.Form["inline_attachment_content_type"]
 	inlineSizes := r.Form["inline_attachment_size"]
 	for i, id := range inlineIDs {
-		path, err := h.blobStore.ComposeAttachmentPath(id)
+		path, err := h.blobStore.ComposeAttachmentPath(userID, id)
 		if err != nil {
-			continue
+			return nil, nil, fmt.Errorf("attachment not found")
 		}
 		contentID := cleanContentID(formValueAt(inlineCIDs, i, composeInlineContentID(id)))
 		if contentID == "" {
@@ -4355,7 +4359,7 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
-	email, err := h.db.GetEmailByID(r.Context(), r.PathValue("id"))
+	email, err := h.db.GetEmailByIDForUser(r.Context(), r.PathValue("id"), h.userID(r.Context()))
 	if err != nil || email == nil || !email.IsDraft {
 		http.NotFound(w, r)
 		return
@@ -4397,7 +4401,7 @@ func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
-	email, err := h.db.GetEmailByID(r.Context(), r.PathValue("id"))
+	email, err := h.db.GetEmailByIDForUser(r.Context(), r.PathValue("id"), h.userID(r.Context()))
 	if err != nil || email == nil || !email.IsDraft {
 		http.NotFound(w, r)
 		return
