@@ -201,6 +201,8 @@ func (db *DB) GetIMAPDraftState(ctx context.Context, accountID, draftKey string)
 	return &state, nil
 }
 
+// ClaimDueIMAPDraftOperations is an internal worker boundary. Draft handlers
+// establish ownership before queueing; this claim also excludes deleting accounts.
 func (db *DB) ClaimDueIMAPDraftOperations(ctx context.Context, now time.Time, limit int) ([]IMAPDraftOperation, error) {
 	if limit <= 0 {
 		limit = 10
@@ -213,6 +215,7 @@ func (db *DB) ClaimDueIMAPDraftOperations(ctx context.Context, now time.Time, li
 	rows, err := tx.QueryContext(ctx, imapDraftOperationSelect+`
 		WHERE o.status IN (?, ?, ?)
 		  AND o.next_attempt_at <= ?
+		  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = o.account_id AND COALESCE(a.is_deleting, 0) = 0)
 		  AND NOT EXISTS (
 			SELECT 1 FROM imap_draft_operations earlier
 			WHERE earlier.account_id = o.account_id AND earlier.draft_key = o.draft_key
@@ -244,7 +247,8 @@ func (db *DB) ClaimDueIMAPDraftOperations(ctx context.Context, now time.Time, li
 		result, err := tx.ExecContext(ctx, `
 			UPDATE imap_draft_operations
 			SET status = ?, locked_at = ?, attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ? AND status = ?`, IMAPDraftStatusSyncing, now.UTC(), operations[i].ID, operations[i].Status)
+			WHERE id = ? AND status = ?
+			  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = imap_draft_operations.account_id AND COALESCE(a.is_deleting, 0) = 0)`, IMAPDraftStatusSyncing, now.UTC(), operations[i].ID, operations[i].Status)
 		if err != nil {
 			return nil, err
 		}

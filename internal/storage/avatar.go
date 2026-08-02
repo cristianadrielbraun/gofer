@@ -191,6 +191,29 @@ func (db *DB) GetSenderAvatarByHash(ctx context.Context, hash string) (*SenderAv
 	return &rec, nil
 }
 
+func (db *DB) GetSenderAvatarUserIDs(ctx context.Context, email string) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT DISTINCT a.user_id
+		FROM messages m
+		JOIN accounts a ON a.id = m.account_id
+		WHERE lower(trim(m.from_email)) = lower(trim(?))
+		  AND COALESCE(a.is_deleting, 0) = 0
+		ORDER BY a.user_id`, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var userIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, userID)
+	}
+	return userIDs, rows.Err()
+}
+
 func (db *DB) GetReusableDomainIconAvatar(ctx context.Context, hash, email string) (*SenderAvatarRecord, error) {
 	domain := avatarresolver.EmailDomain(email)
 	if domain == "" || avatarresolver.IsPublicMailboxDomain(domain) {

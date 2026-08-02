@@ -1593,6 +1593,8 @@ func (db *DB) EnqueueContactSyncOperationFromAccount(ctx context.Context, userID
 	return id, nil
 }
 
+// ClaimContactSyncOperations is an internal worker boundary. Its handler
+// re-reads the user-owned contact and current target accounts before any provider call.
 func (db *DB) ClaimContactSyncOperations(ctx context.Context, limit int, lockTimeout time.Duration) ([]ContactSyncOperation, error) {
 	if limit <= 0 || limit > 25 {
 		limit = 10

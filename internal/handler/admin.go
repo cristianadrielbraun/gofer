@@ -396,7 +396,7 @@ func (h *Handler) publishContactBackfill(userID string, state models.ContactBack
 	if h.syncer == nil {
 		return
 	}
-	h.syncer.Events().Publish(mail.Event{Type: mail.EventContactBackfill, Payload: map[string]any{"user_id": userID, "backfill": state}})
+	h.syncer.Events().Publish(mail.Event{Type: mail.EventContactBackfill, UserID: userID, Payload: map[string]any{"user_id": userID, "backfill": state}})
 }
 
 func adminAvatarTab(r *http.Request) (string, bool) {

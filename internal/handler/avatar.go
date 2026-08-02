@@ -736,7 +736,7 @@ func (h *Handler) reuseStoredDomainIconAvatar(ctx context.Context, hash, email, 
 		return avatarresolver.Image{}, "", false, err
 	}
 	if h.syncer != nil {
-		h.syncer.Events().Publish(mail.Event{Type: mail.EventAvatarUpdated, AvatarHash: hash, AvatarURL: storage.SenderAvatarURL(hash, rec.ExpiresAt)})
+		h.publishAvatarUpdated(ctx, hash, email, rec.ExpiresAt)
 	}
 	return image, reusedDomainIconAttemptMessage(email, rec), true, nil
 }
@@ -916,9 +916,26 @@ func (h *Handler) persistFoundAvatar(ctx context.Context, hash, email string, im
 		return avatarresolver.Image{}, false, err
 	}
 	if h.syncer != nil {
-		h.syncer.Events().Publish(mail.Event{Type: mail.EventAvatarUpdated, AvatarHash: hash, AvatarURL: storage.SenderAvatarURL(hash, expiresAt)})
+		h.publishAvatarUpdated(ctx, hash, email, expiresAt)
 	}
 	return image, true, nil
+}
+
+func (h *Handler) publishAvatarUpdated(ctx context.Context, hash, email string, expiresAt time.Time) {
+	userIDs, err := h.db.GetSenderAvatarUserIDs(ctx, email)
+	if err != nil {
+		log.Printf("avatar update %s: resolve visible users: %v", hash, err)
+		return
+	}
+	if len(userIDs) == 0 {
+		return
+	}
+	h.syncer.Events().Publish(mail.Event{
+		Type:       mail.EventAvatarUpdated,
+		UserIDs:    userIDs,
+		AvatarHash: hash,
+		AvatarURL:  storage.SenderAvatarURL(hash, expiresAt),
+	})
 }
 
 func (h *Handler) handleAvatarStatus(w http.ResponseWriter, r *http.Request) {
@@ -1535,12 +1552,13 @@ func (h *Handler) publishAvatarBackfillState(state models.AvatarBackfillState) {
 			}
 		}
 		h.syncer.Events().Publish(mail.Event{
-			Type:    mail.EventAvatarBackfill,
-			Status:  status,
-			Current: state.Processed,
-			Total:   state.Total,
-			Error:   state.LastError,
-			Payload: map[string]any{"backfill": state},
+			Type:      mail.EventAvatarBackfill,
+			AdminOnly: true,
+			Status:    status,
+			Current:   state.Processed,
+			Total:     state.Total,
+			Error:     state.LastError,
+			Payload:   map[string]any{"backfill": state},
 		})
 	}
 }

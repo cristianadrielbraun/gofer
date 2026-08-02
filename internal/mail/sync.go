@@ -1070,7 +1070,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 	failures := 0
 	cancelled := 0
 
-	o.events.Publish(Event{Type: EventScheduledSyncStarted, Payload: map[string]any{
+	o.events.Publish(Event{Type: EventScheduledSyncStarted, UserID: userID, Payload: map[string]any{
 		"user_id":        userID,
 		"run_id":         runID,
 		"accounts_total": total,
@@ -1215,7 +1215,7 @@ queueLoop:
 	finalSkipped := skipped
 	progressMu.Unlock()
 
-	o.events.Publish(Event{Type: EventScheduledSyncComplete, Payload: map[string]any{
+	o.events.Publish(Event{Type: EventScheduledSyncComplete, UserID: userID, Payload: map[string]any{
 		"user_id":        userID,
 		"run_id":         runID,
 		"account_ids":    append([]string(nil), runAccountIDs...),
@@ -1737,7 +1737,7 @@ func (o *SyncOrchestrator) ActiveManualSyncSnapshot(ctx context.Context, userID 
 	for _, snap := range snapshots {
 		total := len(snap.accountIDs)
 		parallelism := accountSyncParallelism(total, manualSyncMaxParallelAccounts)
-		events = append(events, Event{Type: EventManualSyncStarted, Payload: map[string]any{
+		events = append(events, Event{Type: EventManualSyncStarted, UserID: userID, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         snap.runID,
 			"mode":           snap.mode,
@@ -1843,7 +1843,7 @@ func (o *SyncOrchestrator) syncAccountsWithOperation(ctx context.Context, userID
 		failures := 0
 		cancelled := 0
 
-		o.events.Publish(Event{Type: EventManualSyncStarted, Payload: map[string]any{
+		o.events.Publish(Event{Type: EventManualSyncStarted, UserID: userID, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         runID,
 			"mode":           mode,
@@ -2000,7 +2000,7 @@ func (o *SyncOrchestrator) syncAccountsWithOperation(ctx context.Context, userID
 		finalSkipped := skipped
 		progressMu.Unlock()
 
-		o.events.Publish(Event{Type: EventManualSyncComplete, Payload: map[string]any{
+		o.events.Publish(Event{Type: EventManualSyncComplete, UserID: userID, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         runID,
 			"mode":           mode,

@@ -127,7 +127,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		if h.syncer == nil {
 			return
 		}
-		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactActivity, Payload: map[string]any{
+		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactActivity, UserID: event.UserID, Payload: map[string]any{
 			"user_id":     event.UserID,
 			"contact_id":  event.ContactID,
 			"event_type":  event.EventType,
@@ -336,7 +336,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/mail/sync/accounts/{id}/repair", h.handleRepairMailAccount)
 	mux.HandleFunc("POST /api/mail/sync/cancel", h.handleCancelSyncMail)
 	mux.HandleFunc("GET /api/folders/unread", h.handleFolderUnreadCounts)
-	mux.HandleFunc("GET /api/system/processing", h.handleProcessingStatus)
+	adminRoute("GET /api/system/processing", h.handleProcessingStatus)
 	mux.HandleFunc("POST /api/messages/{id}/prefetch-body", h.handlePrefetchBody)
 	mux.HandleFunc("GET /api/compose/source", h.handleComposeSource)
 	mux.HandleFunc("GET /compose/pane", h.handleComposePane)
@@ -3682,6 +3682,8 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	userID := h.userID(r.Context())
+	currentUser := auth.GetCurrentUser(r.Context())
+	isAdmin := currentUser != nil && currentUser.IsAdmin
 	if h.syncer != nil {
 		endActiveSession := h.syncer.BeginActiveUserSession(userID)
 		defer endActiveSession()
@@ -3694,10 +3696,7 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeEvent := func(event mail.Event) bool {
-		if event.AccountID != "" && !accountSet[event.AccountID] {
-			return false
-		}
-		if eventUser, _ := event.Payload["user_id"].(string); eventUser != "" && eventUser != userID {
+		if !sseEventVisible(event, userID, accountSet, isAdmin) {
 			return false
 		}
 		m := map[string]any{
@@ -3761,6 +3760,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
+			if !isAdmin {
+				continue
+			}
 			state := h.db.GetThreadingState()
 			active := state.InProgress || (state.Total > 0 && state.Processed < state.Total)
 			if active || lastProcessingActive != active {
@@ -3779,6 +3781,48 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 			writeEvent(event)
 		}
 	}
+}
+
+func sseEventVisible(event mail.Event, userID string, accountSet map[string]bool, isAdmin bool) bool {
+	scoped := false
+	if event.AdminOnly {
+		scoped = true
+		if !isAdmin {
+			return false
+		}
+	}
+	if event.AccountID != "" {
+		scoped = true
+		if !accountSet[event.AccountID] {
+			return false
+		}
+	}
+	if event.UserID != "" {
+		scoped = true
+		if event.UserID != userID {
+			return false
+		}
+	}
+	if len(event.UserIDs) > 0 {
+		scoped = true
+		visible := false
+		for _, eventUserID := range event.UserIDs {
+			if eventUserID == userID {
+				visible = true
+				break
+			}
+		}
+		if !visible {
+			return false
+		}
+	}
+	if eventUserID, _ := event.Payload["user_id"].(string); eventUserID != "" {
+		scoped = true
+		if eventUserID != userID {
+			return false
+		}
+	}
+	return scoped
 }
 
 func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Request) {

@@ -2873,6 +2873,8 @@ func (db *DB) EnqueueLabelMutation(ctx context.Context, accountID string, messag
 	return err
 }
 
+// ListDueLabelMutations is an internal sync-worker boundary. Its callers receive
+// accountID from the active account sync path, which excludes deleting accounts.
 func (db *DB) ListDueLabelMutations(ctx context.Context, accountID, providerType string, limit int) ([]LabelMutationQueueEntry, error) {
 	accountID = strings.TrimSpace(accountID)
 	providerType = strings.TrimSpace(providerType)

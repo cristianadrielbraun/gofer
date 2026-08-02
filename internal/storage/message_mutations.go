@@ -492,6 +492,8 @@ func uniquePositiveInt64s(values []int64) []int64 {
 	return out
 }
 
+// ClaimDueMessageMutations is an internal worker boundary. Authenticated
+// handlers may enqueue only through user-scoped mutation methods.
 func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit int) ([]MessageMutation, error) {
 	if limit <= 0 {
 		limit = 25
@@ -503,6 +505,7 @@ func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, messageMutationSelect+`
 		WHERE status IN (?, ?) AND next_attempt_at <= ?
+		  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0)
 		ORDER BY created_at ASC LIMIT ?`, MessageMutationPending, MessageMutationFailed, now.UTC(), limit)
 	if err != nil {
 		return nil, err
@@ -523,7 +526,8 @@ func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit
 		result, err := tx.ExecContext(ctx, `
 			UPDATE message_mutations
 			SET status = ?, attempt_count = attempt_count + 1, locked_at = ?, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ? AND status = ?`, MessageMutationProcessing, now.UTC(), mutations[i].ID, mutations[i].Status)
+			WHERE id = ? AND status = ?
+			  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0)`, MessageMutationProcessing, now.UTC(), mutations[i].ID, mutations[i].Status)
 		if err != nil {
 			return nil, err
 		}

@@ -695,9 +695,20 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 	previous := op.Payload.Previous
 	// A queued operation must honor the profile's latest explicit sync state and
 	// target selection. This prevents stale jobs from pushing after sync is off.
-	if current, err := h.db.GetContact(ctx, op.UserID, contact.ID); err == nil && current != nil {
-		contact = *current
+	current, err := h.db.GetContact(ctx, op.UserID, contact.ID)
+	if err != nil {
+		if markErr := h.db.MarkContactSyncOperationError(context.Background(), op.ID, err.Error(), true); markErr != nil {
+			log.Printf("contacts sync operation %s: mark lookup error: %v", op.ID, markErr)
+		}
+		return
 	}
+	if current == nil {
+		if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
+			log.Printf("contacts sync operation %s: cancel missing contact: %v", op.ID, err)
+		}
+		return
+	}
+	contact = *current
 	if !contact.GoferSyncEnabled {
 		if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
 			log.Printf("contacts sync operation %s: cancel disabled sync: %v", op.ID, err)

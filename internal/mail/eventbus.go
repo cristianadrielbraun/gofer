@@ -29,6 +29,9 @@ const (
 type Event struct {
 	Type          EventType
 	AccountID     string
+	UserID        string
+	UserIDs       []string
+	AdminOnly     bool
 	FolderID      string
 	FolderRole    string
 	Payload       map[string]any
