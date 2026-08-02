@@ -954,7 +954,7 @@ func (h *Handler) handleAvatarImage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rec, err := h.db.GetSenderAvatarByHash(r.Context(), hash)
+	rec, err := h.db.GetSenderAvatarByHashForUser(r.Context(), hash, h.userID(r.Context()))
 	if err != nil {
 		http.Error(w, "failed to load avatar", http.StatusInternalServerError)
 		return
@@ -1009,6 +1009,15 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "unsupported provider avatar", http.StatusBadRequest)
 		return
 	}
+	visible, err := h.db.IsProviderAvatarURLVisibleToUser(r.Context(), rawURL, h.userID(r.Context()))
+	if err != nil {
+		http.Error(w, "failed to authorize provider avatar", http.StatusInternalServerError)
+		return
+	}
+	if !visible {
+		http.NotFound(w, r)
+		return
+	}
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, parsed.String(), nil)
 	if err != nil {
@@ -1016,7 +1025,11 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	req.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8")
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	client := h.providerAvatarHTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "failed to fetch provider avatar", http.StatusBadGateway)
 		return
@@ -1087,6 +1100,16 @@ func (h *Handler) handleAvatarWarmup(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[hash] = struct{}{}
+		visible, err := h.db.IsSenderAvatarEmailVisibleToUser(r.Context(), email, h.userID(r.Context()))
+		if err != nil {
+			http.Error(w, "failed to authorize avatar warmup candidates", http.StatusInternalServerError)
+			return
+		}
+		if !visible {
+			skipped++
+			notDue++
+			continue
+		}
 		candidate, ok, forceRetry, attemptCapped, err := h.avatarWarmupCandidate(r.Context(), email, hash)
 		if err != nil {
 			http.Error(w, "failed to inspect avatar warmup candidates", http.StatusInternalServerError)

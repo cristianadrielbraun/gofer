@@ -72,6 +72,7 @@ type Handler struct {
 	messageMutationWake        chan struct{}
 	messageMutationIMAPFactory messageMutationIMAPClientFactory
 	remoteResourceDownloader   func(string) ([]byte, error)
+	providerAvatarHTTPClient   *http.Client
 	retentionMu                sync.RWMutex
 	retentionState             models.MailRetentionDiagnostics
 	smtpProfileMu              sync.RWMutex
@@ -122,6 +123,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 			return imap.NewClient(ctx, cfg, password)
 		},
 		remoteResourceDownloader: downloadRemoteResource,
+		providerAvatarHTTPClient: &http.Client{Timeout: 15 * time.Second},
 	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {

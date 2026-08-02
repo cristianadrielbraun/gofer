@@ -150,6 +150,15 @@ func (h *Handler) handleConfirmContactSyncSetup(w http.ResponseWriter, r *http.R
 	ctx := r.Context()
 	userID := h.userID(ctx)
 	contactID := strings.TrimSpace(r.PathValue("id"))
+	contact, err := h.db.GetContact(ctx, userID, contactID)
+	if err != nil {
+		http.Error(w, "Could not load contact sync setup", http.StatusInternalServerError)
+		return
+	}
+	if contact == nil {
+		http.NotFound(w, r)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid conflict choices", http.StatusBadRequest)
 		return
@@ -169,7 +178,7 @@ func (h *Handler) handleConfirmContactSyncSetup(w http.ResponseWriter, r *http.R
 		http.Error(w, "Could not enable Gofer Sync", http.StatusBadRequest)
 		return
 	}
-	contact, err := h.db.GetContact(ctx, userID, contactID)
+	contact, err = h.db.GetContact(ctx, userID, contactID)
 	if err != nil || contact == nil {
 		http.Error(w, "Could not load enabled contact", http.StatusInternalServerError)
 		return

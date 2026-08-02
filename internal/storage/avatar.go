@@ -191,6 +191,72 @@ func (db *DB) GetSenderAvatarByHash(ctx context.Context, hash string) (*SenderAv
 	return &rec, nil
 }
 
+func (db *DB) GetSenderAvatarByHashForUser(ctx context.Context, hash, userID string) (*SenderAvatarRecord, error) {
+	rec, err := db.GetSenderAvatarByHash(ctx, hash)
+	if err != nil || rec == nil {
+		return rec, err
+	}
+	visible, err := db.IsSenderAvatarEmailVisibleToUser(ctx, rec.Email, userID)
+	if err != nil || !visible {
+		return nil, err
+	}
+	return rec, nil
+}
+
+func (db *DB) IsSenderAvatarEmailVisibleToUser(ctx context.Context, email, userID string) (bool, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	userID = strings.TrimSpace(userID)
+	if email == "" || userID == "" {
+		return false, nil
+	}
+	var visible int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT CASE WHEN
+			EXISTS (
+				SELECT 1
+				FROM messages m
+				JOIN accounts a ON a.id = m.account_id
+				WHERE a.user_id = ?
+				  AND COALESCE(a.is_deleting, 0) = 0
+				  AND lower(trim(m.from_email)) = ?
+			) OR EXISTS (
+				SELECT 1
+				FROM contact_emails ce
+				JOIN contacts c ON c.id = ce.contact_id AND c.user_id = ce.user_id
+				WHERE ce.user_id = ? AND c.is_deleted = 0 AND ce.normalized_email = ?
+			) OR EXISTS (
+				SELECT 1
+				FROM contact_fields cf
+				JOIN contact_profiles cp ON cp.id = cf.profile_id AND cp.user_id = cf.user_id
+				WHERE cf.user_id = ? AND cp.is_deleted = 0
+				  AND cf.kind = 'email' AND cf.normalized_value = ?
+			) OR EXISTS (
+				SELECT 1 FROM contact_profiles cp
+				WHERE cp.user_id = ? AND cp.is_deleted = 0 AND lower(trim(cp.primary_email)) = ?
+			)
+		THEN 1 ELSE 0 END`, userID, email, userID, email, userID, email, userID, email).Scan(&visible)
+	return visible != 0, err
+}
+
+func (db *DB) IsProviderAvatarURLVisibleToUser(ctx context.Context, rawURL, userID string) (bool, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	userID = strings.TrimSpace(userID)
+	if rawURL == "" || userID == "" {
+		return false, nil
+	}
+	var visible int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT CASE WHEN
+			EXISTS (
+				SELECT 1 FROM contact_profiles
+				WHERE user_id = ? AND is_deleted = 0 AND avatar_url = ?
+			) OR EXISTS (
+				SELECT 1 FROM users WHERE id = ? AND avatar_url = ?
+			)
+		THEN 1 ELSE 0 END`, userID, rawURL, userID, rawURL).Scan(&visible)
+	return visible != 0, err
+}
+
 func (db *DB) GetSenderAvatarUserIDs(ctx context.Context, email string) ([]string, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT DISTINCT a.user_id
