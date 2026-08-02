@@ -818,6 +818,10 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	saved, err := h.db.SaveContact(ctx, userID, contact)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1118,6 +1122,9 @@ func (h *Handler) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Contact sync delete failed: "+err.Error(), http.StatusBadGateway)
 			return
 		}
+	} else {
+		http.NotFound(w, r)
+		return
 	}
 	settings := h.db.GetContactSettings(ctx, h.userID(ctx))
 	if err := h.db.DeleteContact(ctx, userID, r.PathValue("id"), settings.PreventRecreateDeleted); err != nil {
@@ -2590,6 +2597,10 @@ func (h *Handler) handleSaveSignature(w http.ResponseWriter, r *http.Request) {
 		HTMLBody: htmlBody,
 		TextBody: textBody,
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -2607,6 +2618,10 @@ func (h *Handler) handleDeleteSignature(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.db.DeleteSignature(r.Context(), h.userID(r.Context()), signatureID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
 		http.Error(w, "failed to delete signature", http.StatusInternalServerError)
 		return
 	}
@@ -2636,6 +2651,10 @@ func (h *Handler) handleSaveAccountSignatureSettings(w http.ResponseWriter, r *h
 		ForwardPlacement:   r.FormValue("forward_placement"),
 	}
 	if err := h.db.SaveAccountSignatureSettings(r.Context(), h.userID(r.Context()), settings); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save signature settings"})
@@ -3117,6 +3136,10 @@ func (h *Handler) handleSavePushSubscription(w http.ResponseWriter, r *http.Requ
 		Auth:      req.Keys.Auth,
 		UserAgent: r.UserAgent(),
 	}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
 		http.Error(w, "save subscription failed", http.StatusInternalServerError)
 		return
 	}
@@ -3176,6 +3199,10 @@ func (h *Handler) handleClearSuppressedContacts(w http.ResponseWriter, r *http.R
 
 func (h *Handler) handleClearSuppressedContact(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.ClearSuppressedContact(r.Context(), h.userID(r.Context()), r.PathValue("id")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
 		http.Error(w, "failed to clear suppressed contact", http.StatusInternalServerError)
 		return
 	}

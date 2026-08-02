@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -18,7 +19,7 @@ func (db *DB) SaveWebPushSubscription(ctx context.Context, sub WebPushSubscripti
 	if sub.Endpoint == "" || sub.UserID == "" || sub.P256DH == "" || sub.Auth == "" {
 		return fmt.Errorf("invalid web push subscription")
 	}
-	_, err := db.Write().ExecContext(ctx, `
+	result, err := db.Write().ExecContext(ctx, `
 		INSERT INTO web_push_subscriptions (endpoint, user_id, p256dh, auth, user_agent, last_error)
 		VALUES (?, ?, ?, ?, ?, '')
 		ON CONFLICT(endpoint) DO UPDATE SET
@@ -27,9 +28,18 @@ func (db *DB) SaveWebPushSubscription(ctx context.Context, sub WebPushSubscripti
 			auth = excluded.auth,
 			user_agent = excluded.user_agent,
 			last_error = '',
-			updated_at = CURRENT_TIMESTAMP`,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE web_push_subscriptions.user_id = excluded.user_id`,
 		sub.Endpoint, sub.UserID, sub.P256DH, sub.Auth, sub.UserAgent)
-	return err
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (db *DB) DeleteWebPushSubscription(ctx context.Context, userID, endpoint string) error {

@@ -7514,8 +7514,16 @@ func (db *DB) GetSignature(ctx context.Context, userID, signatureID string) (mod
 }
 
 func (db *DB) DeleteSignature(ctx context.Context, userID, signatureID string) error {
-	_, err := db.Write().ExecContext(ctx, `DELETE FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID)
-	return err
+	result, err := db.Write().ExecContext(ctx, `DELETE FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (db *DB) GetAccountSignatureSettings(ctx context.Context, userID, accountID string) (models.AccountSignatureSettings, error) {

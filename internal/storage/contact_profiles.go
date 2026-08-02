@@ -47,7 +47,7 @@ func (db *DB) SaveContactProfile(ctx context.Context, userID string, profile mod
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -58,10 +58,16 @@ func (db *DB) SaveContactProfile(ctx context.Context, userID string, profile mod
 			notes = excluded.notes,
 			sync_enabled = excluded.sync_enabled,
 			is_deleted = excluded.is_deleted,
-			updated_at = CURRENT_TIMESTAMP`,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE contact_profiles.user_id = excluded.user_id`,
 		profile.ID, profile.UserID, profile.DisplayName, profile.SortName, profile.PrimaryEmail, strings.TrimSpace(profile.AvatarURL), strings.TrimSpace(profile.Notes), profile.Origin, boolInt(profile.SyncEnabled), boolInt(profile.IsDeleted))
 	if err != nil {
 		return models.ContactProfile{}, err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return models.ContactProfile{}, err
+	} else if affected != 1 {
+		return models.ContactProfile{}, sql.ErrNoRows
 	}
 
 	if err := upsertContactCardsTx(ctx, tx, profile); err != nil {
@@ -90,7 +96,7 @@ func upsertContactCardsTx(ctx context.Context, tx *sql.Tx, profile models.Contac
 		if kind == "" {
 			kind = "local"
 		}
-		if _, err := tx.ExecContext(ctx, `
+		result, err := tx.ExecContext(ctx, `
 			INSERT INTO contact_cards (id, user_id, profile_id, kind, provider, account_id, address_book_id, remote_id, etag, raw_payload, raw_payload_type, sync_status, last_error, is_deleted)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
@@ -105,9 +111,16 @@ func upsertContactCardsTx(ctx context.Context, tx *sql.Tx, profile models.Contac
 				sync_status = excluded.sync_status,
 				last_error = excluded.last_error,
 				is_deleted = excluded.is_deleted,
-				updated_at = CURRENT_TIMESTAMP`,
-			card.ID, profile.UserID, profile.ID, kind, strings.TrimSpace(card.Provider), strings.TrimSpace(card.AccountID), strings.TrimSpace(card.AddressBookID), strings.TrimSpace(card.RemoteID), strings.TrimSpace(card.Etag), card.RawPayload, strings.TrimSpace(card.RawPayloadType), strings.TrimSpace(card.SyncStatus), strings.TrimSpace(card.LastError), boolInt(card.IsDeleted)); err != nil {
+				updated_at = CURRENT_TIMESTAMP
+			WHERE contact_cards.user_id = excluded.user_id`,
+			card.ID, profile.UserID, profile.ID, kind, strings.TrimSpace(card.Provider), strings.TrimSpace(card.AccountID), strings.TrimSpace(card.AddressBookID), strings.TrimSpace(card.RemoteID), strings.TrimSpace(card.Etag), card.RawPayload, strings.TrimSpace(card.RawPayloadType), strings.TrimSpace(card.SyncStatus), strings.TrimSpace(card.LastError), boolInt(card.IsDeleted))
+		if err != nil {
 			return err
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return err
+		} else if affected != 1 {
+			return sql.ErrNoRows
 		}
 	}
 	return nil

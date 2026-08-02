@@ -2782,12 +2782,20 @@ func (db *DB) ClearSuppressedContacts(ctx context.Context, userID string) (int64
 
 func (db *DB) ClearSuppressedContact(ctx context.Context, userID, contactID string) error {
 	if contactID == "" {
-		return nil
+		return sql.ErrNoRows
 	}
-	_, err := db.Write().ExecContext(ctx, `
+	result, err := db.Write().ExecContext(ctx, `
 		DELETE FROM contact_observations
 		WHERE user_id = ? AND is_suppressed = 1 AND suppress_auto_create = 1 AND (profile_id = ? OR id = ?)`, userID, contactID, contactID)
-	return err
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (db *DB) UpsertObservedContact(ctx context.Context, userID, name, email string, seenAt time.Time) error {
