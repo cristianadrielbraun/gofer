@@ -27,9 +27,9 @@ func seedMessageMutationTest(t *testing.T, provider string, folders []UpsertFold
 			t.Fatalf("UpsertSyncMessages(%s) error = %v", folder.ID, err)
 		}
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<mutation@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<mutation@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 	return db, messageID
 }
@@ -132,9 +132,9 @@ func seedMoveMutationTest(t *testing.T, provider string) (*DB, int64) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<move@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<move@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 	return db, messageID
 }
@@ -206,9 +206,9 @@ func TestMoveMessageKeepsLatestDestinationWhileProcessing(t *testing.T) {
 	if err := db.CompleteMessageMutation(ctx, claimed[0].ID); err != nil {
 		t.Fatalf("complete old move: %v", err)
 	}
-	mutation, err := db.GetMessageMutation(ctx, claimed[0].ID)
+	mutation, err := db.GetMessageMutationInternal(ctx, claimed[0].ID)
 	if err != nil {
-		t.Fatalf("GetMessageMutation() error = %v", err)
+		t.Fatalf("GetMessageMutationInternal() error = %v", err)
 	}
 	if mutation.FolderID != "archive" || mutation.DestinationFolderID != "projects" || mutation.Status != MessageMutationPending {
 		t.Fatalf("newer move = %#v", mutation)
@@ -372,9 +372,9 @@ func seedDeleteMutationTest(t *testing.T, provider string) (*DB, int64) {
 	}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<delete@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<delete@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 	return db, messageID
 }
@@ -593,7 +593,7 @@ func TestNewMessageStateDoesNotGetLostBehindProcessingMutation(t *testing.T) {
 	if err := db.CompleteMessageMutation(ctx, claimed[0].ID); err != nil {
 		t.Fatalf("CompleteMessageMutation(old state) error = %v", err)
 	}
-	mutation, err := db.GetMessageMutation(ctx, claimed[0].ID)
+	mutation, err := db.GetMessageMutationInternal(ctx, claimed[0].ID)
 	if err != nil || mutation.Status != MessageMutationPending || !mutation.TargetValue || mutation.AttemptCount != 0 {
 		t.Fatalf("newer mutation = %#v, %v", mutation, err)
 	}

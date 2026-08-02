@@ -1234,7 +1234,7 @@ func (db *DB) ListOutlookGraphIDBackfillCandidates(ctx context.Context, accountI
 	return db.ListProviderMessageIDBackfillCandidates(ctx, accountID, limit)
 }
 
-func (db *DB) GetDraftProviderInfo(ctx context.Context, accountID, internetMessageID string) (*DraftProviderInfo, error) {
+func (db *DB) GetDraftProviderInfoInternal(ctx context.Context, accountID, internetMessageID string) (*DraftProviderInfo, error) {
 	if accountID == "" || internetMessageID == "" {
 		return nil, nil
 	}
@@ -2125,7 +2125,7 @@ func syntheticProviderMessageID(providerMessageID string) string {
 	return "<graph-" + normalized + "@sync.gofer>"
 }
 
-func (db *DB) GetMessageLocalIDByInternetID(ctx context.Context, accountID, internetMessageID string) (int64, error) {
+func (db *DB) GetMessageLocalIDByInternetIDInternal(ctx context.Context, accountID, internetMessageID string) (int64, error) {
 	var id int64
 	err := db.Read().QueryRowContext(ctx,
 		`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = ?`, accountID, internetMessageID,
@@ -5207,7 +5207,7 @@ func (db *DB) getThreadMessages(ctx context.Context, accountID, threadID, userID
 			items[i].To, _ = db.getRecipients(ctx, id, "to")
 			items[i].CC, _ = db.getRecipients(ctx, id, "cc")
 			if item.HasAttachment {
-				items[i].Attachments, _ = db.GetAttachments(ctx, id)
+				items[i].Attachments, _ = db.GetAttachmentsInternal(ctx, id)
 			}
 		}
 	}
@@ -5215,7 +5215,7 @@ func (db *DB) getThreadMessages(ctx context.Context, accountID, threadID, userID
 	return items, nil
 }
 
-func (db *DB) GetEmailByID(ctx context.Context, id string) (*models.Email, error) {
+func (db *DB) GetEmailByIDInternal(ctx context.Context, id string) (*models.Email, error) {
 	return db.getEmailByID(ctx, id, "")
 }
 
@@ -5366,7 +5366,7 @@ func (db *DB) getEmailByID(ctx context.Context, id, userID string) (*models.Emai
 	email.CC, _ = db.getRecipients(ctx, msgID, "cc")
 	email.BCC, _ = db.getRecipients(ctx, msgID, "bcc")
 	email.Labels, _ = db.getMessageLabels(ctx, msgID)
-	email.Attachments, _ = db.GetAttachments(ctx, msgID)
+	email.Attachments, _ = db.GetAttachmentsInternal(ctx, msgID)
 
 	return &email, nil
 }
@@ -6152,7 +6152,7 @@ func (db *DB) GetMessageStorageInfoForUser(ctx context.Context, messageID int64,
 	return &info, nil
 }
 
-func (db *DB) GetMessageFetchInfo(ctx context.Context, messageID int64) (*MessageFetchInfo, error) {
+func (db *DB) GetMessageFetchInfoInternal(ctx context.Context, messageID int64) (*MessageFetchInfo, error) {
 	return db.getMessageFetchInfo(ctx, messageID, "")
 }
 
@@ -6197,7 +6197,7 @@ func (db *DB) getMessageFetchInfo(ctx context.Context, messageID int64, userID s
 	return &info, nil
 }
 
-func (db *DB) IsBodyFetched(ctx context.Context, messageID int64) bool {
+func (db *DB) IsBodyFetchedInternal(ctx context.Context, messageID int64) bool {
 	var textPath, htmlPath *string
 	err := db.Read().QueryRowContext(ctx,
 		`SELECT body_text_path, body_html_path FROM messages WHERE id = ?`, messageID,
@@ -6312,7 +6312,7 @@ func (db *DB) getEmailOriginalHTMLBody(ctx context.Context, id, userID string) (
 	return data, nil
 }
 
-func (db *DB) UpdateMessageBody(ctx context.Context, messageID int64, textPath, htmlPath, rawPath string, snippet string) error {
+func (db *DB) UpdateMessageBodyInternal(ctx context.Context, messageID int64, textPath, htmlPath, rawPath string, snippet string) error {
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE messages SET body_text_path = ?, body_html_path = ?, raw_path = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, textPath, htmlPath, rawPath, snippet, snippet, messageID)
@@ -6322,7 +6322,7 @@ func (db *DB) UpdateMessageBody(ctx context.Context, messageID int64, textPath, 
 	return db.ReindexMessageSearch(ctx, messageID)
 }
 
-func (db *DB) UpdateMessageOriginalHTMLPath(ctx context.Context, messageID int64, htmlPath string) error {
+func (db *DB) UpdateMessageOriginalHTMLPathInternal(ctx context.Context, messageID int64, htmlPath string) error {
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE messages SET body_html_original_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, htmlPath, messageID)
 	return err
@@ -6399,7 +6399,7 @@ func (db *DB) UpdateMessageHeaders(ctx context.Context, messageID int64, subject
 	return db.ReindexMessageSearch(ctx, messageID)
 }
 
-func (db *DB) UpdateMessageThreadHeaders(ctx context.Context, messageID int64, accountID, inReplyTo, refs, subject string) error {
+func (db *DB) UpdateMessageThreadHeadersInternal(ctx context.Context, messageID int64, accountID, inReplyTo, refs, subject string) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -6433,7 +6433,7 @@ func (db *DB) UpdateMessageThreadHeaders(ctx context.Context, messageID int64, a
 	return db.ReindexMessageSearch(ctx, messageID)
 }
 
-func (db *DB) UpsertRecipients(ctx context.Context, messageID int64, to, cc []Recipient) error {
+func (db *DB) UpsertRecipientsInternal(ctx context.Context, messageID int64, to, cc []Recipient) error {
 	stmt, err := db.Write().PrepareContext(ctx,
 		`INSERT INTO message_recipients (message_id, kind, name, email) VALUES (?, ?, ?, ?)`)
 	if err != nil {
@@ -6454,7 +6454,7 @@ func (db *DB) UpsertRecipients(ctx context.Context, messageID int64, to, cc []Re
 	return db.ReindexMessageSearch(ctx, messageID)
 }
 
-func (db *DB) InsertAttachments(ctx context.Context, messageID int64, atts []AttachmentRow) error {
+func (db *DB) InsertAttachmentsInternal(ctx context.Context, messageID int64, atts []AttachmentRow) error {
 	if len(atts) == 0 {
 		return nil
 	}
@@ -6497,7 +6497,7 @@ func (db *DB) InsertAttachments(ctx context.Context, messageID int64, atts []Att
 	return db.ReindexMessageSearch(ctx, messageID)
 }
 
-func (db *DB) ReplaceAttachments(ctx context.Context, messageID int64, atts []AttachmentRow) error {
+func (db *DB) ReplaceAttachmentsInternal(ctx context.Context, messageID int64, atts []AttachmentRow) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -6576,7 +6576,7 @@ type AttachmentRow struct {
 	ProviderRemoteID string
 }
 
-func (db *DB) GetAttachments(ctx context.Context, messageID int64) ([]models.Attachment, error) {
+func (db *DB) GetAttachmentsInternal(ctx context.Context, messageID int64) ([]models.Attachment, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id, filename, content_type, size_bytes, content_id, inline, storage_path
 		 FROM attachments WHERE message_id = ?`, messageID)
@@ -6695,7 +6695,7 @@ func scanAttachmentFetchInfo(row attachmentFetchInfoScanner) (*AttachmentFetchIn
 	return &info, nil
 }
 
-func (db *DB) UpdateAttachmentStoragePath(ctx context.Context, attachmentID int64, storagePath string) error {
+func (db *DB) UpdateAttachmentStoragePathInternal(ctx context.Context, attachmentID int64, storagePath string) error {
 	_, err := db.Write().ExecContext(ctx,
 		`UPDATE attachments SET storage_path = ? WHERE id = ?`, strings.TrimSpace(storagePath), attachmentID)
 	return err
@@ -6730,7 +6730,7 @@ type ThreadMessageMutationInfo struct {
 	IsStarred bool
 }
 
-func (db *DB) GetMessageMutationInfo(ctx context.Context, messageID int64) (*MessageMutationInfo, error) {
+func (db *DB) GetMessageMutationInfoInternal(ctx context.Context, messageID int64) (*MessageMutationInfo, error) {
 	return db.getMessageMutationInfo(ctx, messageID, "", nil, "", false)
 }
 
@@ -6745,7 +6745,7 @@ func (db *DB) GetMessageMutationInfoForUser(ctx context.Context, messageID int64
 func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int64, folderID string) (*MessageMutationInfo, error) {
 	folderID = strings.TrimSpace(folderID)
 	if folderID == "" {
-		return db.GetMessageMutationInfo(ctx, messageID)
+		return db.GetMessageMutationInfoInternal(ctx, messageID)
 	}
 
 	info, err := db.getMessageMutationInfo(ctx, messageID, "mfs.folder_id = ?", []any{folderID}, "", false)
@@ -6761,7 +6761,7 @@ func (db *DB) GetMessageMutationInfoForFolder(ctx context.Context, messageID int
 		}
 	}
 
-	return db.GetMessageMutationInfo(ctx, messageID)
+	return db.GetMessageMutationInfoInternal(ctx, messageID)
 }
 
 func (db *DB) GetMessageMutationInfoForFolderForUser(ctx context.Context, messageID int64, folderID, userID string) (*MessageMutationInfo, error) {

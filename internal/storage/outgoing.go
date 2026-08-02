@@ -271,7 +271,7 @@ func (db *DB) GetOutgoingSendByMessageID(ctx context.Context, messageID int64) (
 	return scanOutgoingSend(db.Read().QueryRowContext(ctx, outgoingSendSelect+` WHERE message_id = ?`, messageID))
 }
 
-func (db *DB) OutgoingSendForMessage(ctx context.Context, messageID int64) (*OutgoingSend, error) {
+func (db *DB) OutgoingSendForMessageInternal(ctx context.Context, messageID int64) (*OutgoingSend, error) {
 	send, err := db.GetOutgoingSendByMessageID(ctx, messageID)
 	if err == sql.ErrNoRows {
 		return nil, nil

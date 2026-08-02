@@ -47,9 +47,9 @@ func TestLabelActionFallsBackToLocalLabelWhenRemoteApplyFails(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<label-fallback@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<label-fallback@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 
 	h := &Handler{db: db, syncer: mail.NewSyncOrchestrator(db, nil, nil, nil)}
@@ -69,9 +69,9 @@ func TestLabelActionFallsBackToLocalLabelWhenRemoteApplyFails(t *testing.T) {
 	if response["messages"] != 1 || response["remote_failed"] != 1 {
 		t.Fatalf("response = %#v, want one local label with one remote failure", response)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Invoices" || email.Labels[0].ProviderType != storage.LabelProviderLocal {
 		t.Fatalf("labels = %#v, want local Invoices label", email.Labels)
@@ -92,9 +92,9 @@ func TestLabelActionFallsBackToLocalLabelWhenRemoteApplyFails(t *testing.T) {
 	if response["messages"] != 1 || response["remote_failed"] != 1 {
 		t.Fatalf("unlabel response = %#v, want one local removal with one remote failure", response)
 	}
-	email, err = db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err = db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() after unlabel error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() after unlabel error = %v", err)
 	}
 	if len(email.Labels) != 0 {
 		t.Fatalf("labels after unlabel = %#v, want none", email.Labels)
@@ -140,9 +140,9 @@ func TestIMAPKeywordForMessageLabelUsesPredefinedProviderID(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<predefined-label@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<predefined-label@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 
 	h := &Handler{db: db}

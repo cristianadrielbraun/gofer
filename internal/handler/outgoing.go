@@ -447,7 +447,7 @@ func (h *Handler) reconcileSentCopy(parent context.Context, send storage.Outgoin
 
 func (h *Handler) completeSentCopy(ctx context.Context, send storage.OutgoingSend, folderID string, uid, uidValidity uint32) {
 	if uid > 0 {
-		localID, err := h.db.GetMessageLocalIDByInternetID(ctx, send.AccountID, send.SentMessageID)
+		localID, err := h.db.GetMessageLocalIDByInternetIDInternal(ctx, send.AccountID, send.SentMessageID)
 		if err == nil && localID > 0 {
 			storedUIDValidity, validityErr := h.db.GetStoredUIDValidity(ctx, folderID)
 			if validityErr != nil {
@@ -696,7 +696,7 @@ func (h *Handler) cleanupDeliveredDraft(ctx context.Context, send storage.Outgoi
 		log.Printf("outgoing-send: keeping draft changed during delivery account=%s draft=%s", send.AccountID, send.DraftID)
 		return
 	}
-	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, send.AccountID, send.DraftID)
+	draftProvider, _ := h.db.GetDraftProviderInfoInternal(ctx, send.AccountID, send.DraftID)
 	if send.Transport == storage.OutgoingTransportSMTP {
 		if err := h.queueIMAPDraftDelete(ctx, send.AccountID, send.DraftID, draftProvider); err != nil {
 			log.Printf("outgoing-send: queue remote draft delete account=%s draft=%s: %v", send.AccountID, send.DraftID, err)
@@ -752,7 +752,7 @@ func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID i
 	if localMessageID <= 0 {
 		return nil, fmt.Errorf("scheduled draft no longer exists")
 	}
-	email, err := h.db.GetEmailByID(ctx, fmt.Sprintf("%d", localMessageID))
+	email, err := h.db.GetEmailByIDInternal(ctx, fmt.Sprintf("%d", localMessageID))
 	if err != nil {
 		return nil, err
 	}
@@ -783,7 +783,7 @@ func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID i
 }
 
 func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeDraftSaveResult) error {
-	existing, err := h.db.OutgoingSendForMessage(ctx, saved.MessageID)
+	existing, err := h.db.OutgoingSendForMessageInternal(ctx, saved.MessageID)
 	if err != nil || existing == nil || existing.Status != storage.OutgoingSendPending {
 		return err
 	}
@@ -826,7 +826,7 @@ func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeD
 
 func (h *Handler) saveSentMessageSnapshot(ctx context.Context, accountID string, msg *message.OutgoingMessage, raw []byte) {
 	h.saveSentMessageRecord(ctx, accountID, msg)
-	localID, err := h.db.GetMessageLocalIDByInternetID(ctx, accountID, msg.MessageID)
+	localID, err := h.db.GetMessageLocalIDByInternetIDInternal(ctx, accountID, msg.MessageID)
 	if err != nil || localID == 0 {
 		return
 	}
@@ -842,7 +842,7 @@ func (h *Handler) saveSentMessageSnapshot(ctx context.Context, accountID string,
 	if len(parsed.HTMLBody) > 0 {
 		htmlPath, _ = h.blobStore.StoreBodyHTML(ctx, accountID, localID, message.SanitizeHTML(parsed.HTMLBody))
 	}
-	_ = h.db.UpdateMessageBody(ctx, localID, textPath, htmlPath, parsed.RawPath, parsed.Snippet)
+	_ = h.db.UpdateMessageBodyInternal(ctx, localID, textPath, htmlPath, parsed.RawPath, parsed.Snippet)
 	attachments := make([]storage.AttachmentRow, 0, len(parsed.Attachments))
 	for _, attachment := range parsed.Attachments {
 		attachments = append(attachments, storage.AttachmentRow{
@@ -850,7 +850,7 @@ func (h *Handler) saveSentMessageSnapshot(ctx context.Context, accountID string,
 			ContentID: attachment.ContentID, Inline: attachment.Inline, StoragePath: attachment.BlobPath,
 		})
 	}
-	_ = h.db.ReplaceAttachments(ctx, localID, attachments)
+	_ = h.db.ReplaceAttachmentsInternal(ctx, localID, attachments)
 	h.deleteComposeAttachmentPaths(outgoingAttachmentPaths(msg.Attachments))
 	if sentFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "sent"); err == nil && sentFolderID != "" {
 		h.publishMutation(accountID, sentFolderID)

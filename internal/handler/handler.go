@@ -1204,7 +1204,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	original := r.URL.Query().Get("mode") == "original"
 	loadRemote := r.URL.Query().Get("remote") == "true"
 	var body []byte
-	if msgID > 0 && !h.db.IsBodyFetched(ctx, msgID) {
+	if msgID > 0 && !h.db.IsBodyFetchedInternal(ctx, msgID) {
 		info, err := h.db.GetMessageFetchInfoForUser(ctx, msgID, userID)
 		if err == nil && info != nil {
 			if parsed, err := h.fetchParsedBody(ctx, msgID, info.AccountID); err == nil {
@@ -1521,7 +1521,7 @@ func (h *Handler) originalBodyFromStoredMessage(ctx context.Context, emailID str
 				if extracted, extractErr := message.ExtractHTMLBody(bytes.NewReader(raw)); extractErr == nil && len(extracted) > 0 {
 					body = extracted
 					if p, storeErr := h.blobStore.StoreBodyOriginalHTML(ctx, storageInfo.AccountID, msgID, extracted); storeErr == nil {
-						_ = h.db.UpdateMessageOriginalHTMLPath(ctx, msgID, p)
+						_ = h.db.UpdateMessageOriginalHTMLPathInternal(ctx, msgID, p)
 					}
 				}
 			}
@@ -1531,7 +1531,7 @@ func (h *Handler) originalBodyFromStoredMessage(ctx context.Context, emailID str
 		}
 	}
 	cidToURL := make(map[string]string)
-	atts, err := h.db.GetAttachments(ctx, msgID)
+	atts, err := h.db.GetAttachmentsInternal(ctx, msgID)
 	if err == nil {
 		for _, a := range atts {
 			if a.Inline && a.ContentID != "" {
@@ -1557,7 +1557,7 @@ func (h *Handler) storeParsedBody(ctx context.Context, parsed *message.ParsedMes
 				StoragePath: a.BlobPath,
 			})
 		}
-		h.db.InsertAttachments(ctx, msgID, attRows)
+		h.db.InsertAttachmentsInternal(ctx, msgID, attRows)
 	}
 
 	cidToURL := make(map[string]string)
@@ -1592,11 +1592,11 @@ func (h *Handler) storeParsedBody(ctx context.Context, parsed *message.ParsedMes
 		snippet = parsed.Subject
 	}
 
-	if err := h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, parsed.RawPath, snippet); err != nil {
+	if err := h.db.UpdateMessageBodyInternal(ctx, msgID, textPath, htmlPath, parsed.RawPath, snippet); err != nil {
 		return
 	}
 	if originalHTMLPath != "" {
-		_ = h.db.UpdateMessageOriginalHTMLPath(ctx, msgID, originalHTMLPath)
+		_ = h.db.UpdateMessageOriginalHTMLPathInternal(ctx, msgID, originalHTMLPath)
 	}
 
 	var toRecs, ccRecs []storage.Recipient
@@ -1606,14 +1606,14 @@ func (h *Handler) storeParsedBody(ctx context.Context, parsed *message.ParsedMes
 	for _, r := range parsed.CC {
 		ccRecs = append(ccRecs, storage.Recipient{Name: r.Name, Email: r.Email})
 	}
-	h.db.UpsertRecipients(ctx, msgID, toRecs, ccRecs)
+	h.db.UpsertRecipientsInternal(ctx, msgID, toRecs, ccRecs)
 
 	h.db.UpdateMessageHeaders(ctx, msgID, parsed.Subject, parsed.FromName, parsed.FromEmail, snippet)
-	h.db.UpdateMessageThreadHeaders(ctx, msgID, accountID, parsed.InReplyTo, parsed.References, parsed.Subject)
+	h.db.UpdateMessageThreadHeadersInternal(ctx, msgID, accountID, parsed.InReplyTo, parsed.References, parsed.Subject)
 }
 
 func (h *Handler) ensureBodyFetched(ctx context.Context, msgID int64, accountID string) {
-	if h.db.IsBodyFetched(ctx, msgID) {
+	if h.db.IsBodyFetchedInternal(ctx, msgID) {
 		return
 	}
 	h.fetchAndStoreBody(ctx, msgID, accountID)
@@ -1640,7 +1640,7 @@ func (h *Handler) fetchAndStoreBody(ctx context.Context, msgID int64, accountID 
 		h.bodyFetchMu.Unlock()
 	}()
 
-	if h.db.IsBodyFetched(ctx, msgID) {
+	if h.db.IsBodyFetchedInternal(ctx, msgID) {
 		return
 	}
 	parsed, err := h.fetchParsedBody(ctx, msgID, accountID)
@@ -1655,7 +1655,7 @@ func (h *Handler) persistParsedBodyAsync(msgID int64, accountID string, parsed *
 }
 
 func (h *Handler) persistParsedBody(ctx context.Context, msgID int64, accountID string, parsed *message.ParsedMessage) {
-	if parsed == nil || h.db.IsBodyFetched(ctx, msgID) {
+	if parsed == nil || h.db.IsBodyFetchedInternal(ctx, msgID) {
 		return
 	}
 
@@ -1666,7 +1666,7 @@ func (h *Handler) persistParsedBody(ctx context.Context, msgID int64, accountID 
 		case <-done:
 		case <-ctx.Done():
 		}
-		if ctx.Err() == nil && !h.db.IsBodyFetched(ctx, msgID) {
+		if ctx.Err() == nil && !h.db.IsBodyFetchedInternal(ctx, msgID) {
 			h.persistParsedBody(ctx, msgID, accountID, parsed)
 		}
 		return
@@ -1682,7 +1682,7 @@ func (h *Handler) persistParsedBody(ctx context.Context, msgID int64, accountID 
 		h.bodyFetchMu.Unlock()
 	}()
 
-	if !h.db.IsBodyFetched(ctx, msgID) {
+	if !h.db.IsBodyFetchedInternal(ctx, msgID) {
 		h.storeParsedBody(ctx, parsed, msgID, accountID)
 	}
 }
@@ -1702,7 +1702,7 @@ func (h *Handler) fetchParsedBody(ctx context.Context, msgID int64, accountID st
 	}
 
 	if bodyData == nil {
-		info, err := h.db.GetMessageFetchInfo(ctx, msgID)
+		info, err := h.db.GetMessageFetchInfoInternal(ctx, msgID)
 		if err != nil || info == nil {
 			return nil, err
 		}
@@ -4130,8 +4130,8 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 			htmlPath = p
 		}
 	}
-	_ = h.db.UpdateMessageBody(ctx, msgID, textPath, htmlPath, "", snippet)
-	_ = h.db.ReplaceAttachments(ctx, msgID, attachmentRows)
+	_ = h.db.UpdateMessageBodyInternal(ctx, msgID, textPath, htmlPath, "", snippet)
+	_ = h.db.ReplaceAttachmentsInternal(ctx, msgID, attachmentRows)
 	toAddrs, _ := message.ParseAddressList(r.FormValue("to"))
 	ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
 	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
@@ -4164,7 +4164,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 			}
 		}
 	default:
-		draftInfo, _ := h.db.GetDraftProviderInfo(ctx, accountID, draftID)
+		draftInfo, _ := h.db.GetDraftProviderInfoInternal(ctx, accountID, draftID)
 		var remoteUID, uidValidity uint32
 		if draftInfo != nil {
 			remoteUID, uidValidity = draftInfo.RemoteUID, draftInfo.UIDValidity
@@ -4193,12 +4193,12 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	}
 	draftID := r.FormValue("draft_id")
 	draftPaths := h.composeDraftAttachmentPaths(ctx, accountID, draftID)
-	draftProvider, _ := h.db.GetDraftProviderInfo(ctx, accountID, draftID)
+	draftProvider, _ := h.db.GetDraftProviderInfoInternal(ctx, accountID, draftID)
 	if err := h.queueIMAPDraftDelete(ctx, accountID, draftID, draftProvider); err != nil {
 		writeComposeJSONError(w, http.StatusInternalServerError, "failed to queue remote draft deletion")
 		return
 	}
-	if messageID, _ := h.db.GetMessageLocalIDByInternetID(ctx, accountID, draftID); messageID > 0 {
+	if messageID, _ := h.db.GetMessageLocalIDByInternetIDInternal(ctx, accountID, draftID); messageID > 0 {
 		_ = h.db.CancelOutgoingSendForMessage(ctx, messageID)
 	}
 	folderID, err := h.db.DeleteDraftMessage(ctx, accountID, draftID)
@@ -4374,7 +4374,7 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
-	localID, err := h.db.GetMessageLocalIDByInternetID(r.Context(), accountID, messageID)
+	localID, err := h.db.GetMessageLocalIDByInternetIDInternal(r.Context(), accountID, messageID)
 	if err != nil || localID == 0 {
 		http.NotFound(w, r)
 		return
@@ -4480,7 +4480,7 @@ func (h *Handler) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	draftPaths := attachmentStoragePaths(email.Attachments)
-	draftProvider, _ := h.db.GetDraftProviderInfo(r.Context(), email.AccountID, email.InternetMessageID)
+	draftProvider, _ := h.db.GetDraftProviderInfoInternal(r.Context(), email.AccountID, email.InternetMessageID)
 	if err := h.queueIMAPDraftDelete(r.Context(), email.AccountID, email.InternetMessageID, draftProvider); err != nil {
 		writeComposeJSONError(w, http.StatusInternalServerError, "failed to queue remote draft deletion")
 		return
@@ -4598,7 +4598,7 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 
 	var localDraftMessageID int64
 	if draftID != "" {
-		localDraftMessageID, _ = h.db.GetMessageLocalIDByInternetID(ctx, accountID, draftID)
+		localDraftMessageID, _ = h.db.GetMessageLocalIDByInternetIDInternal(ctx, accountID, draftID)
 	}
 	queued, err := h.queueOutgoingMessage(ctx, accountID, localDraftMessageID, draftID, msg, time.Now().UTC(), false)
 	if err != nil {
@@ -5543,7 +5543,7 @@ func (h *Handler) handlePrefetchBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.db.IsBodyFetched(ctx, msgID) {
+	if !h.db.IsBodyFetchedInternal(ctx, msgID) {
 		h.ensureBodyFetched(ctx, msgID, info.AccountID)
 	}
 

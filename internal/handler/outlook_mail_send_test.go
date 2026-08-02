@@ -217,9 +217,9 @@ func TestSendOutlookGraphMessageUsesSendMailMIMEAndCachesSentID(t *testing.T) {
 	if !sawReconcile {
 		t.Fatal("Graph sent reconciliation was not observed")
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<sent@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<sent@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 	var providerID string
 	if err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(remote_message_id, '') FROM messages WHERE id = ?`, msgID).Scan(&providerID); err != nil {

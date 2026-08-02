@@ -63,7 +63,7 @@ func TestDraftReadAndDeleteRejectForeignUsersAndAdmins(t *testing.T) {
 		})
 	}
 
-	email, err := db.GetEmailByID(t.Context(), id)
+	email, err := db.GetEmailByIDInternal(t.Context(), id)
 	if err != nil || email == nil || !email.IsDraft {
 		t.Fatalf("foreign delete changed draft: email = %#v, err = %v", email, err)
 	}

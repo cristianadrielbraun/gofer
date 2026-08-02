@@ -36,7 +36,7 @@ func (h *Handler) ensureAttachmentStorage(ctx context.Context, info *storage.Att
 		}
 		providerMessageID := strings.TrimSpace(info.ProviderMessageID)
 		if providerMessageID == "" {
-			mutationInfo, err := h.db.GetMessageMutationInfo(ctx, info.MessageID)
+			mutationInfo, err := h.db.GetMessageMutationInfoInternal(ctx, info.MessageID)
 			if err != nil {
 				return strings.TrimSpace(info.StoragePath), err
 			}
@@ -71,7 +71,7 @@ func (h *Handler) ensureAttachmentStorage(ctx context.Context, info *storage.Att
 	}
 	providerMessageID := strings.TrimSpace(info.ProviderMessageID)
 	if providerMessageID == "" {
-		mutationInfo, err := h.db.GetMessageMutationInfo(ctx, info.MessageID)
+		mutationInfo, err := h.db.GetMessageMutationInfoInternal(ctx, info.MessageID)
 		if err != nil {
 			return strings.TrimSpace(info.StoragePath), err
 		}
@@ -104,7 +104,7 @@ func (h *Handler) storeFetchedAttachment(ctx context.Context, info *storage.Atta
 	if err != nil {
 		return "", err
 	}
-	if err := h.db.UpdateAttachmentStoragePath(ctx, info.ID, path); err != nil {
+	if err := h.db.UpdateAttachmentStoragePathInternal(ctx, info.ID, path); err != nil {
 		return "", err
 	}
 	info.StoragePath = path

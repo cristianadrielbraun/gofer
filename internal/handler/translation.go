@@ -354,7 +354,7 @@ func isHTMLTextSpace(r rune) bool {
 
 func (h *Handler) messageTranslationSource(ctx context.Context, emailID string, msgID int64) (string, string, error) {
 	userID := h.userID(ctx)
-	if !h.db.IsBodyFetched(ctx, msgID) {
+	if !h.db.IsBodyFetchedInternal(ctx, msgID) {
 		if info, err := h.db.GetMessageFetchInfoForUser(ctx, msgID, userID); err == nil && info != nil {
 			if parsed, err := h.fetchParsedBody(ctx, msgID, info.AccountID); err == nil && parsed != nil {
 				h.persistParsedBodyAsync(msgID, info.AccountID, parsed)

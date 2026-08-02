@@ -283,9 +283,9 @@ func TestOutlookGraphBodyFetchUsesProviderMessageID(t *testing.T) {
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
 
 	h := &Handler{db: db, auth: manager}
-	info, err := db.GetMessageFetchInfo(ctx, msgID)
+	info, err := db.GetMessageFetchInfoInternal(ctx, msgID)
 	if err != nil || info == nil {
-		t.Fatalf("GetMessageFetchInfo() = %#v, %v", info, err)
+		t.Fatalf("GetMessageFetchInfoInternal() = %#v, %v", info, err)
 	}
 	body, err := h.fetchBodyRemote(ctx, msgID, info)
 	if err != nil {
@@ -339,13 +339,13 @@ func TestOutlookGraphAttachmentFetchMaterializesProviderAttachment(t *testing.T)
 	if msgID == 0 {
 		t.Fatal("provider message was not inserted")
 	}
-	if err := db.ReplaceAttachments(ctx, msgID, []storage.AttachmentRow{{
+	if err := db.ReplaceAttachmentsInternal(ctx, msgID, []storage.AttachmentRow{{
 		Filename:         "graph.txt",
 		ContentType:      "text/plain",
 		SizeBytes:        18,
 		ProviderRemoteID: "graph-attachment-1",
 	}}); err != nil {
-		t.Fatalf("ReplaceAttachments() error = %v", err)
+		t.Fatalf("ReplaceAttachmentsInternal() error = %v", err)
 	}
 	var attID int64
 	if err := db.Read().QueryRowContext(ctx, `SELECT id FROM attachments WHERE message_id = ?`, msgID).Scan(&attID); err != nil {
@@ -452,7 +452,7 @@ func TestOutlookGraphInlineContentMaterializesProviderAttachment(t *testing.T) {
 	if msgID == 0 {
 		t.Fatal("provider message was not inserted")
 	}
-	if err := db.ReplaceAttachments(ctx, msgID, []storage.AttachmentRow{{
+	if err := db.ReplaceAttachmentsInternal(ctx, msgID, []storage.AttachmentRow{{
 		Filename:         "logo.png",
 		ContentType:      "image/png",
 		SizeBytes:        7,
@@ -460,7 +460,7 @@ func TestOutlookGraphInlineContentMaterializesProviderAttachment(t *testing.T) {
 		Inline:           true,
 		ProviderRemoteID: "graph-inline-1",
 	}}); err != nil {
-		t.Fatalf("ReplaceAttachments() error = %v", err)
+		t.Fatalf("ReplaceAttachmentsInternal() error = %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
 	manager := auth.NewManager(&auth.Config{}, db)

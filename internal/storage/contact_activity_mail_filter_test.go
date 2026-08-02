@@ -56,9 +56,9 @@ func TestParticipantFilterSearchesAllMailAndDeduplicatesFolderCopies(t *testing.
 		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
 	}
 
-	receivedID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<received@example.com>")
+	receivedID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<received@example.com>")
 	if err != nil || receivedID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(received) = %d, %v", receivedID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(received) = %d, %v", receivedID, err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
 		INSERT INTO message_folder_state (message_id, folder_id, is_read)
@@ -80,7 +80,7 @@ func TestParticipantFilterSearchesAllMailAndDeduplicatesFolderCopies(t *testing.
 	if !got[strconv.FormatInt(receivedID, 10)] {
 		t.Fatalf("participant results missing received email %d: %#v", receivedID, page.Emails)
 	}
-	sentID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<sent@example.com>")
+	sentID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<sent@example.com>")
 	if err != nil || !got[strconv.FormatInt(sentID, 10)] {
 		t.Fatalf("participant results missing sent email %d (%v): %#v", sentID, err, page.Emails)
 	}

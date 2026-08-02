@@ -12,7 +12,7 @@ import (
 const outlookGraphMIMEFetchMaxBytes int64 = 64 << 20
 
 func (h *Handler) fetchOutlookGraphMessageMIME(ctx context.Context, messageID int64) ([]byte, bool, error) {
-	info, err := h.db.GetMessageMutationInfo(ctx, messageID)
+	info, err := h.db.GetMessageMutationInfoInternal(ctx, messageID)
 	if err != nil || info == nil {
 		return nil, false, err
 	}

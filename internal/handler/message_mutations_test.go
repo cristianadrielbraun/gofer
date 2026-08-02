@@ -89,9 +89,9 @@ func seedIMAPMessageMutationWorker(t *testing.T) (*Handler, *storage.DB, int64, 
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<queued-state@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", "<queued-state@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 	if err := db.SetMessageReadAndQueue(t.Context(), messageID, false); err != nil {
 		t.Fatalf("SetMessageReadAndQueue() error = %v", err)
@@ -115,7 +115,7 @@ func TestMessageMutationWorkerAppliesGenericIMAPState(t *testing.T) {
 	if fake.storeCalls != 1 || fake.folder != "INBOX" || fake.uid != 42 || fake.op != goimap.StoreFlagsDel || len(fake.flags) != 1 || fake.flags[0] != goimap.FlagSeen {
 		t.Fatalf("IMAP mutation calls=%d folder=%q uid=%d op=%v flags=%v", fake.storeCalls, fake.folder, fake.uid, fake.op, fake.flags)
 	}
-	mutation, err := db.GetMessageMutation(t.Context(), mutationID)
+	mutation, err := db.GetMessageMutationInternal(t.Context(), mutationID)
 	if err != nil || mutation.Status != storage.MessageMutationApplied {
 		t.Fatalf("applied mutation = %#v, %v", mutation, err)
 	}
@@ -129,7 +129,7 @@ func TestMessageMutationWorkerRetriesProviderFailure(t *testing.T) {
 	}
 
 	h.runDueMessageMutations(t.Context())
-	failed, err := db.GetMessageMutation(t.Context(), mutationID)
+	failed, err := db.GetMessageMutationInternal(t.Context(), mutationID)
 	if err != nil || failed.Status != storage.MessageMutationFailed || failed.AttemptCount != 1 || failed.LastError == "" {
 		t.Fatalf("failed mutation = %#v, %v", failed, err)
 	}
@@ -138,7 +138,7 @@ func TestMessageMutationWorkerRetriesProviderFailure(t *testing.T) {
 	}
 	fake.storeErr = nil
 	h.runDueMessageMutations(t.Context())
-	applied, err := db.GetMessageMutation(t.Context(), mutationID)
+	applied, err := db.GetMessageMutationInternal(t.Context(), mutationID)
 	if err != nil || applied.Status != storage.MessageMutationApplied || applied.AttemptCount != 2 || fake.storeCalls != 2 {
 		t.Fatalf("retried mutation = %#v calls=%d error=%v", applied, fake.storeCalls, err)
 	}
@@ -302,9 +302,9 @@ func seedIMAPDeleteMutationWorker(t *testing.T) (*Handler, *storage.DB, int64) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<permanent-delete@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", "<permanent-delete@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 	if err := db.PermanentlyDeleteMessageAndQueue(t.Context(), messageID, "victim-trash"); err != nil {
 		t.Fatalf("PermanentlyDeleteMessageAndQueue() error = %v", err)
@@ -411,8 +411,8 @@ func TestDeleteThreadOnlyQueuesMessagesFromTheViewedTrashFolder(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	trashID, _ := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<trash-thread@example.com>")
-	inboxID, _ := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<inbox-thread@example.com>")
+	trashID, _ := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", "<trash-thread@example.com>")
+	inboxID, _ := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", "<inbox-thread@example.com>")
 	if _, err := db.Write().Exec(`UPDATE messages SET thread_id = 'shared-thread' WHERE id IN (?, ?)`, trashID, inboxID); err != nil {
 		t.Fatalf("set thread IDs: %v", err)
 	}
@@ -449,9 +449,9 @@ func TestEmailPartialUsesViewedFolderForDeleteAction(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<viewed-folder@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", "<viewed-folder@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 
 	render := func(folderID string) string {
@@ -499,9 +499,9 @@ func TestEmailPartialResolvesOwnedFolderAlias(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", "<alias@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", "<alias@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 
 	ownerRequest := func(userID, folderID string) *httptest.ResponseRecorder {

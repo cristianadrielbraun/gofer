@@ -502,9 +502,9 @@ func TestSyncOutlookGraphAccountImportsFoldersMessagesAndDeltaCursor(t *testing.
 		t.Fatalf("folders = %#v, want Inbox with Graph provider id and delta cursor", folders)
 	}
 
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<graph-message-1@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<graph-message-1@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 	var providerID string
 	if err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(remote_message_id, '') FROM messages WHERE id = ?`, msgID).Scan(&providerID); err != nil {
@@ -513,9 +513,9 @@ func TestSyncOutlookGraphAccountImportsFoldersMessagesAndDeltaCursor(t *testing.
 	if providerID != "graph-message-1" {
 		t.Fatalf("remote_message_id = %q, want graph-message-1", providerID)
 	}
-	legacyID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<legacy@example.com>")
+	legacyID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<legacy@example.com>")
 	if err != nil || legacyID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(legacy) = %d, %v", legacyID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(legacy) = %d, %v", legacyID, err)
 	}
 	var legacyProviderID string
 	if err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(remote_message_id, '') FROM messages WHERE id = ?`, legacyID).Scan(&legacyProviderID); err != nil {
@@ -524,13 +524,13 @@ func TestSyncOutlookGraphAccountImportsFoldersMessagesAndDeltaCursor(t *testing.
 	if legacyProviderID != "graph-legacy-1" {
 		t.Fatalf("legacy remote_message_id = %q, want graph-legacy-1", legacyProviderID)
 	}
-	if db.IsBodyFetched(ctx, msgID) {
+	if db.IsBodyFetchedInternal(ctx, msgID) {
 		t.Fatal("full baseline prefetch persisted Graph body")
 	}
 
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if email.Subject != "Graph subject" || !email.IsRead || !email.IsStarred || email.From.Email != "sender@example.com" {
 		t.Fatalf("email = %#v, want Graph subject/read/starred/from", email)
@@ -942,13 +942,13 @@ func TestSyncOutlookGraphFolderFullReconcilesMissingSenderMetadata(t *testing.T)
 		t.Fatalf("baseline requests = %d, want 1", baselineRequests)
 	}
 
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<graph-message-1@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<graph-message-1@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if email.Subject != "Recovered subject" || email.From.Name != "Recovered Sender" || email.From.Email != "sender@example.com" {
 		t.Fatalf("email = %#v, want recovered subject/from after metadata reconcile", email)
@@ -1012,13 +1012,13 @@ func TestSyncOutlookGraphFolderHydratesIncompleteDeltaMessage(t *testing.T) {
 		t.Fatalf("detail requests = %d, want 1", detailRequests)
 	}
 
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<graph-message-1@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<graph-message-1@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if email.Subject != "Hydrated subject" || email.From.Email != "sender@example.com" || len(email.To) != 1 || email.To[0].Email != "recipient@example.com" {
 		t.Fatalf("email = %#v, want hydrated metadata from detail fetch", email)
@@ -1141,11 +1141,11 @@ func TestSyncOutlookGraphFolderIncrementalHydratesAttachmentMetadataAndStoresBod
 		t.Fatalf("syncOutlookGraphFolder() error = %v", err)
 	}
 
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<graph-message-1@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<graph-message-1@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	if !db.IsBodyFetched(ctx, msgID) {
+	if !db.IsBodyFetchedInternal(ctx, msgID) {
 		t.Fatal("incremental Graph body was not persisted")
 	}
 	body, err := db.GetEmailBody(ctx, strconv.FormatInt(msgID, 10))
@@ -1155,9 +1155,9 @@ func TestSyncOutlookGraphFolderIncrementalHydratesAttachmentMetadataAndStoresBod
 	if strings.Contains(string(body), "cid:logo@example.com") || !strings.Contains(string(body), "/api/inline-content/") {
 		t.Fatalf("stored body = %q, want cid reference rewritten to inline route", string(body))
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Attachments) != 1 || email.Attachments[0].Filename != "logo.png" || !email.Attachments[0].Inline || email.Attachments[0].ContentID != "logo@example.com" {
 		t.Fatalf("attachments = %#v, want Graph attachment metadata", email.Attachments)
@@ -1228,7 +1228,7 @@ func TestSyncOutlookGraphFolderAttachmentFailureDoesNotCheckpoint(t *testing.T) 
 	if got := queryOutlookGraphFolderCursor(t, ctx, db); got != initialCursor {
 		t.Fatalf("sync_cursor = %q, want old cursor %q after attachment failure", got, initialCursor)
 	}
-	page2ID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<graph-page-2@example.com>")
+	page2ID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<graph-page-2@example.com>")
 	if err != nil || page2ID == 0 {
 		t.Fatalf("second page message local ID = %d, %v; want imported despite attachment side-effect failure", page2ID, err)
 	}
@@ -1271,13 +1271,13 @@ func TestSyncOutlookGraphAttachmentMetadataClearsStaleRowsWhenGraphHasNoAttachme
 	if msgID == 0 {
 		t.Fatal("provider message was not inserted")
 	}
-	if err := db.ReplaceAttachments(ctx, msgID, []storage.AttachmentRow{{
+	if err := db.ReplaceAttachmentsInternal(ctx, msgID, []storage.AttachmentRow{{
 		Filename:         "old.pdf",
 		ContentType:      "application/pdf",
 		SizeBytes:        128,
 		ProviderRemoteID: "old-attachment",
 	}}); err != nil {
-		t.Fatalf("ReplaceAttachments() error = %v", err)
+		t.Fatalf("ReplaceAttachmentsInternal() error = %v", err)
 	}
 
 	orchestrator := NewSyncOrchestrator(db, nil, nil, labelSyncTestTokens{})

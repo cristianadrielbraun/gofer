@@ -45,12 +45,12 @@ preconditions are part of their contract:
   and attachment persistence methods are called only after one of the claims
   above or after an owned/account-scoped provider sync has established the
   account and message identity.
-- `GetEmailByID`, `GetMessageFetchInfo`, `GetMessageMutationInfo`,
-  `GetMessageMutation`, `GetDraftProviderInfo`, `GetMessageLocalIDByInternetID`,
-  `OutgoingSendForMessage`, and unscoped draft/body mutation helpers are
-  internal continuations only. Browser handlers must begin with the matching
-  `ForUser` lookup or an owned account and must not accept a global ID directly
-  into these methods.
+- Methods whose names end in `Internal` are trusted continuations only. They
+  include global message lookups, draft/provider resolution, mutation and
+  outgoing-send reads, and body, recipient, and attachment persistence.
+  Browser handlers must begin with the matching `ForUser` lookup or an owned
+  account and must not pass a request-supplied global ID directly into an
+  `Internal` method.
 - `GetAllAccountIDs` and `GetAllEmailSyncAccountIDs` are startup/background
   enumerators. They are not valid sources for a browser response.
 - Global avatar candidate/cache methods are used by avatar warmup/backfill and
@@ -60,6 +60,6 @@ preconditions are part of their contract:
   security-exception diagnostics are administrator-only and expose operational
   metadata rather than private message content.
 
-When a new unscoped method is introduced, it must be added here with its exact
-trusted caller and the ownership check that occurs before any side effect.
-
+When a new unscoped method is introduced, its name must make the internal trust
+boundary explicit and it must be added here with its exact trusted caller and
+the ownership check that occurs before any side effect.

@@ -162,9 +162,9 @@ func TestGmailAPIBodyFetchUsesProviderMessageID(t *testing.T) {
 	gmailAPIBaseURL = server.URL
 	t.Cleanup(func() { gmailAPIBaseURL = previousBase })
 
-	info, err := db.GetMessageFetchInfo(ctx, msgID)
+	info, err := db.GetMessageFetchInfoInternal(ctx, msgID)
 	if err != nil || info == nil {
-		t.Fatalf("GetMessageFetchInfo() = %#v, %v", info, err)
+		t.Fatalf("GetMessageFetchInfoInternal() = %#v, %v", info, err)
 	}
 	body, err := h.fetchBodyRemote(ctx, msgID, info)
 	if err != nil {
@@ -184,13 +184,13 @@ func TestGmailAPIAttachmentFetchMaterializesProviderAttachment(t *testing.T) {
 	msgID := seedGmailAPIMessage(t, ctx, db, []storage.UpsertFolderInput{
 		{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", ProviderRemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
 	})
-	if err := db.ReplaceAttachments(ctx, msgID, []storage.AttachmentRow{{
+	if err := db.ReplaceAttachmentsInternal(ctx, msgID, []storage.AttachmentRow{{
 		Filename:         "gmail.txt",
 		ContentType:      "text/plain",
 		SizeBytes:        21,
 		ProviderRemoteID: "gmail-attachment-1",
 	}}); err != nil {
-		t.Fatalf("ReplaceAttachments() error = %v", err)
+		t.Fatalf("ReplaceAttachmentsInternal() error = %v", err)
 	}
 	var attID int64
 	if err := db.Read().QueryRowContext(ctx, `SELECT id FROM attachments WHERE message_id = ?`, msgID).Scan(&attID); err != nil {
@@ -368,9 +368,9 @@ func TestSendGmailAPIMessageUsesRawMIMEAndCachesSentID(t *testing.T) {
 	if !sawSend {
 		t.Fatal("Gmail messages.send was not observed")
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<gmail-sent@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<gmail-sent@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 	var providerID string
 	if err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(remote_message_id, '') FROM messages WHERE id = ?`, msgID).Scan(&providerID); err != nil {

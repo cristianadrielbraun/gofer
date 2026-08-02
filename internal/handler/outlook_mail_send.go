@@ -32,7 +32,7 @@ func (h *Handler) saveOutlookGraphDraft(ctx context.Context, accountID string, l
 	if err != nil {
 		return err
 	}
-	if existing, err := h.db.GetDraftProviderInfo(ctx, accountID, msg.MessageID); err == nil && existing != nil {
+	if existing, err := h.db.GetDraftProviderInfoInternal(ctx, accountID, msg.MessageID); err == nil && existing != nil {
 		if providerID := strings.TrimSpace(existing.ProviderMessageID); providerID != "" {
 			if err := h.deleteOutlookGraphMessage(ctx, token, providerID); err != nil && !outlookAPIStatus(err, http.StatusNotFound) {
 				return err
@@ -70,7 +70,7 @@ func (h *Handler) sendOutlookGraphMessage(ctx context.Context, cfg *models.Accou
 	h.saveSentMessageSnapshot(ctx, cfg.AccountID, msg, raw)
 	h.cacheOutlookSentMessageID(ctx, cfg.AccountID, msg, token)
 	if strings.TrimSpace(draftID) != "" {
-		draftProvider, _ := h.db.GetDraftProviderInfo(ctx, cfg.AccountID, draftID)
+		draftProvider, _ := h.db.GetDraftProviderInfoInternal(ctx, cfg.AccountID, draftID)
 		if folderID, err := h.db.DeleteDraftMessage(ctx, cfg.AccountID, draftID); err == nil && folderID != "" {
 			h.publishMutation(cfg.AccountID, folderID)
 		}
@@ -106,7 +106,7 @@ func (h *Handler) sendOutlookGraphRaw(ctx context.Context, cfg *models.AccountCo
 }
 
 func (h *Handler) cacheOutlookSentMessageID(ctx context.Context, accountID string, msg *message.OutgoingMessage, token string) {
-	localID, err := h.db.GetMessageLocalIDByInternetID(ctx, accountID, msg.MessageID)
+	localID, err := h.db.GetMessageLocalIDByInternetIDInternal(ctx, accountID, msg.MessageID)
 	if err != nil || localID == 0 {
 		return
 	}

@@ -668,7 +668,7 @@ func (db *DB) DiscardMessageMutation(ctx context.Context, id string) error {
 	return err
 }
 
-func (db *DB) GetMessageMutation(ctx context.Context, id string) (MessageMutation, error) {
+func (db *DB) GetMessageMutationInternal(ctx context.Context, id string) (MessageMutation, error) {
 	return scanMessageMutation(db.Read().QueryRowContext(ctx, messageMutationSelect+` WHERE id = ?`, id))
 }
 

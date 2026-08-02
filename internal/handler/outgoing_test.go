@@ -189,7 +189,7 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentMessageID != "<durable@example.com>" || completed.SentCopyStatus != storage.SentCopyNotRequired {
 		t.Fatalf("completed send = %#v, %v", completed, err)
 	}
-	localID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<durable@example.com>")
+	localID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<durable@example.com>")
 	if err != nil || localID == 0 {
 		t.Fatalf("sent message local id = %d, %v", localID, err)
 	}
@@ -312,8 +312,8 @@ func TestEditingRetryingDraftRefreshesPayloadWithoutResettingDeliveryIdentity(t 
 	if err != nil {
 		t.Fatalf("StoreBodyText() error = %v", err)
 	}
-	if err := db.UpdateMessageBody(ctx, localID, originalBody, "", "", "Original body"); err != nil {
-		t.Fatalf("UpdateMessageBody() error = %v", err)
+	if err := db.UpdateMessageBodyInternal(ctx, localID, originalBody, "", "", "Original body"); err != nil {
+		t.Fatalf("UpdateMessageBodyInternal() error = %v", err)
 	}
 
 	to, _ := message.ParseAddressList("recipient@example.com")
@@ -345,8 +345,8 @@ func TestEditingRetryingDraftRefreshesPayloadWithoutResettingDeliveryIdentity(t 
 	if err != nil {
 		t.Fatalf("StoreBodyText(edited) error = %v", err)
 	}
-	if err := db.UpdateMessageBody(ctx, localID, editedBody, "", "", "Edited body"); err != nil {
-		t.Fatalf("UpdateMessageBody(edited) error = %v", err)
+	if err := db.UpdateMessageBodyInternal(ctx, localID, editedBody, "", "", "Edited body"); err != nil {
+		t.Fatalf("UpdateMessageBodyInternal(edited) error = %v", err)
 	}
 	retrying, err := db.GetOutgoingSend(ctx, queued.ID)
 	if err != nil {
@@ -548,9 +548,9 @@ func seedPendingSentCopy(t *testing.T) (*Handler, *storage.DB, storage.OutgoingS
 	if err := db.CompleteOutgoingSend(t.Context(), queued.ID, msg.MessageID, true); err != nil {
 		t.Fatalf("CompleteOutgoingSend() error = %v", err)
 	}
-	localID, err := db.GetMessageLocalIDByInternetID(t.Context(), "victim-account", msg.MessageID)
+	localID, err := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", msg.MessageID)
 	if err != nil || localID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", localID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", localID, err)
 	}
 	return h, db, queued, localID
 }

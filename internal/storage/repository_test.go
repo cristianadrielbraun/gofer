@@ -347,9 +347,9 @@ func TestUpsertProviderSyncMessagesHydratesExistingIMAPMessage(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	beforeID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<shared@example.com>")
+	beforeID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<shared@example.com>")
 	if err != nil || beforeID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", beforeID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", beforeID, err)
 	}
 
 	ids, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{{
@@ -389,9 +389,9 @@ func TestUpsertProviderSyncMessagesHydratesExistingIMAPMessage(t *testing.T) {
 		t.Fatalf("hydrated message remote=%q is_read=%v, want graph-message-1/true", remoteID, isRead)
 	}
 
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(beforeID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(beforeID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderType != LabelProviderOutlook {
 		t.Fatalf("labels = %#v, want Projects outlook label", email.Labels)
@@ -438,13 +438,13 @@ func TestUpsertProviderSyncMessagesDoesNotBlankExistingHeaders(t *testing.T) {
 		t.Fatalf("UpsertProviderSyncMessages(partial) error = %v", err)
 	}
 
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<shared@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<shared@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if email.Subject != "Loaded subject" || email.From.Name != "Loaded Sender" || email.From.Email != "sender@example.com" || !email.IsRead {
 		t.Fatalf("email = %#v, want headers preserved and read state updated", email)
@@ -873,22 +873,22 @@ func TestReplaceAttachmentsPreservesProviderStoragePath(t *testing.T) {
 		t.Fatal("provider message was not inserted")
 	}
 
-	if err := db.ReplaceAttachments(ctx, msgID, []AttachmentRow{{
+	if err := db.ReplaceAttachmentsInternal(ctx, msgID, []AttachmentRow{{
 		Filename:         "old.pdf",
 		ContentType:      "application/pdf",
 		SizeBytes:        10,
 		StoragePath:      "/tmp/gofer-downloaded-old.pdf",
 		ProviderRemoteID: "graph-attachment-1",
 	}}); err != nil {
-		t.Fatalf("ReplaceAttachments(initial) error = %v", err)
+		t.Fatalf("ReplaceAttachmentsInternal(initial) error = %v", err)
 	}
-	if err := db.ReplaceAttachments(ctx, msgID, []AttachmentRow{{
+	if err := db.ReplaceAttachmentsInternal(ctx, msgID, []AttachmentRow{{
 		Filename:         "new.pdf",
 		ContentType:      "application/pdf",
 		SizeBytes:        12,
 		ProviderRemoteID: "graph-attachment-1",
 	}}); err != nil {
-		t.Fatalf("ReplaceAttachments(refresh) error = %v", err)
+		t.Fatalf("ReplaceAttachmentsInternal(refresh) error = %v", err)
 	}
 
 	var filename, storagePath string
@@ -933,13 +933,13 @@ func TestSyncMessagesReplaceIMAPKeywordLabels(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<label-keyword@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<label-keyword@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Work" || email.Labels[0].ProviderType != LabelProviderIMAPKeyword {
 		t.Fatalf("labels after sync = %#v, want Work IMAP keyword", email.Labels)
@@ -953,9 +953,9 @@ func TestSyncMessagesReplaceIMAPKeywordLabels(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("BatchUpdateFlags() error = %v", err)
 	}
-	email, err = db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err = db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() after refresh error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() after refresh error = %v", err)
 	}
 	if len(email.Labels) != 0 {
 		t.Fatalf("labels after keyword removal = %#v, want none", email.Labels)
@@ -1076,13 +1076,13 @@ func TestSyncMessagesResolveIMAPKeywordAliases(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<alias-keyword@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<alias-keyword@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	labels := map[string]string{}
 	for _, label := range email.Labels {
@@ -1130,9 +1130,9 @@ func TestUpsertLabelAliasRenamesExistingIMAPKeywordLabel(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<custom-alias-keyword@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<custom-alias-keyword@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 
 	if err := db.UpsertLabelAlias(ctx, LabelAliasInput{
@@ -1144,9 +1144,9 @@ func TestUpsertLabelAliasRenamesExistingIMAPKeywordLabel(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertLabelAlias() error = %v", err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Snooze" || email.Labels[0].ProviderID != "$VendorSnooze" {
 		t.Fatalf("labels = %#v, want Snooze backed by vendor keyword", email.Labels)
@@ -1186,13 +1186,13 @@ func TestSyncMessagesDeduplicateResolvedIMAPKeywordAliases(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<duplicate-alias-keyword@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<duplicate-alias-keyword@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Work" || email.Labels[0].ProviderID != "$label2" {
 		t.Fatalf("labels = %#v, want one Work label backed by $label2", email.Labels)
@@ -1216,13 +1216,13 @@ func TestGetLabelAdminStatusAggregatesCoverageAndLastRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	labeledID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<labeled@example.com>")
+	labeledID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<labeled@example.com>")
 	if err != nil {
-		t.Fatalf("GetMessageLocalIDByInternetID() error = %v", err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() error = %v", err)
 	}
-	unlabeledID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<unlabeled@example.com>")
+	unlabeledID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<unlabeled@example.com>")
 	if err != nil {
-		t.Fatalf("GetMessageLocalIDByInternetID(unlabeled) error = %v", err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(unlabeled) error = %v", err)
 	}
 	if err := db.SetMessageProviderMessageID(ctx, labeledID, "gmail-message-1"); err != nil {
 		t.Fatalf("SetMessageProviderMessageID() error = %v", err)
@@ -1667,9 +1667,9 @@ func TestMutationInfoForFolderUsesActiveUnifiedRole(t *testing.T) {
 		}
 	}
 
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<shared@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<shared@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(shared) = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(shared) = %d, %v", msgID, err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `UPDATE messages SET thread_id = 'thread-shared' WHERE id = ?`, msgID); err != nil {
 		t.Fatalf("set thread id: %v", err)
@@ -1903,9 +1903,9 @@ func TestEmailQueryFilterMatchesThreadWhenOlderMessageMatches(t *testing.T) {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
 
-	replyID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<reply@example.com>")
+	replyID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<reply@example.com>")
 	if err != nil || replyID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(reply) = %d, %v", replyID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(reply) = %d, %v", replyID, err)
 	}
 	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{Query: "needlechild"})
 	if err != nil {
@@ -1959,9 +1959,9 @@ func TestEmailQueryFilterSearchesBeyondInitialWindow(t *testing.T) {
 	if err := db.UpsertSyncMessages(ctx, msgs); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	targetID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<deep-search@example.com>")
+	targetID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<deep-search@example.com>")
 	if err != nil || targetID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(target) = %d, %v", targetID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(target) = %d, %v", targetID, err)
 	}
 
 	firstPage, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 10, models.EmailFilters{})
@@ -2052,23 +2052,23 @@ func TestEmailFiltersCoverStructuredSearchFields(t *testing.T) {
 		t.Fatalf("UpsertProviderSyncMessages() error = %v", err)
 	}
 
-	targetID, err := db.GetMessageLocalIDByInternetID(ctx, "acc_a", "<filter-target@example.com>")
+	targetID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc_a", "<filter-target@example.com>")
 	if err != nil || targetID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(target) = %d, %v", targetID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(target) = %d, %v", targetID, err)
 	}
-	otherID, err := db.GetMessageLocalIDByInternetID(ctx, "acc_b", "<filter-other@example.com>")
+	otherID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc_b", "<filter-other@example.com>")
 	if err != nil || otherID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(other) = %d, %v", otherID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(other) = %d, %v", otherID, err)
 	}
 	bodyPath := filepath.Join(t.TempDir(), "target-body.txt")
 	if err := os.WriteFile(bodyPath, []byte("body contains bodyneedle for full text search"), 0600); err != nil {
 		t.Fatalf("write body: %v", err)
 	}
-	if err := db.UpdateMessageBody(ctx, targetID, bodyPath, "", "", "budget planning preview"); err != nil {
-		t.Fatalf("UpdateMessageBody() error = %v", err)
+	if err := db.UpdateMessageBodyInternal(ctx, targetID, bodyPath, "", "", "budget planning preview"); err != nil {
+		t.Fatalf("UpdateMessageBodyInternal() error = %v", err)
 	}
-	if err := db.ReplaceAttachments(ctx, targetID, []AttachmentRow{{Filename: "receipt-deep.pdf", ContentType: "application/pdf", SizeBytes: 1024}}); err != nil {
-		t.Fatalf("ReplaceAttachments() error = %v", err)
+	if err := db.ReplaceAttachmentsInternal(ctx, targetID, []AttachmentRow{{Filename: "receipt-deep.pdf", ContentType: "application/pdf", SizeBytes: 1024}}); err != nil {
+		t.Fatalf("ReplaceAttachmentsInternal() error = %v", err)
 	}
 	if _, err := db.AddMessageLabel(ctx, targetID, "acc_a", LabelInput{AccountID: "acc_a", Name: "ProjectX", ProviderID: "ProjectX", ProviderType: LabelProviderLocal}); err != nil {
 		t.Fatalf("AddMessageLabel() error = %v", err)
@@ -2139,16 +2139,16 @@ func TestEmailBodyFilterUsesMaintainedSearchIndex(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<body@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<body@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(body) = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(body) = %d, %v", msgID, err)
 	}
 	bodyPath := filepath.Join(t.TempDir(), "body.txt")
 	if err := os.WriteFile(bodyPath, []byte("full body includes uniquebodytoken for search"), 0600); err != nil {
 		t.Fatalf("write body: %v", err)
 	}
-	if err := db.UpdateMessageBody(ctx, msgID, bodyPath, "", "", "preview without unique body token"); err != nil {
-		t.Fatalf("UpdateMessageBody() error = %v", err)
+	if err := db.UpdateMessageBodyInternal(ctx, msgID, bodyPath, "", "", "preview without unique body token"); err != nil {
+		t.Fatalf("UpdateMessageBodyInternal() error = %v", err)
 	}
 
 	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{Body: "uniquebodytoken"})
@@ -2183,17 +2183,17 @@ func TestEmailBodyFilterIndexesCompleteHTMLBody(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<html-body@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<html-body@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(body) = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(body) = %d, %v", msgID, err)
 	}
 	bodyPath := filepath.Join(t.TempDir(), "body.html")
 	body := `<html><head><style>.x { color: red; }</style></head><body><p>` + strings.Repeat("content ", 40) + `deeplhtmlsearchtoken</p></body></html>`
 	if err := os.WriteFile(bodyPath, []byte(body), 0600); err != nil {
 		t.Fatalf("write HTML body: %v", err)
 	}
-	if err := db.UpdateMessageBody(ctx, msgID, "", bodyPath, "", "short preview without the target"); err != nil {
-		t.Fatalf("UpdateMessageBody() error = %v", err)
+	if err := db.UpdateMessageBodyInternal(ctx, msgID, "", bodyPath, "", "short preview without the target"); err != nil {
+		t.Fatalf("UpdateMessageBodyInternal() error = %v", err)
 	}
 
 	page, err := db.GetEmailsRangeFilteredForUser(ctx, "default", "inbox", 0, 50, models.EmailFilters{Body: "deeplhtmlsearchtoken"})
@@ -2266,9 +2266,9 @@ func TestSidebarTagFilterMatchesLegacyRawIMAPKeywordRows(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	messageID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<legacy-work-label@example.com>")
+	messageID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<legacy-work-label@example.com>")
 	if err != nil || messageID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", messageID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", messageID, err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
 		INSERT INTO labels (id, account_id, name, color, provider_id, provider_type, is_system, updated_at)
@@ -2533,9 +2533,9 @@ func TestSyncGmailInboxMembershipPreservesRealUIDAndRemovesOnlySyntheticRows(t *
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages(important) error = %v", err)
 	}
-	syntheticID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<synthetic-inbox@example.com>")
+	syntheticID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<synthetic-inbox@example.com>")
 	if err != nil || syntheticID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(synthetic) = %d, %v", syntheticID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(synthetic) = %d, %v", syntheticID, err)
 	}
 	if err := db.SyncGmailInboxMembership(ctx, syntheticID, "acc", []string{"INBOX", "UNREAD"}); err != nil {
 		t.Fatalf("SyncGmailInboxMembership(add synthetic) error = %v", err)
@@ -2571,9 +2571,9 @@ func TestSyncGmailInboxMembershipPreservesRealUIDAndRemovesOnlySyntheticRows(t *
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages(inbox) error = %v", err)
 	}
-	realID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<real-inbox@example.com>")
+	realID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<real-inbox@example.com>")
 	if err != nil || realID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(real) = %d, %v", realID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(real) = %d, %v", realID, err)
 	}
 	if err := db.SyncGmailInboxMembership(ctx, realID, "acc", []string{"INBOX"}); err != nil {
 		t.Fatalf("SyncGmailInboxMembership(update real) error = %v", err)

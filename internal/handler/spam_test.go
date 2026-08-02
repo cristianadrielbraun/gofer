@@ -48,9 +48,9 @@ func TestSpamActionFallsBackToLocalMoveWhenRemoteReportFails(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<spam-fallback@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<spam-fallback@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 
 	h := &Handler{db: db, syncer: mail.NewSyncOrchestrator(db, nil, nil, nil)}

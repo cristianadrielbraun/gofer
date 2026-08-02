@@ -1495,7 +1495,7 @@ func (o *SyncOrchestrator) queuedMessageMutationInfo(ctx context.Context, entry 
 			return info, err
 		}
 	}
-	return o.db.GetMessageMutationInfo(ctx, entry.MessageID)
+	return o.db.GetMessageMutationInfoInternal(ctx, entry.MessageID)
 }
 
 func (o *SyncOrchestrator) markLabelMutationBatchError(ctx context.Context, entries []storage.LabelMutationQueueEntry, err error) {

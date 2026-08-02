@@ -190,13 +190,13 @@ func TestSyncGmailAPIAccountImportsLabelsMessagesAndCursor(t *testing.T) {
 		t.Fatalf("request order message=%d sent=%d, want first Inbox message imported before later targets", messageGetSeq, sentListSeq)
 	}
 
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<gmail-api@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<gmail-api@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if email.Subject != "Gmail API subject" || email.From.Email != "sender@example.com" || email.IsRead || !email.IsStarred {
 		t.Fatalf("email = %#v, want Gmail API subject/from/unread/starred", email)
@@ -204,7 +204,7 @@ func TestSyncGmailAPIAccountImportsLabelsMessagesAndCursor(t *testing.T) {
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderID != "Label_Projects" {
 		t.Fatalf("labels = %#v, want Projects Gmail label", email.Labels)
 	}
-	if db.IsBodyFetched(ctx, msgID) {
+	if db.IsBodyFetchedInternal(ctx, msgID) {
 		t.Fatal("Gmail API baseline sync fetched the body; want metadata-only import")
 	}
 	body, err := db.GetEmailBody(ctx, strconv.FormatInt(msgID, 10))
@@ -578,9 +578,9 @@ func TestSyncGmailAPIAccountRecentCatchupImportsGapMessageBeforeHistory(t *testi
 	if messageGets != 1 {
 		t.Fatalf("message metadata gets = %d, want only missing gap message", messageGets)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<gap@gmail.example>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<gap@gmail.example>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
 	if err != nil {
@@ -700,9 +700,9 @@ func TestRepairGmailAPIAccountRunsHistoricalImportForExistingProviderMessages(t 
 	if messageGets["gmail-known"] != 1 || messageGets["gmail-new"] != 1 {
 		t.Fatalf("message metadata gets = %#v, want known and new fetched during repair", messageGets)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<new@gmail.example>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<new@gmail.example>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID(new) = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal(new) = %d, %v", msgID, err)
 	}
 	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
 	if err != nil {
@@ -903,9 +903,9 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 	if recentListRequests != 1 {
 		t.Fatalf("recent list requests = %d, want one bounded catch-up before history", recentListRequests)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<gmail-history@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<gmail-history@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
 	if err != nil {
@@ -914,7 +914,7 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 	if state.Cursor != "111" || state.LastSyncedMessages != 1 {
 		t.Fatalf("sync state = %#v, want history cursor 111 with one synced message", state)
 	}
-	if db.IsBodyFetched(ctx, msgID) {
+	if db.IsBodyFetchedInternal(ctx, msgID) {
 		t.Fatal("Gmail history sync fetched the body; want metadata-only import before lazy open")
 	}
 }
@@ -1057,7 +1057,7 @@ func TestSyncGmailAPIHistoryQueuesAndRecoversTransientMessage404(t *testing.T) {
 	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM gmail_message_fetch_queue WHERE account_id = 'acc'`).Scan(&queued); err != nil {
 		t.Fatalf("query recovered Gmail queue: %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<gmail-late@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<gmail-late@example.com>")
 	if err != nil || msgID == 0 || queued != 0 || messageGets != gmailAPIMessageMetadataMaxAttempts+1 {
 		t.Fatalf("recovered Gmail message id=%d queued=%d gets=%d err=%v", msgID, queued, messageGets, err)
 	}

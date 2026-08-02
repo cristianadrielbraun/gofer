@@ -84,9 +84,9 @@ func seedLabelSyncMessage(t *testing.T, db *storage.DB, provider, messageID, rem
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", messageID)
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", messageID)
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 	if remoteMessageID != "" {
 		if err := db.SetMessageProviderMessageID(ctx, msgID, remoteMessageID); err != nil {
@@ -129,9 +129,9 @@ func TestSyncGmailLabelsImportsRemoteMessageLabels(t *testing.T) {
 		t.Fatalf("syncGmailLabels() error = %v", err)
 	}
 
-	email, err := db.GetEmailByID(context.Background(), strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(context.Background(), strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderID != "Label_1" || email.Labels[0].ProviderType != storage.LabelProviderGmail {
 		t.Fatalf("labels = %#v, want Projects Gmail label only", email.Labels)
@@ -172,9 +172,9 @@ func TestSyncGmailLabelsMirrorsInboxSystemLabelFromImportantMailbox(t *testing.T
 	}}); err != nil {
 		t.Fatalf("UpsertSyncMessages() error = %v", err)
 	}
-	msgID, err := db.GetMessageLocalIDByInternetID(ctx, "acc", "<important-inbox@example.com>")
+	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<important-inbox@example.com>")
 	if err != nil || msgID == 0 {
-		t.Fatalf("GetMessageLocalIDByInternetID() = %d, %v", msgID, err)
+		t.Fatalf("GetMessageLocalIDByInternetIDInternal() = %d, %v", msgID, err)
 	}
 	if err := db.SetMessageProviderMessageID(ctx, msgID, "gmail-important-1"); err != nil {
 		t.Fatalf("SetMessageProviderMessageID() error = %v", err)
@@ -292,9 +292,9 @@ func TestSyncGmailLabelChangesUsesHistoryCursor(t *testing.T) {
 		t.Fatalf("requests history=%d message=%d, want 1 and 1", historyRequests, messageRequests)
 	}
 
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Projects" || email.Labels[0].ProviderID != "Label_1" {
 		t.Fatalf("labels = %#v, want Projects from history delta", email.Labels)
@@ -514,9 +514,9 @@ func TestSyncOutlookCategoriesImportsRemoteMessageCategories(t *testing.T) {
 		t.Fatalf("syncOutlookCategories() error = %v", err)
 	}
 
-	email, err := db.GetEmailByID(context.Background(), strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(context.Background(), strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].Name != "Invoices" || email.Labels[0].ProviderType != storage.LabelProviderOutlook {
 		t.Fatalf("labels = %#v, want Invoices Outlook category", email.Labels)
@@ -590,23 +590,23 @@ func TestSyncOutlookCategoriesBatchesInternetMessageLookupsAndSkipsMissing(t *te
 		t.Fatalf("batch calls = %d, want 1", batchCalls)
 	}
 
-	found, err := db.GetEmailByID(context.Background(), strconv.FormatInt(foundID, 10))
+	found, err := db.GetEmailByIDInternal(context.Background(), strconv.FormatInt(foundID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID(found) error = %v", err)
+		t.Fatalf("GetEmailByIDInternal(found) error = %v", err)
 	}
 	if len(found.Labels) != 1 || found.Labels[0].Name != "Projects" {
 		t.Fatalf("found labels = %#v, want Projects", found.Labels)
 	}
-	missing, err := db.GetEmailByID(context.Background(), strconv.FormatInt(missingID, 10))
+	missing, err := db.GetEmailByIDInternal(context.Background(), strconv.FormatInt(missingID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID(missing) error = %v", err)
+		t.Fatalf("GetEmailByIDInternal(missing) error = %v", err)
 	}
 	if len(missing.Labels) != 0 {
 		t.Fatalf("missing labels = %#v, want none", missing.Labels)
 	}
-	synthetic, err := db.GetEmailByID(context.Background(), strconv.FormatInt(syntheticID, 10))
+	synthetic, err := db.GetEmailByIDInternal(context.Background(), strconv.FormatInt(syntheticID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID(synthetic) error = %v", err)
+		t.Fatalf("GetEmailByIDInternal(synthetic) error = %v", err)
 	}
 	if len(synthetic.Labels) != 0 {
 		t.Fatalf("synthetic labels = %#v, want none", synthetic.Labels)
@@ -723,9 +723,9 @@ func TestReplayGmailLabelMutationQueueAppliesQueuedAdd(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("queued entries after replay = %#v, want none", entries)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].ProviderType != storage.LabelProviderGmail || email.Labels[0].ProviderID != "Label_Projects" {
 		t.Fatalf("labels = %#v, want provider-backed Gmail label", email.Labels)
@@ -805,9 +805,9 @@ func TestReplayOutlookLabelMutationQueueAppliesQueuedAdd(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("queued entries after replay = %#v, want none", entries)
 	}
-	email, err := db.GetEmailByID(ctx, strconv.FormatInt(msgID, 10))
+	email, err := db.GetEmailByIDInternal(ctx, strconv.FormatInt(msgID, 10))
 	if err != nil {
-		t.Fatalf("GetEmailByID() error = %v", err)
+		t.Fatalf("GetEmailByIDInternal() error = %v", err)
 	}
 	if len(email.Labels) != 1 || email.Labels[0].ProviderType != storage.LabelProviderOutlook {
 		t.Fatalf("labels = %#v, want provider-backed Outlook label", email.Labels)

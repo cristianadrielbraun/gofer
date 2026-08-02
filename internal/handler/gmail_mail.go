@@ -121,7 +121,7 @@ func (h *Handler) deleteGmailAPIMessage(ctx context.Context, token, providerMess
 }
 
 func (h *Handler) fetchGmailAPIMessageMIME(ctx context.Context, messageID int64) ([]byte, bool, error) {
-	info, err := h.db.GetMessageMutationInfo(ctx, messageID)
+	info, err := h.db.GetMessageMutationInfoInternal(ctx, messageID)
 	if err != nil || info == nil {
 		return nil, false, err
 	}
@@ -200,7 +200,7 @@ func (h *Handler) saveGmailAPIDraft(ctx context.Context, accountID string, local
 	if err != nil {
 		return err
 	}
-	if existing, err := h.db.GetDraftProviderInfo(ctx, accountID, msg.MessageID); err == nil && existing != nil {
+	if existing, err := h.db.GetDraftProviderInfoInternal(ctx, accountID, msg.MessageID); err == nil && existing != nil {
 		if providerID := strings.TrimSpace(existing.ProviderMessageID); providerID != "" {
 			if err := h.deleteGmailAPIMessage(ctx, token, providerID); err != nil && !googleAPIStatus(err, http.StatusNotFound) {
 				return err
@@ -261,7 +261,7 @@ func (h *Handler) sendGmailAPIMessage(ctx context.Context, cfg *models.AccountCo
 	h.saveSentMessageSnapshot(ctx, cfg.AccountID, msg, raw)
 	h.cacheGmailSentMessageID(ctx, cfg.AccountID, msg, token, providerMessageID)
 	if strings.TrimSpace(draftID) != "" {
-		draftProvider, _ := h.db.GetDraftProviderInfo(ctx, cfg.AccountID, draftID)
+		draftProvider, _ := h.db.GetDraftProviderInfoInternal(ctx, cfg.AccountID, draftID)
 		if folderID, err := h.db.DeleteDraftMessage(ctx, cfg.AccountID, draftID); err == nil && folderID != "" {
 			h.publishMutation(cfg.AccountID, folderID)
 		}
@@ -299,7 +299,7 @@ func (h *Handler) sendGmailAPIRaw(ctx context.Context, cfg *models.AccountConfig
 }
 
 func (h *Handler) cacheGmailSentMessageID(ctx context.Context, accountID string, msg *message.OutgoingMessage, token, providerMessageID string) {
-	localID, err := h.db.GetMessageLocalIDByInternetID(ctx, accountID, msg.MessageID)
+	localID, err := h.db.GetMessageLocalIDByInternetIDInternal(ctx, accountID, msg.MessageID)
 	if err != nil || localID == 0 {
 		return
 	}

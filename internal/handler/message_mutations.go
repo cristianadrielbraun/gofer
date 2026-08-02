@@ -116,7 +116,7 @@ func (h *Handler) runDueMessageMutations(ctx context.Context) {
 func (h *Handler) applyQueuedMessageMutation(parent context.Context, mutation storage.MessageMutation) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
-	if _, err := h.db.GetMessageMutation(ctx, mutation.ID); err == sql.ErrNoRows {
+	if _, err := h.db.GetMessageMutationInternal(ctx, mutation.ID); err == sql.ErrNoRows {
 		return
 	} else if err != nil {
 		log.Printf("message-mutation: reload id=%s: %v", mutation.ID, err)
@@ -160,7 +160,7 @@ func (h *Handler) applyRemoteMessageMutation(ctx context.Context, mutation stora
 	} else if mutation.FolderID != "" {
 		info, err = h.db.GetMessageMutationInfoInFolder(ctx, mutation.MessageID, mutation.FolderID)
 	} else {
-		info, err = h.db.GetMessageMutationInfo(ctx, mutation.MessageID)
+		info, err = h.db.GetMessageMutationInfoInternal(ctx, mutation.MessageID)
 	}
 	if err != nil {
 		return err

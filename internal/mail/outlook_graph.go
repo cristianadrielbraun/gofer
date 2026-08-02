@@ -1012,7 +1012,7 @@ func (o *SyncOrchestrator) syncOutlookGraphAttachmentMetadata(ctx context.Contex
 			continue
 		}
 		if !msg.HasAttachments {
-			if err := o.db.ReplaceAttachments(ctx, localID, nil); err != nil {
+			if err := o.db.ReplaceAttachmentsInternal(ctx, localID, nil); err != nil {
 				return fmt.Errorf("outlook graph attachment metadata clear message=%s local=%d: %w", providerMessageID, localID, err)
 			}
 			continue
@@ -1045,7 +1045,7 @@ func (o *SyncOrchestrator) syncOutlookGraphAttachmentMetadata(ctx context.Contex
 				ProviderRemoteID: providerAttachmentID,
 			})
 		}
-		if err := o.db.ReplaceAttachments(ctx, localID, rows); err != nil {
+		if err := o.db.ReplaceAttachmentsInternal(ctx, localID, rows); err != nil {
 			return fmt.Errorf("outlook graph attachment metadata store message=%s local=%d: %w", providerMessageID, localID, err)
 		}
 	}
@@ -1174,7 +1174,7 @@ func (o *SyncOrchestrator) storeOutlookGraphBodies(ctx context.Context, accountI
 	}
 	for _, msg := range messages {
 		localID := idsByProvider[strings.TrimSpace(msg.ID)]
-		if localID == 0 || strings.TrimSpace(msg.Body.Content) == "" || o.db.IsBodyFetched(ctx, localID) {
+		if localID == 0 || strings.TrimSpace(msg.Body.Content) == "" || o.db.IsBodyFetchedInternal(ctx, localID) {
 			continue
 		}
 		snippet := strings.TrimSpace(msg.BodyPreview)
@@ -1219,11 +1219,11 @@ func (o *SyncOrchestrator) storeOutlookGraphBodies(ctx context.Context, accountI
 			continue
 		}
 		if originalHTMLPath != "" {
-			if err := o.db.UpdateMessageOriginalHTMLPath(ctx, localID, originalHTMLPath); err != nil {
+			if err := o.db.UpdateMessageOriginalHTMLPathInternal(ctx, localID, originalHTMLPath); err != nil {
 				return fmt.Errorf("outlook graph body original html update message=%d: %w", localID, err)
 			}
 		}
-		if err := o.db.UpdateMessageBody(ctx, localID, textPath, htmlPath, "", snippet); err != nil {
+		if err := o.db.UpdateMessageBodyInternal(ctx, localID, textPath, htmlPath, "", snippet); err != nil {
 			return fmt.Errorf("outlook graph body update message=%d: %w", localID, err)
 		}
 	}
@@ -1235,7 +1235,7 @@ func (o *SyncOrchestrator) outlookGraphCIDURLMap(ctx context.Context, localID in
 	if o.db == nil || localID == 0 {
 		return cidToURL
 	}
-	attachments, err := o.db.GetAttachments(ctx, localID)
+	attachments, err := o.db.GetAttachmentsInternal(ctx, localID)
 	if err != nil {
 		return cidToURL
 	}
