@@ -140,6 +140,27 @@ func TestMailOperationsAreUserScopedAndRetrySafe(t *testing.T) {
 	}
 }
 
+func TestProviderEnumerationAndLabelReplaySkipDisabledUsers(t *testing.T) {
+	ctx := t.Context()
+	db, _, _ := seedMailOperationsTest(t)
+	if _, err := db.Write().ExecContext(ctx, `UPDATE users SET status = 'disabled', disabled_at = CURRENT_TIMESTAMP WHERE id = 'default'`); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	accountIDs, err := db.GetAllEmailSyncAccountIDs(ctx)
+	if err != nil {
+		t.Fatalf("GetAllEmailSyncAccountIDs() error = %v", err)
+	}
+	for _, accountID := range accountIDs {
+		if accountID == "acc" {
+			t.Fatalf("disabled user's account remained in sync enumeration: %#v", accountIDs)
+		}
+	}
+	labels, err := db.ListDueLabelMutations(ctx, "acc", LabelProviderGmail, 10)
+	if err != nil || len(labels) != 0 {
+		t.Fatalf("ListDueLabelMutations() = %#v, %v; want no disabled-user work", labels, err)
+	}
+}
+
 func TestMailOperationsAdminStatusIsAggregatedAndMasked(t *testing.T) {
 	ctx := context.Background()
 	db, draftID, sentCopyID := seedMailOperationsTest(t)

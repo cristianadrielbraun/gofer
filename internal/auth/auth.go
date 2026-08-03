@@ -17,13 +17,34 @@ import (
 )
 
 type User struct {
-	ID        string
-	Email     string
-	Name      string
-	AvatarURL string
-	IsAdmin   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                 string
+	Email              string
+	EmailNormalized    string
+	Username           string
+	UsernameNormalized string
+	Name               string
+	AvatarURL          string
+	Status             UserStatus
+	AuthVersion        int64
+	MFARequired        bool
+	LastLoginAt        *time.Time
+	DisabledAt         *time.Time
+	DisabledBy         string
+	IsAdmin            bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type UserStatus string
+
+const (
+	UserStatusPending  UserStatus = "pending"
+	UserStatusActive   UserStatus = "active"
+	UserStatusDisabled UserStatus = "disabled"
+)
+
+func (status UserStatus) AllowsAuthentication() bool {
+	return status == UserStatusActive
 }
 
 type Session struct {
@@ -202,8 +223,8 @@ func (m *Manager) EnsureDefaultUser() error {
 
 	now := time.Now()
 	_, err = m.db.Write().Exec(
-		`INSERT INTO users (id, email, name, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		"default", "local@gofer.local", "Local User", 1, now, now,
+		`INSERT INTO users (id, email, email_normalized, name, status, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"default", "local@gofer.local", "local@gofer.local", "Local User", UserStatusActive, 1, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("create default user: %w", err)
@@ -227,26 +248,23 @@ func (m *Manager) GetDefaultUser() *User {
 		return nil
 	}
 	return &User{
-		ID:      "default",
-		Email:   "local@gofer.local",
-		Name:    "Local User",
-		IsAdmin: true,
+		ID:              "default",
+		Email:           "local@gofer.local",
+		EmailNormalized: "local@gofer.local",
+		Name:            "Local User",
+		Status:          UserStatusActive,
+		AuthVersion:     1,
+		IsAdmin:         true,
 	}
 }
 
 func (m *Manager) GetUserByID(ctx context.Context, id string) (*User, error) {
-	u := &User{}
-	var isAdmin int
-	err := m.db.Read().QueryRowContext(ctx,
-		`SELECT id, email, name, avatar_url, is_admin, created_at, updated_at FROM users WHERE id = ?`,
-		id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.AvatarURL, &isAdmin, &u.CreatedAt, &u.UpdatedAt)
+	u, err := scanUser(m.db.Read().QueryRowContext(ctx, userSelect+` WHERE id = ?`, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	u.IsAdmin = isAdmin == 1
 	return u, nil
 }

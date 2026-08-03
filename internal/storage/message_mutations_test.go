@@ -264,6 +264,28 @@ func TestMessageMutationClaimsSkipDeletingAccounts(t *testing.T) {
 	}
 }
 
+func TestMessageMutationClaimsSkipDisabledUsers(t *testing.T) {
+	db, messageID := seedMoveMutationTest(t, "imap")
+	ctx := t.Context()
+	if err := db.SetMessageReadAndQueue(ctx, messageID, true); err != nil {
+		t.Fatalf("SetMessageReadAndQueue() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE users SET status = 'disabled', disabled_at = CURRENT_TIMESTAMP WHERE id = 'default'`); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	claimed, err := db.ClaimDueMessageMutations(ctx, time.Now(), 10)
+	if err != nil || len(claimed) != 0 {
+		t.Fatalf("ClaimDueMessageMutations() = %#v, %v; want no disabled-user work", claimed, err)
+	}
+	var processing int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE status = ?`, MessageMutationProcessing).Scan(&processing); err != nil {
+		t.Fatalf("count processing mutations: %v", err)
+	}
+	if processing != 0 {
+		t.Fatalf("processing mutations = %d, want 0", processing)
+	}
+}
+
 func TestIMAPMoveWaitsForDestinationSyncWithoutRevivingSource(t *testing.T) {
 	db, messageID := seedMoveMutationTest(t, "imap")
 	ctx := t.Context()

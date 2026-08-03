@@ -493,7 +493,8 @@ func uniquePositiveInt64s(values []int64) []int64 {
 }
 
 // ClaimDueMessageMutations is an internal worker boundary. Authenticated
-// handlers may enqueue only through user-scoped mutation methods.
+// handlers may enqueue only through user-scoped mutation methods. Claims
+// require both a non-deleting account and an active owning user.
 func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit int) ([]MessageMutation, error) {
 	if limit <= 0 {
 		limit = 25
@@ -505,7 +506,10 @@ func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, messageMutationSelect+`
 		WHERE status IN (?, ?) AND next_attempt_at <= ?
-		  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0)
+		  AND EXISTS (
+			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
+			WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
+		  )
 		ORDER BY created_at ASC LIMIT ?`, MessageMutationPending, MessageMutationFailed, now.UTC(), limit)
 	if err != nil {
 		return nil, err
@@ -527,7 +531,10 @@ func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit
 			UPDATE message_mutations
 			SET status = ?, attempt_count = attempt_count + 1, locked_at = ?, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND status = ?
-			  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0)`, MessageMutationProcessing, now.UTC(), mutations[i].ID, mutations[i].Status)
+			  AND EXISTS (
+				SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
+				WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
+			  )`, MessageMutationProcessing, now.UTC(), mutations[i].ID, mutations[i].Status)
 		if err != nil {
 			return nil, err
 		}

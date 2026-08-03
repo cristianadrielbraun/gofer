@@ -2,7 +2,9 @@
 
 `RegisterRoutes` is wrapped by the application authentication middleware. A
 route being registered here does not make it public. The categories below are
-the ownership inventory and must be updated when a route is added.
+the ownership inventory and must be updated when a route is added. Authenticated
+routes require an active user; pending or disabled users cannot enter the
+handler layer through an application session.
 
 ## Public and pre-authentication routes
 

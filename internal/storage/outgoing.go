@@ -284,6 +284,7 @@ func (db *DB) OutgoingSendForMessageInternal(ctx context.Context, messageID int6
 
 // ClaimDueOutgoingSends is an internal worker boundary. The outgoing worker is
 // its trusted caller; browser retry routes only move owned rows back to pending.
+// Claims require both a non-deleting account and an active owning user.
 func (db *DB) ClaimDueOutgoingSends(ctx context.Context, now time.Time, limit int) ([]OutgoingSend, error) {
 	if limit <= 0 {
 		limit = 10
@@ -297,7 +298,10 @@ func (db *DB) ClaimDueOutgoingSends(ctx context.Context, now time.Time, limit in
 
 	rows, err := tx.QueryContext(ctx, outgoingSendSelect+`
 		WHERE status = ? AND send_after <= ? AND next_attempt_at <= ? AND mime_data IS NOT NULL AND length(mime_data) > 0
-		  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0)
+		  AND EXISTS (
+			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
+			WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
+		  )
 		ORDER BY next_attempt_at ASC, send_after ASC, created_at ASC
 		LIMIT ?`, OutgoingSendPending, now, now, limit)
 	if err != nil {
@@ -320,7 +324,10 @@ func (db *DB) ClaimDueOutgoingSends(ctx context.Context, now time.Time, limit in
 			UPDATE outgoing_sends
 			SET status = ?, locked_at = ?, attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND status = ?
-			  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0)`, OutgoingSendSending, now, sends[i].ID, OutgoingSendPending)
+			  AND EXISTS (
+				SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
+				WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
+			  )`, OutgoingSendSending, now, sends[i].ID, OutgoingSendPending)
 		if err != nil {
 			return nil, err
 		}
@@ -364,7 +371,8 @@ func (db *DB) CompleteOutgoingSend(ctx context.Context, id, sentMessageID string
 }
 
 // ClaimDueSentCopies is an internal worker boundary used only by the sent-copy
-// worker after an owned send has reached its durable sent state.
+// worker after an owned send has reached its durable sent state. Claims require
+// both a non-deleting account and an active owning user.
 func (db *DB) ClaimDueSentCopies(ctx context.Context, now time.Time, limit int) ([]OutgoingSend, error) {
 	if limit <= 0 {
 		limit = 10
@@ -381,7 +389,10 @@ func (db *DB) ClaimDueSentCopies(ctx context.Context, now time.Time, limit int) 
 		  AND sent_copy_status IN (?, ?, ?)
 		  AND sent_copy_next_attempt_at <= ?
 		  AND mime_data IS NOT NULL AND length(mime_data) > 0
-		  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0)
+		  AND EXISTS (
+			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
+			WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
+		  )
 		ORDER BY sent_copy_next_attempt_at ASC, updated_at ASC
 		LIMIT ?`, OutgoingSendSent, SentCopyPending, SentCopyFailed, SentCopyAmbiguous, now, limit)
 	if err != nil {
@@ -405,7 +416,10 @@ func (db *DB) ClaimDueSentCopies(ctx context.Context, now time.Time, limit int) 
 			SET sent_copy_status = ?, sent_copy_locked_at = ?,
 				sent_copy_attempt_count = sent_copy_attempt_count + 1, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND sent_copy_status = ?
-			  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0)`, SentCopyCopying, now, sends[i].ID, sends[i].SentCopyStatus)
+			  AND EXISTS (
+				SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
+				WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
+			  )`, SentCopyCopying, now, sends[i].ID, sends[i].SentCopyStatus)
 		if err != nil {
 			return nil, err
 		}

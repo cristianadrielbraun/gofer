@@ -141,7 +141,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 76
+	const targetSchemaVersion = 77
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -606,6 +606,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 75 {
 		if err := migrateV75ToV76(tx); err != nil {
 			return fmt.Errorf("migrate v75 to v76: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 76 {
+		if err := migrateV76ToV77(tx); err != nil {
+			return fmt.Errorf("migrate v76 to v77: %w", err)
 		}
 	}
 
@@ -3342,6 +3348,105 @@ func migrateV75ToV76(tx *sql.Tx) error {
 		return err
 	}
 	return markSchemaVersion(tx, 76)
+}
+
+func migrateV76ToV77(tx *sql.Tx) error {
+	hasUsers, err := tableExistsTx(tx, "users")
+	if err != nil {
+		return err
+	}
+	if !hasUsers {
+		return markSchemaVersion(tx, 77)
+	}
+
+	type existingUser struct {
+		id              string
+		emailNormalized string
+	}
+
+	var users []existingUser
+	hasEmail, err := columnExistsTx(tx, "users", "email")
+	if err != nil {
+		return err
+	}
+	if hasEmail {
+		rows, err := tx.Query(`SELECT id, email FROM users ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		seenEmails := make(map[string]string)
+		for rows.Next() {
+			var id, email string
+			if err := rows.Scan(&id, &email); err != nil {
+				rows.Close()
+				return err
+			}
+			normalized := strings.ToLower(strings.TrimSpace(email))
+			if normalized == "" {
+				rows.Close()
+				return fmt.Errorf("user %q has an empty normalized email", id)
+			}
+			if existingID, exists := seenEmails[normalized]; exists {
+				rows.Close()
+				return fmt.Errorf("normalized email collision between users %q and %q", existingID, id)
+			}
+			seenEmails[normalized] = id
+			users = append(users, existingUser{id: id, emailNormalized: normalized})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "email_normalized", definition: `TEXT`},
+		{name: "username", definition: `TEXT`},
+		{name: "username_normalized", definition: `TEXT`},
+		{name: "status", definition: `TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending', 'active', 'disabled'))`},
+		{name: "auth_version", definition: `INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0)`},
+		{name: "mfa_required", definition: `INTEGER NOT NULL DEFAULT 0 CHECK (mfa_required IN (0, 1))`},
+		{name: "last_login_at", definition: `DATETIME`},
+		{name: "disabled_at", definition: `DATETIME`},
+		{name: "disabled_by", definition: `TEXT REFERENCES users(id) ON DELETE SET NULL`},
+	}
+	for _, column := range columns {
+		exists, err := columnExistsTx(tx, "users", column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+			return err
+		}
+	}
+	for _, user := range users {
+		if _, err := tx.Exec(`UPDATE users SET email_normalized = ? WHERE id = ?`, user.emailNormalized, user.id); err != nil {
+			return err
+		}
+	}
+	indexes := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_normalized ON users(email_normalized)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_normalized ON users(username_normalized) WHERE username_normalized IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)`,
+	}
+	for _, statement := range indexes {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	if err := foreignKeyCheckTx(tx); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 77)
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

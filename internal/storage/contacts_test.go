@@ -1034,3 +1034,30 @@ func TestContactSyncOperationsLifecycle(t *testing.T) {
 		t.Fatalf("latest after success = %#v, want done without error", latest)
 	}
 }
+
+func TestContactSyncClaimsSkipDisabledUsers(t *testing.T) {
+	ctx := t.Context()
+	db := newContactsTestDB(t)
+	contact, err := db.SaveContact(ctx, "default", models.Contact{Name: "Queued", Email: "queued@example.com"})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	if _, err := db.EnqueueContactSyncOperation(ctx, "default", contact, nil); err != nil {
+		t.Fatalf("EnqueueContactSyncOperation() error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE users SET status = 'disabled', disabled_at = CURRENT_TIMESTAMP WHERE id = 'default'`); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	ops, err := db.ClaimContactSyncOperations(ctx, 10, time.Minute)
+	if err != nil || len(ops) != 0 {
+		t.Fatalf("ClaimContactSyncOperations() = %#v, %v; want no disabled-user work", ops, err)
+	}
+	var status string
+	var attempts int
+	if err := db.Read().QueryRow(`SELECT status, attempt_count FROM contact_sync_operations WHERE user_id = 'default'`).Scan(&status, &attempts); err != nil {
+		t.Fatalf("query queued contact sync: %v", err)
+	}
+	if status != "pending" || attempts != 0 {
+		t.Fatalf("queued contact sync status=%q attempts=%d, want pending/0", status, attempts)
+	}
+}

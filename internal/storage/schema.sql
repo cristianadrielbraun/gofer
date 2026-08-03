@@ -484,12 +484,30 @@ CREATE TABLE IF NOT EXISTS remote_content_messages (
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
+    email_normalized TEXT,
+    username TEXT,
+    username_normalized TEXT,
     name TEXT NOT NULL DEFAULT '',
     avatar_url TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending', 'active', 'disabled')),
+    auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0),
+    mfa_required INTEGER NOT NULL DEFAULT 0 CHECK (mfa_required IN (0, 1)),
+    last_login_at DATETIME,
+    disabled_at DATETIME,
+    disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_normalized
+    ON users(email_normalized);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_normalized
+    ON users(username_normalized)
+    WHERE username_normalized IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 
 -- OAuth provider accounts (Google, future: GitHub, etc.)
 CREATE TABLE IF NOT EXISTS oauth_accounts (
@@ -1079,4 +1097,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (76);
+INSERT OR REPLACE INTO schema_version (version) VALUES (77);

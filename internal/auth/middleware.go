@@ -57,6 +57,11 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 			m.redirectToLogin(w, r)
 			return
 		}
+		if !user.Status.AllowsAuthentication() {
+			ClearSessionCookie(w, m.config.SecureCookies)
+			m.redirectToLogin(w, r)
+			return
+		}
 
 		ctx := ContextWithUser(r.Context(), user)
 		next.ServeHTTP(w, r.WithContext(ctx))

@@ -1594,7 +1594,8 @@ func (db *DB) EnqueueContactSyncOperationFromAccount(ctx context.Context, userID
 }
 
 // ClaimContactSyncOperations is an internal worker boundary. Its handler
-// re-reads the user-owned contact and current target accounts before any provider call.
+// re-reads the user-owned contact and current target accounts before any
+// provider call. Claims require the operation's user to remain active.
 func (db *DB) ClaimContactSyncOperations(ctx context.Context, limit int, lockTimeout time.Duration) ([]ContactSyncOperation, error) {
 	if limit <= 0 || limit > 25 {
 		limit = 10
@@ -1614,6 +1615,7 @@ func (db *DB) ClaimContactSyncOperations(ctx context.Context, limit int, lockTim
 		FROM contact_sync_operations
 		WHERE (status = 'pending' OR (status = 'running' AND locked_at <= ?))
 		  AND next_attempt_at <= CURRENT_TIMESTAMP
+		  AND EXISTS (SELECT 1 FROM users u WHERE u.id = contact_sync_operations.user_id AND u.status = 'active')
 		ORDER BY created_at
 		LIMIT ?`, cutoff, limit)
 	if err != nil {
@@ -1642,7 +1644,8 @@ func (db *DB) ClaimContactSyncOperations(ctx context.Context, limit int, lockTim
 		res, err := tx.ExecContext(ctx, `
 			UPDATE contact_sync_operations
 			SET status = 'running', locked_at = CURRENT_TIMESTAMP, attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ? AND (status = 'pending' OR (status = 'running' AND locked_at <= ?))`, id, cutoff)
+			WHERE id = ? AND (status = 'pending' OR (status = 'running' AND locked_at <= ?))
+			  AND EXISTS (SELECT 1 FROM users u WHERE u.id = contact_sync_operations.user_id AND u.status = 'active')`, id, cutoff)
 		if err != nil {
 			return nil, err
 		}

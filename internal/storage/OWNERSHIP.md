@@ -30,17 +30,20 @@ preconditions are part of their contract:
 
 - `ClaimDueOutgoingSends` and `ClaimDueSentCopies`: outgoing and sent-copy
   workers only. Queue creation/retry is user-scoped; claims exclude deleting
-  accounts.
+  accounts and accounts whose user is not active.
 - `ClaimDueMessageMutations`: message-mutation worker only. Authenticated
-  enqueue methods validate all targets first; claims exclude deleting accounts.
+  enqueue methods validate all targets first; claims exclude deleting accounts
+  and accounts whose user is not active.
 - `ClaimDueIMAPDraftOperations`: IMAP draft worker only. Draft handlers first
-  establish message/account ownership; claims exclude deleting accounts.
+  establish message/account ownership; claims exclude deleting accounts and
+  accounts whose user is not active.
 - `ClaimContactSyncOperations`: contact-sync worker only. The worker re-reads
   the current user-owned contact and current target accounts before provider
-  traffic.
+  traffic; claims require the operation's user to remain active.
 - `ListDueLabelMutations`: provider sync worker only. `accountID` comes from an
   active account sync path enumerated by `GetAllEmailSyncAccountIDs`, which
-  excludes deleting accounts.
+  excludes deleting accounts and accounts whose user is not active. Label
+  replay independently checks the same conditions.
 - Queue completion, retry-state, provider UID, folder-state, body persistence,
   and attachment persistence methods are called only after one of the claims
   above or after an owned/account-scoped provider sync has established the
@@ -52,7 +55,8 @@ preconditions are part of their contract:
   account and must not pass a request-supplied global ID directly into an
   `Internal` method.
 - `GetAllAccountIDs` and `GetAllEmailSyncAccountIDs` are startup/background
-  enumerators. They are not valid sources for a browser response.
+  enumerators for active users. They are not valid sources for a browser
+  response.
 - Global avatar candidate/cache methods are used by avatar warmup/backfill and
   administrator diagnostics. User delivery is separately authorization
   checked.

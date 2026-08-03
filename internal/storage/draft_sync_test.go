@@ -71,6 +71,22 @@ func TestIMAPDraftClaimsSkipDeletingAccounts(t *testing.T) {
 	}
 }
 
+func TestIMAPDraftClaimsSkipDisabledUsers(t *testing.T) {
+	db, _, state := seedIMAPDraftSyncTest(t)
+	queued := queueDraftRevision(t, db, state, "revision-1", []byte("draft"))
+	if _, err := db.Write().ExecContext(t.Context(), `UPDATE users SET status = 'disabled', disabled_at = CURRENT_TIMESTAMP WHERE id = 'default'`); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	claimed, err := db.ClaimDueIMAPDraftOperations(t.Context(), time.Now(), 10)
+	if err != nil || len(claimed) != 0 {
+		t.Fatalf("ClaimDueIMAPDraftOperations() = %#v, %v; want no disabled-user work", claimed, err)
+	}
+	op, err := db.GetIMAPDraftOperation(t.Context(), queued.ID)
+	if err != nil || op.Status != IMAPDraftStatusPending || op.AttemptCount != 0 {
+		t.Fatalf("queued draft after disabled claim = %#v, %v", op, err)
+	}
+}
+
 func TestIMAPDraftQueueKeepsNewRevisionBehindActiveRevision(t *testing.T) {
 	db, _, state := seedIMAPDraftSyncTest(t)
 	first := queueDraftRevision(t, db, state, "revision-1", []byte("first"))

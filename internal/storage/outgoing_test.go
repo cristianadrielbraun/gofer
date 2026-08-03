@@ -151,6 +151,38 @@ func TestOutgoingClaimsSkipDeletingAccounts(t *testing.T) {
 	}
 }
 
+func TestOutgoingClaimsSkipDisabledUsers(t *testing.T) {
+	ctx := t.Context()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	pending, err := db.QueueOutgoingSend(ctx, outgoingTestInput("acc", 0, time.Now().Add(-time.Minute), false))
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend(pending) error = %v", err)
+	}
+	copySource, err := db.QueueOutgoingSend(ctx, outgoingTestInput("acc", 0, time.Now().Add(-time.Minute), false))
+	if err != nil {
+		t.Fatalf("QueueOutgoingSend(copy) error = %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE outgoing_sends SET status = ?, sent_copy_status = ?, sent_copy_next_attempt_at = CURRENT_TIMESTAMP WHERE id = ?`, OutgoingSendSent, SentCopyPending, copySource.ID); err != nil {
+		t.Fatalf("prepare sent copy: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE users SET status = 'disabled', disabled_at = CURRENT_TIMESTAMP WHERE id = 'default'`); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	if sends, err := db.ClaimDueOutgoingSends(ctx, time.Now(), 10); err != nil || len(sends) != 0 {
+		t.Fatalf("ClaimDueOutgoingSends() = %#v, %v; want no disabled-user work", sends, err)
+	}
+	if copies, err := db.ClaimDueSentCopies(ctx, time.Now(), 10); err != nil || len(copies) != 0 {
+		t.Fatalf("ClaimDueSentCopies() = %#v, %v; want no disabled-user work", copies, err)
+	}
+	got, err := db.GetOutgoingSend(ctx, pending.ID)
+	if err != nil || got.Status != OutgoingSendPending || got.AttemptCount != 0 {
+		t.Fatalf("pending send after disabled claim = %#v, %v", got, err)
+	}
+}
+
 func TestOutgoingSendRetrySurvivesDatabaseRestart(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "gofer.db")

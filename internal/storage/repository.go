@@ -2874,7 +2874,8 @@ func (db *DB) EnqueueLabelMutation(ctx context.Context, accountID string, messag
 }
 
 // ListDueLabelMutations is an internal sync-worker boundary. Its callers receive
-// accountID from the active account sync path, which excludes deleting accounts.
+// accountID from the active account sync path, which excludes deleting accounts
+// and accounts whose user is not active. This method repeats that check.
 func (db *DB) ListDueLabelMutations(ctx context.Context, accountID, providerType string, limit int) ([]LabelMutationQueueEntry, error) {
 	accountID = strings.TrimSpace(accountID)
 	providerType = strings.TrimSpace(providerType)
@@ -2888,6 +2889,10 @@ func (db *DB) ListDueLabelMutations(ctx context.Context, accountID, providerType
 		SELECT id, account_id, message_id, folder_id, provider_type, operation, label_name, attempts, last_error
 		FROM label_mutation_queue
 		WHERE account_id = ? AND provider_type = ? AND next_attempt_at <= ?
+		  AND EXISTS (
+			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
+			WHERE a.id = label_mutation_queue.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
+		  )
 		ORDER BY next_attempt_at ASC, id ASC
 		LIMIT ?`, accountID, providerType, formatDBTime(time.Now().UTC()), limit)
 	if err != nil {
@@ -3748,7 +3753,9 @@ func (db *DB) GetEmailSyncAccountIDs(ctx context.Context, userID string) ([]stri
 }
 
 func (db *DB) GetAllAccountIDs(ctx context.Context) ([]string, error) {
-	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE COALESCE(is_deleting, 0) = 0 ORDER BY id`)
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT a.id FROM accounts a JOIN users u ON u.id = a.user_id
+		WHERE COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active' ORDER BY a.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -3766,7 +3773,10 @@ func (db *DB) GetAllAccountIDs(ctx context.Context) ([]string, error) {
 }
 
 func (db *DB) GetAllEmailSyncAccountIDs(ctx context.Context) ([]string, error) {
-	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE COALESCE(is_deleting, 0) = 0 AND COALESCE(email_sync_enabled, 1) = 1 ORDER BY id`)
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT a.id FROM accounts a JOIN users u ON u.id = a.user_id
+		WHERE COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
+		  AND u.status = 'active' ORDER BY a.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -3785,7 +3795,10 @@ func (db *DB) GetAllEmailSyncAccountIDs(ctx context.Context) ([]string, error) {
 
 func (db *DB) IsEmailSyncEnabled(ctx context.Context, accountID string) bool {
 	var enabled int
-	err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(email_sync_enabled, 1) FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID).Scan(&enabled)
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT COALESCE(a.email_sync_enabled, 1)
+		FROM accounts a JOIN users u ON u.id = a.user_id
+		WHERE a.id = ? AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'`, accountID).Scan(&enabled)
 	return err == nil && enabled == 1
 }
 
