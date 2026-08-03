@@ -242,10 +242,10 @@ func (h *Handler) searchContactSyncSetupCandidates(ctx context.Context, userID s
 	}
 	switch account.Provider {
 	case providers.ProviderGmail:
-		if h.auth == nil {
+		if h.mailCredentials() == nil {
 			return nil, "Gmail authorization is unavailable."
 		}
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, account.ID)
+		token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, account.ID)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -262,10 +262,10 @@ func (h *Handler) searchContactSyncSetupCandidates(ctx context.Context, userID s
 			}
 		}
 	case providers.ProviderOutlook:
-		if h.auth == nil {
+		if h.mailCredentials() == nil {
 			return nil, "Outlook authorization is unavailable."
 		}
-		token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, account.ID)
+		token, err := h.mailCredentials().GetMicrosoftGraphContactsTokenForAccount(ctx, account.ID)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -402,7 +402,7 @@ func contactSyncCandidateMatchesQueries(candidate models.Contact, queries []stri
 func (h *Handler) loadContactSyncSetupCandidate(ctx context.Context, userID string, account contactSyncAccount, key string) (models.Contact, storage.ContactSource, error) {
 	switch {
 	case account.Provider == providers.ProviderGmail && strings.HasPrefix(key, "gmail:"):
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, account.ID)
+		token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, account.ID)
 		if err != nil {
 			return models.Contact{}, storage.ContactSource{}, err
 		}
@@ -410,7 +410,7 @@ func (h *Handler) loadContactSyncSetupCandidate(ctx context.Context, userID stri
 		person, err := h.getGoogleContact(ctx, token, remoteID)
 		return googleContactFromPerson(person), storage.ContactSource{Provider: account.Provider, AccountID: account.ID, RemoteID: remoteID, Etag: person.Etag}, err
 	case account.Provider == providers.ProviderOutlook && strings.HasPrefix(key, "outlook:"):
-		token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, account.ID)
+		token, err := h.mailCredentials().GetMicrosoftGraphContactsTokenForAccount(ctx, account.ID)
 		if err != nil {
 			return models.Contact{}, storage.ContactSource{}, err
 		}

@@ -853,7 +853,7 @@ func (h *Handler) removeUnwantedContactSources(ctx context.Context, userID strin
 		switch provider {
 		case providers.ProviderGmail:
 			if strings.TrimSpace(source.RemoteID) != "" {
-				token, err := h.auth.GetOAuthTokenForAccount(ctx, source.AccountID)
+				token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, source.AccountID)
 				if err != nil {
 					return err
 				}
@@ -863,7 +863,7 @@ func (h *Handler) removeUnwantedContactSources(ctx context.Context, userID strin
 			}
 		case providers.ProviderOutlook:
 			if strings.TrimSpace(source.RemoteID) != "" {
-				token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, source.AccountID)
+				token, err := h.mailCredentials().GetMicrosoftGraphContactsTokenForAccount(ctx, source.AccountID)
 				if err != nil {
 					return err
 				}

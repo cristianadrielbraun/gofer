@@ -16,6 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -44,6 +45,7 @@ type Handler struct {
 	syncer                     *mail.SyncOrchestrator
 	blobStore                  *store.BlobStore
 	auth                       *auth.Manager
+	mailboxAuth                *mailauth.Service
 	avatar                     *avatarresolver.Resolver
 	bodyClientMu               sync.Mutex
 	bodyClients                map[string]*imap.Client
@@ -95,13 +97,21 @@ func outgoingSendContext(parent context.Context) (context.Context, context.Cance
 	return context.WithTimeout(parent, outgoingSendTimeout)
 }
 
-func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore, authManager *auth.Manager, vapidPublicKey string) *Handler {
+func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrchestrator, blobStore *store.BlobStore, authManager *auth.Manager, vapidPublicKey string, mailboxCredentials ...*mailauth.Service) *Handler {
+	var credentials *mailauth.Service
+	if len(mailboxCredentials) > 0 {
+		credentials = mailboxCredentials[0]
+	} else if authManager != nil {
+		cfg := authManager.Config()
+		credentials = mailauth.New(&mailauth.Config{Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, GoogleClient: cfg.GoogleClient, MicrosoftClient: cfg.MicrosoftClient}, db)
+	}
 	h := &Handler{
 		db:                  db,
 		accountStore:        accountStore,
 		syncer:              syncer,
 		blobStore:           blobStore,
 		auth:                authManager,
+		mailboxAuth:         credentials,
 		avatar:              avatarresolver.NewResolver(),
 		bodyClients:         make(map[string]*imap.Client),
 		bodyFetches:         make(map[int64]chan struct{}),
@@ -143,6 +153,23 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	})
 	h.startAvatarWarmupWorkers()
 	return h
+}
+
+func (h *Handler) mailCredentials() *mailauth.Service {
+	if h == nil {
+		return nil
+	}
+	if h.mailboxAuth != nil {
+		return h.mailboxAuth
+	}
+	if h.auth == nil || h.db == nil {
+		return nil
+	}
+	cfg := h.auth.Config()
+	return mailauth.New(&mailauth.Config{
+		Enabled: cfg.Enabled, BaseURL: cfg.BaseURL,
+		GoogleClient: cfg.GoogleClient, MicrosoftClient: cfg.MicrosoftClient,
+	}, h.db)
 }
 
 func (h *Handler) StartAccountDeletionCleanup(ctx context.Context) {
@@ -220,8 +247,8 @@ func (h *Handler) resolvePassword(ctx context.Context, cfg *models.AccountConfig
 	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
 		return "", fmt.Errorf("outlook mail uses Microsoft Graph; IMAP/SMTP credential resolution is disabled")
 	}
-	if cfg.AuthMethod == "oauth2" && h.auth != nil {
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+	if cfg.AuthMethod == "oauth2" && h.mailCredentials() != nil {
+		token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, accountID)
 		if err != nil {
 			return "", err
 		}
@@ -5657,12 +5684,12 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 	var authorizeURL string
 	switch provider {
 	case providers.ProviderGmail:
-		if h.auth == nil || !h.auth.HasGoogleOAuth() {
+		if h.mailCredentials() == nil || !h.mailCredentials().HasGoogleOAuth() {
 			http.Error(w, "google oauth not configured", http.StatusBadRequest)
 			return
 		}
 	case providers.ProviderOutlook:
-		if h.auth == nil || !h.auth.HasMicrosoftOAuth() {
+		if h.mailCredentials() == nil || !h.mailCredentials().HasMicrosoftOAuth() {
 			http.Error(w, "microsoft oauth not configured", http.StatusBadRequest)
 			return
 		}
@@ -5683,7 +5710,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		http.Error(w, "authenticated user required", http.StatusUnauthorized)
 		return
 	}
-	state, err := h.auth.CreateAccountOAuthFlow(r.Context(), user.ID, auth.GetSessionToken(r), provider, formData)
+	state, err := h.mailCredentials().CreateAccountOAuthFlow(r.Context(), user.ID, auth.GetSessionToken(r), provider, formData)
 	if err != nil {
 		log.Printf("account oauth authorize: create flow failed: %v", err)
 		http.Error(w, "could not start account authorization", http.StatusInternalServerError)
@@ -5692,15 +5719,15 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 
 	switch provider {
 	case providers.ProviderGmail:
-		authorizeURL = h.auth.GoogleAccountOAuthURL(state)
+		authorizeURL = h.mailCredentials().GoogleAccountOAuthURL(state)
 	case providers.ProviderOutlook:
-		authorizeURL = h.auth.MicrosoftAccountOAuthURL(state)
+		authorizeURL = h.mailCredentials().MicrosoftAccountOAuthURL(state)
 	}
 	http.Redirect(w, r, authorizeURL, http.StatusSeeOther)
 }
 
 func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Request) {
-	if h.auth == nil || !h.auth.HasGoogleOAuth() {
+	if h.auth == nil || h.mailCredentials() == nil || !h.mailCredentials().HasGoogleOAuth() {
 		log.Printf("gmail callback: google oauth not configured")
 		http.Error(w, "google oauth not configured", http.StatusNotFound)
 		return
@@ -5712,7 +5739,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	}
 	formData := flow.FormData
 
-	token, err := h.auth.ExchangeAccountCode(r.Context(), code)
+	token, err := h.mailCredentials().ExchangeAccountCode(r.Context(), code)
 	if err != nil {
 		log.Printf("gmail callback: token exchange failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_exchange_failed", http.StatusSeeOther)
@@ -5756,7 +5783,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	}
 
 	scopes, _ := token.Extra("scope").(string)
-	err = h.auth.UpsertOAuthAccount(r.Context(), userID, providers.OAuthGoogle, info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
+	err = h.mailCredentials().UpsertOAuthAccount(r.Context(), userID, providers.OAuthGoogle, info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
 	if err != nil {
 		log.Printf("warning: failed to store oauth tokens for account %s: %v", accountID, err)
 	}
@@ -5775,7 +5802,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.Request) {
-	if h.auth == nil || !h.auth.HasMicrosoftOAuth() {
+	if h.auth == nil || h.mailCredentials() == nil || !h.mailCredentials().HasMicrosoftOAuth() {
 		log.Printf("microsoft callback: microsoft oauth not configured")
 		http.Error(w, "microsoft oauth not configured", http.StatusNotFound)
 		return
@@ -5787,7 +5814,7 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	}
 	formData := flow.FormData
 
-	token, err := h.auth.ExchangeMicrosoftAccountCode(r.Context(), code)
+	token, err := h.mailCredentials().ExchangeMicrosoftAccountCode(r.Context(), code)
 	if err != nil {
 		log.Printf("microsoft callback: token exchange failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_exchange_failed", http.StatusSeeOther)
@@ -5836,7 +5863,7 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	}
 
 	scopes, _ := token.Extra("scope").(string)
-	err = h.auth.UpsertOAuthAccount(r.Context(), userID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
+	err = h.mailCredentials().UpsertOAuthAccount(r.Context(), userID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
 	if err != nil {
 		log.Printf("warning: failed to store microsoft oauth tokens for account %s: %v", accountID, err)
 	}
@@ -5867,14 +5894,14 @@ func accountOAuthSuccessRedirect(formData map[string]string) string {
 	return "/settings/accounts?account_added=1"
 }
 
-func (h *Handler) readAccountOAuthCallback(w http.ResponseWriter, r *http.Request, logPrefix, provider string) (*auth.AccountOAuthFlow, string, bool) {
+func (h *Handler) readAccountOAuthCallback(w http.ResponseWriter, r *http.Request, logPrefix, provider string) (*mailauth.AccountOAuthFlow, string, bool) {
 	user := auth.GetCurrentUser(r.Context())
 	if user == nil || strings.TrimSpace(user.ID) == "" {
 		log.Printf("%s: missing authenticated user", logPrefix)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_session_mismatch", http.StatusSeeOther)
 		return nil, "", false
 	}
-	flow, err := h.auth.ConsumeAccountOAuthFlow(
+	flow, err := h.mailCredentials().ConsumeAccountOAuthFlow(
 		r.Context(),
 		r.URL.Query().Get("state"),
 		user.ID,
@@ -5885,11 +5912,11 @@ func (h *Handler) readAccountOAuthCallback(w http.ResponseWriter, r *http.Reques
 		log.Printf("%s: consume account oauth flow: %v", logPrefix, err)
 		code := "oauth_invalid_state"
 		switch {
-		case errors.Is(err, auth.ErrAccountOAuthFlowExpired):
+		case errors.Is(err, mailauth.ErrAccountOAuthFlowExpired):
 			code = "oauth_expired_state"
-		case errors.Is(err, auth.ErrAccountOAuthFlowUserMismatch),
-			errors.Is(err, auth.ErrAccountOAuthFlowSessionMismatch),
-			errors.Is(err, auth.ErrAccountOAuthFlowProviderMismatch):
+		case errors.Is(err, mailauth.ErrAccountOAuthFlowUserMismatch),
+			errors.Is(err, mailauth.ErrAccountOAuthFlowSessionMismatch),
+			errors.Is(err, mailauth.ErrAccountOAuthFlowProviderMismatch):
 			code = "oauth_session_mismatch"
 		}
 		http.Redirect(w, r, "/settings/accounts?error="+code, http.StatusSeeOther)

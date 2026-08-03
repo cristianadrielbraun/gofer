@@ -1,10 +1,8 @@
-package auth
+package mailauth
 
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -98,9 +96,9 @@ func TestAccountOAuthFlowRejectsAndDeletesExpiredState(t *testing.T) {
 
 func TestAccountOAuthFlowWorksForSingleUserDefaultAccount(t *testing.T) {
 	ctx := context.Background()
-	manager, _ := newAccountOAuthFlowTestManager(t, false)
-	if err := manager.EnsureDefaultUser(); err != nil {
-		t.Fatalf("EnsureDefaultUser() error = %v", err)
+	manager, db := newAccountOAuthFlowTestManager(t, false)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('default', 'local@gofer.local', 'Local User')`); err != nil {
+		t.Fatalf("insert default user: %v", err)
 	}
 	state, err := manager.CreateAccountOAuthFlow(ctx, "default", "", "gmail", map[string]string{"email_address": "local@gmail.com"})
 	if err != nil {
@@ -112,40 +110,5 @@ func TestAccountOAuthFlowWorksForSingleUserDefaultAccount(t *testing.T) {
 	}
 	if flow.UserID != "default" {
 		t.Fatalf("flow user = %q, want default", flow.UserID)
-	}
-}
-
-func TestAccountOAuthCallbacksRequireAuthentication(t *testing.T) {
-	for _, path := range []string{"/auth/google/account/callback", "/auth/microsoft/account/callback"} {
-		if isPublicPath(path) {
-			t.Fatalf("account callback %q is still public", path)
-		}
-	}
-	if !isPublicPath("/auth/google/callback") {
-		t.Fatal("login callback must remain public")
-	}
-}
-
-func TestSingleUserMiddlewareStillProvidesDefaultUserToAccountCallback(t *testing.T) {
-	manager, _ := newAccountOAuthFlowTestManager(t, false)
-	if err := manager.EnsureDefaultUser(); err != nil {
-		t.Fatalf("EnsureDefaultUser() error = %v", err)
-	}
-	called := false
-	handler := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		user := GetCurrentUser(r.Context())
-		if user == nil || user.ID != "default" {
-			t.Fatalf("callback user = %#v, want default", user)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/auth/google/account/callback", nil)
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-
-	if !called || rec.Code != http.StatusNoContent {
-		t.Fatalf("called = %v status = %d, want callback reached with 204", called, rec.Code)
 	}
 }

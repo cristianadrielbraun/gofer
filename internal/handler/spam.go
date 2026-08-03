@@ -181,10 +181,10 @@ func (h *Handler) reportMessageSpamRemote(ctx context.Context, disposition spamD
 }
 
 func (h *Handler) reportGmailMessageSpam(ctx context.Context, disposition spamDisposition, messageID int64, info storage.MessageMutationInfo) error {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return fmt.Errorf("google oauth not configured")
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return err
 	}
@@ -284,10 +284,10 @@ func googleAPIStatus(err error, status int) bool {
 }
 
 func (h *Handler) reportOutlookMessageSpam(ctx context.Context, disposition spamDisposition, messageID int64, info storage.MessageMutationInfo) error {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return fmt.Errorf("microsoft oauth not configured")
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return err
 	}

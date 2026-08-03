@@ -198,10 +198,10 @@ func messageMutationProvider(provider string) string {
 }
 
 func (h *Handler) applyGmailMessageMutation(ctx context.Context, mutation storage.MessageMutation, info storage.MessageMutationInfo) error {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return fmt.Errorf("Gmail authentication is not available")
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return fmt.Errorf("get Gmail token: %w", err)
 	}
@@ -244,10 +244,10 @@ func (h *Handler) applyGmailMessageMutation(ctx context.Context, mutation storag
 }
 
 func (h *Handler) applyOutlookMessageMutation(ctx context.Context, mutation storage.MessageMutation, info storage.MessageMutationInfo) error {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return fmt.Errorf("Outlook authentication is not available")
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return fmt.Errorf("get Outlook token: %w", err)
 	}

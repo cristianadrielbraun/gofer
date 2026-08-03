@@ -10,6 +10,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/handler"
 	"github.com/cristianadrielbraun/gofer/internal/httpguard"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/notifications"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
@@ -68,6 +69,11 @@ func main() {
 
 	authManager := auth.NewManager(authConfig, db)
 	log.Printf("boot: auth manager initialized (enabled=%t)", authConfig.Enabled)
+	mailCredentials := mailauth.New(&mailauth.Config{
+		Enabled: authConfig.Enabled, BaseURL: authConfig.BaseURL,
+		GoogleClient: authConfig.GoogleClient, MicrosoftClient: authConfig.MicrosoftClient,
+	}, db)
+	log.Printf("boot: mailbox credential service initialized")
 
 	if err := authManager.EnsureDefaultUser(); err != nil {
 		log.Fatalf("failed to ensure default user: %v", err)
@@ -79,10 +85,11 @@ func main() {
 
 	if authManager.IsEnabled() {
 		authManager.StartSessionCleanup(ctx)
+		mailCredentials.StartCleanup(ctx)
 		log.Printf("boot: session cleanup worker started")
 	}
 
-	syncer := mail.NewSyncOrchestrator(db, accountStore, blobStore, authManager)
+	syncer := mail.NewSyncOrchestrator(db, accountStore, blobStore, mailCredentials)
 	log.Printf("boot: sync orchestrator initialized")
 	vapidPublicKey, vapidPrivateKey := loadOrGenerateVAPIDKeys(filepath.Join(dataDir, "vapid_private.key"), filepath.Join(dataDir, "vapid_public.key"))
 	vapidSubject := os.Getenv("GOFER_VAPID_SUBJECT")
@@ -95,7 +102,7 @@ func main() {
 	log.Printf("boot: notification worker started")
 
 	mux := http.NewServeMux()
-	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey)
+	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey, mailCredentials)
 
 	go func() {
 		log.Printf("boot: background threading worker started")

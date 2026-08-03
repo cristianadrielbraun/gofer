@@ -9,12 +9,13 @@ import (
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"golang.org/x/oauth2"
 )
 
-func newAccountOAuthFlowTestHandler(t *testing.T) (*Handler, *auth.Manager, *storage.DB) {
+func newAccountOAuthFlowTestHandler(t *testing.T) (*Handler, *mailauth.Service, *storage.DB) {
 	t.Helper()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
@@ -29,7 +30,10 @@ func newAccountOAuthFlowTestHandler(t *testing.T) (*Handler, *auth.Manager, *sto
 			Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/authorize"},
 		},
 	}, db)
-	return &Handler{db: db, auth: manager}, manager, db
+	mailCredentials := mailauth.New(&mailauth.Config{
+		Enabled: true, BaseURL: "https://gofer.example", GoogleClient: manager.Config().GoogleClient,
+	}, db)
+	return &Handler{db: db, auth: manager, mailboxAuth: mailCredentials}, mailCredentials, db
 }
 
 func accountOAuthUserRequest(req *http.Request, userID, sessionToken string) *http.Request {

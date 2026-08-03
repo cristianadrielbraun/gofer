@@ -12,11 +12,11 @@ func (h *Handler) testGmailAPIMail(ctx context.Context, accountID string) []mode
 		Service: "gmail",
 		Message: "Gmail API mail access",
 	}
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		result.Error = "Google auth is not configured"
 		return []models.ConnectionTestResult{result}
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, accountID)
 	if err != nil {
 		result.Error = err.Error()
 		return []models.ConnectionTestResult{result}

@@ -50,10 +50,10 @@ func gmailSourceMoveRemoveLabels(sourceRole, sourceProviderID, destinationProvid
 }
 
 func (h *Handler) gmailMessageIdentity(ctx context.Context, messageID int64, info storage.MessageMutationInfo, operation string) (string, string, bool) {
-	if !h.shouldUseGmailAPIMailRuntime(info.AccountProvider) || h.auth == nil {
+	if !h.shouldUseGmailAPIMailRuntime(info.AccountProvider) || h.mailCredentials() == nil {
 		return "", "", false
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		log.Printf("gmail %s token account=%s message=%d: %v", operation, info.AccountID, messageID, err)
 		return "", "", false
@@ -193,10 +193,10 @@ func (h *Handler) saveGmailAPIDraft(ctx context.Context, accountID string, local
 	if !gmailAPIMailRuntimeEnabled() {
 		return nil
 	}
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return fmt.Errorf("google oauth not configured")
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -232,10 +232,10 @@ func (h *Handler) saveGmailAPIDraft(ctx context.Context, accountID string, local
 
 func (h *Handler) deleteGmailAPIDraft(ctx context.Context, accountID, providerMessageID string) error {
 	providerMessageID = strings.TrimSpace(providerMessageID)
-	if providerMessageID == "" || h.auth == nil || !gmailAPIMailRuntimeEnabled() {
+	if providerMessageID == "" || h.mailCredentials() == nil || !gmailAPIMailRuntimeEnabled() {
 		return nil
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -275,10 +275,10 @@ func (h *Handler) sendGmailAPIMessage(ctx context.Context, cfg *models.AccountCo
 }
 
 func (h *Handler) sendGmailAPIRaw(ctx context.Context, cfg *models.AccountConfig, raw []byte) (string, string, error) {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return "", "", fmt.Errorf("google oauth not configured")
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, cfg.AccountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, cfg.AccountID)
 	if err != nil {
 		if isPermanentOAuthError(err) {
 			return "", "", markOutgoingSendReconnect(err)

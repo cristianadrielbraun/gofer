@@ -25,10 +25,10 @@ type outlookGraphDraftResponse struct {
 }
 
 func (h *Handler) saveOutlookGraphDraft(ctx context.Context, accountID string, localMessageID int64, msg *message.OutgoingMessage) error {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return fmt.Errorf("microsoft oauth not configured")
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -84,10 +84,10 @@ func (h *Handler) sendOutlookGraphMessage(ctx context.Context, cfg *models.Accou
 }
 
 func (h *Handler) sendOutlookGraphRaw(ctx context.Context, cfg *models.AccountConfig, raw []byte) (string, error) {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return "", fmt.Errorf("microsoft oauth not configured")
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, cfg.AccountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, cfg.AccountID)
 	if err != nil {
 		if isPermanentOAuthError(err) {
 			return "", markOutgoingSendReconnect(err)
@@ -131,10 +131,10 @@ func storageMessageMutationInfo(accountID, internetMessageID string) storage.Mes
 
 func (h *Handler) deleteOutlookGraphDraft(ctx context.Context, accountID, providerMessageID string) error {
 	providerMessageID = strings.TrimSpace(providerMessageID)
-	if providerMessageID == "" || h.auth == nil {
+	if providerMessageID == "" || h.mailCredentials() == nil {
 		return nil
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}

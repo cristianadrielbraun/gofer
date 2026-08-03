@@ -13,11 +13,11 @@ func (h *Handler) testOutlookGraphMail(ctx context.Context, accountID string) []
 		Service: "graph",
 		Message: "Microsoft Graph mail",
 	}
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		result.Error = "Microsoft Graph auth is not configured"
 		return []models.ConnectionTestResult{result}
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	if err != nil {
 		result.Error = err.Error()
 		return []models.ConnectionTestResult{result}

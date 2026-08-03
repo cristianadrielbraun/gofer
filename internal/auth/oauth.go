@@ -16,6 +16,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
+	microsoftGraphMailScope            = "https://graph.microsoft.com/Mail.ReadWrite"
+	microsoftGraphMailSendScope        = "https://graph.microsoft.com/Mail.Send"
+	microsoftGraphMailboxSettingsScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
+)
+
 type GoogleUserInfo struct {
 	Sub           string `json:"sub"`
 	Email         string `json:"email"`

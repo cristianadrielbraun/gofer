@@ -252,7 +252,7 @@ func sameOutlookContactValue(left, right string) bool {
 }
 
 func (h *Handler) pushContactToOutlookAccount(ctx context.Context, userID string, contact models.Contact, accountID string) error {
-	token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphContactsTokenForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}

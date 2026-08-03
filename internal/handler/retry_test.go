@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"golang.org/x/oauth2"
@@ -132,7 +133,7 @@ func TestOAuthFailuresSeparatePermanentAuthorizationFromTemporaryOutages(t *test
 	if isPermanentOAuthError(temporary) {
 		t.Fatal("token endpoint 503 was classified as permanent")
 	}
-	graphPermanent := &auth.OAuthTokenError{Status: http.StatusBadRequest, Code: "invalid_grant", Description: "token revoked"}
+	graphPermanent := &mailauth.OAuthTokenError{Status: http.StatusBadRequest, Code: "invalid_grant", Description: "token revoked"}
 	if !isPermanentOAuthError(graphPermanent) {
 		t.Fatal("Graph invalid_grant was not classified as permanent")
 	}

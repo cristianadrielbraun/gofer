@@ -218,19 +218,19 @@ func (h *Handler) contactSyncAccounts(ctx context.Context, userID, accountID str
 func (h *Handler) pullContactAccount(ctx context.Context, userID string, account contactSyncAccount) (int, error) {
 	switch account.Provider {
 	case providers.ProviderGmail:
-		if h.auth == nil || !h.auth.HasGoogleOAuth() {
+		if h.mailCredentials() == nil || !h.mailCredentials().HasGoogleOAuth() {
 			return 0, fmt.Errorf("Google OAuth is not configured")
 		}
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, account.ID)
+		token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, account.ID)
 		if err != nil {
 			return 0, fmt.Errorf("reconnect Gmail to grant contact access: %w", err)
 		}
 		return h.syncGooglePeopleConnections(ctx, userID, account.ID, token)
 	case providers.ProviderOutlook:
-		if h.auth == nil || !h.auth.HasMicrosoftOAuth() {
+		if h.mailCredentials() == nil || !h.mailCredentials().HasMicrosoftOAuth() {
 			return 0, fmt.Errorf("Microsoft OAuth is not configured")
 		}
-		token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, account.ID)
+		token, err := h.mailCredentials().GetMicrosoftGraphContactsTokenForAccount(ctx, account.ID)
 		if err != nil {
 			return 0, fmt.Errorf("reconnect Outlook to grant contact access: %w", err)
 		}
@@ -544,10 +544,10 @@ func (h *Handler) preflightNewContactSyncTargets(ctx context.Context, userID str
 		}
 		switch account.Provider {
 		case providers.ProviderGmail:
-			if h.auth == nil {
+			if h.mailCredentials() == nil {
 				return fmt.Errorf("Gmail contact preflight is unavailable")
 			}
-			token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+			token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, accountID)
 			if err != nil {
 				return fmt.Errorf("preflight Gmail contact: %w", err)
 			}
@@ -564,10 +564,10 @@ func (h *Handler) preflightNewContactSyncTargets(ctx context.Context, userID str
 				}
 			}
 		case providers.ProviderOutlook:
-			if h.auth == nil {
+			if h.mailCredentials() == nil {
 				return fmt.Errorf("Outlook contact preflight is unavailable")
 			}
-			token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, accountID)
+			token, err := h.mailCredentials().GetMicrosoftGraphContactsTokenForAccount(ctx, accountID)
 			if err != nil {
 				return fmt.Errorf("preflight Outlook contact: %w", err)
 			}
@@ -827,7 +827,7 @@ func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID s
 		}
 		switch provider {
 		case providers.ProviderGmail:
-			token, err := h.auth.GetOAuthTokenForAccount(ctx, source.AccountID)
+			token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, source.AccountID)
 			if err != nil {
 				return err
 			}
@@ -838,7 +838,7 @@ func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID s
 				}
 			}
 		case providers.ProviderOutlook:
-			token, err := h.auth.GetMicrosoftGraphContactsTokenForAccount(ctx, source.AccountID)
+			token, err := h.mailCredentials().GetMicrosoftGraphContactsTokenForAccount(ctx, source.AccountID)
 			if err != nil {
 				return err
 			}
@@ -876,7 +876,7 @@ func (h *Handler) upsertContactSourceAndSnapshot(ctx context.Context, userID str
 }
 
 func (h *Handler) pushContactToGmailAccount(ctx context.Context, userID string, contact models.Contact, accountID string) error {
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, accountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}

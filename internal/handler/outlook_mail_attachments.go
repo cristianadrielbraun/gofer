@@ -31,7 +31,7 @@ func (h *Handler) ensureAttachmentStorage(ctx context.Context, info *storage.Att
 		if !gmailAPIMailRuntimeEnabled() {
 			return strings.TrimSpace(info.StoragePath), fmt.Errorf("gmail api attachment fetch is disabled")
 		}
-		if h.auth == nil || h.blobStore == nil {
+		if h.mailCredentials() == nil || h.blobStore == nil {
 			return strings.TrimSpace(info.StoragePath), fmt.Errorf("gmail api attachment fetch is unavailable")
 		}
 		providerMessageID := strings.TrimSpace(info.ProviderMessageID)
@@ -53,7 +53,7 @@ func (h *Handler) ensureAttachmentStorage(ctx context.Context, info *storage.Att
 			}
 			return h.storeFetchedAttachment(ctx, info, content)
 		}
-		token, err := h.auth.GetOAuthTokenForAccount(ctx, info.AccountID)
+		token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, info.AccountID)
 		if err != nil {
 			return strings.TrimSpace(info.StoragePath), err
 		}
@@ -66,7 +66,7 @@ func (h *Handler) ensureAttachmentStorage(ctx context.Context, info *storage.Att
 	default:
 		return strings.TrimSpace(info.StoragePath), fmt.Errorf("attachment is not provider backed")
 	}
-	if h.auth == nil || h.blobStore == nil {
+	if h.mailCredentials() == nil || h.blobStore == nil {
 		return strings.TrimSpace(info.StoragePath), fmt.Errorf("outlook graph attachment fetch is unavailable")
 	}
 	providerMessageID := strings.TrimSpace(info.ProviderMessageID)
@@ -88,7 +88,7 @@ func (h *Handler) ensureAttachmentStorage(ctx context.Context, info *storage.Att
 		}
 		return h.storeFetchedAttachment(ctx, info, content)
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return strings.TrimSpace(info.StoragePath), err
 	}

@@ -10,10 +10,10 @@ import (
 )
 
 func (h *Handler) outlookGraphMessageIdentity(ctx context.Context, messageID int64, info storage.MessageMutationInfo, operation string) (string, string, bool) {
-	if strings.TrimSpace(info.AccountProvider) != providers.ProviderOutlook || h.auth == nil {
+	if strings.TrimSpace(info.AccountProvider) != providers.ProviderOutlook || h.mailCredentials() == nil {
 		return "", "", false
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		log.Printf("outlook %s token account=%s message=%d: %v", operation, info.AccountID, messageID, err)
 		return "", "", false

@@ -326,10 +326,10 @@ type gmailLabel struct {
 }
 
 func (h *Handler) applyGmailMessageLabel(ctx context.Context, messageID int64, info storage.MessageMutationInfo, labelName string) (storage.LabelInput, error) {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return storage.LabelInput{}, fmt.Errorf("google oauth not configured")
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return storage.LabelInput{}, err
 	}
@@ -404,10 +404,10 @@ func (h *Handler) findGmailLabel(ctx context.Context, token, labelName string) (
 }
 
 func (h *Handler) removeGmailMessageLabel(ctx context.Context, messageID int64, info storage.MessageMutationInfo, labelName string) (storage.LabelInput, error) {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return storage.LabelInput{}, fmt.Errorf("google oauth not configured")
 	}
-	token, err := h.auth.GetOAuthTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetOAuthTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return storage.LabelInput{}, err
 	}
@@ -459,10 +459,10 @@ type outlookMessageCategoryState struct {
 }
 
 func (h *Handler) applyOutlookMessageLabel(ctx context.Context, messageID int64, info storage.MessageMutationInfo, labelName string) (storage.LabelInput, error) {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return storage.LabelInput{}, fmt.Errorf("microsoft oauth not configured")
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return storage.LabelInput{}, err
 	}
@@ -524,10 +524,10 @@ func (h *Handler) getOutlookMessageCategories(ctx context.Context, token, provid
 }
 
 func (h *Handler) removeOutlookMessageLabel(ctx context.Context, messageID int64, info storage.MessageMutationInfo, labelName string) (storage.LabelInput, error) {
-	if h.auth == nil {
+	if h.mailCredentials() == nil {
 		return storage.LabelInput{}, fmt.Errorf("microsoft oauth not configured")
 	}
-	token, err := h.auth.GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
+	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, info.AccountID)
 	if err != nil {
 		return storage.LabelInput{}, err
 	}
