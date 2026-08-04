@@ -5671,7 +5671,11 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	token := auth.GetSessionToken(r)
 	if token != "" {
-		h.auth.DeleteSession(r.Context(), token)
+		actorID := ""
+		if user := auth.GetCurrentUser(r.Context()); user != nil {
+			actorID = user.ID
+		}
+		_, _ = h.auth.RevokeSessionByToken(r.Context(), token, actorID, auth.SessionRevocationLogout)
 	}
 	auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)

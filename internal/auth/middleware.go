@@ -62,8 +62,13 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 			m.redirectToLogin(w, r)
 			return
 		}
+		if user.AuthVersion != session.AuthVersion {
+			ClearSessionCookie(w, m.config.SecureCookies)
+			m.redirectToLogin(w, r)
+			return
+		}
 
-		ctx := ContextWithUser(r.Context(), user)
+		ctx := ContextWithSession(ContextWithUser(r.Context(), user), session)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -87,4 +92,8 @@ func isPublicPath(path string) bool {
 
 func GetCurrentUser(ctx context.Context) *User {
 	return UserFromContext(ctx)
+}
+
+func GetCurrentSession(ctx context.Context) *Session {
+	return SessionFromContext(ctx)
 }

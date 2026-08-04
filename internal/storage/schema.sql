@@ -534,44 +534,40 @@ CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token TEXT NOT NULL UNIQUE,
-    token_hash TEXT,
-    auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0),
-    authentication_method TEXT NOT NULL DEFAULT 'legacy' CHECK (authentication_method IN ('legacy', 'password', 'passkey', 'totp', 'recovery_code', 'federated_google', 'federated_microsoft', 'federated_oidc')),
-    assurance_level TEXT NOT NULL DEFAULT 'legacy' CHECK (assurance_level IN ('legacy', 'single_factor', 'multi_factor', 'phishing_resistant')),
+    token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64 AND token_hash NOT GLOB '*[^0-9a-f]*'),
+    auth_version INTEGER NOT NULL CHECK (auth_version > 0),
+    authentication_method TEXT NOT NULL CHECK (authentication_method IN ('legacy', 'password', 'passkey', 'totp', 'recovery_code', 'federated_google', 'federated_microsoft', 'federated_oidc')),
+    assurance_level TEXT NOT NULL CHECK (assurance_level IN ('legacy', 'single_factor', 'multi_factor', 'phishing_resistant')),
     user_agent TEXT NOT NULL DEFAULT '',
-    expires_at DATETIME NOT NULL,
-    authenticated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    idle_expires_at DATETIME,
-    absolute_expires_at DATETIME,
+    authenticated_at DATETIME NOT NULL,
+    last_used_at DATETIME NOT NULL,
+    idle_expires_at DATETIME NOT NULL,
+    absolute_expires_at DATETIME NOT NULL,
     step_up_at DATETIME,
     step_up_method TEXT NOT NULL DEFAULT '' CHECK (step_up_method IN ('', 'password', 'passkey', 'totp', 'recovery_code', 'federated_google', 'federated_microsoft', 'federated_oidc')),
     revoked_at DATETIME,
     revoked_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-    revocation_reason TEXT NOT NULL DEFAULT '' CHECK (revocation_reason IN ('', 'logout', 'user_disabled', 'credential_reset', 'admin_action', 'expired', 'rotation', 'role_changed')),
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CHECK (revoked_at IS NOT NULL OR revocation_reason = '')
+    revocation_reason TEXT NOT NULL DEFAULT '' CHECK (revocation_reason IN ('', 'logout', 'user_disabled', 'user_status_changed', 'credential_reset', 'admin_action', 'expired', 'rotation', 'role_changed')),
+    created_at DATETIME NOT NULL,
+    CHECK (
+        (revoked_at IS NULL AND revocation_reason = '')
+        OR (revoked_at IS NOT NULL AND revocation_reason <> '')
+    ),
+    CHECK (
+        (step_up_at IS NULL AND step_up_method = '')
+        OR (step_up_at IS NOT NULL AND step_up_method <> '')
+    ),
+    CHECK (revoked_at IS NOT NULL OR revoked_by IS NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user
     ON sessions(user_id);
 
-CREATE INDEX IF NOT EXISTS idx_sessions_token
-    ON sessions(token);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash
-    ON sessions(token_hash)
-    WHERE token_hash IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_sessions_expires
-    ON sessions(expires_at);
-
 CREATE INDEX IF NOT EXISTS idx_sessions_active_user
     ON sessions(user_id, revoked_at, absolute_expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_cleanup
-    ON sessions(revoked_at, idle_expires_at, absolute_expires_at, expires_at);
+    ON sessions(revoked_at, idle_expires_at, absolute_expires_at);
 
 -- Application-login provider identities. Mailbox OAuth credentials remain separate.
 CREATE TABLE IF NOT EXISTS auth_identities (
@@ -1298,4 +1294,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (78);
+INSERT OR REPLACE INTO schema_version (version) VALUES (79);

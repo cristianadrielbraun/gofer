@@ -105,28 +105,31 @@ func TestMigrateV77AddsAuthenticationSchemaAndPreservesSessions(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 78 {
-		t.Fatalf("schema version = %d, %v; want 78", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 79 {
+		t.Fatalf("schema version = %d, %v; want 79", version, err)
 	}
 	hash := sha256.Sum256([]byte(rawToken))
 	wantHash := hex.EncodeToString(hash[:])
-	var token, tokenHash, method, assurance string
+	var tokenHash, method, assurance string
 	var authVersion int64
-	var expiresAt, authenticatedAt, lastUsedAt, absoluteExpiresAt, createdAt string
+	var authenticatedAt, lastUsedAt, idleExpiresAt, absoluteExpiresAt, createdAt string
 	if err := db.Read().QueryRow(`
-		SELECT token, token_hash, auth_version, authentication_method, assurance_level,
-		       expires_at, authenticated_at, last_used_at, absolute_expires_at, created_at
+		SELECT token_hash, auth_version, authentication_method, assurance_level,
+		       authenticated_at, last_used_at, idle_expires_at, absolute_expires_at, created_at
 		FROM sessions WHERE id = 'legacy-session'`).Scan(
-		&token, &tokenHash, &authVersion, &method, &assurance,
-		&expiresAt, &authenticatedAt, &lastUsedAt, &absoluteExpiresAt, &createdAt,
+		&tokenHash, &authVersion, &method, &assurance,
+		&authenticatedAt, &lastUsedAt, &idleExpiresAt, &absoluteExpiresAt, &createdAt,
 	); err != nil {
 		t.Fatalf("query migrated session: %v", err)
 	}
-	if token != rawToken || tokenHash != wantHash || authVersion != 3 || method != "legacy" || assurance != "legacy" {
-		t.Fatalf("migrated session identity = token:%q hash:%q auth:%d method:%q assurance:%q", token, tokenHash, authVersion, method, assurance)
+	if tokenHash != wantHash || authVersion != 3 || method != "legacy" || assurance != "legacy" {
+		t.Fatalf("migrated session identity = hash:%q auth:%d method:%q assurance:%q", tokenHash, authVersion, method, assurance)
 	}
-	if authenticatedAt != createdAt || lastUsedAt != createdAt || absoluteExpiresAt != expiresAt {
-		t.Fatalf("migrated session times = expires:%q authenticated:%q last-used:%q absolute:%q created:%q", expiresAt, authenticatedAt, lastUsedAt, absoluteExpiresAt, createdAt)
+	if authenticatedAt != createdAt || lastUsedAt != createdAt || idleExpiresAt != absoluteExpiresAt {
+		t.Fatalf("migrated session times = authenticated:%q last-used:%q idle:%q absolute:%q created:%q", authenticatedAt, lastUsedAt, idleExpiresAt, absoluteExpiresAt, createdAt)
+	}
+	if exists, err := columnExists(db.Read(), "sessions", "token"); err != nil || exists {
+		t.Fatalf("sessions.token after v79 migration = %t, %v; want absent", exists, err)
 	}
 
 	var accessToken, refreshToken, scopes string
@@ -271,13 +274,23 @@ func TestAuthenticationSchemaConstraints(t *testing.T) {
 		VALUES ('token', 'owner', 'hash', 'invitation_email', CURRENT_TIMESTAMP)`)
 	assertExecFails(t, db.Write(), `INSERT INTO auth_system_state (id) VALUES (2)`)
 	if _, err := db.Write().Exec(`
-		INSERT INTO sessions (id, user_id, token, token_hash, expires_at)
-		VALUES ('session-one', 'owner', 'raw-one', 'shared-hash', CURRENT_TIMESTAMP)`); err != nil {
+		INSERT INTO sessions (
+			id, user_id, token_hash, auth_version, authentication_method, assurance_level,
+			authenticated_at, last_used_at, idle_expires_at, absolute_expires_at, created_at
+		) VALUES (
+			'session-one', 'owner', ?, 1, 'legacy', 'legacy',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', '+1 day'), datetime('now', '+1 day'), CURRENT_TIMESTAMP
+		)`, strings.Repeat("a", 64)); err != nil {
 		t.Fatalf("insert session hash: %v", err)
 	}
 	assertExecFails(t, db.Write(), `
-		INSERT INTO sessions (id, user_id, token, token_hash, expires_at)
-		VALUES ('session-two', 'owner', 'raw-two', 'shared-hash', CURRENT_TIMESTAMP)`)
+		INSERT INTO sessions (
+			id, user_id, token_hash, auth_version, authentication_method, assurance_level,
+			authenticated_at, last_used_at, idle_expires_at, absolute_expires_at, created_at
+		) VALUES (
+			'session-two', 'owner', '`+strings.Repeat("a", 64)+`', 1, 'legacy', 'legacy',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', '+1 day'), datetime('now', '+1 day'), CURRENT_TIMESTAMP
+		)`)
 	assertNoForeignKeyViolations(t, db.Read())
 }
 

@@ -48,14 +48,59 @@ const (
 type SessionRevocationReason string
 
 const (
-	SessionRevocationLogout          SessionRevocationReason = "logout"
-	SessionRevocationUserDisabled    SessionRevocationReason = "user_disabled"
-	SessionRevocationCredentialReset SessionRevocationReason = "credential_reset"
-	SessionRevocationAdminAction     SessionRevocationReason = "admin_action"
-	SessionRevocationExpired         SessionRevocationReason = "expired"
-	SessionRevocationRotation        SessionRevocationReason = "rotation"
-	SessionRevocationRoleChanged     SessionRevocationReason = "role_changed"
+	SessionRevocationLogout            SessionRevocationReason = "logout"
+	SessionRevocationUserDisabled      SessionRevocationReason = "user_disabled"
+	SessionRevocationUserStatusChanged SessionRevocationReason = "user_status_changed"
+	SessionRevocationCredentialReset   SessionRevocationReason = "credential_reset"
+	SessionRevocationAdminAction       SessionRevocationReason = "admin_action"
+	SessionRevocationExpired           SessionRevocationReason = "expired"
+	SessionRevocationRotation          SessionRevocationReason = "rotation"
+	SessionRevocationRoleChanged       SessionRevocationReason = "role_changed"
 )
+
+func (method AuthenticationMethod) Valid() bool {
+	switch method {
+	case AuthenticationMethodLegacy,
+		AuthenticationMethodPassword,
+		AuthenticationMethodPasskey,
+		AuthenticationMethodTOTP,
+		AuthenticationMethodRecoveryCode,
+		AuthenticationMethodFederatedGoogle,
+		AuthenticationMethodFederatedMicrosoft,
+		AuthenticationMethodFederatedOIDC:
+		return true
+	default:
+		return false
+	}
+}
+
+func (level AssuranceLevel) Valid() bool {
+	switch level {
+	case AssuranceLevelLegacy,
+		AssuranceLevelSingleFactor,
+		AssuranceLevelMultiFactor,
+		AssuranceLevelPhishingResistant:
+		return true
+	default:
+		return false
+	}
+}
+
+func (reason SessionRevocationReason) Valid() bool {
+	switch reason {
+	case SessionRevocationLogout,
+		SessionRevocationUserDisabled,
+		SessionRevocationUserStatusChanged,
+		SessionRevocationCredentialReset,
+		SessionRevocationAdminAction,
+		SessionRevocationExpired,
+		SessionRevocationRotation,
+		SessionRevocationRoleChanged:
+		return true
+	default:
+		return false
+	}
+}
 
 type AuthEventType string
 

@@ -170,7 +170,12 @@ func (m *Manager) SetUserStatus(ctx context.Context, userID string, status UserS
 			WHERE id = ?`, status, now, actor, now, userID); err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE sessions
+				SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
+				WHERE user_id = ? AND revoked_at IS NULL`,
+				now, actor, SessionRevocationUserDisabled, userID,
+			); err != nil {
 				return err
 			}
 		} else if status == UserStatusPending {
@@ -181,7 +186,16 @@ func (m *Manager) SetUserStatus(ctx context.Context, userID string, status UserS
 			WHERE id = ?`, status, now, userID); err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+			var actor any
+			if actorID := strings.TrimSpace(disabledBy); actorID != "" {
+				actor = actorID
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE sessions
+				SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
+				WHERE user_id = ? AND revoked_at IS NULL`,
+				now, actor, SessionRevocationUserStatusChanged, userID,
+			); err != nil {
 				return err
 			}
 		} else {
@@ -225,77 +239,5 @@ func (m *Manager) UpsertOAuthAccount(ctx context.Context, userID, provider, prov
 		`INSERT INTO oauth_accounts (id, user_id, provider, provider_account_id, access_token, refresh_token, token_type, expires_at, scopes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, userID, provider, providerAccountID, accessToken, refreshToken, tokenType, expiresAt, scopes, now, now,
 	)
-	return err
-}
-
-func (m *Manager) CreateSession(ctx context.Context, userID, userAgent string) (*Session, error) {
-	id, err := m.tokens.ID()
-	if err != nil {
-		return nil, fmt.Errorf("generate session ID: %w", err)
-	}
-	token, err := m.tokens.Token(32)
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
-	}
-	now := m.clock.Now()
-	expiresAt := now.Add(30 * 24 * time.Hour)
-	tokenHash := hashToken(token)
-
-	result, err := m.db.Write().ExecContext(ctx,
-		`INSERT INTO sessions (
-			id, user_id, token, token_hash, auth_version, authentication_method, assurance_level,
-			user_agent, expires_at, authenticated_at, last_used_at, absolute_expires_at, created_at
-		)
-		 SELECT ?, u.id, ?, ?, u.auth_version, ?, ?, ?, ?, ?, ?, ?, ?
-		 FROM users u
-		 WHERE u.id = ? AND u.status = 'active'`,
-		id, token, tokenHash, AuthenticationMethodLegacy, AssuranceLevelLegacy,
-		userAgent, expiresAt, now, now, expiresAt, now, userID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("insert session: %w", err)
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("inspect session insert: %w", err)
-	}
-	if changed != 1 {
-		return nil, ErrUserNotActive
-	}
-
-	return &Session{
-		ID:        id,
-		UserID:    userID,
-		Token:     token,
-		UserAgent: userAgent,
-		ExpiresAt: expiresAt,
-		CreatedAt: now,
-	}, nil
-}
-
-func (m *Manager) GetSessionByToken(ctx context.Context, token string) (*Session, error) {
-	s := &Session{}
-	err := m.db.Read().QueryRowContext(ctx,
-		`SELECT s.id, s.user_id, s.token, s.user_agent, s.expires_at, s.created_at
-		 FROM sessions s JOIN users u ON u.id = s.user_id
-		 WHERE s.token = ? AND s.expires_at > ? AND u.status = 'active'`,
-		token, m.clock.Now(),
-	).Scan(&s.ID, &s.UserID, &s.Token, &s.UserAgent, &s.ExpiresAt, &s.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
-func (m *Manager) DeleteSession(ctx context.Context, token string) error {
-	_, err := m.db.Write().ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
-	return err
-}
-
-func (m *Manager) CleanupExpiredSessions(ctx context.Context) error {
-	_, err := m.db.Write().ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ?`, m.clock.Now())
 	return err
 }

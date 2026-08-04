@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ func (ticker *testTicker) C() <-chan time.Time { return ticker.ticks }
 func (*testTicker) Stop()                      {}
 
 type deterministicTokenGenerator struct {
+	mu       sync.Mutex
 	ids      []string
 	tokens   []string
 	idErr    error
@@ -36,6 +38,8 @@ type deterministicTokenGenerator struct {
 }
 
 func (generator *deterministicTokenGenerator) ID() (string, error) {
+	generator.mu.Lock()
+	defer generator.mu.Unlock()
 	if generator.idErr != nil {
 		return "", generator.idErr
 	}
@@ -48,6 +52,8 @@ func (generator *deterministicTokenGenerator) ID() (string, error) {
 }
 
 func (generator *deterministicTokenGenerator) Token(byteCount int) (string, error) {
+	generator.mu.Lock()
+	defer generator.mu.Unlock()
 	if generator.tokenErr != nil {
 		return "", generator.tokenErr
 	}
@@ -107,8 +113,8 @@ func TestCreateSessionUsesInjectedClockAndTokens(t *testing.T) {
 	if session.ID != "session-id" || session.Token != "session-token" {
 		t.Fatalf("CreateSession() identity = (%q, %q), want deterministic values", session.ID, session.Token)
 	}
-	if !session.CreatedAt.Equal(now) || !session.ExpiresAt.Equal(now.Add(30*24*time.Hour)) {
-		t.Fatalf("CreateSession() times = (%v, %v), want (%v, %v)", session.CreatedAt, session.ExpiresAt, now, now.Add(30*24*time.Hour))
+	if !session.CreatedAt.Equal(now) || !session.AbsoluteExpiresAt.Equal(now.Add(30*24*time.Hour)) {
+		t.Fatalf("CreateSession() times = (%v, %v), want (%v, %v)", session.CreatedAt, session.AbsoluteExpiresAt, now, now.Add(30*24*time.Hour))
 	}
 
 	stored, err := manager.GetSessionByToken(t.Context(), "session-token")
@@ -124,7 +130,7 @@ func TestCreateSessionUsesInjectedClockAndTokens(t *testing.T) {
 	).Scan(&tokenHash, &authVersion, &method, &assurance, &absoluteExpiresAt); err != nil {
 		t.Fatalf("query persisted session metadata: %v", err)
 	}
-	if tokenHash != hashToken(session.Token) || authVersion != 5 || method != string(AuthenticationMethodLegacy) || assurance != string(AssuranceLevelLegacy) || !absoluteExpiresAt.Equal(session.ExpiresAt) {
+	if tokenHash != hashToken(session.Token) || authVersion != 5 || method != string(AuthenticationMethodLegacy) || assurance != string(AssuranceLevelLegacy) || !absoluteExpiresAt.Equal(session.AbsoluteExpiresAt) {
 		t.Fatalf("persisted session metadata = hash:%q auth:%d method:%q assurance:%q absolute:%v", tokenHash, authVersion, method, assurance, absoluteExpiresAt)
 	}
 }
@@ -142,12 +148,12 @@ func TestSessionExpiryUsesInjectedClock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
-	clock.now = session.ExpiresAt.Add(-time.Second)
+	clock.now = session.AbsoluteExpiresAt.Add(-time.Second)
 	if found, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || found == nil {
 		t.Fatalf("GetSessionByToken(before expiry) = %#v, %v", found, err)
 	}
 
-	clock.now = session.ExpiresAt
+	clock.now = session.AbsoluteExpiresAt
 	if found, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || found != nil {
 		t.Fatalf("GetSessionByToken(at expiry) = %#v, %v, want nil", found, err)
 	}
@@ -158,19 +164,8 @@ func TestSessionExpiryUsesInjectedClock(t *testing.T) {
 	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions WHERE id = ?`, session.ID).Scan(&count); err != nil {
 		t.Fatalf("count session at expiry: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("session count at exact expiry = %d, want 1", count)
-	}
-
-	clock.now = session.ExpiresAt.Add(time.Second)
-	if err := manager.CleanupExpiredSessions(t.Context()); err != nil {
-		t.Fatalf("CleanupExpiredSessions(after expiry) error = %v", err)
-	}
-	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions WHERE id = ?`, session.ID).Scan(&count); err != nil {
-		t.Fatalf("count cleaned session: %v", err)
-	}
 	if count != 0 {
-		t.Fatalf("session count after cleanup = %d, want 0", count)
+		t.Fatalf("session count at exact expiry = %d, want 0", count)
 	}
 }
 
@@ -208,17 +203,18 @@ func TestGenerateStatePropagatesTokenGenerationFailure(t *testing.T) {
 
 func TestSetUserStatusRollsBackWhenSessionRevocationFails(t *testing.T) {
 	now := time.Date(2026, time.August, 4, 10, 30, 0, 0, time.UTC)
-	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{})
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids:    []string{"session-id"},
+		tokens: []string{"session-token"},
+	})
 	insertActiveUser(t, manager, "admin-id", true, now)
 	insertActiveUser(t, manager, "user-id", false, now)
-	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		INSERT INTO sessions (id, user_id, token, user_agent, expires_at, created_at)
-		VALUES ('session-id', 'user-id', 'session-token', 'test-agent', ?, ?)`, now.Add(time.Hour), now); err != nil {
-		t.Fatalf("insert session: %v", err)
+	if _, err := manager.CreateSession(t.Context(), "user-id", "test-agent"); err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
 	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		CREATE TRIGGER reject_session_revocation
-		BEFORE DELETE ON sessions
+		BEFORE UPDATE OF revoked_at ON sessions
 		BEGIN
 			SELECT RAISE(ABORT, 'forced session revocation failure');
 		END`); err != nil {

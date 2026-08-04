@@ -45,12 +45,23 @@ func (status UserStatus) AllowsAuthentication() bool {
 }
 
 type Session struct {
-	ID        string
-	UserID    string
-	Token     string
-	UserAgent string
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	ID                   string
+	UserID               string
+	Token                string
+	AuthVersion          int64
+	AuthenticationMethod AuthenticationMethod
+	AssuranceLevel       AssuranceLevel
+	UserAgent            string
+	AuthenticatedAt      time.Time
+	LastUsedAt           time.Time
+	IdleExpiresAt        time.Time
+	AbsoluteExpiresAt    time.Time
+	StepUpAt             *time.Time
+	StepUpMethod         AuthenticationMethod
+	RevokedAt            *time.Time
+	RevokedBy            string
+	RevocationReason     SessionRevocationReason
+	CreatedAt            time.Time
 }
 
 type OAuthAccount struct {
@@ -69,7 +80,10 @@ type OAuthAccount struct {
 
 type contextKey string
 
-const userContextKey contextKey = "user"
+const (
+	userContextKey    contextKey = "user"
+	sessionContextKey contextKey = "session"
+)
 
 func UserFromContext(ctx context.Context) *User {
 	u, ok := ctx.Value(userContextKey).(*User)
@@ -81,6 +95,18 @@ func UserFromContext(ctx context.Context) *User {
 
 func ContextWithUser(ctx context.Context, u *User) context.Context {
 	return context.WithValue(ctx, userContextKey, u)
+}
+
+func SessionFromContext(ctx context.Context) *Session {
+	session, ok := ctx.Value(sessionContextKey).(*Session)
+	if !ok {
+		return nil
+	}
+	return session
+}
+
+func ContextWithSession(ctx context.Context, session *Session) context.Context {
+	return context.WithValue(ctx, sessionContextKey, session)
 }
 
 type Config struct {

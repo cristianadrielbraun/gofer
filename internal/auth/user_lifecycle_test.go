@@ -48,6 +48,10 @@ func TestUserLifecycleUsesNormalizedIdentifiersAndRevokesSessions(t *testing.T) 
 	if got, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || got != nil {
 		t.Fatalf("revoked session = %#v, %v", got, err)
 	}
+	sessions, err := manager.ListSessions(t.Context(), user.ID)
+	if err != nil || len(sessions) != 1 || sessions[0].RevokedAt == nil || sessions[0].RevocationReason != SessionRevocationUserDisabled || sessions[0].RevokedBy != admin.ID {
+		t.Fatalf("disabled user sessions = %#v, %v", sessions, err)
+	}
 	if session, err := manager.CreateSession(t.Context(), user.ID, "disabled-agent"); !errors.Is(err, ErrUserNotActive) || session != nil {
 		t.Fatalf("CreateSession(disabled) = %#v, %v, want ErrUserNotActive", session, err)
 	}

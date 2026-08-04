@@ -143,7 +143,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 78
+	const targetSchemaVersion = 79
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -620,6 +620,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 77 {
 		if err := migrateV77ToV78(tx); err != nil {
 			return fmt.Errorf("migrate v77 to v78: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 78 {
+		if err := migrateV78ToV79(tx); err != nil {
+			return fmt.Errorf("migrate v78 to v79: %w", err)
 		}
 	}
 
@@ -3653,6 +3659,20 @@ func migrateSessionsToV78(tx *sql.Tx) error {
 			return err
 		}
 		return createSessionV78Indexes(tx)
+	}
+	hasLegacyToken, err := columnExistsTx(tx, "sessions", "token")
+	if err != nil {
+		return err
+	}
+	if !hasLegacyToken {
+		hasTokenHash, err := columnExistsTx(tx, "sessions", "token_hash")
+		if err != nil {
+			return err
+		}
+		if !hasTokenHash {
+			return fmt.Errorf("sessions table has neither legacy token nor token hash storage")
+		}
+		return createSessionV79Indexes(tx)
 	}
 
 	type legacySession struct {
