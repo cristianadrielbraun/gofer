@@ -96,6 +96,9 @@ func TestCreateSessionUsesInjectedClockAndTokens(t *testing.T) {
 	}
 	manager := newDeterministicManager(t, clock, tokens)
 	insertActiveUser(t, manager, "user-id", false, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET auth_version = 5 WHERE id = 'user-id'`); err != nil {
+		t.Fatalf("set user auth version: %v", err)
+	}
 
 	session, err := manager.CreateSession(t.Context(), "user-id", "test-agent")
 	if err != nil {
@@ -111,6 +114,18 @@ func TestCreateSessionUsesInjectedClockAndTokens(t *testing.T) {
 	stored, err := manager.GetSessionByToken(t.Context(), "session-token")
 	if err != nil || stored == nil || stored.ID != "session-id" {
 		t.Fatalf("GetSessionByToken() = %#v, %v", stored, err)
+	}
+	var tokenHash, method, assurance string
+	var authVersion int64
+	var absoluteExpiresAt time.Time
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT token_hash, auth_version, authentication_method, assurance_level, absolute_expires_at
+		FROM sessions WHERE id = ?`, session.ID,
+	).Scan(&tokenHash, &authVersion, &method, &assurance, &absoluteExpiresAt); err != nil {
+		t.Fatalf("query persisted session metadata: %v", err)
+	}
+	if tokenHash != hashToken(session.Token) || authVersion != 5 || method != string(AuthenticationMethodLegacy) || assurance != string(AssuranceLevelLegacy) || !absoluteExpiresAt.Equal(session.ExpiresAt) {
+		t.Fatalf("persisted session metadata = hash:%q auth:%d method:%q assurance:%q absolute:%v", tokenHash, authVersion, method, assurance, absoluteExpiresAt)
 	}
 }
 

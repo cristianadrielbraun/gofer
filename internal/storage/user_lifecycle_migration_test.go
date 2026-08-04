@@ -50,7 +50,7 @@ func TestMigrateV76AddsUserLifecycleFields(t *testing.T) {
 		FROM users WHERE id = 'owner'`).Scan(&emailNormalized, &status, &authVersion, &mfaRequired); err != nil {
 		t.Fatalf("query migrated user: %v", err)
 	}
-	if version != 77 || emailNormalized != "owner@example.com" || status != "active" || authVersion != 1 || mfaRequired != 0 {
+	if version != 78 || emailNormalized != "owner@example.com" || status != "active" || authVersion != 1 || mfaRequired != 0 {
 		t.Fatalf("migrated user = version:%d email:%q status:%q auth:%d mfa:%d", version, emailNormalized, status, authVersion, mfaRequired)
 	}
 	if _, err := db.Write().Exec(`INSERT INTO users (id, email, email_normalized) VALUES ('duplicate', 'duplicate@example.com', 'owner@example.com')`); err == nil {

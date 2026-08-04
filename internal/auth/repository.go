@@ -239,12 +239,18 @@ func (m *Manager) CreateSession(ctx context.Context, userID, userAgent string) (
 	}
 	now := m.clock.Now()
 	expiresAt := now.Add(30 * 24 * time.Hour)
+	tokenHash := hashToken(token)
 
 	result, err := m.db.Write().ExecContext(ctx,
-		`INSERT INTO sessions (id, user_id, token, user_agent, expires_at, created_at)
-		 SELECT ?, ?, ?, ?, ?, ?
-		 WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND status = 'active')`,
-		id, userID, token, userAgent, expiresAt, now, userID,
+		`INSERT INTO sessions (
+			id, user_id, token, token_hash, auth_version, authentication_method, assurance_level,
+			user_agent, expires_at, authenticated_at, last_used_at, absolute_expires_at, created_at
+		)
+		 SELECT ?, u.id, ?, ?, u.auth_version, ?, ?, ?, ?, ?, ?, ?, ?
+		 FROM users u
+		 WHERE u.id = ? AND u.status = 'active'`,
+		id, token, tokenHash, AuthenticationMethodLegacy, AssuranceLevelLegacy,
+		userAgent, expiresAt, now, now, expiresAt, now, userID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert session: %w", err)

@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -141,7 +143,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 77
+	const targetSchemaVersion = 78
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -612,6 +614,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 76 {
 		if err := migrateV76ToV77(tx); err != nil {
 			return fmt.Errorf("migrate v76 to v77: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 77 {
+		if err := migrateV77ToV78(tx); err != nil {
+			return fmt.Errorf("migrate v77 to v78: %w", err)
 		}
 	}
 
@@ -3447,6 +3455,303 @@ func migrateV76ToV77(tx *sql.Tx) error {
 		return err
 	}
 	return markSchemaVersion(tx, 77)
+}
+
+const sessionsV78Table = `CREATE TABLE %s (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	token TEXT NOT NULL UNIQUE,
+	token_hash TEXT,
+	auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0),
+	authentication_method TEXT NOT NULL DEFAULT 'legacy' CHECK (authentication_method IN ('legacy', 'password', 'passkey', 'totp', 'recovery_code', 'federated_google', 'federated_microsoft', 'federated_oidc')),
+	assurance_level TEXT NOT NULL DEFAULT 'legacy' CHECK (assurance_level IN ('legacy', 'single_factor', 'multi_factor', 'phishing_resistant')),
+	user_agent TEXT NOT NULL DEFAULT '',
+	expires_at DATETIME NOT NULL,
+	authenticated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	idle_expires_at DATETIME,
+	absolute_expires_at DATETIME,
+	step_up_at DATETIME,
+	step_up_method TEXT NOT NULL DEFAULT '' CHECK (step_up_method IN ('', 'password', 'passkey', 'totp', 'recovery_code', 'federated_google', 'federated_microsoft', 'federated_oidc')),
+	revoked_at DATETIME,
+	revoked_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+	revocation_reason TEXT NOT NULL DEFAULT '' CHECK (revocation_reason IN ('', 'logout', 'user_disabled', 'credential_reset', 'admin_action', 'expired', 'rotation', 'role_changed')),
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	CHECK (revoked_at IS NOT NULL OR revocation_reason = '')
+)`
+
+func migrateV77ToV78(tx *sql.Tx) error {
+	hasUsers, err := tableExistsTx(tx, "users")
+	if err != nil {
+		return err
+	}
+	if !hasUsers {
+		return markSchemaVersion(tx, 78)
+	}
+
+	if err := migrateSessionsToV78(tx); err != nil {
+		return err
+	}
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS auth_identities (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft', 'oidc')),
+			issuer TEXT NOT NULL CHECK (issuer <> ''),
+			subject TEXT NOT NULL CHECK (subject <> ''),
+			email TEXT NOT NULL DEFAULT '',
+			email_verified INTEGER NOT NULL DEFAULT 0 CHECK (email_verified IN (0, 1)),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			linked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_used_at DATETIME,
+			UNIQUE (issuer, subject)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_identities_user ON auth_identities(user_id)`,
+		`CREATE TABLE IF NOT EXISTS password_credentials (
+			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			password_hash TEXT NOT NULL CHECK (password_hash <> ''),
+			must_change INTEGER NOT NULL DEFAULT 0 CHECK (must_change IN (0, 1)),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			reset_at DATETIME
+		)`,
+		`CREATE TABLE IF NOT EXISTS webauthn_credentials (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			credential_id BLOB NOT NULL UNIQUE CHECK (length(credential_id) > 0),
+			public_key BLOB NOT NULL CHECK (length(public_key) > 0),
+			sign_count INTEGER NOT NULL DEFAULT 0 CHECK (sign_count >= 0),
+			aaguid BLOB,
+			transports TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(transports)),
+			attachment TEXT NOT NULL DEFAULT '' CHECK (attachment IN ('', 'platform', 'cross-platform')),
+			backup_eligible INTEGER NOT NULL DEFAULT 0 CHECK (backup_eligible IN (0, 1)),
+			backup_state INTEGER NOT NULL DEFAULT 0 CHECK (backup_state IN (0, 1)),
+			name TEXT NOT NULL CHECK (name <> ''),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_used_at DATETIME,
+			revoked_at DATETIME,
+			CHECK (backup_state = 0 OR backup_eligible = 1)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_active ON webauthn_credentials(user_id, created_at) WHERE revoked_at IS NULL`,
+		`CREATE TABLE IF NOT EXISTS totp_credentials (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			encrypted_seed BLOB NOT NULL CHECK (length(encrypted_seed) > 0),
+			key_version INTEGER NOT NULL CHECK (key_version > 0),
+			algorithm TEXT NOT NULL DEFAULT 'SHA1' CHECK (algorithm IN ('SHA1', 'SHA256', 'SHA512')),
+			digits INTEGER NOT NULL DEFAULT 6 CHECK (digits IN (6, 8)),
+			period INTEGER NOT NULL DEFAULT 30 CHECK (period > 0),
+			issuer TEXT NOT NULL DEFAULT 'Gofer' CHECK (issuer <> ''),
+			last_accepted_step INTEGER CHECK (last_accepted_step IS NULL OR last_accepted_step >= 0),
+			enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_used_at DATETIME,
+			revoked_at DATETIME,
+			CHECK (revoked_at IS NULL OR enabled = 0)
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_totp_credentials_active ON totp_credentials(user_id) WHERE revoked_at IS NULL`,
+		`CREATE TABLE IF NOT EXISTS recovery_codes (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			batch_id TEXT NOT NULL CHECK (batch_id <> ''),
+			code_hash TEXT NOT NULL CHECK (code_hash <> ''),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			used_at DATETIME,
+			revoked_at DATETIME,
+			UNIQUE (user_id, code_hash),
+			CHECK (used_at IS NULL OR revoked_at IS NULL)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_recovery_codes_active ON recovery_codes(user_id, batch_id) WHERE used_at IS NULL AND revoked_at IS NULL`,
+		`CREATE TABLE IF NOT EXISTS auth_challenges (
+			id TEXT PRIMARY KEY,
+			user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+			session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+			challenge_hash TEXT NOT NULL UNIQUE CHECK (challenge_hash <> ''),
+			purpose TEXT NOT NULL CHECK (purpose IN ('login', 'mfa', 'enrollment', 'recovery', 'step_up', 'federated_login')),
+			attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+			max_attempts INTEGER NOT NULL DEFAULT 1 CHECK (max_attempts > 0),
+			payload_ciphertext BLOB,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME NOT NULL,
+			consumed_at DATETIME,
+			CHECK (attempts <= max_attempts)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_challenges_active ON auth_challenges(purpose, expires_at) WHERE consumed_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_challenges_user ON auth_challenges(user_id, purpose)`,
+		`CREATE TABLE IF NOT EXISTS auth_throttle (
+			bucket_hash TEXT PRIMARY KEY CHECK (bucket_hash <> ''),
+			action TEXT NOT NULL CHECK (action <> ''),
+			failure_count INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0),
+			first_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			blocked_until DATETIME,
+			expires_at DATETIME NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_throttle_cleanup ON auth_throttle(expires_at)`,
+		`CREATE TABLE IF NOT EXISTS auth_events (
+			id TEXT PRIMARY KEY,
+			occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+			subject_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+			session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+			request_id TEXT NOT NULL DEFAULT '',
+			event_type TEXT NOT NULL CHECK (event_type <> '' AND length(event_type) <= 64),
+			success INTEGER NOT NULL CHECK (success IN (0, 1)),
+			reason TEXT NOT NULL DEFAULT '' CHECK (length(reason) <= 64),
+			user_agent TEXT NOT NULL DEFAULT '' CHECK (length(user_agent) <= 1024),
+			source_hash TEXT NOT NULL DEFAULT '',
+			metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json))
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_events_subject ON auth_events(subject_user_id, occurred_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_events_actor ON auth_events(actor_user_id, occurred_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_events_type ON auth_events(event_type, occurred_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS user_enrollment_tokens (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+			token_hash TEXT NOT NULL UNIQUE CHECK (token_hash <> ''),
+			purpose TEXT NOT NULL CHECK (purpose IN ('enrollment', 'credential_reset')),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME NOT NULL,
+			used_at DATETIME,
+			revoked_at DATETIME,
+			CHECK (used_at IS NULL OR revoked_at IS NULL)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_enrollment_tokens_active ON user_enrollment_tokens(user_id, expires_at) WHERE used_at IS NULL AND revoked_at IS NULL`,
+		`CREATE TABLE IF NOT EXISTS auth_system_state (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			initialized INTEGER NOT NULL DEFAULT 0 CHECK (initialized IN (0, 1)),
+			owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+			initialized_at DATETIME,
+			setup_token_hash TEXT,
+			setup_expires_at DATETIME,
+			setup_attempts INTEGER NOT NULL DEFAULT 0 CHECK (setup_attempts >= 0),
+			setup_rotated_at DATETIME,
+			cutover_version INTEGER NOT NULL DEFAULT 0 CHECK (cutover_version >= 0)
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	if err := foreignKeyCheckTx(tx); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 78)
+}
+
+func migrateSessionsToV78(tx *sql.Tx) error {
+	hasSessions, err := tableExistsTx(tx, "sessions")
+	if err != nil {
+		return err
+	}
+	if !hasSessions {
+		if _, err := tx.Exec(fmt.Sprintf(sessionsV78Table, "sessions")); err != nil {
+			return err
+		}
+		return createSessionV78Indexes(tx)
+	}
+
+	type legacySession struct {
+		id          string
+		userID      string
+		token       string
+		userAgent   string
+		expiresAt   any
+		createdAt   any
+		authVersion int64
+		tokenHash   string
+	}
+	authVersionExpression := "1"
+	if hasAuthVersion, err := columnExistsTx(tx, "users", "auth_version"); err != nil {
+		return err
+	} else if hasAuthVersion {
+		authVersionExpression = "COALESCE(u.auth_version, 1)"
+	}
+	rows, err := tx.Query(`
+		SELECT s.id, s.user_id, s.token, s.user_agent, s.expires_at, s.created_at, ` + authVersionExpression + `
+		FROM sessions s
+		LEFT JOIN users u ON u.id = s.user_id
+		ORDER BY s.id`)
+	if err != nil {
+		return fmt.Errorf("read legacy sessions: %w", err)
+	}
+	var sessions []legacySession
+	seenHashes := make(map[string]string)
+	for rows.Next() {
+		var session legacySession
+		if err := rows.Scan(&session.id, &session.userID, &session.token, &session.userAgent, &session.expiresAt, &session.createdAt, &session.authVersion); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan legacy session: %w", err)
+		}
+		if strings.TrimSpace(session.token) == "" {
+			rows.Close()
+			return fmt.Errorf("session %q has an empty bearer token", session.id)
+		}
+		hash := sha256.Sum256([]byte(session.token))
+		session.tokenHash = hex.EncodeToString(hash[:])
+		if existingID, exists := seenHashes[session.tokenHash]; exists {
+			rows.Close()
+			return fmt.Errorf("session token hash collision between sessions %q and %q", existingID, session.id)
+		}
+		seenHashes[session.tokenHash] = session.id
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read legacy sessions: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	const legacyTable = "sessions_auth_v77_old"
+	if exists, err := tableExistsTx(tx, legacyTable); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("temporary session migration table %q already exists", legacyTable)
+	}
+	if _, err := tx.Exec(`ALTER TABLE sessions RENAME TO sessions_auth_v77_old`); err != nil {
+		return fmt.Errorf("rename legacy sessions table: %w", err)
+	}
+	if _, err := tx.Exec(fmt.Sprintf(sessionsV78Table, "sessions")); err != nil {
+		return fmt.Errorf("create replacement sessions table: %w", err)
+	}
+	for _, session := range sessions {
+		if _, err := tx.Exec(`
+			INSERT INTO sessions (
+				id, user_id, token, token_hash, auth_version, authentication_method, assurance_level,
+				user_agent, expires_at, authenticated_at, last_used_at, absolute_expires_at, created_at
+			) VALUES (?, ?, ?, ?, ?, 'legacy', 'legacy', ?, ?, ?, ?, ?, ?)`,
+			session.id, session.userID, session.token, session.tokenHash, session.authVersion,
+			session.userAgent, session.expiresAt, session.createdAt, session.createdAt, session.expiresAt, session.createdAt,
+		); err != nil {
+			return fmt.Errorf("migrate session %q: %w", session.id, err)
+		}
+	}
+	if _, err := tx.Exec(`DROP TABLE sessions_auth_v77_old`); err != nil {
+		return fmt.Errorf("replace legacy sessions table: %w", err)
+	}
+	return createSessionV78Indexes(tx)
+}
+
+func createSessionV78Indexes(tx *sql.Tx) error {
+	for _, statement := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash) WHERE token_hash IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_active_user ON sessions(user_id, revoked_at, absolute_expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_cleanup ON sessions(revoked_at, idle_expires_at, absolute_expires_at, expires_at)`,
+	} {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateFolderReferences(tx *sql.Tx, entries []folderIdentityMigration) error {

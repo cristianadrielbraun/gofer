@@ -535,9 +535,23 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token TEXT NOT NULL UNIQUE,
+    token_hash TEXT,
+    auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0),
+    authentication_method TEXT NOT NULL DEFAULT 'legacy' CHECK (authentication_method IN ('legacy', 'password', 'passkey', 'totp', 'recovery_code', 'federated_google', 'federated_microsoft', 'federated_oidc')),
+    assurance_level TEXT NOT NULL DEFAULT 'legacy' CHECK (assurance_level IN ('legacy', 'single_factor', 'multi_factor', 'phishing_resistant')),
     user_agent TEXT NOT NULL DEFAULT '',
     expires_at DATETIME NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    authenticated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    idle_expires_at DATETIME,
+    absolute_expires_at DATETIME,
+    step_up_at DATETIME,
+    step_up_method TEXT NOT NULL DEFAULT '' CHECK (step_up_method IN ('', 'password', 'passkey', 'totp', 'recovery_code', 'federated_google', 'federated_microsoft', 'federated_oidc')),
+    revoked_at DATETIME,
+    revoked_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    revocation_reason TEXT NOT NULL DEFAULT '' CHECK (revocation_reason IN ('', 'logout', 'user_disabled', 'credential_reset', 'admin_action', 'expired', 'rotation', 'role_changed')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (revoked_at IS NOT NULL OR revocation_reason = '')
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user
@@ -546,8 +560,195 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user
 CREATE INDEX IF NOT EXISTS idx_sessions_token
     ON sessions(token);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash
+    ON sessions(token_hash)
+    WHERE token_hash IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_sessions_expires
     ON sessions(expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_active_user
+    ON sessions(user_id, revoked_at, absolute_expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_cleanup
+    ON sessions(revoked_at, idle_expires_at, absolute_expires_at, expires_at);
+
+-- Application-login provider identities. Mailbox OAuth credentials remain separate.
+CREATE TABLE IF NOT EXISTS auth_identities (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft', 'oidc')),
+    issuer TEXT NOT NULL CHECK (issuer <> ''),
+    subject TEXT NOT NULL CHECK (subject <> ''),
+    email TEXT NOT NULL DEFAULT '',
+    email_verified INTEGER NOT NULL DEFAULT 0 CHECK (email_verified IN (0, 1)),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    linked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME,
+    UNIQUE (issuer, subject)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_identities_user
+    ON auth_identities(user_id);
+
+CREATE TABLE IF NOT EXISTS password_credentials (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL CHECK (password_hash <> ''),
+    must_change INTEGER NOT NULL DEFAULT 0 CHECK (must_change IN (0, 1)),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reset_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    credential_id BLOB NOT NULL UNIQUE CHECK (length(credential_id) > 0),
+    public_key BLOB NOT NULL CHECK (length(public_key) > 0),
+    sign_count INTEGER NOT NULL DEFAULT 0 CHECK (sign_count >= 0),
+    aaguid BLOB,
+    transports TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(transports)),
+    attachment TEXT NOT NULL DEFAULT '' CHECK (attachment IN ('', 'platform', 'cross-platform')),
+    backup_eligible INTEGER NOT NULL DEFAULT 0 CHECK (backup_eligible IN (0, 1)),
+    backup_state INTEGER NOT NULL DEFAULT 0 CHECK (backup_state IN (0, 1)),
+    name TEXT NOT NULL CHECK (name <> ''),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME,
+    revoked_at DATETIME,
+    CHECK (backup_state = 0 OR backup_eligible = 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user
+    ON webauthn_credentials(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_active
+    ON webauthn_credentials(user_id, created_at)
+    WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS totp_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    encrypted_seed BLOB NOT NULL CHECK (length(encrypted_seed) > 0),
+    key_version INTEGER NOT NULL CHECK (key_version > 0),
+    algorithm TEXT NOT NULL DEFAULT 'SHA1' CHECK (algorithm IN ('SHA1', 'SHA256', 'SHA512')),
+    digits INTEGER NOT NULL DEFAULT 6 CHECK (digits IN (6, 8)),
+    period INTEGER NOT NULL DEFAULT 30 CHECK (period > 0),
+    issuer TEXT NOT NULL DEFAULT 'Gofer' CHECK (issuer <> ''),
+    last_accepted_step INTEGER CHECK (last_accepted_step IS NULL OR last_accepted_step >= 0),
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME,
+    revoked_at DATETIME,
+    CHECK (revoked_at IS NULL OR enabled = 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_totp_credentials_active
+    ON totp_credentials(user_id)
+    WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS recovery_codes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    batch_id TEXT NOT NULL CHECK (batch_id <> ''),
+    code_hash TEXT NOT NULL CHECK (code_hash <> ''),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    used_at DATETIME,
+    revoked_at DATETIME,
+    UNIQUE (user_id, code_hash),
+    CHECK (used_at IS NULL OR revoked_at IS NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recovery_codes_active
+    ON recovery_codes(user_id, batch_id)
+    WHERE used_at IS NULL AND revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS auth_challenges (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+    challenge_hash TEXT NOT NULL UNIQUE CHECK (challenge_hash <> ''),
+    purpose TEXT NOT NULL CHECK (purpose IN ('login', 'mfa', 'enrollment', 'recovery', 'step_up', 'federated_login')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 1 CHECK (max_attempts > 0),
+    payload_ciphertext BLOB,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    consumed_at DATETIME,
+    CHECK (attempts <= max_attempts)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_challenges_active
+    ON auth_challenges(purpose, expires_at)
+    WHERE consumed_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_auth_challenges_user
+    ON auth_challenges(user_id, purpose);
+
+CREATE TABLE IF NOT EXISTS auth_throttle (
+    bucket_hash TEXT PRIMARY KEY CHECK (bucket_hash <> ''),
+    action TEXT NOT NULL CHECK (action <> ''),
+    failure_count INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0),
+    first_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    blocked_until DATETIME,
+    expires_at DATETIME NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_throttle_cleanup
+    ON auth_throttle(expires_at);
+
+CREATE TABLE IF NOT EXISTS auth_events (
+    id TEXT PRIMARY KEY,
+    occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    subject_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    request_id TEXT NOT NULL DEFAULT '',
+    event_type TEXT NOT NULL CHECK (event_type <> '' AND length(event_type) <= 64),
+    success INTEGER NOT NULL CHECK (success IN (0, 1)),
+    reason TEXT NOT NULL DEFAULT '' CHECK (length(reason) <= 64),
+    user_agent TEXT NOT NULL DEFAULT '' CHECK (length(user_agent) <= 1024),
+    source_hash TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json))
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_events_subject
+    ON auth_events(subject_user_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_auth_events_actor
+    ON auth_events(actor_user_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_auth_events_type
+    ON auth_events(event_type, occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_enrollment_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    token_hash TEXT NOT NULL UNIQUE CHECK (token_hash <> ''),
+    purpose TEXT NOT NULL CHECK (purpose IN ('enrollment', 'credential_reset')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME,
+    revoked_at DATETIME,
+    CHECK (used_at IS NULL OR revoked_at IS NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_enrollment_tokens_active
+    ON user_enrollment_tokens(user_id, expires_at)
+    WHERE used_at IS NULL AND revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS auth_system_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    initialized INTEGER NOT NULL DEFAULT 0 CHECK (initialized IN (0, 1)),
+    owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    initialized_at DATETIME,
+    setup_token_hash TEXT,
+    setup_expires_at DATETIME,
+    setup_attempts INTEGER NOT NULL DEFAULT 0 CHECK (setup_attempts >= 0),
+    setup_rotated_at DATETIME,
+    cutover_version INTEGER NOT NULL DEFAULT 0 CHECK (cutover_version >= 0)
+);
 
 CREATE TABLE IF NOT EXISTS oauth_account_flows (
     state_hash TEXT PRIMARY KEY,
@@ -1097,4 +1298,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (77);
+INSERT OR REPLACE INTO schema_version (version) VALUES (78);

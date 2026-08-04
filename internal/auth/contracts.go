@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 type AuthenticationMethod string
 
 const (
+	AuthenticationMethodLegacy             AuthenticationMethod = "legacy"
 	AuthenticationMethodPassword           AuthenticationMethod = "password"
 	AuthenticationMethodPasskey            AuthenticationMethod = "passkey"
 	AuthenticationMethodTOTP               AuthenticationMethod = "totp"
@@ -26,6 +28,7 @@ const (
 type AssuranceLevel string
 
 const (
+	AssuranceLevelLegacy            AssuranceLevel = "legacy"
 	AssuranceLevelSingleFactor      AssuranceLevel = "single_factor"
 	AssuranceLevelMultiFactor       AssuranceLevel = "multi_factor"
 	AssuranceLevelPhishingResistant AssuranceLevel = "phishing_resistant"
@@ -140,6 +143,11 @@ func (secureTokenGenerator) ID() (string, error) {
 		return "", fmt.Errorf("generate random ID: %w", err)
 	}
 	return value.String(), nil
+}
+
+func hashToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
 }
 
 func (m *Manager) runSecurityTransition(ctx context.Context, boundary SecurityTransition, action func(*sql.Tx) error) error {
