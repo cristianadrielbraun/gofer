@@ -42,14 +42,14 @@ func GetSessionToken(r *http.Request) string {
 }
 
 func (m *Manager) StartSessionCleanup(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := m.clock.NewTicker(1 * time.Hour)
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				ticker.Stop()
 				return
-			case <-ticker.C:
+			case <-ticker.C():
 				if err := m.CleanupExpiredSessions(ctx); err != nil {
 					log.Printf("session cleanup error: %v", err)
 				}

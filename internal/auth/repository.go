@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 var ErrLastActiveAdmin = errors.New("cannot deactivate the last active administrator")
@@ -65,10 +63,11 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 	}
 
 	if err == nil {
+		now := m.clock.Now()
 		if name != "" {
 			_, err = m.db.Write().ExecContext(ctx,
 				`UPDATE users SET email = ?, email_normalized = ?, name = ?, avatar_url = ?, updated_at = ? WHERE id = ?`,
-				email, emailNormalized, name, avatarURL, time.Now(), existing.ID,
+				email, emailNormalized, name, avatarURL, now, existing.ID,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("update user: %w", err)
@@ -77,7 +76,7 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 			existing.AvatarURL = avatarURL
 		} else if _, err := m.db.Write().ExecContext(ctx,
 			`UPDATE users SET email = ?, email_normalized = ?, updated_at = ? WHERE id = ?`,
-			email, emailNormalized, time.Now(), existing.ID,
+			email, emailNormalized, now, existing.ID,
 		); err != nil {
 			return nil, fmt.Errorf("normalize user email: %w", err)
 		}
@@ -94,8 +93,11 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 		isAdminVal = 1
 	}
 
-	id := uuid.New().String()
-	now := time.Now()
+	id, err := m.tokens.ID()
+	if err != nil {
+		return nil, fmt.Errorf("generate user ID: %w", err)
+	}
+	now := m.clock.Now()
 	_, err = m.db.Write().ExecContext(ctx,
 		`INSERT INTO users (id, email, email_normalized, name, avatar_url, status, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, email, emailNormalized, name, avatarURL, UserStatusActive, isAdminVal, now, now,
@@ -135,71 +137,67 @@ func (m *Manager) SetUserStatus(ctx context.Context, userID string, status UserS
 	if status != UserStatusPending && status != UserStatusActive && status != UserStatusDisabled {
 		return fmt.Errorf("invalid user status %q", status)
 	}
-	tx, err := m.db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var isAdmin int
-	var currentStatus UserStatus
-	if err := tx.QueryRowContext(ctx, `SELECT is_admin, status FROM users WHERE id = ?`, userID).Scan(&isAdmin, &currentStatus); err != nil {
-		return err
-	}
-	if currentStatus == status {
-		return nil
-	}
-	if currentStatus == UserStatusActive && status != UserStatusActive && isAdmin == 1 {
-		var otherActiveAdmins int
-		if err := tx.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM users
-			WHERE id != ? AND is_admin = 1 AND status = 'active'`, userID).Scan(&otherActiveAdmins); err != nil {
+	return m.runSecurityTransition(ctx, SecurityTransitionUserStatus, func(tx *sql.Tx) error {
+		var isAdmin int
+		var currentStatus UserStatus
+		if err := tx.QueryRowContext(ctx, `SELECT is_admin, status FROM users WHERE id = ?`, userID).Scan(&isAdmin, &currentStatus); err != nil {
 			return err
 		}
-		if otherActiveAdmins == 0 {
-			return ErrLastActiveAdmin
+		if currentStatus == status {
+			return nil
 		}
-	}
+		if currentStatus == UserStatusActive && status != UserStatusActive && isAdmin == 1 {
+			var otherActiveAdmins int
+			if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM users
+			WHERE id != ? AND is_admin = 1 AND status = 'active'`, userID).Scan(&otherActiveAdmins); err != nil {
+				return err
+			}
+			if otherActiveAdmins == 0 {
+				return ErrLastActiveAdmin
+			}
+		}
 
-	now := time.Now().UTC()
-	if status == UserStatusDisabled {
-		var actor any
-		if actorID := strings.TrimSpace(disabledBy); actorID != "" {
-			actor = actorID
-		}
-		if _, err := tx.ExecContext(ctx, `
+		now := m.clock.Now().UTC()
+		if status == UserStatusDisabled {
+			var actor any
+			if actorID := strings.TrimSpace(disabledBy); actorID != "" {
+				actor = actorID
+			}
+			if _, err := tx.ExecContext(ctx, `
 			UPDATE users
 			SET status = ?, disabled_at = ?, disabled_by = ?, auth_version = auth_version + 1, updated_at = ?
 			WHERE id = ?`, status, now, actor, now, userID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
-			return err
-		}
-	} else if status == UserStatusPending {
-		if _, err := tx.ExecContext(ctx, `
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+				return err
+			}
+		} else if status == UserStatusPending {
+			if _, err := tx.ExecContext(ctx, `
 			UPDATE users
 			SET status = ?, disabled_at = NULL, disabled_by = NULL,
 				auth_version = auth_version + 1, updated_at = ?
 			WHERE id = ?`, status, now, userID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
-			return err
-		}
-	} else {
-		if _, err := tx.ExecContext(ctx, `
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, `
 			UPDATE users
 			SET status = ?, disabled_at = NULL, disabled_by = NULL, updated_at = ?
 			WHERE id = ?`, status, now, userID); err != nil {
-			return err
+				return err
+			}
 		}
-	}
-	return tx.Commit()
+		return nil
+	})
 }
 
 func (m *Manager) UpsertOAuthAccount(ctx context.Context, userID, provider, providerAccountID, accessToken, refreshToken, tokenType string, expiresAt *time.Time, scopes string) error {
-	now := time.Now()
+	now := m.clock.Now()
 
 	var existingID string
 	err := m.db.Read().QueryRowContext(ctx,
@@ -219,7 +217,10 @@ func (m *Manager) UpsertOAuthAccount(ctx context.Context, userID, provider, prov
 		return err
 	}
 
-	id := uuid.New().String()
+	id, err := m.tokens.ID()
+	if err != nil {
+		return fmt.Errorf("generate OAuth account ID: %w", err)
+	}
 	_, err = m.db.Write().ExecContext(ctx,
 		`INSERT INTO oauth_accounts (id, user_id, provider, provider_account_id, access_token, refresh_token, token_type, expires_at, scopes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, userID, provider, providerAccountID, accessToken, refreshToken, tokenType, expiresAt, scopes, now, now,
@@ -228,10 +229,16 @@ func (m *Manager) UpsertOAuthAccount(ctx context.Context, userID, provider, prov
 }
 
 func (m *Manager) CreateSession(ctx context.Context, userID, userAgent string) (*Session, error) {
-	id := uuid.New().String()
-	token := generateToken()
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	now := time.Now()
+	id, err := m.tokens.ID()
+	if err != nil {
+		return nil, fmt.Errorf("generate session ID: %w", err)
+	}
+	token, err := m.tokens.Token(32)
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+	now := m.clock.Now()
+	expiresAt := now.Add(30 * 24 * time.Hour)
 
 	result, err := m.db.Write().ExecContext(ctx,
 		`INSERT INTO sessions (id, user_id, token, user_agent, expires_at, created_at)
@@ -266,7 +273,7 @@ func (m *Manager) GetSessionByToken(ctx context.Context, token string) (*Session
 		`SELECT s.id, s.user_id, s.token, s.user_agent, s.expires_at, s.created_at
 		 FROM sessions s JOIN users u ON u.id = s.user_id
 		 WHERE s.token = ? AND s.expires_at > ? AND u.status = 'active'`,
-		token, time.Now(),
+		token, m.clock.Now(),
 	).Scan(&s.ID, &s.UserID, &s.Token, &s.UserAgent, &s.ExpiresAt, &s.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -283,6 +290,6 @@ func (m *Manager) DeleteSession(ctx context.Context, token string) error {
 }
 
 func (m *Manager) CleanupExpiredSessions(ctx context.Context) error {
-	_, err := m.db.Write().ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ?`, time.Now())
+	_, err := m.db.Write().ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ?`, m.clock.Now())
 	return err
 }

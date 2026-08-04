@@ -5595,7 +5595,11 @@ func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := h.auth.GenerateState()
+	state, err := h.auth.GenerateState()
+	if err != nil {
+		http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
 		Value:    state,

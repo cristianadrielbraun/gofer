@@ -2,9 +2,7 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -141,10 +139,8 @@ func (m *Manager) microsoftAccountOAuthConfig() *oauth2.Config {
 	}
 }
 
-func (m *Manager) GenerateState() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+func (m *Manager) GenerateState() (string, error) {
+	return m.tokens.Token(32)
 }
 
 func (m *Manager) ExchangeCode(ctx context.Context, code string) (*oauth2.Token, error) {
@@ -182,7 +178,7 @@ func (m *Manager) GetMicrosoftUserInfo(ctx context.Context, token *oauth2.Token)
 	if !ok || strings.TrimSpace(idToken) == "" {
 		return nil, fmt.Errorf("microsoft id token not returned")
 	}
-	return microsoftUserInfoFromIDToken(idToken, m.config.MicrosoftClient.ClientID, time.Now())
+	return microsoftUserInfoFromIDToken(idToken, m.config.MicrosoftClient.ClientID, m.clock.Now())
 }
 
 func microsoftUserInfoFromIDToken(idToken, clientID string, now time.Time) (*MicrosoftUserInfo, error) {

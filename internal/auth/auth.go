@@ -2,16 +2,13 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
-	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -171,10 +168,21 @@ func microsoftEndpoint(tenant string) oauth2.Endpoint {
 type Manager struct {
 	config *Config
 	db     *storage.DB
+	clock  Clock
+	tokens TokenGenerator
 }
 
-func NewManager(config *Config, db *storage.DB) *Manager {
-	return &Manager{config: config, db: db}
+func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *Manager {
+	deps := Dependencies{Clock: systemClock{}, Tokens: secureTokenGenerator{}}
+	if len(dependencies) > 0 {
+		if dependencies[0].Clock != nil {
+			deps.Clock = dependencies[0].Clock
+		}
+		if dependencies[0].Tokens != nil {
+			deps.Tokens = dependencies[0].Tokens
+		}
+	}
+	return &Manager{config: config, db: db, clock: deps.Clock, tokens: deps.Tokens}
 }
 
 func (m *Manager) Config() *Config {
@@ -197,16 +205,6 @@ func (m *Manager) DB() *storage.DB {
 	return m.db
 }
 
-func generateToken() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-func newID() string {
-	return uuid.New().String()
-}
-
 func (m *Manager) EnsureDefaultUser() error {
 	if m.config.Enabled {
 		return nil
@@ -221,7 +219,7 @@ func (m *Manager) EnsureDefaultUser() error {
 		return nil
 	}
 
-	now := time.Now()
+	now := m.clock.Now()
 	_, err = m.db.Write().Exec(
 		`INSERT INTO users (id, email, email_normalized, name, status, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		"default", "local@gofer.local", "local@gofer.local", "Local User", UserStatusActive, 1, now, now,
