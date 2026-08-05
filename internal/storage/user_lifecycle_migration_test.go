@@ -56,6 +56,14 @@ func TestMigrateV76AddsUserLifecycleFields(t *testing.T) {
 	if _, err := db.Write().Exec(`INSERT INTO users (id, email, email_normalized) VALUES ('duplicate', 'duplicate@example.com', 'owner@example.com')`); err == nil {
 		t.Fatal("normalized email uniqueness accepted a duplicate")
 	}
+	if _, err := db.Write().Exec(`UPDATE users SET username = 'Owner.Name', username_normalized = 'owner.name' WHERE id = 'owner'`); err != nil {
+		t.Fatalf("set normalized username: %v", err)
+	}
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, email, email_normalized, username, username_normalized)
+		VALUES ('duplicate-username', 'other@example.com', 'other@example.com', 'owner.name', 'owner.name')`); err == nil {
+		t.Fatal("normalized username uniqueness accepted a duplicate")
+	}
 }
 
 func TestMigrateV76RollsBackNormalizedEmailCollision(t *testing.T) {

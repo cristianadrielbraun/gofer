@@ -71,6 +71,10 @@ func HashPassword(password string) (string, error) {
 // VerifyPassword checks an encoded password hash in constant time. A matching
 // hash reports whether its parameters should be upgraded after authentication.
 func VerifyPassword(encodedHash, password string) (matches, needsRehash bool, err error) {
+	password, err = normalizePasswordForHashing(password)
+	if err != nil {
+		return false, false, err
+	}
 	parameters, salt, expected, err := parsePasswordHash(encodedHash)
 	if err != nil {
 		return false, false, err
@@ -122,6 +126,10 @@ func VerifyAndRehashPassword(encodedHash, password string) (matches bool, replac
 }
 
 func hashPassword(password string, parameters passwordHashParameters, random io.Reader) (string, error) {
+	password, err := normalizePasswordForHashing(password)
+	if err != nil {
+		return "", err
+	}
 	if err := validatePasswordHashParameters(parameters); err != nil {
 		return "", err
 	}
