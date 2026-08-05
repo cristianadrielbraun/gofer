@@ -28,4 +28,5 @@ type MailSecurityAdminData struct {
 	Exceptions []MailSecurityException
 	Notice     string
 	Error      string
+	CSRFTokens map[string]string
 }

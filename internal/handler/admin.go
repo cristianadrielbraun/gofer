@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -91,6 +92,18 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 		Exceptions: exceptions,
 		Notice:     strings.TrimSpace(r.URL.Query().Get("notice")),
 		Error:      strings.TrimSpace(r.URL.Query().Get("error")),
+		CSRFTokens: map[string]string{},
+	}
+	for _, action := range []string{
+		"/admin/security/http-discovery",
+		"/admin/security/plaintext",
+		"/admin/security/private-target",
+	} {
+		data.CSRFTokens[action] = auth.CSRFToken(ctx, http.MethodPost, action)
+	}
+	for _, item := range exceptions {
+		action := "/admin/security/exceptions/" + item.ID + "/delete"
+		data.CSRFTokens[action] = auth.CSRFToken(ctx, http.MethodPost, action)
 	}
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	if r.Header.Get("HX-Request") == "true" {
