@@ -59,6 +59,9 @@ func (m *Manager) StartSessionCleanup(ctx context.Context) {
 				if err := m.CleanupExpiredLoginThrottle(ctx); err != nil {
 					log.Printf("login throttle cleanup error: %v", err)
 				}
+				if err := m.CleanupEnrollmentTokens(ctx); err != nil {
+					log.Printf("enrollment token cleanup error: %v", err)
+				}
 			}
 		}
 	}()

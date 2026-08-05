@@ -125,6 +125,8 @@ const (
 	AuthEventUserDisabled      AuthEventType = "user_disabled"
 	AuthEventCredentialChanged AuthEventType = "credential_changed"
 	AuthEventRecoveryUsed      AuthEventType = "recovery_used"
+	AuthEventEnrollmentIssued  AuthEventType = "enrollment_token_issued"
+	AuthEventEnrollmentRevoked AuthEventType = "enrollment_token_revoked"
 )
 
 type AuthEventReason string
