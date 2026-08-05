@@ -270,6 +270,7 @@ templ SettingsSidebar(activeTab string, width string) {
 			@SettingsSidebarItem(activeTab, "appearance", "Appearance")
 			@SettingsSidebarItem(activeTab, "regional", "Regional")
 			@SettingsSidebarItem(activeTab, "compose-display", "Compose and display")
+			@SettingsSidebarItem(activeTab, "security", "Security")
 			@SettingsSidebarItem(activeTab, "advanced", "Advanced")
 		</nav>
 	</aside>
@@ -315,6 +316,8 @@ templ SettingsSidebarItemIcon(value string) {
 			@icon.Globe(icon.Props{Class: "size-4"})
 		case "compose-display":
 			@icon.Pen(icon.Props{Class: "size-4"})
+		case "security":
+			@icon.ShieldCheck(icon.Props{Class: "size-4"})
 		case "advanced":
 			@icon.SlidersHorizontal(icon.Props{Class: "size-4"})
 		default:

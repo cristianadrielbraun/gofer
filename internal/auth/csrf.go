@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	CSRFFormFieldName = "_csrf"
-	CSRFHeaderName    = "X-CSRF-Token"
-	csrfKeyContext    = "gofer-csrf-session-key-v1"
-	csrfActionContext = "gofer-csrf-action-v1"
+	CSRFFormFieldName           = "_csrf"
+	CSRFHeaderName              = "X-CSRF-Token"
+	sessionCSRFFormMaximumBytes = 8 << 10
+	csrfKeyContext              = "gofer-csrf-session-key-v1"
+	csrfActionContext           = "gofer-csrf-action-v1"
 )
 
 type csrfContextKey struct{}
@@ -57,7 +58,9 @@ func requiresSessionCSRF(r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		return false
 	}
-	return r.URL.Path == "/auth/logout" || strings.HasPrefix(r.URL.Path, "/admin/security/")
+	return r.URL.Path == "/auth/logout" ||
+		r.URL.Path == "/settings/security/password" ||
+		strings.HasPrefix(r.URL.Path, "/admin/security/")
 }
 
 func validSessionCSRF(r *http.Request) bool {

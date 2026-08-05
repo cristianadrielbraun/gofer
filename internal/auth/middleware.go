@@ -70,9 +70,12 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 
 		ctx := contextWithSessionCSRF(ContextWithSession(ContextWithUser(r.Context(), user), session), token)
 		r = r.WithContext(ctx)
-		if requiresSessionCSRF(r) && !validSessionCSRF(r) {
-			http.Error(w, "invalid CSRF token", http.StatusForbidden)
-			return
+		if requiresSessionCSRF(r) {
+			r.Body = http.MaxBytesReader(w, r.Body, sessionCSRFFormMaximumBytes)
+			if !validSessionCSRF(r) {
+				http.Error(w, "invalid CSRF token", http.StatusForbidden)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

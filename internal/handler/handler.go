@@ -331,6 +331,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/accounts/{id}/deletion-status", h.handleAccountDeletionStatus)
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
+	mux.HandleFunc("POST /settings/security/password", h.handleChangePassword)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
@@ -2889,8 +2890,12 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 	tab := r.PathValue("tab")
-	if tab != "accounts" && tab != "sync" && tab != "operations" && tab != "contacts" && tab != "appearance" && tab != "regional" && tab != "compose-display" && tab != "advanced" {
+	if tab != "accounts" && tab != "sync" && tab != "operations" && tab != "contacts" && tab != "appearance" && tab != "regional" && tab != "compose-display" && tab != "security" && tab != "advanced" {
 		http.NotFound(w, r)
+		return
+	}
+	if tab == "security" {
+		h.renderPasswordSecurityTab(w, r, http.StatusOK, nil)
 		return
 	}
 	ctx := r.Context()
@@ -2912,6 +2917,49 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 	}
 
 	views.SettingsLayout(displayAccounts, syncSettings, tab, uiSettings, signatureData).Render(ctx, w)
+}
+
+func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Request, status int, override *views.PasswordSecurityData) {
+	ctx := r.Context()
+	data := views.PasswordSecurityData{}
+	if override != nil {
+		data = *override
+	} else {
+		user := auth.GetCurrentUser(ctx)
+		if user == nil {
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		hasPassword, err := h.auth.HasPasswordCredential(ctx, user.ID)
+		if err != nil {
+			log.Printf("load password security settings: %v", err)
+			http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+			return
+		}
+		data.HasPassword = hasPassword
+		data.CSRFToken = auth.CSRFToken(ctx, http.MethodPost, passwordChangePath)
+		if r.URL.Query().Get("password_changed") == "1" {
+			data.Message = "Password changed. Other signed-in devices were signed out."
+		}
+	}
+
+	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	var page bytes.Buffer
+	if r.Header.Get("HX-Request") == "true" {
+		if err := views.PasswordSecurityPartial(data).Render(ctx, &page); err != nil {
+			log.Printf("render password security partial: %v", err)
+			http.Error(w, "failed to render security settings", http.StatusInternalServerError)
+			return
+		}
+	} else if err := views.PasswordSecurityLayout(uiSettings, data).Render(ctx, &page); err != nil {
+		log.Printf("render password security layout: %v", err)
+		http.Error(w, "failed to render security settings", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = page.WriteTo(w)
 }
 
 func (h *Handler) buildAccountSignatureData(ctx context.Context, accounts []models.Account) []models.AccountSignatureData {
