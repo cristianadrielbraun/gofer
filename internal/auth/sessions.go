@@ -56,6 +56,9 @@ func (m *Manager) StartSessionCleanup(ctx context.Context) {
 				if err := m.CleanupPreAuthChallenges(ctx); err != nil {
 					log.Printf("pre-authentication challenge cleanup error: %v", err)
 				}
+				if err := m.CleanupExpiredLoginThrottle(ctx); err != nil {
+					log.Printf("login throttle cleanup error: %v", err)
+				}
 			}
 		}
 	}()

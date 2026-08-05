@@ -218,10 +218,11 @@ func microsoftEndpoint(tenant string) oauth2.Endpoint {
 }
 
 type Manager struct {
-	config *Config
-	db     *storage.DB
-	clock  Clock
-	tokens TokenGenerator
+	config        *Config
+	db            *storage.DB
+	clock         Clock
+	tokens        TokenGenerator
+	bucketHashKey []byte
 }
 
 func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *Manager {
@@ -233,8 +234,17 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		if dependencies[0].Tokens != nil {
 			deps.Tokens = dependencies[0].Tokens
 		}
+		if dependencies[0].BucketHashKey != nil {
+			deps.BucketHashKey = append([]byte(nil), dependencies[0].BucketHashKey...)
+		}
 	}
-	return &Manager{config: config, db: db, clock: deps.Clock, tokens: deps.Tokens}
+	return &Manager{
+		config:        config,
+		db:            db,
+		clock:         deps.Clock,
+		tokens:        deps.Tokens,
+		bucketHashKey: deps.BucketHashKey,
+	}
 }
 
 func (m *Manager) Config() *Config {

@@ -144,6 +144,7 @@ type SecurityTransition string
 const (
 	SecurityTransitionSetup           SecurityTransition = "setup"
 	SecurityTransitionLoginCompletion SecurityTransition = "login_completion"
+	SecurityTransitionLoginThrottle   SecurityTransition = "login_throttle"
 	SecurityTransitionEnrollment      SecurityTransition = "enrollment"
 	SecurityTransitionRecovery        SecurityTransition = "recovery"
 	SecurityTransitionSessionRotation SecurityTransition = "session_rotation"
@@ -167,8 +168,9 @@ type TokenGenerator interface {
 }
 
 type Dependencies struct {
-	Clock  Clock
-	Tokens TokenGenerator
+	Clock         Clock
+	Tokens        TokenGenerator
+	BucketHashKey []byte
 }
 
 type systemClock struct{}

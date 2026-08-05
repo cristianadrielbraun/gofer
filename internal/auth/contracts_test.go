@@ -75,7 +75,11 @@ func newDeterministicManager(t *testing.T, clock Clock, tokens TokenGenerator) *
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewManager(&Config{Enabled: true}, db, Dependencies{Clock: clock, Tokens: tokens})
+	return NewManager(&Config{Enabled: true}, db, Dependencies{
+		Clock:         clock,
+		Tokens:        tokens,
+		BucketHashKey: []byte("0123456789abcdef0123456789abcdef"),
+	})
 }
 
 func insertActiveUser(t *testing.T, manager *Manager, id string, isAdmin bool, now time.Time) {

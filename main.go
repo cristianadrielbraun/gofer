@@ -67,7 +67,7 @@ func main() {
 	blobStore := store.NewBlobStore(filepath.Join(dataDir, "accounts"))
 	log.Printf("boot: blob store initialized")
 
-	authManager := auth.NewManager(authConfig, db)
+	authManager := auth.NewManager(authConfig, db, auth.Dependencies{BucketHashKey: secretKey})
 	log.Printf("boot: auth manager initialized (enabled=%t)", authConfig.Enabled)
 	mailCredentials := mailauth.New(&mailauth.Config{
 		Enabled: authConfig.Enabled, BaseURL: authConfig.BaseURL,
