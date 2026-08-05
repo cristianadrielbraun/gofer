@@ -139,10 +139,6 @@ func (m *Manager) microsoftAccountOAuthConfig() *oauth2.Config {
 	}
 }
 
-func (m *Manager) GenerateState() (string, error) {
-	return m.tokens.Token(32)
-}
-
 func (m *Manager) ExchangeCode(ctx context.Context, code string) (*oauth2.Token, error) {
 	token, err := m.config.GoogleClient.Exchange(ctx, code)
 	if err != nil {

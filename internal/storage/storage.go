@@ -143,7 +143,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 79
+	const targetSchemaVersion = 80
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)
@@ -626,6 +626,12 @@ func (db *DB) migrate() error {
 	if currentVersion >= 1 && currentVersion <= 78 {
 		if err := migrateV78ToV79(tx); err != nil {
 			return fmt.Errorf("migrate v78 to v79: %w", err)
+		}
+	}
+
+	if currentVersion >= 1 && currentVersion <= 79 {
+		if err := migrateV79ToV80(tx); err != nil {
+			return fmt.Errorf("migrate v79 to v80: %w", err)
 		}
 	}
 

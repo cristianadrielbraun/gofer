@@ -662,15 +662,18 @@ CREATE TABLE IF NOT EXISTS auth_challenges (
     id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-    challenge_hash TEXT NOT NULL UNIQUE CHECK (challenge_hash <> ''),
+    challenge_hash TEXT NOT NULL UNIQUE CHECK (length(challenge_hash) = 64 AND challenge_hash NOT GLOB '*[^0-9a-f]*'),
+    nonce_hash TEXT UNIQUE CHECK (nonce_hash IS NULL OR (length(nonce_hash) = 64 AND nonce_hash NOT GLOB '*[^0-9a-f]*')),
     purpose TEXT NOT NULL CHECK (purpose IN ('login', 'mfa', 'enrollment', 'recovery', 'step_up', 'federated_login')),
+    origin TEXT NOT NULL CHECK (length(origin) <= 2048),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     max_attempts INTEGER NOT NULL DEFAULT 1 CHECK (max_attempts > 0),
     payload_ciphertext BLOB,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at DATETIME NOT NULL,
     consumed_at DATETIME,
-    CHECK (attempts <= max_attempts)
+    CHECK (attempts <= max_attempts),
+    CHECK (trim(origin) <> '' OR consumed_at IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_challenges_active
@@ -679,6 +682,9 @@ CREATE INDEX IF NOT EXISTS idx_auth_challenges_active
 
 CREATE INDEX IF NOT EXISTS idx_auth_challenges_user
     ON auth_challenges(user_id, purpose);
+
+CREATE INDEX IF NOT EXISTS idx_auth_challenges_cleanup
+    ON auth_challenges(consumed_at, expires_at);
 
 CREATE TABLE IF NOT EXISTS auth_throttle (
     bucket_hash TEXT PRIMARY KEY CHECK (bucket_hash <> ''),
@@ -1294,4 +1300,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (79);
+INSERT OR REPLACE INTO schema_version (version) VALUES (80);

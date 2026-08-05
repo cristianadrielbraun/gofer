@@ -86,6 +86,20 @@ func (level AssuranceLevel) Valid() bool {
 	}
 }
 
+func (purpose ChallengePurpose) Valid() bool {
+	switch purpose {
+	case ChallengePurposeLogin,
+		ChallengePurposeMFA,
+		ChallengePurposeEnrollment,
+		ChallengePurposeRecovery,
+		ChallengePurposeStepUp,
+		ChallengePurposeFederatedLogin:
+		return true
+	default:
+		return false
+	}
+}
+
 func (reason SessionRevocationReason) Valid() bool {
 	switch reason {
 	case SessionRevocationLogout,

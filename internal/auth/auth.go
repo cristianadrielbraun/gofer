@@ -64,6 +64,32 @@ type Session struct {
 	CreatedAt            time.Time
 }
 
+type PreAuthChallenge struct {
+	ID                string
+	Token             string
+	Nonce             string
+	UserID            string
+	SessionID         string
+	Purpose           ChallengePurpose
+	Origin            string
+	Attempts          int
+	MaxAttempts       int
+	PayloadCiphertext []byte
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	ConsumedAt        *time.Time
+}
+
+type PreAuthChallengeOptions struct {
+	UserID      string
+	SessionID   string
+	Purpose     ChallengePurpose
+	Origin      string
+	Lifetime    time.Duration
+	MaxAttempts int
+	IssueNonce  bool
+}
+
 type OAuthAccount struct {
 	ID                string
 	UserID            string

@@ -191,13 +191,19 @@ func TestCreateSessionDoesNotPersistWhenTokenGenerationFails(t *testing.T) {
 	}
 }
 
-func TestGenerateStatePropagatesTokenGenerationFailure(t *testing.T) {
+func TestCreatePreAuthChallengePropagatesTokenGenerationFailure(t *testing.T) {
 	tokenErr := errors.New("random source unavailable")
-	manager := newDeterministicManager(t, &fixedClock{}, &deterministicTokenGenerator{tokenErr: tokenErr})
+	manager := newDeterministicManager(t, &fixedClock{}, &deterministicTokenGenerator{
+		ids:      []string{"challenge-id"},
+		tokenErr: tokenErr,
+	})
 
-	state, err := manager.GenerateState()
-	if state != "" || !errors.Is(err, tokenErr) {
-		t.Fatalf("GenerateState() = %q, %v, want token error", state, err)
+	challenge, err := manager.CreatePreAuthChallenge(t.Context(), PreAuthChallengeOptions{
+		Purpose: ChallengePurposeFederatedLogin,
+		Origin:  "https://gofer.example",
+	})
+	if challenge != nil || !errors.Is(err, tokenErr) {
+		t.Fatalf("CreatePreAuthChallenge() = %#v, %v, want token error", challenge, err)
 	}
 }
 

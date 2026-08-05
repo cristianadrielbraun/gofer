@@ -5594,23 +5594,29 @@ func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth not enabled", http.StatusNotFound)
 		return
 	}
+	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
+	if previousToken := auth.GetPreAuthToken(r); previousToken != "" {
+		err := h.auth.TerminatePreAuthChallenge(r.Context(), previousToken, auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL)
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		if err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
+			http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
+			return
+		}
+	}
 
-	state, err := h.auth.GenerateState()
+	challenge, err := h.auth.CreatePreAuthChallenge(r.Context(), auth.PreAuthChallengeOptions{
+		Purpose:     auth.ChallengePurposeFederatedLogin,
+		Origin:      h.auth.Config().BaseURL,
+		Lifetime:    10 * time.Minute,
+		MaxAttempts: 1,
+	})
 	if err != nil {
 		http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "oauth_state",
-		Value:    state,
-		Path:     "/",
-		MaxAge:   600,
-		HttpOnly: true,
-		Secure:   h.auth.Config().SecureCookies,
-		SameSite: http.SameSiteLaxMode,
-	})
+	auth.SetPreAuthCookie(w, challenge.Token, h.auth.Config().SecureCookies, 10*time.Minute)
 
-	url := h.auth.GoogleOAuthURL(state)
+	url := h.auth.GoogleOAuthURL(challenge.Token)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
@@ -5619,28 +5625,29 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth not enabled", http.StatusNotFound)
 		return
 	}
+	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
 
-	stateCookie, err := r.Cookie("oauth_state")
-	if err != nil || stateCookie.Value == "" {
+	preAuthToken := auth.GetPreAuthToken(r)
+	if preAuthToken == "" {
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 		http.Redirect(w, r, "/login?error=missing_state", http.StatusSeeOther)
 		return
 	}
 
 	stateParam := r.URL.Query().Get("state")
-	if stateParam != stateCookie.Value {
+	if !auth.PreAuthTokensMatch(stateParam, preAuthToken) {
+		_ = h.auth.TerminatePreAuthChallenge(r.Context(), preAuthToken, auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL)
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 		http.Redirect(w, r, "/login?error=invalid_state", http.StatusSeeOther)
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "oauth_state",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   h.auth.Config().SecureCookies,
-		SameSite: http.SameSiteLaxMode,
-	})
+	_, err := h.auth.ConsumePreAuthChallenge(r.Context(), preAuthToken, "", auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL)
+	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+	if err != nil {
+		http.Redirect(w, r, "/login?error=invalid_state", http.StatusSeeOther)
+		return
+	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -5666,6 +5673,18 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		returnTo = "/"
 	}
 	http.Redirect(w, r, returnTo, http.StatusSeeOther)
+}
+
+func clearLegacyOAuthStateCookie(w http.ResponseWriter, secure bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
