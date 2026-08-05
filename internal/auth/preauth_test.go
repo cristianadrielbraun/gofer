@@ -117,6 +117,44 @@ func TestPreAuthChallengeRejectsInvalidContractsWithoutPersistence(t *testing.T)
 	}
 }
 
+func TestGetActivePreAuthChallengeRequiresMatchingLiveFlow(t *testing.T) {
+	now := time.Date(2026, time.August, 5, 8, 0, 0, 0, time.UTC)
+	clock := &fixedClock{now: now}
+	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{
+		ids:    []string{"challenge-id"},
+		tokens: []string{"challenge-token"},
+	})
+	challenge, err := manager.CreatePreAuthChallenge(t.Context(), PreAuthChallengeOptions{
+		Purpose:  ChallengePurposeMFA,
+		Origin:   "https://gofer.example",
+		Lifetime: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("CreatePreAuthChallenge() error = %v", err)
+	}
+	found, err := manager.GetActivePreAuthChallenge(t.Context(), challenge.Token, ChallengePurposeMFA, "https://gofer.example")
+	if err != nil || found == nil || found.ID != challenge.ID {
+		t.Fatalf("GetActivePreAuthChallenge() = %#v, %v", found, err)
+	}
+	for _, lookup := range []struct {
+		token   string
+		purpose ChallengePurpose
+		origin  string
+	}{
+		{token: "wrong-token", purpose: ChallengePurposeMFA, origin: "https://gofer.example"},
+		{token: challenge.Token, purpose: ChallengePurposeLogin, origin: "https://gofer.example"},
+		{token: challenge.Token, purpose: ChallengePurposeMFA, origin: "https://other.example"},
+	} {
+		if found, err := manager.GetActivePreAuthChallenge(t.Context(), lookup.token, lookup.purpose, lookup.origin); err != nil || found != nil {
+			t.Fatalf("mismatched GetActivePreAuthChallenge() = %#v, %v", found, err)
+		}
+	}
+	clock.now = challenge.ExpiresAt
+	if found, err := manager.GetActivePreAuthChallenge(t.Context(), challenge.Token, ChallengePurposeMFA, "https://gofer.example"); err != nil || found != nil {
+		t.Fatalf("expired GetActivePreAuthChallenge() = %#v, %v", found, err)
+	}
+}
+
 func TestPreAuthChallengeSessionBindingRequiresActiveOwningSession(t *testing.T) {
 	now := time.Date(2026, time.August, 4, 13, 0, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{

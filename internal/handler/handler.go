@@ -264,6 +264,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	}
 
 	mux.HandleFunc("GET /login", h.handleLogin)
+	mux.HandleFunc("POST /login", h.handleLoginSubmit)
+	mux.HandleFunc("GET /login/mfa", h.handleLoginMFA)
 	mux.HandleFunc("GET /auth/google", h.handleGoogleRedirect)
 	mux.HandleFunc("GET /auth/google/callback", h.handleGoogleCallback)
 	mux.HandleFunc("GET /auth/google/account/callback", h.handleGoogleAccountCallback)
@@ -5575,18 +5577,6 @@ func (h *Handler) handlePrefetchBody(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsEnabled() {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-
-	oauthError := r.URL.Query().Get("error")
-	baseURL := h.auth.Config().BaseURL
-
-	views.LoginPage(baseURL, oauthError).Render(r.Context(), w)
 }
 
 func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {

@@ -134,6 +134,32 @@ func (m *Manager) CreatePreAuthChallenge(ctx context.Context, options PreAuthCha
 	return challenge, nil
 }
 
+// GetActivePreAuthChallenge reads an unconsumed challenge without advancing
+// its attempt counter. It is intended only for deciding which continuation UI
+// may be shown; factor verification must still use a consuming operation.
+func (m *Manager) GetActivePreAuthChallenge(ctx context.Context, token string, purpose ChallengePurpose, origin string) (*PreAuthChallenge, error) {
+	if strings.TrimSpace(token) == "" || !purpose.Valid() {
+		return nil, nil
+	}
+	canonicalOrigin, err := canonicalAuthOrigin(origin)
+	if err != nil {
+		return nil, nil
+	}
+	now := m.clock.Now().UTC()
+	challenge, err := scanPreAuthChallenge(m.db.Read().QueryRowContext(ctx, preAuthChallengeSelect+`
+		WHERE challenge_hash = ? AND purpose = ? AND origin = ?
+		  AND consumed_at IS NULL AND expires_at > ? AND attempts < max_attempts`,
+		hashToken(token), purpose, canonicalOrigin, now,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read active pre-authentication challenge: %w", err)
+	}
+	return challenge, nil
+}
+
 func (m *Manager) ConsumePreAuthChallenge(ctx context.Context, token, nonce string, purpose ChallengePurpose, origin string) (*PreAuthChallenge, error) {
 	if strings.TrimSpace(token) == "" || !purpose.Valid() {
 		return nil, ErrPreAuthChallengeInvalid

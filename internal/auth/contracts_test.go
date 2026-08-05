@@ -75,7 +75,7 @@ func newDeterministicManager(t *testing.T, clock Clock, tokens TokenGenerator) *
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewManager(&Config{Enabled: true}, db, Dependencies{
+	return NewManager(&Config{Enabled: true, BaseURL: "https://gofer.example"}, db, Dependencies{
 		Clock:         clock,
 		Tokens:        tokens,
 		BucketHashKey: []byte("0123456789abcdef0123456789abcdef"),
