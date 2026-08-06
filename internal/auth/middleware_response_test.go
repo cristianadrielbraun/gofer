@@ -149,7 +149,10 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	publicPaths := []string{"/login", "/login/mfa", "/auth/google", "/auth/google/callback", "/assets/app.js", "/sw.js"}
+	publicPaths := []string{
+		"/login", "/login/mfa", "/account/redeem", "/account/redeem/complete",
+		"/auth/google", "/auth/google/callback", "/assets/app.js", "/sw.js",
+	}
 	for _, path := range publicPaths {
 		t.Run(path, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -159,9 +162,11 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 			}
 		})
 	}
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/login", nil))
-	if called["/login"] != 2 || recorder.Code != http.StatusNoContent {
-		t.Fatalf("public POST /login calls=%d status=%d", called["/login"], recorder.Code)
+	for _, path := range []string{"/login", "/account/redeem"} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
+		if called[path] != 2 || recorder.Code != http.StatusNoContent {
+			t.Fatalf("public POST %s calls=%d status=%d", path, called[path], recorder.Code)
+		}
 	}
 }

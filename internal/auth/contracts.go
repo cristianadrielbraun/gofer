@@ -119,14 +119,16 @@ func (reason SessionRevocationReason) Valid() bool {
 type AuthEventType string
 
 const (
-	AuthEventLoginSucceeded    AuthEventType = "login_succeeded"
-	AuthEventLoginFailed       AuthEventType = "login_failed"
-	AuthEventSessionRevoked    AuthEventType = "session_revoked"
-	AuthEventUserDisabled      AuthEventType = "user_disabled"
-	AuthEventCredentialChanged AuthEventType = "credential_changed"
-	AuthEventRecoveryUsed      AuthEventType = "recovery_used"
-	AuthEventEnrollmentIssued  AuthEventType = "enrollment_token_issued"
-	AuthEventEnrollmentRevoked AuthEventType = "enrollment_token_revoked"
+	AuthEventLoginSucceeded           AuthEventType = "login_succeeded"
+	AuthEventLoginFailed              AuthEventType = "login_failed"
+	AuthEventSessionRevoked           AuthEventType = "session_revoked"
+	AuthEventUserDisabled             AuthEventType = "user_disabled"
+	AuthEventCredentialChanged        AuthEventType = "credential_changed"
+	AuthEventRecoveryUsed             AuthEventType = "recovery_used"
+	AuthEventEnrollmentIssued         AuthEventType = "enrollment_token_issued"
+	AuthEventEnrollmentRevoked        AuthEventType = "enrollment_token_revoked"
+	AuthEventEnrollmentCompleted      AuthEventType = "enrollment_completed"
+	AuthEventCredentialResetCompleted AuthEventType = "credential_reset_completed"
 )
 
 type AuthEventReason string

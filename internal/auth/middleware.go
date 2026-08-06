@@ -113,7 +113,10 @@ func isHTMXRequest(r *http.Request) bool {
 }
 
 func isPublicPath(path string) bool {
-	public := []string{"/login", "/login/mfa", "/auth/google", "/auth/google/callback", "/sw.js"}
+	public := []string{
+		"/login", "/login/mfa", "/account/redeem", "/account/redeem/complete",
+		"/auth/google", "/auth/google/callback", "/sw.js",
+	}
 	for _, p := range public {
 		if path == p {
 			return true
