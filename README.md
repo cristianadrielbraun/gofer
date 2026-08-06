@@ -174,6 +174,17 @@ GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 
 Google OAuth is used for optional Google login, Gmail mail through the Gmail API, and Google Contacts sync through the People API. Microsoft OAuth is used for Outlook mail and contact sync through Microsoft Graph.
 
+## local authentication inspection
+
+The binary includes read-only authentication commands for local operators:
+
+```sh
+./gofer auth status
+./gofer auth users list
+```
+
+These commands use `GOFER_DB_PATH` (default `data/gofer.db`) and open an existing, current-schema database without applying migrations. They do not load HTTP or provider configuration, generate runtime keys, bind a listener, or start synchronization and background workers. Output is limited to initialization state and application-user identity/status metadata; credential and token material is never displayed. Because both commands are query-only, the Gofer server does not need to be stopped while they run.
+
 ## local security model
 
 Gofer stores mail, cached blobs, account credentials, OAuth tokens, and runtime state locally. The practical security model is simple and very glamorous: run it on a trusted local machine, keep `data/` private, keep OAuth client secrets out of git, and avoid exposing the app directly to the public Internet.

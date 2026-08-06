@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +49,8 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
+const CurrentSchemaVersion = 80
+
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return nil, fmt.Errorf("create db directory: %w", err)
@@ -80,6 +83,47 @@ func New(dbPath string) (*DB, error) {
 	log.Printf("storage: schema migration check complete")
 	log.Printf("storage: threading backfill deferred to background startup worker")
 
+	return db, nil
+}
+
+// OpenReadOnly opens an existing, current-schema database without creating
+// directories, applying migrations, changing journal settings, or permitting
+// writes. It is intended for local inspection commands that must not start the
+// application runtime or mutate its state.
+func OpenReadOnly(dbPath string) (*DB, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("database path is required")
+	}
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat database: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("database path is not a regular file")
+	}
+
+	read, err := openReadOnlyDB(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open read-only connection: %w", err)
+	}
+	read.SetMaxOpenConns(4)
+	write, err := openReadOnlyDB(dbPath)
+	if err != nil {
+		read.Close()
+		return nil, fmt.Errorf("open read-only compatibility connection: %w", err)
+	}
+	write.SetMaxOpenConns(1)
+
+	db := &DB{write: write, read: read, path: dbPath}
+	var version int
+	if err := read.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read schema version: %w", err)
+	}
+	if version != CurrentSchemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("database schema version %d is not supported; expected %d", version, CurrentSchemaVersion)
+	}
 	return db, nil
 }
 
@@ -122,6 +166,31 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+func openReadOnlyDB(path string) (*sql.DB, error) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
+	}
+	databaseURL := url.URL{Scheme: "file", Path: filepath.ToSlash(absolutePath)}
+	query := databaseURL.Query()
+	query.Set("mode", "ro")
+	query.Add("_pragma", "foreign_keys(1)")
+	query.Add("_pragma", "busy_timeout(5000)")
+	query.Add("_pragma", "query_only(1)")
+	query.Add("_pragma", "temp_store(MEMORY)")
+	query.Set("_texttotime", "true")
+	databaseURL.RawQuery = query.Encode()
+	db, err := sql.Open("sqlite", databaseURL.String())
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
 func (db *DB) migrate() error {
 	schema, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
@@ -143,7 +212,7 @@ func (db *DB) migrate() error {
 		currentVersion = 0
 	}
 
-	const targetSchemaVersion = 80
+	const targetSchemaVersion = CurrentSchemaVersion
 
 	if currentVersion >= targetSchemaVersion {
 		log.Printf("schema at version %d, no migration needed", currentVersion)

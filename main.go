@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/authoperator"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/handler"
 	"github.com/cristianadrielbraun/gofer/internal/httpguard"
@@ -14,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/notifications"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -24,7 +26,35 @@ import (
 )
 
 func main() {
-	godotenv.Load()
+	_ = godotenv.Load()
+	if exitCode := runApplication(context.Background(), os.Args[1:], os.Stdout, os.Stderr, runServer); exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+func runApplication(ctx context.Context, args []string, stdout, stderr io.Writer, serve func()) int {
+	if handled, exitCode := runAuthCommand(ctx, args, stdout, stderr); handled {
+		return exitCode
+	}
+	serve()
+	return 0
+}
+
+func runAuthCommand(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, int) {
+	if len(args) == 0 || args[0] != "auth" {
+		return false, 0
+	}
+	return true, authoperator.Run(ctx, args[1:], configuredDatabasePath(), stdout, stderr)
+}
+
+func configuredDatabasePath() string {
+	if dbPath := os.Getenv("GOFER_DB_PATH"); dbPath != "" {
+		return dbPath
+	}
+	return "data/gofer.db"
+}
+
+func runServer() {
 	log.Printf("boot: loading configuration")
 
 	httpConfig, err := httpguard.LoadConfig()
@@ -40,10 +70,7 @@ func main() {
 		log.Printf("WARNING: unauthenticated remote access is explicitly enabled; anyone who can reach %s can control Gofer", httpConfig.BaseURL)
 	}
 
-	dbPath := os.Getenv("GOFER_DB_PATH")
-	if dbPath == "" {
-		dbPath = "data/gofer.db"
-	}
+	dbPath := configuredDatabasePath()
 	log.Printf("boot: database path resolved to %s", dbPath)
 
 	dataDir := filepath.Dir(dbPath)
