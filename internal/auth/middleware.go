@@ -9,14 +9,17 @@ import (
 
 func (m *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/setup" || path == "/setup/owner" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !m.config.Enabled {
 			defaultUser := m.GetDefaultUser()
 			ctx := ContextWithUser(r.Context(), defaultUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-
-		path := r.URL.Path
 
 		if isPublicPath(path) {
 			next.ServeHTTP(w, r)
@@ -114,7 +117,8 @@ func isHTMXRequest(r *http.Request) bool {
 
 func isPublicPath(path string) bool {
 	public := []string{
-		"/login", "/login/mfa", "/account/redeem", "/account/redeem/complete",
+		"/login", "/login/mfa", "/setup", "/setup/owner",
+		"/account/redeem", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/sw.js",
 	}
 	for _, p := range public {

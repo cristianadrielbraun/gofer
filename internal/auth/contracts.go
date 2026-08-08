@@ -119,19 +119,21 @@ func (reason SessionRevocationReason) Valid() bool {
 type AuthEventType string
 
 const (
-	AuthEventLoginSucceeded           AuthEventType = "login_succeeded"
-	AuthEventLoginFailed              AuthEventType = "login_failed"
-	AuthEventSessionRevoked           AuthEventType = "session_revoked"
-	AuthEventUserDisabled             AuthEventType = "user_disabled"
-	AuthEventCredentialChanged        AuthEventType = "credential_changed"
-	AuthEventRecoveryUsed             AuthEventType = "recovery_used"
-	AuthEventEnrollmentIssued         AuthEventType = "enrollment_token_issued"
-	AuthEventEnrollmentRevoked        AuthEventType = "enrollment_token_revoked"
-	AuthEventEnrollmentCompleted      AuthEventType = "enrollment_completed"
-	AuthEventCredentialResetCompleted AuthEventType = "credential_reset_completed"
-	AuthEventLocalRecoveryStarted     AuthEventType = "local_recovery_started"
-	AuthEventSetupTokenIssued         AuthEventType = "setup_token_issued"
-	AuthEventSetupTokenRotated        AuthEventType = "setup_token_rotated"
+	AuthEventLoginSucceeded               AuthEventType = "login_succeeded"
+	AuthEventLoginFailed                  AuthEventType = "login_failed"
+	AuthEventSessionRevoked               AuthEventType = "session_revoked"
+	AuthEventUserDisabled                 AuthEventType = "user_disabled"
+	AuthEventCredentialChanged            AuthEventType = "credential_changed"
+	AuthEventRecoveryUsed                 AuthEventType = "recovery_used"
+	AuthEventEnrollmentIssued             AuthEventType = "enrollment_token_issued"
+	AuthEventEnrollmentRevoked            AuthEventType = "enrollment_token_revoked"
+	AuthEventEnrollmentCompleted          AuthEventType = "enrollment_completed"
+	AuthEventCredentialResetCompleted     AuthEventType = "credential_reset_completed"
+	AuthEventLocalRecoveryStarted         AuthEventType = "local_recovery_started"
+	AuthEventSetupTokenIssued             AuthEventType = "setup_token_issued"
+	AuthEventSetupTokenRotated            AuthEventType = "setup_token_rotated"
+	AuthEventSetupTokenVerified           AuthEventType = "setup_token_verified"
+	AuthEventSetupTokenVerificationFailed AuthEventType = "setup_token_verification_failed"
 )
 
 type AuthEventReason string
@@ -141,6 +143,7 @@ const (
 	AuthEventReasonUserInactive         AuthEventReason = "user_inactive"
 	AuthEventReasonChallengeExpired     AuthEventReason = "challenge_expired"
 	AuthEventReasonChallengeConsumed    AuthEventReason = "challenge_consumed"
+	AuthEventReasonChallengeVerified    AuthEventReason = "challenge_verified"
 	AuthEventReasonThrottled            AuthEventReason = "throttled"
 	AuthEventReasonPolicyRequired       AuthEventReason = "policy_required"
 	AuthEventReasonAdministratorAction  AuthEventReason = "administrator_action"

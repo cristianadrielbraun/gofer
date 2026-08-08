@@ -142,6 +142,13 @@ func TestRotateSetupTokenLocallyReplacesSecretAndResetsAttempts(t *testing.T) {
 		) VALUES (1, 0, ?, ?, 7, 0)`, hashToken(oldToken), now.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_challenges (
+			id, challenge_hash, purpose, origin, attempts, max_attempts, created_at, expires_at
+		) VALUES ('old-setup-access', ?, 'enrollment', 'https://gofer.example', 0, 3, ?, ?)`,
+		hashToken("old-setup-access-secret"), now.Add(-time.Minute), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := manager.RotateSetupTokenLocally(t.Context())
 	if err != nil {
@@ -175,6 +182,12 @@ func TestRotateSetupTokenLocallyReplacesSecretAndResetsAttempts(t *testing.T) {
 		strings.Contains(metadata, result.Token) || strings.Contains(metadata, storedHash) ||
 		!strings.Contains(metadata, `"source":"local_operator"`) {
 		t.Fatalf("rotation event = type:%q reason:%q metadata:%q", eventType, reason, metadata)
+	}
+	var accessConsumed sql.NullTime
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT consumed_at FROM auth_challenges WHERE id = 'old-setup-access'`,
+	).Scan(&accessConsumed); err != nil || !accessConsumed.Valid || !accessConsumed.Time.Equal(now) {
+		t.Fatalf("setup access after rotation = %#v, %v", accessConsumed, err)
 	}
 }
 
@@ -233,6 +246,13 @@ func TestRotateSetupTokenLocallyRollsBackWhenAuditFails(t *testing.T) {
 		BEGIN SELECT RAISE(ABORT, 'reject setup rotation'); END`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_challenges (
+			id, challenge_hash, purpose, origin, attempts, max_attempts, created_at, expires_at
+		) VALUES ('rollback-setup-access', ?, 'enrollment', 'https://gofer.example', 0, 3, ?, ?)`,
+		hashToken("rollback-setup-access-secret"), now.Add(-time.Minute), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	result, err := manager.RotateSetupTokenLocally(t.Context())
 	if result != nil || err == nil {
 		t.Fatalf("RotateSetupTokenLocally(audit failure) = %#v, %v", result, err)
@@ -248,6 +268,12 @@ func TestRotateSetupTokenLocallyRollsBackWhenAuditFails(t *testing.T) {
 	}
 	if storedHash != oldHash || attempts != 4 || rotatedAt.Valid {
 		t.Fatalf("failed rotation state = hash:%q attempts:%d rotated:%#v", storedHash, attempts, rotatedAt)
+	}
+	var accessConsumed sql.NullTime
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT consumed_at FROM auth_challenges WHERE id = 'rollback-setup-access'`,
+	).Scan(&accessConsumed); err != nil || accessConsumed.Valid {
+		t.Fatalf("failed rotation consumed setup access = %#v, %v", accessConsumed, err)
 	}
 }
 

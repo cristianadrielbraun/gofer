@@ -192,6 +192,12 @@ func (m *Manager) RotateSetupTokenLocally(ctx context.Context) (*SetupTokenProvi
 		); err != nil {
 			return fmt.Errorf("rotate setup token: %w", err)
 		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE auth_challenges SET consumed_at = ?
+			WHERE purpose = ? AND user_id IS NULL AND session_id IS NULL
+			  AND consumed_at IS NULL`, now, ChallengePurposeEnrollment); err != nil {
+			return fmt.Errorf("terminate setup access during token rotation: %w", err)
+		}
 		metadata, err := setupTokenEventJSON(expiresAt, "local_operator")
 		if err != nil {
 			return err

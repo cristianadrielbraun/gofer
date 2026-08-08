@@ -150,7 +150,8 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	publicPaths := []string{
-		"/login", "/login/mfa", "/account/redeem", "/account/redeem/complete",
+		"/login", "/login/mfa", "/setup", "/setup/owner",
+		"/account/redeem", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/assets/app.js", "/sw.js",
 	}
 	for _, path := range publicPaths {
@@ -162,11 +163,30 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{"/login", "/account/redeem"} {
+	for _, path := range []string{"/login", "/setup", "/account/redeem"} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
 		if called[path] != 2 || recorder.Code != http.StatusNoContent {
 			t.Fatalf("public POST %s calls=%d status=%d", path, called[path], recorder.Code)
+		}
+	}
+}
+
+func TestMiddlewareKeepsSetupUnauthenticatedInLegacyLocalMode(t *testing.T) {
+	manager, _ := newAccountOAuthFlowTestManager(t, false)
+	for _, path := range []string{"/setup", "/setup/owner"} {
+		called := false
+		handler := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			if GetCurrentUser(r.Context()) != nil || GetCurrentSession(r.Context()) != nil {
+				t.Fatalf("local-mode setup context = path:%q user:%#v session:%#v", path, GetCurrentUser(r.Context()), GetCurrentSession(r.Context()))
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if !called || recorder.Code != http.StatusNoContent {
+			t.Fatalf("local-mode setup %q called=%t status=%d", path, called, recorder.Code)
 		}
 	}
 }
