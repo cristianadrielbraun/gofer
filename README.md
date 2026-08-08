@@ -181,6 +181,8 @@ Open `/setup` and paste the token into the password-masked form. Gofer never acc
 
 Behind that verified setup access, Gofer inspects existing application users before collecting the owner profile. A fresh database creates a new owner target; the exact legacy `default` placeholder is claimed in place so its mail and settings keep the same owner ID; other existing installations require an explicit user selection or a deliberate new-owner choice. Gofer refuses ambiguous or excessive candidate sets instead of inferring or merging an owner. The submitted display name, username, and email are normalized, checked across both login-identifier namespaces, and stored as an encrypted draft bound to the active setup challenge. Saving this draft does not create or update a user, assign a role, move data, consume the setup token, or initialize authentication.
 
+The next protected step collects and confirms the owner's local password. Gofer applies the same local password policy used by account enrollment, hashes the accepted password immediately with Argon2id, and stores only that hash inside the encrypted, challenge-bound setup draft. The plaintext password is never redisplayed or persisted, and changing the owner profile discards the prepared password so it must be validated against the current identity. This step still does not create a user or credential, start a session, consume the setup token, or initialize authentication; those changes remain deferred until the owner has completed the required administrator security enrollment and confirms the final setup transaction.
+
 ## local authentication operations
 
 The binary includes authentication commands for local operators:

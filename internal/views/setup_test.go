@@ -48,7 +48,7 @@ func TestSetupOwnerPageIsAccessibleAndLocal(t *testing.T) {
 		"Setup access verified", "Choose the Gofer owner", `action="/setup/owner"`,
 		`name="owner_target"`, `value="existing:person-id"`, "2 mail accounts", "1 legacy sessions",
 		`autocomplete="username"`, `autocomplete="email"`, `role="alert"`, `&lt;script&gt;alert`,
-		"No user, role, credential, or owned data has been changed yet",
+		"No user, role, credential, or owned data has been changed yet", `href="/setup/password"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("setup owner page missing %q", want)
@@ -56,6 +56,32 @@ func TestSetupOwnerPageIsAccessibleAndLocal(t *testing.T) {
 	}
 	if strings.Contains(html, `<script>alert("owner")</script>`) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
 		t.Fatal("setup owner page requested a remote font")
+	}
+}
+
+func TestSetupPasswordPageIsAccessibleLocalAndSecretFree(t *testing.T) {
+	var output bytes.Buffer
+	message := `<script>alert("password")</script>`
+	if err := SetupPasswordPage(SetupPasswordData{
+		PasswordReady: true,
+		Errors:        map[string]string{"password": message, "confirmation": "Passwords differ."},
+	}).Render(t.Context(), &output); err != nil {
+		t.Fatalf("SetupPasswordPage.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Choose the owner password", `action="/setup/password"`, `name="password"`,
+		`name="password_confirmation"`, `autocomplete="new-password"`, `minlength="15"`, `maxlength="256"`,
+		`aria-describedby="owner-password-help owner-password-error"`, `role="alert"`, `&lt;script&gt;alert`,
+		"Owner password ready for final enrollment", "Only its Argon2id hash is inside the encrypted setup draft",
+		`href="/setup/owner"`, "administrator MFA and recovery codes", "Passwords are never echoed",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("setup password page missing %q", want)
+		}
+	}
+	if strings.Contains(html, message) || strings.Contains(html, `value="`) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
+		t.Fatal("setup password page rendered a secret-bearing value or unsafe remote content")
 	}
 }
 

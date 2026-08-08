@@ -38,6 +38,11 @@ type SetupOwnerData struct {
 	BlockedMessage string
 }
 
+type SetupPasswordData struct {
+	PasswordReady bool
+	Errors        map[string]string
+}
+
 func setupOwnerDescription(helpID, errorID string, hasError bool) string {
 	if !hasError {
 		return helpID
@@ -232,10 +237,74 @@ templ SetupOwnerPage(data SetupOwnerData) {
 								Save owner profile
 							}
 						}
+						if data.DraftSaved {
+							<a href="/setup/password" class="flex h-9 w-full items-center justify-center rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-accent">Continue to password</a>
+						}
 						<p class="text-center text-xs text-muted-foreground">Next, you will choose a sign-in credential and enroll the required administrator security factor.</p>
 					</form>
 					}
 					<p class="mt-6 text-center text-xs text-muted-foreground">Setup access expires after ten minutes. The setup token remains active until final enrollment completes; rotating it discards this encrypted draft.</p>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ SetupPasswordPage(data SetupPasswordData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Set Owner Password</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4 py-10">
+				<div class="w-full max-w-md">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Owner profile ready</p>
+						<h1 class="mt-2 text-2xl font-semibold">Choose the owner password</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Use a unique passphrase that is not used for your email account or another service.</p>
+					</div>
+					if data.PasswordReady {
+						<div role="status" aria-live="polite" class="mb-6 rounded-lg border border-success/25 bg-success/10 px-4 py-3">
+							<p class="text-sm font-medium text-success">Owner password ready for final enrollment</p>
+							<p class="mt-1 text-xs text-muted-foreground">Only its Argon2id hash is inside the encrypted setup draft. No credential or user has been created yet.</p>
+						</div>
+					}
+					<form method="post" action="/setup/password" class="space-y-5 rounded-xl border border-border bg-card p-6">
+						if data.Errors["form"] != "" {
+							<p role="alert" class="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Errors["form"] }</p>
+						}
+						<div class="space-y-2">
+							<label for="owner-password" class="text-sm font-medium">Password</label>
+							<input id="owner-password" name="password" type="password" autocomplete="new-password" minlength="15" maxlength="256" required autofocus aria-invalid={ fmt.Sprintf("%t", data.Errors["password"] != "") } aria-describedby={ setupOwnerDescription("owner-password-help", "owner-password-error", data.Errors["password"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
+							<p id="owner-password-help" class="text-xs text-muted-foreground">At least 15 characters. Common, compromised, and owner-specific passwords are rejected.</p>
+							if data.Errors["password"] != "" {
+								<p id="owner-password-error" role="alert" class="text-sm text-destructive">{ data.Errors["password"] }</p>
+							}
+						</div>
+						<div class="space-y-2">
+							<label for="owner-password-confirmation" class="text-sm font-medium">Confirm password</label>
+							<input id="owner-password-confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="15" maxlength="256" required aria-invalid={ fmt.Sprintf("%t", data.Errors["confirmation"] != "") } aria-describedby={ setupOwnerDescription("", "owner-password-confirmation-error", data.Errors["confirmation"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
+							if data.Errors["confirmation"] != "" {
+								<p id="owner-password-confirmation-error" role="alert" class="text-sm text-destructive">{ data.Errors["confirmation"] }</p>
+							}
+						</div>
+						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+							if data.PasswordReady {
+								Replace prepared password
+							} else {
+								Save owner password
+							}
+						}
+						<a href="/setup/owner" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to owner profile</a>
+						<p class="text-center text-xs text-muted-foreground">Next, the owner must enroll administrator MFA and recovery codes before setup can complete.</p>
+					</form>
+					<p class="mt-6 text-center text-xs text-muted-foreground">Passwords are never echoed, logged, placed in URLs, or stored in browser storage.</p>
 				</div>
 			</main>
 		</body>

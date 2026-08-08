@@ -7,6 +7,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -24,8 +25,9 @@ const (
 )
 
 var (
-	ErrSetupAccessInvalid = errors.New("setup access is invalid or no longer active")
-	ErrSetupOwnerBlocked  = errors.New("existing user records require local repair before owner setup can continue")
+	ErrSetupAccessInvalid      = errors.New("setup access is invalid or no longer active")
+	ErrSetupOwnerBlocked       = errors.New("existing user records require local repair before owner setup can continue")
+	ErrSetupOwnerDraftRequired = errors.New("a current owner profile draft is required")
 )
 
 type SetupOwnerMode string
@@ -70,12 +72,14 @@ type SetupOwnerDraft struct {
 	Email               string         `json:"email"`
 	EmailNormalized     string         `json:"email_normalized"`
 	TopologyFingerprint string         `json:"topology_fingerprint"`
+	PasswordHash        string         `json:"password_hash,omitempty"`
 }
 
 type SetupOwnerState struct {
-	Topology   SetupOwnerTopology
-	Draft      *SetupOwnerDraft
-	DraftStale bool
+	Topology      SetupOwnerTopology
+	Draft         *SetupOwnerDraft
+	DraftStale    bool
+	PasswordReady bool
 }
 
 type SetupOwnerDraftInput struct {
@@ -88,6 +92,19 @@ type SetupOwnerDraftInput struct {
 
 type SetupOwnerValidationError struct {
 	Fields map[string]string
+}
+
+type SetupPasswordDraftInput struct {
+	Password             string
+	PasswordConfirmation string
+}
+
+type SetupPasswordValidationError struct {
+	Fields map[string]string
+}
+
+func (e *SetupPasswordValidationError) Error() string {
+	return "setup owner password is invalid"
 }
 
 func (e *SetupOwnerValidationError) Error() string {
@@ -122,6 +139,7 @@ func (m *Manager) GetSetupOwnerState(ctx context.Context, token, origin string) 
 		state.DraftStale = true
 		return state, nil
 	}
+	state.PasswordReady = draft.PasswordHash != ""
 	return state, nil
 }
 
@@ -187,6 +205,112 @@ func (m *Manager) SaveSetupOwnerDraft(ctx context.Context, token, origin string,
 		return nil, err
 	}
 	return savedState, nil
+}
+
+// SaveSetupPasswordDraft validates and hashes an owner password, then replaces
+// the encrypted setup payload while the exact owner draft and user topology
+// remain current. It never writes password_credentials or any user row.
+func (m *Manager) SaveSetupPasswordDraft(ctx context.Context, token, origin string, input SetupPasswordDraftInput) (*SetupOwnerState, error) {
+	preflight, err := m.GetSetupOwnerState(ctx, token, origin)
+	if err != nil {
+		return nil, err
+	}
+	if preflight.Draft == nil || preflight.DraftStale {
+		return nil, ErrSetupOwnerDraftRequired
+	}
+	if subtle.ConstantTimeCompare([]byte(input.Password), []byte(input.PasswordConfirmation)) != 1 {
+		return nil, &SetupPasswordValidationError{Fields: map[string]string{
+			"confirmation": "The password confirmation does not match.",
+		}}
+	}
+	preparedPassword, err := PrepareNewPassword(input.Password, PasswordPolicyContext{
+		Username: preflight.Draft.Username,
+		Email:    preflight.Draft.Email,
+	})
+	if err != nil {
+		return nil, &SetupPasswordValidationError{Fields: map[string]string{
+			"password": err.Error(),
+		}}
+	}
+	passwordHash, err := HashPassword(preparedPassword)
+	if err != nil {
+		return nil, fmt.Errorf("hash setup owner password: %w", err)
+	}
+
+	canonicalOrigin, err := canonicalAuthOrigin(origin)
+	if err != nil || strings.TrimSpace(token) == "" {
+		return nil, ErrSetupAccessInvalid
+	}
+	now := m.clock.Now().UTC()
+	var savedState *SetupOwnerState
+	err = m.runSecurityTransition(ctx, SecurityTransitionSetup, func(tx *sql.Tx) error {
+		challenge, err := activeSetupAccessInTransaction(ctx, tx, token, canonicalOrigin, now)
+		if err != nil {
+			return err
+		}
+		if len(challenge.PayloadCiphertext) == 0 {
+			return ErrSetupOwnerDraftRequired
+		}
+		draft, err := m.decryptSetupOwnerDraft(challenge, challenge.PayloadCiphertext)
+		if err != nil {
+			return err
+		}
+		topology, err := loadSetupOwnerTopology(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if draft.TopologyFingerprint != topology.fingerprint || validateSetupOwnerTarget(topology, draft.Mode, draft.TargetUserID) != nil {
+			return ErrSetupOwnerDraftRequired
+		}
+		fieldErrors, err := setupOwnerIdentifierCollisions(ctx, tx, draft)
+		if err != nil {
+			return err
+		}
+		if len(fieldErrors) > 0 {
+			return ErrSetupOwnerDraftRequired
+		}
+		if !sameSetupOwnerProfile(draft, preflight.Draft) {
+			return ErrSetupOwnerDraftRequired
+		}
+		draft.PasswordHash = passwordHash
+		payload, err := m.encryptSetupOwnerDraft(challenge, draft)
+		if err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `
+			UPDATE auth_challenges SET payload_ciphertext = ?
+			WHERE id = ? AND challenge_hash = ? AND purpose = ? AND origin = ?
+			  AND user_id IS NULL AND session_id IS NULL AND consumed_at IS NULL
+			  AND expires_at > ? AND attempts < max_attempts`,
+			payload, challenge.ID, hashToken(token), ChallengePurposeEnrollment, canonicalOrigin, now,
+		)
+		if err != nil {
+			return fmt.Errorf("store setup owner password draft: %w", err)
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read setup owner password draft update result: %w", err)
+		}
+		if changed != 1 {
+			return ErrSetupAccessInvalid
+		}
+		savedState = &SetupOwnerState{Topology: topology, Draft: draft, PasswordReady: true}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return savedState, nil
+}
+
+func sameSetupOwnerProfile(left, right *SetupOwnerDraft) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return left.Mode == right.Mode && left.TargetUserID == right.TargetUserID &&
+		left.Name == right.Name && left.Username == right.Username &&
+		left.UsernameNormalized == right.UsernameNormalized && left.Email == right.Email &&
+		left.EmailNormalized == right.EmailNormalized && left.TopologyFingerprint == right.TopologyFingerprint
 }
 
 func prepareSetupOwnerDraft(input SetupOwnerDraftInput) (*SetupOwnerDraft, error) {

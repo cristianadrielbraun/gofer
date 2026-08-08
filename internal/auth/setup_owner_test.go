@@ -270,3 +270,187 @@ func TestSetupOwnerDraftUpdateRollsBackOnStorageFailure(t *testing.T) {
 		t.Fatalf("rollback user count = %d, %v", users, err)
 	}
 }
+
+func saveFreshSetupOwnerProfile(t *testing.T, manager *Manager) {
+	t.Helper()
+	if _, err := manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
+		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "cristian", Email: "cristian@example.com",
+	}); err != nil {
+		t.Fatalf("save owner profile prerequisite: %v", err)
+	}
+}
+
+func TestSaveSetupPasswordDraftRequiresCurrentOwnerProfileAndPolicyCompliantMatch(t *testing.T) {
+	t.Run("owner profile required", func(t *testing.T) {
+		manager, _ := setupOwnerTestManager(t)
+		state, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+			Password: "a valid unique owner passphrase", PasswordConfirmation: "a valid unique owner passphrase",
+		})
+		if state != nil || !errors.Is(err, ErrSetupOwnerDraftRequired) {
+			t.Fatalf("missing owner profile = %#v, %v", state, err)
+		}
+	})
+
+	t.Run("confirmation mismatch", func(t *testing.T) {
+		manager, _ := setupOwnerTestManager(t)
+		saveFreshSetupOwnerProfile(t, manager)
+		state, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+			Password: "a valid unique owner passphrase", PasswordConfirmation: "a different valid passphrase",
+		})
+		var validationErr *SetupPasswordValidationError
+		if state != nil || !errors.As(err, &validationErr) || validationErr.Fields["confirmation"] == "" {
+			t.Fatalf("confirmation mismatch = %#v, %#v, %v", state, validationErr, err)
+		}
+	})
+
+	for _, test := range []struct {
+		name     string
+		password string
+		want     error
+	}{
+		{name: "too short", password: "short password", want: ErrPasswordTooShort},
+		{name: "compromised", password: "passwordpassword", want: ErrPasswordCommon},
+		{name: "owner specific", password: "cristianpassword", want: ErrPasswordCommon},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager, _ := setupOwnerTestManager(t)
+			saveFreshSetupOwnerProfile(t, manager)
+			state, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+				Password: test.password, PasswordConfirmation: test.password,
+			})
+			var validationErr *SetupPasswordValidationError
+			if state != nil || !errors.As(err, &validationErr) || validationErr.Fields["password"] != test.want.Error() {
+				t.Fatalf("password policy = %#v, %#v, %v", state, validationErr, err)
+			}
+		})
+	}
+}
+
+func TestSaveSetupPasswordDraftStoresOnlyEncryptedHashWithoutPartialEnrollment(t *testing.T) {
+	manager, _ := setupOwnerTestManager(t)
+	saveFreshSetupOwnerProfile(t, manager)
+	const password = "correct horse battery staple for owner"
+	state, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+		Password: password, PasswordConfirmation: password,
+	})
+	if err != nil {
+		t.Fatalf("SaveSetupPasswordDraft() error = %v", err)
+	}
+	if state == nil || !state.PasswordReady || state.Draft == nil || state.Draft.PasswordHash == "" || state.Draft.PasswordHash == password {
+		t.Fatalf("saved password draft = %#v", state)
+	}
+	matches, needsRehash, err := VerifyPassword(state.Draft.PasswordHash, password)
+	if err != nil || !matches || needsRehash {
+		t.Fatalf("VerifyPassword(saved draft) = matches:%t rehash:%t error:%v", matches, needsRehash, err)
+	}
+
+	var payload []byte
+	if err := manager.db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE id = 'setup-owner-challenge'`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(payload, []byte(password)) || bytes.Contains(payload, []byte(state.Draft.PasswordHash)) {
+		t.Fatalf("password or hash stored outside encrypted payload: %q", payload)
+	}
+	var users, credentials, sessions, events, initialized int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM users`:                             &users,
+		`SELECT COUNT(*) FROM password_credentials`:              &credentials,
+		`SELECT COUNT(*) FROM sessions`:                          &sessions,
+		`SELECT COUNT(*) FROM auth_events`:                       &events,
+		`SELECT initialized FROM auth_system_state WHERE id = 1`: &initialized,
+	} {
+		if err := manager.db.Read().QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if users != 0 || credentials != 0 || sessions != 0 || events != 0 || initialized != 0 {
+		t.Fatalf("password draft partially enrolled = users:%d credentials:%d sessions:%d events:%d initialized:%d", users, credentials, sessions, events, initialized)
+	}
+
+	reloaded, err := manager.GetSetupOwnerState(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
+	if err != nil || reloaded == nil || !reloaded.PasswordReady || reloaded.Draft == nil {
+		t.Fatalf("GetSetupOwnerState(password) = %#v, %v", reloaded, err)
+	}
+	matches, _, err = VerifyPassword(reloaded.Draft.PasswordHash, password)
+	if err != nil || !matches {
+		t.Fatalf("reloaded password hash = matches:%t error:%v", matches, err)
+	}
+}
+
+func TestSavingOwnerProfileAgainInvalidatesPreparedPassword(t *testing.T) {
+	manager, _ := setupOwnerTestManager(t)
+	saveFreshSetupOwnerProfile(t, manager)
+	const password = "correct horse battery staple for owner"
+	if _, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+		Password: password, PasswordConfirmation: password,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
+		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "new-cristian", Email: "new-cristian@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.GetSetupOwnerState(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
+	if err != nil || state == nil || state.Draft == nil || state.PasswordReady || state.Draft.PasswordHash != "" {
+		t.Fatalf("owner profile resave = %#v, %v", state, err)
+	}
+}
+
+func TestSetupPasswordDraftRejectsExpiredOrStaleSetupState(t *testing.T) {
+	t.Run("expired", func(t *testing.T) {
+		manager, clock := setupOwnerTestManager(t)
+		saveFreshSetupOwnerProfile(t, manager)
+		clock.now = clock.now.Add(11 * time.Minute)
+		state, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+			Password: "correct horse battery staple for owner", PasswordConfirmation: "correct horse battery staple for owner",
+		})
+		if state != nil || !errors.Is(err, ErrSetupAccessInvalid) {
+			t.Fatalf("expired password draft = %#v, %v", state, err)
+		}
+	})
+
+	t.Run("topology changed", func(t *testing.T) {
+		manager, _ := setupOwnerTestManager(t)
+		saveFreshSetupOwnerProfile(t, manager)
+		insertSetupOwnerUser(t, manager, "new-user", "new@example.com", "new-user", "New User", UserStatusActive, false)
+		state, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+			Password: "correct horse battery staple for owner", PasswordConfirmation: "correct horse battery staple for owner",
+		})
+		if state != nil || !errors.Is(err, ErrSetupOwnerDraftRequired) {
+			t.Fatalf("stale password draft = %#v, %v", state, err)
+		}
+	})
+}
+
+func TestSetupPasswordDraftUpdateRollsBackWithoutReplacingOwnerDraft(t *testing.T) {
+	manager, _ := setupOwnerTestManager(t)
+	saveFreshSetupOwnerProfile(t, manager)
+	var originalPayload []byte
+	if err := manager.db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE id = 'setup-owner-challenge'`).Scan(&originalPayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Write().Exec(`
+		CREATE TRIGGER reject_setup_password_payload
+		BEFORE UPDATE OF payload_ciphertext ON auth_challenges
+		BEGIN SELECT RAISE(ABORT, 'reject setup password payload'); END`); err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.SaveSetupPasswordDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupPasswordDraftInput{
+		Password: "correct horse battery staple for owner", PasswordConfirmation: "correct horse battery staple for owner",
+	})
+	if state != nil || err == nil {
+		t.Fatalf("rollback password draft = %#v, %v", state, err)
+	}
+	var storedPayload []byte
+	if err := manager.db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE id = 'setup-owner-challenge'`).Scan(&storedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(storedPayload, originalPayload) {
+		t.Fatal("failed password draft replaced the owner payload")
+	}
+	reloaded, err := manager.GetSetupOwnerState(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
+	if err != nil || reloaded.PasswordReady || reloaded.Draft == nil {
+		t.Fatalf("owner draft after rollback = %#v, %v", reloaded, err)
+	}
+}

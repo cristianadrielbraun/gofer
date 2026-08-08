@@ -60,6 +60,18 @@ func postSetupOwner(stack http.Handler, cookie *http.Cookie, values url.Values) 
 	return recorder
 }
 
+func postSetupPassword(stack http.Handler, cookie *http.Cookie, values url.Values) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, setupPasswordPath, strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	recorder := httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	return recorder
+}
+
 func TestSetupEntryIsPublicLocalNoStoreAndSecretFree(t *testing.T) {
 	_, _, stack, setupToken := setupEntryStack(t)
 	request := httptest.NewRequest(http.MethodGet, setupPath, nil)
@@ -170,7 +182,7 @@ func TestFreshSetupOwnerDraftIsProtectedEncryptedAndNonMutating(t *testing.T) {
 		"owner_target": {"create"}, "name": {"Cristian Braun"},
 		"username": {"Cristian.B"}, "email": {"Cristian@Example.COM"},
 	})
-	if saved.Code != http.StatusSeeOther || saved.Header().Get("Location") != setupOwnerPath {
+	if saved.Code != http.StatusSeeOther || saved.Header().Get("Location") != setupPasswordPath {
 		t.Fatalf("fresh owner save = %d location:%q body:%q", saved.Code, saved.Header().Get("Location"), saved.Body.String())
 	}
 	var payload []byte
@@ -205,6 +217,173 @@ func TestFreshSetupOwnerDraftIsProtectedEncryptedAndNonMutating(t *testing.T) {
 	}
 	if strings.Contains(review.Body.String(), setupToken) || strings.Contains(review.Body.String(), setupCookie.Value) {
 		t.Fatal("owner review exposed setup bearer material")
+	}
+}
+
+func TestSetupPasswordRequiresCurrentOwnerDraftAndNeverEchoesSecrets(t *testing.T) {
+	manager, db, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	if setupCookie == nil {
+		t.Fatal("setup verification did not issue continuation cookie")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, setupPasswordPath, nil)
+	request.AddCookie(setupCookie)
+	missingDraft := httptest.NewRecorder()
+	stack.ServeHTTP(missingDraft, request)
+	if missingDraft.Code != http.StatusSeeOther || missingDraft.Header().Get("Location") != setupOwnerPath {
+		t.Fatalf("password without owner draft = %d location:%q", missingDraft.Code, missingDraft.Header().Get("Location"))
+	}
+	request = httptest.NewRequest(http.MethodPost, setupPasswordPath, strings.NewReader(strings.Repeat("x", setupFormMaximumBytes+1)))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	request.AddCookie(setupCookie)
+	oversizedWithoutDraft := httptest.NewRecorder()
+	stack.ServeHTTP(oversizedWithoutDraft, request)
+	if oversizedWithoutDraft.Code != http.StatusSeeOther || oversizedWithoutDraft.Header().Get("Location") != setupOwnerPath {
+		t.Fatalf("oversized password without owner draft = %d location:%q", oversizedWithoutDraft.Code, oversizedWithoutDraft.Header().Get("Location"))
+	}
+
+	owner := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Cristian Braun"},
+		"username": {"cristian"}, "email": {"cristian@example.com"},
+	})
+	if owner.Code != http.StatusSeeOther || owner.Header().Get("Location") != setupPasswordPath {
+		t.Fatalf("owner continuation = %d location:%q", owner.Code, owner.Header().Get("Location"))
+	}
+
+	request = httptest.NewRequest(http.MethodGet, setupPasswordPath, nil)
+	request.AddCookie(setupCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, request)
+	for _, want := range []string{
+		"Choose the owner password", `action="/setup/password"`, `autocomplete="new-password"`,
+		`minlength="15"`, "administrator MFA and recovery codes",
+	} {
+		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("password page missing %q: %d %q", want, page.Code, page.Body.String())
+		}
+	}
+	request = httptest.NewRequest(http.MethodGet, setupPasswordPath+"?password=must-not-survive", nil)
+	request.AddCookie(setupCookie)
+	query := httptest.NewRecorder()
+	stack.ServeHTTP(query, request)
+	if query.Code != http.StatusSeeOther || query.Header().Get("Location") != setupPasswordPath || strings.Contains(query.Body.String(), "must-not-survive") {
+		t.Fatalf("password query stripping = %d location:%q body:%q", query.Code, query.Header().Get("Location"), query.Body.String())
+	}
+
+	var ownerPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&ownerPayload); err != nil {
+		t.Fatal(err)
+	}
+	const mismatchedPassword = "correct horse battery staple for owner"
+	mismatch := postSetupPassword(stack, setupCookie, url.Values{
+		"password": {mismatchedPassword}, "password_confirmation": {"a different secure owner passphrase"},
+	})
+	if mismatch.Code != http.StatusUnprocessableEntity || !strings.Contains(mismatch.Body.String(), "does not match") || strings.Contains(mismatch.Body.String(), mismatchedPassword) {
+		t.Fatalf("password mismatch = %d %q", mismatch.Code, mismatch.Body.String())
+	}
+
+	const weakPassword = "passwordpassword"
+	weak := postSetupPassword(stack, setupCookie, url.Values{
+		"password": {weakPassword}, "password_confirmation": {weakPassword},
+	})
+	if weak.Code != http.StatusUnprocessableEntity || !strings.Contains(weak.Body.String(), auth.ErrPasswordCommon.Error()) || strings.Contains(weak.Body.String(), `value="`+weakPassword+`"`) {
+		t.Fatalf("weak password = %d %q", weak.Code, weak.Body.String())
+	}
+	var rejectedPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&rejectedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rejectedPayload, ownerPayload) {
+		t.Fatal("rejected password replaced the owner draft")
+	}
+
+	const password = "correct horse battery staple for owner"
+	saved := postSetupPassword(stack, setupCookie, url.Values{
+		"password": {password}, "password_confirmation": {password},
+	})
+	if saved.Code != http.StatusSeeOther || saved.Header().Get("Location") != setupPasswordPath || strings.Contains(saved.Body.String(), password) {
+		t.Fatalf("password save = %d location:%q body:%q", saved.Code, saved.Header().Get("Location"), saved.Body.String())
+	}
+	state, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || state == nil || !state.PasswordReady || state.Draft == nil || state.Draft.PasswordHash == "" {
+		t.Fatalf("saved password state = %#v, %v", state, err)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, setupPasswordPath, nil)
+	request.AddCookie(setupCookie)
+	review := httptest.NewRecorder()
+	stack.ServeHTTP(review, request)
+	if review.Code != http.StatusOK || !strings.Contains(review.Body.String(), "Owner password ready for final enrollment") ||
+		strings.Contains(review.Body.String(), password) || strings.Contains(review.Body.String(), state.Draft.PasswordHash) {
+		t.Fatalf("prepared password review = %d %q", review.Code, review.Body.String())
+	}
+
+	var payload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(payload, []byte(password)) || bytes.Contains(payload, []byte(state.Draft.PasswordHash)) {
+		t.Fatal("stored setup payload exposed password material")
+	}
+	var users, credentials, sessions, initialized int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM users`:                             &users,
+		`SELECT COUNT(*) FROM password_credentials`:              &credentials,
+		`SELECT COUNT(*) FROM sessions`:                          &sessions,
+		`SELECT initialized FROM auth_system_state WHERE id = 1`: &initialized,
+	} {
+		if err := db.Read().QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if users != 0 || credentials != 0 || sessions != 0 || initialized != 0 {
+		t.Fatalf("password setup partially enrolled = users:%d credentials:%d sessions:%d initialized:%d", users, credentials, sessions, initialized)
+	}
+}
+
+func TestSetupPasswordPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
+	_, db, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	owner := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	})
+	if owner.Code != http.StatusSeeOther {
+		t.Fatalf("owner prerequisite = %d %q", owner.Code, owner.Body.String())
+	}
+	var originalPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&originalPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://gofer.example")
+	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	guard, err := httpguard.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const password = "correct horse battery staple for owner"
+	form := url.Values{"password": {password}, "password_confirmation": {password}}
+	request := httptest.NewRequest(http.MethodPost, setupPasswordPath, strings.NewReader(form.Encode()))
+	request.Host = "gofer.example"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://attacker.example")
+	request.AddCookie(setupCookie)
+	recorder := httptest.NewRecorder()
+	guard.Middleware(stack).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") || strings.Contains(recorder.Body.String(), password) {
+		t.Fatalf("cross-origin password submission = %d %q", recorder.Code, recorder.Body.String())
+	}
+	var storedPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&storedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(storedPayload, originalPayload) {
+		t.Fatal("cross-origin password submission replaced the owner draft")
 	}
 }
 
@@ -290,7 +469,7 @@ func TestExistingSetupOwnerRequiresExplicitValidSelectionAndUniqueIdentifiers(t 
 		"owner_target": {"existing:person-a"}, "name": {"Person A Owner"},
 		"username": {"person-a"}, "email": {"a@example.com"},
 	})
-	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != setupOwnerPath {
+	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != setupPasswordPath {
 		t.Fatalf("explicit owner selection = %d %q", selected.Code, selected.Body.String())
 	}
 	var names string
@@ -399,6 +578,9 @@ func TestSetupRoutesDisappearAfterInitialization(t *testing.T) {
 		{method: http.MethodGet, path: setupPath},
 		{method: http.MethodPost, path: setupPath},
 		{method: http.MethodGet, path: setupOwnerPath},
+		{method: http.MethodPost, path: setupOwnerPath},
+		{method: http.MethodGet, path: setupPasswordPath},
+		{method: http.MethodPost, path: setupPasswordPath},
 	} {
 		var request *http.Request
 		if test.method == http.MethodPost {

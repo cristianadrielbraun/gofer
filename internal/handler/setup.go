@@ -14,6 +14,7 @@ import (
 const (
 	setupPath                = "/setup"
 	setupOwnerPath           = "/setup/owner"
+	setupPasswordPath        = "/setup/password"
 	setupFormMaximumBytes    = 8 << 10
 	setupTokenFailureMessage = "That setup token is invalid or no longer active."
 	setupTokenServiceMessage = "Unable to verify the setup token right now. Please try again."
@@ -101,6 +102,88 @@ func (h *Handler) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+}
+
+func (h *Handler) handleSetupPassword(w http.ResponseWriter, r *http.Request) {
+	state, err := h.auth.SetupState(r.Context())
+	if err != nil {
+		log.Printf("read setup password state: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	if state.Initialized {
+		h.writeSetupNotFound(w)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		h.redirectSetupPasswordWithoutQuery(w, r)
+		return
+	}
+	ownerState, err := h.auth.GetSetupOwnerState(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrSetupAccessInvalid):
+			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, setupPath, http.StatusSeeOther)
+		case errors.Is(err, auth.ErrSetupOwnerBlocked):
+			http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+		default:
+			log.Printf("read setup password owner draft: %v", err)
+			h.writeSetupServiceFailure(w)
+		}
+		return
+	}
+	if ownerState.Draft == nil || ownerState.DraftStale {
+		http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+		return
+	}
+	h.renderSetupPasswordPage(w, r, http.StatusOK, views.SetupPasswordData{PasswordReady: ownerState.PasswordReady})
+}
+
+func (h *Handler) handleSetupPasswordSubmit(w http.ResponseWriter, r *http.Request) {
+	state, err := h.auth.SetupState(r.Context())
+	if err != nil {
+		log.Printf("read setup password submission state: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	if state.Initialized {
+		h.writeSetupNotFound(w)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		h.redirectSetupPasswordWithoutQuery(w, r)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
+	if err := r.ParseForm(); err != nil {
+		h.renderSubmittedSetupPassword(w, r, http.StatusUnprocessableEntity, views.SetupPasswordData{
+			Errors: map[string]string{"form": "The submitted password form is too large or invalid."},
+		})
+		return
+	}
+	_, err = h.auth.SaveSetupPasswordDraft(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL, auth.SetupPasswordDraftInput{
+		Password: r.PostFormValue("password"), PasswordConfirmation: r.PostFormValue("password_confirmation"),
+	})
+	if err != nil {
+		var validationErr *auth.SetupPasswordValidationError
+		switch {
+		case errors.Is(err, auth.ErrSetupAccessInvalid):
+			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, setupPath, http.StatusSeeOther)
+		case errors.Is(err, auth.ErrSetupOwnerDraftRequired), errors.Is(err, auth.ErrSetupOwnerBlocked):
+			http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+		case errors.As(err, &validationErr):
+			h.renderSubmittedSetupPassword(w, r, http.StatusUnprocessableEntity, views.SetupPasswordData{Errors: validationErr.Fields})
+		default:
+			log.Printf("save setup password draft: %v", err)
+			h.writeSetupServiceFailure(w)
+		}
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
 }
 
 func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +274,7 @@ func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+	http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
 }
 
 func (h *Handler) renderSubmittedSetupOwner(w http.ResponseWriter, r *http.Request, status int, form views.SetupOwnerFormData) {
@@ -223,6 +306,39 @@ func (h *Handler) renderSetupOwnerPage(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 	writeSetupPage(w, status, &page)
+}
+
+func (h *Handler) renderSetupPasswordPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupPasswordData) {
+	var page bytes.Buffer
+	if err := views.SetupPasswordPage(data).Render(r.Context(), &page); err != nil {
+		log.Printf("render protected setup password page: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	writeSetupPage(w, status, &page)
+}
+
+func (h *Handler) renderSubmittedSetupPassword(w http.ResponseWriter, r *http.Request, status int, data views.SetupPasswordData) {
+	ownerState, err := h.auth.GetSetupOwnerState(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrSetupAccessInvalid):
+			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, setupPath, http.StatusSeeOther)
+		case errors.Is(err, auth.ErrSetupOwnerBlocked):
+			http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+		default:
+			log.Printf("read setup password owner draft after submission: %v", err)
+			h.writeSetupServiceFailure(w)
+		}
+		return
+	}
+	if ownerState.Draft == nil || ownerState.DraftStale {
+		http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+		return
+	}
+	data.PasswordReady = ownerState.PasswordReady
+	h.renderSetupPasswordPage(w, r, status, data)
 }
 
 func setupOwnerViewData(state *auth.SetupOwnerState, submitted views.SetupOwnerFormData) views.SetupOwnerData {
@@ -307,6 +423,12 @@ func (h *Handler) redirectSetupOwnerWithoutQuery(w http.ResponseWriter, r *http.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+}
+
+func (h *Handler) redirectSetupPasswordWithoutQuery(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
 }
 
 func writeSetupPage(w http.ResponseWriter, status int, page *bytes.Buffer) {
