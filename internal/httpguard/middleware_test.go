@@ -79,6 +79,55 @@ func TestMiddlewareRequestBoundary(t *testing.T) {
 			wantCalled: true,
 		},
 		{
+			name:       "privacy browser null origin with same-origin fetch metadata",
+			method:     http.MethodPost,
+			path:       "/account/redeem",
+			host:       "localhost:8090",
+			headers:    map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-origin"},
+			wantStatus: http.StatusNoContent,
+			wantCalled: true,
+		},
+		{
+			name:       "null origin with same-site fetch metadata",
+			method:     http.MethodPost,
+			path:       "/account/redeem",
+			host:       "localhost:8090",
+			headers:    map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-site"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "null origin with cross-site fetch metadata",
+			method:     http.MethodPost,
+			path:       "/account/redeem",
+			host:       "localhost:8090",
+			headers:    map[string]string{"Origin": "null", "Sec-Fetch-Site": "cross-site"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "null origin with user-initiated fetch metadata",
+			method:     http.MethodPost,
+			path:       "/account/redeem",
+			host:       "localhost:8090",
+			headers:    map[string]string{"Origin": "null", "Sec-Fetch-Site": "none"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "null origin without fetch metadata",
+			method:     http.MethodPost,
+			path:       "/account/redeem",
+			host:       "localhost:8090",
+			headers:    map[string]string{"Origin": "null"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "null origin cannot bypass untrusted host",
+			method:     http.MethodPost,
+			path:       "/account/redeem",
+			host:       "attacker.example",
+			headers:    map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-origin"},
+			wantStatus: http.StatusMisdirectedRequest,
+		},
+		{
 			name:       "explicit automation request",
 			method:     http.MethodPost,
 			path:       "/api/mail/sync",
@@ -182,6 +231,27 @@ func TestMiddlewareRequestBoundary(t *testing.T) {
 				t.Fatalf("Content-Security-Policy = %q", got)
 			}
 		})
+	}
+}
+
+func TestMiddlewareRejectsMultipleOriginHeadersWithSameOriginFetchMetadata(t *testing.T) {
+	cfg, err := newConfig(DefaultListenAddr, DefaultBaseURL, false)
+	if err != nil {
+		t.Fatalf("newConfig() error = %v", err)
+	}
+	called := false
+	request := httptest.NewRequest(http.MethodPost, "/account/redeem", nil)
+	request.Host = "localhost:8090"
+	request.Header.Add("Origin", "null")
+	request.Header.Add("Origin", "http://localhost:8090")
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	recorder := httptest.NewRecorder()
+	cfg.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || called {
+		t.Fatalf("multiple Origin headers = status:%d called:%t", recorder.Code, called)
 	}
 }
 

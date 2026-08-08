@@ -65,3 +65,49 @@ func TestOpenReadOnlyDoesNotCreateMissingPathOrMigrateStaleSchema(t *testing.T) 
 		t.Fatalf("OpenReadOnly(stale) = %#v, %v", readOnly, err)
 	}
 }
+
+func TestOpenExistingRequiresCurrentSchemaAndPermitsOperatorMutation(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "gofer.db")
+	db, err := New(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin)
+		VALUES ('operator-target', 'target@example.com', 'target@example.com', 'Target', 'active', 1, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	existing, err := OpenExisting(databasePath)
+	if err != nil {
+		t.Fatalf("OpenExisting(current) error = %v", err)
+	}
+	if _, err := existing.Write().Exec(`UPDATE users SET auth_version = 2 WHERE id = 'operator-target'`); err != nil {
+		existing.Close()
+		t.Fatalf("OpenExisting write error = %v", err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = New(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`DELETE FROM schema_version`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO schema_version (version) VALUES (79)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := OpenExisting(databasePath)
+	if err == nil || stale != nil || !strings.Contains(err.Error(), "schema version 79") {
+		t.Fatalf("OpenExisting(stale) = %#v, %v", stale, err)
+	}
+}

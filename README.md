@@ -174,9 +174,9 @@ GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 
 Google OAuth is used for optional Google login, Gmail mail through the Gmail API, and Google Contacts sync through the People API. Microsoft OAuth is used for Outlook mail and contact sync through Microsoft Graph.
 
-## local authentication inspection
+## local authentication operations
 
-The binary includes read-only authentication commands for local operators:
+The binary includes authentication commands for local operators:
 
 ```sh
 ./gofer auth status
@@ -184,6 +184,16 @@ The binary includes read-only authentication commands for local operators:
 ```
 
 These commands use `GOFER_DB_PATH` (default `data/gofer.db`) and open an existing, current-schema database without applying migrations. They do not load HTTP or provider configuration, generate runtime keys, bind a listener, or start synchronization and background workers. Output is limited to initialization state and application-user identity/status metadata; credential and token material is never displayed. Because both commands are query-only, the Gofer server does not need to be stopped while they run.
+
+If a user loses every usable application-login credential, first use `auth users list` to copy the exact user ID. Then stop the Gofer server and run:
+
+```sh
+./gofer auth recover --user '<user-id>' --confirm '<user-id>'
+```
+
+Recovery refuses to run unless both IDs match exactly and it can acquire Gofer's exclusive database lock. The command preserves an active or disabled user's status, immediately increments their authentication version, revokes all live sessions, replaces any unused credential-reset token, and commits a redacted local-operator audit event. It then prints one new 30-minute, single-use reset token. SQLite stores only the token hash.
+
+Treat the printed token as a password: do not put it in a URL, shell history, logs, or chat. Restart Gofer, open `/account/redeem`, paste the token into the masked token field, and choose the new password. A disabled user remains disabled after resetting the password and must be enabled separately. If output is lost, stop Gofer and run recovery again; the replacement token invalidates the previous one.
 
 ## local security model
 

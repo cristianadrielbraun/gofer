@@ -13,6 +13,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/notifications"
+	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"io"
@@ -74,6 +75,15 @@ func runServer() {
 	log.Printf("boot: database path resolved to %s", dbPath)
 
 	dataDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		log.Fatalf("failed to create database directory: %v", err)
+	}
+	runtimeLock, err := runtimeguard.Acquire(dbPath)
+	if err != nil {
+		log.Fatalf("failed to acquire exclusive database lock: %v", err)
+	}
+	defer runtimeLock.Close()
+	log.Printf("boot: exclusive database lock acquired")
 
 	db, err := storage.New(dbPath)
 	if err != nil {

@@ -6,35 +6,42 @@ import (
 	"io"
 	"strconv"
 	"text/tabwriter"
+	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 const usage = `Usage:
   gofer auth status
   gofer auth users list
+  gofer auth recover --user <user-id> --confirm <user-id>
 `
 
 func Run(ctx context.Context, args []string, databasePath string, stdout, stderr io.Writer) int {
-	command, help, valid := parseCommand(args)
+	command, help, parseErr := parseCommand(args)
 	if help {
 		_, _ = io.WriteString(stdout, usage)
 		return 0
 	}
-	if !valid {
+	if parseErr != nil {
+		_, _ = fmt.Fprintf(stderr, "auth: %v\n", parseErr)
 		_, _ = io.WriteString(stderr, usage)
 		return 2
+	}
+	if command.name == "recover" {
+		return runRecovery(ctx, command.userID, databasePath, stdout, stderr)
 	}
 
 	db, err := storage.OpenReadOnly(databasePath)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "auth %s: open database: %v\n", command, err)
+		_, _ = fmt.Fprintf(stderr, "auth %s: open database: %v\n", command.name, err)
 		return 1
 	}
 	defer db.Close()
 	service := NewService(db)
 
-	switch command {
+	switch command.name {
 	case "status":
 		if err := writeStatus(ctx, stdout, service); err != nil {
 			_, _ = fmt.Fprintf(stderr, "auth status: %v\n", err)
@@ -49,17 +56,88 @@ func Run(ctx context.Context, args []string, databasePath string, stdout, stderr
 	return 0
 }
 
-func parseCommand(args []string) (command string, help, valid bool) {
+type parsedCommand struct {
+	name   string
+	userID string
+}
+
+func parseCommand(args []string) (command parsedCommand, help bool, err error) {
 	if len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
-		return "", true, true
+		return parsedCommand{}, true, nil
 	}
 	if len(args) == 1 && args[0] == "status" {
-		return "status", false, true
+		return parsedCommand{name: "status"}, false, nil
 	}
 	if len(args) == 2 && args[0] == "users" && args[1] == "list" {
-		return "users list", false, true
+		return parsedCommand{name: "users list"}, false, nil
 	}
-	return "", false, false
+	if len(args) == 5 && args[0] == "recover" {
+		values := make(map[string]string, 2)
+		for index := 1; index < len(args); index += 2 {
+			flag := args[index]
+			if flag != "--user" && flag != "--confirm" {
+				return parsedCommand{}, false, fmt.Errorf("unknown recovery option %q", flag)
+			}
+			if _, duplicate := values[flag]; duplicate {
+				return parsedCommand{}, false, fmt.Errorf("recovery option %s was provided more than once", flag)
+			}
+			if args[index+1] == "" {
+				return parsedCommand{}, false, fmt.Errorf("recovery option %s requires a value", flag)
+			}
+			values[flag] = args[index+1]
+		}
+		if values["--user"] == "" || values["--confirm"] == "" {
+			return parsedCommand{}, false, fmt.Errorf("recovery requires both --user and --confirm")
+		}
+		if values["--user"] != values["--confirm"] {
+			return parsedCommand{}, false, fmt.Errorf("--confirm must exactly match --user")
+		}
+		return parsedCommand{name: "recover", userID: values["--user"]}, false, nil
+	}
+	return parsedCommand{}, false, fmt.Errorf("invalid command")
+}
+
+func runRecovery(ctx context.Context, userID, databasePath string, stdout, stderr io.Writer) int {
+	// Preflight through the query-only connection so a missing or stale database
+	// cannot leave an operator lock file behind.
+	probe, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth recover: open database: %v\n", err)
+		return 1
+	}
+	if err := probe.Close(); err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth recover: close database preflight: %v\n", err)
+		return 1
+	}
+
+	lock, err := runtimeguard.Acquire(databasePath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth recover: acquire exclusive database lock: %v\n", err)
+		return 1
+	}
+	defer lock.Close()
+
+	db, err := storage.OpenExisting(databasePath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth recover: open database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+	result, err := NewService(db).Recover(ctx, userID)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth recover: %v\n", err)
+		return 1
+	}
+	if _, err := fmt.Fprintf(stdout,
+		"user_id: %s\ntoken_purpose: %s\nexpires_at: %s\nrevoked_sessions: %d\nreplaced_reset_tokens: %d\nreset_token: %s\n",
+		printableField(result.Token.UserID), result.Token.Purpose,
+		result.Token.ExpiresAt.UTC().Format(time.RFC3339), result.RevokedSessions,
+		result.ReplacedTokens, result.Token.Token,
+	); err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth recover: write recovery token: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func writeStatus(ctx context.Context, output io.Writer, service *Service) error {

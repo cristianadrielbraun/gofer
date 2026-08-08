@@ -3,11 +3,13 @@ package authoperator
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -151,5 +153,135 @@ func TestCLIReportsMissingDatabaseWithoutCreatingIt(t *testing.T) {
 	}
 	if _, err := os.Stat(missingDirectory); !os.IsNotExist(err) {
 		t.Fatalf("status created missing database directory: %v", err)
+	}
+}
+
+func TestRecoverRequiresExactConfirmationBeforeOpeningDatabase(t *testing.T) {
+	missingDirectory := filepath.Join(t.TempDir(), "missing")
+	databasePath := filepath.Join(missingDirectory, "gofer.db")
+	tests := [][]string{
+		{"recover", "--user", "target", "--confirm", "other"},
+		{"recover", "--user", "target", "--user", "target"},
+		{"recover", "--user", "target", "--unknown", "target"},
+		{"recover", "--user", "target"},
+	}
+	for _, args := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 2 {
+			t.Fatalf("Run(%v) code = %d, stderr=%q", args, code, stderr.String())
+		}
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "gofer auth recover") {
+			t.Fatalf("Run(%v) output = stdout:%q stderr:%q", args, stdout.String(), stderr.String())
+		}
+	}
+	if _, err := os.Stat(missingDirectory); !os.IsNotExist(err) {
+		t.Fatalf("invalid recovery created database directory: %v", err)
+	}
+}
+
+func TestRecoverCommitsResetAndPrintsRawTokenExactlyOnce(t *testing.T) {
+	databasePath := createOperatorTestDatabase(t)
+	db, err := storage.OpenExisting(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`
+		INSERT INTO sessions (
+			id, user_id, token_hash, auth_version, authentication_method,
+			assurance_level, authenticated_at, last_used_at,
+			idle_expires_at, absolute_expires_at, created_at
+		) VALUES (
+			'disabled-session', 'disabled-user', ?, 2, 'password',
+			'single_factor', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+			datetime('now', '+1 hour'), datetime('now', '+1 day'), CURRENT_TIMESTAMP
+		)`, strings.Repeat("a", 64)); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run(t.Context(), []string{"recover", "--user", "disabled-user", "--confirm", "disabled-user"}, databasePath, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run(recover) code = %d stderr=%q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("Run(recover) stderr = %q", stderr.String())
+	}
+	output := stdout.String()
+	for _, required := range []string{
+		`user_id: "disabled-user"`, "token_purpose: credential_reset", "revoked_sessions: 1", "replaced_reset_tokens: 1", "reset_token: ",
+	} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("recovery output missing %q: %q", required, output)
+		}
+	}
+	var rawToken string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "reset_token: ") {
+			rawToken = strings.TrimPrefix(line, "reset_token: ")
+		}
+	}
+	if rawToken == "" || strings.Count(output, rawToken) != 1 {
+		t.Fatalf("raw reset token was not printed exactly once: %q", output)
+	}
+	if strings.Contains(output, "do-not-print-token-hash") || strings.Contains(output, "do-not-print-password-hash") {
+		t.Fatalf("recovery output exposed stored secret material: %q", output)
+	}
+
+	reopened, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var status string
+	var authVersion int64
+	if err := reopened.Read().QueryRow(`SELECT status, auth_version FROM users WHERE id = 'disabled-user'`).Scan(&status, &authVersion); err != nil {
+		t.Fatal(err)
+	}
+	if status != "disabled" || authVersion != 3 {
+		t.Fatalf("recovered user state = status:%q version:%d", status, authVersion)
+	}
+	var storedHash string
+	if err := reopened.Read().QueryRow(`
+		SELECT token_hash FROM user_enrollment_tokens
+		WHERE user_id = 'disabled-user' AND purpose = 'credential_reset' AND revoked_at IS NULL`,
+	).Scan(&storedHash); err != nil {
+		t.Fatal(err)
+	}
+	expectedHash := sha256.Sum256([]byte(rawToken))
+	if storedHash != fmt.Sprintf("%x", expectedHash) || storedHash == rawToken {
+		t.Fatalf("persisted recovery token hash = %q", storedHash)
+	}
+	var activeSessions int
+	if err := reopened.Read().QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = 'disabled-user' AND revoked_at IS NULL`).Scan(&activeSessions); err != nil || activeSessions != 0 {
+		t.Fatalf("active sessions after recovery = %d, %v", activeSessions, err)
+	}
+}
+
+func TestRecoverRefusesToRunWhileRuntimeLockIsHeld(t *testing.T) {
+	databasePath := createOperatorTestDatabase(t)
+	lock, err := runtimeguard.Acquire(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	var stdout, stderr bytes.Buffer
+	if code := Run(t.Context(), []string{"recover", "--user", "disabled-user", "--confirm", "disabled-user"}, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(recover while locked) code = %d", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "stop the server") {
+		t.Fatalf("locked recovery output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+	db, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var authVersion int64
+	if err := db.Read().QueryRow(`SELECT auth_version FROM users WHERE id = 'disabled-user'`).Scan(&authVersion); err != nil || authVersion != 2 {
+		t.Fatalf("locked recovery changed auth version = %d, %v", authVersion, err)
 	}
 }

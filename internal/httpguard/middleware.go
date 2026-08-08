@@ -41,7 +41,17 @@ func (c *Config) isSameOriginRequest(r *http.Request) bool {
 	}
 
 	if origins := r.Header.Values("Origin"); len(origins) != 0 {
-		return len(origins) == 1 && c.trustsOrigin(origins[0])
+		if len(origins) != 1 {
+			return false
+		}
+		// Some privacy-hardened browsers serialize a legitimate form origin as
+		// "null" while still supplying browser-controlled same-origin Fetch
+		// Metadata. Treat that narrow combination like an unavailable Origin;
+		// every other null-origin request remains untrusted.
+		if strings.TrimSpace(origins[0]) == "null" {
+			return fetchSite == "same-origin"
+		}
+		return c.trustsOrigin(origins[0])
 	}
 	if referers := r.Header.Values("Referer"); len(referers) != 0 {
 		return len(referers) == 1 && c.trustsReferer(referers[0])

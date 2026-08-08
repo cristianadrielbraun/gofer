@@ -10,7 +10,8 @@ import (
 )
 
 type Service struct {
-	db *storage.DB
+	db      *storage.DB
+	manager *auth.Manager
 }
 
 type InstanceStatus struct {
@@ -29,7 +30,11 @@ type UserSummary struct {
 }
 
 func NewService(db *storage.DB) *Service {
-	return &Service{db: db}
+	return &Service{db: db, manager: auth.NewManager(&auth.Config{}, db)}
+}
+
+func (service *Service) Recover(ctx context.Context, userID string) (*auth.LocalRecoveryResult, error) {
+	return service.manager.RecoverUserLocally(ctx, userID)
 }
 
 func (service *Service) Status(ctx context.Context) (InstanceStatus, error) {

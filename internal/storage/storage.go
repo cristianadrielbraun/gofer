@@ -91,15 +91,8 @@ func New(dbPath string) (*DB, error) {
 // writes. It is intended for local inspection commands that must not start the
 // application runtime or mutate its state.
 func OpenReadOnly(dbPath string) (*DB, error) {
-	if dbPath == "" {
-		return nil, fmt.Errorf("database path is required")
-	}
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("stat database: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("database path is not a regular file")
+	if err := requireExistingDatabase(dbPath); err != nil {
+		return nil, err
 	}
 
 	read, err := openReadOnlyDB(dbPath)
@@ -115,16 +108,63 @@ func OpenReadOnly(dbPath string) (*DB, error) {
 	write.SetMaxOpenConns(1)
 
 	db := &DB{write: write, read: read, path: dbPath}
-	var version int
-	if err := read.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+	if err := db.requireCurrentSchema(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("read schema version: %w", err)
-	}
-	if version != CurrentSchemaVersion {
-		db.Close()
-		return nil, fmt.Errorf("database schema version %d is not supported; expected %d", version, CurrentSchemaVersion)
+		return nil, err
 	}
 	return db, nil
+}
+
+// OpenExisting opens an existing, current-schema database for an operator
+// mutation without creating directories or applying migrations. The caller is
+// responsible for holding Gofer's exclusive runtime lock for the full lifetime
+// of the returned database.
+func OpenExisting(dbPath string) (*DB, error) {
+	if err := requireExistingDatabase(dbPath); err != nil {
+		return nil, err
+	}
+	write, err := openDB(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open write connection: %w", err)
+	}
+	write.SetMaxOpenConns(1)
+	read, err := openDB(dbPath)
+	if err != nil {
+		write.Close()
+		return nil, fmt.Errorf("open read connection: %w", err)
+	}
+	read.SetMaxOpenConns(4)
+	db := &DB{write: write, read: read, path: dbPath}
+	if err := db.requireCurrentSchema(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+func requireExistingDatabase(dbPath string) error {
+	if dbPath == "" {
+		return fmt.Errorf("database path is required")
+	}
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return fmt.Errorf("stat database: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("database path is not a regular file")
+	}
+	return nil
+}
+
+func (db *DB) requireCurrentSchema() error {
+	var version int
+	if err := db.read.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version != CurrentSchemaVersion {
+		return fmt.Errorf("database schema version %d is not supported; expected %d", version, CurrentSchemaVersion)
+	}
+	return nil
 }
 
 func (db *DB) SetThreadingState(state ThreadingState) {

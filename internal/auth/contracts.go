@@ -129,6 +129,7 @@ const (
 	AuthEventEnrollmentRevoked        AuthEventType = "enrollment_token_revoked"
 	AuthEventEnrollmentCompleted      AuthEventType = "enrollment_completed"
 	AuthEventCredentialResetCompleted AuthEventType = "credential_reset_completed"
+	AuthEventLocalRecoveryStarted     AuthEventType = "local_recovery_started"
 )
 
 type AuthEventReason string
@@ -141,6 +142,7 @@ const (
 	AuthEventReasonThrottled           AuthEventReason = "throttled"
 	AuthEventReasonPolicyRequired      AuthEventReason = "policy_required"
 	AuthEventReasonAdministratorAction AuthEventReason = "administrator_action"
+	AuthEventReasonLocalOperator       AuthEventReason = "local_operator"
 )
 
 type SecurityTransition string

@@ -248,3 +248,45 @@ func TestEnrollmentRedemptionPostRemainsProtectedByCanonicalOriginGuard(t *testi
 		t.Fatalf("cross-origin redemption mutation = used:%d credentials:%d", used, credentials)
 	}
 }
+
+func TestEnrollmentRedemptionAcceptsPrivacyBrowserNullOriginWithSameOriginMetadata(t *testing.T) {
+	_, db, stack, token := enrollmentRedemptionStack(t, auth.UserStatusPending, auth.EnrollmentTokenPurposeEnrollment)
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://gofer.example")
+	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	guard, err := httpguard.LoadConfig()
+	if err != nil {
+		t.Fatalf("httpguard.LoadConfig() error = %v", err)
+	}
+	form := url.Values{
+		"token":            {token.Token},
+		"new_password":     {enrollmentRedemptionTestPassword},
+		"confirm_password": {enrollmentRedemptionTestPassword},
+	}
+	request := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(form.Encode()))
+	request.Host = "gofer.example"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "null")
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	recorder := httptest.NewRecorder()
+	guard.Middleware(stack).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != enrollmentRedemptionCompletePath {
+		t.Fatalf("null-origin same-origin redemption = %d %q body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	}
+	var used int
+	var passwordHash string
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = ?`, token.ID,
+	).Scan(&used); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT password_hash FROM password_credentials WHERE user_id = 'person'`,
+	).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	matches, _, err := auth.VerifyPassword(passwordHash, enrollmentRedemptionTestPassword)
+	if err != nil || used != 1 || !matches {
+		t.Fatalf("null-origin redemption state = used:%d matches:%t error:%v", used, matches, err)
+	}
+}
