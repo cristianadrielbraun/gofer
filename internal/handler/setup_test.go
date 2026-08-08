@@ -15,6 +15,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/httpguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
 )
 
 func setupEntryStack(t *testing.T) (*auth.Manager, *storage.DB, http.Handler, string) {
@@ -70,6 +72,29 @@ func postSetupPassword(stack http.Handler, cookie *http.Cookie, values url.Value
 	recorder := httptest.NewRecorder()
 	stack.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func postSetupMFA(stack http.Handler, cookie *http.Cookie, values url.Values) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, setupMFAPath, strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	recorder := httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func setupHandlerTOTPCode(t *testing.T, secret string) string {
+	t.Helper()
+	code, err := totp.GenerateCodeCustom(secret, time.Now().UTC(), totp.ValidateOpts{
+		Period: 30, Skew: 0, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code
 }
 
 func TestSetupEntryIsPublicLocalNoStoreAndSecretFree(t *testing.T) {
@@ -387,6 +412,203 @@ func TestSetupPasswordPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	}
 }
 
+func TestSetupMFARequiresPreparedPasswordAndExplicitStart(t *testing.T) {
+	_, _, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+
+	request := httptest.NewRequest(http.MethodGet, setupMFAPath, nil)
+	request.AddCookie(setupCookie)
+	withoutOwner := httptest.NewRecorder()
+	stack.ServeHTTP(withoutOwner, request)
+	if withoutOwner.Code != http.StatusSeeOther || withoutOwner.Header().Get("Location") != setupPasswordPath {
+		t.Fatalf("MFA without owner/password = %d location:%q", withoutOwner.Code, withoutOwner.Header().Get("Location"))
+	}
+
+	owner := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	})
+	if owner.Code != http.StatusSeeOther {
+		t.Fatalf("owner prerequisite = %d %q", owner.Code, owner.Body.String())
+	}
+	password := postSetupPassword(stack, setupCookie, url.Values{
+		"password":              {"correct horse battery staple for owner"},
+		"password_confirmation": {"correct horse battery staple for owner"},
+	})
+	if password.Code != http.StatusSeeOther {
+		t.Fatalf("password prerequisite = %d %q", password.Code, password.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, setupPasswordPath, nil)
+	request.AddCookie(setupCookie)
+	passwordPage := httptest.NewRecorder()
+	stack.ServeHTTP(passwordPage, request)
+	if passwordPage.Code != http.StatusOK || !strings.Contains(passwordPage.Body.String(), `action="/setup/mfa"`) || !strings.Contains(passwordPage.Body.String(), `value="start"`) {
+		t.Fatalf("password continuation missing MFA start = %d %q", passwordPage.Code, passwordPage.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, setupMFAPath, nil)
+	request.AddCookie(setupCookie)
+	withoutStart := httptest.NewRecorder()
+	stack.ServeHTTP(withoutStart, request)
+	if withoutStart.Code != http.StatusSeeOther || withoutStart.Header().Get("Location") != setupPasswordPath {
+		t.Fatalf("MFA without explicit start = %d location:%q", withoutStart.Code, withoutStart.Header().Get("Location"))
+	}
+}
+
+func TestSetupMFAStartConfirmReplaceIsEncryptedAndNonMutating(t *testing.T) {
+	manager, db, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	})
+	postSetupPassword(stack, setupCookie, url.Values{
+		"password":              {"correct horse battery staple for owner"},
+		"password_confirmation": {"correct horse battery staple for owner"},
+	})
+
+	started := postSetupMFA(stack, setupCookie, url.Values{"action": {"start"}})
+	if started.Code != http.StatusSeeOther || started.Header().Get("Location") != setupMFAPath {
+		t.Fatalf("MFA start = %d location:%q body:%q", started.Code, started.Header().Get("Location"), started.Body.String())
+	}
+	state, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || state == nil || state.Draft == nil || !state.TOTPStarted || state.TOTPReady || state.Draft.TOTPSecret == "" {
+		t.Fatalf("started MFA state = %#v, %v", state, err)
+	}
+	firstSecret := state.Draft.TOTPSecret
+	request := httptest.NewRequest(http.MethodGet, setupMFAPath, nil)
+	request.AddCookie(setupCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, request)
+	for _, want := range []string{
+		"Secure the owner account", `action="/setup/mfa"`, `src="data:image/png;base64,`,
+		`name="code"`, `inputmode="numeric"`, `autocomplete="one-time-code"`, `pattern="[0-9]{6}"`,
+		"SHA1", "6 digits", "30 seconds", "never sent to a third-party QR service",
+	} {
+		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("MFA enrollment page missing %q: %d %q", want, page.Code, page.Body.String())
+		}
+	}
+	if strings.Contains(page.Body.String(), firstSecret) {
+		t.Fatal("MFA page rendered the ungrouped seed outside its manual-key presentation")
+	}
+	request = httptest.NewRequest(http.MethodGet, setupMFAPath+"?secret=must-not-survive", nil)
+	request.AddCookie(setupCookie)
+	query := httptest.NewRecorder()
+	stack.ServeHTTP(query, request)
+	if query.Code != http.StatusSeeOther || query.Header().Get("Location") != setupMFAPath || strings.Contains(query.Body.String(), "must-not-survive") {
+		t.Fatalf("MFA query stripping = %d location:%q body:%q", query.Code, query.Header().Get("Location"), query.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, setupMFAPath, strings.NewReader(strings.Repeat("x", setupFormMaximumBytes+1)))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	request.AddCookie(setupCookie)
+	oversized := httptest.NewRecorder()
+	stack.ServeHTTP(oversized, request)
+	if oversized.Code != http.StatusUnprocessableEntity || !strings.Contains(oversized.Body.String(), "too large or invalid") {
+		t.Fatalf("oversized MFA form = %d %q", oversized.Code, oversized.Body.String())
+	}
+
+	invalid := postSetupMFA(stack, setupCookie, url.Values{"action": {"confirm"}, "code": {"000000"}})
+	if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "invalid or has already been used") || strings.Contains(invalid.Body.String(), `value="000000"`) {
+		t.Fatalf("invalid MFA confirmation = %d %q", invalid.Code, invalid.Body.String())
+	}
+	validCode := setupHandlerTOTPCode(t, firstSecret)
+	confirmed := postSetupMFA(stack, setupCookie, url.Values{"action": {"confirm"}, "code": {validCode}})
+	if confirmed.Code != http.StatusSeeOther || confirmed.Header().Get("Location") != setupMFAPath || strings.Contains(confirmed.Body.String(), validCode) {
+		t.Fatalf("MFA confirmation = %d location:%q body:%q", confirmed.Code, confirmed.Header().Get("Location"), confirmed.Body.String())
+	}
+	state, err = manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || !state.TOTPReady || state.Draft.TOTPConfirmedStep == nil {
+		t.Fatalf("confirmed MFA state = %#v, %v", state, err)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, setupMFAPath, nil)
+	request.AddCookie(setupCookie)
+	review := httptest.NewRecorder()
+	stack.ServeHTTP(review, request)
+	if review.Code != http.StatusOK || !strings.Contains(review.Body.String(), "Authenticator verified for final enrollment") ||
+		!strings.Contains(review.Body.String(), "Next: recovery codes") || strings.Contains(review.Body.String(), "data:image/png") || strings.Contains(review.Body.String(), firstSecret) {
+		t.Fatalf("confirmed MFA review = %d %q", review.Code, review.Body.String())
+	}
+
+	restarted := postSetupMFA(stack, setupCookie, url.Values{"action": {"restart"}})
+	if restarted.Code != http.StatusSeeOther || restarted.Header().Get("Location") != setupMFAPath {
+		t.Fatalf("MFA restart = %d location:%q", restarted.Code, restarted.Header().Get("Location"))
+	}
+	replaced, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || !replaced.TOTPStarted || replaced.TOTPReady || replaced.Draft.TOTPSecret == firstSecret {
+		t.Fatalf("replaced MFA state = %#v, %v", replaced, err)
+	}
+
+	var payload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(payload, []byte(firstSecret)) || bytes.Contains(payload, []byte(replaced.Draft.TOTPSecret)) {
+		t.Fatal("encrypted setup payload exposed a TOTP seed")
+	}
+	var users, passwords, totps, sessions, initialized int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM users`:                             &users,
+		`SELECT COUNT(*) FROM password_credentials`:              &passwords,
+		`SELECT COUNT(*) FROM totp_credentials`:                  &totps,
+		`SELECT COUNT(*) FROM sessions`:                          &sessions,
+		`SELECT initialized FROM auth_system_state WHERE id = 1`: &initialized,
+	} {
+		if err := db.Read().QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if users != 0 || passwords != 0 || totps != 0 || sessions != 0 || initialized != 0 {
+		t.Fatalf("MFA setup partially enrolled = users:%d passwords:%d totps:%d sessions:%d initialized:%d", users, passwords, totps, sessions, initialized)
+	}
+}
+
+func TestSetupMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
+	_, db, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	})
+	postSetupPassword(stack, setupCookie, url.Values{
+		"password":              {"correct horse battery staple for owner"},
+		"password_confirmation": {"correct horse battery staple for owner"},
+	})
+	var originalPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&originalPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://gofer.example")
+	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	guard, err := httpguard.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"action": {"start"}}
+	request := httptest.NewRequest(http.MethodPost, setupMFAPath, strings.NewReader(form.Encode()))
+	request.Host = "gofer.example"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://attacker.example")
+	request.AddCookie(setupCookie)
+	recorder := httptest.NewRecorder()
+	guard.Middleware(stack).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") {
+		t.Fatalf("cross-origin MFA start = %d %q", recorder.Code, recorder.Body.String())
+	}
+	var storedPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&storedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(storedPayload, originalPayload) {
+		t.Fatal("cross-origin MFA start replaced the password draft")
+	}
+}
+
 func TestLegacyDefaultOwnerDraftClaimsStableUserWithoutMovingData(t *testing.T) {
 	_, db, stack, setupToken := setupEntryStack(t)
 	if _, err := db.Write().Exec(`
@@ -581,6 +803,8 @@ func TestSetupRoutesDisappearAfterInitialization(t *testing.T) {
 		{method: http.MethodPost, path: setupOwnerPath},
 		{method: http.MethodGet, path: setupPasswordPath},
 		{method: http.MethodPost, path: setupPasswordPath},
+		{method: http.MethodGet, path: setupMFAPath},
+		{method: http.MethodPost, path: setupMFAPath},
 	} {
 		var request *http.Request
 		if test.method == http.MethodPost {

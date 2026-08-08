@@ -10,7 +10,7 @@ import (
 func (m *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/setup" || path == "/setup/owner" || path == "/setup/password" {
+		if path == "/setup" || path == "/setup/owner" || path == "/setup/password" || path == "/setup/mfa" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -117,7 +117,7 @@ func isHTMXRequest(r *http.Request) bool {
 
 func isPublicPath(path string) bool {
 	public := []string{
-		"/login", "/login/mfa", "/setup", "/setup/owner", "/setup/password",
+		"/login", "/login/mfa", "/setup", "/setup/owner", "/setup/password", "/setup/mfa",
 		"/account/redeem", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/sw.js",
 	}

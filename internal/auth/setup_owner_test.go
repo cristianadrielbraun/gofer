@@ -18,7 +18,9 @@ func setupOwnerTestManager(t *testing.T) (*Manager, *fixedClock) {
 	t.Helper()
 	now := time.Date(2026, time.August, 8, 12, 0, 0, 0, time.UTC)
 	clock := &fixedClock{now: now}
-	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{})
+	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{tokens: []string{
+		"setup-totp-random-material-one", "setup-totp-random-material-two", "setup-totp-random-material-three",
+	}})
 	insertSetupAccessState(t, manager, "setup-token-remains-active", now.Add(time.Hour), 0)
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO auth_challenges (

@@ -74,14 +74,67 @@ func TestSetupPasswordPageIsAccessibleLocalAndSecretFree(t *testing.T) {
 		`name="password_confirmation"`, `autocomplete="new-password"`, `minlength="15"`, `maxlength="256"`,
 		`aria-describedby="owner-password-help owner-password-error"`, `role="alert"`, `&lt;script&gt;alert`,
 		"Owner password ready for final enrollment", "Only its Argon2id hash is inside the encrypted setup draft",
-		`href="/setup/owner"`, "administrator MFA and recovery codes", "Passwords are never echoed",
+		`href="/setup/owner"`, `action="/setup/mfa"`, `value="start"`,
+		"administrator MFA and recovery codes", "Passwords are never echoed",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("setup password page missing %q", want)
 		}
 	}
-	if strings.Contains(html, message) || strings.Contains(html, `value="`) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
+	if strings.Contains(html, message) || strings.Contains(html, `name="password" type="password" value=`) ||
+		strings.Contains(html, `name="password_confirmation" type="password" value=`) ||
+		strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
 		t.Fatal("setup password page rendered a secret-bearing value or unsafe remote content")
+	}
+}
+
+func TestSetupMFAPageIsAccessibleLocalAndEscapesErrors(t *testing.T) {
+	var output bytes.Buffer
+	message := `<script>alert("totp")</script>`
+	if err := SetupMFAPage(SetupMFAData{
+		QRCodeDataURL: "data:image/png;base64,ZmFrZS1wbmc=",
+		ManualKey:     "ABCD EFGH IJKL MNOP",
+		Algorithm:     "SHA1", Digits: 6, Period: 30,
+		Errors: map[string]string{"code": message},
+	}).Render(t.Context(), &output); err != nil {
+		t.Fatalf("SetupMFAPage.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Secure the owner account", `src="data:image/png;base64,ZmFrZS1wbmc="`,
+		`alt="QR code containing the Gofer authenticator setup key"`, "ABCD EFGH IJKL MNOP",
+		`action="/setup/mfa"`, `name="action" value="confirm"`, `name="code" type="text"`,
+		`inputmode="numeric"`, `autocomplete="one-time-code"`, `pattern="[0-9]{6}"`,
+		`aria-describedby="setup-mfa-code-help setup-mfa-code-error"`, `role="alert"`, `&lt;script&gt;alert`,
+		"SHA1", "6 digits", "30 seconds", `value="restart"`, `href="/setup/password"`,
+		"never sent to a third-party QR service",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("setup MFA page missing %q", want)
+		}
+	}
+	if strings.Contains(html, message) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || strings.Contains(html, "https://") {
+		t.Fatal("setup MFA page rendered unsafe or remote content")
+	}
+}
+
+func TestSetupMFAReadyPageDoesNotRedisplayEnrollmentSecret(t *testing.T) {
+	var output bytes.Buffer
+	if err := SetupMFAPage(SetupMFAData{
+		QRCodeDataURL: "data:image/png;base64,c2VjcmV0",
+		ManualKey:     "MUST NOT BE RENDERED",
+		Algorithm:     "SHA1", Digits: 6, Period: 30, TOTPReady: true,
+	}).Render(t.Context(), &output); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	for _, want := range []string{"Authenticator verified for final enrollment", "Next: recovery codes", "No authenticator, user, or session has been created yet", "Replace this authenticator setup"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("ready setup MFA page missing %q", want)
+		}
+	}
+	if strings.Contains(html, "MUST NOT BE RENDERED") || strings.Contains(html, "data:image/png") || strings.Contains(html, `name="code"`) {
+		t.Fatal("ready setup MFA page redisplayed enrollment material")
 	}
 }
 

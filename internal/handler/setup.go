@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"log"
 	"net/http"
@@ -15,6 +16,7 @@ const (
 	setupPath                = "/setup"
 	setupOwnerPath           = "/setup/owner"
 	setupPasswordPath        = "/setup/password"
+	setupMFAPath             = "/setup/mfa"
 	setupFormMaximumBytes    = 8 << 10
 	setupTokenFailureMessage = "That setup token is invalid or no longer active."
 	setupTokenServiceMessage = "Unable to verify the setup token right now. Please try again."
@@ -186,6 +188,92 @@ func (h *Handler) handleSetupPasswordSubmit(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
 }
 
+func (h *Handler) handleSetupMFA(w http.ResponseWriter, r *http.Request) {
+	state, err := h.auth.SetupState(r.Context())
+	if err != nil {
+		log.Printf("read setup MFA state: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	if state.Initialized {
+		h.writeSetupNotFound(w)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		h.redirectSetupMFAWithoutQuery(w, r)
+		return
+	}
+	enrollment, err := h.auth.GetSetupTOTPEnrollment(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		h.handleSetupMFAAccessError(w, r, err, "read setup MFA enrollment")
+		return
+	}
+	h.renderSetupMFAPage(w, r, http.StatusOK, setupMFAViewData(enrollment, nil))
+}
+
+func (h *Handler) handleSetupMFASubmit(w http.ResponseWriter, r *http.Request) {
+	state, err := h.auth.SetupState(r.Context())
+	if err != nil {
+		log.Printf("read setup MFA submission state: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	if state.Initialized {
+		h.writeSetupNotFound(w)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		h.redirectSetupMFAWithoutQuery(w, r)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
+	if err := r.ParseForm(); err != nil {
+		h.renderSubmittedSetupMFA(w, r, http.StatusUnprocessableEntity, map[string]string{
+			"form": "The submitted authenticator form is too large or invalid.",
+		})
+		return
+	}
+	action := r.PostFormValue("action")
+	switch action {
+	case "start", "restart":
+		_, err = h.auth.StartSetupTOTP(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL, action == "restart")
+	case "confirm":
+		_, err = h.auth.ConfirmSetupTOTP(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL, r.PostFormValue("code"))
+	default:
+		h.renderSubmittedSetupMFA(w, r, http.StatusUnprocessableEntity, map[string]string{
+			"form": "Choose a valid authenticator setup action.",
+		})
+		return
+	}
+	if err != nil {
+		var validationErr *auth.SetupTOTPValidationError
+		if errors.As(err, &validationErr) {
+			h.renderSubmittedSetupMFA(w, r, http.StatusUnprocessableEntity, validationErr.Fields)
+			return
+		}
+		h.handleSetupMFAAccessError(w, r, err, "update setup MFA enrollment")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, setupMFAPath, http.StatusSeeOther)
+}
+
+func (h *Handler) handleSetupMFAAccessError(w http.ResponseWriter, r *http.Request, err error, operation string) {
+	switch {
+	case errors.Is(err, auth.ErrSetupAccessInvalid):
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, setupPath, http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSetupOwnerDraftRequired), errors.Is(err, auth.ErrSetupOwnerBlocked):
+		http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSetupPasswordDraftRequired), errors.Is(err, auth.ErrSetupTOTPDraftRequired):
+		http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
+	default:
+		log.Printf("%s: %v", operation, err)
+		h.writeSetupServiceFailure(w)
+	}
+}
+
 func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
@@ -318,6 +406,37 @@ func (h *Handler) renderSetupPasswordPage(w http.ResponseWriter, r *http.Request
 	writeSetupPage(w, status, &page)
 }
 
+func (h *Handler) renderSetupMFAPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupMFAData) {
+	var page bytes.Buffer
+	if err := views.SetupMFAPage(data).Render(r.Context(), &page); err != nil {
+		log.Printf("render protected setup MFA page: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	writeSetupPage(w, status, &page)
+}
+
+func (h *Handler) renderSubmittedSetupMFA(w http.ResponseWriter, r *http.Request, status int, errors map[string]string) {
+	enrollment, err := h.auth.GetSetupTOTPEnrollment(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		h.handleSetupMFAAccessError(w, r, err, "reload setup MFA enrollment")
+		return
+	}
+	h.renderSetupMFAPage(w, r, status, setupMFAViewData(enrollment, errors))
+}
+
+func setupMFAViewData(enrollment *auth.SetupTOTPEnrollment, errors map[string]string) views.SetupMFAData {
+	data := views.SetupMFAData{
+		Algorithm: enrollment.Algorithm, Digits: enrollment.Digits, Period: enrollment.Period,
+		TOTPReady: enrollment.Confirmed, Errors: errors,
+	}
+	if !enrollment.Confirmed {
+		data.QRCodeDataURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(enrollment.QRPNG)
+		data.ManualKey = enrollment.ManualKey
+	}
+	return data
+}
+
 func (h *Handler) renderSubmittedSetupPassword(w http.ResponseWriter, r *http.Request, status int, data views.SetupPasswordData) {
 	ownerState, err := h.auth.GetSetupOwnerState(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
 	if err != nil {
@@ -429,6 +548,12 @@ func (h *Handler) redirectSetupPasswordWithoutQuery(w http.ResponseWriter, r *ht
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
+}
+
+func (h *Handler) redirectSetupMFAWithoutQuery(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, setupMFAPath, http.StatusSeeOther)
 }
 
 func writeSetupPage(w http.ResponseWriter, status int, page *bytes.Buffer) {

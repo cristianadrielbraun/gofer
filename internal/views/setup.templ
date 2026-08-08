@@ -43,6 +43,16 @@ type SetupPasswordData struct {
 	Errors        map[string]string
 }
 
+type SetupMFAData struct {
+	QRCodeDataURL string
+	ManualKey    string
+	Algorithm    string
+	Digits       int
+	Period       int
+	TOTPReady    bool
+	Errors       map[string]string
+}
+
 func setupOwnerDescription(helpID, errorID string, hasError bool) string {
 	if !hasError {
 		return helpID
@@ -304,7 +314,96 @@ templ SetupPasswordPage(data SetupPasswordData) {
 						<a href="/setup/owner" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to owner profile</a>
 						<p class="text-center text-xs text-muted-foreground">Next, the owner must enroll administrator MFA and recovery codes before setup can complete.</p>
 					</form>
+					if data.PasswordReady {
+						<form method="post" action="/setup/mfa" class="mt-4">
+							<input type="hidden" name="action" value="start"/>
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+								Continue to authenticator setup
+							}
+						</form>
+					}
 					<p class="mt-6 text-center text-xs text-muted-foreground">Passwords are never echoed, logged, placed in URLs, or stored in browser storage.</p>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ SetupMFAPage(data SetupMFAData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Set Up Owner MFA</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4 py-10">
+				<div class="w-full max-w-lg">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Password ready</p>
+						<h1 class="mt-2 text-2xl font-semibold">Secure the owner account</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Add Gofer to an authenticator app, then confirm one current code.</p>
+					</div>
+					if data.TOTPReady {
+						<div role="status" aria-live="polite" class="rounded-xl border border-success/25 bg-success/10 px-5 py-4">
+							<p class="text-sm font-medium text-success">Authenticator verified for final enrollment</p>
+							<p class="mt-1 text-xs text-muted-foreground">The encrypted setup draft now contains the seed and accepted time step. No authenticator, user, or session has been created yet.</p>
+						</div>
+						<div class="mt-4 rounded-xl border border-border bg-card p-5">
+							<p class="text-sm font-medium">Next: recovery codes</p>
+							<p class="mt-1 text-xs text-muted-foreground">Gofer will generate a single-use recovery batch and require acknowledgement before final setup can commit.</p>
+						</div>
+						<form method="post" action="/setup/mfa" class="mt-2">
+							<input type="hidden" name="action" value="restart"/>
+							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Replace this authenticator setup</button>
+						</form>
+					} else {
+						<div class="rounded-xl border border-border bg-card p-6">
+							<div class="grid gap-6 sm:grid-cols-[auto_1fr] sm:items-center">
+								<div class="rounded-lg bg-white p-3">
+									<img src={ data.QRCodeDataURL } alt="QR code containing the Gofer authenticator setup key" width="192" height="192" class="h-48 w-48"/>
+								</div>
+								<div class="space-y-3">
+									<div>
+										<p class="text-sm font-medium">1. Scan the QR code</p>
+										<p class="mt-1 text-xs text-muted-foreground">Use any RFC 6238-compatible authenticator app.</p>
+									</div>
+									<div>
+										<p class="text-sm font-medium">Or enter this setup key</p>
+										<code class="mt-2 block break-all rounded-md bg-muted px-3 py-2 font-mono text-xs" aria-label="Manual authenticator setup key">{ data.ManualKey }</code>
+									</div>
+									<p class="text-xs text-muted-foreground">{ data.Algorithm }, { fmt.Sprintf("%d digits", data.Digits) }, every { fmt.Sprintf("%d seconds", data.Period) }</p>
+								</div>
+							</div>
+							<form method="post" action="/setup/mfa" class="mt-6 space-y-4">
+								<input type="hidden" name="action" value="confirm"/>
+								if data.Errors["form"] != "" {
+									<p role="alert" class="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Errors["form"] }</p>
+								}
+								<div class="space-y-2">
+									<label for="setup-mfa-code" class="text-sm font-medium">2. Enter the current six-digit code</label>
+									<input id="setup-mfa-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required autofocus aria-invalid={ fmt.Sprintf("%t", data.Errors["code"] != "") } aria-describedby={ setupOwnerDescription("setup-mfa-code-help", "setup-mfa-code-error", data.Errors["code"] != "") } class="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.35em] outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
+									<p id="setup-mfa-code-help" class="text-xs text-muted-foreground">Codes from the immediately previous or next 30-second window are accepted for small clock differences.</p>
+									if data.Errors["code"] != "" {
+										<p id="setup-mfa-code-error" role="alert" class="text-sm text-destructive">{ data.Errors["code"] }</p>
+									}
+								</div>
+								@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+									Verify authenticator
+								}
+							</form>
+							<form method="post" action="/setup/mfa" class="mt-2">
+								<input type="hidden" name="action" value="restart"/>
+								<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Generate a new setup key</button>
+							</form>
+						</div>
+					}
+					<a href="/setup/password" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to owner password</a>
+					<p class="mt-6 text-center text-xs text-muted-foreground">The setup key is encrypted in the short-lived setup draft and is never sent to a third-party QR service.</p>
 				</div>
 			</main>
 		</body>

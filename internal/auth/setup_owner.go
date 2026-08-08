@@ -73,6 +73,8 @@ type SetupOwnerDraft struct {
 	EmailNormalized     string         `json:"email_normalized"`
 	TopologyFingerprint string         `json:"topology_fingerprint"`
 	PasswordHash        string         `json:"password_hash,omitempty"`
+	TOTPSecret          string         `json:"totp_secret,omitempty"`
+	TOTPConfirmedStep   *int64         `json:"totp_confirmed_step,omitempty"`
 }
 
 type SetupOwnerState struct {
@@ -80,6 +82,8 @@ type SetupOwnerState struct {
 	Draft         *SetupOwnerDraft
 	DraftStale    bool
 	PasswordReady bool
+	TOTPStarted   bool
+	TOTPReady     bool
 }
 
 type SetupOwnerDraftInput struct {
@@ -140,6 +144,8 @@ func (m *Manager) GetSetupOwnerState(ctx context.Context, token, origin string) 
 		return state, nil
 	}
 	state.PasswordReady = draft.PasswordHash != ""
+	state.TOTPStarted = draft.TOTPSecret != ""
+	state.TOTPReady = draft.TOTPSecret != "" && draft.TOTPConfirmedStep != nil
 	return state, nil
 }
 
