@@ -2,8 +2,8 @@ package authoperator
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -18,6 +18,9 @@ type InstanceStatus struct {
 	SchemaVersion        int
 	Initialized          bool
 	OwnerUserID          string
+	SetupTokenConfigured bool
+	SetupTokenExpiresAt  *time.Time
+	SetupTokenAttempts   int64
 	ActiveAdministrators int64
 }
 
@@ -41,23 +44,21 @@ func (service *Service) RevokeSessions(ctx context.Context, userID string) (*aut
 	return service.manager.RevokeUserSessionsLocally(ctx, userID)
 }
 
+func (service *Service) RotateSetupToken(ctx context.Context) (*auth.SetupTokenProvision, error) {
+	return service.manager.RotateSetupTokenLocally(ctx)
+}
+
 func (service *Service) Status(ctx context.Context) (InstanceStatus, error) {
 	status := InstanceStatus{SchemaVersion: storage.CurrentSchemaVersion}
-	var initialized int
-	var ownerUserID sql.NullString
-	err := service.db.Read().QueryRowContext(ctx, `
-		SELECT initialized, owner_user_id
-		FROM auth_system_state WHERE id = 1`,
-	).Scan(&initialized, &ownerUserID)
-	if err != nil && err != sql.ErrNoRows {
-		return InstanceStatus{}, fmt.Errorf("read authentication system state: %w", err)
+	setupState, err := service.manager.SetupState(ctx)
+	if err != nil {
+		return InstanceStatus{}, err
 	}
-	if err == nil {
-		status.Initialized = initialized == 1
-		if ownerUserID.Valid {
-			status.OwnerUserID = ownerUserID.String
-		}
-	}
+	status.Initialized = setupState.Initialized
+	status.OwnerUserID = setupState.OwnerUserID
+	status.SetupTokenConfigured = setupState.TokenConfigured
+	status.SetupTokenExpiresAt = setupState.TokenExpiresAt
+	status.SetupTokenAttempts = setupState.TokenAttempts
 	if err := service.db.Read().QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM users
 		WHERE status = 'active' AND is_admin = 1`,

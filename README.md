@@ -158,6 +158,7 @@ Useful env vars:
 GO_ENV=development
 GOFER_DB_PATH=data/gofer.db
 GOFER_SECRET_KEY=64_hex_chars_if_you_want_to_provide_your_own_key
+GOFER_SETUP_TOKEN=optional_first_run_secret_of_at_least_32_bytes
 GOFER_ADDR=127.0.0.1:8090
 GOFER_BASE_URL=http://local.localhost:8090
 GOFER_ALLOW_UNAUTHENTICATED_REMOTE=false
@@ -174,6 +175,8 @@ GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 
 Google OAuth is used for optional Google login, Gmail mail through the Gmail API, and Google Contacts sync through the People API. Microsoft OAuth is used for Outlook mail and contact sync through Microsoft Graph.
 
+On the first startup of an authentication-uninitialized database, Gofer stores only the hash of a 30-minute setup token. If `GOFER_SETUP_TOKEN` is set, its exact value is used without being echoed and must contain 32-1024 bytes. Otherwise Gofer generates a 256-bit token and prints it once to the local console. A restart never reprints or silently replaces the persisted token.
+
 ## local authentication operations
 
 The binary includes authentication commands for local operators:
@@ -183,7 +186,15 @@ The binary includes authentication commands for local operators:
 ./gofer auth users list
 ```
 
-These commands use `GOFER_DB_PATH` (default `data/gofer.db`) and open an existing, current-schema database without applying migrations. They do not load HTTP or provider configuration, generate runtime keys, bind a listener, or start synchronization and background workers. Output is limited to initialization state and application-user identity/status metadata; credential and token material is never displayed. Because both commands are query-only, the Gofer server does not need to be stopped while they run.
+These commands use `GOFER_DB_PATH` (default `data/gofer.db`) and open an existing, current-schema database without applying migrations. They do not load HTTP or provider configuration, generate runtime keys, bind a listener, or start synchronization and background workers. Output is limited to initialization state, non-secret setup-token metadata, and application-user identity/status metadata; credential and raw token material is never displayed. Because both commands are query-only, the Gofer server does not need to be stopped while they run.
+
+If setup is unfinished and its token expired or was lost, stop Gofer and run:
+
+```sh
+./gofer auth setup-token rotate
+```
+
+Rotation requires Gofer's exclusive database lock, invalidates the previous setup token, resets its attempt count, records a redacted local-operator audit event, and prints one new 30-minute token. SQLite stores only its hash. Treat the output as a password and do not put it in a URL, shell history, logs, or chat. The command refuses to reopen an instance whose authentication setup is already complete.
 
 If a user loses every usable application-login credential, first use `auth users list` to copy the exact user ID. Then stop the Gofer server and run:
 

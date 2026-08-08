@@ -137,6 +137,7 @@ func ContextWithSession(ctx context.Context, session *Session) context.Context {
 
 type Config struct {
 	Enabled         bool
+	SetupToken      string
 	GoogleClient    *oauth2.Config
 	MicrosoftClient *oauth2.Config
 	BaseURL         string
@@ -151,8 +152,9 @@ func LoadConfig(baseURL string) *Config {
 	}
 
 	cfg := &Config{
-		Enabled: enabled,
-		BaseURL: baseURL,
+		Enabled:    enabled,
+		SetupToken: os.Getenv("GOFER_SETUP_TOKEN"),
+		BaseURL:    baseURL,
 	}
 
 	clientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")

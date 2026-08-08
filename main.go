@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/joho/godotenv"
@@ -106,6 +107,9 @@ func runServer() {
 
 	authManager := auth.NewManager(authConfig, db, auth.Dependencies{BucketHashKey: secretKey})
 	log.Printf("boot: auth manager initialized (enabled=%t)", authConfig.Enabled)
+	if err := provisionInitialSetupToken(context.Background(), authManager, authConfig.SetupToken, os.Stderr); err != nil {
+		log.Fatalf("failed to provision authentication setup token: %v", err)
+	}
 	mailCredentials := mailauth.New(&mailauth.Config{
 		Enabled: authConfig.Enabled, BaseURL: authConfig.BaseURL,
 		GoogleClient: authConfig.GoogleClient, MicrosoftClient: authConfig.MicrosoftClient,
@@ -177,6 +181,26 @@ func runServer() {
 		fmt.Printf("auth: disabled (local mode)\n")
 	}
 	log.Fatal(http.ListenAndServe(httpConfig.ListenAddr, handler))
+}
+
+func provisionInitialSetupToken(ctx context.Context, manager *auth.Manager, configuredToken string, console io.Writer) error {
+	provision, err := manager.EnsureSetupToken(ctx, configuredToken)
+	if err != nil {
+		return err
+	}
+	if !provision.Created || provision.Configured {
+		return nil
+	}
+	if provision.Token == "" || provision.State.TokenExpiresAt == nil {
+		return fmt.Errorf("generated setup token is incomplete")
+	}
+	if _, err := fmt.Fprintf(console,
+		"Authentication setup token (shown once; expires %s):\nsetup_token: %s\nKeep this token private. If it is lost before setup completes, rotate it with the local auth command.\n",
+		provision.State.TokenExpiresAt.UTC().Format(time.RFC3339), provision.Token,
+	); err != nil {
+		return fmt.Errorf("write generated setup token to local console: %w", err)
+	}
+	return nil
 }
 
 func loadOrGenerateVAPIDKeys(privatePath, publicPath string) (string, string) {

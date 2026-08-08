@@ -15,6 +15,7 @@ import (
 const usage = `Usage:
   gofer auth status
   gofer auth users list
+  gofer auth setup-token rotate
   gofer auth recover --user <user-id> --confirm <user-id>
   gofer auth sessions revoke --user <user-id> --confirm <user-id>
 `
@@ -32,6 +33,9 @@ func Run(ctx context.Context, args []string, databasePath string, stdout, stderr
 	}
 	if command.name == "recover" {
 		return runRecovery(ctx, command.userID, databasePath, stdout, stderr)
+	}
+	if command.name == "setup-token rotate" {
+		return runSetupTokenRotation(ctx, databasePath, stdout, stderr)
 	}
 	if command.name == "sessions revoke" {
 		return runSessionRevocation(ctx, command.userID, databasePath, stdout, stderr)
@@ -74,6 +78,9 @@ func parseCommand(args []string) (command parsedCommand, help bool, err error) {
 	}
 	if len(args) == 2 && args[0] == "users" && args[1] == "list" {
 		return parsedCommand{name: "users list"}, false, nil
+	}
+	if len(args) == 2 && args[0] == "setup-token" && args[1] == "rotate" {
+		return parsedCommand{name: "setup-token rotate"}, false, nil
 	}
 	if len(args) == 5 && args[0] == "recover" {
 		userID, err := parseConfirmedUserOptions(args[1:], "recovery")
@@ -163,6 +170,29 @@ func runSessionRevocation(ctx context.Context, userID, databasePath string, stdo
 	return 0
 }
 
+func runSetupTokenRotation(ctx context.Context, databasePath string, stdout, stderr io.Writer) int {
+	err := runMutatingCommand(ctx, databasePath, func(service *Service) error {
+		result, err := service.RotateSetupToken(ctx)
+		if err != nil {
+			return err
+		}
+		if result.State.TokenExpiresAt == nil {
+			return fmt.Errorf("replacement setup token has no expiry")
+		}
+		if _, err := fmt.Fprintf(stdout, "expires_at: %s\nsetup_token: %s\n",
+			result.State.TokenExpiresAt.UTC().Format(time.RFC3339), result.Token,
+		); err != nil {
+			return fmt.Errorf("write replacement setup token: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth setup-token rotate: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runMutatingCommand(ctx context.Context, databasePath string, action func(*Service) error) error {
 	// Preflight through the query-only connection so a missing or stale database
 	// cannot leave an operator lock file behind.
@@ -192,8 +222,10 @@ func writeStatus(ctx context.Context, output io.Writer, service *Service) error 
 		return err
 	}
 	_, err = fmt.Fprintf(output,
-		"schema_version: %d\nauthentication_initialized: %t\nowner_user_id: %s\nactive_administrators: %d\n",
-		status.SchemaVersion, status.Initialized, printableField(status.OwnerUserID), status.ActiveAdministrators,
+		"schema_version: %d\nauthentication_initialized: %t\nowner_user_id: %s\nsetup_token_configured: %t\nsetup_token_expires_at: %s\nsetup_token_attempts: %d\nactive_administrators: %d\n",
+		status.SchemaVersion, status.Initialized, printableField(status.OwnerUserID),
+		status.SetupTokenConfigured, printableTime(status.SetupTokenExpiresAt),
+		status.SetupTokenAttempts, status.ActiveAdministrators,
 	)
 	return err
 }
@@ -226,4 +258,11 @@ func printableField(value string) string {
 		return "-"
 	}
 	return strconv.QuoteToASCII(value)
+}
+
+func printableTime(value *time.Time) string {
+	if value == nil {
+		return "-"
+	}
+	return value.UTC().Format(time.RFC3339)
 }

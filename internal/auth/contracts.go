@@ -130,19 +130,22 @@ const (
 	AuthEventEnrollmentCompleted      AuthEventType = "enrollment_completed"
 	AuthEventCredentialResetCompleted AuthEventType = "credential_reset_completed"
 	AuthEventLocalRecoveryStarted     AuthEventType = "local_recovery_started"
+	AuthEventSetupTokenIssued         AuthEventType = "setup_token_issued"
+	AuthEventSetupTokenRotated        AuthEventType = "setup_token_rotated"
 )
 
 type AuthEventReason string
 
 const (
-	AuthEventReasonInvalidCredentials  AuthEventReason = "invalid_credentials"
-	AuthEventReasonUserInactive        AuthEventReason = "user_inactive"
-	AuthEventReasonChallengeExpired    AuthEventReason = "challenge_expired"
-	AuthEventReasonChallengeConsumed   AuthEventReason = "challenge_consumed"
-	AuthEventReasonThrottled           AuthEventReason = "throttled"
-	AuthEventReasonPolicyRequired      AuthEventReason = "policy_required"
-	AuthEventReasonAdministratorAction AuthEventReason = "administrator_action"
-	AuthEventReasonLocalOperator       AuthEventReason = "local_operator"
+	AuthEventReasonInvalidCredentials   AuthEventReason = "invalid_credentials"
+	AuthEventReasonUserInactive         AuthEventReason = "user_inactive"
+	AuthEventReasonChallengeExpired     AuthEventReason = "challenge_expired"
+	AuthEventReasonChallengeConsumed    AuthEventReason = "challenge_consumed"
+	AuthEventReasonThrottled            AuthEventReason = "throttled"
+	AuthEventReasonPolicyRequired       AuthEventReason = "policy_required"
+	AuthEventReasonAdministratorAction  AuthEventReason = "administrator_action"
+	AuthEventReasonLocalOperator        AuthEventReason = "local_operator"
+	AuthEventReasonSystemInitialization AuthEventReason = "system_initialization"
 )
 
 type SecurityTransition string

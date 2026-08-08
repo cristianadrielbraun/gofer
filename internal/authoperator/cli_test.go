@@ -3,6 +3,7 @@ package authoperator
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -72,6 +73,9 @@ func TestStatusReportsInitializationAndActiveAdministratorsWithoutSecretsOrWrite
 	expected := "schema_version: 80\n" +
 		"authentication_initialized: true\n" +
 		"owner_user_id: \"owner\\x1b[31m\"\n" +
+		"setup_token_configured: false\n" +
+		"setup_token_expires_at: -\n" +
+		"setup_token_attempts: 0\n" +
 		"active_administrators: 1\n"
 	if stdout.String() != expected || stderr.Len() != 0 {
 		t.Fatalf("status output = stdout:%q stderr:%q", stdout.String(), stderr.String())
@@ -388,5 +392,117 @@ func TestSessionRevocationRefusesToRunWhileRuntimeLockIsHeld(t *testing.T) {
 	}
 	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "stop the server") {
 		t.Fatalf("locked session revocation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+}
+
+func createUninitializedOperatorTestDatabase(t *testing.T) string {
+	t.Helper()
+	databasePath := filepath.Join(t.TempDir(), "gofer.db")
+	db, err := storage.New(databasePath)
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	if _, err := db.Write().Exec(`
+		INSERT INTO auth_system_state (
+			id, initialized, setup_token_hash, setup_expires_at, setup_attempts, cutover_version
+		) VALUES (1, 0, ?, datetime('now', '-1 minute'), 6, 0)`, strings.Repeat("d", 64)); err != nil {
+		db.Close()
+		t.Fatalf("insert uninitialized setup state: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close uninitialized operator database: %v", err)
+	}
+	return databasePath
+}
+
+func TestSetupTokenRotationPrintsOneReplacementAndPersistsOnlyItsHash(t *testing.T) {
+	databasePath := createUninitializedOperatorTestDatabase(t)
+	var stdout, stderr bytes.Buffer
+	if code := Run(t.Context(), []string{"setup-token", "rotate"}, databasePath, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run(setup-token rotate) code = %d stderr=%q", code, stderr.String())
+	}
+	if stderr.Len() != 0 || !strings.Contains(stdout.String(), "expires_at: ") || !strings.Contains(stdout.String(), "setup_token: ") {
+		t.Fatalf("setup token rotation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+	var rawToken string
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if strings.HasPrefix(line, "setup_token: ") {
+			rawToken = strings.TrimPrefix(line, "setup_token: ")
+		}
+	}
+	if rawToken == "" || strings.Count(stdout.String(), rawToken) != 1 {
+		t.Fatalf("replacement setup token was not printed exactly once: %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), strings.Repeat("d", 64)) {
+		t.Fatalf("setup token rotation exposed the replaced hash: %q", stdout.String())
+	}
+
+	reopened, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var storedHash string
+	var attempts int64
+	var rotatedAt sql.NullTime
+	if err := reopened.Read().QueryRow(`
+		SELECT setup_token_hash, setup_attempts, setup_rotated_at
+		FROM auth_system_state WHERE id = 1`,
+	).Scan(&storedHash, &attempts, &rotatedAt); err != nil {
+		t.Fatal(err)
+	}
+	expectedHash := sha256.Sum256([]byte(rawToken))
+	if storedHash != fmt.Sprintf("%x", expectedHash) || storedHash == rawToken || attempts != 0 || !rotatedAt.Valid {
+		t.Fatalf("persisted replacement = hash:%q attempts:%d rotated:%#v", storedHash, attempts, rotatedAt)
+	}
+	var eventType, reason, metadata string
+	if err := reopened.Read().QueryRow(`
+		SELECT event_type, reason, metadata_json FROM auth_events
+		WHERE event_type = 'setup_token_rotated'`,
+	).Scan(&eventType, &reason, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "local_operator" || strings.Contains(metadata, rawToken) || strings.Contains(metadata, storedHash) {
+		t.Fatalf("setup rotation event = type:%q reason:%q metadata:%q", eventType, reason, metadata)
+	}
+
+	var statusOut, statusErr bytes.Buffer
+	if code := Run(t.Context(), []string{"status"}, databasePath, &statusOut, &statusErr); code != 0 {
+		t.Fatalf("Run(status after setup rotation) code = %d stderr=%q", code, statusErr.String())
+	}
+	if !strings.Contains(statusOut.String(), "authentication_initialized: false\n") ||
+		!strings.Contains(statusOut.String(), "setup_token_configured: true\n") ||
+		!strings.Contains(statusOut.String(), "setup_token_expires_at: ") ||
+		!strings.Contains(statusOut.String(), "setup_token_attempts: 0\n") ||
+		strings.Contains(statusOut.String(), rawToken) || strings.Contains(statusOut.String(), storedHash) {
+		t.Fatalf("status after setup rotation exposed incorrect metadata: %q", statusOut.String())
+	}
+}
+
+func TestSetupTokenRotationRejectsInitializedInstanceWithoutOutput(t *testing.T) {
+	databasePath := createOperatorTestDatabase(t)
+	var stdout, stderr bytes.Buffer
+	if code := Run(t.Context(), []string{"setup-token", "rotate"}, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(setup-token rotate initialized) code = %d", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "authentication setup is already complete") || strings.Contains(stderr.String(), "setup_token: ") {
+		t.Fatalf("initialized setup rotation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestSetupTokenRotationRefusesToRunWhileRuntimeLockIsHeld(t *testing.T) {
+	databasePath := createUninitializedOperatorTestDatabase(t)
+	lock, err := runtimeguard.Acquire(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	var stdout, stderr bytes.Buffer
+	if code := Run(t.Context(), []string{"setup-token", "rotate"}, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(setup-token rotate while locked) code = %d", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "stop the server") {
+		t.Fatalf("locked setup rotation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
 	}
 }

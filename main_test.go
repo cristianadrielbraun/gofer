@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -51,6 +52,7 @@ func TestRunApplicationDispatchesAuthBeforeServerStartup(t *testing.T) {
 	t.Setenv("GOFER_ADDR", "invalid-listen-address")
 	t.Setenv("GOFER_BASE_URL", "://invalid-http-origin")
 	t.Setenv("GOFER_SECRET_KEY", "invalid-secret-key")
+	t.Setenv("GOFER_SETUP_TOKEN", "short")
 
 	var stdout, stderr bytes.Buffer
 	serverStarted := false
@@ -62,6 +64,16 @@ func TestRunApplicationDispatchesAuthBeforeServerStartup(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "authentication_initialized: false") || !strings.Contains(stdout.String(), "active_administrators: 1") || stderr.Len() != 0 {
 		t.Fatalf("auth status output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	serverStarted = false
+	exitCode = runApplication(t.Context(), []string{"auth", "setup-token", "rotate"}, &stdout, &stderr, func() {
+		serverStarted = true
+	})
+	if exitCode != 0 || serverStarted || !strings.Contains(stdout.String(), "expires_at: ") || !strings.Contains(stdout.String(), "setup_token: ") || stderr.Len() != 0 {
+		t.Fatalf("auth setup-token rotation dispatch = code:%d serverStarted:%t stdout:%q stderr:%q", exitCode, serverStarted, stdout.String(), stderr.String())
 	}
 	dataDirectory := filepath.Dir(databasePath)
 	for _, runtimeSecret := range []string{"secret.key", "vapid_private.key", "vapid_public.key"} {
@@ -78,6 +90,68 @@ func TestRunApplicationDispatchesAuthBeforeServerStartup(t *testing.T) {
 	})
 	if exitCode != 0 || serverStarted || stdout.String() != "user_id: \"owner\"\nrevoked_sessions: 1\n" || stderr.Len() != 0 {
 		t.Fatalf("auth session revocation dispatch = code:%d serverStarted:%t stdout:%q stderr:%q", exitCode, serverStarted, stdout.String(), stderr.String())
+	}
+}
+
+func TestProvisionInitialSetupTokenPrintsGeneratedSecretOnlyOnce(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "gofer.db")
+	db, err := storage.New(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+
+	var console bytes.Buffer
+	if err := provisionInitialSetupToken(t.Context(), manager, "", &console); err != nil {
+		t.Fatal(err)
+	}
+	output := console.String()
+	if !strings.Contains(output, "shown once") || !strings.Contains(output, "expires ") || !strings.Contains(output, "setup_token: ") || strings.Contains(output, "http") {
+		t.Fatalf("initial setup console output = %q", output)
+	}
+	var rawToken string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "setup_token: ") {
+			rawToken = strings.TrimPrefix(line, "setup_token: ")
+		}
+	}
+	if rawToken == "" || strings.Count(output, rawToken) != 1 {
+		t.Fatalf("generated setup token was not printed exactly once: %q", output)
+	}
+	var storedHash string
+	if err := db.Read().QueryRow(`SELECT setup_token_hash FROM auth_system_state WHERE id = 1`).Scan(&storedHash); err != nil {
+		t.Fatal(err)
+	}
+	if storedHash == rawToken || len(storedHash) != 64 {
+		t.Fatalf("stored setup token is not hash-only: %q", storedHash)
+	}
+
+	console.Reset()
+	if err := provisionInitialSetupToken(t.Context(), manager, "", &console); err != nil {
+		t.Fatal(err)
+	}
+	if console.Len() != 0 {
+		t.Fatalf("restart reprinted setup token: %q", console.String())
+	}
+}
+
+func TestProvisionInitialSetupTokenDoesNotEchoOperatorSuppliedSecret(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "gofer.db")
+	db, err := storage.New(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	configuredToken := strings.Repeat("operator-supplied-secret-", 2)
+
+	var console bytes.Buffer
+	if err := provisionInitialSetupToken(t.Context(), manager, configuredToken, &console); err != nil {
+		t.Fatal(err)
+	}
+	if console.Len() != 0 || strings.Contains(console.String(), configuredToken) {
+		t.Fatalf("operator-supplied setup token was echoed: %q", console.String())
 	}
 }
 
