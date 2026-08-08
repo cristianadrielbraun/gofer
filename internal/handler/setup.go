@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -13,7 +14,7 @@ import (
 const (
 	setupPath                = "/setup"
 	setupOwnerPath           = "/setup/owner"
-	setupFormMaximumBytes    = 4 << 10
+	setupFormMaximumBytes    = 8 << 10
 	setupTokenFailureMessage = "That setup token is invalid or no longer active."
 	setupTokenServiceMessage = "Unable to verify the setup token right now. Please try again."
 )
@@ -113,28 +114,165 @@ func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 		h.writeSetupNotFound(w)
 		return
 	}
-	challenge, err := h.auth.GetActiveSetupAccess(
+	if r.URL.RawQuery != "" {
+		h.redirectSetupOwnerWithoutQuery(w, r)
+		return
+	}
+	ownerState, err := h.auth.GetSetupOwnerState(
 		r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL,
 	)
 	if err != nil {
-		log.Printf("read protected setup access: %v", err)
-		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		if errors.Is(err, auth.ErrSetupAccessInvalid) {
+			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, setupPath, http.StatusSeeOther)
+			return
+		}
+		if errors.Is(err, auth.ErrSetupOwnerBlocked) {
+			h.renderSetupOwnerPage(w, r, http.StatusConflict, views.SetupOwnerData{
+				BlockedMessage: "Gofer found an ambiguous or unbounded existing-user topology.",
+			})
+			return
+		}
+		log.Printf("read protected setup owner state: %v", err)
 		h.writeSetupServiceFailure(w)
 		return
 	}
-	if challenge == nil {
-		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-		http.Redirect(w, r, setupPath, http.StatusSeeOther)
+	h.renderSetupOwnerPage(w, r, http.StatusOK, setupOwnerViewData(ownerState, views.SetupOwnerFormData{}))
+}
+
+func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request) {
+	state, err := h.auth.SetupState(r.Context())
+	if err != nil {
+		log.Printf("read setup owner submission state: %v", err)
+		h.writeSetupServiceFailure(w)
 		return
 	}
+	if state.Initialized {
+		h.writeSetupNotFound(w)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		h.redirectSetupOwnerWithoutQuery(w, r)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
+	if err := r.ParseForm(); err != nil {
+		h.renderSubmittedSetupOwner(w, r, http.StatusUnprocessableEntity, views.SetupOwnerFormData{
+			Errors: map[string]string{"form": "The submitted owner profile is too large or invalid."},
+		})
+		return
+	}
+	mode, targetUserID := parseSetupOwnerTarget(r.PostFormValue("owner_target"))
+	form := views.SetupOwnerFormData{
+		Target: r.PostFormValue("owner_target"), Name: r.PostFormValue("name"),
+		Username: r.PostFormValue("username"), Email: r.PostFormValue("email"),
+	}
+	_, err = h.auth.SaveSetupOwnerDraft(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL, auth.SetupOwnerDraftInput{
+		Mode: mode, TargetUserID: targetUserID, Name: form.Name, Username: form.Username, Email: form.Email,
+	})
+	if err != nil {
+		var validationErr *auth.SetupOwnerValidationError
+		switch {
+		case errors.Is(err, auth.ErrSetupAccessInvalid):
+			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, setupPath, http.StatusSeeOther)
+		case errors.Is(err, auth.ErrSetupOwnerBlocked):
+			h.renderSetupOwnerPage(w, r, http.StatusConflict, views.SetupOwnerData{
+				BlockedMessage: "Gofer found an ambiguous or unbounded existing-user topology.",
+			})
+		case errors.As(err, &validationErr):
+			form.Errors = validationErr.Fields
+			h.renderSubmittedSetupOwner(w, r, http.StatusUnprocessableEntity, form)
+		default:
+			log.Printf("save setup owner draft: %v", err)
+			h.writeSetupServiceFailure(w)
+		}
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+}
 
+func (h *Handler) renderSubmittedSetupOwner(w http.ResponseWriter, r *http.Request, status int, form views.SetupOwnerFormData) {
+	ownerState, err := h.auth.GetSetupOwnerState(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		if errors.Is(err, auth.ErrSetupAccessInvalid) {
+			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, setupPath, http.StatusSeeOther)
+			return
+		}
+		if errors.Is(err, auth.ErrSetupOwnerBlocked) {
+			h.renderSetupOwnerPage(w, r, http.StatusConflict, views.SetupOwnerData{
+				BlockedMessage: "Gofer found an ambiguous or unbounded existing-user topology.",
+			})
+			return
+		}
+		log.Printf("reload setup owner form: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	h.renderSetupOwnerPage(w, r, status, setupOwnerViewData(ownerState, form))
+}
+
+func (h *Handler) renderSetupOwnerPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupOwnerData) {
 	var page bytes.Buffer
-	if err := views.SetupOwnerPage().Render(r.Context(), &page); err != nil {
+	if err := views.SetupOwnerPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup owner page: %v", err)
 		h.writeSetupServiceFailure(w)
 		return
 	}
-	writeSetupPage(w, http.StatusOK, &page)
+	writeSetupPage(w, status, &page)
+}
+
+func setupOwnerViewData(state *auth.SetupOwnerState, submitted views.SetupOwnerFormData) views.SetupOwnerData {
+	data := views.SetupOwnerData{
+		Kind: string(state.Topology.Kind), DraftStale: state.DraftStale,
+		Candidates: make([]views.SetupOwnerCandidateData, 0, len(state.Topology.Candidates)),
+	}
+	for _, candidate := range state.Topology.Candidates {
+		data.Candidates = append(data.Candidates, views.SetupOwnerCandidateData{
+			ID: candidate.ID, Name: candidate.Name, Email: candidate.Email, Username: candidate.Username,
+			Status: string(candidate.Status), IsAdmin: candidate.IsAdmin,
+			MailboxCount: candidate.MailboxCount, LegacySessions: candidate.LegacySessions,
+		})
+	}
+	if state.Topology.Kind == auth.SetupOwnerTopologyFresh {
+		data.Form.Target = "create"
+	} else if state.Topology.Kind == auth.SetupOwnerTopologyLegacyDefault {
+		data.Form.Target = "existing:default"
+	}
+	if state.Draft != nil {
+		data.DraftSaved = !state.DraftStale
+		data.Form = views.SetupOwnerFormData{
+			Target: setupOwnerTargetValue(state.Draft.Mode, state.Draft.TargetUserID),
+			Name:   state.Draft.Name, Username: state.Draft.Username, Email: state.Draft.Email,
+		}
+	}
+	if submitted.Target != "" || submitted.Name != "" || submitted.Username != "" || submitted.Email != "" || len(submitted.Errors) > 0 {
+		data.Form = submitted
+	}
+	return data
+}
+
+func parseSetupOwnerTarget(value string) (auth.SetupOwnerMode, string) {
+	if value == "create" {
+		return auth.SetupOwnerModeCreate, ""
+	}
+	if targetUserID, found := strings.CutPrefix(value, "existing:"); found {
+		return auth.SetupOwnerModeExisting, targetUserID
+	}
+	return "", ""
+}
+
+func setupOwnerTargetValue(mode auth.SetupOwnerMode, userID string) string {
+	if mode == auth.SetupOwnerModeCreate {
+		return "create"
+	}
+	if mode == auth.SetupOwnerModeExisting {
+		return "existing:" + userID
+	}
+	return ""
 }
 
 func (h *Handler) renderSetupPage(w http.ResponseWriter, r *http.Request, status int, message string) {
@@ -163,6 +301,12 @@ func (h *Handler) redirectSetupWithoutQuery(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, setupPath, http.StatusSeeOther)
+}
+
+func (h *Handler) redirectSetupOwnerWithoutQuery(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
 }
 
 func writeSetupPage(w http.ResponseWriter, status int, page *bytes.Buffer) {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"net/http"
@@ -42,6 +43,18 @@ func postSetup(stack http.Handler, token string) *httptest.ResponseRecorder {
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", "https://gofer.example")
 	request.Header.Set("User-Agent", "Setup Handler Test/1.0")
+	recorder := httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func postSetupOwner(stack http.Handler, cookie *http.Cookie, values url.Values) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, setupOwnerPath, strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
 	recorder := httptest.NewRecorder()
 	stack.ServeHTTP(recorder, request)
 	return recorder
@@ -129,7 +142,7 @@ func TestSetupTokenVerificationCreatesProtectedContinuationWithoutCompletingSetu
 	request.AddCookie(setupCookie)
 	ownerRecorder := httptest.NewRecorder()
 	stack.ServeHTTP(ownerRecorder, request)
-	if ownerRecorder.Code != http.StatusOK || !strings.Contains(ownerRecorder.Body.String(), "Setup access verified") || !strings.Contains(ownerRecorder.Body.String(), "has not been consumed") || strings.Contains(ownerRecorder.Body.String(), setupToken) || strings.Contains(ownerRecorder.Body.String(), setupCookie.Value) {
+	if ownerRecorder.Code != http.StatusOK || !strings.Contains(ownerRecorder.Body.String(), "Setup access verified") || !strings.Contains(ownerRecorder.Body.String(), "Create the first owner") || !strings.Contains(ownerRecorder.Body.String(), `action="/setup/owner"`) || strings.Contains(ownerRecorder.Body.String(), setupToken) || strings.Contains(ownerRecorder.Body.String(), setupCookie.Value) {
 		t.Fatalf("protected setup owner page = %d %q", ownerRecorder.Code, ownerRecorder.Body.String())
 	}
 
@@ -142,6 +155,183 @@ func TestSetupTokenVerificationCreatesProtectedContinuationWithoutCompletingSetu
 	cleared := responseCookie(withoutCookie, "gofer_pre_auth", false)
 	if cleared == nil || cleared.MaxAge != -1 {
 		t.Fatalf("unverified setup owner request did not clear stale cookie: %#v", cleared)
+	}
+}
+
+func TestFreshSetupOwnerDraftIsProtectedEncryptedAndNonMutating(t *testing.T) {
+	_, db, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	if setupCookie == nil {
+		t.Fatal("setup verification did not issue continuation cookie")
+	}
+
+	saved := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Cristian Braun"},
+		"username": {"Cristian.B"}, "email": {"Cristian@Example.COM"},
+	})
+	if saved.Code != http.StatusSeeOther || saved.Header().Get("Location") != setupOwnerPath {
+		t.Fatalf("fresh owner save = %d location:%q body:%q", saved.Code, saved.Header().Get("Location"), saved.Body.String())
+	}
+	var payload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) == 0 || bytes.Contains(payload, []byte("Cristian")) || bytes.Contains(payload, []byte("cristian@example.com")) {
+		t.Fatalf("fresh owner payload is missing or plaintext: %q", payload)
+	}
+	var users, credentials, initialized int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM password_credentials`).Scan(&credentials); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT initialized FROM auth_system_state WHERE id = 1`).Scan(&initialized); err != nil {
+		t.Fatal(err)
+	}
+	if users != 0 || credentials != 0 || initialized != 0 {
+		t.Fatalf("owner draft partially initialized = users:%d credentials:%d initialized:%d", users, credentials, initialized)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, setupOwnerPath, nil)
+	request.AddCookie(setupCookie)
+	review := httptest.NewRecorder()
+	stack.ServeHTTP(review, request)
+	for _, want := range []string{"Owner profile ready for security enrollment", "Cristian Braun", "Cristian.B", "Cristian@Example.COM", "No user, role, credential, or owned data has been changed yet"} {
+		if review.Code != http.StatusOK || !strings.Contains(review.Body.String(), want) {
+			t.Fatalf("fresh owner review missing %q: %d %q", want, review.Code, review.Body.String())
+		}
+	}
+	if strings.Contains(review.Body.String(), setupToken) || strings.Contains(review.Body.String(), setupCookie.Value) {
+		t.Fatal("owner review exposed setup bearer material")
+	}
+}
+
+func TestLegacyDefaultOwnerDraftClaimsStableUserWithoutMovingData(t *testing.T) {
+	_, db, stack, setupToken := setupEntryStack(t)
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, email, email_normalized, name, status, is_admin)
+		VALUES ('default', 'local@gofer.local', 'local@gofer.local', 'Local User', 'active', 1);
+		INSERT INTO accounts (id, user_id, email_address) VALUES ('mailbox', 'default', 'mail@example.com');
+		INSERT INTO app_settings (user_id, key, value) VALUES ('default', 'theme', 'dark')`); err != nil {
+		t.Fatal(err)
+	}
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	request := httptest.NewRequest(http.MethodGet, setupOwnerPath, nil)
+	request.AddCookie(setupCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, request)
+	for _, want := range []string{"Claim your existing Gofer data", `value="existing:default"`, "Nothing is copied or reassigned"} {
+		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("legacy owner page missing %q: %d %q", want, page.Code, page.Body.String())
+		}
+	}
+
+	saved := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"existing:default"}, "name": {"Cristian Braun"},
+		"username": {"cristian"}, "email": {"cristian@example.com"},
+	})
+	if saved.Code != http.StatusSeeOther {
+		t.Fatalf("legacy owner save = %d %q", saved.Code, saved.Body.String())
+	}
+	var email, name, accountOwner, settingOwner string
+	if err := db.Read().QueryRow(`SELECT email, name FROM users WHERE id = 'default'`).Scan(&email, &name); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT user_id FROM accounts WHERE id = 'mailbox'`).Scan(&accountOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT user_id FROM app_settings WHERE key = 'theme'`).Scan(&settingOwner); err != nil {
+		t.Fatal(err)
+	}
+	if email != "local@gofer.local" || name != "Local User" || accountOwner != "default" || settingOwner != "default" {
+		t.Fatalf("legacy draft changed data = email:%q name:%q account:%q setting:%q", email, name, accountOwner, settingOwner)
+	}
+}
+
+func TestExistingSetupOwnerRequiresExplicitValidSelectionAndUniqueIdentifiers(t *testing.T) {
+	_, db, stack, setupToken := setupEntryStack(t)
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, email, email_normalized, username, username_normalized, name, status, is_admin)
+		VALUES
+			('person-a', 'a@example.com', 'a@example.com', 'person-a', 'person-a', 'Person A', 'active', 0),
+			('person-b', 'b@example.com', 'b@example.com', 'person-b', 'person-b', 'Person B', 'active', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	request := httptest.NewRequest(http.MethodGet, setupOwnerPath, nil)
+	request.AddCookie(setupCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, request)
+	for _, want := range []string{"Choose the Gofer owner", `value="existing:person-a"`, `value="existing:person-b"`, "Create a new owner"} {
+		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("existing owner page missing %q: %d %q", want, page.Code, page.Body.String())
+		}
+	}
+
+	missing := postSetupOwner(stack, setupCookie, url.Values{
+		"name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	})
+	if missing.Code != http.StatusUnprocessableEntity || !strings.Contains(missing.Body.String(), "Choose which Gofer user") {
+		t.Fatalf("missing owner selection = %d %q", missing.Code, missing.Body.String())
+	}
+
+	collision := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"person-b"}, "email": {"b@example.com"},
+	})
+	if collision.Code != http.StatusUnprocessableEntity || !strings.Contains(collision.Body.String(), "already used by another Gofer user") {
+		t.Fatalf("owner collision = %d %q", collision.Code, collision.Body.String())
+	}
+
+	selected := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"existing:person-a"}, "name": {"Person A Owner"},
+		"username": {"person-a"}, "email": {"a@example.com"},
+	})
+	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != setupOwnerPath {
+		t.Fatalf("explicit owner selection = %d %q", selected.Code, selected.Body.String())
+	}
+	var names string
+	if err := db.Read().QueryRow(`SELECT group_concat(name, '|') FROM (SELECT name FROM users ORDER BY id)`).Scan(&names); err != nil {
+		t.Fatal(err)
+	}
+	if names != "Person A|Person B" {
+		t.Fatalf("explicit selection mutated users: %q", names)
+	}
+}
+
+func TestSetupOwnerPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
+	_, db, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://gofer.example")
+	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	guard, err := httpguard.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	}
+	request := httptest.NewRequest(http.MethodPost, setupOwnerPath, strings.NewReader(form.Encode()))
+	request.Host = "gofer.example"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://attacker.example")
+	request.AddCookie(setupCookie)
+	recorder := httptest.NewRecorder()
+	guard.Middleware(stack).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") {
+		t.Fatalf("cross-origin owner submission = %d %q", recorder.Code, recorder.Body.String())
+	}
+	var payload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) != 0 {
+		t.Fatalf("cross-origin owner submission stored payload: %x", payload)
 	}
 }
 

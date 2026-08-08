@@ -12,26 +12,52 @@ import (
 )
 
 var (
-	ErrUsernameRequired = errors.New("username is required")
-	ErrUsernameLength   = errors.New("username must contain 3 to 32 characters")
-	ErrUsernameSyntax   = errors.New("username may contain ASCII letters, numbers, periods, underscores, and hyphens, and must start and end with a letter or number")
-	ErrEmailRequired    = errors.New("email is required")
-	ErrEmailInvalid     = errors.New("email address is invalid")
-	ErrPasswordInvalid  = errors.New("password contains invalid characters")
-	ErrPasswordTooShort = errors.New("password must contain at least 15 characters")
-	ErrPasswordTooLong  = errors.New("password must contain no more than 256 characters")
-	ErrPasswordCommon   = errors.New("password is commonly used, compromised, or too closely related to the account")
+	ErrDisplayNameRequired = errors.New("display name is required")
+	ErrDisplayNameLength   = errors.New("display name must contain 1 to 100 characters")
+	ErrDisplayNameInvalid  = errors.New("display name contains invalid characters")
+	ErrUsernameRequired    = errors.New("username is required")
+	ErrUsernameLength      = errors.New("username must contain 3 to 32 characters")
+	ErrUsernameSyntax      = errors.New("username may contain ASCII letters, numbers, periods, underscores, and hyphens, and must start and end with a letter or number")
+	ErrEmailRequired       = errors.New("email is required")
+	ErrEmailInvalid        = errors.New("email address is invalid")
+	ErrPasswordInvalid     = errors.New("password contains invalid characters")
+	ErrPasswordTooShort    = errors.New("password must contain at least 15 characters")
+	ErrPasswordTooLong     = errors.New("password must contain no more than 256 characters")
+	ErrPasswordCommon      = errors.New("password is commonly used, compromised, or too closely related to the account")
 )
 
 const (
-	usernameMinimumLength   = 3
-	usernameMaximumLength   = 32
-	emailMaximumLength      = 254
-	emailLocalMaximumLength = 64
-	passwordMinimumLength   = 15
-	passwordMaximumLength   = 256
-	passwordMaximumBytes    = passwordMaximumLength * utf8.UTFMax
+	displayNameMaximumLength = 100
+	usernameMinimumLength    = 3
+	usernameMaximumLength    = 32
+	emailMaximumLength       = 254
+	emailLocalMaximumLength  = 64
+	passwordMinimumLength    = 15
+	passwordMaximumLength    = 256
+	passwordMaximumBytes     = passwordMaximumLength * utf8.UTFMax
 )
+
+// PrepareDisplayName trims incidental surrounding space while rejecting
+// control characters and unbounded values before a profile enters an
+// authentication flow.
+func PrepareDisplayName(value string) (string, error) {
+	if !utf8.ValidString(value) {
+		return "", ErrDisplayNameInvalid
+	}
+	display := strings.TrimSpace(value)
+	if display == "" {
+		return "", ErrDisplayNameRequired
+	}
+	if utf8.RuneCountInString(display) > displayNameMaximumLength {
+		return "", ErrDisplayNameLength
+	}
+	for _, character := range display {
+		if unicode.IsControl(character) {
+			return "", ErrDisplayNameInvalid
+		}
+	}
+	return display, nil
+}
 
 type PasswordPolicyContext struct {
 	Username string

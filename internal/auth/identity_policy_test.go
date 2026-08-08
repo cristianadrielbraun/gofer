@@ -7,6 +7,30 @@ import (
 	"unicode/utf8"
 )
 
+func TestPrepareDisplayName(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		display string
+		err     error
+	}{
+		{name: "trimmed", value: "  Cristian Braun  ", display: "Cristian Braun"},
+		{name: "unicode", value: "Žofie 🐾", display: "Žofie 🐾"},
+		{name: "required", value: "  ", err: ErrDisplayNameRequired},
+		{name: "too long", value: strings.Repeat("a", displayNameMaximumLength+1), err: ErrDisplayNameLength},
+		{name: "control", value: "Cristian\nBraun", err: ErrDisplayNameInvalid},
+		{name: "invalid UTF-8", value: string([]byte{'a', 0xff}), err: ErrDisplayNameInvalid},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			display, err := PrepareDisplayName(test.value)
+			if !errors.Is(err, test.err) || display != test.display {
+				t.Fatalf("PrepareDisplayName(%q) = %q, %v", test.value, display, err)
+			}
+		})
+	}
+}
+
 func TestPrepareUsername(t *testing.T) {
 	tests := []struct {
 		name       string

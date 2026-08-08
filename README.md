@@ -179,6 +179,8 @@ On the first startup of an authentication-uninitialized database, Gofer stores o
 
 Open `/setup` and paste the token into the password-masked form. Gofer never accepts the token from a URL, cookie, or browser storage. A successful submission exchanges it for a ten-minute, origin-bound server-side setup challenge represented by an `HttpOnly`, `SameSite` cookie; SQLite stores only the challenge hash. The setup token remains unconsumed until owner enrollment completes atomically. Ten rejected submissions block that token until local rotation, and incorrect, expired, or blocked tokens receive the same generic response. Setup routes return `404` after authentication initialization completes.
 
+Behind that verified setup access, Gofer inspects existing application users before collecting the owner profile. A fresh database creates a new owner target; the exact legacy `default` placeholder is claimed in place so its mail and settings keep the same owner ID; other existing installations require an explicit user selection or a deliberate new-owner choice. Gofer refuses ambiguous or excessive candidate sets instead of inferring or merging an owner. The submitted display name, username, and email are normalized, checked across both login-identifier namespaces, and stored as an encrypted draft bound to the active setup challenge. Saving this draft does not create or update a user, assign a role, move data, consume the setup token, or initialize authentication.
+
 ## local authentication operations
 
 The binary includes authentication commands for local operators:
