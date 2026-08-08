@@ -26,6 +26,19 @@ func createMainAuthCommandDatabase(t *testing.T) string {
 		db.Close()
 		t.Fatalf("insert auth command owner: %v", err)
 	}
+	if _, err := db.Write().Exec(`
+		INSERT INTO sessions (
+			id, user_id, token_hash, auth_version, authentication_method,
+			assurance_level, authenticated_at, last_used_at,
+			idle_expires_at, absolute_expires_at, created_at
+		) VALUES (
+			'owner-session', 'owner', ?, 1, 'password', 'single_factor',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', '+1 hour'),
+			datetime('now', '+1 day'), CURRENT_TIMESTAMP
+		)`, strings.Repeat("c", 64)); err != nil {
+		db.Close()
+		t.Fatalf("insert auth command session: %v", err)
+	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("close auth command database: %v", err)
 	}
@@ -55,6 +68,16 @@ func TestRunApplicationDispatchesAuthBeforeServerStartup(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dataDirectory, runtimeSecret)); !os.IsNotExist(err) {
 			t.Fatalf("auth command created runtime secret %q: %v", runtimeSecret, err)
 		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	serverStarted = false
+	exitCode = runApplication(t.Context(), []string{"auth", "sessions", "revoke", "--user", "owner", "--confirm", "owner"}, &stdout, &stderr, func() {
+		serverStarted = true
+	})
+	if exitCode != 0 || serverStarted || stdout.String() != "user_id: \"owner\"\nrevoked_sessions: 1\n" || stderr.Len() != 0 {
+		t.Fatalf("auth session revocation dispatch = code:%d serverStarted:%t stdout:%q stderr:%q", exitCode, serverStarted, stdout.String(), stderr.String())
 	}
 }
 

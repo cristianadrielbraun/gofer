@@ -16,6 +16,7 @@ const usage = `Usage:
   gofer auth status
   gofer auth users list
   gofer auth recover --user <user-id> --confirm <user-id>
+  gofer auth sessions revoke --user <user-id> --confirm <user-id>
 `
 
 func Run(ctx context.Context, args []string, databasePath string, stdout, stderr io.Writer) int {
@@ -31,6 +32,9 @@ func Run(ctx context.Context, args []string, databasePath string, stdout, stderr
 	}
 	if command.name == "recover" {
 		return runRecovery(ctx, command.userID, databasePath, stdout, stderr)
+	}
+	if command.name == "sessions revoke" {
+		return runSessionRevocation(ctx, command.userID, databasePath, stdout, stderr)
 	}
 
 	db, err := storage.OpenReadOnly(databasePath)
@@ -72,72 +76,114 @@ func parseCommand(args []string) (command parsedCommand, help bool, err error) {
 		return parsedCommand{name: "users list"}, false, nil
 	}
 	if len(args) == 5 && args[0] == "recover" {
-		values := make(map[string]string, 2)
-		for index := 1; index < len(args); index += 2 {
-			flag := args[index]
-			if flag != "--user" && flag != "--confirm" {
-				return parsedCommand{}, false, fmt.Errorf("unknown recovery option %q", flag)
-			}
-			if _, duplicate := values[flag]; duplicate {
-				return parsedCommand{}, false, fmt.Errorf("recovery option %s was provided more than once", flag)
-			}
-			if args[index+1] == "" {
-				return parsedCommand{}, false, fmt.Errorf("recovery option %s requires a value", flag)
-			}
-			values[flag] = args[index+1]
+		userID, err := parseConfirmedUserOptions(args[1:], "recovery")
+		if err != nil {
+			return parsedCommand{}, false, err
 		}
-		if values["--user"] == "" || values["--confirm"] == "" {
-			return parsedCommand{}, false, fmt.Errorf("recovery requires both --user and --confirm")
+		return parsedCommand{name: "recover", userID: userID}, false, nil
+	}
+	if len(args) == 6 && args[0] == "sessions" && args[1] == "revoke" {
+		userID, err := parseConfirmedUserOptions(args[2:], "session revocation")
+		if err != nil {
+			return parsedCommand{}, false, err
 		}
-		if values["--user"] != values["--confirm"] {
-			return parsedCommand{}, false, fmt.Errorf("--confirm must exactly match --user")
-		}
-		return parsedCommand{name: "recover", userID: values["--user"]}, false, nil
+		return parsedCommand{name: "sessions revoke", userID: userID}, false, nil
 	}
 	return parsedCommand{}, false, fmt.Errorf("invalid command")
 }
 
+func parseConfirmedUserOptions(args []string, action string) (string, error) {
+	if len(args) != 4 {
+		return "", fmt.Errorf("%s requires both --user and --confirm", action)
+	}
+	values := make(map[string]string, 2)
+	for index := 0; index < len(args); index += 2 {
+		flag := args[index]
+		if flag != "--user" && flag != "--confirm" {
+			return "", fmt.Errorf("unknown %s option %q", action, flag)
+		}
+		if _, duplicate := values[flag]; duplicate {
+			return "", fmt.Errorf("%s option %s was provided more than once", action, flag)
+		}
+		if args[index+1] == "" {
+			return "", fmt.Errorf("%s option %s requires a value", action, flag)
+		}
+		values[flag] = args[index+1]
+	}
+	if values["--user"] == "" || values["--confirm"] == "" {
+		return "", fmt.Errorf("%s requires both --user and --confirm", action)
+	}
+	if values["--user"] != values["--confirm"] {
+		return "", fmt.Errorf("--confirm must exactly match --user")
+	}
+	return values["--user"], nil
+}
+
 func runRecovery(ctx context.Context, userID, databasePath string, stdout, stderr io.Writer) int {
-	// Preflight through the query-only connection so a missing or stale database
-	// cannot leave an operator lock file behind.
-	probe, err := storage.OpenReadOnly(databasePath)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "auth recover: open database: %v\n", err)
-		return 1
-	}
-	if err := probe.Close(); err != nil {
-		_, _ = fmt.Fprintf(stderr, "auth recover: close database preflight: %v\n", err)
-		return 1
-	}
-
-	lock, err := runtimeguard.Acquire(databasePath)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "auth recover: acquire exclusive database lock: %v\n", err)
-		return 1
-	}
-	defer lock.Close()
-
-	db, err := storage.OpenExisting(databasePath)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "auth recover: open database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-	result, err := NewService(db).Recover(ctx, userID)
+	err := runMutatingCommand(ctx, databasePath, func(service *Service) error {
+		result, err := service.Recover(ctx, userID)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout,
+			"user_id: %s\ntoken_purpose: %s\nexpires_at: %s\nrevoked_sessions: %d\nreplaced_reset_tokens: %d\nreset_token: %s\n",
+			printableField(result.Token.UserID), result.Token.Purpose,
+			result.Token.ExpiresAt.UTC().Format(time.RFC3339), result.RevokedSessions,
+			result.ReplacedTokens, result.Token.Token,
+		)
+		if err != nil {
+			return fmt.Errorf("write recovery token: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "auth recover: %v\n", err)
 		return 1
 	}
-	if _, err := fmt.Fprintf(stdout,
-		"user_id: %s\ntoken_purpose: %s\nexpires_at: %s\nrevoked_sessions: %d\nreplaced_reset_tokens: %d\nreset_token: %s\n",
-		printableField(result.Token.UserID), result.Token.Purpose,
-		result.Token.ExpiresAt.UTC().Format(time.RFC3339), result.RevokedSessions,
-		result.ReplacedTokens, result.Token.Token,
-	); err != nil {
-		_, _ = fmt.Fprintf(stderr, "auth recover: write recovery token: %v\n", err)
+	return 0
+}
+
+func runSessionRevocation(ctx context.Context, userID, databasePath string, stdout, stderr io.Writer) int {
+	err := runMutatingCommand(ctx, databasePath, func(service *Service) error {
+		result, err := service.RevokeSessions(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(stdout, "user_id: %s\nrevoked_sessions: %d\n",
+			printableField(result.UserID), result.RevokedSessions,
+		); err != nil {
+			return fmt.Errorf("write session revocation result: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth sessions revoke: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func runMutatingCommand(ctx context.Context, databasePath string, action func(*Service) error) error {
+	// Preflight through the query-only connection so a missing or stale database
+	// cannot leave an operator lock file behind.
+	probe, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	if err := probe.Close(); err != nil {
+		return fmt.Errorf("close database preflight: %w", err)
+	}
+	lock, err := runtimeguard.Acquire(databasePath)
+	if err != nil {
+		return fmt.Errorf("acquire exclusive database lock: %w", err)
+	}
+	defer lock.Close()
+	db, err := storage.OpenExisting(databasePath)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+	return action(NewService(db))
 }
 
 func writeStatus(ctx context.Context, output io.Writer, service *Service) error {

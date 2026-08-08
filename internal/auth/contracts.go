@@ -148,15 +148,16 @@ const (
 type SecurityTransition string
 
 const (
-	SecurityTransitionSetup            SecurityTransition = "setup"
-	SecurityTransitionLoginCompletion  SecurityTransition = "login_completion"
-	SecurityTransitionLoginThrottle    SecurityTransition = "login_throttle"
-	SecurityTransitionCredentialChange SecurityTransition = "credential_change"
-	SecurityTransitionEnrollment       SecurityTransition = "enrollment"
-	SecurityTransitionRecovery         SecurityTransition = "recovery"
-	SecurityTransitionSessionRotation  SecurityTransition = "session_rotation"
-	SecurityTransitionUserStatus       SecurityTransition = "user_status"
-	SecurityTransitionRoleChange       SecurityTransition = "role_change"
+	SecurityTransitionSetup             SecurityTransition = "setup"
+	SecurityTransitionLoginCompletion   SecurityTransition = "login_completion"
+	SecurityTransitionLoginThrottle     SecurityTransition = "login_throttle"
+	SecurityTransitionCredentialChange  SecurityTransition = "credential_change"
+	SecurityTransitionEnrollment        SecurityTransition = "enrollment"
+	SecurityTransitionRecovery          SecurityTransition = "recovery"
+	SecurityTransitionSessionRevocation SecurityTransition = "session_revocation"
+	SecurityTransitionSessionRotation   SecurityTransition = "session_rotation"
+	SecurityTransitionUserStatus        SecurityTransition = "user_status"
+	SecurityTransitionRoleChange        SecurityTransition = "role_change"
 )
 
 type Clock interface {

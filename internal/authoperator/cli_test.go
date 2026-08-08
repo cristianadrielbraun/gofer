@@ -285,3 +285,108 @@ func TestRecoverRefusesToRunWhileRuntimeLockIsHeld(t *testing.T) {
 		t.Fatalf("locked recovery changed auth version = %d, %v", authVersion, err)
 	}
 }
+
+func TestSessionRevocationRequiresExactConfirmationBeforeOpeningDatabase(t *testing.T) {
+	missingDirectory := filepath.Join(t.TempDir(), "missing")
+	databasePath := filepath.Join(missingDirectory, "gofer.db")
+	tests := [][]string{
+		{"sessions", "revoke", "--user", "target", "--confirm", "other"},
+		{"sessions", "revoke", "--user", "target", "--user", "target"},
+		{"sessions", "revoke", "--unknown", "target", "--confirm", "target"},
+		{"sessions", "revoke", "--user", "target"},
+	}
+	for _, args := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 2 {
+			t.Fatalf("Run(%v) code = %d, stderr=%q", args, code, stderr.String())
+		}
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "gofer auth sessions revoke") {
+			t.Fatalf("Run(%v) output = stdout:%q stderr:%q", args, stdout.String(), stderr.String())
+		}
+	}
+	if _, err := os.Stat(missingDirectory); !os.IsNotExist(err) {
+		t.Fatalf("invalid session revocation created database directory: %v", err)
+	}
+}
+
+func TestSessionRevocationCommitsExactTargetAndPrintsSecretFreeCount(t *testing.T) {
+	databasePath := createOperatorTestDatabase(t)
+	db, err := storage.OpenExisting(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`
+		INSERT INTO sessions (
+			id, user_id, token_hash, auth_version, authentication_method,
+			assurance_level, authenticated_at, last_used_at,
+			idle_expires_at, absolute_expires_at, created_at
+		) VALUES (
+			'private-session-id', 'disabled-user', ?, 2, 'password',
+			'single_factor', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+			datetime('now', '+1 hour'), datetime('now', '+1 day'), CURRENT_TIMESTAMP
+		)`, strings.Repeat("b", 64)); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	args := []string{"sessions", "revoke", "--user", "disabled-user", "--confirm", "disabled-user"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run(sessions revoke) code = %d stderr=%q", code, stderr.String())
+	}
+	expected := "user_id: \"disabled-user\"\nrevoked_sessions: 1\n"
+	if stdout.String() != expected || stderr.Len() != 0 {
+		t.Fatalf("session revocation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+	for _, secret := range []string{"private-session-id", strings.Repeat("b", 64), "private-token-id", "do-not-print-token-hash", "do-not-print-password-hash", "reset_token"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("session revocation output exposed %q: %q", secret, stdout.String())
+		}
+	}
+
+	reopened, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var status string
+	var authVersion int64
+	var activeSessions int
+	var activeResetTokens int
+	if err := reopened.Read().QueryRow(`SELECT status, auth_version FROM users WHERE id = 'disabled-user'`).Scan(&status, &authVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.Read().QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = 'disabled-user' AND revoked_at IS NULL`).Scan(&activeSessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.Read().QueryRow(`
+		SELECT COUNT(*) FROM user_enrollment_tokens
+		WHERE user_id = 'disabled-user' AND revoked_at IS NULL AND used_at IS NULL`,
+	).Scan(&activeResetTokens); err != nil {
+		t.Fatal(err)
+	}
+	if status != "disabled" || authVersion != 2 || activeSessions != 0 || activeResetTokens != 1 {
+		t.Fatalf("persisted session revocation = status:%q version:%d sessions:%d resetTokens:%d", status, authVersion, activeSessions, activeResetTokens)
+	}
+}
+
+func TestSessionRevocationRefusesToRunWhileRuntimeLockIsHeld(t *testing.T) {
+	databasePath := createOperatorTestDatabase(t)
+	lock, err := runtimeguard.Acquire(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := []string{"sessions", "revoke", "--user", "disabled-user", "--confirm", "disabled-user"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(sessions revoke while locked) code = %d", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "stop the server") {
+		t.Fatalf("locked session revocation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+}

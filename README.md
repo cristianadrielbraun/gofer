@@ -195,6 +195,14 @@ Recovery refuses to run unless both IDs match exactly and it can acquire Gofer's
 
 Treat the printed token as a password: do not put it in a URL, shell history, logs, or chat. Restart Gofer, open `/account/redeem`, paste the token into the masked token field, and choose the new password. A disabled user remains disabled after resetting the password and must be enabled separately. If output is lost, stop Gofer and run recovery again; the replacement token invalidates the previous one.
 
+For a lost browser, suspected session-cookie theft, or a precautionary global sign-out where the user's credential is still trusted, stop Gofer and run:
+
+```sh
+./gofer auth sessions revoke --user '<user-id>' --confirm '<user-id>'
+```
+
+Session revocation requires the same exact-ID confirmation and exclusive database lock as recovery. It signs the active or disabled target out everywhere and records a redacted local-operator audit event, but it does not change the user's password, reset tokens, authentication version, or account status. After Gofer restarts, an active user can sign in again with the same credential. Use `auth recover` instead if that credential may also be compromised.
+
 ## local security model
 
 Gofer stores mail, cached blobs, account credentials, OAuth tokens, and runtime state locally. The practical security model is simple and very glamorous: run it on a trusted local machine, keep `data/` private, keep OAuth client secrets out of git, and avoid exposing the app directly to the public Internet.

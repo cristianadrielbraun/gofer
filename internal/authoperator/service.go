@@ -37,6 +37,10 @@ func (service *Service) Recover(ctx context.Context, userID string) (*auth.Local
 	return service.manager.RecoverUserLocally(ctx, userID)
 }
 
+func (service *Service) RevokeSessions(ctx context.Context, userID string) (*auth.LocalSessionRevocationResult, error) {
+	return service.manager.RevokeUserSessionsLocally(ctx, userID)
+}
+
 func (service *Service) Status(ctx context.Context) (InstanceStatus, error) {
 	status := InstanceStatus{SchemaVersion: storage.CurrentSchemaVersion}
 	var initialized int
