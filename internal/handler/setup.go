@@ -18,6 +18,7 @@ const (
 	setupPasswordPath        = "/setup/password"
 	setupMFAPath             = "/setup/mfa"
 	setupRecoveryPath        = "/setup/recovery"
+	setupReviewPath          = "/setup/review"
 	setupFormMaximumBytes    = 8 << 10
 	setupTokenFailureMessage = "That setup token is invalid or no longer active."
 	setupTokenServiceMessage = "Unable to verify the setup token right now. Please try again."
@@ -378,6 +379,52 @@ func (h *Handler) handleSetupRecoveryAccessError(w http.ResponseWriter, r *http.
 	}
 }
 
+func (h *Handler) handleSetupReview(w http.ResponseWriter, r *http.Request) {
+	state, err := h.auth.SetupState(r.Context())
+	if err != nil {
+		log.Printf("read final setup review state: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	if state.Initialized {
+		h.writeSetupNotFound(w)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		h.redirectSetupReviewWithoutQuery(w, r)
+		return
+	}
+	review, err := h.auth.GetSetupReview(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		h.handleSetupReviewAccessError(w, r, err)
+		return
+	}
+	status := http.StatusOK
+	if review.BlockedMessage != "" {
+		status = http.StatusConflict
+	}
+	h.renderSetupReviewPage(w, r, status, setupReviewViewData(review))
+}
+
+func (h *Handler) handleSetupReviewAccessError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, auth.ErrSetupAccessInvalid):
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, setupPath, http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSetupOwnerDraftRequired), errors.Is(err, auth.ErrSetupOwnerBlocked):
+		http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSetupPasswordDraftRequired):
+		http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSetupTOTPDraftRequired), errors.Is(err, auth.ErrSetupTOTPConfirmationRequired):
+		http.Redirect(w, r, setupMFAPath, http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSetupRecoveryBatchRequired), errors.Is(err, auth.ErrSetupRecoveryAcknowledgementRequired):
+		http.Redirect(w, r, setupRecoveryPath, http.StatusSeeOther)
+	default:
+		log.Printf("read final setup review: %v", err)
+		h.writeSetupServiceFailure(w)
+	}
+}
+
 func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
@@ -528,6 +575,35 @@ func (h *Handler) renderSetupRecoveryPage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeSetupPage(w, status, &page)
+}
+
+func (h *Handler) renderSetupReviewPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupReviewData) {
+	var page bytes.Buffer
+	if err := views.SetupReviewPage(data).Render(r.Context(), &page); err != nil {
+		log.Printf("render final setup review page: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	writeSetupPage(w, status, &page)
+}
+
+func setupReviewViewData(review *auth.SetupReview) views.SetupReviewData {
+	return views.SetupReviewData{
+		TopologyKind: string(review.TopologyKind), Mode: string(review.Mode),
+		TargetUserID: review.TargetUserID,
+		CurrentName:  review.CurrentName, CurrentUsername: review.CurrentUsername,
+		CurrentEmail: review.CurrentEmail, CurrentStatus: string(review.CurrentStatus),
+		CurrentIsAdmin: review.CurrentIsAdmin,
+		OwnerName:      review.OwnerName, OwnerUsername: review.OwnerUsername, OwnerEmail: review.OwnerEmail,
+		ExistingUserCount: review.ExistingUserCount, TotalMailboxCount: review.TotalMailboxCount,
+		TargetMailboxCount: review.TargetMailboxCount, UnassignedMailboxCount: review.UnassignedMailboxCount,
+		UnrevokedSessionCount: review.UnrevokedSessionCount, TargetLegacySessions: review.TargetLegacySessions,
+		ExistingPasswordCredentials: review.ExistingPasswordCredentials,
+		RetainedPasskeys:            review.RetainedPasskeys, ReplacedTOTPs: review.ReplacedTOTPs,
+		RetainedIdentities: review.RetainedIdentities, ReplacedRecoveryCodes: review.ReplacedRecoveryCodes,
+		CreatesNewOwner: review.CreatesNewOwner, ClaimsLegacyDefault: review.ClaimsLegacyDefault,
+		ClaimsExistingUser: review.ClaimsExistingUser, BlockedMessage: review.BlockedMessage,
+	}
 }
 
 func (h *Handler) renderSubmittedSetupRecovery(w http.ResponseWriter, r *http.Request, status int, errors map[string]string) {
@@ -690,6 +766,12 @@ func (h *Handler) redirectSetupRecoveryWithoutQuery(w http.ResponseWriter, r *ht
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, setupRecoveryPath, http.StatusSeeOther)
+}
+
+func (h *Handler) redirectSetupReviewWithoutQuery(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, setupReviewPath, http.StatusSeeOther)
 }
 
 func writeSetupPage(w http.ResponseWriter, status int, page *bytes.Buffer) {

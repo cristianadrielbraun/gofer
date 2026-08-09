@@ -150,7 +150,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	publicPaths := []string{
-		"/login", "/login/mfa", "/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery",
+		"/login", "/login/mfa", "/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/redeem", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/assets/app.js", "/sw.js",
 	}
@@ -163,7 +163,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{"/login", "/setup", "/setup/password", "/setup/mfa", "/setup/recovery", "/account/redeem"} {
+	for _, path := range []string{"/login", "/setup", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review", "/account/redeem"} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
 		if called[path] != 2 || recorder.Code != http.StatusNoContent {
@@ -174,7 +174,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 
 func TestMiddlewareKeepsSetupUnauthenticatedInLegacyLocalMode(t *testing.T) {
 	manager, _ := newAccountOAuthFlowTestManager(t, false)
-	for _, path := range []string{"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery"} {
+	for _, path := range []string{"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review"} {
 		called := false
 		handler := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			called = true

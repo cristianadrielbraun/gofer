@@ -132,6 +132,26 @@ func prepareHandlerVerifiedMFA(t *testing.T) (*auth.Manager, *storage.DB, http.H
 	return manager, db, stack, setupCookie
 }
 
+func prepareHandlerSetupReview(t *testing.T) (*auth.Manager, *storage.DB, http.Handler, *http.Cookie) {
+	t.Helper()
+	manager, db, stack, setupCookie := prepareHandlerVerifiedMFA(t)
+	generated := postSetupRecovery(stack, setupCookie, url.Values{"action": {"generate"}})
+	if generated.Code != http.StatusOK {
+		t.Fatalf("recovery generation prerequisite = %d %q", generated.Code, generated.Body.String())
+	}
+	state, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || state == nil || state.Draft == nil || state.Draft.RecoveryBatchID == "" {
+		t.Fatalf("recovery prerequisite state = %#v, %v", state, err)
+	}
+	acknowledged := postSetupRecovery(stack, setupCookie, url.Values{
+		"action": {"acknowledge"}, "batch_id": {state.Draft.RecoveryBatchID}, "saved": {"yes"},
+	})
+	if acknowledged.Code != http.StatusSeeOther {
+		t.Fatalf("recovery acknowledgement prerequisite = %d %q", acknowledged.Code, acknowledged.Body.String())
+	}
+	return manager, db, stack, setupCookie
+}
+
 func setupHandlerTOTPCode(t *testing.T, secret string) string {
 	t.Helper()
 	code, err := totp.GenerateCodeCustom(secret, time.Now().UTC(), totp.ValidateOpts{
@@ -837,6 +857,134 @@ func TestSetupRecoveryStripsQueriesBoundsFormsAndRejectsCrossOrigin(t *testing.T
 	}
 }
 
+func TestSetupReviewRequiresAcknowledgedRecoveryAndIsLinkedFromRecovery(t *testing.T) {
+	_, _, stack, setupCookie := prepareHandlerVerifiedMFA(t)
+	request := httptest.NewRequest(http.MethodGet, setupReviewPath, nil)
+	request.AddCookie(setupCookie)
+	withoutRecovery := httptest.NewRecorder()
+	stack.ServeHTTP(withoutRecovery, request)
+	if withoutRecovery.Code != http.StatusSeeOther || withoutRecovery.Header().Get("Location") != setupRecoveryPath {
+		t.Fatalf("review without recovery acknowledgement = %d location:%q", withoutRecovery.Code, withoutRecovery.Header().Get("Location"))
+	}
+
+	_, _, readyStack, readyCookie := prepareHandlerSetupReview(t)
+	request = httptest.NewRequest(http.MethodGet, setupRecoveryPath, nil)
+	request.AddCookie(readyCookie)
+	recoveryPage := httptest.NewRecorder()
+	readyStack.ServeHTTP(recoveryPage, request)
+	if recoveryPage.Code != http.StatusOK || !strings.Contains(recoveryPage.Body.String(), `href="/setup/review"`) || !strings.Contains(recoveryPage.Body.String(), "Review final setup") {
+		t.Fatalf("acknowledged recovery page missing review link = %d %q", recoveryPage.Code, recoveryPage.Body.String())
+	}
+}
+
+func TestSetupReviewIsSecretFreeReadOnlyAndShowsExactFreshImpact(t *testing.T) {
+	manager, db, stack, setupCookie := prepareHandlerSetupReview(t)
+	ownerState, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || ownerState == nil || ownerState.Draft == nil {
+		t.Fatalf("review owner state = %#v, %v", ownerState, err)
+	}
+	var originalPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&originalPayload); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, setupReviewPath, nil)
+	request.AddCookie(setupCookie)
+	review := httptest.NewRecorder()
+	stack.ServeHTTP(review, request)
+	if review.Code != http.StatusOK || review.Header().Get("Cache-Control") != "no-store" || review.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("setup review = %d headers:%v body:%q", review.Code, review.Header(), review.Body.String())
+	}
+	body := review.Body.String()
+	for _, want := range []string{
+		"Review owner setup", "Create a new active owner and administrator",
+		"Owner", "owner", "owner@example.com", "Prepared security",
+		"0 existing password credential(s) will be replaced",
+		"0 active TOTP credential(s) will be replaced",
+		"0 unused recovery code(s) will be replaced",
+		"0 active passkey(s) and 0 app-login identity record(s) remain attached",
+		"Initialize a fresh owner without creating or claiming a synthetic default user",
+		"0 currently unrevoked session(s) across the instance will be revoked at cutover",
+		"Review only — nothing has been committed", `href="/setup/recovery"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("setup review missing %q: %q", want, body)
+		}
+	}
+	for _, secret := range []string{
+		ownerState.Draft.PasswordHash, ownerState.Draft.TOTPSecret,
+		ownerState.Draft.RecoveryBatchID, ownerState.Draft.RecoveryCodeHashes[0],
+	} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("setup review exposed prepared secret %q", secret)
+		}
+	}
+	if strings.Contains(body, `<form`) || strings.Contains(body, `action="/setup`) || strings.Contains(body, `name="batch_id"`) {
+		t.Fatal("read-only setup review rendered a mutating form or batch material")
+	}
+	var storedPayload []byte
+	var users, passwords, totps, recoveryCodes, sessions, events, initialized int
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&storedPayload); err != nil {
+		t.Fatal(err)
+	}
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM users`:                             &users,
+		`SELECT COUNT(*) FROM password_credentials`:              &passwords,
+		`SELECT COUNT(*) FROM totp_credentials`:                  &totps,
+		`SELECT COUNT(*) FROM recovery_codes`:                    &recoveryCodes,
+		`SELECT COUNT(*) FROM sessions`:                          &sessions,
+		`SELECT initialized FROM auth_system_state WHERE id = 1`: &initialized,
+		`SELECT COUNT(*) FROM auth_events`:                       &events,
+	} {
+		if err := db.Read().QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !bytes.Equal(storedPayload, originalPayload) || users != 0 || passwords != 0 || totps != 0 || recoveryCodes != 0 || sessions != 0 || initialized != 0 || events != 2 {
+		t.Fatalf("review handler mutated setup = payloadChanged:%t users:%d passwords:%d totps:%d recovery:%d sessions:%d events:%d initialized:%d",
+			!bytes.Equal(storedPayload, originalPayload), users, passwords, totps, recoveryCodes, sessions, events, initialized)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, setupReviewPath+"?secret=must-not-survive", nil)
+	request.AddCookie(setupCookie)
+	query := httptest.NewRecorder()
+	stack.ServeHTTP(query, request)
+	if query.Code != http.StatusSeeOther || query.Header().Get("Location") != setupReviewPath || strings.Contains(query.Body.String(), "must-not-survive") {
+		t.Fatalf("review query stripping = %d location:%q body:%q", query.Code, query.Header().Get("Location"), query.Body.String())
+	}
+
+	post := httptest.NewRequest(http.MethodPost, setupReviewPath, strings.NewReader("action=complete"))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.Header.Set("Origin", "https://gofer.example")
+	post.AddCookie(setupCookie)
+	methodNotAllowed := httptest.NewRecorder()
+	stack.ServeHTTP(methodNotAllowed, post)
+	if methodNotAllowed.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("setup review POST = %d %q", methodNotAllowed.Code, methodNotAllowed.Body.String())
+	}
+}
+
+func TestSetupReviewBlocksUnassignedMailboxWithoutGuessingOwnership(t *testing.T) {
+	_, db, stack, setupCookie := prepareHandlerSetupReview(t)
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, email_address) VALUES ('orphan', NULL, 'orphan@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, setupReviewPath, nil)
+	request.AddCookie(setupCookie)
+	blocked := httptest.NewRecorder()
+	stack.ServeHTTP(blocked, request)
+	if blocked.Code != http.StatusConflict || !strings.Contains(blocked.Body.String(), "Setup completion is blocked") ||
+		!strings.Contains(blocked.Body.String(), "without a valid user owner") || !strings.Contains(blocked.Body.String(), "will not guess, delete, merge, or reassign") {
+		t.Fatalf("blocked setup review = %d %q", blocked.Code, blocked.Body.String())
+	}
+	var owner any
+	if err := db.Read().QueryRow(`SELECT user_id FROM accounts WHERE id = 'orphan'`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != nil {
+		t.Fatalf("blocked review assigned orphan mailbox to %#v", owner)
+	}
+}
+
 func TestSetupMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	_, db, stack, setupToken := setupEntryStack(t)
 	entry := postSetup(stack, setupToken)
@@ -1078,6 +1226,7 @@ func TestSetupRoutesDisappearAfterInitialization(t *testing.T) {
 		{method: http.MethodPost, path: setupMFAPath},
 		{method: http.MethodGet, path: setupRecoveryPath},
 		{method: http.MethodPost, path: setupRecoveryPath},
+		{method: http.MethodGet, path: setupReviewPath},
 	} {
 		var request *http.Request
 		if test.method == http.MethodPost {

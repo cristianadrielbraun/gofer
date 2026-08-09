@@ -61,6 +61,35 @@ type SetupRecoveryData struct {
 	Errors       map[string]string
 }
 
+type SetupReviewData struct {
+	TopologyKind string
+	Mode string
+	TargetUserID string
+	CurrentName string
+	CurrentUsername string
+	CurrentEmail string
+	CurrentStatus string
+	CurrentIsAdmin bool
+	OwnerName string
+	OwnerUsername string
+	OwnerEmail string
+	ExistingUserCount int
+	TotalMailboxCount int64
+	TargetMailboxCount int64
+	UnassignedMailboxCount int64
+	UnrevokedSessionCount int64
+	TargetLegacySessions int64
+	ExistingPasswordCredentials int64
+	RetainedPasskeys int64
+	ReplacedTOTPs int64
+	RetainedIdentities int64
+	ReplacedRecoveryCodes int64
+	CreatesNewOwner bool
+	ClaimsLegacyDefault bool
+	ClaimsExistingUser bool
+	BlockedMessage string
+}
+
 func setupOwnerDescription(helpID, errorID string, hasError bool) string {
 	if !hasError {
 		return helpID
@@ -450,6 +479,7 @@ templ SetupRecoveryPage(data SetupRecoveryData) {
 							<p class="text-sm font-medium">Next: final setup review</p>
 							<p class="mt-1 text-xs text-muted-foreground">The next step will review the owner and migration impact before anything is committed.</p>
 						</div>
+						<a href="/setup/review" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Review final setup</a>
 						<form method="post" action="/setup/recovery" class="mt-2">
 							<input type="hidden" name="action" value="regenerate"/>
 							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Replace recovery codes</button>
@@ -485,6 +515,105 @@ templ SetupRecoveryPage(data SetupRecoveryData) {
 					}
 					<a href="/setup/mfa" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to authenticator setup</a>
 					<p class="mt-6 text-center text-xs text-muted-foreground">Recovery codes are never logged, placed in URLs, stored in browser storage, or retained as retrievable plaintext.</p>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ SetupReviewPage(data SetupReviewData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Review Owner Setup</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex justify-center p-4 py-10">
+				<div class="w-full max-w-2xl">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Security enrollment ready</p>
+						<h1 class="mt-2 text-2xl font-semibold">Review owner setup</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Confirm exactly what the final transaction will change before mandatory authentication is initialized.</p>
+					</div>
+					if data.BlockedMessage != "" {
+						<div role="alert" class="mb-5 rounded-xl border border-destructive/25 bg-destructive/10 p-5">
+							<p class="text-sm font-medium text-destructive">Setup completion is blocked</p>
+							<p class="mt-1 text-sm text-muted-foreground">{ data.BlockedMessage }</p>
+							<p class="mt-2 text-xs text-muted-foreground">Gofer will not guess, delete, merge, or reassign private mailbox data. Repair the ownership records locally from a backup before retrying.</p>
+						</div>
+					}
+					<section aria-labelledby="review-owner-heading" class="rounded-xl border border-border bg-card p-6">
+						<h2 id="review-owner-heading" class="text-base font-semibold">Owner identity</h2>
+						if data.CreatesNewOwner {
+							<p class="mt-2 text-sm">Create a new active owner and administrator. A stable user ID will be generated inside the final transaction.</p>
+						} else {
+							<p class="mt-2 text-sm">Update user <code class="font-mono">{ data.TargetUserID }</code> in place, then make that same user active, owner, and administrator.</p>
+							<dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+								<div><dt class="text-xs text-muted-foreground">Current profile</dt><dd class="mt-1 break-words">{ data.CurrentName } · { data.CurrentUsername } · { data.CurrentEmail }</dd></div>
+								<div>
+									<dt class="text-xs text-muted-foreground">Current access</dt>
+									<dd class="mt-1">
+										{ data.CurrentStatus } ·
+										if data.CurrentIsAdmin {
+											administrator
+										} else {
+											standard user
+										}
+									</dd>
+								</div>
+							</dl>
+						}
+						<dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+							<div><dt class="text-xs text-muted-foreground">Reviewed name</dt><dd class="mt-1 break-words">{ data.OwnerName }</dd></div>
+							<div><dt class="text-xs text-muted-foreground">Username</dt><dd class="mt-1 break-all">{ data.OwnerUsername }</dd></div>
+							<div><dt class="text-xs text-muted-foreground">Email</dt><dd class="mt-1 break-all">{ data.OwnerEmail }</dd></div>
+						</dl>
+					</section>
+					<section aria-labelledby="review-security-heading" class="mt-4 rounded-xl border border-border bg-card p-6">
+						<h2 id="review-security-heading" class="text-base font-semibold">Prepared security</h2>
+						<ul class="mt-3 space-y-2 text-sm">
+							<li>Owner password prepared; { fmt.Sprintf("%d existing password credential(s) will be replaced", data.ExistingPasswordCredentials) }.</li>
+							<li>Authenticator verified; { fmt.Sprintf("%d active TOTP credential(s) will be replaced", data.ReplacedTOTPs) }.</li>
+							<li>Recovery batch acknowledged; { fmt.Sprintf("%d unused recovery code(s) will be replaced", data.ReplacedRecoveryCodes) }.</li>
+							<li>{ fmt.Sprintf("%d active passkey(s) and %d app-login identity record(s) remain attached to the same user", data.RetainedPasskeys, data.RetainedIdentities) }.</li>
+						</ul>
+						<p class="mt-3 text-xs text-muted-foreground">No password hash, authenticator seed, accepted code, recovery code, recovery hash, or batch identifier is displayed here.</p>
+					</section>
+					<section aria-labelledby="review-migration-heading" class="mt-4 rounded-xl border border-border bg-card p-6">
+						<h2 id="review-migration-heading" class="text-base font-semibold">Migration impact</h2>
+						if data.ClaimsLegacyDefault {
+							<p class="mt-2 text-sm">Claim the legacy <code class="font-mono">default</code> user in place. Its stable ID and all attached resources remain unchanged.</p>
+						} else if data.ClaimsExistingUser {
+							<p class="mt-2 text-sm">Claim the selected existing user in place. Other users and every resource attached to their IDs remain unchanged.</p>
+						} else if data.ExistingUserCount > 0 {
+							<p class="mt-2 text-sm">Add a new owner. All existing users and resources remain attached to their current IDs.</p>
+						} else {
+							<p class="mt-2 text-sm">Initialize a fresh owner without creating or claiming a synthetic default user.</p>
+						}
+						<ul class="mt-3 space-y-2 text-sm">
+							<li>{ fmt.Sprintf("%d mail account record(s) exist; %d are attached to valid user IDs and remain there", data.TotalMailboxCount, data.TotalMailboxCount-data.UnassignedMailboxCount) }.</li>
+							if data.UnassignedMailboxCount > 0 {
+								<li class="text-destructive">{ fmt.Sprintf("%d mail account(s) have no valid user owner and block completion", data.UnassignedMailboxCount) }.</li>
+							}
+							if !data.CreatesNewOwner {
+								<li>{ fmt.Sprintf("%d mail account(s) are already attached to the selected owner ID", data.TargetMailboxCount) }.</li>
+							}
+							<li>{ fmt.Sprintf("%d currently unrevoked session(s) across the instance will be revoked at cutover", data.UnrevokedSessionCount) }.</li>
+							if data.TargetLegacySessions > 0 {
+								<li>{ fmt.Sprintf("The selected user has %d legacy session record(s)", data.TargetLegacySessions) }.</li>
+							}
+						</ul>
+					</section>
+					<div role="status" aria-live="polite" class="mt-4 rounded-xl border border-info/25 bg-info/10 p-5">
+						<p class="text-sm font-medium">Review only — nothing has been committed</p>
+						<p class="mt-1 text-xs text-muted-foreground">Authentication remains uninitialized, the setup token remains active, and no user, credential, role, session, event, or ownership row has changed. Final completion will be added as one atomic transaction.</p>
+					</div>
+					<a href="/setup/recovery" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to recovery codes</a>
 				</div>
 			</main>
 		</body>

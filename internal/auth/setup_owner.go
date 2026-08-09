@@ -46,15 +46,20 @@ const (
 )
 
 type SetupOwnerCandidate struct {
-	ID             string
-	Email          string
-	Username       string
-	Name           string
-	Status         UserStatus
-	IsAdmin        bool
-	MailboxCount   int64
-	LegacySessions int64
-	updatedAt      time.Time
+	ID                      string
+	Email                   string
+	Username                string
+	Name                    string
+	Status                  UserStatus
+	IsAdmin                 bool
+	MailboxCount            int64
+	LegacySessions          int64
+	PasswordCredentialCount int64
+	ActivePasskeyCount      int64
+	ActiveTOTPCount         int64
+	IdentityCount           int64
+	ActiveRecoveryCodeCount int64
+	updatedAt               time.Time
 }
 
 type SetupOwnerTopology struct {
@@ -356,11 +361,9 @@ type setupOwnerQuerier interface {
 }
 
 type setupOwnerCandidateRecord struct {
-	candidate                  SetupOwnerCandidate
-	emailNormalized            string
-	usernameNormalized         string
-	passwords, passkeys, totps int64
-	identities                 int64
+	candidate          SetupOwnerCandidate
+	emailNormalized    string
+	usernameNormalized string
 }
 
 type setupOwnerFingerprintRecord struct {
@@ -372,6 +375,7 @@ type setupOwnerFingerprintRecord struct {
 	Passkeys           int64               `json:"passkeys"`
 	TOTPs              int64               `json:"totps"`
 	Identities         int64               `json:"identities"`
+	RecoveryCodes      int64               `json:"recovery_codes"`
 }
 
 func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (SetupOwnerTopology, error) {
@@ -384,7 +388,8 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 		       (SELECT COUNT(*) FROM password_credentials WHERE password_credentials.user_id = users.id),
 		       (SELECT COUNT(*) FROM webauthn_credentials WHERE webauthn_credentials.user_id = users.id AND webauthn_credentials.revoked_at IS NULL),
 		       (SELECT COUNT(*) FROM totp_credentials WHERE totp_credentials.user_id = users.id AND totp_credentials.revoked_at IS NULL),
-		       (SELECT COUNT(*) FROM auth_identities WHERE auth_identities.user_id = users.id)
+		       (SELECT COUNT(*) FROM auth_identities WHERE auth_identities.user_id = users.id),
+		       (SELECT COUNT(*) FROM recovery_codes WHERE recovery_codes.user_id = users.id AND recovery_codes.used_at IS NULL AND recovery_codes.revoked_at IS NULL)
 		FROM users
 		ORDER BY lower(trim(COALESCE(users.username, users.email))), users.id
 		LIMIT ?`, maximumSetupOwnerCandidates+1)
@@ -402,7 +407,9 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 			&record.candidate.Username, &record.usernameNormalized, &record.candidate.Name,
 			&record.candidate.Status, &isAdmin, &record.candidate.updatedAt,
 			&record.candidate.MailboxCount, &record.candidate.LegacySessions,
-			&record.passwords, &record.passkeys, &record.totps, &record.identities,
+			&record.candidate.PasswordCredentialCount, &record.candidate.ActivePasskeyCount,
+			&record.candidate.ActiveTOTPCount, &record.candidate.IdentityCount,
+			&record.candidate.ActiveRecoveryCodeCount,
 		); err != nil {
 			return SetupOwnerTopology{}, fmt.Errorf("scan setup owner candidate: %w", err)
 		}
@@ -441,7 +448,9 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 		fingerprintRecords = append(fingerprintRecords, setupOwnerFingerprintRecord{
 			Candidate: record.candidate, EmailNormalized: record.emailNormalized,
 			UsernameNormalized: record.usernameNormalized, UpdatedAt: record.candidate.updatedAt,
-			Passwords: record.passwords, Passkeys: record.passkeys, TOTPs: record.totps, Identities: record.identities,
+			Passwords: record.candidate.PasswordCredentialCount, Passkeys: record.candidate.ActivePasskeyCount,
+			TOTPs: record.candidate.ActiveTOTPCount, Identities: record.candidate.IdentityCount,
+			RecoveryCodes: record.candidate.ActiveRecoveryCodeCount,
 		})
 	}
 	fingerprintPayload, err := json.Marshal(fingerprintRecords)
@@ -458,7 +467,9 @@ func isLegacyDefaultOwnerCandidate(record setupOwnerCandidateRecord) bool {
 		normalizeLoginIdentifier(record.candidate.Email) == "local@gofer.local" &&
 		strings.TrimSpace(record.candidate.Username) == "" &&
 		strings.TrimSpace(record.candidate.Name) == "Local User" &&
-		record.passwords == 0 && record.passkeys == 0 && record.totps == 0 && record.identities == 0
+		record.candidate.PasswordCredentialCount == 0 && record.candidate.ActivePasskeyCount == 0 &&
+		record.candidate.ActiveTOTPCount == 0 && record.candidate.IdentityCount == 0 &&
+		record.candidate.ActiveRecoveryCodeCount == 0
 }
 
 func validateSetupOwnerTarget(topology SetupOwnerTopology, mode SetupOwnerMode, targetUserID string) error {

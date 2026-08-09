@@ -214,6 +214,78 @@ func TestSetupRecoveryAcknowledgedPageHidesBatchAndCodes(t *testing.T) {
 	}
 }
 
+func TestSetupReviewPageIsAccessibleLocalReadOnlyAndEscapesIdentity(t *testing.T) {
+	var output bytes.Buffer
+	message := `<script>alert("review")</script>`
+	if err := SetupReviewPage(SetupReviewData{
+		TopologyKind: "existing", Mode: "existing", TargetUserID: "existing-user",
+		CurrentName: "Current Person", CurrentUsername: "current", CurrentEmail: "current@example.com",
+		CurrentStatus: "disabled", CurrentIsAdmin: false,
+		OwnerName: message, OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+		ExistingUserCount: 2, TotalMailboxCount: 3, TargetMailboxCount: 2,
+		UnrevokedSessionCount: 4, TargetLegacySessions: 1,
+		ExistingPasswordCredentials: 1, RetainedPasskeys: 2, ReplacedTOTPs: 1,
+		RetainedIdentities: 1, ReplacedRecoveryCodes: 8, ClaimsExistingUser: true,
+	}).Render(t.Context(), &output); err != nil {
+		t.Fatalf("SetupReviewPage.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Review owner setup", `aria-labelledby="review-owner-heading"`,
+		`aria-labelledby="review-security-heading"`, `aria-labelledby="review-migration-heading"`,
+		"existing-user", "Current Person", "disabled", "standard user", `&lt;script&gt;alert`,
+		"1 existing password credential(s) will be replaced",
+		"1 active TOTP credential(s) will be replaced",
+		"8 unused recovery code(s) will be replaced",
+		"2 active passkey(s) and 1 app-login identity record(s) remain attached",
+		"Claim the selected existing user in place", "3 mail account record(s) exist; 3 are attached to valid user IDs",
+		"2 mail account(s) are already attached", "4 currently unrevoked session(s)",
+		"1 legacy session record(s)", "Review only — nothing has been committed",
+		`role="status"`, `aria-live="polite"`, `href="/setup/recovery"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("setup review page missing %q", want)
+		}
+	}
+	if strings.Contains(html, message) || strings.Contains(html, `<form`) || strings.Contains(html, `name="batch_id"`) ||
+		strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || strings.Contains(html, "https://") {
+		t.Fatal("setup review page rendered unsafe, remote, or mutating content")
+	}
+}
+
+func TestSetupReviewFreshAndBlockedImpactAreExplicit(t *testing.T) {
+	var fresh bytes.Buffer
+	if err := SetupReviewPage(SetupReviewData{
+		TopologyKind: "fresh", Mode: "create", CreatesNewOwner: true,
+		OwnerName: "Owner", OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+	}).Render(t.Context(), &fresh); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Create a new active owner and administrator", "stable user ID will be generated inside the final transaction",
+		"Initialize a fresh owner without creating or claiming a synthetic default user",
+	} {
+		if !strings.Contains(fresh.String(), want) {
+			t.Fatalf("fresh setup review missing %q", want)
+		}
+	}
+
+	var blocked bytes.Buffer
+	if err := SetupReviewPage(SetupReviewData{
+		CreatesNewOwner: true, OwnerName: "Owner", OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+		UnassignedMailboxCount: 1, BlockedMessage: "One mailbox has no valid owner.",
+	}).Render(t.Context(), &blocked); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Setup completion is blocked", "One mailbox has no valid owner", "1 mail account(s) have no valid user owner", "will not guess, delete, merge, or reassign",
+	} {
+		if !strings.Contains(blocked.String(), want) {
+			t.Fatalf("blocked setup review missing %q", want)
+		}
+	}
+}
+
 func TestSetupOwnerLegacyPageExplainsInPlaceClaim(t *testing.T) {
 	var output bytes.Buffer
 	if err := SetupOwnerPage(SetupOwnerData{
