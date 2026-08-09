@@ -15,6 +15,7 @@ import (
 
 const (
 	loginThrottleAction           = "local_password_login"
+	totpLoginThrottleAction       = "local_totp_login"
 	loginThrottleCleanupBatchSize = 500
 	minimumBucketHashKeyBytes     = 32
 )
@@ -64,6 +65,7 @@ type LoginThrottleDecision struct {
 
 type loginThrottleBucket struct {
 	hash   string
+	action string
 	policy loginThrottlePolicy
 }
 
@@ -75,6 +77,10 @@ func (m *Manager) CheckLoginThrottle(ctx context.Context, identifier, source str
 	if err != nil {
 		return LoginThrottleDecision{}, err
 	}
+	return m.checkLoginThrottleBuckets(ctx, buckets)
+}
+
+func (m *Manager) checkLoginThrottleBuckets(ctx context.Context, buckets []loginThrottleBucket) (LoginThrottleDecision, error) {
 	now := m.clock.Now().UTC()
 	tx, err := m.db.Read().BeginTx(ctx, nil)
 	if err != nil {
@@ -89,7 +95,7 @@ func (m *Manager) CheckLoginThrottle(ctx context.Context, identifier, source str
 		err := tx.QueryRowContext(ctx, `
 			SELECT blocked_until, expires_at
 			FROM auth_throttle
-			WHERE bucket_hash = ? AND action = ?`, bucket.hash, loginThrottleAction,
+			WHERE bucket_hash = ? AND action = ?`, bucket.hash, bucket.action,
 		).Scan(&blockedUntil, &expiresAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
@@ -117,9 +123,13 @@ func (m *Manager) RecordLoginFailure(ctx context.Context, identifier, source str
 	if err != nil {
 		return LoginThrottleDecision{}, err
 	}
+	return m.recordLoginThrottleBuckets(ctx, buckets)
+}
+
+func (m *Manager) recordLoginThrottleBuckets(ctx context.Context, buckets []loginThrottleBucket) (LoginThrottleDecision, error) {
 	now := m.clock.Now().UTC()
 	retryAt := time.Time{}
-	err = m.runSecurityTransition(ctx, SecurityTransitionLoginThrottle, func(tx *sql.Tx) error {
+	err := m.runSecurityTransition(ctx, SecurityTransitionLoginThrottle, func(tx *sql.Tx) error {
 		for _, bucket := range buckets {
 			blockedUntil, err := recordLoginThrottleFailure(ctx, tx, bucket, now)
 			if err != nil {
@@ -140,13 +150,17 @@ func (m *Manager) RecordLoginFailure(ctx context.Context, identifier, source str
 // RecordLoginSuccess clears only the identifier bucket. Shared source and
 // instance abuse history cannot be erased by presenting one valid credential.
 func (m *Manager) RecordLoginSuccess(ctx context.Context, identifier string) error {
-	bucketHash, err := m.loginThrottleBucketHash(loginThrottleBucketIdentifier, normalizeLoginIdentifier(identifier))
+	return m.clearLoginThrottleIdentifier(ctx, loginThrottleAction, normalizeLoginIdentifier(identifier))
+}
+
+func (m *Manager) clearLoginThrottleIdentifier(ctx context.Context, action, identifier string) error {
+	bucketHash, err := m.authenticationThrottleBucketHash(action, loginThrottleBucketIdentifier, identifier)
 	if err != nil {
 		return err
 	}
 	if _, err := m.db.Write().ExecContext(ctx,
 		`DELETE FROM auth_throttle WHERE bucket_hash = ? AND action = ?`,
-		bucketHash, loginThrottleAction,
+		bucketHash, action,
 	); err != nil {
 		return fmt.Errorf("clear successful login throttle bucket: %w", err)
 	}
@@ -171,22 +185,31 @@ func (m *Manager) CleanupExpiredLoginThrottle(ctx context.Context) error {
 }
 
 func (m *Manager) loginThrottleBuckets(identifier, source string) ([]loginThrottleBucket, error) {
+	return m.authenticationThrottleBuckets(loginThrottleAction, normalizeLoginIdentifier(identifier), source)
+}
+
+func (m *Manager) totpLoginThrottleBuckets(userID, source string) ([]loginThrottleBucket, error) {
+	return m.authenticationThrottleBuckets(totpLoginThrottleAction, strings.TrimSpace(userID), source)
+}
+
+func (m *Manager) authenticationThrottleBuckets(action, identifier, source string) ([]loginThrottleBucket, error) {
 	values := []struct {
 		kind  loginThrottleBucketKind
 		value string
 	}{
-		{kind: loginThrottleBucketIdentifier, value: normalizeLoginIdentifier(identifier)},
+		{kind: loginThrottleBucketIdentifier, value: identifier},
 		{kind: loginThrottleBucketSource, value: strings.TrimSpace(source)},
 		{kind: loginThrottleBucketInstance, value: "gofer"},
 	}
 	buckets := make([]loginThrottleBucket, 0, len(values))
 	for _, value := range values {
-		hash, err := m.loginThrottleBucketHash(value.kind, value.value)
+		hash, err := m.authenticationThrottleBucketHash(action, value.kind, value.value)
 		if err != nil {
 			return nil, err
 		}
 		buckets = append(buckets, loginThrottleBucket{
 			hash:   hash,
+			action: action,
 			policy: loginThrottlePolicies[value.kind],
 		})
 	}
@@ -194,11 +217,15 @@ func (m *Manager) loginThrottleBuckets(identifier, source string) ([]loginThrott
 }
 
 func (m *Manager) loginThrottleBucketHash(kind loginThrottleBucketKind, value string) (string, error) {
+	return m.authenticationThrottleBucketHash(loginThrottleAction, kind, value)
+}
+
+func (m *Manager) authenticationThrottleBucketHash(action string, kind loginThrottleBucketKind, value string) (string, error) {
 	if len(m.bucketHashKey) < minimumBucketHashKeyBytes {
 		return "", errors.New("login throttle bucket hash key must contain at least 32 bytes")
 	}
 	mac := hmac.New(sha256.New, m.bucketHashKey)
-	for _, part := range []string{"gofer-auth-throttle-v1", loginThrottleAction, string(kind), value} {
+	for _, part := range []string{"gofer-auth-throttle-v1", action, string(kind), value} {
 		var length [8]byte
 		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
 		_, _ = mac.Write(length[:])
@@ -214,7 +241,7 @@ func recordLoginThrottleFailure(ctx context.Context, tx *sql.Tx, bucket loginThr
 	err := tx.QueryRowContext(ctx, `
 		SELECT failure_count, first_attempt_at, blocked_until, expires_at
 		FROM auth_throttle
-		WHERE bucket_hash = ? AND action = ?`, bucket.hash, loginThrottleAction,
+		WHERE bucket_hash = ? AND action = ?`, bucket.hash, bucket.action,
 	).Scan(&failureCount, &firstAttemptAt, &blockedUntil, &expiresAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return time.Time{}, fmt.Errorf("read login throttle failure bucket: %w", err)
@@ -249,7 +276,7 @@ func recordLoginThrottleFailure(ctx context.Context, tx *sql.Tx, bucket loginThr
 			last_attempt_at = excluded.last_attempt_at,
 			blocked_until = excluded.blocked_until,
 			expires_at = excluded.expires_at`,
-		bucket.hash, loginThrottleAction, failureCount, firstAttemptAt,
+		bucket.hash, bucket.action, failureCount, firstAttemptAt,
 		now, nullableThrottleTime(nextBlockedUntil), expiresAt,
 	)
 	if err != nil {

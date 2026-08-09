@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/httpguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"golang.org/x/oauth2"
 )
@@ -190,8 +191,16 @@ func TestLocalLoginMFAContinuationNeverCreatesSession(t *testing.T) {
 	request.AddCookie(challengeCookie)
 	pageRecorder := httptest.NewRecorder()
 	handler.handleLoginMFA(pageRecorder, request)
-	if pageRecorder.Code != http.StatusOK || !strings.Contains(pageRecorder.Body.String(), "Additional verification required") || strings.Contains(pageRecorder.Body.String(), "https://") {
+	if pageRecorder.Code != http.StatusOK || !strings.Contains(pageRecorder.Body.String(), "Enter your authenticator code") ||
+		!strings.Contains(pageRecorder.Body.String(), `action="/login/mfa"`) || strings.Contains(pageRecorder.Body.String(), "https://") {
 		t.Fatalf("MFA continuation page = %d %q", pageRecorder.Code, pageRecorder.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/login/mfa?code=must-not-survive", nil)
+	request.AddCookie(challengeCookie)
+	queryRecorder := httptest.NewRecorder()
+	handler.handleLoginMFA(queryRecorder, request)
+	if queryRecorder.Code != http.StatusSeeOther || queryRecorder.Header().Get("Location") != "/login/mfa" || strings.Contains(queryRecorder.Body.String(), "must-not-survive") {
+		t.Fatalf("MFA query stripping = %d location:%q body:%q", queryRecorder.Code, queryRecorder.Header().Get("Location"), queryRecorder.Body.String())
 	}
 }
 
@@ -214,6 +223,169 @@ func TestLocalLoginMFAContinuationRequiresCookie(t *testing.T) {
 	handler.handleLoginMFA(recorder, request)
 	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login" {
 		t.Fatalf("forged MFA cookie response = %d %q", recorder.Code, recorder.Header().Get("Location"))
+	}
+}
+
+func TestLocalLoginTOTPContinuationCreatesMultiFactorSession(t *testing.T) {
+	manager, _, stack, setupCookie := prepareHandlerSetupReview(t)
+	state, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || state == nil || state.Draft == nil || state.Draft.TOTPSecret == "" {
+		t.Fatalf("prepared setup state = %#v, %v", state, err)
+	}
+	secret := state.Draft.TOTPSecret
+	completed := postSetupReview(stack, setupCookie, url.Values{"action": {"complete"}})
+	if completed.Code != http.StatusSeeOther {
+		t.Fatalf("setup completion prerequisite = %d %q", completed.Code, completed.Body.String())
+	}
+
+	returnCookieRecorder := httptest.NewRecorder()
+	auth.SetReturnToCookie(returnCookieRecorder, "/settings/advanced?from=mfa", true)
+	returnCookie := responseCookie(returnCookieRecorder, "gofer_auth_return_to", true)
+	loginForm := url.Values{
+		"identifier": {"owner"},
+		"password":   {"correct horse battery staple for owner"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(loginForm.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	request.Header.Set("User-Agent", "Owner MFA Browser/1.0")
+	request.RemoteAddr = "198.51.100.88:41412"
+	request.AddCookie(returnCookie)
+	password := httptest.NewRecorder()
+	stack.ServeHTTP(password, request)
+	if password.Code != http.StatusSeeOther || password.Header().Get("Location") != "/login/mfa" || responseCookie(password, "gofer_session", true) != nil {
+		t.Fatalf("password MFA start = %d location:%q cookies:%#v body:%q", password.Code, password.Header().Get("Location"), password.Result().Cookies(), password.Body.String())
+	}
+	challengeCookie := responseCookie(password, "gofer_pre_auth", true)
+	if challengeCookie == nil {
+		t.Fatal("password MFA start omitted challenge cookie")
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/login/mfa", nil)
+	request.AddCookie(challengeCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, request)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `action="/login/mfa"`) ||
+		!strings.Contains(page.Body.String(), `autocomplete="one-time-code"`) || strings.Contains(page.Body.String(), secret) {
+		t.Fatalf("TOTP continuation page = %d %q", page.Code, page.Body.String())
+	}
+
+	currentCode := setupHandlerTOTPCode(t, secret)
+	invalidCode := "0" + currentCode[1:]
+	if currentCode[0] == '0' {
+		invalidCode = "1" + currentCode[1:]
+	}
+	invalidForm := url.Values{"code": {invalidCode}}
+	request = httptest.NewRequest(http.MethodPost, "/login/mfa", strings.NewReader(invalidForm.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	request.RemoteAddr = "198.51.100.88:41412"
+	request.AddCookie(challengeCookie)
+	invalid := httptest.NewRecorder()
+	stack.ServeHTTP(invalid, request)
+	if invalid.Code != http.StatusUnauthorized || !strings.Contains(invalid.Body.String(), loginMFAFailureMessage) ||
+		responseCookie(invalid, "gofer_session", true) != nil || strings.Contains(invalid.Body.String(), invalidCode) {
+		t.Fatalf("invalid TOTP continuation = %d cookies:%#v body:%q", invalid.Code, invalid.Result().Cookies(), invalid.Body.String())
+	}
+
+	validCode := setupHandlerTOTPCodeAt(t, secret, time.Now().UTC().Add(30*time.Second))
+	validForm := url.Values{"code": {validCode}}
+	request = httptest.NewRequest(http.MethodPost, "/login/mfa", strings.NewReader(validForm.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	request.Header.Set("User-Agent", "Owner MFA Browser/1.0")
+	request.RemoteAddr = "198.51.100.88:41412"
+	request.AddCookie(challengeCookie)
+	request.AddCookie(returnCookie)
+	verified := httptest.NewRecorder()
+	stack.ServeHTTP(verified, request)
+	if verified.Code != http.StatusSeeOther || verified.Header().Get("Location") != "/settings/advanced?from=mfa" || strings.Contains(verified.Body.String(), validCode) {
+		t.Fatalf("verified TOTP continuation = %d location:%q body:%q", verified.Code, verified.Header().Get("Location"), verified.Body.String())
+	}
+	sessionCookie := responseCookie(verified, "gofer_session", true)
+	if sessionCookie == nil || !sessionCookie.HttpOnly || !sessionCookie.Secure || sessionCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("verified TOTP session cookie = %#v", sessionCookie)
+	}
+	if cleared := responseCookie(verified, "gofer_pre_auth", false); cleared == nil || cleared.MaxAge != -1 {
+		t.Fatalf("verified TOTP pre-auth cleanup = %#v", cleared)
+	}
+	if cleared := responseCookie(verified, "gofer_auth_return_to", false); cleared == nil || cleared.MaxAge != -1 {
+		t.Fatalf("verified TOTP return-target cleanup = %#v", cleared)
+	}
+	session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || session == nil || session.AuthenticationMethod != auth.AuthenticationMethodPassword ||
+		session.AssuranceLevel != auth.AssuranceLevelMultiFactor || session.StepUpAt == nil ||
+		session.StepUpMethod != auth.AuthenticationMethodTOTP || session.UserAgent != "Owner MFA Browser/1.0" {
+		t.Fatalf("verified TOTP session = %#v, %v", session, err)
+	}
+}
+
+func TestLocalLoginMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
+	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, true, false, true, false)
+	password := postLocalLogin(t, handler, "person", localLoginPassword)
+	challengeCookie := responseCookie(password, "gofer_pre_auth", true)
+	if challengeCookie == nil {
+		t.Fatal("MFA origin test omitted challenge cookie")
+	}
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://gofer.example")
+	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	guard, err := httpguard.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"code": {"123456"}}
+	request := httptest.NewRequest(http.MethodPost, "/login/mfa", strings.NewReader(form.Encode()))
+	request.Host = "gofer.example"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://attacker.example")
+	request.AddCookie(challengeCookie)
+	recorder := httptest.NewRecorder()
+	guard.Middleware(http.HandlerFunc(handler.handleLoginMFASubmit)).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") || strings.Contains(recorder.Body.String(), "123456") {
+		t.Fatalf("cross-origin TOTP submission = %d %q", recorder.Code, recorder.Body.String())
+	}
+	var attempts, sessions int
+	if err := db.Read().QueryRow(`SELECT attempts FROM auth_challenges`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 || sessions != 0 {
+		t.Fatalf("cross-origin TOTP mutation = attempts:%d sessions:%d", attempts, sessions)
+	}
+}
+
+func TestLocalLoginMFARejectsMissingCookieAndOversizedForm(t *testing.T) {
+	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, true, false, true, false)
+	request := httptest.NewRequest(http.MethodPost, "/login/mfa", strings.NewReader(url.Values{"code": {"123456"}}.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+	handler.handleLoginMFASubmit(recorder, request)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=mfa" || responseCookie(recorder, "gofer_session", true) != nil {
+		t.Fatalf("missing MFA cookie = %d location:%q cookies:%#v", recorder.Code, recorder.Header().Get("Location"), recorder.Result().Cookies())
+	}
+
+	password := postLocalLogin(t, handler, "person", localLoginPassword)
+	challengeCookie := responseCookie(password, "gofer_pre_auth", true)
+	request = httptest.NewRequest(http.MethodPost, "/login/mfa", io.LimitReader(strings.NewReader(strings.Repeat("x", loginMFAFormMaximumBytes+1)), loginMFAFormMaximumBytes+1))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(challengeCookie)
+	recorder = httptest.NewRecorder()
+	handler.handleLoginMFASubmit(recorder, request)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), loginMFAFailureMessage) || strings.Contains(recorder.Body.String(), strings.Repeat("x", 32)) {
+		t.Fatalf("oversized MFA form = %d %q", recorder.Code, recorder.Body.String())
+	}
+	var attempts, sessions int
+	if err := db.Read().QueryRow(`SELECT attempts FROM auth_challenges`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 || sessions != 0 {
+		t.Fatalf("oversized MFA mutation = attempts:%d sessions:%d", attempts, sessions)
 	}
 }
 

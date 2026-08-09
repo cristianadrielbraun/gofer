@@ -46,11 +46,21 @@ func TestLoginPageShowsGoogleOnlyWhenConfigured(t *testing.T) {
 
 func TestLoginMFAContinuationPageUsesOnlyLocalResources(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginMFAContinuationPage().Render(t.Context(), &output); err != nil {
+	if err := LoginMFAContinuationPage("That code is invalid.").Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginMFAContinuationPage().Render() error = %v", err)
 	}
 	html := output.String()
-	if !strings.Contains(html, "Additional verification required") || strings.Contains(html, "https://") {
-		t.Fatalf("MFA continuation page = %q", html)
+	for _, required := range []string{
+		"Enter your authenticator code", `method="post"`, `action="/login/mfa"`,
+		`name="code"`, `inputmode="numeric"`, `autocomplete="one-time-code"`,
+		`pattern="[0-9]{6}"`, `maxlength="6"`, `role="alert"`,
+		`aria-describedby="login-mfa-error"`, "Verify and sign in",
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("MFA continuation page missing %q: %q", required, html)
+		}
+	}
+	if strings.Contains(html, "https://") {
+		t.Fatalf("MFA continuation page loads a remote resource: %q", html)
 	}
 }

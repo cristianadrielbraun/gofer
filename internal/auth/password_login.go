@@ -257,6 +257,13 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		}
 
 		if challenge != nil {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?)
+				WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL`,
+				now, challenge.UserID, ChallengePurposeMFA,
+			); err != nil {
+				return fmt.Errorf("terminate replaced password MFA challenge: %w", err)
+			}
 			_, err := tx.ExecContext(ctx, `
 				INSERT INTO auth_challenges (
 					id, user_id, session_id, challenge_hash, nonce_hash, purpose,

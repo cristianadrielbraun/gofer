@@ -16,9 +16,11 @@ import (
 )
 
 const (
-	loginFormMaximumBytes = 8 << 10
-	loginFailureMessage   = "Unable to sign in with those credentials."
-	loginServiceMessage   = "Unable to sign in right now. Please try again."
+	loginFormMaximumBytes    = 8 << 10
+	loginMFAFormMaximumBytes = 4 << 10
+	loginFailureMessage      = "Unable to sign in with those credentials."
+	loginMFAFailureMessage   = "That authenticator code is invalid or has already been used."
+	loginServiceMessage      = "Unable to sign in right now. Please try again."
 )
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -100,6 +102,10 @@ func (h *Handler) handleLoginMFA(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+	if r.URL.RawQuery != "" {
+		http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+		return
+	}
 	token := auth.GetPreAuthToken(r)
 	challenge, err := h.auth.GetActivePreAuthChallenge(
 		r.Context(), token, auth.ChallengePurposeMFA, h.auth.Config().BaseURL,
@@ -115,7 +121,66 @@ func (h *Handler) handleLoginMFA(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	h.renderLoginMFAContinuationPage(w, r)
+	h.renderLoginMFAContinuationPage(w, r, http.StatusOK, "")
+}
+
+func (h *Handler) handleLoginMFASubmit(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsEnabled() {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, loginMFAFormMaximumBytes)
+	if err := r.ParseForm(); err != nil {
+		h.renderLoginMFAContinuationPage(w, r, http.StatusBadRequest, loginMFAFailureMessage)
+		return
+	}
+	session, err := h.auth.CompleteTOTPLogin(r.Context(), auth.TOTPLoginOptions{
+		Token:     auth.GetPreAuthToken(r),
+		Code:      r.PostFormValue("code"),
+		Origin:    h.auth.Config().BaseURL,
+		Source:    directLoginSource(r.RemoteAddr),
+		UserAgent: r.UserAgent(),
+	})
+	if err != nil {
+		var throttleError *auth.LoginThrottleError
+		var validationError *auth.TOTPLoginValidationError
+		switch {
+		case errors.As(err, &throttleError):
+			retrySeconds := int64((throttleError.RetryAfter + time.Second - 1) / time.Second)
+			if retrySeconds < 1 {
+				retrySeconds = 1
+			}
+			w.Header().Set("Retry-After", strconv.FormatInt(retrySeconds, 10))
+			h.renderLoginMFAContinuationPage(w, r, http.StatusTooManyRequests, loginMFAFailureMessage)
+		case errors.As(err, &validationError) && !validationError.Terminal:
+			h.renderLoginMFAContinuationPage(w, r, http.StatusUnauthorized, loginMFAFailureMessage)
+		case errors.Is(err, auth.ErrTOTPLoginChallengeInvalid), errors.As(err, &validationError):
+			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, "/login?error=mfa", http.StatusSeeOther)
+		default:
+			log.Printf("complete password TOTP login: %v", err)
+			h.renderLoginMFAContinuationPage(w, r, http.StatusInternalServerError, loginServiceMessage)
+		}
+		return
+	}
+	if session == nil {
+		log.Printf("password TOTP login returned no session")
+		h.renderLoginMFAContinuationPage(w, r, http.StatusInternalServerError, loginServiceMessage)
+		return
+	}
+
+	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+	auth.SetSessionCookie(w, session.Token, h.auth.Config().SecureCookies)
+	returnTo := auth.GetReturnTo(r)
+	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status int, message, identifier string) {
@@ -131,16 +196,16 @@ func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status
 	_, _ = page.WriteTo(w)
 }
 
-func (h *Handler) renderLoginMFAContinuationPage(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) renderLoginMFAContinuationPage(w http.ResponseWriter, r *http.Request, status int, message string) {
 	var page bytes.Buffer
-	if err := views.LoginMFAContinuationPage().Render(r.Context(), &page); err != nil {
+	if err := views.LoginMFAContinuationPage(message).Render(r.Context(), &page); err != nil {
 		log.Printf("render password MFA continuation page: %v", err)
 		http.Error(w, "failed to render additional verification page", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	_, _ = page.WriteTo(w)
 }
 

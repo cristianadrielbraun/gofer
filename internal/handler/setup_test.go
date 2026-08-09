@@ -166,8 +166,12 @@ func prepareHandlerSetupReview(t *testing.T) (*auth.Manager, *storage.DB, http.H
 }
 
 func setupHandlerTOTPCode(t *testing.T, secret string) string {
+	return setupHandlerTOTPCodeAt(t, secret, time.Now().UTC())
+}
+
+func setupHandlerTOTPCodeAt(t *testing.T, secret string, at time.Time) string {
 	t.Helper()
-	code, err := totp.GenerateCodeCustom(secret, time.Now().UTC(), totp.ValidateOpts{
+	code, err := totp.GenerateCodeCustom(secret, at, totp.ValidateOpts{
 		Period: 30, Skew: 0, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
 	})
 	if err != nil {

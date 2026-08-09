@@ -266,6 +266,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("POST /login", h.handleLoginSubmit)
 	mux.HandleFunc("GET /login/mfa", h.handleLoginMFA)
+	mux.HandleFunc("POST /login/mfa", h.handleLoginMFASubmit)
 	mux.HandleFunc("GET /setup", h.handleSetup)
 	mux.HandleFunc("POST /setup", h.handleSetupSubmit)
 	mux.HandleFunc("GET /setup/owner", h.handleSetupOwner)

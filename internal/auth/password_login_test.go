@@ -255,6 +255,45 @@ func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
 	}
 }
 
+func TestAuthenticatePasswordReplacesPriorMFAContinuation(t *testing.T) {
+	now := time.Date(2026, time.August, 5, 20, 30, 0, 0, time.UTC)
+	clock := &fixedClock{now: now}
+	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{
+		ids:    []string{"first-challenge", "second-challenge"},
+		tokens: []string{"first-token", "second-token"},
+	})
+	insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", UserStatusActive, true, false, false, currentPasswordLoginHash(t), now)
+	first, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
+		Identifier: "person", Password: passwordLoginTestPassword, Source: "198.51.100.42",
+	})
+	if err != nil || first == nil || first.PreAuthChallenge == nil {
+		t.Fatalf("first MFA continuation = %#v, %v", first, err)
+	}
+	clock.now = clock.now.Add(time.Second)
+	second, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
+		Identifier: "person", Password: passwordLoginTestPassword, Source: "198.51.100.42",
+	})
+	if err != nil || second == nil || second.PreAuthChallenge == nil {
+		t.Fatalf("replacement MFA continuation = %#v, %v", second, err)
+	}
+	if active, err := manager.GetActivePreAuthChallenge(t.Context(), first.PreAuthChallenge.Token, ChallengePurposeMFA, "https://gofer.example"); err != nil || active != nil {
+		t.Fatalf("replaced MFA continuation remained active = %#v, %v", active, err)
+	}
+	if active, err := manager.GetActivePreAuthChallenge(t.Context(), second.PreAuthChallenge.Token, ChallengePurposeMFA, "https://gofer.example"); err != nil || active == nil || active.ID != "second-challenge" {
+		t.Fatalf("replacement MFA continuation = %#v, %v", active, err)
+	}
+	var activeChallenges, consumedChallenges int
+	if err := manager.db.Read().QueryRow(`SELECT COUNT(*) FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&activeChallenges); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRow(`SELECT COUNT(*) FROM auth_challenges WHERE consumed_at IS NOT NULL`).Scan(&consumedChallenges); err != nil {
+		t.Fatal(err)
+	}
+	if activeChallenges != 1 || consumedChallenges != 1 {
+		t.Fatalf("MFA challenge replacement = active:%d consumed:%d", activeChallenges, consumedChallenges)
+	}
+}
+
 func TestAuthenticatePasswordUpgradesStaleHash(t *testing.T) {
 	now := time.Date(2026, time.August, 5, 21, 0, 0, 0, time.UTC)
 	clock := &fixedClock{now: now}
