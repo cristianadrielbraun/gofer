@@ -190,6 +190,11 @@ func (m *Manager) CompleteSetup(ctx context.Context, options CompleteSetupOption
 		if err := tx.QueryRowContext(ctx, `SELECT auth_version FROM users WHERE id = ? AND status = 'active'`, ownerID).Scan(&authVersion); err != nil {
 			return fmt.Errorf("read setup owner authentication version: %w", err)
 		}
+		if _, err := m.requireAuthenticationAssurance(
+			ctx, tx, ownerID, authVersion, AssuranceLevelMultiFactor,
+		); err != nil {
+			return err
+		}
 		idleExpiresAt := now.Add(sessionIdleLifetime)
 		absoluteExpiresAt := now.Add(sessionAbsoluteLifetime)
 		if idleExpiresAt.After(absoluteExpiresAt) {

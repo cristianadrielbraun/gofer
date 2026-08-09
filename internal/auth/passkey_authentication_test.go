@@ -185,12 +185,20 @@ func TestPasskeyLoginSupportsIdentifierAndDiscoverableAssertions(t *testing.T) {
 		name         string
 		identifier   string
 		discoverable bool
+		requireMFA   bool
 	}{
-		{name: "identifier first", identifier: " PASSKEY-LOGIN-USER@EXAMPLE.COM "},
+		{name: "identifier first with required MFA", identifier: " PASSKEY-LOGIN-USER@EXAMPLE.COM ", requireMFA: true},
 		{name: "discoverable", discoverable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newPasskeyAuthenticationFixture(t, 7)
+			if test.requireMFA {
+				if _, err := fixture.manager.db.Write().ExecContext(t.Context(), `
+					UPDATE users SET mfa_required = 1 WHERE id = ?`, fixture.userID,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
 			started, err := fixture.manager.StartPasskeyLogin(
 				t.Context(), test.identifier, "https://GOFER.example:443/", "198.51.100.20",
 			)

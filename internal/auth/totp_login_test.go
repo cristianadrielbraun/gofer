@@ -46,13 +46,25 @@ func prepareTOTPLoginManager(t *testing.T, now time.Time, tokens TokenGenerator)
 
 func insertTOTPLoginChallenge(t *testing.T, manager *Manager, id, token string, now time.Time, maxAttempts int) {
 	t.Helper()
+	challenge := &PreAuthChallenge{
+		ID: id, Token: token, UserID: totpLoginTestUserID,
+		Purpose: ChallengePurposeMFA, Origin: totpLoginTestOrigin,
+		MaxAttempts: maxAttempts, CreatedAt: now, ExpiresAt: now.Add(10 * time.Minute),
+	}
+	payload, err := manager.encryptMFAContinuationDraft(challenge, &mfaContinuationDraft{
+		Version: mfaContinuationDraftVersion, AuthVersion: 1,
+		PrimaryMethod: AuthenticationMethodPassword, PrimaryAssurance: AssuranceLevelSingleFactor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO auth_challenges (
 			id, user_id, challenge_hash, purpose, origin, attempts,
-			max_attempts, created_at, expires_at
-		) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+			max_attempts, payload_ciphertext, created_at, expires_at
+		) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
 		id, totpLoginTestUserID, hashToken(token), ChallengePurposeMFA,
-		totpLoginTestOrigin, maxAttempts, now, now.Add(10*time.Minute),
+		totpLoginTestOrigin, maxAttempts, payload, now, now.Add(10*time.Minute),
 	); err != nil {
 		t.Fatal(err)
 	}

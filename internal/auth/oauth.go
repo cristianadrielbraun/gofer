@@ -227,7 +227,7 @@ func microsoftAudienceMatches(audience any, clientID string) bool {
 	return false
 }
 
-func (m *Manager) HandleGoogleCallback(ctx context.Context, code string, userAgent string) (*User, *Session, error) {
+func (m *Manager) HandleGoogleCallback(ctx context.Context, code string, userAgent string) (*User, *PrimaryAuthenticationResult, error) {
 	token, err := m.ExchangeCode(ctx, code)
 	if err != nil {
 		return nil, nil, err
@@ -262,12 +262,14 @@ func (m *Manager) HandleGoogleCallback(ctx context.Context, code string, userAge
 		return nil, nil, fmt.Errorf("gmail auto-setup: %w", err)
 	}
 
-	session, err := m.CreateSession(ctx, user.ID, userAgent)
+	result, err := m.completeFederatedPrimaryAuthentication(
+		ctx, user.ID, userAgent, AuthenticationMethodFederatedGoogle,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return user, session, nil
+	return user, result, nil
 }
 
 func (m *Manager) autoSetupGmail(ctx context.Context, userID, email, displayName, providerAccountID string) error {

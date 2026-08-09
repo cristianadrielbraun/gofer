@@ -37,7 +37,7 @@ func insertEnrollmentStepUpSession(t *testing.T, manager *Manager, userID string
 			id, user_id, token_hash, auth_version, authentication_method,
 			assurance_level, user_agent, authenticated_at, last_used_at,
 			idle_expires_at, absolute_expires_at, step_up_at, step_up_method, created_at
-		) VALUES (?, ?, ?, 1, 'password', 'single_factor', 'admin browser', ?, ?, ?, ?, ?, 'password', ?)`,
+		) VALUES (?, ?, ?, 1, 'password', 'multi_factor', 'admin browser', ?, ?, ?, ?, ?, 'totp', ?)`,
 		sessionID, userID, hashToken(sessionID+"-raw"), now, now,
 		now.Add(time.Hour), now.Add(24*time.Hour), stepUpAt, now,
 	); err != nil {
@@ -175,7 +175,7 @@ func TestIssueEnrollmentTokenEnforcesAdministratorPurposeAndLifetime(t *testing.
 	}); token != nil || !errors.Is(err, ErrRecentStepUpRequired) {
 		t.Fatalf("missing-step-up issuance = %#v, %v", token, err)
 	}
-	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, now.Add(-administratorStepUpMaximumAge-time.Second), adminSessionID); err != nil {
+	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, now.Add(-securityStepUpMaximumAge-time.Second), adminSessionID); err != nil {
 		t.Fatal(err)
 	}
 	if token, err := manager.IssueEnrollmentToken(t.Context(), IssueEnrollmentTokenOptions{

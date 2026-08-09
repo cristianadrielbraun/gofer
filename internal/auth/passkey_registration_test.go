@@ -65,6 +65,10 @@ func newPasskeyTestFixture(t *testing.T, isAdmin bool) *passkeyTestFixture {
 		IdleExpiresAt: now.Add(time.Hour), AbsoluteExpiresAt: now.Add(24 * time.Hour),
 		StepUpAt: &now, StepUpMethod: AuthenticationMethodPassword, CreatedAt: now,
 	}
+	if isAdmin {
+		session.AssuranceLevel = AssuranceLevelMultiFactor
+		session.StepUpMethod = AuthenticationMethodTOTP
+	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO sessions (
 			id, user_id, token_hash, auth_version, authentication_method, assurance_level,

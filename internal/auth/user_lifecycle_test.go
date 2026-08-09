@@ -34,9 +34,11 @@ func TestUserLifecycleUsesNormalizedIdentifiersAndRevokesSessions(t *testing.T) 
 	if err != nil || found == nil || found.ID != user.ID || found.EmailNormalized != "person@example.com" {
 		t.Fatalf("normalized lookup = %#v, %v", found, err)
 	}
-	session, err := manager.CreateSession(t.Context(), user.ID, "test-agent")
+	session, err := manager.CreateAuthenticatedSession(
+		t.Context(), user.ID, "test-agent", AuthenticationMethodPassword, AssuranceLevelMultiFactor,
+	)
 	if err != nil {
-		t.Fatalf("CreateSession() error = %v", err)
+		t.Fatalf("CreateAuthenticatedSession() error = %v", err)
 	}
 	if err := manager.SetUserStatus(t.Context(), user.ID, UserStatusDisabled, admin.ID); err != nil {
 		t.Fatalf("SetUserStatus(disabled) error = %v", err)
@@ -74,9 +76,9 @@ func TestMiddlewareRejectsDisabledUserWithExistingSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrUpdateUser() error = %v", err)
 	}
-	session, err := manager.CreateSession(t.Context(), user.ID, "test-agent")
+	session, err := manager.CreateAuthenticatedSession(t.Context(), user.ID, "test-agent", AuthenticationMethodPassword, AssuranceLevelMultiFactor)
 	if err != nil {
-		t.Fatalf("CreateSession() error = %v", err)
+		t.Fatalf("CreateAuthenticatedSession() error = %v", err)
 	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET status = 'disabled', disabled_at = CURRENT_TIMESTAMP WHERE id = ?`, user.ID); err != nil {
 		t.Fatalf("disable user directly: %v", err)

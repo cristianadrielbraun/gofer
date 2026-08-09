@@ -42,7 +42,7 @@ func enrollmentRedemptionStack(t *testing.T, status auth.UserStatus, purpose aut
 	if err != nil {
 		t.Fatalf("CreateAuthenticatedSession(admin) error = %v", err)
 	}
-	if steppedUp, err := manager.RecordSessionStepUp(t.Context(), "admin", adminSession.ID, auth.AuthenticationMethodPassword); err != nil || !steppedUp {
+	if steppedUp, err := manager.RecordSessionStepUp(t.Context(), "admin", adminSession.ID, auth.AuthenticationMethodTOTP); err != nil || !steppedUp {
 		t.Fatalf("RecordSessionStepUp(admin) = %t, %v", steppedUp, err)
 	}
 	token, err := manager.IssueEnrollmentToken(t.Context(), auth.IssueEnrollmentTokenOptions{

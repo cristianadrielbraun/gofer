@@ -5803,14 +5803,30 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, session, err := h.auth.HandleGoogleCallback(r.Context(), code, r.UserAgent())
+	user, result, err := h.auth.HandleGoogleCallback(r.Context(), code, r.UserAgent())
 	if err != nil {
 		http.Redirect(w, r, "/login?error=auth_failed", http.StatusSeeOther)
 		return
 	}
 
 	_ = user
-	auth.SetSessionCookie(w, session.Token, h.auth.Config().SecureCookies)
+	if result == nil || (result.Session == nil) == (result.PreAuthChallenge == nil) {
+		http.Redirect(w, r, "/login?error=auth_failed", http.StatusSeeOther)
+		return
+	}
+	if result.PreAuthChallenge != nil {
+		challenge := result.PreAuthChallenge
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
+		auth.SetPreAuthCookie(
+			w, challenge.Token, h.auth.Config().SecureCookies,
+			challenge.ExpiresAt.Sub(challenge.CreatedAt),
+		)
+		http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+		return
+	}
+	auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
+	auth.SetSessionCookie(w, result.Session.Token, h.auth.Config().SecureCookies)
 	returnTo := auth.GetReturnTo(r)
 	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
 	if returnTo == "" {

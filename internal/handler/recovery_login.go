@@ -262,6 +262,12 @@ func (h *Handler) handleRecoveryRepairCodesSubmit(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) hasLoginChallenge(r *http.Request, purpose auth.ChallengePurpose) (bool, error) {
+	if purpose == auth.ChallengePurposeMFA {
+		challenge, err := h.auth.GetActiveMFAChallenge(
+			r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL,
+		)
+		return challenge != nil, err
+	}
 	challenge, err := h.auth.GetActivePreAuthChallenge(
 		r.Context(), auth.GetPreAuthToken(r), purpose, h.auth.Config().BaseURL,
 	)

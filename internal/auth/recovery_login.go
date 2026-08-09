@@ -50,13 +50,15 @@ type RecoveryCodeLoginOptions struct {
 }
 
 type RecoveryRepairDraft struct {
-	AuthVersion        int64    `json:"auth_version"`
-	OriginalTOTP       string   `json:"original_totp"`
-	UsedRecoveryCode   string   `json:"used_recovery_code"`
-	TOTPSecret         string   `json:"totp_secret"`
-	TOTPConfirmedStep  *int64   `json:"totp_confirmed_step,omitempty"`
-	RecoveryBatchID    string   `json:"recovery_batch_id,omitempty"`
-	RecoveryCodeHashes []string `json:"recovery_code_hashes,omitempty"`
+	AuthVersion        int64                `json:"auth_version"`
+	PrimaryMethod      AuthenticationMethod `json:"primary_method"`
+	PrimaryAssurance   AssuranceLevel       `json:"primary_assurance"`
+	OriginalTOTP       string               `json:"original_totp"`
+	UsedRecoveryCode   string               `json:"used_recovery_code"`
+	TOTPSecret         string               `json:"totp_secret"`
+	TOTPConfirmedStep  *int64               `json:"totp_confirmed_step,omitempty"`
+	RecoveryBatchID    string               `json:"recovery_batch_id,omitempty"`
+	RecoveryCodeHashes []string             `json:"recovery_code_hashes,omitempty"`
 }
 
 type RecoveryRepairState struct {
@@ -89,7 +91,7 @@ type CompleteRecoveryRepairOptions struct {
 }
 
 // StartRecoveryCodeRepair atomically consumes one recovery code and rotates
-// the password-MFA challenge into a restricted recovery challenge. It never
+// the primary MFA challenge into a restricted recovery challenge. It never
 // creates a full session or changes the active authenticator.
 func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryCodeLoginOptions) (*PreAuthChallenge, error) {
 	token := strings.TrimSpace(options.Token)
@@ -98,11 +100,8 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 		return nil, ErrRecoveryCodeLoginChallengeInvalid
 	}
 	now := m.clock.Now().UTC()
-	preflight, err := m.GetActivePreAuthChallenge(ctx, token, ChallengePurposeMFA, canonicalOrigin)
-	if err != nil {
-		return nil, err
-	}
-	if preflight == nil || strings.TrimSpace(preflight.UserID) == "" || preflight.SessionID != "" {
+	preflight, primary, err := m.readMFAContinuation(ctx, token, canonicalOrigin)
+	if err != nil || preflight == nil || strings.TrimSpace(preflight.UserID) == "" || preflight.SessionID != "" {
 		return nil, ErrRecoveryCodeLoginChallengeInvalid
 	}
 
@@ -131,37 +130,46 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 		return nil, err
 	}
 	userAgent := boundedUserAgent(options.UserAgent)
+	rejectedMetadata, err := mfaFactorEventMetadata("recovery_code", primary.PrimaryMethod, false)
+	if err != nil {
+		return nil, err
+	}
+	acceptedMetadata, err := mfaFactorEventMetadata("recovery_code", primary.PrimaryMethod, true)
+	if err != nil {
+		return nil, err
+	}
 
 	var repair *PreAuthChallenge
 	invalid := false
 	terminal := false
 	retryAt := time.Time{}
 	err = m.runSecurityTransition(ctx, SecurityTransitionRecovery, func(tx *sql.Tx) error {
-		var challengeID, userID, emailNormalized, totpID string
-		var attempts, maxAttempts int
+		currentChallenge, currentPrimary, err := m.currentMFAContinuation(ctx, tx, token, canonicalOrigin, now)
+		if err != nil || currentChallenge.ID != preflight.ID || !sameMFAContinuationDraft(currentPrimary, primary) {
+			return ErrRecoveryCodeLoginChallengeInvalid
+		}
+		var emailNormalized, totpID string
+		var mfaRequired, isAdmin int
 		var authVersion int64
-		err := tx.QueryRowContext(ctx, `
-			SELECT c.id, c.user_id, c.attempts, c.max_attempts,
-			       u.auth_version,
+		err = tx.QueryRowContext(ctx, `
+			SELECT u.auth_version, u.mfa_required, u.is_admin,
 			       COALESCE(NULLIF(u.email_normalized, ''), NULLIF(u.username_normalized, ''), u.id),
 			       t.id
-			FROM auth_challenges c
-			JOIN users u ON u.id = c.user_id
-			JOIN totp_credentials t ON t.user_id = c.user_id
-			WHERE c.challenge_hash = ? AND c.purpose = ? AND c.origin = ?
-			  AND c.session_id IS NULL AND c.consumed_at IS NULL
-			  AND c.expires_at > ? AND c.attempts < c.max_attempts
-			  AND u.status = 'active'
+			FROM users u
+			JOIN totp_credentials t ON t.user_id = u.id
+			WHERE u.id = ? AND u.status = 'active'
 			  AND t.enabled = 1 AND t.revoked_at IS NULL`,
-			hashToken(token), ChallengePurposeMFA, canonicalOrigin, now,
-		).Scan(&challengeID, &userID, &attempts, &maxAttempts, &authVersion, &emailNormalized, &totpID)
+			currentChallenge.UserID,
+		).Scan(&authVersion, &mfaRequired, &isAdmin, &emailNormalized, &totpID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}
 		if err != nil {
 			return fmt.Errorf("read recovery-code login state: %w", err)
 		}
-		if userID != preflight.UserID {
+		userID := currentChallenge.UserID
+		policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+		if userID != preflight.UserID || authVersion != primary.AuthVersion || !policy.RequiresMFA {
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}
 
@@ -183,11 +191,12 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			if err := tx.QueryRowContext(ctx, `
 				UPDATE auth_challenges
 				SET attempts = attempts + 1,
-				    consumed_at = CASE WHEN attempts + 1 >= max_attempts THEN ? ELSE NULL END
+				    consumed_at = CASE WHEN attempts + 1 >= max_attempts THEN ? ELSE NULL END,
+				    payload_ciphertext = CASE WHEN attempts + 1 >= max_attempts THEN NULL ELSE payload_ciphertext END
 				WHERE id = ? AND challenge_hash = ? AND purpose = ? AND origin = ?
 				  AND consumed_at IS NULL AND expires_at > ? AND attempts < max_attempts
 				RETURNING consumed_at`,
-				now, challengeID, hashToken(token), ChallengePurposeMFA, canonicalOrigin, now,
+				now, currentChallenge.ID, hashToken(token), ChallengePurposeMFA, canonicalOrigin, now,
 			).Scan(&consumedAt); errors.Is(err, sql.ErrNoRows) {
 				return ErrRecoveryCodeLoginChallengeInvalid
 			} else if err != nil {
@@ -207,9 +216,9 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 				INSERT INTO auth_events (
 					id, occurred_at, actor_user_id, subject_user_id, event_type,
 					success, reason, user_agent, source_hash, metadata_json
-				) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, ?, '{"factor":"recovery_code","primary":"password"}')`,
+				) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`,
 				eventID, now, userID, AuthEventLoginFailed, AuthEventReasonInvalidCredentials,
-				userAgent, sourceHash,
+				userAgent, sourceHash, rejectedMetadata,
 			); err != nil {
 				return fmt.Errorf("record rejected recovery-code event: %w", err)
 			}
@@ -242,7 +251,8 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			ExpiresAt: now.Add(recoveryRepairLifetime),
 		}
 		draft := &RecoveryRepairDraft{
-			AuthVersion: authVersion, OriginalTOTP: totpID,
+			AuthVersion: authVersion, PrimaryMethod: primary.PrimaryMethod,
+			PrimaryAssurance: primary.PrimaryAssurance, OriginalTOTP: totpID,
 			UsedRecoveryCode: recoveryCodeID, TOTPSecret: key.Secret(),
 		}
 		payload, err := m.encryptRecoveryRepairDraft(repair, draft)
@@ -250,14 +260,14 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?)
+			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
 			WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL`,
 			now, userID, ChallengePurposeMFA,
 		); err != nil {
 			return fmt.Errorf("terminate recovery-replaced MFA challenges: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?)
+			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
 			WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL`,
 			now, userID, ChallengePurposeRecovery,
 		); err != nil {
@@ -289,9 +299,9 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			INSERT INTO auth_events (
 				id, occurred_at, actor_user_id, subject_user_id, event_type,
 				success, reason, user_agent, source_hash, metadata_json
-			) VALUES (?, ?, NULL, ?, ?, 1, ?, ?, ?, '{"factor":"recovery_code","primary":"password","repair_required":true}')`,
+			) VALUES (?, ?, NULL, ?, ?, 1, ?, ?, ?, ?)`,
 			eventID, now, userID, AuthEventRecoveryUsed, AuthEventReasonPolicyRequired,
-			userAgent, sourceHash,
+			userAgent, sourceHash, acceptedMetadata,
 		); err != nil {
 			return fmt.Errorf("record recovery-code use event: %w", err)
 		}
@@ -550,6 +560,10 @@ func (m *Manager) CompleteRecoveryRepair(ctx context.Context, options CompleteRe
 	if err != nil {
 		return nil, err
 	}
+	loginMetadata := fmt.Sprintf(
+		`{"factor":"recovery_code","factor_repair":"completed","primary":%q}`,
+		preflight.PrimaryMethod,
+	)
 
 	var session *Session
 	err = m.runSecurityTransition(ctx, SecurityTransitionRecovery, func(tx *sql.Tx) error {
@@ -609,6 +623,15 @@ func (m *Manager) CompleteRecoveryRepair(ctx context.Context, options CompleteRe
 		} else if err != nil {
 			return fmt.Errorf("advance recovered user authentication version: %w", err)
 		}
+		policy, err := m.requireAuthenticationAssurance(
+			ctx, tx, currentChallenge.UserID, newAuthVersion, AssuranceLevelMultiFactor,
+		)
+		if err != nil || !policy.RequiresMFA {
+			if err != nil {
+				return err
+			}
+			return ErrRecoveryRepairStateChanged
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE sessions
 			SET revoked_at = ?, revoked_by = NULL, revocation_reason = ?
@@ -633,7 +656,7 @@ func (m *Manager) CompleteRecoveryRepair(ctx context.Context, options CompleteRe
 			return ErrRecoveryRepairInvalid
 		}
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?)
+			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
 			WHERE user_id = ? AND purpose IN (?, ?) AND consumed_at IS NULL`,
 			now, currentChallenge.UserID, ChallengePurposeMFA, ChallengePurposeRecovery,
 		); err != nil {
@@ -653,7 +676,7 @@ func (m *Manager) CompleteRecoveryRepair(ctx context.Context, options CompleteRe
 				created_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			sessionID, currentChallenge.UserID, hashToken(sessionToken), newAuthVersion,
-			AuthenticationMethodPassword, AssuranceLevelMultiFactor, userAgent,
+			draft.PrimaryMethod, AssuranceLevelMultiFactor, userAgent,
 			now, now, idleExpiresAt, absoluteExpiresAt, now, AuthenticationMethodRecoveryCode, now,
 		); err != nil {
 			return fmt.Errorf("insert recovery-repair session: %w", err)
@@ -673,17 +696,17 @@ func (m *Manager) CompleteRecoveryRepair(ctx context.Context, options CompleteRe
 			INSERT INTO auth_events (
 				id, occurred_at, actor_user_id, subject_user_id, session_id,
 				event_type, success, reason, user_agent, source_hash, metadata_json
-			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '{"factor":"recovery_code","factor_repair":"completed","primary":"password"}')`,
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
 			loginEventID, now, currentChallenge.UserID, currentChallenge.UserID,
 			sessionID, AuthEventLoginSucceeded, AuthEventReasonChallengeVerified,
-			userAgent, sourceHash,
+			userAgent, sourceHash, loginMetadata,
 		); err != nil {
 			return fmt.Errorf("record recovery-repair login event: %w", err)
 		}
 		stepUpAt := now
 		session = &Session{
 			ID: sessionID, UserID: currentChallenge.UserID, Token: sessionToken,
-			AuthVersion: newAuthVersion, AuthenticationMethod: AuthenticationMethodPassword,
+			AuthVersion: newAuthVersion, AuthenticationMethod: draft.PrimaryMethod,
 			AssuranceLevel: AssuranceLevelMultiFactor, UserAgent: userAgent,
 			AuthenticatedAt: now, LastUsedAt: now, IdleExpiresAt: idleExpiresAt,
 			AbsoluteExpiresAt: absoluteExpiresAt, StepUpAt: &stepUpAt,
@@ -734,7 +757,11 @@ func clearRecoveryRepairBatch(draft *RecoveryRepairDraft) {
 
 func validRecoveryRepairDraft(draft *RecoveryRepairDraft) bool {
 	if draft == nil || draft.AuthVersion < 1 || draft.OriginalTOTP == "" ||
-		draft.UsedRecoveryCode == "" || draft.TOTPSecret == "" {
+		draft.UsedRecoveryCode == "" || draft.TOTPSecret == "" ||
+		!validMFAContinuationDraft(&mfaContinuationDraft{
+			Version: mfaContinuationDraftVersion, AuthVersion: draft.AuthVersion,
+			PrimaryMethod: draft.PrimaryMethod, PrimaryAssurance: draft.PrimaryAssurance,
+		}) {
 		return false
 	}
 	if draft.RecoveryBatchID == "" {
@@ -760,6 +787,7 @@ func validRecoveryRepairDraft(draft *RecoveryRepairDraft) bool {
 func sameRecoveryRepairDraft(left, right *RecoveryRepairDraft) bool {
 	if !validRecoveryRepairDraft(left) || !validRecoveryRepairDraft(right) ||
 		left.AuthVersion != right.AuthVersion || left.OriginalTOTP != right.OriginalTOTP ||
+		left.PrimaryMethod != right.PrimaryMethod || left.PrimaryAssurance != right.PrimaryAssurance ||
 		left.UsedRecoveryCode != right.UsedRecoveryCode ||
 		subtle.ConstantTimeCompare([]byte(left.TOTPSecret), []byte(right.TOTPSecret)) != 1 ||
 		left.RecoveryBatchID != right.RecoveryBatchID || len(left.RecoveryCodeHashes) != len(right.RecoveryCodeHashes) {

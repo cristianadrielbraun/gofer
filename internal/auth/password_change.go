@@ -102,6 +102,14 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 		if current.ID != candidate.session.ID || current.UserID != candidate.session.UserID {
 			return ErrSessionNotActive
 		}
+		if _, err := m.requireAuthenticationAssurance(
+			ctx, tx, current.UserID, current.AuthVersion, current.AssuranceLevel,
+		); err != nil {
+			if errors.Is(err, ErrAuthenticationPolicyNotSatisfied) || errors.Is(err, ErrUserNotActive) {
+				return ErrSessionNotActive
+			}
+			return err
+		}
 
 		var currentHash, username, email string
 		err = tx.QueryRowContext(ctx, `

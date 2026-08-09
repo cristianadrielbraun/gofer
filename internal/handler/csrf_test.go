@@ -48,9 +48,12 @@ func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 	}
 	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
 	handler.auth = manager
-	session, err := manager.CreateSession(t.Context(), "owner", "test-agent")
+	session, err := manager.CreateAuthenticatedSession(
+		t.Context(), "owner", "test-agent",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
+	)
 	if err != nil {
-		t.Fatalf("CreateSession() error = %v", err)
+		t.Fatalf("CreateAuthenticatedSession() error = %v", err)
 	}
 	if err := db.AddHTTPDiscoveryException(t.Context(), "mail.example.test", "owner"); err != nil {
 		t.Fatalf("seed HTTP discovery exception: %v", err)

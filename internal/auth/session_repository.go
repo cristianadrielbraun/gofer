@@ -72,23 +72,25 @@ func (m *Manager) CreateAuthenticatedSession(ctx context.Context, userID, userAg
 		idleExpiresAt = absoluteExpiresAt
 	}
 	var authVersion int64
-	err = m.db.Write().QueryRowContext(ctx,
-		`INSERT INTO sessions (
-			id, user_id, token_hash, auth_version, authentication_method, assurance_level,
-			user_agent, authenticated_at, last_used_at, idle_expires_at, absolute_expires_at, created_at
-		)
-		 SELECT ?, u.id, ?, u.auth_version, ?, ?, ?, ?, ?, ?, ?, ?
-		 FROM users u
-		 WHERE u.id = ? AND u.status = 'active'
-		 RETURNING auth_version`,
-		id, hashToken(token), method, assurance, userAgent,
-		now, now, idleExpiresAt, absoluteExpiresAt, now, userID,
-	).Scan(&authVersion)
-	if err == sql.ErrNoRows {
-		return nil, ErrUserNotActive
-	}
+	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
+		policy, err := m.requireAuthenticationAssurance(ctx, tx, userID, 0, assurance)
+		if err != nil {
+			return err
+		}
+		authVersion = policy.AuthVersion
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (
+				id, user_id, token_hash, auth_version, authentication_method, assurance_level,
+				user_agent, authenticated_at, last_used_at, idle_expires_at, absolute_expires_at, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, userID, hashToken(token), authVersion, method, assurance, userAgent,
+			now, now, idleExpiresAt, absoluteExpiresAt, now,
+		); err != nil {
+			return fmt.Errorf("insert session: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("insert session: %w", err)
+		return nil, err
 	}
 	return &Session{
 		ID:                   id,
@@ -120,6 +122,13 @@ func (m *Manager) GetSessionByToken(ctx context.Context, token string) (*Session
 			  AND u.auth_version = sessions.auth_version
 		  )`, hashToken(token), now, now))
 	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	policy, err := m.loadAuthenticationPolicy(ctx, m.db.Read(), session.UserID, session.AuthVersion)
+	if errors.Is(err, ErrUserNotActive) || (err == nil && !policy.allowsAssurance(session.AssuranceLevel)) {
 		return nil, nil
 	}
 	if err != nil {
@@ -316,6 +325,14 @@ func (m *Manager) RotateSession(ctx context.Context, currentToken, userAgent str
 			return ErrSessionNotActive
 		}
 		if err != nil {
+			return err
+		}
+		if _, err := m.requireAuthenticationAssurance(
+			ctx, tx, current.UserID, current.AuthVersion, current.AssuranceLevel,
+		); err != nil {
+			if errors.Is(err, ErrAuthenticationPolicyNotSatisfied) || errors.Is(err, ErrUserNotActive) {
+				return ErrSessionNotActive
+			}
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `

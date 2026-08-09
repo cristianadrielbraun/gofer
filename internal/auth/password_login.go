@@ -31,14 +31,17 @@ type PasswordLoginOptions struct {
 	UserAgent  string
 }
 
-type PasswordLoginResult struct {
+type PrimaryAuthenticationResult struct {
 	Session          *Session
 	PreAuthChallenge *PreAuthChallenge
 }
 
+type PasswordLoginResult = PrimaryAuthenticationResult
+
 type passwordLoginCandidate struct {
 	userID       string
 	status       UserStatus
+	authVersion  int64
 	mfaRequired  bool
 	isAdmin      bool
 	mustChange   bool
@@ -80,10 +83,10 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 		return nil, m.rejectPasswordLogin(ctx, options.Identifier, options.Source)
 	}
 
-	requiresMFA := candidate.mfaRequired || candidate.isAdmin
+	policy := resolveAuthenticationPolicy(candidate.authVersion, candidate.mfaRequired, candidate.isAdmin)
 	result, err := m.completePasswordLogin(
 		ctx, candidate, normalizeLoginIdentifier(options.Identifier), replacementHash,
-		boundedUserAgent(options.UserAgent), requiresMFA,
+		boundedUserAgent(options.UserAgent), policy,
 	)
 	if errors.Is(err, errPasswordStateMoved) {
 		return nil, m.rejectPasswordLogin(ctx, options.Identifier, options.Source)
@@ -97,7 +100,7 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier string) (*passwordLoginCandidate, error) {
 	normalized := normalizeLoginIdentifier(identifier)
 	rows, err := m.db.Read().QueryContext(ctx, `
-		SELECT u.id, u.status, u.mfa_required, u.is_admin,
+		SELECT u.id, u.status, u.auth_version, u.mfa_required, u.is_admin,
 		       p.must_change, p.password_hash
 		FROM users u
 		JOIN password_credentials p ON p.user_id = u.id
@@ -114,7 +117,7 @@ func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier str
 		var candidate passwordLoginCandidate
 		var mfaRequired, isAdmin, mustChange int
 		if err := rows.Scan(
-			&candidate.userID, &candidate.status, &mfaRequired, &isAdmin,
+			&candidate.userID, &candidate.status, &candidate.authVersion, &mfaRequired, &isAdmin,
 			&mustChange, &candidate.passwordHash,
 		); err != nil {
 			return nil, fmt.Errorf("scan password login candidate: %w", err)
@@ -133,7 +136,7 @@ func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier str
 	return &candidates[0], nil
 }
 
-func (m *Manager) completePasswordLogin(ctx context.Context, candidate *passwordLoginCandidate, normalizedIdentifier, replacementHash, userAgent string, requiresMFA bool) (*PasswordLoginResult, error) {
+func (m *Manager) completePasswordLogin(ctx context.Context, candidate *passwordLoginCandidate, normalizedIdentifier, replacementHash, userAgent string, policy authenticationPolicy) (*PasswordLoginResult, error) {
 	now := m.clock.Now().UTC()
 	identifierBucketHash, err := m.loginThrottleBucketHash(loginThrottleBucketIdentifier, normalizedIdentifier)
 	if err != nil {
@@ -142,28 +145,13 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 
 	var session *Session
 	var challenge *PreAuthChallenge
-	if requiresMFA {
-		origin, err := canonicalAuthOrigin(m.config.BaseURL)
+	if policy.RequiresMFA {
+		challenge, _, err = m.prepareMFAContinuation(
+			candidate.userID, candidate.authVersion, AuthenticationMethodPassword,
+			m.config.BaseURL, now,
+		)
 		if err != nil {
 			return nil, err
-		}
-		id, err := m.tokens.ID()
-		if err != nil {
-			return nil, fmt.Errorf("generate password MFA challenge ID: %w", err)
-		}
-		token, err := m.tokens.Token(32)
-		if err != nil {
-			return nil, fmt.Errorf("generate password MFA challenge token: %w", err)
-		}
-		challenge = &PreAuthChallenge{
-			ID:          id,
-			Token:       token,
-			UserID:      candidate.userID,
-			Purpose:     ChallengePurposeMFA,
-			Origin:      origin,
-			MaxAttempts: defaultPreAuthMaxAttempts,
-			CreatedAt:   now,
-			ExpiresAt:   now.Add(defaultPreAuthLifetime),
 		}
 	} else {
 		id, err := m.tokens.ID()
@@ -216,8 +204,9 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		if err != nil {
 			return fmt.Errorf("recheck password login state: %w", err)
 		}
-		currentRequiresMFA := mfaRequired == 1 || isAdmin == 1
-		if passwordHash != candidate.passwordHash || !status.AllowsAuthentication() || mustChange == 1 || currentRequiresMFA != requiresMFA {
+		currentPolicy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+		if passwordHash != candidate.passwordHash || !status.AllowsAuthentication() || mustChange == 1 ||
+			currentPolicy != policy {
 			return errPasswordStateMoved
 		}
 		if normalizedIdentifier != emailNormalized && normalizedIdentifier != usernameNormalized {
@@ -259,25 +248,10 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		}
 
 		if challenge != nil {
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?)
-				WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL`,
-				now, challenge.UserID, ChallengePurposeMFA,
-			); err != nil {
-				return fmt.Errorf("terminate replaced password MFA challenge: %w", err)
-			}
-			_, err := tx.ExecContext(ctx, `
-				INSERT INTO auth_challenges (
-					id, user_id, session_id, challenge_hash, nonce_hash, purpose,
-					origin, attempts, max_attempts, created_at, expires_at
-				) VALUES (?, ?, NULL, ?, NULL, ?, ?, 0, ?, ?, ?)`,
-				challenge.ID, challenge.UserID, hashToken(challenge.Token), challenge.Purpose,
-				challenge.Origin, challenge.MaxAttempts, challenge.CreatedAt, challenge.ExpiresAt,
-			)
-			if err != nil {
-				return fmt.Errorf("insert password MFA challenge: %w", err)
-			}
-			return nil
+			return m.insertMFAContinuation(ctx, tx, challenge, now)
+		}
+		if !currentPolicy.allowsAssurance(session.AssuranceLevel) {
+			return ErrAuthenticationPolicyNotSatisfied
 		}
 
 		session.AuthVersion = authVersion

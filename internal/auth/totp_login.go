@@ -27,7 +27,7 @@ type TOTPLoginOptions struct {
 	UserAgent string
 }
 
-// CompleteTOTPLogin finishes a password-primary MFA challenge. The accepted
+// CompleteTOTPLogin finishes a password or federated primary MFA challenge. The accepted
 // time step, challenge consumption, full session, login timestamp, throttle
 // reset, and redacted audit event are committed as one security transition.
 func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOptions) (*Session, error) {
@@ -37,11 +37,8 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 		return nil, ErrTOTPLoginChallengeInvalid
 	}
 	now := m.clock.Now().UTC()
-	preflight, err := m.GetActivePreAuthChallenge(ctx, token, ChallengePurposeMFA, canonicalOrigin)
-	if err != nil {
-		return nil, err
-	}
-	if preflight == nil || strings.TrimSpace(preflight.UserID) == "" || preflight.SessionID != "" {
+	preflight, primary, err := m.readMFAContinuation(ctx, token, canonicalOrigin)
+	if err != nil || preflight == nil || strings.TrimSpace(preflight.UserID) == "" || preflight.SessionID != "" {
 		return nil, ErrTOTPLoginChallengeInvalid
 	}
 
@@ -68,6 +65,10 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 		return nil, err
 	}
 	userAgent := boundedUserAgent(options.UserAgent)
+	eventMetadata, err := mfaFactorEventMetadata("totp", primary.PrimaryMethod, false)
+	if err != nil {
+		return nil, err
+	}
 
 	var session *Session
 	var sessionID, sessionToken string
@@ -75,26 +76,26 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 	terminal := false
 	retryAt := time.Time{}
 	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
-		var challengeID, userID, credentialID, algorithm string
-		var attempts, maxAttempts, keyVersion, digits, period int
+		currentChallenge, currentPrimary, err := m.currentMFAContinuation(ctx, tx, token, canonicalOrigin, now)
+		if err != nil || currentChallenge.ID != preflight.ID || !sameMFAContinuationDraft(currentPrimary, primary) {
+			return ErrTOTPLoginChallengeInvalid
+		}
+		var credentialID, algorithm string
+		var keyVersion, digits, period, mfaRequired, isAdmin int
 		var encryptedSeed []byte
 		var authVersion int64
 		var lastAcceptedStep sql.NullInt64
-		err := tx.QueryRowContext(ctx, `
-			SELECT c.id, c.user_id, c.attempts, c.max_attempts, u.auth_version,
+		err = tx.QueryRowContext(ctx, `
+			SELECT u.auth_version, u.mfa_required, u.is_admin,
 			       t.id, t.encrypted_seed, t.key_version, t.algorithm, t.digits,
 			       t.period, t.last_accepted_step
-			FROM auth_challenges c
-			JOIN users u ON u.id = c.user_id
-			JOIN totp_credentials t ON t.user_id = c.user_id
-			WHERE c.challenge_hash = ? AND c.purpose = ? AND c.origin = ?
-			  AND c.session_id IS NULL AND c.consumed_at IS NULL
-			  AND c.expires_at > ? AND c.attempts < c.max_attempts
-			  AND u.status = 'active'
+			FROM users u
+			JOIN totp_credentials t ON t.user_id = u.id
+			WHERE u.id = ? AND u.status = 'active'
 			  AND t.enabled = 1 AND t.revoked_at IS NULL`,
-			hashToken(token), ChallengePurposeMFA, canonicalOrigin, now,
+			currentChallenge.UserID,
 		).Scan(
-			&challengeID, &userID, &attempts, &maxAttempts, &authVersion,
+			&authVersion, &mfaRequired, &isAdmin,
 			&credentialID, &encryptedSeed, &keyVersion, &algorithm, &digits,
 			&period, &lastAcceptedStep,
 		)
@@ -104,7 +105,12 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 		if err != nil {
 			return fmt.Errorf("read TOTP login state: %w", err)
 		}
-		if userID != preflight.UserID || algorithm != totpAlgorithm || digits != totpDigits || period != totpPeriodSeconds {
+		userID := currentChallenge.UserID
+		policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+		if userID != preflight.UserID || authVersion != primary.AuthVersion || !policy.RequiresMFA {
+			return ErrTOTPLoginChallengeInvalid
+		}
+		if algorithm != totpAlgorithm || digits != totpDigits || period != totpPeriodSeconds {
 			return fmt.Errorf("unsupported TOTP credential profile")
 		}
 		seed, err := m.decryptTOTPSeed(userID, credentialID, encryptedSeed, keyVersion)
@@ -125,11 +131,12 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 			if err := tx.QueryRowContext(ctx, `
 				UPDATE auth_challenges
 				SET attempts = attempts + 1,
-				    consumed_at = CASE WHEN attempts + 1 >= max_attempts THEN ? ELSE NULL END
+				    consumed_at = CASE WHEN attempts + 1 >= max_attempts THEN ? ELSE NULL END,
+				    payload_ciphertext = CASE WHEN attempts + 1 >= max_attempts THEN NULL ELSE payload_ciphertext END
 				WHERE id = ? AND challenge_hash = ? AND purpose = ? AND origin = ?
 				  AND consumed_at IS NULL AND expires_at > ? AND attempts < max_attempts
 				RETURNING consumed_at`,
-				now, challengeID, hashToken(token), ChallengePurposeMFA, canonicalOrigin, now,
+				now, currentChallenge.ID, hashToken(token), ChallengePurposeMFA, canonicalOrigin, now,
 			).Scan(&consumedAt); errors.Is(err, sql.ErrNoRows) {
 				return ErrTOTPLoginChallengeInvalid
 			} else if err != nil {
@@ -149,9 +156,9 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 				INSERT INTO auth_events (
 					id, occurred_at, actor_user_id, subject_user_id, event_type,
 					success, reason, user_agent, source_hash, metadata_json
-				) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, ?, '{"factor":"totp","primary":"password"}')`,
+				) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`,
 				eventID, now, userID, AuthEventLoginFailed, AuthEventReasonInvalidCredentials,
-				userAgent, sourceHash,
+				userAgent, sourceHash, eventMetadata,
 			); err != nil {
 				return fmt.Errorf("record rejected TOTP login event: %w", err)
 			}
@@ -185,11 +192,11 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 		}
 
 		challengeUpdate, err := tx.ExecContext(ctx, `
-			UPDATE auth_challenges SET attempts = attempts + 1, consumed_at = ?
+			UPDATE auth_challenges SET attempts = attempts + 1, consumed_at = ?, payload_ciphertext = NULL
 			WHERE id = ? AND challenge_hash = ? AND purpose = ? AND origin = ?
 			  AND user_id = ? AND session_id IS NULL AND consumed_at IS NULL
 			  AND expires_at > ? AND attempts < max_attempts`,
-			now, challengeID, hashToken(token), ChallengePurposeMFA, canonicalOrigin, userID, now,
+			now, currentChallenge.ID, hashToken(token), ChallengePurposeMFA, canonicalOrigin, userID, now,
 		)
 		if err != nil {
 			return fmt.Errorf("consume TOTP login challenge: %w", err)
@@ -202,9 +209,9 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 			return ErrTOTPLoginChallengeInvalid
 		}
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?)
+			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
 			WHERE user_id = ? AND purpose = ? AND id != ? AND consumed_at IS NULL`,
-			now, userID, ChallengePurposeMFA, challengeID,
+			now, userID, ChallengePurposeMFA, currentChallenge.ID,
 		); err != nil {
 			return fmt.Errorf("terminate parallel TOTP login challenges: %w", err)
 		}
@@ -222,7 +229,7 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 				created_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			sessionID, userID, hashToken(sessionToken), authVersion,
-			AuthenticationMethodPassword, AssuranceLevelMultiFactor, userAgent,
+			primary.PrimaryMethod, AssuranceLevelMultiFactor, userAgent,
 			now, now, idleExpiresAt, absoluteExpiresAt, now, AuthenticationMethodTOTP, now,
 		); err != nil {
 			return fmt.Errorf("insert TOTP login session: %w", err)
@@ -250,9 +257,9 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 			INSERT INTO auth_events (
 				id, occurred_at, actor_user_id, subject_user_id, session_id,
 				event_type, success, reason, user_agent, source_hash, metadata_json
-			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '{"factor":"totp","primary":"password"}')`,
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
 			eventID, now, userID, userID, sessionID, AuthEventLoginSucceeded,
-			AuthEventReasonChallengeVerified, userAgent, sourceHash,
+			AuthEventReasonChallengeVerified, userAgent, sourceHash, eventMetadata,
 		); err != nil {
 			return fmt.Errorf("record successful TOTP login event: %w", err)
 		}
@@ -260,7 +267,7 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 		stepUpAt := now
 		session = &Session{
 			ID: sessionID, UserID: userID, Token: sessionToken, AuthVersion: authVersion,
-			AuthenticationMethod: AuthenticationMethodPassword,
+			AuthenticationMethod: primary.PrimaryMethod,
 			AssuranceLevel:       AssuranceLevelMultiFactor,
 			UserAgent:            userAgent,
 			AuthenticatedAt:      now,

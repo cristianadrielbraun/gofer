@@ -127,11 +127,12 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		return nil, fmt.Errorf("load security factor summary: %w", err)
 	}
 	now := m.clock.Now().UTC()
+	policy := resolveAuthenticationPolicy(session.AuthVersion, requiresMFA == 1, false)
 	summary := &SecurityFactorSummary{
 		HasTOTP:                hasTOTP == 1,
 		HasPasskey:             passkeyCount > 0,
 		RecoveryCodesRemaining: recoveryCount,
-		StepUpFresh:            hasRecentSecurityStepUp(session, now),
+		StepUpFresh:            hasRecentSecurityStepUp(session, policy, now),
 	}
 	summary.Passkeys, err = m.listPasskeysForUser(ctx, session.UserID)
 	if err != nil {
@@ -304,8 +305,8 @@ func (m *Manager) StartTOTPReplacement(ctx context.Context, sessionToken, origin
 		return nil, ErrSecuritySessionInvalid
 	}
 	now := m.clock.Now().UTC()
-	if !hasRecentSecurityStepUp(session, now) {
-		return nil, ErrRecentStepUpRequired
+	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+		return nil, err
 	}
 	canonicalOrigin, err := canonicalAuthOrigin(origin)
 	if err != nil {
@@ -592,8 +593,8 @@ func (m *Manager) DisableTOTP(ctx context.Context, sessionToken, userAgent strin
 		return nil, ErrSecuritySessionInvalid
 	}
 	now := m.clock.Now().UTC()
-	if !hasRecentSecurityStepUp(session, now) {
-		return nil, ErrRecentStepUpRequired
+	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+		return nil, err
 	}
 	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
 	if err != nil {
@@ -682,8 +683,8 @@ func (m *Manager) StartRecoveryCodeReplacement(ctx context.Context, sessionToken
 		return nil, ErrSecuritySessionInvalid
 	}
 	now := m.clock.Now().UTC()
-	if !hasRecentSecurityStepUp(session, now) {
-		return nil, ErrRecentStepUpRequired
+	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+		return nil, err
 	}
 	canonicalOrigin, err := canonicalAuthOrigin(origin)
 	if err != nil {
@@ -872,8 +873,8 @@ func (m *Manager) RevokeRecoveryCodes(ctx context.Context, sessionToken, userAge
 		return 0, ErrSecuritySessionInvalid
 	}
 	now := m.clock.Now().UTC()
-	if !hasRecentSecurityStepUp(session, now) {
-		return 0, ErrRecentStepUpRequired
+	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+		return 0, err
 	}
 	eventID, err := m.tokens.ID()
 	if err != nil {
@@ -972,14 +973,6 @@ func GetSecurityChallengeToken(r *http.Request) string {
 	return cookie.Value
 }
 
-func hasRecentSecurityStepUp(session *Session, now time.Time) bool {
-	if session == nil || session.StepUpAt == nil || session.StepUpMethod == "" {
-		return false
-	}
-	stepUpAt := session.StepUpAt.UTC()
-	return !stepUpAt.After(now) && !stepUpAt.Before(now.Add(-securityStepUpMaximumAge))
-}
-
 func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string, now time.Time, requireStepUp bool) (*Session, error) {
 	session, err := scanSession(tx.QueryRowContext(ctx, sessionSelect+`
 		WHERE token_hash = ? AND revoked_at IS NULL
@@ -995,7 +988,21 @@ func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string
 	if err != nil {
 		return nil, fmt.Errorf("load current security session: %w", err)
 	}
-	if requireStepUp && !hasRecentSecurityStepUp(session, now) {
+	var authVersion, mfaRequired, isAdmin int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT auth_version, mfa_required, is_admin
+		FROM users WHERE id = ? AND status = 'active' AND auth_version = ?`,
+		session.UserID, session.AuthVersion,
+	).Scan(&authVersion, &mfaRequired, &isAdmin); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrSecuritySessionInvalid
+	} else if err != nil {
+		return nil, fmt.Errorf("load current security policy: %w", err)
+	}
+	policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+	if !policy.allowsAssurance(session.AssuranceLevel) {
+		return nil, ErrSecuritySessionInvalid
+	}
+	if requireStepUp && !hasRecentSecurityStepUp(session, policy, now) {
 		return nil, ErrRecentStepUpRequired
 	}
 	return session, nil

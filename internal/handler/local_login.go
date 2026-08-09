@@ -109,11 +109,9 @@ func (h *Handler) handleLoginMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := auth.GetPreAuthToken(r)
-	challenge, err := h.auth.GetActivePreAuthChallenge(
-		r.Context(), token, auth.ChallengePurposeMFA, h.auth.Config().BaseURL,
-	)
+	challenge, err := h.auth.GetActiveMFAChallenge(r.Context(), token, h.auth.Config().BaseURL)
 	if err != nil {
-		log.Printf("read password MFA continuation: %v", err)
+		log.Printf("read MFA continuation: %v", err)
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 		http.Error(w, "failed to load additional verification", http.StatusInternalServerError)
 		return
@@ -164,13 +162,13 @@ func (h *Handler) handleLoginMFASubmit(w http.ResponseWriter, r *http.Request) {
 			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 			http.Redirect(w, r, "/login?error=mfa", http.StatusSeeOther)
 		default:
-			log.Printf("complete password TOTP login: %v", err)
+			log.Printf("complete TOTP login: %v", err)
 			h.renderLoginMFAContinuationPage(w, r, http.StatusInternalServerError, loginServiceMessage)
 		}
 		return
 	}
 	if session == nil {
-		log.Printf("password TOTP login returned no session")
+		log.Printf("TOTP login returned no session")
 		h.renderLoginMFAContinuationPage(w, r, http.StatusInternalServerError, loginServiceMessage)
 		return
 	}

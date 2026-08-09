@@ -78,8 +78,8 @@ func (m *Manager) StartPasskeyRegistration(ctx context.Context, sessionToken, or
 		return nil, ErrSecuritySessionInvalid
 	}
 	now := m.clock.Now().UTC()
-	if !hasRecentSecurityStepUp(session, now) {
-		return nil, ErrRecentStepUpRequired
+	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+		return nil, err
 	}
 	name, err = normalizePasskeyName(name)
 	if err != nil {
@@ -347,8 +347,8 @@ func (m *Manager) RemovePasskey(ctx context.Context, sessionToken, passkeyID, us
 		return nil, ErrSecuritySessionInvalid
 	}
 	now := m.clock.Now().UTC()
-	if !hasRecentSecurityStepUp(session, now) {
-		return nil, ErrRecentStepUpRequired
+	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+		return nil, err
 	}
 	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
 	if err != nil {

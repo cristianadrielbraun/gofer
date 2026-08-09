@@ -29,7 +29,6 @@ const (
 	minimumEnrollmentTokenLifetime      = time.Minute
 	enrollmentTokenRetention            = 30 * 24 * time.Hour
 	enrollmentTokenCleanupBatchSize     = 500
-	administratorStepUpMaximumAge       = 10 * time.Minute
 )
 
 func (purpose EnrollmentTokenPurpose) Valid() bool {
@@ -325,22 +324,28 @@ func requireActiveAdministrator(ctx context.Context, tx *sql.Tx, userID string) 
 }
 
 func requireRecentAdministratorStepUp(ctx context.Context, tx *sql.Tx, userID, sessionID string, now time.Time) error {
-	var authorized int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS(
-			SELECT 1
-			FROM users u
-			JOIN sessions s ON s.user_id = u.id
-			WHERE u.id = ? AND u.status = 'active' AND u.is_admin = 1
-			  AND s.id = ? AND s.revoked_at IS NULL
-			  AND s.auth_version = u.auth_version
-			  AND s.idle_expires_at > ? AND s.absolute_expires_at > ?
-			  AND s.step_up_at IS NOT NULL AND s.step_up_at <= ? AND s.step_up_at >= ?
-			  AND s.step_up_method <> ''
-		)`, userID, sessionID, now, now, now, now.Add(-administratorStepUpMaximumAge)).Scan(&authorized); err != nil {
-		return fmt.Errorf("check recent administrator verification: %w", err)
+	session, err := scanSession(tx.QueryRowContext(ctx, sessionSelect+`
+		WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+		  AND idle_expires_at > ? AND absolute_expires_at > ?`, sessionID, userID, now, now))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrRecentStepUpRequired
 	}
-	if authorized != 1 {
+	if err != nil {
+		return fmt.Errorf("load administrator verification session: %w", err)
+	}
+	var authVersion int64
+	var mfaRequired, isAdmin int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT auth_version, mfa_required, is_admin
+		FROM users WHERE id = ? AND status = 'active' AND auth_version = ?`,
+		userID, session.AuthVersion,
+	).Scan(&authVersion, &mfaRequired, &isAdmin); errors.Is(err, sql.ErrNoRows) {
+		return ErrRecentStepUpRequired
+	} else if err != nil {
+		return fmt.Errorf("load administrator verification policy: %w", err)
+	}
+	policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+	if isAdmin != 1 || !hasRecentSecurityStepUp(session, policy, now) {
 		return ErrRecentStepUpRequired
 	}
 	return nil
