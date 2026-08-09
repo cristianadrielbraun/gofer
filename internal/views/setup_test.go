@@ -138,6 +138,82 @@ func TestSetupMFAReadyPageDoesNotRedisplayEnrollmentSecret(t *testing.T) {
 	}
 }
 
+func TestSetupRecoveryPageDisplaysPlaintextBatchOnceAndEscapesErrors(t *testing.T) {
+	var output bytes.Buffer
+	message := `<script>alert("recovery")</script>`
+	codes := []string{
+		"0123-4567-89AB-CDEF-GHJK-MNPQ",
+		"RSTV-WXYZ-2345-6789-ABCD-EFGH",
+	}
+	if err := SetupRecoveryPage(SetupRecoveryData{
+		BatchID: strings.Repeat("a", 64), Codes: codes, Generated: true,
+		Errors: map[string]string{"saved": message},
+	}).Render(t.Context(), &output); err != nil {
+		t.Fatalf("SetupRecoveryPage.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Save the owner recovery codes", "These codes are shown only in this response",
+		codes[0], codes[1], `aria-label="Owner recovery codes"`,
+		`action="/setup/recovery"`, `name="action" value="acknowledge"`,
+		`name="batch_id" value="` + strings.Repeat("a", 64) + `"`,
+		`name="saved" type="checkbox" value="yes"`, `required`,
+		`aria-describedby="setup-recovery-saved-help setup-recovery-saved-error"`,
+		`role="alert"`, `&lt;script&gt;alert`, "Generate replacement codes", `href="/setup/mfa"`,
+		"never logged, placed in URLs, stored in browser storage",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("setup recovery page missing %q", want)
+		}
+	}
+	if strings.Contains(html, message) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || strings.Contains(html, "https://") {
+		t.Fatal("setup recovery page rendered unsafe or remote content")
+	}
+}
+
+func TestSetupRecoveryPageDoesNotRedisplayGeneratedBatch(t *testing.T) {
+	var output bytes.Buffer
+	if err := SetupRecoveryPage(SetupRecoveryData{
+		BatchID: strings.Repeat("b", 64), Codes: nil, Generated: true,
+	}).Render(t.Context(), &output); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Recovery codes were already shown", "acknowledge it below", "generate a replacement",
+		`name="batch_id" value="` + strings.Repeat("b", 64) + `"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("generated recovery state missing %q", want)
+		}
+	}
+	if strings.Contains(html, "These codes are shown only in this response") || strings.Contains(html, `<code class=`) {
+		t.Fatal("generated recovery state implied plaintext was redisplayed")
+	}
+}
+
+func TestSetupRecoveryAcknowledgedPageHidesBatchAndCodes(t *testing.T) {
+	var output bytes.Buffer
+	if err := SetupRecoveryPage(SetupRecoveryData{
+		BatchID: strings.Repeat("c", 64), Codes: []string{"MUST-NOT-BE-RENDERED"},
+		Generated: true, Acknowledged: true,
+	}).Render(t.Context(), &output); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Recovery codes acknowledged for final enrollment", "Only the code hashes remain",
+		"Next: final setup review", "Replace recovery codes",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("acknowledged recovery page missing %q", want)
+		}
+	}
+	if strings.Contains(html, "MUST-NOT-BE-RENDERED") || strings.Contains(html, strings.Repeat("c", 64)) || strings.Contains(html, `name="batch_id"`) {
+		t.Fatal("acknowledged recovery page redisplayed batch material")
+	}
+}
+
 func TestSetupOwnerLegacyPageExplainsInPlaceClaim(t *testing.T) {
 	var output bytes.Buffer
 	if err := SetupOwnerPage(SetupOwnerData{

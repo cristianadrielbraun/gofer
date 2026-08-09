@@ -53,6 +53,14 @@ type SetupMFAData struct {
 	Errors       map[string]string
 }
 
+type SetupRecoveryData struct {
+	BatchID      string
+	Codes        []string
+	Generated    bool
+	Acknowledged bool
+	Errors       map[string]string
+}
+
 func setupOwnerDescription(helpID, errorID string, hasError bool) string {
 	if !hasError {
 		return helpID
@@ -357,6 +365,7 @@ templ SetupMFAPage(data SetupMFAData) {
 							<p class="text-sm font-medium">Next: recovery codes</p>
 							<p class="mt-1 text-xs text-muted-foreground">Gofer will generate a single-use recovery batch and require acknowledgement before final setup can commit.</p>
 						</div>
+						<a href="/setup/recovery" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Continue to recovery codes</a>
 						<form method="post" action="/setup/mfa" class="mt-2">
 							<input type="hidden" name="action" value="restart"/>
 							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Replace this authenticator setup</button>
@@ -408,4 +417,98 @@ templ SetupMFAPage(data SetupMFAData) {
 			</main>
 		</body>
 	</html>
+}
+
+templ SetupRecoveryPage(data SetupRecoveryData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Save Owner Recovery Codes</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4 py-10">
+				<div class="w-full max-w-lg">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Authenticator verified</p>
+						<h1 class="mt-2 text-2xl font-semibold">Save the owner recovery codes</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Each code can recover access once if the authenticator is unavailable.</p>
+					</div>
+					if data.Errors["form"] != "" {
+						<p role="alert" class="mb-4 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Errors["form"] }</p>
+					}
+					if data.Acknowledged {
+						<div role="status" aria-live="polite" class="rounded-xl border border-success/25 bg-success/10 px-5 py-4">
+							<p class="text-sm font-medium text-success">Recovery codes acknowledged for final enrollment</p>
+							<p class="mt-1 text-xs text-muted-foreground">Only the code hashes remain in the encrypted setup draft. No recovery credential or user has been created yet.</p>
+						</div>
+						<div class="mt-4 rounded-xl border border-border bg-card p-5">
+							<p class="text-sm font-medium">Next: final setup review</p>
+							<p class="mt-1 text-xs text-muted-foreground">The next step will review the owner and migration impact before anything is committed.</p>
+						</div>
+						<form method="post" action="/setup/recovery" class="mt-2">
+							<input type="hidden" name="action" value="regenerate"/>
+							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Replace recovery codes</button>
+						</form>
+					} else if len(data.Codes) > 0 {
+						<div role="alert" class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+							<p class="text-sm font-medium text-warning">These codes are shown only in this response</p>
+							<p class="mt-1 text-xs text-muted-foreground">Copy them to a password manager or print this page now. Gofer cannot display this batch again.</p>
+						</div>
+						<div class="mt-4 grid gap-2 rounded-xl border border-border bg-card p-5 sm:grid-cols-2" aria-label="Owner recovery codes">
+							for _, code := range data.Codes {
+								<code class="select-all rounded-md bg-muted px-3 py-2 text-center font-mono text-sm tracking-wide">{ code }</code>
+							}
+						</div>
+						@setupRecoveryAcknowledgement(data)
+					} else if data.Generated {
+						<div class="rounded-xl border border-border bg-card p-6">
+							<p class="text-sm font-medium">Recovery codes were already shown</p>
+							<p class="mt-1 text-xs text-muted-foreground">If you saved that batch, acknowledge it below. If not, generate a replacement; the current pending batch will no longer be usable.</p>
+						</div>
+						@setupRecoveryAcknowledgement(data)
+					} else {
+						<div class="rounded-xl border border-border bg-card p-6">
+							<p class="text-sm font-medium">Create an offline fallback</p>
+							<p class="mt-1 text-xs text-muted-foreground">Gofer will generate ten 120-bit pseudorandom codes locally. Their plaintext will appear once; only hashes enter the encrypted setup draft.</p>
+							<form method="post" action="/setup/recovery" class="mt-5">
+								<input type="hidden" name="action" value="generate"/>
+								@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+									Generate recovery codes
+								}
+							</form>
+						</div>
+					}
+					<a href="/setup/mfa" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to authenticator setup</a>
+					<p class="mt-6 text-center text-xs text-muted-foreground">Recovery codes are never logged, placed in URLs, stored in browser storage, or retained as retrievable plaintext.</p>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ setupRecoveryAcknowledgement(data SetupRecoveryData) {
+	<form method="post" action="/setup/recovery" class="mt-4 space-y-4 rounded-xl border border-border bg-card p-5">
+		<input type="hidden" name="action" value="acknowledge"/>
+		<input type="hidden" name="batch_id" value={ data.BatchID }/>
+		<label for="setup-recovery-saved" class="flex items-start gap-3 text-sm">
+			<input id="setup-recovery-saved" name="saved" type="checkbox" value="yes" required aria-invalid={ fmt.Sprintf("%t", data.Errors["saved"] != "") } aria-describedby={ setupOwnerDescription("setup-recovery-saved-help", "setup-recovery-saved-error", data.Errors["saved"] != "") } class="mt-0.5 h-4 w-4 rounded border-input"/>
+			<span>I saved these recovery codes somewhere secure and understand they cannot be displayed again.</span>
+		</label>
+		<p id="setup-recovery-saved-help" class="text-xs text-muted-foreground">This acknowledgement is bound to the exact current batch. Replacing the batch requires a new acknowledgement.</p>
+		if data.Errors["saved"] != "" {
+			<p id="setup-recovery-saved-error" role="alert" class="text-sm text-destructive">{ data.Errors["saved"] }</p>
+		}
+		@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+			Acknowledge saved recovery codes
+		}
+	</form>
+	<form method="post" action="/setup/recovery" class="mt-2">
+		<input type="hidden" name="action" value="regenerate"/>
+		<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Generate replacement codes</button>
+	</form>
 }

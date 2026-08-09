@@ -84,6 +84,7 @@ func (m *Manager) StartSetupTOTP(ctx context.Context, token, origin string, repl
 		}
 		draft.TOTPSecret = newSecret
 		draft.TOTPConfirmedStep = nil
+		clearSetupRecoveryDraft(draft)
 		payload, err := m.encryptSetupOwnerDraft(challenge, draft)
 		if err != nil {
 			return err
@@ -249,6 +250,14 @@ func (m *Manager) currentSetupSecurityDraft(ctx context.Context, tx *sql.Tx, tok
 }
 
 func sameSetupSecurityDraft(left, right *SetupOwnerDraft) bool {
+	if !sameSetupSecurityDraftIgnoringRecovery(left, right) || left.RecoveryAcknowledged != right.RecoveryAcknowledged ||
+		subtle.ConstantTimeCompare([]byte(left.RecoveryBatchID), []byte(right.RecoveryBatchID)) != 1 {
+		return false
+	}
+	return sameRecoveryCodeHashes(left, right)
+}
+
+func sameSetupSecurityDraftIgnoringRecovery(left, right *SetupOwnerDraft) bool {
 	if left == nil || right == nil || !sameSetupOwnerProfile(left, right) {
 		return false
 	}

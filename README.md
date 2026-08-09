@@ -185,6 +185,8 @@ The next protected step collects and confirms the owner's local password. Gofer 
 
 After the password is ready, the owner explicitly starts authenticator enrollment. Gofer generates a 160-bit TOTP seed, renders its `otpauth://` QR code locally, and also presents a grouped manual setup key; no third-party QR service receives the seed. Enrollment uses the broadly compatible RFC 6238 profile of HMAC-SHA-1, six digits, and a 30-second period. Gofer requires a current authenticator code, accepts only the immediately previous or next time step for small clock differences, bounds consecutive failures with the active setup challenge, and records the exact accepted step to prevent replay when the credential is persisted. The seed and accepted step remain only in the encrypted setup draft until recovery codes are acknowledged and final enrollment commits atomically.
 
+After authenticator verification, Gofer generates ten 120-bit pseudorandom recovery codes locally and displays their plaintext only in the successful generation response. Each code uses an uppercase Crockford Base32 alphabet grouped for manual entry. Only SHA-256 hashes, a batch identifier, and acknowledgement state are written to the encrypted setup draft; refreshing cannot reveal the codes again. The owner must explicitly confirm that the current batch was saved, and generating replacements invalidates the prior pending hashes and requires a new acknowledgement. This step still creates no recovery credential, user, session, audit event, or initialized authentication state; persistence remains deferred to the final atomic setup transaction.
+
 ## local authentication operations
 
 The binary includes authentication commands for local operators:

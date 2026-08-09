@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +85,51 @@ func postSetupMFA(stack http.Handler, cookie *http.Cookie, values url.Values) *h
 	recorder := httptest.NewRecorder()
 	stack.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func postSetupRecovery(stack http.Handler, cookie *http.Cookie, values url.Values) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, setupRecoveryPath, strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	recorder := httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func prepareHandlerVerifiedMFA(t *testing.T) (*auth.Manager, *storage.DB, http.Handler, *http.Cookie) {
+	t.Helper()
+	manager, db, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+	if setupCookie == nil {
+		t.Fatal("setup entry did not return pre-authentication cookie")
+	}
+	if recorder := postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	}); recorder.Code != http.StatusSeeOther {
+		t.Fatalf("owner prerequisite = %d %q", recorder.Code, recorder.Body.String())
+	}
+	if recorder := postSetupPassword(stack, setupCookie, url.Values{
+		"password": {"correct horse battery staple for owner"}, "password_confirmation": {"correct horse battery staple for owner"},
+	}); recorder.Code != http.StatusSeeOther {
+		t.Fatalf("password prerequisite = %d %q", recorder.Code, recorder.Body.String())
+	}
+	if recorder := postSetupMFA(stack, setupCookie, url.Values{"action": {"start"}}); recorder.Code != http.StatusSeeOther {
+		t.Fatalf("MFA start prerequisite = %d %q", recorder.Code, recorder.Body.String())
+	}
+	state, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || state == nil || state.Draft == nil {
+		t.Fatalf("MFA prerequisite state = %#v, %v", state, err)
+	}
+	if recorder := postSetupMFA(stack, setupCookie, url.Values{
+		"action": {"confirm"}, "code": {setupHandlerTOTPCode(t, state.Draft.TOTPSecret)},
+	}); recorder.Code != http.StatusSeeOther {
+		t.Fatalf("MFA confirmation prerequisite = %d %q", recorder.Code, recorder.Body.String())
+	}
+	return manager, db, stack, setupCookie
 }
 
 func setupHandlerTOTPCode(t *testing.T, secret string) string {
@@ -566,6 +612,231 @@ func TestSetupMFAStartConfirmReplaceIsEncryptedAndNonMutating(t *testing.T) {
 	}
 }
 
+func TestSetupRecoveryRequiresVerifiedTOTPAndExplicitGeneration(t *testing.T) {
+	_, _, stack, setupToken := setupEntryStack(t)
+	entry := postSetup(stack, setupToken)
+	setupCookie := responseCookie(entry, "gofer_pre_auth", true)
+
+	request := httptest.NewRequest(http.MethodGet, setupRecoveryPath, nil)
+	request.AddCookie(setupCookie)
+	withoutOwner := httptest.NewRecorder()
+	stack.ServeHTTP(withoutOwner, request)
+	if withoutOwner.Code != http.StatusSeeOther || withoutOwner.Header().Get("Location") != setupPasswordPath {
+		t.Fatalf("recovery without owner/password = %d location:%q", withoutOwner.Code, withoutOwner.Header().Get("Location"))
+	}
+	postSetupOwner(stack, setupCookie, url.Values{
+		"owner_target": {"create"}, "name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
+	})
+	postSetupPassword(stack, setupCookie, url.Values{
+		"password": {"correct horse battery staple for owner"}, "password_confirmation": {"correct horse battery staple for owner"},
+	})
+	request = httptest.NewRequest(http.MethodGet, setupRecoveryPath, nil)
+	request.AddCookie(setupCookie)
+	withoutTOTP := httptest.NewRecorder()
+	stack.ServeHTTP(withoutTOTP, request)
+	if withoutTOTP.Code != http.StatusSeeOther || withoutTOTP.Header().Get("Location") != setupMFAPath {
+		t.Fatalf("recovery without verified TOTP = %d location:%q", withoutTOTP.Code, withoutTOTP.Header().Get("Location"))
+	}
+
+	_, _, verifiedStack, verifiedCookie := prepareHandlerVerifiedMFA(t)
+	request = httptest.NewRequest(http.MethodGet, setupMFAPath, nil)
+	request.AddCookie(verifiedCookie)
+	mfaPage := httptest.NewRecorder()
+	verifiedStack.ServeHTTP(mfaPage, request)
+	if mfaPage.Code != http.StatusOK || !strings.Contains(mfaPage.Body.String(), `href="/setup/recovery"`) {
+		t.Fatalf("verified MFA page missing recovery continuation = %d %q", mfaPage.Code, mfaPage.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, setupRecoveryPath, nil)
+	request.AddCookie(verifiedCookie)
+	initial := httptest.NewRecorder()
+	verifiedStack.ServeHTTP(initial, request)
+	if initial.Code != http.StatusOK || !strings.Contains(initial.Body.String(), "Generate recovery codes") ||
+		!strings.Contains(initial.Body.String(), "ten 120-bit pseudorandom codes") || strings.Contains(initial.Body.String(), "Recovery codes were already shown") {
+		t.Fatalf("initial recovery page = %d %q", initial.Code, initial.Body.String())
+	}
+}
+
+func TestSetupRecoveryGenerateAcknowledgeAndReplaceIsOneTimeAndNonMutating(t *testing.T) {
+	manager, db, stack, setupCookie := prepareHandlerVerifiedMFA(t)
+	var originalEvents int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM auth_events`).Scan(&originalEvents); err != nil {
+		t.Fatal(err)
+	}
+	generated := postSetupRecovery(stack, setupCookie, url.Values{"action": {"generate"}})
+	if generated.Code != http.StatusOK || generated.Header().Get("Cache-Control") != "no-store" || generated.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("recovery generation = %d headers:%v body:%q", generated.Code, generated.Header(), generated.Body.String())
+	}
+	body := generated.Body.String()
+	for _, want := range []string{
+		"These codes are shown only in this response", "password manager or print this page now",
+		`name="action" value="acknowledge"`, `name="batch_id"`, `name="saved" type="checkbox"`,
+		"Generate replacement codes", "never logged, placed in URLs, stored in browser storage",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("generated recovery page missing %q: %q", want, body)
+		}
+	}
+	codePattern := regexp.MustCompile(`<code[^>]*>([0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){5})</code>`)
+	matches := codePattern.FindAllStringSubmatch(body, -1)
+	if len(matches) != 10 {
+		t.Fatalf("rendered recovery codes = %d, want 10: %q", len(matches), body)
+	}
+	firstCodes := make([]string, 0, len(matches))
+	for _, match := range matches {
+		firstCodes = append(firstCodes, match[1])
+	}
+
+	ownerState, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || ownerState == nil || ownerState.Draft == nil || !ownerState.RecoveryGenerated || ownerState.RecoveryReady || ownerState.Draft.RecoveryBatchID == "" {
+		t.Fatalf("generated recovery handler state = %#v, %v", ownerState, err)
+	}
+	firstBatchID := ownerState.Draft.RecoveryBatchID
+	for _, code := range firstCodes {
+		if strings.Contains(string(ownerState.Draft.RecoveryCodeHashes[0]), code) {
+			t.Fatal("stored recovery hash retained plaintext")
+		}
+	}
+	repeated := postSetupRecovery(stack, setupCookie, url.Values{"action": {"generate"}})
+	if repeated.Code != http.StatusSeeOther || repeated.Header().Get("Location") != setupRecoveryPath || codePattern.MatchString(repeated.Body.String()) {
+		t.Fatalf("repeated non-replacement generation = %d location:%q body:%q", repeated.Code, repeated.Header().Get("Location"), repeated.Body.String())
+	}
+	repeatedState, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || repeatedState.Draft.RecoveryBatchID != firstBatchID {
+		t.Fatalf("repeated generation replaced batch = %#v, %v", repeatedState, err)
+	}
+	var payload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range firstCodes {
+		if bytes.Contains(payload, []byte(code)) || bytes.Contains(payload, []byte(strings.ReplaceAll(code, "-", ""))) {
+			t.Fatal("handler persisted a plaintext recovery code")
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, setupRecoveryPath, nil)
+	request.AddCookie(setupCookie)
+	refreshed := httptest.NewRecorder()
+	stack.ServeHTTP(refreshed, request)
+	if refreshed.Code != http.StatusOK || !strings.Contains(refreshed.Body.String(), "Recovery codes were already shown") {
+		t.Fatalf("recovery refresh = %d %q", refreshed.Code, refreshed.Body.String())
+	}
+	for _, code := range firstCodes {
+		if strings.Contains(refreshed.Body.String(), code) {
+			t.Fatal("recovery GET redisplayed plaintext code")
+		}
+	}
+
+	unchecked := postSetupRecovery(stack, setupCookie, url.Values{
+		"action": {"acknowledge"}, "batch_id": {firstBatchID},
+	})
+	if unchecked.Code != http.StatusUnprocessableEntity || !strings.Contains(unchecked.Body.String(), "Confirm that you saved") {
+		t.Fatalf("unchecked recovery acknowledgement = %d %q", unchecked.Code, unchecked.Body.String())
+	}
+	acknowledged := postSetupRecovery(stack, setupCookie, url.Values{
+		"action": {"acknowledge"}, "batch_id": {firstBatchID}, "saved": {"yes"},
+	})
+	if acknowledged.Code != http.StatusSeeOther || acknowledged.Header().Get("Location") != setupRecoveryPath {
+		t.Fatalf("recovery acknowledgement = %d location:%q body:%q", acknowledged.Code, acknowledged.Header().Get("Location"), acknowledged.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, setupRecoveryPath, nil)
+	request.AddCookie(setupCookie)
+	review := httptest.NewRecorder()
+	stack.ServeHTTP(review, request)
+	if review.Code != http.StatusOK || !strings.Contains(review.Body.String(), "Recovery codes acknowledged for final enrollment") ||
+		!strings.Contains(review.Body.String(), "Next: final setup review") || strings.Contains(review.Body.String(), `name="batch_id"`) {
+		t.Fatalf("acknowledged recovery review = %d %q", review.Code, review.Body.String())
+	}
+
+	replaced := postSetupRecovery(stack, setupCookie, url.Values{"action": {"regenerate"}})
+	if replaced.Code != http.StatusOK || !strings.Contains(replaced.Body.String(), "These codes are shown only in this response") {
+		t.Fatalf("recovery replacement = %d %q", replaced.Code, replaced.Body.String())
+	}
+	replacementMatches := codePattern.FindAllStringSubmatch(replaced.Body.String(), -1)
+	if len(replacementMatches) != 10 {
+		t.Fatalf("replacement recovery codes = %d", len(replacementMatches))
+	}
+	replacedState, err := manager.GetSetupOwnerState(t.Context(), setupCookie.Value, "https://gofer.example")
+	if err != nil || replacedState.Draft.RecoveryBatchID == firstBatchID || replacedState.RecoveryReady || replacedState.Draft.RecoveryAcknowledged {
+		t.Fatalf("replacement recovery state = %#v, %v", replacedState, err)
+	}
+	stale := postSetupRecovery(stack, setupCookie, url.Values{
+		"action": {"acknowledge"}, "batch_id": {firstBatchID}, "saved": {"yes"},
+	})
+	if stale.Code != http.StatusUnprocessableEntity || !strings.Contains(stale.Body.String(), "no longer current") {
+		t.Fatalf("stale recovery acknowledgement = %d %q", stale.Code, stale.Body.String())
+	}
+
+	var users, passwords, totps, recoveryCodes, sessions, events, initialized int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM users`:                             &users,
+		`SELECT COUNT(*) FROM password_credentials`:              &passwords,
+		`SELECT COUNT(*) FROM totp_credentials`:                  &totps,
+		`SELECT COUNT(*) FROM recovery_codes`:                    &recoveryCodes,
+		`SELECT COUNT(*) FROM sessions`:                          &sessions,
+		`SELECT COUNT(*) FROM auth_events`:                       &events,
+		`SELECT initialized FROM auth_system_state WHERE id = 1`: &initialized,
+	} {
+		if err := db.Read().QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if users != 0 || passwords != 0 || totps != 0 || recoveryCodes != 0 || sessions != 0 || events != originalEvents || initialized != 0 {
+		t.Fatalf("recovery handler partially enrolled = users:%d passwords:%d totps:%d recovery:%d sessions:%d events:%d initialized:%d",
+			users, passwords, totps, recoveryCodes, sessions, events, initialized)
+	}
+}
+
+func TestSetupRecoveryStripsQueriesBoundsFormsAndRejectsCrossOrigin(t *testing.T) {
+	_, db, stack, setupCookie := prepareHandlerVerifiedMFA(t)
+	request := httptest.NewRequest(http.MethodGet, setupRecoveryPath+"?code=must-not-survive", nil)
+	request.AddCookie(setupCookie)
+	query := httptest.NewRecorder()
+	stack.ServeHTTP(query, request)
+	if query.Code != http.StatusSeeOther || query.Header().Get("Location") != setupRecoveryPath || strings.Contains(query.Body.String(), "must-not-survive") {
+		t.Fatalf("recovery query stripping = %d location:%q body:%q", query.Code, query.Header().Get("Location"), query.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, setupRecoveryPath, strings.NewReader(strings.Repeat("x", setupFormMaximumBytes+1)))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	request.AddCookie(setupCookie)
+	oversized := httptest.NewRecorder()
+	stack.ServeHTTP(oversized, request)
+	if oversized.Code != http.StatusUnprocessableEntity || !strings.Contains(oversized.Body.String(), "too large or invalid") {
+		t.Fatalf("oversized recovery form = %d %q", oversized.Code, oversized.Body.String())
+	}
+
+	var originalPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&originalPayload); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://gofer.example")
+	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	guard, err := httpguard.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"action": {"generate"}}
+	request = httptest.NewRequest(http.MethodPost, setupRecoveryPath, strings.NewReader(form.Encode()))
+	request.Host = "gofer.example"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://attacker.example")
+	request.AddCookie(setupCookie)
+	blocked := httptest.NewRecorder()
+	guard.Middleware(stack).ServeHTTP(blocked, request)
+	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), "cross-origin request blocked") {
+		t.Fatalf("cross-origin recovery generation = %d %q", blocked.Code, blocked.Body.String())
+	}
+	var storedPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&storedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(storedPayload, originalPayload) {
+		t.Fatal("cross-origin recovery generation replaced setup draft")
+	}
+}
+
 func TestSetupMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	_, db, stack, setupToken := setupEntryStack(t)
 	entry := postSetup(stack, setupToken)
@@ -805,6 +1076,8 @@ func TestSetupRoutesDisappearAfterInitialization(t *testing.T) {
 		{method: http.MethodPost, path: setupPasswordPath},
 		{method: http.MethodGet, path: setupMFAPath},
 		{method: http.MethodPost, path: setupMFAPath},
+		{method: http.MethodGet, path: setupRecoveryPath},
+		{method: http.MethodPost, path: setupRecoveryPath},
 	} {
 		var request *http.Request
 		if test.method == http.MethodPost {

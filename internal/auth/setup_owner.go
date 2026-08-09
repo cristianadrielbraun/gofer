@@ -64,26 +64,31 @@ type SetupOwnerTopology struct {
 }
 
 type SetupOwnerDraft struct {
-	Mode                SetupOwnerMode `json:"mode"`
-	TargetUserID        string         `json:"target_user_id,omitempty"`
-	Name                string         `json:"name"`
-	Username            string         `json:"username"`
-	UsernameNormalized  string         `json:"username_normalized"`
-	Email               string         `json:"email"`
-	EmailNormalized     string         `json:"email_normalized"`
-	TopologyFingerprint string         `json:"topology_fingerprint"`
-	PasswordHash        string         `json:"password_hash,omitempty"`
-	TOTPSecret          string         `json:"totp_secret,omitempty"`
-	TOTPConfirmedStep   *int64         `json:"totp_confirmed_step,omitempty"`
+	Mode                 SetupOwnerMode `json:"mode"`
+	TargetUserID         string         `json:"target_user_id,omitempty"`
+	Name                 string         `json:"name"`
+	Username             string         `json:"username"`
+	UsernameNormalized   string         `json:"username_normalized"`
+	Email                string         `json:"email"`
+	EmailNormalized      string         `json:"email_normalized"`
+	TopologyFingerprint  string         `json:"topology_fingerprint"`
+	PasswordHash         string         `json:"password_hash,omitempty"`
+	TOTPSecret           string         `json:"totp_secret,omitempty"`
+	TOTPConfirmedStep    *int64         `json:"totp_confirmed_step,omitempty"`
+	RecoveryBatchID      string         `json:"recovery_batch_id,omitempty"`
+	RecoveryCodeHashes   []string       `json:"recovery_code_hashes,omitempty"`
+	RecoveryAcknowledged bool           `json:"recovery_acknowledged,omitempty"`
 }
 
 type SetupOwnerState struct {
-	Topology      SetupOwnerTopology
-	Draft         *SetupOwnerDraft
-	DraftStale    bool
-	PasswordReady bool
-	TOTPStarted   bool
-	TOTPReady     bool
+	Topology          SetupOwnerTopology
+	Draft             *SetupOwnerDraft
+	DraftStale        bool
+	PasswordReady     bool
+	TOTPStarted       bool
+	TOTPReady         bool
+	RecoveryGenerated bool
+	RecoveryReady     bool
 }
 
 type SetupOwnerDraftInput struct {
@@ -146,6 +151,8 @@ func (m *Manager) GetSetupOwnerState(ctx context.Context, token, origin string) 
 	state.PasswordReady = draft.PasswordHash != ""
 	state.TOTPStarted = draft.TOTPSecret != ""
 	state.TOTPReady = draft.TOTPSecret != "" && draft.TOTPConfirmedStep != nil
+	state.RecoveryGenerated = draft.RecoveryBatchID != "" && len(draft.RecoveryCodeHashes) == setupRecoveryCodeCount
+	state.RecoveryReady = state.RecoveryGenerated && draft.RecoveryAcknowledged
 	return state, nil
 }
 
