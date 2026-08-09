@@ -120,6 +120,105 @@ func TestChangePasswordReplacesCredentialAndSessionAtomically(t *testing.T) {
 	}
 }
 
+func TestChangePasswordRequiresRecentStrongStepUpForMFAAccounts(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 23, 30, 0, 0, time.UTC)
+	newFixture := func(t *testing.T) (*Manager, *fixedClock, *Session, *Session, string) {
+		t.Helper()
+		clock := &fixedClock{now: now}
+		manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{
+			ids:    []string{"current-session", "other-session", "changed-session", "password-event"},
+			tokens: []string{"current-token", "other-token", "changed-token"},
+		})
+		originalHash := currentPasswordLoginHash(t)
+		insertPasswordLoginUser(
+			t, manager, "administrator", "admin@example.com", "administrator",
+			UserStatusActive, true, true, false, originalHash, now.Add(-time.Hour),
+		)
+		current, err := manager.CreateAuthenticatedSession(
+			t.Context(), "administrator", "current browser",
+			AuthenticationMethodPassword, AssuranceLevelMultiFactor,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		other, err := manager.CreateAuthenticatedSession(
+			t.Context(), "administrator", "other browser",
+			AuthenticationMethodPassword, AssuranceLevelMultiFactor,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return manager, clock, current, other, originalHash
+	}
+	assertUnchanged := func(t *testing.T, manager *Manager, current, other *Session, originalHash string) {
+		t.Helper()
+		var storedHash string
+		if err := manager.db.Read().QueryRowContext(t.Context(), `
+			SELECT password_hash FROM password_credentials WHERE user_id = 'administrator'`,
+		).Scan(&storedHash); err != nil {
+			t.Fatal(err)
+		}
+		if storedHash != originalHash {
+			t.Fatal("rejected required-account password change replaced the credential")
+		}
+		for _, session := range []*Session{current, other} {
+			if found, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || found == nil {
+				t.Fatalf("session %q after step-up rejection = %#v, %v", session.ID, found, err)
+			}
+		}
+		var events int
+		if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events`).Scan(&events); err != nil || events != 0 {
+			t.Fatalf("events after step-up rejection = %d, %v", events, err)
+		}
+	}
+
+	for _, test := range []struct {
+		name   string
+		method AuthenticationMethod
+		age    time.Duration
+	}{
+		{name: "password verification is insufficient", method: AuthenticationMethodPassword},
+		{name: "strong verification is stale", method: AuthenticationMethodTOTP, age: securityStepUpMaximumAge + time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager, clock, current, other, originalHash := newFixture(t)
+			if steppedUp, err := manager.RecordSessionStepUp(t.Context(), current.UserID, current.ID, test.method); err != nil || !steppedUp {
+				t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
+			}
+			clock.now = now.Add(test.age)
+			result, err := manager.ChangePassword(t.Context(), PasswordChangeOptions{
+				SessionToken: current.Token, CurrentPassword: passwordLoginTestPassword,
+				NewPassword: changedPasswordTestValue, UserAgent: "changed browser",
+			})
+			if result != nil || !errors.Is(err, ErrRecentStepUpRequired) {
+				t.Fatalf("ChangePassword() = %#v, %v, want recent strong verification", result, err)
+			}
+			assertUnchanged(t, manager, current, other, originalHash)
+		})
+	}
+
+	t.Run("fresh strong verification is preserved without extension", func(t *testing.T) {
+		manager, clock, current, _, _ := newFixture(t)
+		if steppedUp, err := manager.RecordSessionStepUp(
+			t.Context(), current.UserID, current.ID, AuthenticationMethodTOTP,
+		); err != nil || !steppedUp {
+			t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
+		}
+		clock.now = now.Add(5 * time.Minute)
+		result, err := manager.ChangePassword(t.Context(), PasswordChangeOptions{
+			SessionToken: current.Token, CurrentPassword: passwordLoginTestPassword,
+			NewPassword: changedPasswordTestValue, UserAgent: "changed browser",
+		})
+		if err != nil || result == nil || result.Session == nil {
+			t.Fatalf("ChangePassword() = %#v, %v", result, err)
+		}
+		if result.Session.StepUpAt == nil || !result.Session.StepUpAt.Equal(now) ||
+			result.Session.StepUpMethod != AuthenticationMethodTOTP {
+			t.Fatalf("preserved strong step-up = %v/%q, want %v/TOTP", result.Session.StepUpAt, result.Session.StepUpMethod, now)
+		}
+	})
+}
+
 func TestChangePasswordRejectsInvalidCurrentAndNewPasswordsWithoutSideEffects(t *testing.T) {
 	tests := []struct {
 		name            string

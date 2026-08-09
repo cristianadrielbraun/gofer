@@ -2978,6 +2978,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	data := views.PasswordSecurityData{
 		HasPassword: hasPassword,
 		HasTOTP:     summary.HasTOTP, HasPasskey: summary.HasPasskey,
+		RequiresMFA:            summary.RequiresMFA,
 		RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
 		StepUpFresh:            summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
 		DisableTOTPReason: summary.DisableTOTPReason,
@@ -3027,6 +3028,9 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		switch {
 		case r.URL.Query().Get("password_changed") == "1":
 			data.Message = "Password changed. Other signed-in devices were signed out."
+		case r.URL.Query().Get("verification_required") == "1":
+			data.Message = "Verify this session before changing the password."
+			data.MessageIsError = true
 		case r.URL.Query().Get("verified") == "1":
 			data.Message = "Security verification complete. Sensitive actions are available for ten minutes."
 		case r.URL.Query().Get("totp_replaced") == "1":

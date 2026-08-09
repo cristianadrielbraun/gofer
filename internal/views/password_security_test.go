@@ -153,3 +153,37 @@ func TestPasswordSecuritySettingsRequiresStepUpBeforeSensitiveFactorForms(t *tes
 		}
 	}
 }
+
+func TestPasswordSecuritySettingsRequiresStrongStepUpForMFAPasswordChange(t *testing.T) {
+	var requiredOutput bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		HasPassword: true,
+		HasTOTP:     true,
+		RequiresMFA: true,
+	}).Render(context.Background(), &requiredOutput); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render(required MFA) error = %v", err)
+	}
+	requiredHTML := requiredOutput.String()
+	for _, want := range []string{
+		"current password alone is not sufficient verification",
+		"Verify this session above before changing the password",
+	} {
+		if !strings.Contains(requiredHTML, want) {
+			t.Fatalf("MFA-required stale security view missing %q", want)
+		}
+	}
+	if strings.Contains(requiredHTML, `action="/settings/security/password"`) || strings.Contains(requiredHTML, `name="current_password"`) {
+		t.Fatal("MFA-required stale security view exposed the password-change form")
+	}
+
+	var normalOutput bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		HasPassword: true,
+	}).Render(context.Background(), &normalOutput); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render(normal account) error = %v", err)
+	}
+	normalHTML := normalOutput.String()
+	if !strings.Contains(normalHTML, `action="/settings/security/password"`) || !strings.Contains(normalHTML, `name="current_password"`) {
+		t.Fatal("normal password account should still be able to verify with its current password")
+	}
+}

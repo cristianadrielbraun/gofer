@@ -162,6 +162,70 @@ func TestPasswordChangeErrorsDoNotEchoCredentialsOrMutateSession(t *testing.T) {
 	}
 }
 
+func TestPasswordChangeRequiresStrongVerificationForAdministrator(t *testing.T) {
+	handler, manager, _ := newLocalLoginHandler(t, auth.UserStatusActive, true, true, true, false)
+	current, err := manager.CreateAuthenticatedSession(
+		t.Context(), "person", "current browser",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := manager.CreateAuthenticatedSession(
+		t.Context(), "person", "other browser",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	stack := manager.Middleware(mux)
+	proof := csrfProofForSession(t, manager, current.Token, passwordChangePath)
+	form := url.Values{
+		auth.CSRFFormFieldName: {proof},
+		"current_password":     {localLoginPassword},
+		"new_password":         {passwordSecurityNewPassword},
+		"confirm_password":     {passwordSecurityNewPassword},
+	}
+	post := func() *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, passwordChangePath, strings.NewReader(form.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.AddCookie(&http.Cookie{Name: "gofer_session", Value: current.Token})
+		recorder := httptest.NewRecorder()
+		stack.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	recorder := post()
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/settings/security?verification_required=1" {
+		t.Fatalf("unverified administrator password change = %d %q", recorder.Code, recorder.Header().Get("Location"))
+	}
+	for _, session := range []*auth.Session{current, other} {
+		if found, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || found == nil {
+			t.Fatalf("session %q after verification rejection = %#v, %v", session.ID, found, err)
+		}
+	}
+	if steppedUp, err := manager.RecordSessionStepUp(
+		t.Context(), current.UserID, current.ID, auth.AuthenticationMethodTOTP,
+	); err != nil || !steppedUp {
+		t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
+	}
+	recorder = post()
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/settings/security?password_changed=1" {
+		t.Fatalf("verified administrator password change = %d %q body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	}
+	changedCookie := responseCookie(recorder, "gofer_session", true)
+	if changedCookie == nil {
+		t.Fatal("verified administrator password change did not rotate the session cookie")
+	}
+	changed, err := manager.GetSessionByToken(t.Context(), changedCookie.Value)
+	if err != nil || changed == nil || changed.StepUpAt == nil || changed.StepUpMethod != auth.AuthenticationMethodTOTP {
+		t.Fatalf("verified administrator changed session = %#v, %v", changed, err)
+	}
+}
+
 func TestPasswordChangeRejectsOversizedFormBeforeMutation(t *testing.T) {
 	_, manager, mux, current, other := passwordSecurityStack(t)
 	page := getPasswordSecurityPage(t, manager, mux, current.Token)

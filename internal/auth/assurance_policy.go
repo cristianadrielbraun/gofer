@@ -108,3 +108,18 @@ func (m *Manager) requireRecentSecurityStepUp(ctx context.Context, session *Sess
 	}
 	return nil
 }
+
+// RequireRecentSecurityStepUp verifies that the bearer identifies an active
+// session whose current assurance policy and most recent verification permit a
+// sensitive action. Callers must still enforce ownership, role, and CSRF at
+// their own boundary.
+func (m *Manager) RequireRecentSecurityStepUp(ctx context.Context, sessionToken string) error {
+	session, err := m.GetSessionByToken(ctx, sessionToken)
+	if err != nil {
+		return err
+	}
+	if session == nil {
+		return ErrSecuritySessionInvalid
+	}
+	return m.requireRecentSecurityStepUp(ctx, session, m.clock.Now().UTC())
+}

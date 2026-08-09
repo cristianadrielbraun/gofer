@@ -25,8 +25,9 @@ type MailSecurityExceptionAccount struct {
 }
 
 type MailSecurityAdminData struct {
-	Exceptions []MailSecurityException
-	Notice     string
-	Error      string
-	CSRFTokens map[string]string
+	Exceptions     []MailSecurityException
+	Notice         string
+	Error          string
+	StepUpRequired bool
+	CSRFTokens     map[string]string
 }

@@ -44,6 +44,8 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, auth.ErrSessionNotActive):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			http.Redirect(w, r, "/settings/security?verification_required=1", http.StatusSeeOther)
 		default:
 			log.Printf("change local password: %v", err)
 			h.renderPasswordChangeError(w, r, http.StatusInternalServerError, "Unable to change the password right now. Please try again.")

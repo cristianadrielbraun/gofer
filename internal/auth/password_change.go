@@ -33,8 +33,10 @@ type passwordChangeCandidate struct {
 }
 
 // ChangePassword verifies the current local credential and atomically replaces
-// it, revokes every other session, rotates the current session, records the
-// password verification as a fresh step-up, and emits a credential event.
+// it, revokes every other session, rotates the current session, and emits a
+// credential event. Single-factor accounts receive fresh password step-up
+// metadata; MFA-required accounts must present and preserve a recent strong
+// step-up.
 func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOptions) (*PasswordChangeResult, error) {
 	candidate, err := m.passwordChangeCandidate(ctx, options.SessionToken)
 	if err != nil {
@@ -102,13 +104,17 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 		if current.ID != candidate.session.ID || current.UserID != candidate.session.UserID {
 			return ErrSessionNotActive
 		}
-		if _, err := m.requireAuthenticationAssurance(
+		policy, err := m.requireAuthenticationAssurance(
 			ctx, tx, current.UserID, current.AuthVersion, current.AssuranceLevel,
-		); err != nil {
+		)
+		if err != nil {
 			if errors.Is(err, ErrAuthenticationPolicyNotSatisfied) || errors.Is(err, ErrUserNotActive) {
 				return ErrSessionNotActive
 			}
 			return err
+		}
+		if policy.RequiresMFA && !hasRecentSecurityStepUp(current, policy, now) {
+			return ErrRecentStepUpRequired
 		}
 
 		var currentHash, username, email string
@@ -182,6 +188,12 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 		if idleExpiresAt.After(current.AbsoluteExpiresAt) {
 			idleExpiresAt = current.AbsoluteExpiresAt
 		}
+		stepUpAt := now
+		stepUpMethod := AuthenticationMethodPassword
+		if policy.RequiresMFA {
+			stepUpAt = current.StepUpAt.UTC()
+			stepUpMethod = current.StepUpMethod
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO sessions (
 				id, user_id, token_hash, auth_version, authentication_method,
@@ -192,7 +204,7 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 			sessionID, current.UserID, hashToken(sessionToken), current.AuthVersion,
 			current.AuthenticationMethod, current.AssuranceLevel, userAgent,
 			current.AuthenticatedAt, now, idleExpiresAt, current.AbsoluteExpiresAt,
-			now, AuthenticationMethodPassword, now,
+			stepUpAt, stepUpMethod, now,
 		); err != nil {
 			return fmt.Errorf("insert changed-password session: %w", err)
 		}
@@ -212,7 +224,6 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 			return fmt.Errorf("update password-change user timestamp: %w", err)
 		}
 
-		stepUpAt := now
 		changedSession = &Session{
 			ID:                   sessionID,
 			UserID:               current.UserID,
@@ -226,7 +237,7 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 			IdleExpiresAt:        idleExpiresAt,
 			AbsoluteExpiresAt:    current.AbsoluteExpiresAt,
 			StepUpAt:             &stepUpAt,
-			StepUpMethod:         AuthenticationMethodPassword,
+			StepUpMethod:         stepUpMethod,
 			CreatedAt:            now,
 		}
 		return nil

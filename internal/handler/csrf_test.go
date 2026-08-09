@@ -55,6 +55,11 @@ func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAuthenticatedSession() error = %v", err)
 	}
+	if steppedUp, err := manager.RecordSessionStepUp(
+		t.Context(), session.UserID, session.ID, auth.AuthenticationMethodTOTP,
+	); err != nil || !steppedUp {
+		t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
+	}
 	if err := db.AddHTTPDiscoveryException(t.Context(), "mail.example.test", "owner"); err != nil {
 		t.Fatalf("seed HTTP discovery exception: %v", err)
 	}
@@ -123,6 +128,103 @@ func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 	}
 	if allowed, err := db.IsPrivateTargetAllowed(t.Context(), "http", "127.0.0.1", 8080); err != nil || !allowed {
 		t.Fatalf("private target after valid mutation = %t, %v", allowed, err)
+	}
+}
+
+func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
+	handler, db := newAccountOwnershipTestHandler(t)
+	if _, err := db.Write().ExecContext(t.Context(), `
+		UPDATE users SET is_admin = 1, status = 'active', auth_version = 1 WHERE id = 'owner'`); err != nil {
+		t.Fatal(err)
+	}
+	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	handler.auth = manager
+	session, err := manager.CreateAuthenticatedSession(
+		t.Context(), "owner", "admin browser",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddHTTPDiscoveryException(t.Context(), "existing.example.test", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	exceptions, err := db.ListMailSecurityExceptions(t.Context())
+	if err != nil || len(exceptions) != 1 {
+		t.Fatalf("seeded exceptions = %#v, %v", exceptions, err)
+	}
+	deletePath := "/admin/security/exceptions/" + exceptions[0].ID + "/delete"
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	stack := manager.Middleware(mux)
+
+	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/security", nil)
+	pageRequest.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Recent administrator verification required") ||
+		!strings.Contains(page.Body.String(), `href="/settings/security"`) || !strings.Contains(page.Body.String(), " disabled") {
+		t.Fatalf("stale admin security page = %d %q", page.Code, page.Body.String())
+	}
+
+	tests := []struct {
+		path string
+		form url.Values
+	}{
+		{path: "/admin/security/http-discovery", form: url.Values{"domain": {"new.example.test"}, "acknowledge": {"yes"}}},
+		{path: "/admin/security/plaintext", form: url.Values{"protocol": {"imap"}, "host": {"mail.lab.test"}, "port": {"1143"}, "acknowledge": {"yes"}}},
+		{path: "/admin/security/private-target", form: url.Values{"protocol": {"http"}, "host": {"127.0.0.1"}, "port": {"8080"}, "acknowledge": {"yes"}}},
+		{path: deletePath, form: url.Values{}},
+	}
+	post := func(test struct {
+		path string
+		form url.Values
+	}) *httptest.ResponseRecorder {
+		t.Helper()
+		test.form.Set(auth.CSRFFormFieldName, csrfProofFromForm(t, page.Body.String(), test.path))
+		request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.form.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
+		recorder := httptest.NewRecorder()
+		stack.ServeHTTP(recorder, request)
+		return recorder
+	}
+	for _, test := range tests {
+		recorder := post(test)
+		if recorder.Code != http.StatusSeeOther || !strings.HasPrefix(recorder.Header().Get("Location"), "/admin/security?error=") {
+			t.Fatalf("stale mutation %q = %d %q", test.path, recorder.Code, recorder.Header().Get("Location"))
+		}
+	}
+	assertOnlySeeded := func(t *testing.T) {
+		t.Helper()
+		stored, err := db.ListMailSecurityExceptions(t.Context())
+		if err != nil || len(stored) != 1 || stored[0].ID != exceptions[0].ID {
+			t.Fatalf("exceptions after rejected mutation = %#v, %v", stored, err)
+		}
+	}
+	assertOnlySeeded(t)
+
+	if steppedUp, err := manager.RecordSessionStepUp(
+		t.Context(), session.UserID, session.ID, auth.AuthenticationMethodPassword,
+	); err != nil || !steppedUp {
+		t.Fatalf("RecordSessionStepUp(password) = %t, %v", steppedUp, err)
+	}
+	if recorder := post(tests[2]); recorder.Code != http.StatusSeeOther || !strings.HasPrefix(recorder.Header().Get("Location"), "/admin/security?error=") {
+		t.Fatalf("weak admin step-up mutation = %d %q", recorder.Code, recorder.Header().Get("Location"))
+	}
+	assertOnlySeeded(t)
+
+	if steppedUp, err := manager.RecordSessionStepUp(
+		t.Context(), session.UserID, session.ID, auth.AuthenticationMethodTOTP,
+	); err != nil || !steppedUp {
+		t.Fatalf("RecordSessionStepUp(TOTP) = %t, %v", steppedUp, err)
+	}
+	recorder := post(tests[2])
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/admin/security?notice=HTTP+private+target+is+now+allowed+for+127.0.0.1%3A8080." {
+		t.Fatalf("strong admin step-up mutation = %d %q body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	}
+	if allowed, err := db.IsPrivateTargetAllowed(t.Context(), "http", "127.0.0.1", 8080); err != nil || !allowed {
+		t.Fatalf("private target after strong step-up = %t, %v", allowed, err)
 	}
 }
 

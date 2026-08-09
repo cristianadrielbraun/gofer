@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/netip"
@@ -83,16 +84,34 @@ func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	stepUpRequired := false
+	if h.auth != nil && h.auth.Config().Enabled {
+		err := h.auth.RequireRecentSecurityStepUp(ctx, auth.GetSessionToken(r))
+		switch {
+		case err == nil:
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			stepUpRequired = true
+		case errors.Is(err, auth.ErrSecuritySessionInvalid):
+			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		default:
+			log.Printf("admin mail security: verify session: %v", err)
+			http.Error(w, "failed to verify admin session", http.StatusInternalServerError)
+			return
+		}
+	}
 	exceptions, err := h.db.ListMailSecurityExceptions(ctx)
 	if err != nil {
 		http.Error(w, "failed to load mail security exceptions", http.StatusInternalServerError)
 		return
 	}
 	data := models.MailSecurityAdminData{
-		Exceptions: exceptions,
-		Notice:     strings.TrimSpace(r.URL.Query().Get("notice")),
-		Error:      strings.TrimSpace(r.URL.Query().Get("error")),
-		CSRFTokens: map[string]string{},
+		Exceptions:     exceptions,
+		Notice:         strings.TrimSpace(r.URL.Query().Get("notice")),
+		Error:          strings.TrimSpace(r.URL.Query().Get("error")),
+		StepUpRequired: stepUpRequired,
+		CSRFTokens:     map[string]string{},
 	}
 	for _, action := range []string{
 		"/admin/security/http-discovery",
@@ -115,6 +134,9 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http.Request) {
+	if !h.requireRecentAdminSecurityStepUp(w, r) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		redirectAdminSecurity(w, r, "", "Invalid form data.")
 		return
@@ -137,6 +159,9 @@ func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r *http.Request) {
+	if !h.requireRecentAdminSecurityStepUp(w, r) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		redirectAdminSecurity(w, r, "", "Invalid form data.")
 		return
@@ -161,6 +186,9 @@ func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r 
 }
 
 func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http.Request) {
+	if !h.requireRecentAdminSecurityStepUp(w, r) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		redirectAdminSecurity(w, r, "", "Invalid form data.")
 		return
@@ -205,6 +233,9 @@ func (h *Handler) restartAccountsUsingPlaintextException(ctx context.Context, pr
 }
 
 func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *http.Request) {
+	if !h.requireRecentAdminSecurityStepUp(w, r) {
+		return
+	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	item, err := h.db.GetMailSecurityException(r.Context(), id)
 	if err != nil {
@@ -226,6 +257,26 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 		}
 	}
 	redirectAdminSecurity(w, r, "Security exception revoked.", "")
+}
+
+func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *http.Request) bool {
+	if h.auth == nil || !h.auth.Config().Enabled {
+		return true
+	}
+	err := h.auth.RequireRecentSecurityStepUp(r.Context(), auth.GetSessionToken(r))
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, auth.ErrRecentStepUpRequired):
+		redirectAdminSecurity(w, r, "", "Verify this session in Settings > Security before changing mail security exceptions.")
+	case errors.Is(err, auth.ErrSecuritySessionInvalid):
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	default:
+		log.Printf("admin mail security: verify sensitive action: %v", err)
+		http.Error(w, "failed to verify admin session", http.StatusInternalServerError)
+	}
+	return false
 }
 
 func redirectAdminSecurity(w http.ResponseWriter, r *http.Request, notice, message string) {

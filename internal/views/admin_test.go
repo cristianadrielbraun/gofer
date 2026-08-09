@@ -64,6 +64,35 @@ func TestAdminSecurityPageShowsExceptionsAndWarnings(t *testing.T) {
 	}
 }
 
+func TestAdminSecurityPageRequiresRecentVerificationForMutations(t *testing.T) {
+	data := models.MailSecurityAdminData{
+		StepUpRequired: true,
+		Exceptions: []models.MailSecurityException{{
+			ID: "private", Kind: models.MailSecurityExceptionPrivateTarget,
+			Protocol: "http", Host: "127.0.0.1", Port: 8080,
+		}},
+	}
+
+	var out bytes.Buffer
+	if err := AdminSecurityPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminSecurityPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`role="alert"`,
+		"Recent administrator verification required",
+		`href="/settings/security"`,
+		"unlock these changes for ten minutes",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("step-up-required admin security page missing %q: %s", want, html)
+		}
+	}
+	if got := strings.Count(html, ` disabled>`); got != 4 {
+		t.Fatalf("admin security disabled submit button count = %d, want 4", got)
+	}
+}
+
 func TestAdminMailOperationsPageRendersSMTPBaseline(t *testing.T) {
 	status := models.MailOperationsAdminStatus{}
 	status.Health.SMTPProfile = models.MailSMTPAdminProfile{
