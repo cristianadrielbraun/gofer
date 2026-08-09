@@ -354,6 +354,14 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
 	mux.HandleFunc("POST /settings/security/password", h.handleChangePassword)
+	mux.HandleFunc("POST "+securityStepUpPath, h.handleSecurityStepUp)
+	mux.HandleFunc("POST "+securityTOTPStartPath, h.handleSecurityTOTPStart)
+	mux.HandleFunc("POST "+securityTOTPConfirmPath, h.handleSecurityTOTPConfirm)
+	mux.HandleFunc("POST "+securityTOTPDisablePath, h.handleSecurityTOTPDisable)
+	mux.HandleFunc("POST "+securityRecoveryStartPath, h.handleSecurityRecoveryStart)
+	mux.HandleFunc("POST "+securityRecoveryCompletePath, h.handleSecurityRecoveryComplete)
+	mux.HandleFunc("POST "+securityRecoveryRevokePath, h.handleSecurityRecoveryRevoke)
+	mux.HandleFunc("POST "+securityManagementCancelPath, h.handleSecurityManagementCancel)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
@@ -2943,25 +2951,81 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Request, status int, override *views.PasswordSecurityData) {
 	ctx := r.Context()
-	data := views.PasswordSecurityData{}
+	user := auth.GetCurrentUser(ctx)
+	if user == nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	hasPassword, err := h.auth.HasPasswordCredential(ctx, user.ID)
+	if err != nil {
+		log.Printf("load password security settings: %v", err)
+		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+		return
+	}
+	summary, err := h.auth.GetSecurityFactorSummary(ctx, auth.GetSessionToken(r))
+	if err != nil {
+		log.Printf("load authentication-factor security settings: %v", err)
+		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+		return
+	}
+	data := views.PasswordSecurityData{
+		HasPassword: hasPassword,
+		HasTOTP:     summary.HasTOTP, RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
+		StepUpFresh: summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
+		DisableTOTPReason: summary.DisableTOTPReason,
+		CSRFTokens:        map[string]string{},
+	}
+	for _, path := range []string{
+		passwordChangePath, securityStepUpPath, securityTOTPStartPath, securityTOTPConfirmPath,
+		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,
+		securityRecoveryRevokePath, securityManagementCancelPath,
+	} {
+		data.CSRFTokens[path] = auth.CSRFToken(ctx, http.MethodPost, path)
+	}
+	data.CSRFToken = data.CSRFTokens[passwordChangePath]
+	challengeToken := auth.GetSecurityChallengeToken(r)
+	if challengeToken != "" {
+		if state, stateErr := h.auth.GetTOTPReplacement(
+			ctx, challengeToken, auth.GetSessionToken(r), h.auth.Config().BaseURL,
+		); stateErr == nil {
+			data.TOTPReplacement = totpManagementViewData(state)
+		} else if state, recoveryErr := h.auth.GetRecoveryCodeReplacement(
+			ctx, challengeToken, auth.GetSessionToken(r), h.auth.Config().BaseURL,
+		); recoveryErr == nil {
+			data.RecoveryReplacementPending = true
+			data.RecoveryBatchID = state.BatchID
+		} else if !errors.Is(stateErr, auth.ErrRecentStepUpRequired) && !errors.Is(recoveryErr, auth.ErrRecentStepUpRequired) {
+			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
+		}
+	}
 	if override != nil {
-		data = *override
+		data.Message = override.Message
+		data.MessageIsError = override.MessageIsError
+		if override.TOTPReplacement != nil {
+			data.TOTPReplacement = override.TOTPReplacement
+		}
+		if override.RecoveryReplacementPending {
+			data.RecoveryReplacementPending = true
+			data.RecoveryBatchID = override.RecoveryBatchID
+			data.RecoveryCodes = append([]string(nil), override.RecoveryCodes...)
+		}
 	} else {
-		user := auth.GetCurrentUser(ctx)
-		if user == nil {
-			http.Error(w, "authentication required", http.StatusUnauthorized)
-			return
-		}
-		hasPassword, err := h.auth.HasPasswordCredential(ctx, user.ID)
-		if err != nil {
-			log.Printf("load password security settings: %v", err)
-			http.Error(w, "failed to load security settings", http.StatusInternalServerError)
-			return
-		}
-		data.HasPassword = hasPassword
-		data.CSRFToken = auth.CSRFToken(ctx, http.MethodPost, passwordChangePath)
-		if r.URL.Query().Get("password_changed") == "1" {
+		switch {
+		case r.URL.Query().Get("password_changed") == "1":
 			data.Message = "Password changed. Other signed-in devices were signed out."
+		case r.URL.Query().Get("verified") == "1":
+			data.Message = "Security verification complete. Sensitive actions are available for ten minutes."
+		case r.URL.Query().Get("totp_replaced") == "1":
+			data.Message = "Authenticator replaced. Other signed-in devices were signed out."
+		case r.URL.Query().Get("totp_disabled") == "1":
+			data.Message = "Authenticator disabled and recovery codes revoked. Other signed-in devices were signed out."
+		case r.URL.Query().Get("recovery_replaced") == "1":
+			data.Message = "Recovery codes replaced. The previous unused codes no longer work."
+		case r.URL.Query().Get("recovery_revoked") == "1":
+			data.Message = "All unused recovery codes were revoked."
+		case r.URL.Query().Get("challenge_expired") == "1":
+			data.Message = "That security change expired or was replaced. Start again when you are ready."
+			data.MessageIsError = true
 		}
 	}
 
@@ -2979,6 +3043,8 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = page.WriteTo(w)

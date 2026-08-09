@@ -135,6 +135,8 @@ const (
 	AuthEventSetupTokenVerified           AuthEventType = "setup_token_verified"
 	AuthEventSetupTokenVerificationFailed AuthEventType = "setup_token_verification_failed"
 	AuthEventSetupCompleted               AuthEventType = "setup_completed"
+	AuthEventStepUpSucceeded              AuthEventType = "step_up_succeeded"
+	AuthEventStepUpFailed                 AuthEventType = "step_up_failed"
 )
 
 type AuthEventReason string

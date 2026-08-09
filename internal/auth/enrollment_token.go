@@ -12,7 +12,7 @@ import (
 
 var (
 	ErrAdministratorRequired        = errors.New("active administrator required")
-	ErrRecentStepUpRequired         = errors.New("recent administrator verification required")
+	ErrRecentStepUpRequired         = errors.New("recent verification required")
 	ErrEnrollmentTokenTargetInvalid = errors.New("user is not eligible for this token purpose")
 )
 

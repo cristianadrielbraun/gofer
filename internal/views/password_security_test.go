@@ -50,3 +50,81 @@ func TestPasswordSecuritySettingsDoesNotOfferChangeWithoutCredential(t *testing.
 		t.Fatalf("missing-credential password settings = %q", html)
 	}
 }
+
+func TestPasswordSecuritySettingsRendersAccessibleFactorManagementAndEscapesSecrets(t *testing.T) {
+	csrf := strings.Repeat("b", 64)
+	data := PasswordSecurityData{
+		HasPassword: true, HasTOTP: true, RecoveryCodesRemaining: 7, StepUpFresh: true,
+		TOTPReplacement: &TOTPReplacementData{
+			QRCodeDataURL: "data:image/png;base64,cG5n", ManualKey: `<new-authenticator-key>`,
+			Algorithm: "SHA1", Digits: 6, Period: 30,
+		},
+		RecoveryReplacementPending: true,
+		RecoveryBatchID:            "batch-id",
+		RecoveryCodes:              []string{"SAFE-CODE", `<script>recovery</script>`},
+		CSRFTokens: map[string]string{
+			"/settings/security/totp/confirm":      csrf,
+			"/settings/security/totp/start":        csrf,
+			"/settings/security/recovery/complete": csrf,
+			"/settings/security/recovery/start":    csrf,
+			"/settings/security/management/cancel": csrf,
+		},
+	}
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(data).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-totp-replacement`,
+		`alt="QR code containing the replacement Gofer authenticator key"`,
+		`aria-label="Replacement authenticator manual setup key"`,
+		`action="/settings/security/totp/confirm"`,
+		`autocomplete="one-time-code"`,
+		`data-recovery-code-replacement`,
+		`aria-label="New recovery codes"`,
+		`action="/settings/security/recovery/complete"`,
+		`name="saved" value="yes"`,
+		`name="_csrf" value="` + csrf + `"`,
+		`&lt;new-authenticator-key&gt;`,
+		`&lt;script&gt;recovery&lt;/script&gt;`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("factor management view missing %q", want)
+		}
+	}
+	if strings.Contains(html, `<new-authenticator-key>`) || strings.Contains(html, `<script>recovery</script>`) {
+		t.Fatal("factor management view rendered unescaped credential material")
+	}
+}
+
+func TestPasswordSecuritySettingsRequiresStepUpBeforeSensitiveFactorForms(t *testing.T) {
+	csrf := strings.Repeat("c", 64)
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		HasPassword: true, HasTOTP: true, RecoveryCodesRemaining: 10,
+		CSRFTokens: map[string]string{"/settings/security/step-up": csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-security-step-up`, `action="/settings/security/step-up"`,
+		`inputmode="numeric"`, `autocomplete="one-time-code"`,
+		"unlock sensitive security changes for ten minutes",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("stale security view missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`action="/settings/security/totp/start"`,
+		`action="/settings/security/totp/disable"`,
+		`action="/settings/security/recovery/start"`,
+		`action="/settings/security/recovery/revoke"`,
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("stale security view exposed sensitive action %q", forbidden)
+		}
+	}
+}
