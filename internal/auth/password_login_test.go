@@ -90,8 +90,12 @@ func TestAuthenticatePasswordCreatesSingleFactorSessionAtomically(t *testing.T) 
 	if session.ID != "password-session-id" || session.Token != "password-session-token" || session.AuthenticationMethod != AuthenticationMethodPassword || session.AssuranceLevel != AssuranceLevelSingleFactor || session.UserAgent != "test browser" {
 		t.Fatalf("password session = %#v", session)
 	}
+	if session.StepUpAt == nil || !session.StepUpAt.Equal(now) || session.StepUpMethod != AuthenticationMethodPassword {
+		t.Fatalf("password login step-up = %v/%q, want %v/password", session.StepUpAt, session.StepUpMethod, now)
+	}
 	stored, err := manager.GetSessionByToken(t.Context(), session.Token)
-	if err != nil || stored == nil || stored.ID != session.ID {
+	if err != nil || stored == nil || stored.ID != session.ID || stored.StepUpAt == nil ||
+		!stored.StepUpAt.Equal(now) || stored.StepUpMethod != AuthenticationMethodPassword {
 		t.Fatalf("GetSessionByToken() = %#v, %v", stored, err)
 	}
 	var lastLoginAt time.Time

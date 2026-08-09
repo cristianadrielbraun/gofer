@@ -611,6 +611,11 @@ CREATE TABLE IF NOT EXISTS webauthn_credentials (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_used_at DATETIME,
     revoked_at DATETIME,
+    credential_ciphertext BLOB CHECK (credential_ciphertext IS NULL OR length(credential_ciphertext) > 0),
+    key_version INTEGER CHECK (key_version IS NULL OR key_version > 0),
+    rp_id TEXT CHECK (rp_id IS NULL OR rp_id <> ''),
+    flags INTEGER NOT NULL DEFAULT 0 CHECK (flags BETWEEN 0 AND 255),
+    clone_warning INTEGER NOT NULL DEFAULT 0 CHECK (clone_warning IN (0, 1)),
     CHECK (backup_state = 0 OR backup_eligible = 1)
 );
 
@@ -620,6 +625,15 @@ CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user
 CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_active
     ON webauthn_credentials(user_id, created_at)
     WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS webauthn_users (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rp_id TEXT NOT NULL CHECK (rp_id <> ''),
+    user_handle BLOB NOT NULL CHECK (length(user_handle) BETWEEN 16 AND 64),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (rp_id, user_id),
+    UNIQUE (rp_id, user_handle)
+);
 
 CREATE TABLE IF NOT EXISTS totp_credentials (
     id TEXT PRIMARY KEY,
@@ -1300,4 +1314,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (80);
+INSERT OR REPLACE INTO schema_version (version) VALUES (81);

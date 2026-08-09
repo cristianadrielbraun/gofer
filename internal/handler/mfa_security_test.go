@@ -70,6 +70,8 @@ func TestSecuritySettingsRendersManagedFactorsAndProtectsActionsWithCSRF(t *test
 	html := page.Body.String()
 	for _, want := range []string{
 		"Authenticator app", "Enrolled", "Recovery codes", "10 remaining",
+		"Passkeys", "Add passkey", `data-passkey-registration`,
+		`src="/assets/js/passkey-registration.js"`,
 		`action="/settings/security/totp/start"`,
 		`action="/settings/security/recovery/start"`,
 		"Add another strong authenticator before disabling this one.",
@@ -91,6 +93,92 @@ func TestSecuritySettingsRendersManagedFactorsAndProtectsActionsWithCSRF(t *test
 	}, sessionCookie)
 	if oversized.Code != http.StatusForbidden {
 		t.Fatalf("oversized security form = %d %q", oversized.Code, oversized.Body.String())
+	}
+}
+
+func TestSecuritySettingsStartsAndRejectsPasskeyRegistrationThroughBoundJSONEndpoints(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	page := getSecuritySettings(t, stack, sessionCookie)
+	startProof := csrfProofForSession(t, auth.NewManager(&auth.Config{Enabled: true}, db), sessionCookie.Value, securityPasskeyStartPath)
+	started := postSecuritySettings(t, stack, securityPasskeyStartPath, url.Values{
+		auth.CSRFFormFieldName: {startProof},
+		"name":                 {"Work laptop"},
+	}, sessionCookie)
+	if started.Code != http.StatusOK || started.Header().Get("Content-Type") != "application/json" ||
+		started.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("start passkey registration = %d headers:%v body:%q", started.Code, started.Header(), started.Body.String())
+	}
+	for _, want := range []string{
+		`"name":"Gofer"`, `"id":"gofer.example"`, `"residentKey":"preferred"`,
+		`"userVerification":"required"`, `"attestation":"none"`,
+	} {
+		if !strings.Contains(started.Body.String(), want) {
+			t.Fatalf("passkey creation options missing %q: %s", want, started.Body.String())
+		}
+	}
+	challengeCookie := responseCookie(started, "gofer_security_challenge", true)
+	if challengeCookie == nil || !challengeCookie.HttpOnly || !challengeCookie.Secure ||
+		challengeCookie.Path != "/settings/security" || challengeCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("passkey challenge cookie = %#v", challengeCookie)
+	}
+	finishRequest := httptest.NewRequest(http.MethodPost, securityPasskeyFinishPath, strings.NewReader(`{}`))
+	finishRequest.Header.Set("Content-Type", "application/json")
+	finishRequest.Header.Set(auth.CSRFHeaderName, csrfProofForSession(t, auth.NewManager(&auth.Config{Enabled: true}, db), sessionCookie.Value, securityPasskeyFinishPath))
+	finishRequest.AddCookie(sessionCookie)
+	finishRequest.AddCookie(challengeCookie)
+	finishRecorder := httptest.NewRecorder()
+	stack.ServeHTTP(finishRecorder, finishRequest)
+	if finishRecorder.Code != http.StatusUnprocessableEntity || !strings.Contains(finishRecorder.Body.String(), "not accepted") {
+		t.Fatalf("invalid passkey finish = %d %q", finishRecorder.Code, finishRecorder.Body.String())
+	}
+	var activeChallenges, credentials int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&activeChallenges); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM webauthn_credentials`).Scan(&credentials); err != nil {
+		t.Fatal(err)
+	}
+	if activeChallenges != 0 || credentials != 0 {
+		t.Fatalf("rejected passkey finish mutated state: challenges=%d credentials=%d", activeChallenges, credentials)
+	}
+	if !strings.Contains(page.Body.String(), `data-start-csrf="`) || !strings.Contains(page.Body.String(), `data-finish-csrf="`) {
+		t.Fatal("passkey registration form omitted endpoint-bound CSRF proofs")
+	}
+}
+
+func TestSecuritySettingsListsAndRemovesOwnedPasskey(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || session == nil {
+		t.Fatalf("load security session = %#v, %v", session, err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO webauthn_credentials (
+			id, user_id, credential_id, public_key, name, attachment, transports, rp_id
+		) VALUES ('settings-passkey', ?, x'0102', x'0304', 'Existing security key',
+		          'cross-platform', '["usb"]', 'gofer.example')`, session.UserID,
+	); err != nil {
+		t.Fatalf("insert settings passkey: %v", err)
+	}
+	page := getSecuritySettings(t, stack, sessionCookie)
+	removePath := "/settings/security/passkeys/settings-passkey/remove"
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Existing security key") ||
+		!strings.Contains(page.Body.String(), `action="`+removePath+`"`) {
+		t.Fatalf("passkey settings page = %d %q", page.Code, page.Body.String())
+	}
+	removed := postSecuritySettings(t, stack, removePath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), removePath)},
+	}, sessionCookie)
+	if removed.Code != http.StatusSeeOther || removed.Header().Get("Location") != "/settings/security?passkey_removed=1" {
+		t.Fatalf("remove passkey = %d location:%q body:%q", removed.Code, removed.Header().Get("Location"), removed.Body.String())
+	}
+	rotatedCookie := responseCookie(removed, "gofer_session", true)
+	if rotatedCookie == nil || rotatedCookie.Value == sessionCookie.Value {
+		t.Fatalf("passkey removal session cookie = %#v", rotatedCookie)
+	}
+	var revoked bool
+	if err := db.Read().QueryRow(`SELECT revoked_at IS NOT NULL FROM webauthn_credentials WHERE id = 'settings-passkey'`).Scan(&revoked); err != nil || !revoked {
+		t.Fatalf("settings passkey revoked=%t err=%v", revoked, err)
 	}
 }
 

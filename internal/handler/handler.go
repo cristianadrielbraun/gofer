@@ -362,6 +362,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+securityRecoveryCompletePath, h.handleSecurityRecoveryComplete)
 	mux.HandleFunc("POST "+securityRecoveryRevokePath, h.handleSecurityRecoveryRevoke)
 	mux.HandleFunc("POST "+securityManagementCancelPath, h.handleSecurityManagementCancel)
+	mux.HandleFunc("POST "+securityPasskeyStartPath, h.handleSecurityPasskeyStart)
+	mux.HandleFunc("POST "+securityPasskeyFinishPath, h.handleSecurityPasskeyFinish)
+	mux.HandleFunc("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
@@ -2975,11 +2978,17 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		DisableTOTPReason: summary.DisableTOTPReason,
 		CSRFTokens:        map[string]string{},
 	}
+	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
 	for _, path := range []string{
 		passwordChangePath, securityStepUpPath, securityTOTPStartPath, securityTOTPConfirmPath,
 		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,
-		securityRecoveryRevokePath, securityManagementCancelPath,
+		securityRecoveryRevokePath, securityManagementCancelPath, securityPasskeyStartPath,
+		securityPasskeyFinishPath,
 	} {
+		data.CSRFTokens[path] = auth.CSRFToken(ctx, http.MethodPost, path)
+	}
+	for _, passkey := range data.Passkeys {
+		path := "/settings/security/passkeys/" + passkey.ID + "/remove"
 		data.CSRFTokens[path] = auth.CSRFToken(ctx, http.MethodPost, path)
 	}
 	data.CSRFToken = data.CSRFTokens[passwordChangePath]
@@ -3023,6 +3032,10 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			data.Message = "Recovery codes replaced. The previous unused codes no longer work."
 		case r.URL.Query().Get("recovery_revoked") == "1":
 			data.Message = "All unused recovery codes were revoked."
+		case r.URL.Query().Get("passkey_added") == "1":
+			data.Message = "Passkey added. You can register another device or security key at any time."
+		case r.URL.Query().Get("passkey_removed") == "1":
+			data.Message = "Passkey removed. Other signed-in devices were signed out."
 		case r.URL.Query().Get("challenge_expired") == "1":
 			data.Message = "That security change expired or was replaced. Start again when you are ready."
 			data.MessageIsError = true

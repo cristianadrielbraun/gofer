@@ -185,6 +185,8 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 			LastUsedAt:           now,
 			IdleExpiresAt:        now.Add(sessionIdleLifetime),
 			AbsoluteExpiresAt:    now.Add(sessionAbsoluteLifetime),
+			StepUpAt:             &now,
+			StepUpMethod:         AuthenticationMethodPassword,
 			CreatedAt:            now,
 		}
 		if session.IdleExpiresAt.After(session.AbsoluteExpiresAt) {
@@ -283,12 +285,12 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 			INSERT INTO sessions (
 				id, user_id, token_hash, auth_version, authentication_method,
 				assurance_level, user_agent, authenticated_at, last_used_at,
-				idle_expires_at, absolute_expires_at, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				idle_expires_at, absolute_expires_at, step_up_at, step_up_method, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			session.ID, session.UserID, hashToken(session.Token), session.AuthVersion,
 			session.AuthenticationMethod, session.AssuranceLevel, session.UserAgent,
 			session.AuthenticatedAt, session.LastUsedAt, session.IdleExpiresAt,
-			session.AbsoluteExpiresAt, session.CreatedAt,
+			session.AbsoluteExpiresAt, session.StepUpAt, session.StepUpMethod, session.CreatedAt,
 		)
 		if err != nil {
 			return fmt.Errorf("insert password session: %w", err)

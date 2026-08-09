@@ -39,6 +39,7 @@ var (
 
 type SecurityFactorSummary struct {
 	HasTOTP                bool
+	Passkeys               []PasskeyCredentialSummary
 	RecoveryCodesRemaining int
 	StepUpFresh            bool
 	StepUpExpiresAt        *time.Time
@@ -100,17 +101,22 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	if session == nil {
 		return nil, ErrSecuritySessionInvalid
 	}
-	var hasTOTP, recoveryCount, hasPrimary, requiresMFA int
+	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("validate security settings relying party: %w", err)
+	}
+	var hasTOTP, recoveryCount, hasPassword, passkeyCount, requiresMFA int
 	err = m.db.Read().QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
 			(SELECT COUNT(*) FROM recovery_codes r WHERE r.user_id = u.id AND r.used_at IS NULL AND r.revoked_at IS NULL),
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
+			(SELECT COUNT(*) FROM webauthn_credentials w WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL),
 			(u.mfa_required = 1 OR u.is_admin = 1)
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
-		session.UserID, session.AuthVersion,
-	).Scan(&hasTOTP, &recoveryCount, &hasPrimary, &requiresMFA)
+		rpID, session.UserID, session.AuthVersion,
+	).Scan(&hasTOTP, &recoveryCount, &hasPassword, &passkeyCount, &requiresMFA)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrSecuritySessionInvalid
 	}
@@ -123,12 +129,18 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		RecoveryCodesRemaining: recoveryCount,
 		StepUpFresh:            hasRecentSecurityStepUp(session, now),
 	}
+	summary.Passkeys, err = m.listPasskeysForUser(ctx, session.UserID)
+	if err != nil {
+		return nil, err
+	}
 	if session.StepUpAt != nil {
 		expiresAt := session.StepUpAt.UTC().Add(securityStepUpMaximumAge)
 		summary.StepUpExpiresAt = &expiresAt
 	}
 	if summary.HasTOTP {
-		summary.CanDisableTOTP = hasPrimary == 1 && requiresMFA == 0
+		hasPrimary := hasPassword == 1 || passkeyCount > 0
+		hasOtherStrongFactor := passkeyCount > 0
+		summary.CanDisableTOTP = hasPrimary && (requiresMFA == 0 || hasOtherStrongFactor)
 		if !summary.CanDisableTOTP {
 			if requiresMFA == 1 {
 				summary.DisableTOTPReason = "Add another strong authenticator before disabling this one."
@@ -579,6 +591,10 @@ func (m *Manager) DisableTOTP(ctx context.Context, sessionToken, userAgent strin
 	if !hasRecentSecurityStepUp(session, now) {
 		return nil, ErrRecentStepUpRequired
 	}
+	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("validate security settings relying party: %w", err)
+	}
 	newSessionID, newSessionToken, eventID, err := m.securityRotationMaterial()
 	if err != nil {
 		return nil, err
@@ -594,7 +610,7 @@ func (m *Manager) DisableTOTP(ctx context.Context, sessionToken, userAgent strin
 		if err != nil {
 			return err
 		}
-		canDisable, err := canDisableTOTPInTransaction(ctx, tx, current.UserID)
+		canDisable, err := canDisableTOTPInTransaction(ctx, tx, current.UserID, rpID)
 		if err != nil {
 			return err
 		}
@@ -1003,21 +1019,23 @@ func loadActiveTOTPCredential(ctx context.Context, tx *sql.Tx, userID string) (*
 	return credential, nil
 }
 
-func canDisableTOTPInTransaction(ctx context.Context, tx *sql.Tx, userID string) (bool, error) {
-	var hasPrimary, requiresMFA int
+func canDisableTOTPInTransaction(ctx context.Context, tx *sql.Tx, userID, rpID string) (bool, error) {
+	var hasPassword, passkeyCount, requiresMFA int
 	err := tx.QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
+			(SELECT COUNT(*) FROM webauthn_credentials w WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL),
 			(u.mfa_required = 1 OR u.is_admin = 1)
-		FROM users u WHERE u.id = ? AND u.status = 'active'`, userID,
-	).Scan(&hasPrimary, &requiresMFA)
+		FROM users u WHERE u.id = ? AND u.status = 'active'`, rpID, userID,
+	).Scan(&hasPassword, &passkeyCount, &requiresMFA)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrSecuritySessionInvalid
 	}
 	if err != nil {
 		return false, fmt.Errorf("check last authenticator: %w", err)
 	}
-	return hasPrimary == 1 && requiresMFA == 0, nil
+	hasPrimary := hasPassword == 1 || passkeyCount > 0
+	return hasPrimary && (requiresMFA == 0 || passkeyCount > 0), nil
 }
 
 func (m *Manager) readSecurityManagementDraft(ctx context.Context, challengeToken, sessionToken, origin string, purpose ChallengePurpose, kind string) (*PreAuthChallenge, *securityManagementDraft, string, *Session, error) {
