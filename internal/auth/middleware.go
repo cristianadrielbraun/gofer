@@ -117,7 +117,7 @@ func isHTMXRequest(r *http.Request) bool {
 
 func isPublicPath(path string) bool {
 	public := []string{
-		"/login", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
+		"/login", "/login/passkey/start", "/login/passkey/finish", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/redeem", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/sw.js",

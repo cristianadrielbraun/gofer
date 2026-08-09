@@ -39,6 +39,7 @@ var (
 
 type SecurityFactorSummary struct {
 	HasTOTP                bool
+	HasPasskey             bool
 	Passkeys               []PasskeyCredentialSummary
 	RecoveryCodesRemaining int
 	StepUpFresh            bool
@@ -111,7 +112,9 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 			EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
 			(SELECT COUNT(*) FROM recovery_codes r WHERE r.user_id = u.id AND r.used_at IS NULL AND r.revoked_at IS NULL),
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
-			(SELECT COUNT(*) FROM webauthn_credentials w WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL),
+			(SELECT COUNT(*) FROM webauthn_credentials w
+			 WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
+			   AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL),
 			(u.mfa_required = 1 OR u.is_admin = 1)
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
@@ -126,6 +129,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	now := m.clock.Now().UTC()
 	summary := &SecurityFactorSummary{
 		HasTOTP:                hasTOTP == 1,
+		HasPasskey:             passkeyCount > 0,
 		RecoveryCodesRemaining: recoveryCount,
 		StepUpFresh:            hasRecentSecurityStepUp(session, now),
 	}

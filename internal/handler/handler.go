@@ -265,6 +265,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("POST /login", h.handleLoginSubmit)
+	mux.HandleFunc("POST "+loginPasskeyStartPath, h.handleLoginPasskeyStart)
+	mux.HandleFunc("POST "+loginPasskeyFinishPath, h.handleLoginPasskeyFinish)
 	mux.HandleFunc("GET /login/mfa", h.handleLoginMFA)
 	mux.HandleFunc("POST /login/mfa", h.handleLoginMFASubmit)
 	mux.HandleFunc("GET /login/mfa/recovery", h.handleRecoveryCodeLogin)
@@ -364,6 +366,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+securityManagementCancelPath, h.handleSecurityManagementCancel)
 	mux.HandleFunc("POST "+securityPasskeyStartPath, h.handleSecurityPasskeyStart)
 	mux.HandleFunc("POST "+securityPasskeyFinishPath, h.handleSecurityPasskeyFinish)
+	mux.HandleFunc("POST "+securityPasskeyStepUpStartPath, h.handleSecurityPasskeyStepUpStart)
+	mux.HandleFunc("POST "+securityPasskeyStepUpFinishPath, h.handleSecurityPasskeyStepUpFinish)
 	mux.HandleFunc("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
@@ -2973,8 +2977,9 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	}
 	data := views.PasswordSecurityData{
 		HasPassword: hasPassword,
-		HasTOTP:     summary.HasTOTP, RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
-		StepUpFresh: summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
+		HasTOTP:     summary.HasTOTP, HasPasskey: summary.HasPasskey,
+		RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
+		StepUpFresh:            summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
 		DisableTOTPReason: summary.DisableTOTPReason,
 		CSRFTokens:        map[string]string{},
 	}
@@ -2983,7 +2988,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		passwordChangePath, securityStepUpPath, securityTOTPStartPath, securityTOTPConfirmPath,
 		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,
 		securityRecoveryRevokePath, securityManagementCancelPath, securityPasskeyStartPath,
-		securityPasskeyFinishPath,
+		securityPasskeyFinishPath, securityPasskeyStepUpStartPath, securityPasskeyStepUpFinishPath,
 	} {
 		data.CSRFTokens[path] = auth.CSRFToken(ctx, http.MethodPost, path)
 	}

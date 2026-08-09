@@ -17,6 +17,9 @@ func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 		`autocomplete="username"`, `name="password"`,
 		`autocomplete="current-password"`, `role="alert"`,
 		`aria-describedby="login-error"`, `type="submit"`,
+		`data-passkey-authentication`, `data-start-path="/login/passkey/start"`,
+		`data-finish-path="/login/passkey/finish"`, `data-identifier-source="#login-identifier"`,
+		`src="/assets/js/passkey-authentication.js"`, "Sign in with a passkey",
 	} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("login page missing %q", required)

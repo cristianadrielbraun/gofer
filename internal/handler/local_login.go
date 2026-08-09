@@ -79,6 +79,7 @@ func (h *Handler) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if result.PreAuthChallenge != nil {
 		challenge := result.PreAuthChallenge
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
 		auth.SetPreAuthCookie(
 			w, challenge.Token, h.auth.Config().SecureCookies,
 			challenge.ExpiresAt.Sub(challenge.CreatedAt),
@@ -88,6 +89,7 @@ func (h *Handler) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+	auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
 	auth.SetSessionCookie(w, result.Session.Token, h.auth.Config().SecureCookies)
 	returnTo := auth.GetReturnTo(r)
 	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)

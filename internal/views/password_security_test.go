@@ -5,7 +5,25 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
 )
+
+func TestSettingsLayoutLoadsPasskeyControllersForHTMXSecurityNavigation(t *testing.T) {
+	var output bytes.Buffer
+	if err := SettingsLayout(nil, models.SyncSettings{}, "accounts", nil, nil).Render(context.Background(), &output); err != nil {
+		t.Fatalf("SettingsLayout.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, script := range []string{
+		`src="/assets/js/passkey-registration.js"`,
+		`src="/assets/js/passkey-authentication.js"`,
+	} {
+		if !strings.Contains(html, script) {
+			t.Fatalf("settings layout missing passkey controller %q", script)
+		}
+	}
+}
 
 func TestPasswordSecurityLayoutIsLocalAccessibleAndEscapesMessages(t *testing.T) {
 	var output bytes.Buffer
@@ -102,8 +120,13 @@ func TestPasswordSecuritySettingsRequiresStepUpBeforeSensitiveFactorForms(t *tes
 	csrf := strings.Repeat("c", 64)
 	var output bytes.Buffer
 	if err := PasswordSecuritySettings(PasswordSecurityData{
-		HasPassword: true, HasTOTP: true, RecoveryCodesRemaining: 10,
-		CSRFTokens: map[string]string{"/settings/security/step-up": csrf},
+		HasPassword: true, HasTOTP: true, HasPasskey: true, RecoveryCodesRemaining: 10,
+		Passkeys: []PasskeySecurityData{{ID: "passkey", Name: "Laptop"}},
+		CSRFTokens: map[string]string{
+			"/settings/security/step-up":                 csrf,
+			"/settings/security/passkeys/step-up/start":  csrf,
+			"/settings/security/passkeys/step-up/finish": csrf,
+		},
 	}).Render(context.Background(), &output); err != nil {
 		t.Fatalf("PasswordSecuritySettings.Render() error = %v", err)
 	}
@@ -112,6 +135,8 @@ func TestPasswordSecuritySettingsRequiresStepUpBeforeSensitiveFactorForms(t *tes
 		`data-security-step-up`, `action="/settings/security/step-up"`,
 		`inputmode="numeric"`, `autocomplete="one-time-code"`,
 		"unlock sensitive security changes for ten minutes",
+		`data-passkey-authentication`, `data-start-path="/settings/security/passkeys/step-up/start"`,
+		`data-finish-path="/settings/security/passkeys/step-up/finish"`, "Verify with a passkey",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale security view missing %q", want)

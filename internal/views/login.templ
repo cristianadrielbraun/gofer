@@ -84,6 +84,24 @@ templ LoginPage(showGoogle bool, errorMessage string, identifier string) {
 							Sign in
 						}
 					</form>
+					<div class="relative my-6">
+						<div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-border"></div></div>
+						<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">or</span></div>
+					</div>
+					<form
+						data-passkey-authentication
+						data-start-path="/login/passkey/start"
+						data-finish-path="/login/passkey/finish"
+						data-identifier-source="#login-identifier"
+						data-fallback="Use your password if the passkey is unavailable."
+						class="space-y-3"
+					>
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
+							Sign in with a passkey
+						}
+						<p data-passkey-authentication-status role="status" aria-live="polite" class="text-center text-xs text-muted-foreground">Enter a username or email to target its passkeys, or leave it blank to choose a saved account.</p>
+						<noscript><p class="text-center text-xs text-amber-800 dark:text-amber-200">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript>
+					</form>
 					if showGoogle {
 						<div class="relative my-6">
 							<div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-border"></div></div>
@@ -103,6 +121,7 @@ templ LoginPage(showGoogle bool, errorMessage string, identifier string) {
 					}
 				</div>
 			</div>
+			<script src="/assets/js/passkey-authentication.js"></script>
 		</body>
 	</html>
 }

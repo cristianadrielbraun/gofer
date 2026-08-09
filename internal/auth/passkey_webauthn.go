@@ -16,9 +16,19 @@ const passkeyCeremonyLifetime = 5 * time.Minute
 
 type passkeyRegistrationFactory func(origin string) (passkeyRegistrationCeremony, error)
 
+type passkeyAssertionFactory func(origin string) (passkeyAssertionCeremony, error)
+
 type passkeyRegistrationCeremony interface {
 	Begin(passkeyUser) (creationJSON, sessionJSON []byte, err error)
 	Finish(passkeyUser, []byte, []byte) (*passkeyCredentialRecord, error)
+}
+
+type passkeyAssertionUserLookup func(rawID, userHandle []byte) (passkeyUser, error)
+
+type passkeyAssertionCeremony interface {
+	Begin(*passkeyUser) (requestJSON, sessionJSON []byte, err error)
+	Finish(passkeyUser, []byte, []byte) (*passkeyCredentialRecord, error)
+	FinishDiscoverable(passkeyAssertionUserLookup, []byte, []byte) (*passkeyCredentialRecord, error)
 }
 
 type passkeyUser struct {
@@ -51,7 +61,27 @@ type goWebAuthnRegistration struct {
 	webAuthn *webauthn.WebAuthn
 }
 
+type goWebAuthnAssertion struct {
+	webAuthn *webauthn.WebAuthn
+}
+
 func newPasskeyRegistrationCeremony(origin string) (passkeyRegistrationCeremony, error) {
+	instance, err := newPasskeyWebAuthn(origin)
+	if err != nil {
+		return nil, err
+	}
+	return &goWebAuthnRegistration{webAuthn: instance}, nil
+}
+
+func newPasskeyAssertionCeremony(origin string) (passkeyAssertionCeremony, error) {
+	instance, err := newPasskeyWebAuthn(origin)
+	if err != nil {
+		return nil, err
+	}
+	return &goWebAuthnAssertion{webAuthn: instance}, nil
+}
+
+func newPasskeyWebAuthn(origin string) (*webauthn.WebAuthn, error) {
 	canonicalOrigin, rpID, err := canonicalWebAuthnRelyingParty(origin)
 	if err != nil {
 		return nil, err
@@ -67,12 +97,13 @@ func newPasskeyRegistrationCeremony(origin string) (passkeyRegistrationCeremony,
 		},
 		Timeouts: webauthn.TimeoutsConfig{
 			Registration: webauthn.TimeoutConfig{Enforce: true, Timeout: passkeyCeremonyLifetime},
+			Login:        webauthn.TimeoutConfig{Enforce: true, Timeout: passkeyCeremonyLifetime},
 		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configure WebAuthn relying party: %w", err)
 	}
-	return &goWebAuthnRegistration{webAuthn: instance}, nil
+	return instance, nil
 }
 
 func canonicalWebAuthnRelyingParty(origin string) (canonicalOrigin, rpID string, err error) {
@@ -134,6 +165,84 @@ func (registration *goWebAuthnRegistration) Finish(user passkeyUser, sessionJSON
 	credential, err := registration.webAuthn.CreateCredential(user, session, parsed)
 	if err != nil {
 		return nil, err
+	}
+	return passkeyCredentialRecordFromCredential(credential)
+}
+
+func (assertion *goWebAuthnAssertion) Begin(user *passkeyUser) ([]byte, []byte, error) {
+	var (
+		request *protocol.CredentialAssertion
+		session *webauthn.SessionData
+		err     error
+	)
+	if user == nil {
+		request, session, err = assertion.webAuthn.BeginDiscoverableLogin(
+			webauthn.WithUserVerification(protocol.VerificationRequired),
+		)
+	} else {
+		request, session, err = assertion.webAuthn.BeginLogin(
+			*user, webauthn.WithUserVerification(protocol.VerificationRequired),
+		)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode WebAuthn assertion options: %w", err)
+	}
+	sessionJSON, err := json.Marshal(session)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode WebAuthn assertion session: %w", err)
+	}
+	return requestJSON, sessionJSON, nil
+}
+
+func (assertion *goWebAuthnAssertion) Finish(user passkeyUser, sessionJSON, responseJSON []byte) (*passkeyCredentialRecord, error) {
+	var session webauthn.SessionData
+	if err := json.Unmarshal(sessionJSON, &session); err != nil {
+		return nil, fmt.Errorf("decode WebAuthn assertion session: %w", err)
+	}
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(responseJSON)
+	if err != nil {
+		return nil, err
+	}
+	credential, err := assertion.webAuthn.ValidateLogin(user, session, parsed)
+	if err != nil {
+		return nil, err
+	}
+	return passkeyCredentialRecordFromCredential(credential)
+}
+
+func (assertion *goWebAuthnAssertion) FinishDiscoverable(lookup passkeyAssertionUserLookup, sessionJSON, responseJSON []byte) (*passkeyCredentialRecord, error) {
+	var session webauthn.SessionData
+	if err := json.Unmarshal(sessionJSON, &session); err != nil {
+		return nil, fmt.Errorf("decode discoverable WebAuthn assertion session: %w", err)
+	}
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(responseJSON)
+	if err != nil {
+		return nil, err
+	}
+	_, credential, err := assertion.webAuthn.ValidatePasskeyLogin(
+		func(rawID, userHandle []byte) (webauthn.User, error) {
+			user, err := lookup(rawID, userHandle)
+			if err != nil {
+				return nil, err
+			}
+			return user, nil
+		},
+		session,
+		parsed,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return passkeyCredentialRecordFromCredential(credential)
+}
+
+func passkeyCredentialRecordFromCredential(credential *webauthn.Credential) (*passkeyCredentialRecord, error) {
+	if credential == nil {
+		return nil, fmt.Errorf("WebAuthn credential is missing")
 	}
 	record, err := credential.MarshalMsg(nil)
 	if err != nil {

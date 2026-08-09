@@ -15,6 +15,8 @@ import (
 
 const (
 	loginThrottleAction           = "local_password_login"
+	passkeyLoginThrottleAction    = "local_passkey_login"
+	passkeyStepUpThrottleAction   = "local_passkey_step_up"
 	totpLoginThrottleAction       = "local_totp_login"
 	totpManagementThrottleAction  = "local_totp_management"
 	recoveryCodeThrottleAction    = "local_recovery_code_login"
@@ -192,6 +194,37 @@ func (m *Manager) loginThrottleBuckets(identifier, source string) ([]loginThrott
 
 func (m *Manager) totpLoginThrottleBuckets(userID, source string) ([]loginThrottleBucket, error) {
 	return m.authenticationThrottleBuckets(totpLoginThrottleAction, strings.TrimSpace(userID), source)
+}
+
+func (m *Manager) passkeyLoginThrottleBuckets(identifier, source string) ([]loginThrottleBucket, error) {
+	values := []struct {
+		kind  loginThrottleBucketKind
+		value string
+	}{
+		{kind: loginThrottleBucketSource, value: strings.TrimSpace(source)},
+		{kind: loginThrottleBucketInstance, value: "gofer"},
+	}
+	if identifier = normalizeLoginIdentifier(identifier); identifier != "" {
+		values = append([]struct {
+			kind  loginThrottleBucketKind
+			value string
+		}{{kind: loginThrottleBucketIdentifier, value: identifier}}, values...)
+	}
+	buckets := make([]loginThrottleBucket, 0, len(values))
+	for _, value := range values {
+		hash, err := m.authenticationThrottleBucketHash(passkeyLoginThrottleAction, value.kind, value.value)
+		if err != nil {
+			return nil, err
+		}
+		buckets = append(buckets, loginThrottleBucket{
+			hash: hash, action: passkeyLoginThrottleAction, policy: loginThrottlePolicies[value.kind],
+		})
+	}
+	return buckets, nil
+}
+
+func (m *Manager) passkeyStepUpThrottleBuckets(userID, source string) ([]loginThrottleBucket, error) {
+	return m.authenticationThrottleBuckets(passkeyStepUpThrottleAction, strings.TrimSpace(userID), source)
 }
 
 func (m *Manager) totpManagementThrottleBuckets(userID, source string) ([]loginThrottleBucket, error) {

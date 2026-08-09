@@ -226,6 +226,7 @@ type Manager struct {
 	tokens                     TokenGenerator
 	bucketHashKey              []byte
 	passkeyRegistrationFactory passkeyRegistrationFactory
+	passkeyAssertionFactory    passkeyAssertionFactory
 }
 
 func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *Manager {
@@ -248,6 +249,7 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		tokens:                     deps.Tokens,
 		bucketHashKey:              deps.BucketHashKey,
 		passkeyRegistrationFactory: newPasskeyRegistrationCeremony,
+		passkeyAssertionFactory:    newPasskeyAssertionCeremony,
 	}
 }
 
