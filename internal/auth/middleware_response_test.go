@@ -150,7 +150,8 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	publicPaths := []string{
-		"/login", "/login/mfa", "/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
+		"/login", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
+		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/redeem", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/assets/app.js", "/sw.js",
 	}

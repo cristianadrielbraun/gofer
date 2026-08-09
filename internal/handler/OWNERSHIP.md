@@ -9,12 +9,19 @@ handler layer through an application session.
 ## Public and pre-authentication routes
 
 - Static assets: `GET /assets/*` and `GET /sw.js`.
-- Application login: `GET /login`, `GET /auth/google`, and
+- Application login: `GET`/`POST /login`, password-MFA continuation under
+  `/login/mfa`, recovery-code entry at `/login/mfa/recovery`, restricted factor
+  repair under `/login/recovery/*`, plus `GET /auth/google` and
   `GET /auth/google/callback`.
+- First-run setup: `GET`/`POST routes under `/setup`; each continuation is
+  available only while setup is uninitialized and requires the matching
+  origin-bound pre-authentication challenge.
 
 Public routes must not call private mail, contact, account, settings, avatar,
 or operation repositories. OAuth callback state is a pre-authentication
-capability and is not an application session.
+capability and is not an application session. Password-MFA, recovery repair,
+and setup challenges likewise carry no authenticated request user and cannot
+access private repositories before full completion.
 
 ## Administrator-only operational routes
 

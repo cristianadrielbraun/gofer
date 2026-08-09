@@ -1,8 +1,26 @@
 package views
 
 import (
+	"fmt"
+
 	"github.com/cristianadrielbraun/gofer/components/button"
 )
+
+type RecoveryRepairMFAData struct {
+	QRCodeDataURL string
+	ManualKey    string
+	Algorithm    string
+	Digits       int
+	Period       int
+	ErrorMessage string
+}
+
+type RecoveryRepairCodesData struct {
+	BatchID      string
+	Codes        []string
+	Generated    bool
+	ErrorMessage string
+}
 
 templ LoginPage(showGoogle bool, errorMessage string, identifier string) {
 	<!DOCTYPE html>
@@ -138,6 +156,177 @@ templ LoginMFAContinuationPage(errorMessage string) {
 					<div class="mt-4">
 						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login"}) { Restart sign-in }
 					</div>
+					<div class="mt-4 text-center">
+						<a href="/login/mfa/recovery" class="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">Use a recovery code instead</a>
+					</div>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ RecoveryCodeLoginPage(errorMessage string) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Use a Recovery Code</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4">
+				<div class="w-full max-w-sm">
+					<div class="text-center">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<h1 class="mt-8 text-2xl font-semibold">Use a recovery code</h1>
+						<p class="mt-3 text-sm text-muted-foreground">Enter one of the recovery codes you saved during setup. A successful code starts required authenticator repair before Gofer grants access.</p>
+					</div>
+					if errorMessage != "" {
+						<div id="recovery-code-error" role="alert" aria-live="polite" class="mt-6 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ errorMessage }</div>
+					}
+					<form method="post" action="/login/mfa/recovery" class="mt-6 space-y-4">
+						<div class="space-y-2">
+							<label for="recovery-code" class="text-sm font-medium">Recovery code</label>
+							<input
+								id="recovery-code"
+								name="code"
+								type="text"
+								autocomplete="one-time-code"
+								autocapitalize="characters"
+								spellcheck="false"
+								maxlength="64"
+								required
+								autofocus
+								if errorMessage != "" {
+									aria-invalid="true"
+									aria-describedby="recovery-code-error"
+								}
+								class="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-sm uppercase tracking-wider outline-none transition-shadow focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"
+							/>
+						</div>
+						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Continue to authenticator repair }
+					</form>
+					<div class="mt-4">
+						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login/mfa"}) { Use an authenticator code }
+					</div>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ RecoveryRepairMFAPage(data RecoveryRepairMFAData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Repair Your Authenticator</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4 py-10">
+				<div class="w-full max-w-lg">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-warning">Recovery code accepted</p>
+						<h1 class="mt-2 text-2xl font-semibold">Replace your authenticator</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Gofer has not created a session. Enroll this replacement authenticator and save a fresh recovery batch before access is restored.</p>
+					</div>
+					if data.ErrorMessage != "" {
+						<div id="recovery-repair-mfa-error" role="alert" aria-live="polite" class="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.ErrorMessage }</div>
+					}
+					<div class="rounded-xl border border-border bg-card p-6">
+						<div class="flex justify-center rounded-lg bg-white p-4">
+							<img src={ data.QRCodeDataURL } alt="QR code for the replacement Gofer authenticator" class="h-56 w-56"/>
+						</div>
+						<div class="mt-5">
+							<p class="text-sm font-medium">Manual setup key</p>
+							<p class="mt-2 break-all rounded-md border border-border bg-background px-3 py-2 text-center font-mono text-sm tracking-wider">{ data.ManualKey }</p>
+							<p class="mt-2 text-xs text-muted-foreground">{ data.Algorithm } · { fmt.Sprintf("%d digits", data.Digits) } · { fmt.Sprintf("%d-second period", data.Period) }</p>
+						</div>
+					</div>
+					<form method="post" action="/login/recovery/mfa" class="mt-4 space-y-4">
+						<input type="hidden" name="action" value="confirm"/>
+						<div class="space-y-2">
+							<label for="recovery-repair-code" class="text-sm font-medium">Code from the replacement authenticator</label>
+							<input id="recovery-repair-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-xl tracking-[0.35em] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"/>
+						</div>
+						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Verify replacement authenticator }
+					</form>
+					<form method="post" action="/login/recovery/mfa" class="mt-2">
+						<input type="hidden" name="action" value="restart"/>
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) { Generate a different setup key }
+					</form>
+					<p class="mt-6 text-center text-xs text-muted-foreground">Your current authenticator and remaining recovery codes stay active until repair completes.</p>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ RecoveryRepairCodesPage(data RecoveryRepairCodesData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Save New Recovery Codes</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4 py-10">
+				<div class="w-full max-w-lg">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Replacement authenticator verified</p>
+						<h1 class="mt-2 text-2xl font-semibold">Save fresh recovery codes</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Completing this page replaces the old authenticator and remaining old recovery codes, revokes earlier sessions, and signs you in.</p>
+					</div>
+					if data.ErrorMessage != "" {
+						<div id="recovery-repair-codes-error" role="alert" aria-live="polite" class="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.ErrorMessage }</div>
+					}
+					if len(data.Codes) > 0 {
+						<div role="alert" class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+							<p class="text-sm font-medium text-warning">These codes are shown only in this response</p>
+							<p class="mt-1 text-xs text-muted-foreground">Copy them to a password manager or print this page before completing repair.</p>
+						</div>
+						<div class="mt-4 grid gap-2 rounded-xl border border-border bg-card p-5 sm:grid-cols-2" aria-label="New recovery codes">
+							for _, code := range data.Codes {
+								<code class="rounded-md border border-border bg-background px-3 py-2 text-center font-mono text-sm">{ code }</code>
+							}
+						</div>
+					} else if data.Generated {
+						<div class="rounded-xl border border-border bg-card p-6">
+							<p class="text-sm font-medium">The new recovery codes were already shown</p>
+							<p class="mt-1 text-xs text-muted-foreground">If you did not save them, generate a replacement batch before completing repair.</p>
+						</div>
+					}
+					if data.Generated {
+						<form method="post" action="/login/recovery/codes" class="mt-4 space-y-4">
+							<input type="hidden" name="action" value="complete"/>
+							<input type="hidden" name="batch_id" value={ data.BatchID }/>
+							<label class="flex items-start gap-3 rounded-lg border border-border bg-card p-4 text-sm">
+								<input type="checkbox" name="saved" value="yes" required class="mt-0.5 h-4 w-4 rounded border-input"/>
+								<span>I saved these new recovery codes and understand the old authenticator, old codes, and earlier sessions will be replaced.</span>
+							</label>
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Complete repair and sign in }
+						</form>
+						<form method="post" action="/login/recovery/codes" class="mt-2">
+							<input type="hidden" name="action" value="regenerate"/>
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) { Replace these new recovery codes }
+						</form>
+					} else {
+						<form method="post" action="/login/recovery/codes" class="mt-4">
+							<input type="hidden" name="action" value="generate"/>
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Generate fresh recovery codes }
+						</form>
+					}
+					<p class="mt-6 text-center text-xs text-muted-foreground">No session exists until repair completes successfully.</p>
 				</div>
 			</main>
 		</body>

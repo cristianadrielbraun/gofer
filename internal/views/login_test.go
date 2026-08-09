@@ -54,7 +54,7 @@ func TestLoginMFAContinuationPageUsesOnlyLocalResources(t *testing.T) {
 		"Enter your authenticator code", `method="post"`, `action="/login/mfa"`,
 		`name="code"`, `inputmode="numeric"`, `autocomplete="one-time-code"`,
 		`pattern="[0-9]{6}"`, `maxlength="6"`, `role="alert"`,
-		`aria-describedby="login-mfa-error"`, "Verify and sign in",
+		`aria-describedby="login-mfa-error"`, "Verify and sign in", "/login/mfa/recovery",
 	} {
 		if !strings.Contains(html, required) {
 			t.Fatalf("MFA continuation page missing %q: %q", required, html)
@@ -62,5 +62,64 @@ func TestLoginMFAContinuationPageUsesOnlyLocalResources(t *testing.T) {
 	}
 	if strings.Contains(html, "https://") {
 		t.Fatalf("MFA continuation page loads a remote resource: %q", html)
+	}
+}
+
+func TestRecoveryLoginAndRepairPagesAreAccessibleLocalAndExplicit(t *testing.T) {
+	var recovery bytes.Buffer
+	if err := RecoveryCodeLoginPage("That code is invalid.").Render(t.Context(), &recovery); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"Use a recovery code", `action="/login/mfa/recovery"`, `name="code"`,
+		`autocomplete="one-time-code"`, `role="alert"`, "required authenticator repair",
+	} {
+		if !strings.Contains(recovery.String(), required) {
+			t.Fatalf("recovery-code page missing %q: %q", required, recovery.String())
+		}
+	}
+	if strings.Contains(recovery.String(), "https://") {
+		t.Fatalf("recovery-code page loads a remote resource: %q", recovery.String())
+	}
+
+	var mfa bytes.Buffer
+	if err := RecoveryRepairMFAPage(RecoveryRepairMFAData{
+		QRCodeDataURL: "data:image/png;base64,cXItZGF0YQ==", ManualKey: "ABCD EFGH",
+		Algorithm: "SHA1", Digits: 6, Period: 30, ErrorMessage: "Try again.",
+	}).Render(t.Context(), &mfa); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"Replace your authenticator", "Gofer has not created a session",
+		`src="data:image/png;base64,cXItZGF0YQ=="`, "ABCD EFGH",
+		`action="/login/recovery/mfa"`, `value="confirm"`, `value="restart"`,
+		`role="alert"`, "stay active until repair completes",
+	} {
+		if !strings.Contains(mfa.String(), required) {
+			t.Fatalf("recovery-repair MFA page missing %q: %q", required, mfa.String())
+		}
+	}
+	if strings.Contains(mfa.String(), "https://") {
+		t.Fatalf("recovery-repair MFA page loads a remote resource: %q", mfa.String())
+	}
+
+	var codes bytes.Buffer
+	if err := RecoveryRepairCodesPage(RecoveryRepairCodesData{
+		BatchID: "batch-id", Codes: []string{"AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"}, Generated: true,
+	}).Render(t.Context(), &codes); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"Save fresh recovery codes", "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",
+		`aria-label="New recovery codes"`, `action="/login/recovery/codes"`,
+		`name="batch_id" value="batch-id"`, `name="saved"`,
+		"Complete repair and sign in", "No session exists until repair completes",
+	} {
+		if !strings.Contains(codes.String(), required) {
+			t.Fatalf("recovery-repair codes page missing %q: %q", required, codes.String())
+		}
+	}
+	if strings.Contains(codes.String(), "https://") {
+		t.Fatalf("recovery-repair codes page loads a remote resource: %q", codes.String())
 	}
 }
