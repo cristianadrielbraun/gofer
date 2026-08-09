@@ -99,6 +99,19 @@ func postSetupRecovery(stack http.Handler, cookie *http.Cookie, values url.Value
 	return recorder
 }
 
+func postSetupReview(stack http.Handler, cookie *http.Cookie, values url.Values) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, setupReviewPath, strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://gofer.example")
+	request.Header.Set("User-Agent", "Setup Completion Browser/1.0")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	recorder := httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	return recorder
+}
+
 func prepareHandlerVerifiedMFA(t *testing.T) (*auth.Manager, *storage.DB, http.Handler, *http.Cookie) {
 	t.Helper()
 	manager, db, stack, setupToken := setupEntryStack(t)
@@ -905,6 +918,7 @@ func TestSetupReviewIsSecretFreeReadOnlyAndShowsExactFreshImpact(t *testing.T) {
 		"Initialize a fresh owner without creating or claiming a synthetic default user",
 		"0 currently unrevoked session(s) across the instance will be revoked at cutover",
 		"Review only — nothing has been committed", `href="/setup/recovery"`,
+		`method="post" action="/setup/review"`, "Complete setup and sign in",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("setup review missing %q: %q", want, body)
@@ -918,8 +932,8 @@ func TestSetupReviewIsSecretFreeReadOnlyAndShowsExactFreshImpact(t *testing.T) {
 			t.Fatalf("setup review exposed prepared secret %q", secret)
 		}
 	}
-	if strings.Contains(body, `<form`) || strings.Contains(body, `action="/setup`) || strings.Contains(body, `name="batch_id"`) {
-		t.Fatal("read-only setup review rendered a mutating form or batch material")
+	if strings.Contains(body, `name="batch_id"`) {
+		t.Fatal("setup review rendered recovery batch material")
 	}
 	var storedPayload []byte
 	var users, passwords, totps, recoveryCodes, sessions, events, initialized int
@@ -952,14 +966,137 @@ func TestSetupReviewIsSecretFreeReadOnlyAndShowsExactFreshImpact(t *testing.T) {
 		t.Fatalf("review query stripping = %d location:%q body:%q", query.Code, query.Header().Get("Location"), query.Body.String())
 	}
 
-	post := httptest.NewRequest(http.MethodPost, setupReviewPath, strings.NewReader("action=complete"))
-	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	post.Header.Set("Origin", "https://gofer.example")
-	post.AddCookie(setupCookie)
-	methodNotAllowed := httptest.NewRecorder()
-	stack.ServeHTTP(methodNotAllowed, post)
-	if methodNotAllowed.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("setup review POST = %d %q", methodNotAllowed.Code, methodNotAllowed.Body.String())
+}
+
+func TestSetupCompletionSignsInOwnerConsumesSetupAndRejectsReplay(t *testing.T) {
+	manager, _, stack, setupCookie := prepareHandlerSetupReview(t)
+	completed := postSetupReview(stack, setupCookie, url.Values{"action": {"complete"}})
+	if completed.Code != http.StatusSeeOther || completed.Header().Get("Location") != "/" ||
+		completed.Header().Get("Cache-Control") != "no-store" || completed.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("setup completion = %d location:%q headers:%v body:%q",
+			completed.Code, completed.Header().Get("Location"), completed.Header(), completed.Body.String())
+	}
+	sessionCookie := responseCookie(completed, "gofer_session", true)
+	if sessionCookie == nil || sessionCookie.Value == "" || !sessionCookie.HttpOnly || !sessionCookie.Secure ||
+		sessionCookie.SameSite != http.SameSiteLaxMode || sessionCookie.MaxAge != 30*24*60*60 || sessionCookie.Path != "/" {
+		t.Fatalf("setup completion session cookie = %#v", sessionCookie)
+	}
+	clearedPreAuth := responseCookie(completed, "gofer_pre_auth", false)
+	if clearedPreAuth == nil || clearedPreAuth.MaxAge != -1 {
+		t.Fatalf("setup completion did not clear pre-auth cookie: %#v", clearedPreAuth)
+	}
+	session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || session == nil || session.AuthenticationMethod != auth.AuthenticationMethodPassword ||
+		session.AssuranceLevel != auth.AssuranceLevelMultiFactor || session.StepUpMethod != auth.AuthenticationMethodTOTP {
+		t.Fatalf("setup completion session = %#v, %v", session, err)
+	}
+	state, err := manager.SetupState(t.Context())
+	if err != nil || !state.Initialized || state.OwnerUserID != session.UserID || state.TokenConfigured || state.CutoverVersion != 1 {
+		t.Fatalf("completed setup state = %#v, %v", state, err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, setupPath, nil)
+	notFound := httptest.NewRecorder()
+	stack.ServeHTTP(notFound, request)
+	if notFound.Code != http.StatusNotFound {
+		t.Fatalf("setup after completion = %d %q", notFound.Code, notFound.Body.String())
+	}
+	replay := postSetupReview(stack, setupCookie, url.Values{"action": {"complete"}})
+	if replay.Code != http.StatusNotFound || responseCookie(replay, "gofer_session", true) != nil {
+		t.Fatalf("replayed setup completion = %d cookies:%#v body:%q", replay.Code, replay.Result().Cookies(), replay.Body.String())
+	}
+}
+
+func TestSetupCompletionRejectsInvalidActionAndBlocksUnassignedMailbox(t *testing.T) {
+	_, db, stack, setupCookie := prepareHandlerSetupReview(t)
+	invalid := postSetupReview(stack, setupCookie, url.Values{"action": {"preview"}})
+	if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "Setup was not completed") ||
+		!strings.Contains(invalid.Body.String(), "explicit setup completion action") {
+		t.Fatalf("invalid completion action = %d %q", invalid.Code, invalid.Body.String())
+	}
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, email_address) VALUES ('completion-orphan', NULL, 'orphan@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	blocked := postSetupReview(stack, setupCookie, url.Values{"action": {"complete"}})
+	if blocked.Code != http.StatusConflict || !strings.Contains(blocked.Body.String(), "Setup completion is blocked") ||
+		!strings.Contains(blocked.Body.String(), "Setup remains uninitialized") ||
+		strings.Contains(blocked.Body.String(), "Complete setup and sign in") || responseCookie(blocked, "gofer_session", true) != nil {
+		t.Fatalf("blocked completion = %d cookies:%#v body:%q", blocked.Code, blocked.Result().Cookies(), blocked.Body.String())
+	}
+	var initialized, users, sessions int
+	for query, target := range map[string]*int{
+		`SELECT initialized FROM auth_system_state WHERE id = 1`: &initialized,
+		`SELECT COUNT(*) FROM users`:                             &users,
+		`SELECT COUNT(*) FROM sessions`:                          &sessions,
+	} {
+		if err := db.Read().QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if initialized != 0 || users != 0 || sessions != 0 {
+		t.Fatalf("blocked completion mutated setup = initialized:%d users:%d sessions:%d", initialized, users, sessions)
+	}
+}
+
+func TestSetupCompletionPostIsBoundedQueryFreeAndProtectedByCanonicalOrigin(t *testing.T) {
+	_, db, stack, setupCookie := prepareHandlerSetupReview(t)
+	var originalPayload []byte
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&originalPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	oversized := postSetupReview(stack, setupCookie, url.Values{"action": {strings.Repeat("x", setupFormMaximumBytes)}})
+	if oversized.Code != http.StatusUnprocessableEntity || !strings.Contains(oversized.Body.String(), "too large or invalid") {
+		t.Fatalf("oversized setup completion = %d %q", oversized.Code, oversized.Body.String())
+	}
+
+	queryRequest := httptest.NewRequest(http.MethodPost, setupReviewPath+"?secret=must-not-survive", strings.NewReader("action=complete"))
+	queryRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	queryRequest.Header.Set("Origin", "https://gofer.example")
+	queryRequest.AddCookie(setupCookie)
+	queryResponse := httptest.NewRecorder()
+	stack.ServeHTTP(queryResponse, queryRequest)
+	if queryResponse.Code != http.StatusSeeOther || queryResponse.Header().Get("Location") != setupReviewPath ||
+		strings.Contains(queryResponse.Body.String(), "must-not-survive") {
+		t.Fatalf("completion query stripping = %d location:%q body:%q",
+			queryResponse.Code, queryResponse.Header().Get("Location"), queryResponse.Body.String())
+	}
+
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://gofer.example")
+	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	guard, err := httpguard.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, setupReviewPath, strings.NewReader("action=complete"))
+	request.Host = "gofer.example"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://attacker.example")
+	request.AddCookie(setupCookie)
+	recorder := httptest.NewRecorder()
+	guard.Middleware(stack).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") ||
+		responseCookie(recorder, "gofer_session", true) != nil {
+		t.Fatalf("cross-origin setup completion = %d cookies:%#v body:%q", recorder.Code, recorder.Result().Cookies(), recorder.Body.String())
+	}
+	var storedPayload []byte
+	var initialized, users, sessions int
+	if err := db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE consumed_at IS NULL`).Scan(&storedPayload); err != nil {
+		t.Fatal(err)
+	}
+	for query, target := range map[string]*int{
+		`SELECT initialized FROM auth_system_state WHERE id = 1`: &initialized,
+		`SELECT COUNT(*) FROM users`:                             &users,
+		`SELECT COUNT(*) FROM sessions`:                          &sessions,
+	} {
+		if err := db.Read().QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !bytes.Equal(storedPayload, originalPayload) || initialized != 0 || users != 0 || sessions != 0 {
+		t.Fatalf("rejected completion mutated setup = payloadChanged:%t initialized:%d users:%d sessions:%d",
+			!bytes.Equal(storedPayload, originalPayload), initialized, users, sessions)
 	}
 }
 
@@ -1227,6 +1364,7 @@ func TestSetupRoutesDisappearAfterInitialization(t *testing.T) {
 		{method: http.MethodGet, path: setupRecoveryPath},
 		{method: http.MethodPost, path: setupRecoveryPath},
 		{method: http.MethodGet, path: setupReviewPath},
+		{method: http.MethodPost, path: setupReviewPath},
 	} {
 		var request *http.Request
 		if test.method == http.MethodPost {

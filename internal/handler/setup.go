@@ -406,6 +406,58 @@ func (h *Handler) handleSetupReview(w http.ResponseWriter, r *http.Request) {
 	h.renderSetupReviewPage(w, r, status, setupReviewViewData(review))
 }
 
+func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request) {
+	state, err := h.auth.SetupState(r.Context())
+	if err != nil {
+		log.Printf("read final setup submission state: %v", err)
+		h.writeSetupServiceFailure(w)
+		return
+	}
+	if state.Initialized {
+		h.writeSetupNotFound(w)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		h.redirectSetupReviewWithoutQuery(w, r)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
+	if err := r.ParseForm(); err != nil {
+		h.renderSubmittedSetupReview(w, r, http.StatusUnprocessableEntity, "The submitted completion form is too large or invalid.")
+		return
+	}
+	if r.PostFormValue("action") != "complete" {
+		h.renderSubmittedSetupReview(w, r, http.StatusUnprocessableEntity, "Choose the explicit setup completion action.")
+		return
+	}
+	result, err := h.auth.CompleteSetup(r.Context(), auth.CompleteSetupOptions{
+		Token: auth.GetPreAuthToken(r), Origin: h.auth.Config().BaseURL, UserAgent: r.UserAgent(),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrSetupAlreadyInitialized):
+			h.writeSetupNotFound(w)
+		case errors.Is(err, auth.ErrSetupCompletionBlocked):
+			h.renderSubmittedSetupReview(w, r, http.StatusConflict, "Setup remains uninitialized because mailbox ownership requires local repair.")
+		default:
+			h.handleSetupReviewAccessError(w, r, err)
+		}
+		return
+	}
+	if result == nil || result.Session == nil || result.Session.Token == "" || result.OwnerUserID == "" {
+		log.Printf("final setup completion returned an invalid result")
+		h.writeSetupServiceFailure(w)
+		return
+	}
+
+	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
+	auth.SetSessionCookie(w, result.Session.Token, h.auth.Config().SecureCookies)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 func (h *Handler) handleSetupReviewAccessError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, auth.ErrSetupAccessInvalid):
@@ -585,6 +637,20 @@ func (h *Handler) renderSetupReviewPage(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeSetupPage(w, status, &page)
+}
+
+func (h *Handler) renderSubmittedSetupReview(w http.ResponseWriter, r *http.Request, status int, message string) {
+	review, err := h.auth.GetSetupReview(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		h.handleSetupReviewAccessError(w, r, err)
+		return
+	}
+	data := setupReviewViewData(review)
+	data.CompletionError = message
+	if review.BlockedMessage != "" {
+		status = http.StatusConflict
+	}
+	h.renderSetupReviewPage(w, r, status, data)
 }
 
 func setupReviewViewData(review *auth.SetupReview) views.SetupReviewData {

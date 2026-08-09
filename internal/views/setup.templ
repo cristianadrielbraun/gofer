@@ -88,6 +88,7 @@ type SetupReviewData struct {
 	ClaimsLegacyDefault bool
 	ClaimsExistingUser bool
 	BlockedMessage string
+	CompletionError string
 }
 
 func setupOwnerDescription(helpID, errorID string, hasError bool) string {
@@ -547,6 +548,12 @@ templ SetupReviewPage(data SetupReviewData) {
 							<p class="mt-2 text-xs text-muted-foreground">Gofer will not guess, delete, merge, or reassign private mailbox data. Repair the ownership records locally from a backup before retrying.</p>
 						</div>
 					}
+					if data.CompletionError != "" {
+						<div role="alert" class="mb-5 rounded-xl border border-destructive/25 bg-destructive/10 p-5">
+							<p class="text-sm font-medium text-destructive">Setup was not completed</p>
+							<p class="mt-1 text-sm text-muted-foreground">{ data.CompletionError }</p>
+						</div>
+					}
 					<section aria-labelledby="review-owner-heading" class="rounded-xl border border-border bg-card p-6">
 						<h2 id="review-owner-heading" class="text-base font-semibold">Owner identity</h2>
 						if data.CreatesNewOwner {
@@ -611,8 +618,16 @@ templ SetupReviewPage(data SetupReviewData) {
 					</section>
 					<div role="status" aria-live="polite" class="mt-4 rounded-xl border border-info/25 bg-info/10 p-5">
 						<p class="text-sm font-medium">Review only — nothing has been committed</p>
-						<p class="mt-1 text-xs text-muted-foreground">Authentication remains uninitialized, the setup token remains active, and no user, credential, role, session, event, or ownership row has changed. Final completion will be added as one atomic transaction.</p>
+						<p class="mt-1 text-xs text-muted-foreground">Authentication remains uninitialized, the setup token remains active, and no user, credential, role, session, event, or ownership row has changed. Completing setup applies the reviewed changes in one atomic transaction.</p>
 					</div>
+					if data.BlockedMessage == "" {
+						<form method="post" action="/setup/review" class="mt-4 rounded-xl border border-success/25 bg-success/10 p-5">
+							<input type="hidden" name="action" value="complete"/>
+							<p class="text-sm font-medium">Ready to initialize mandatory authentication</p>
+							<p class="mt-1 text-xs text-muted-foreground">This commits the reviewed owner and security factors, revokes every pre-cutover session, consumes setup access, and signs you in as the owner. If any database operation fails, none of those changes are kept.</p>
+							<button type="submit" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Complete setup and sign in</button>
+						</form>
+					}
 					<a href="/setup/recovery" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to recovery codes</a>
 				</div>
 			</main>

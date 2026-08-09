@@ -214,7 +214,7 @@ func TestSetupRecoveryAcknowledgedPageHidesBatchAndCodes(t *testing.T) {
 	}
 }
 
-func TestSetupReviewPageIsAccessibleLocalReadOnlyAndEscapesIdentity(t *testing.T) {
+func TestSetupReviewPageIsAccessibleLocalAndEscapesIdentity(t *testing.T) {
 	var output bytes.Buffer
 	message := `<script>alert("review")</script>`
 	if err := SetupReviewPage(SetupReviewData{
@@ -242,12 +242,15 @@ func TestSetupReviewPageIsAccessibleLocalReadOnlyAndEscapesIdentity(t *testing.T
 		"2 mail account(s) are already attached", "4 currently unrevoked session(s)",
 		"1 legacy session record(s)", "Review only — nothing has been committed",
 		`role="status"`, `aria-live="polite"`, `href="/setup/recovery"`,
+		`method="post" action="/setup/review"`, `name="action" value="complete"`,
+		"Ready to initialize mandatory authentication", "Complete setup and sign in",
+		"If any database operation fails, none of those changes are kept",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("setup review page missing %q", want)
 		}
 	}
-	if strings.Contains(html, message) || strings.Contains(html, `<form`) || strings.Contains(html, `name="batch_id"`) ||
+	if strings.Contains(html, message) || strings.Contains(html, `name="batch_id"`) ||
 		strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || strings.Contains(html, "https://") {
 		t.Fatal("setup review page rendered unsafe, remote, or mutating content")
 	}
@@ -283,6 +286,21 @@ func TestSetupReviewFreshAndBlockedImpactAreExplicit(t *testing.T) {
 		if !strings.Contains(blocked.String(), want) {
 			t.Fatalf("blocked setup review missing %q", want)
 		}
+	}
+	if strings.Contains(blocked.String(), `action="/setup/review"`) || strings.Contains(blocked.String(), "Complete setup and sign in") {
+		t.Fatal("blocked setup review rendered the completion action")
+	}
+
+	var failed bytes.Buffer
+	if err := SetupReviewPage(SetupReviewData{
+		CreatesNewOwner: true, OwnerName: "Owner", OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+		CompletionError: `<script>retry</script>`,
+	}).Render(t.Context(), &failed); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(failed.String(), "Setup was not completed") || !strings.Contains(failed.String(), `&lt;script&gt;retry&lt;/script&gt;`) ||
+		strings.Contains(failed.String(), `<script>retry</script>`) {
+		t.Fatalf("completion error rendering = %q", failed.String())
 	}
 }
 
