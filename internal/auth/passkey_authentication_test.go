@@ -186,9 +186,11 @@ func TestPasskeyLoginSupportsIdentifierAndDiscoverableAssertions(t *testing.T) {
 		identifier   string
 		discoverable bool
 		requireMFA   bool
+		instanceMFA  bool
 	}{
 		{name: "identifier first with required MFA", identifier: " PASSKEY-LOGIN-USER@EXAMPLE.COM ", requireMFA: true},
 		{name: "discoverable", discoverable: true},
+		{name: "discoverable with instance MFA", discoverable: true, instanceMFA: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newPasskeyAuthenticationFixture(t, 7)
@@ -196,6 +198,13 @@ func TestPasskeyLoginSupportsIdentifierAndDiscoverableAssertions(t *testing.T) {
 				if _, err := fixture.manager.db.Write().ExecContext(t.Context(), `
 					UPDATE users SET mfa_required = 1 WHERE id = ?`, fixture.userID,
 				); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.instanceMFA {
+				if _, err := fixture.manager.db.Write().ExecContext(t.Context(), `
+					INSERT INTO auth_system_state (id, initialized, mfa_policy)
+					VALUES (1, 1, 'all_users')`); err != nil {
 					t.Fatal(err)
 				}
 			}

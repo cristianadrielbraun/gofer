@@ -93,6 +93,11 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 		if !sameEnrollmentRedemptionCandidate(current, candidate) || !enrollmentRedemptionStatusEligible(current.purpose, current.status) {
 			return ErrEnrollmentTokenInvalid
 		}
+		if current.purpose == EnrollmentTokenPurposeEnrollment {
+			if err := m.requireUserReadyForInstanceMFA(ctx, tx, current.userID); err != nil {
+				return err
+			}
+		}
 
 		resetAt := any(nil)
 		if current.purpose == EnrollmentTokenPurposeCredentialReset {

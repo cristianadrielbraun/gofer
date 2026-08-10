@@ -9,9 +9,10 @@ import (
 )
 
 func TestAuthenticationPolicyRequiresStrongAssuranceAndStepUp(t *testing.T) {
-	normal := resolveAuthenticationPolicy(7, false, false)
-	administrator := resolveAuthenticationPolicy(7, false, true)
-	perUserMFA := resolveAuthenticationPolicy(7, true, false)
+	normal := resolveAuthenticationPolicy(7, false, false, false)
+	administrator := resolveAuthenticationPolicy(7, false, true, false)
+	perUserMFA := resolveAuthenticationPolicy(7, true, false, false)
+	instanceMFA := resolveAuthenticationPolicy(7, false, false, true)
 
 	for _, assurance := range []AssuranceLevel{
 		AssuranceLevelLegacy,
@@ -26,6 +27,7 @@ func TestAuthenticationPolicyRequiresStrongAssuranceAndStepUp(t *testing.T) {
 	for name, policy := range map[string]authenticationPolicy{
 		"administrator": administrator,
 		"per-user MFA":  perUserMFA,
+		"instance MFA":  instanceMFA,
 	} {
 		if policy.allowsAssurance(AssuranceLevelLegacy) || policy.allowsAssurance(AssuranceLevelSingleFactor) ||
 			!policy.allowsAssurance(AssuranceLevelMultiFactor) || !policy.allowsAssurance(AssuranceLevelPhishingResistant) {
@@ -52,6 +54,7 @@ func TestAuthenticatedSessionIssuanceEnforcesCurrentPolicy(t *testing.T) {
 		name        string
 		isAdmin     bool
 		mfaRequired bool
+		instanceMFA bool
 		assurance   AssuranceLevel
 		wantError   bool
 	}{
@@ -61,6 +64,8 @@ func TestAuthenticatedSessionIssuanceEnforcesCurrentPolicy(t *testing.T) {
 		{name: "administrator multi-factor session", isAdmin: true, assurance: AssuranceLevelMultiFactor},
 		{name: "per-user single-factor session", mfaRequired: true, assurance: AssuranceLevelSingleFactor, wantError: true},
 		{name: "per-user phishing-resistant session", mfaRequired: true, assurance: AssuranceLevelPhishingResistant},
+		{name: "instance single-factor session", instanceMFA: true, assurance: AssuranceLevelSingleFactor, wantError: true},
+		{name: "instance multi-factor session", instanceMFA: true, assurance: AssuranceLevelMultiFactor},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
@@ -69,6 +74,13 @@ func TestAuthenticatedSessionIssuanceEnforcesCurrentPolicy(t *testing.T) {
 			insertActiveUser(t, manager, "person", test.isAdmin, now)
 			if test.mfaRequired {
 				if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET mfa_required = 1 WHERE id = 'person'`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.instanceMFA {
+				if _, err := manager.db.Write().ExecContext(t.Context(), `
+					INSERT INTO auth_system_state (id, initialized, mfa_policy)
+					VALUES (1, 1, 'all_users')`); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -172,7 +184,7 @@ func TestRecentSecurityStepUpUsesCurrentPolicyAndRejectsClockSkew(t *testing.T) 
 		t.Fatalf("required-account TOTP step-up error = %v", err)
 	}
 
-	policy := resolveAuthenticationPolicy(session.AuthVersion, true, false)
+	policy := resolveAuthenticationPolicy(session.AuthVersion, true, false, false)
 	for name, stepUpAt := range map[string]time.Time{
 		"stale":  now.Add(-securityStepUpMaximumAge - time.Nanosecond),
 		"future": now.Add(time.Nanosecond),
@@ -286,15 +298,24 @@ func TestFederatedPrimaryAuthenticationUsesCurrentAssurancePolicy(t *testing.T) 
 		name        string
 		isAdmin     bool
 		mfaRequired bool
+		instanceMFA bool
 	}{
 		{name: "administrator", isAdmin: true},
 		{name: "per-user MFA", mfaRequired: true},
+		{name: "instance MFA", instanceMFA: true},
 	} {
 		t.Run(test.name+" continues to local MFA", func(t *testing.T) {
 			manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
 			insertActiveUser(t, manager, "person", test.isAdmin, now)
 			if test.mfaRequired {
 				if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET mfa_required = 1 WHERE id = 'person'`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.instanceMFA {
+				if _, err := manager.db.Write().ExecContext(t.Context(), `
+					INSERT INTO auth_system_state (id, initialized, mfa_policy)
+					VALUES (1, 1, 'all_users')`); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -351,6 +372,36 @@ func TestFederatedPrimaryCompletesTOTPWithBoundAuthenticationMethod(t *testing.T
 	}
 	if metadata != `{"factor":"totp","primary":"federated_google"}` {
 		t.Fatalf("federated TOTP event metadata = %q", metadata)
+	}
+}
+
+func TestInstanceMFAPolicyCompletesOrdinaryPasswordLoginWithTOTP(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 22, 45, 0, 0, time.UTC)
+	manager, secret, _ := prepareTOTPLoginManager(t, now, secureTokenGenerator{})
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?`, totpLoginTestUserID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_system_state (id, initialized, mfa_policy)
+		VALUES (1, 1, 'all_users')`); err != nil {
+		t.Fatal(err)
+	}
+	primary, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
+		Identifier: totpLoginTestUserID, Password: passwordLoginTestPassword,
+		Source: "198.51.100.93", UserAgent: "Global MFA password browser",
+	})
+	if err != nil || primary == nil || primary.Session != nil || primary.PreAuthChallenge == nil {
+		t.Fatalf("AuthenticatePassword(instance MFA) = %#v, %v", primary, err)
+	}
+	session, err := manager.CompleteTOTPLogin(t.Context(), TOTPLoginOptions{
+		Token: primary.PreAuthChallenge.Token, Code: setupTOTPCode(t, secret, now),
+		Origin: totpLoginTestOrigin, Source: "198.51.100.93", UserAgent: "Global MFA browser",
+	})
+	if err != nil || session == nil || session.AssuranceLevel != AssuranceLevelMultiFactor ||
+		session.AuthenticationMethod != AuthenticationMethodPassword || session.StepUpMethod != AuthenticationMethodTOTP {
+		t.Fatalf("CompleteTOTPLogin(instance MFA) = %#v, %v", session, err)
 	}
 }
 

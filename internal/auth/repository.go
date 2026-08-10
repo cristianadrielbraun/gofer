@@ -85,25 +85,40 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 		return existing, nil
 	}
 
-	var userCount int
-	m.db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&userCount)
-
+	var id string
+	var now time.Time
 	isAdminVal := 0
-	if userCount == 0 {
-		isAdminVal = 1
-	}
+	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
+		policy, err := readInstanceSecurityPolicy(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if policy.MFA.RequiresAllUsers() {
+			return ErrInstanceMFAEnrollmentNeeded
+		}
 
-	id, err := m.tokens.ID()
+		var userCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&userCount); err != nil {
+			return fmt.Errorf("count users before creation: %w", err)
+		}
+		if userCount == 0 {
+			isAdminVal = 1
+		}
+		id, err = m.tokens.ID()
+		if err != nil {
+			return fmt.Errorf("generate user ID: %w", err)
+		}
+		now = m.clock.Now()
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO users (id, email, email_normalized, name, avatar_url, status, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, email, emailNormalized, name, avatarURL, UserStatusActive, isAdminVal, now, now,
+		); err != nil {
+			return fmt.Errorf("insert user: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("generate user ID: %w", err)
-	}
-	now := m.clock.Now()
-	_, err = m.db.Write().ExecContext(ctx,
-		`INSERT INTO users (id, email, email_normalized, name, avatar_url, status, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, email, emailNormalized, name, avatarURL, UserStatusActive, isAdminVal, now, now,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("insert user: %w", err)
+		return nil, err
 	}
 
 	return &User{
@@ -155,6 +170,11 @@ func (m *Manager) SetUserStatus(ctx context.Context, userID string, status UserS
 			}
 			if otherActiveAdmins == 0 {
 				return ErrLastActiveAdmin
+			}
+		}
+		if status == UserStatusActive {
+			if err := m.requireUserReadyForInstanceMFA(ctx, tx, userID); err != nil {
+				return err
 			}
 		}
 

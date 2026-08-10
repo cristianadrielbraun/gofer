@@ -136,6 +136,37 @@ func TestEnrollmentRedemptionCompletesThroughPublicStackAndClearsAuthCookies(t *
 	}
 }
 
+func TestEnrollmentRedemptionKeepsFactorlessUserPendingUnderGlobalMFA(t *testing.T) {
+	_, db, stack, token := enrollmentRedemptionStack(t, auth.UserStatusPending, auth.EnrollmentTokenPurposeEnrollment)
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_system_state (id, initialized, owner_user_id, mfa_policy)
+		VALUES (1, 1, 'admin', 'all_users')`); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := postEnrollmentRedemption(stack, token.Token, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), enrollmentRedemptionMFARequiredMessage) {
+		t.Fatalf("factorless global-MFA redemption = %d %q", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), token.Token) || strings.Contains(recorder.Body.String(), enrollmentRedemptionTestPassword) {
+		t.Fatal("factorless redemption response echoed submitted credentials")
+	}
+	var status auth.UserStatus
+	var used, credentials int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT status FROM users WHERE id = 'person'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = ?`, token.ID).Scan(&used); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM password_credentials WHERE user_id = 'person'`).Scan(&credentials); err != nil {
+		t.Fatal(err)
+	}
+	if status != auth.UserStatusPending || used != 0 || credentials != 0 {
+		t.Fatalf("blocked redemption mutation = status:%q used:%d credentials:%d", status, used, credentials)
+	}
+}
+
 func TestEnrollmentRedemptionFailuresDoNotRevealTokenStateOrEchoSecrets(t *testing.T) {
 	type testCase struct {
 		name  string

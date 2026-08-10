@@ -137,6 +137,7 @@ const (
 	AuthEventSetupCompleted               AuthEventType = "setup_completed"
 	AuthEventStepUpSucceeded              AuthEventType = "step_up_succeeded"
 	AuthEventStepUpFailed                 AuthEventType = "step_up_failed"
+	AuthEventSecurityPolicyChanged        AuthEventType = "security_policy_changed"
 )
 
 type AuthEventReason string
@@ -167,6 +168,7 @@ const (
 	SecurityTransitionSessionRotation   SecurityTransition = "session_rotation"
 	SecurityTransitionUserStatus        SecurityTransition = "user_status"
 	SecurityTransitionRoleChange        SecurityTransition = "role_change"
+	SecurityTransitionPolicyChange      SecurityTransition = "policy_change"
 )
 
 type Clock interface {

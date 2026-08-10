@@ -107,7 +107,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	if err != nil {
 		return nil, fmt.Errorf("validate security settings relying party: %w", err)
 	}
-	var hasTOTP, recoveryCount, hasPassword, passkeyCount, requiresMFA int
+	var hasTOTP, recoveryCount, hasPassword, passkeyCount int
 	err = m.db.Read().QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
@@ -115,12 +115,11 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
 			(SELECT COUNT(*) FROM webauthn_credentials w
 			 WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
-			   AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL),
-			(u.mfa_required = 1 OR u.is_admin = 1)
+			   AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL)
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
 		rpID, session.UserID, session.AuthVersion,
-	).Scan(&hasTOTP, &recoveryCount, &hasPassword, &passkeyCount, &requiresMFA)
+	).Scan(&hasTOTP, &recoveryCount, &hasPassword, &passkeyCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrSecuritySessionInvalid
 	}
@@ -128,11 +127,14 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		return nil, fmt.Errorf("load security factor summary: %w", err)
 	}
 	now := m.clock.Now().UTC()
-	policy := resolveAuthenticationPolicy(session.AuthVersion, requiresMFA == 1, false)
+	policy, err := m.loadAuthenticationPolicy(ctx, m.db.Read(), session.UserID, session.AuthVersion)
+	if err != nil {
+		return nil, fmt.Errorf("load security factor policy: %w", err)
+	}
 	summary := &SecurityFactorSummary{
 		HasTOTP:                hasTOTP == 1,
 		HasPasskey:             passkeyCount > 0,
-		RequiresMFA:            requiresMFA == 1,
+		RequiresMFA:            policy.RequiresMFA,
 		RecoveryCodesRemaining: recoveryCount,
 		StepUpFresh:            hasRecentSecurityStepUp(session, policy, now),
 	}
@@ -147,9 +149,9 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	if summary.HasTOTP {
 		hasPrimary := hasPassword == 1 || passkeyCount > 0
 		hasOtherStrongFactor := passkeyCount > 0
-		summary.CanDisableTOTP = hasPrimary && (requiresMFA == 0 || hasOtherStrongFactor)
+		summary.CanDisableTOTP = hasPrimary && (!policy.RequiresMFA || hasOtherStrongFactor)
 		if !summary.CanDisableTOTP {
-			if requiresMFA == 1 {
+			if policy.RequiresMFA {
 				summary.DisableTOTPReason = "Add another strong authenticator before disabling this one."
 			} else {
 				summary.DisableTOTPReason = "Add another sign-in method before disabling this authenticator."
@@ -990,17 +992,13 @@ func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string
 	if err != nil {
 		return nil, fmt.Errorf("load current security session: %w", err)
 	}
-	var authVersion, mfaRequired, isAdmin int64
-	if err := tx.QueryRowContext(ctx, `
-		SELECT auth_version, mfa_required, is_admin
-		FROM users WHERE id = ? AND status = 'active' AND auth_version = ?`,
-		session.UserID, session.AuthVersion,
-	).Scan(&authVersion, &mfaRequired, &isAdmin); errors.Is(err, sql.ErrNoRows) {
+	policy, err := queryAuthenticationPolicy(ctx, tx, session.UserID, session.AuthVersion)
+	if errors.Is(err, ErrUserNotActive) {
 		return nil, ErrSecuritySessionInvalid
-	} else if err != nil {
+	}
+	if err != nil {
 		return nil, fmt.Errorf("load current security policy: %w", err)
 	}
-	policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
 	if !policy.allowsAssurance(session.AssuranceLevel) {
 		return nil, ErrSecuritySessionInvalid
 	}
@@ -1033,22 +1031,27 @@ func loadActiveTOTPCredential(ctx context.Context, tx *sql.Tx, userID string) (*
 }
 
 func canDisableTOTPInTransaction(ctx context.Context, tx *sql.Tx, userID, rpID string) (bool, error) {
-	var hasPassword, passkeyCount, requiresMFA int
+	var hasPassword, passkeyCount int
 	err := tx.QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
-			(SELECT COUNT(*) FROM webauthn_credentials w WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL),
-			(u.mfa_required = 1 OR u.is_admin = 1)
+			(SELECT COUNT(*) FROM webauthn_credentials w
+			 WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
+			   AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL)
 		FROM users u WHERE u.id = ? AND u.status = 'active'`, rpID, userID,
-	).Scan(&hasPassword, &passkeyCount, &requiresMFA)
+	).Scan(&hasPassword, &passkeyCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrSecuritySessionInvalid
 	}
 	if err != nil {
 		return false, fmt.Errorf("check last authenticator: %w", err)
 	}
+	policy, err := queryAuthenticationPolicy(ctx, tx, userID, 0)
+	if err != nil {
+		return false, fmt.Errorf("load last-authenticator policy: %w", err)
+	}
 	hasPrimary := hasPassword == 1 || passkeyCount > 0
-	return hasPrimary && (requiresMFA == 0 || passkeyCount > 0), nil
+	return hasPrimary && (!policy.RequiresMFA || passkeyCount > 0), nil
 }
 
 func (m *Manager) readSecurityManagementDraft(ctx context.Context, challengeToken, sessionToken, origin string, purpose ChallengePurpose, kind string) (*PreAuthChallenge, *securityManagementDraft, string, *Session, error) {

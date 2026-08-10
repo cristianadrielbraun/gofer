@@ -17,7 +17,7 @@ func newUserLifecycleManager(t *testing.T) *Manager {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewManager(&Config{Enabled: true}, db)
+	return NewManager(&Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
 }
 
 func TestUserLifecycleUsesNormalizedIdentifiersAndRevokesSessions(t *testing.T) {
@@ -67,6 +67,43 @@ func TestUserLifecycleProtectsLastActiveAdministrator(t *testing.T) {
 	}
 	if err := manager.SetUserStatus(t.Context(), admin.ID, UserStatusDisabled, admin.ID); !errors.Is(err, ErrLastActiveAdmin) {
 		t.Fatalf("SetUserStatus(last admin) error = %v, want ErrLastActiveAdmin", err)
+	}
+}
+
+func TestUserLifecycleRequiresStrongFactorBeforeActivationUnderGlobalMFA(t *testing.T) {
+	manager := newUserLifecycleManager(t)
+	admin, err := manager.CreateOrUpdateUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := manager.CreateOrUpdateUser(t.Context(), "user@example.com", "User", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetUserStatus(t.Context(), user.ID, UserStatusPending, admin.ID); err != nil {
+		t.Fatalf("SetUserStatus(pending) error = %v", err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_system_state (id, initialized, owner_user_id, mfa_policy)
+		VALUES (1, 1, ?, 'all_users')`, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.SetUserStatus(t.Context(), user.ID, UserStatusActive, admin.ID); !errors.Is(err, ErrInstanceMFAEnrollmentNeeded) {
+		t.Fatalf("SetUserStatus(factorless active) error = %v", err)
+	}
+	blocked, err := manager.GetUserByID(t.Context(), user.ID)
+	if err != nil || blocked.Status != UserStatusPending {
+		t.Fatalf("blocked user = %#v, %v", blocked, err)
+	}
+
+	insertPolicyTestTOTP(t, manager, user.ID, blocked.UpdatedAt)
+	if err := manager.SetUserStatus(t.Context(), user.ID, UserStatusActive, admin.ID); err != nil {
+		t.Fatalf("SetUserStatus(factor-ready active) error = %v", err)
+	}
+	active, err := manager.GetUserByID(t.Context(), user.ID)
+	if err != nil || active.Status != UserStatusActive {
+		t.Fatalf("activated user = %#v, %v", active, err)
 	}
 }
 

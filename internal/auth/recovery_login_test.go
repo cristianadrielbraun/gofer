@@ -55,6 +55,16 @@ func TestStartRecoveryCodeRepairConsumesOneCodeWithoutCreatingSessionOrReplacing
 		ids:    []string{"recovery-used-event", "recovery-repair-challenge"},
 		tokens: []string{"recovery-repair-token", "replacement-totp-material"},
 	})
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?`, totpLoginTestUserID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_system_state (id, initialized, mfa_policy)
+		VALUES (1, 1, 'all_users')`); err != nil {
+		t.Fatal(err)
+	}
 
 	repair, err := startRecoveryRepair(t, manager, recoveryLoginTestToken, strings.ToLower(batch.Codes[0]))
 	if err != nil {

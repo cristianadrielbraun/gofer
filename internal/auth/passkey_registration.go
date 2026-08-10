@@ -593,24 +593,29 @@ func (m *Manager) canRemovePasskey(ctx context.Context, userID, passkeyID, rpID 
 }
 
 func canRemovePasskeyInTransaction(ctx context.Context, tx *sql.Tx, userID, passkeyID, rpID string) (bool, error) {
-	var hasPassword, hasTOTP, otherPasskeys, requiresMFA int
+	var hasPassword, hasTOTP, otherPasskeys int
 	err := tx.QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM password_credentials WHERE user_id = u.id),
 			EXISTS(SELECT 1 FROM totp_credentials WHERE user_id = u.id AND enabled = 1 AND revoked_at IS NULL),
-			(SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = u.id AND id != ? AND rp_id = ? AND revoked_at IS NULL),
-			(u.mfa_required = 1 OR u.is_admin = 1)
+			(SELECT COUNT(*) FROM webauthn_credentials
+			 WHERE user_id = u.id AND id != ? AND rp_id = ? AND revoked_at IS NULL
+			   AND credential_ciphertext IS NOT NULL AND key_version IS NOT NULL)
 		FROM users u WHERE u.id = ? AND u.status = 'active'`, passkeyID, rpID, userID,
-	).Scan(&hasPassword, &hasTOTP, &otherPasskeys, &requiresMFA)
+	).Scan(&hasPassword, &hasTOTP, &otherPasskeys)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrSecuritySessionInvalid
 	}
 	if err != nil {
 		return false, fmt.Errorf("check passkey removal protection: %w", err)
 	}
+	policy, err := queryAuthenticationPolicy(ctx, tx, userID, 0)
+	if err != nil {
+		return false, fmt.Errorf("load passkey removal policy: %w", err)
+	}
 	hasPrimary := hasPassword == 1 || otherPasskeys > 0
 	hasStrong := hasTOTP == 1 || otherPasskeys > 0
-	return hasPrimary && (requiresMFA == 0 || hasStrong), nil
+	return hasPrimary && (!policy.RequiresMFA || hasStrong), nil
 }
 
 func (m *Manager) readPasskeyRegistrationDraft(ctx context.Context, challengeToken, sessionToken, origin string) (*PreAuthChallenge, *passkeyRegistrationDraft, *Session, error) {

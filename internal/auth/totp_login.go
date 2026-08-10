@@ -81,13 +81,12 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 			return ErrTOTPLoginChallengeInvalid
 		}
 		var credentialID, algorithm string
-		var keyVersion, digits, period, mfaRequired, isAdmin int
+		var keyVersion, digits, period int
 		var encryptedSeed []byte
 		var authVersion int64
 		var lastAcceptedStep sql.NullInt64
 		err = tx.QueryRowContext(ctx, `
-			SELECT u.auth_version, u.mfa_required, u.is_admin,
-			       t.id, t.encrypted_seed, t.key_version, t.algorithm, t.digits,
+			SELECT u.auth_version, t.id, t.encrypted_seed, t.key_version, t.algorithm, t.digits,
 			       t.period, t.last_accepted_step
 			FROM users u
 			JOIN totp_credentials t ON t.user_id = u.id
@@ -95,8 +94,7 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 			  AND t.enabled = 1 AND t.revoked_at IS NULL`,
 			currentChallenge.UserID,
 		).Scan(
-			&authVersion, &mfaRequired, &isAdmin,
-			&credentialID, &encryptedSeed, &keyVersion, &algorithm, &digits,
+			&authVersion, &credentialID, &encryptedSeed, &keyVersion, &algorithm, &digits,
 			&period, &lastAcceptedStep,
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -106,7 +104,10 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 			return fmt.Errorf("read TOTP login state: %w", err)
 		}
 		userID := currentChallenge.UserID
-		policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+		policy, err := queryAuthenticationPolicy(ctx, tx, userID, authVersion)
+		if err != nil {
+			return ErrTOTPLoginChallengeInvalid
+		}
 		if userID != preflight.UserID || authVersion != primary.AuthVersion || !policy.RequiresMFA {
 			return ErrTOTPLoginChallengeInvalid
 		}

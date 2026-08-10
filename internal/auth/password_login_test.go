@@ -216,9 +216,11 @@ func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
 		name        string
 		isAdmin     bool
 		mfaRequired bool
+		instanceMFA bool
 	}{
 		{name: "administrator", isAdmin: true},
 		{name: "user policy", mfaRequired: true},
+		{name: "instance policy", instanceMFA: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			clock := &fixedClock{now: now}
@@ -227,6 +229,13 @@ func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
 				tokens: []string{"mfa-challenge-token"},
 			})
 			insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", UserStatusActive, test.isAdmin, test.mfaRequired, false, currentPasswordLoginHash(t), now)
+			if test.instanceMFA {
+				if _, err := manager.db.Write().ExecContext(t.Context(), `
+					INSERT INTO auth_system_state (id, initialized, mfa_policy)
+					VALUES (1, 1, 'all_users')`); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			result, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
 				Identifier: "person",

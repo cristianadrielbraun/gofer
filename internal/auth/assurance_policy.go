@@ -19,10 +19,10 @@ type authenticationPolicyQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func resolveAuthenticationPolicy(authVersion int64, mfaRequired, isAdmin bool) authenticationPolicy {
+func resolveAuthenticationPolicy(authVersion int64, mfaRequired, isAdmin, instanceMFARequired bool) authenticationPolicy {
 	return authenticationPolicy{
 		AuthVersion: authVersion,
-		RequiresMFA: mfaRequired || isAdmin,
+		RequiresMFA: mfaRequired || isAdmin || instanceMFARequired,
 	}
 }
 
@@ -46,22 +46,33 @@ func (policy authenticationPolicy) allowsStepUpMethod(method AuthenticationMetho
 	return method == AuthenticationMethodPasskey || method == AuthenticationMethodTOTP || method == AuthenticationMethodRecoveryCode
 }
 
-func (m *Manager) loadAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
+func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
 	var authVersion int64
 	var mfaRequired, isAdmin int
+	var instanceMFAPolicy InstanceMFAPolicy
 	err := queryer.QueryRowContext(ctx, `
-		SELECT auth_version, mfa_required, is_admin
-		FROM users
-		WHERE id = ? AND status = 'active'
-		  AND (? = 0 OR auth_version = ?)`, userID, expectedAuthVersion, expectedAuthVersion,
-	).Scan(&authVersion, &mfaRequired, &isAdmin)
+		SELECT u.auth_version, u.mfa_required, u.is_admin,
+		       COALESCE((SELECT state.mfa_policy FROM auth_system_state state WHERE state.id = 1), 'administrators')
+		FROM users u
+		WHERE u.id = ? AND u.status = 'active'
+		  AND (? = 0 OR u.auth_version = ?)`, userID, expectedAuthVersion, expectedAuthVersion,
+	).Scan(&authVersion, &mfaRequired, &isAdmin, &instanceMFAPolicy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authenticationPolicy{}, ErrUserNotActive
 	}
 	if err != nil {
 		return authenticationPolicy{}, fmt.Errorf("load authentication policy: %w", err)
 	}
-	return resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1), nil
+	if !instanceMFAPolicy.Valid() {
+		return authenticationPolicy{}, fmt.Errorf("%w: %q", ErrInstanceMFAPolicyInvalid, instanceMFAPolicy)
+	}
+	return resolveAuthenticationPolicy(
+		authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers(),
+	), nil
+}
+
+func (m *Manager) loadAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
+	return queryAuthenticationPolicy(ctx, queryer, userID, expectedAuthVersion)
 }
 
 func (m *Manager) requireAuthenticationAssurance(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64, assurance AssuranceLevel) (authenticationPolicy, error) {

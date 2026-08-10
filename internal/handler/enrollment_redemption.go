@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	enrollmentRedemptionPath             = "/account/redeem"
-	enrollmentRedemptionCompletePath     = "/account/redeem/complete"
-	enrollmentRedemptionFormMaximumBytes = 12 << 10
-	enrollmentRedemptionFailureMessage   = "That invitation or reset token is invalid or no longer active."
-	enrollmentRedemptionServiceMessage   = "Unable to set the password right now. Please try again."
+	enrollmentRedemptionPath               = "/account/redeem"
+	enrollmentRedemptionCompletePath       = "/account/redeem/complete"
+	enrollmentRedemptionFormMaximumBytes   = 12 << 10
+	enrollmentRedemptionFailureMessage     = "That invitation or reset token is invalid or no longer active."
+	enrollmentRedemptionServiceMessage     = "Unable to set the password right now. Please try again."
+	enrollmentRedemptionMFARequiredMessage = "This account must enroll a strong authenticator before it can be activated. Contact an administrator to complete MFA enrollment."
 )
 
 func (h *Handler) handleEnrollmentRedemption(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +57,8 @@ func (h *Handler) handleEnrollmentRedemptionSubmit(w http.ResponseWriter, r *htt
 			errors.Is(err, auth.ErrPasswordTooLong),
 			errors.Is(err, auth.ErrPasswordCommon):
 			h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, err.Error())
+		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
+			h.renderEnrollmentRedemptionPage(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
 		default:
 			log.Printf("redeem enrollment token: %v", err)
 			h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)

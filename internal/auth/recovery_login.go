@@ -149,10 +149,9 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}
 		var emailNormalized, totpID string
-		var mfaRequired, isAdmin int
 		var authVersion int64
 		err = tx.QueryRowContext(ctx, `
-			SELECT u.auth_version, u.mfa_required, u.is_admin,
+			SELECT u.auth_version,
 			       COALESCE(NULLIF(u.email_normalized, ''), NULLIF(u.username_normalized, ''), u.id),
 			       t.id
 			FROM users u
@@ -160,7 +159,7 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			WHERE u.id = ? AND u.status = 'active'
 			  AND t.enabled = 1 AND t.revoked_at IS NULL`,
 			currentChallenge.UserID,
-		).Scan(&authVersion, &mfaRequired, &isAdmin, &emailNormalized, &totpID)
+		).Scan(&authVersion, &emailNormalized, &totpID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}
@@ -168,7 +167,10 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			return fmt.Errorf("read recovery-code login state: %w", err)
 		}
 		userID := currentChallenge.UserID
-		policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+		policy, err := queryAuthenticationPolicy(ctx, tx, userID, authVersion)
+		if err != nil {
+			return ErrRecoveryCodeLoginChallengeInvalid
+		}
 		if userID != preflight.UserID || authVersion != primary.AuthVersion || !policy.RequiresMFA {
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}

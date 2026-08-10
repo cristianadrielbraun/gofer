@@ -42,8 +42,6 @@ type passwordLoginCandidate struct {
 	userID       string
 	status       UserStatus
 	authVersion  int64
-	mfaRequired  bool
-	isAdmin      bool
 	mustChange   bool
 	passwordHash string
 }
@@ -83,7 +81,13 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 		return nil, m.rejectPasswordLogin(ctx, options.Identifier, options.Source)
 	}
 
-	policy := resolveAuthenticationPolicy(candidate.authVersion, candidate.mfaRequired, candidate.isAdmin)
+	policy, err := m.loadAuthenticationPolicy(ctx, m.db.Read(), candidate.userID, candidate.authVersion)
+	if err != nil {
+		if errors.Is(err, ErrUserNotActive) {
+			return nil, m.rejectPasswordLogin(ctx, options.Identifier, options.Source)
+		}
+		return nil, err
+	}
 	result, err := m.completePasswordLogin(
 		ctx, candidate, normalizeLoginIdentifier(options.Identifier), replacementHash,
 		boundedUserAgent(options.UserAgent), policy,
@@ -100,8 +104,7 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier string) (*passwordLoginCandidate, error) {
 	normalized := normalizeLoginIdentifier(identifier)
 	rows, err := m.db.Read().QueryContext(ctx, `
-		SELECT u.id, u.status, u.auth_version, u.mfa_required, u.is_admin,
-		       p.must_change, p.password_hash
+		SELECT u.id, u.status, u.auth_version, p.must_change, p.password_hash
 		FROM users u
 		JOIN password_credentials p ON p.user_id = u.id
 		WHERE u.email_normalized = ? OR u.username_normalized = ?
@@ -115,15 +118,13 @@ func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier str
 	var candidates []passwordLoginCandidate
 	for rows.Next() {
 		var candidate passwordLoginCandidate
-		var mfaRequired, isAdmin, mustChange int
+		var mustChange int
 		if err := rows.Scan(
-			&candidate.userID, &candidate.status, &candidate.authVersion, &mfaRequired, &isAdmin,
+			&candidate.userID, &candidate.status, &candidate.authVersion,
 			&mustChange, &candidate.passwordHash,
 		); err != nil {
 			return nil, fmt.Errorf("scan password login candidate: %w", err)
 		}
-		candidate.mfaRequired = mfaRequired == 1
-		candidate.isAdmin = isAdmin == 1
 		candidate.mustChange = mustChange == 1
 		candidates = append(candidates, candidate)
 	}
@@ -186,17 +187,17 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		var passwordHash, emailNormalized, usernameNormalized string
 		var status UserStatus
 		var authVersion int64
-		var mfaRequired, isAdmin, mustChange int
+		var mustChange int
 		err := tx.QueryRowContext(ctx, `
-			SELECT p.password_hash, u.status, u.auth_version, u.mfa_required,
-			       u.is_admin, p.must_change, COALESCE(u.email_normalized, ''),
+			SELECT p.password_hash, u.status, u.auth_version,
+			       p.must_change, COALESCE(u.email_normalized, ''),
 			       COALESCE(u.username_normalized, '')
 			FROM users u
 			JOIN password_credentials p ON p.user_id = u.id
 			WHERE u.id = ?`, candidate.userID,
 		).Scan(
-			&passwordHash, &status, &authVersion, &mfaRequired,
-			&isAdmin, &mustChange, &emailNormalized, &usernameNormalized,
+			&passwordHash, &status, &authVersion,
+			&mustChange, &emailNormalized, &usernameNormalized,
 		)
 		if errors.Is(err, sql.ErrNoRows) {
 			return errPasswordStateMoved
@@ -204,7 +205,13 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		if err != nil {
 			return fmt.Errorf("recheck password login state: %w", err)
 		}
-		currentPolicy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+		currentPolicy, err := queryAuthenticationPolicy(ctx, tx, candidate.userID, authVersion)
+		if err != nil {
+			if errors.Is(err, ErrUserNotActive) {
+				return errPasswordStateMoved
+			}
+			return err
+		}
 		if passwordHash != candidate.passwordHash || !status.AllowsAuthentication() || mustChange == 1 ||
 			currentPolicy != policy {
 			return errPasswordStateMoved

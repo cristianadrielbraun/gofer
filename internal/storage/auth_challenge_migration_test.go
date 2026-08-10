@@ -58,8 +58,8 @@ func TestMigrateV79AddsOriginBindingAndInvalidatesLegacyChallenges(t *testing.T)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 81 {
-		t.Fatalf("schema version = %d, %v; want 81", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 82 {
+		t.Fatalf("schema version = %d, %v; want 82", version, err)
 	}
 	var challengeHash, origin, userID string
 	var nonceHash *string

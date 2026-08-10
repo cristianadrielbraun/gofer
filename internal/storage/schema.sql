@@ -763,7 +763,10 @@ CREATE TABLE IF NOT EXISTS auth_system_state (
     setup_expires_at DATETIME,
     setup_attempts INTEGER NOT NULL DEFAULT 0 CHECK (setup_attempts >= 0),
     setup_rotated_at DATETIME,
-    cutover_version INTEGER NOT NULL DEFAULT 0 CHECK (cutover_version >= 0)
+    cutover_version INTEGER NOT NULL DEFAULT 0 CHECK (cutover_version >= 0),
+    mfa_policy TEXT NOT NULL DEFAULT 'administrators' CHECK (mfa_policy IN ('administrators', 'all_users')),
+    security_policy_updated_at DATETIME,
+    security_policy_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS oauth_account_flows (
@@ -1314,4 +1317,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (81);
+INSERT OR REPLACE INTO schema_version (version) VALUES (82);

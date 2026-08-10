@@ -334,17 +334,20 @@ func requireRecentAdministratorStepUp(ctx context.Context, tx *sql.Tx, userID, s
 		return fmt.Errorf("load administrator verification session: %w", err)
 	}
 	var authVersion int64
-	var mfaRequired, isAdmin int
+	var isAdmin int
 	if err := tx.QueryRowContext(ctx, `
-		SELECT auth_version, mfa_required, is_admin
+		SELECT auth_version, is_admin
 		FROM users WHERE id = ? AND status = 'active' AND auth_version = ?`,
 		userID, session.AuthVersion,
-	).Scan(&authVersion, &mfaRequired, &isAdmin); errors.Is(err, sql.ErrNoRows) {
+	).Scan(&authVersion, &isAdmin); errors.Is(err, sql.ErrNoRows) {
 		return ErrRecentStepUpRequired
 	} else if err != nil {
 		return fmt.Errorf("load administrator verification policy: %w", err)
 	}
-	policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+	policy, err := queryAuthenticationPolicy(ctx, tx, userID, authVersion)
+	if err != nil {
+		return fmt.Errorf("load administrator verification policy: %w", err)
+	}
 	if isAdmin != 1 || !hasRecentSecurityStepUp(session, policy, now) {
 		return ErrRecentStepUpRequired
 	}

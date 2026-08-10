@@ -106,8 +106,8 @@ func TestMigrateV77AddsAuthenticationSchemaAndPreservesSessions(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 81 {
-		t.Fatalf("schema version = %d, %v; want 81", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 82 {
+		t.Fatalf("schema version = %d, %v; want 82", version, err)
 	}
 	hash := sha256.Sum256([]byte(rawToken))
 	wantHash := hex.EncodeToString(hash[:])

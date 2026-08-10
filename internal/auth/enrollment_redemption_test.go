@@ -113,6 +113,53 @@ func TestRedeemEnrollmentTokenActivatesUserAndConsumesTokenAtomically(t *testing
 	}
 }
 
+func TestRedeemEnrollmentTokenRequiresStrongFactorBeforeGlobalMFAActivation(t *testing.T) {
+	now := time.Date(2026, time.August, 6, 9, 30, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids: []string{"blocked-event", "completed-event"},
+	})
+	insertRedemptionUser(t, manager, "invitee", UserStatusPending, now)
+	insertRedemptionToken(t, manager, "enrollment-token", "invitee", "global-mfa-secret", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour))
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_system_state (id, initialized, mfa_policy)
+		VALUES (1, 1, 'all_users')`); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
+		Token: "global-mfa-secret", NewPassword: redemptionTestPassword,
+	})
+	if result != nil || !errors.Is(err, ErrInstanceMFAEnrollmentNeeded) {
+		t.Fatalf("factorless redemption = %#v, %v", result, err)
+	}
+	var status UserStatus
+	var usedAt sql.NullTime
+	var credentials, events int
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT status FROM users WHERE id = 'invitee'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT used_at FROM user_enrollment_tokens WHERE id = 'enrollment-token'`).Scan(&usedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM password_credentials`).Scan(&credentials); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if status != UserStatusPending || usedAt.Valid || credentials != 0 || events != 0 {
+		t.Fatalf("blocked redemption state = status:%q used:%#v credentials:%d events:%d", status, usedAt, credentials, events)
+	}
+
+	insertPolicyTestTOTP(t, manager, "invitee", now)
+	result, err = manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
+		Token: "global-mfa-secret", NewPassword: redemptionTestPassword,
+	})
+	if err != nil || result == nil || result.UserID != "invitee" {
+		t.Fatalf("factor-ready redemption = %#v, %v", result, err)
+	}
+}
+
 func TestRedeemCredentialResetReplacesPasswordInvalidatesAuthAndPreservesDisabledState(t *testing.T) {
 	now := time.Date(2026, time.August, 6, 10, 0, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{ids: []string{"active-reset-event", "disabled-reset-event"}})

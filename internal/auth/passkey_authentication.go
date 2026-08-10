@@ -398,11 +398,13 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 		}
 		var status UserStatus
 		var authVersion int64
-		var mfaRequired, isAdmin int
-		if err := tx.QueryRowContext(ctx, `SELECT status, auth_version, mfa_required, is_admin FROM users WHERE id = ?`, user.UserID).Scan(&status, &authVersion, &mfaRequired, &isAdmin); err != nil || !status.AllowsAuthentication() || authVersion != user.AuthVersion {
+		if err := tx.QueryRowContext(ctx, `SELECT status, auth_version FROM users WHERE id = ?`, user.UserID).Scan(&status, &authVersion); err != nil || !status.AllowsAuthentication() || authVersion != user.AuthVersion {
 			return ErrPasskeyAuthenticationInvalid
 		}
-		policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1)
+		policy, err := queryAuthenticationPolicy(ctx, tx, user.UserID, authVersion)
+		if err != nil {
+			return ErrPasskeyAuthenticationInvalid
+		}
 		if !policy.allowsAssurance(session.AssuranceLevel) {
 			return ErrAuthenticationPolicyNotSatisfied
 		}

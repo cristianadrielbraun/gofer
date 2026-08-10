@@ -60,8 +60,8 @@ func TestMigrateV80AddsEncryptedPasskeyRecordsAndUserHandles(t *testing.T) {
 	var version int
 	var ciphertext, keyVersion, rpID any
 	var flags, cloneWarning int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 81 {
-		t.Fatalf("schema version = %d, %v; want 81", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 82 {
+		t.Fatalf("schema version = %d, %v; want 82", version, err)
 	}
 	if err := db.Read().QueryRow(`
 		SELECT credential_ciphertext, key_version, rp_id, flags, clone_warning

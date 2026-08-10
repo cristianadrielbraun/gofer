@@ -298,6 +298,30 @@ func TestTOTPDisableProtectsRequiredLastFactorAndRevokesRecovery(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_system_state (id, initialized, mfa_policy)
+		VALUES (1, 1, 'all_users')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO webauthn_credentials (
+			id, user_id, credential_id, public_key, name, created_at, rp_id
+		) VALUES ('incomplete-alternative', ?, x'0b', x'02', 'Incomplete', ?, 'gofer.example')`,
+		session.UserID, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.DisableTOTP(t.Context(), session.Token, "Disable Browser"); !errors.Is(err, ErrLastAuthenticator) {
+		t.Fatalf("DisableTOTP() under instance policy error = %v", err)
+	}
+	summary, err = manager.GetSecurityFactorSummary(t.Context(), session.Token)
+	if err != nil || !summary.RequiresMFA || summary.CanDisableTOTP {
+		t.Fatalf("instance-policy factor summary = %#v, %v", summary, err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE auth_system_state SET mfa_policy = 'administrators' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
 	other, err := manager.CreateAuthenticatedSession(
 		t.Context(), session.UserID, "Other Browser", AuthenticationMethodPassword, AssuranceLevelMultiFactor,
 	)
