@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cristianadrielbraun/gofer/internal/auth"
 	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -69,7 +69,7 @@ func TestSaveOutlookGraphDraftCreatesMIMEDraftAndCachesProviderID(t *testing.T) 
 		t.Fatalf("SaveDraftMessage() error = %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := auth.NewManager(&auth.Config{}, db)
+	manager := mailauth.New(&mailauth.Config{}, db)
 	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
@@ -103,14 +103,14 @@ func TestSaveOutlookGraphDraftCreatesMIMEDraftAndCachesProviderID(t *testing.T) 
 	}))
 	defer server.Close()
 
-	manager = auth.NewManager(&auth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
 
 	to, _ := message.ParseAddressList("recipient@example.com")
 	bcc, _ := message.ParseAddressList("hidden@example.com")
-	h := &Handler{db: db, auth: manager}
+	h := &Handler{db: db, mailboxAuth: manager}
 	err = h.saveOutlookGraphDraft(ctx, "acc", msgID, &message.OutgoingMessage{
 		FromEmail: "user@example.com",
 		To:        to,
@@ -154,7 +154,7 @@ func TestSendOutlookGraphMessageUsesSendMailMIMEAndCachesSentID(t *testing.T) {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := auth.NewManager(&auth.Config{}, db)
+	manager := mailauth.New(&mailauth.Config{}, db)
 	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
@@ -191,14 +191,14 @@ func TestSendOutlookGraphMessageUsesSendMailMIMEAndCachesSentID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager = auth.NewManager(&auth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
 
 	to, _ := message.ParseAddressList("recipient@example.com")
 	bcc, _ := message.ParseAddressList("hidden@example.com")
-	h := &Handler{db: db, auth: manager, blobStore: store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), syncer: mailpkg.NewSyncOrchestrator(db, nil, nil, nil)}
+	h := &Handler{db: db, mailboxAuth: manager, blobStore: store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), syncer: mailpkg.NewSyncOrchestrator(db, nil, nil, nil)}
 	handled, status, errText := h.sendOutlookGraphMessage(ctx, &models.AccountConfig{AccountID: "acc", Provider: providers.ProviderOutlook}, &message.OutgoingMessage{
 		FromEmail: "user@example.com",
 		To:        to,

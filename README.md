@@ -129,7 +129,9 @@ That writes Linux, macOS, and Windows archives plus `dist/checksums.txt`.
 
 Generic IMAP/SMTP accounts do not need OAuth application credentials. Gmail and Outlook do.
 
-For now, alpha builds expect you to provide your own OAuth client ID and client secret for Google and Microsoft. Create credentials in the provider console, configure callback URLs for your `GOFER_BASE_URL`, and keep the generated secrets private. For Google, enable the Gmail API and People API in the same project.
+For now, alpha builds expect you to provide your own OAuth client ID and client secret for Gmail and Outlook mailbox access. Create credentials in the provider console, configure the account callback URLs for your `GOFER_BASE_URL`, and keep the generated secrets private. For Gmail, enable the Gmail API and People API in the same project.
+
+Optional Google application login uses a separate OAuth client and callback. It requests only `openid email profile`; its provider tokens are not stored and signing in does not create or authorize a Gmail mailbox. Keep the login client separate from the Gmail mailbox client so their redirect URLs and granted scopes cannot be confused.
 
 Official provider docs:
 
@@ -144,7 +146,7 @@ http://local.localhost:8090/auth/google/callback
 http://local.localhost:8090/auth/microsoft/account/callback
 ```
 
-The Google login callback is only needed if you enable Gofer's optional Google-backed app login (again please don't do this). Gmail account setup uses the Google account callback.
+The Google login callback is only needed if you enable Gofer's optional Google-backed application login (again please don't do this). Gmail account setup uses only the Google account callback.
 
 ## configuration
 
@@ -163,8 +165,10 @@ GOFER_ADDR=127.0.0.1:8090
 GOFER_BASE_URL=http://local.localhost:8090
 GOFER_ALLOW_UNAUTHENTICATED_REMOTE=false
 GOFER_AUTH_ENABLED=false
-GOOGLE_OAUTH_CLIENT_ID=optional_for_google_login_gmail_contacts
-GOOGLE_OAUTH_CLIENT_SECRET=optional_for_google_login_gmail_contacts
+GOFER_GOOGLE_LOGIN_CLIENT_ID=optional_identity_only_google_login
+GOFER_GOOGLE_LOGIN_CLIENT_SECRET=optional_identity_only_google_login
+GOOGLE_OAUTH_CLIENT_ID=optional_for_gmail_and_google_contacts
+GOOGLE_OAUTH_CLIENT_SECRET=optional_for_gmail_and_google_contacts
 MICROSOFT_OAUTH_CLIENT_ID=optional_for_outlook_oauth_mail
 MICROSOFT_OAUTH_CLIENT_SECRET=optional_for_outlook_oauth_mail
 MICROSOFT_OAUTH_TENANT=common
@@ -173,7 +177,7 @@ GOFER_VAPID_PRIVATE_KEY=optional_web_push_private_key
 GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 ```
 
-Google OAuth is used for optional Google login, Gmail mail through the Gmail API, and Google Contacts sync through the People API. Microsoft OAuth is used for Outlook mail and contact sync through Microsoft Graph.
+The `GOFER_GOOGLE_LOGIN_*` client is used only for application identity. The `GOOGLE_OAUTH_*` client is used only for Gmail and Google Contacts, while `MICROSOFT_OAUTH_*` is used only for Outlook mail and contacts through Microsoft Graph.
 
 On the first startup of an authentication-uninitialized database, Gofer stores only the hash of a 30-minute setup token. If `GOFER_SETUP_TOKEN` is set, its exact value is used without being echoed and must contain 32-1024 bytes. Otherwise Gofer generates a 256-bit token and prints it once to the local console. A restart never reprints or silently replaces the persisted token.
 

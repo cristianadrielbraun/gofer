@@ -27,7 +27,7 @@ func newLocalLoginHandler(t *testing.T, status auth.UserStatus, isAdmin, mfaRequ
 	t.Cleanup(func() { _ = db.Close() })
 	config := &auth.Config{Enabled: true, BaseURL: "https://gofer.example", SecureCookies: true}
 	if showGoogle {
-		config.GoogleClient = &oauth2.Config{ClientID: "client-id"}
+		config.GoogleLoginClient = &oauth2.Config{ClientID: "client-id"}
 	}
 	manager := auth.NewManager(config, db, auth.Dependencies{
 		BucketHashKey: []byte("local-login-handler-key-32-bytes!"),

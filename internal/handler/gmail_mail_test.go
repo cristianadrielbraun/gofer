@@ -14,6 +14,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -37,15 +38,16 @@ func newGmailAPITestHandler(t *testing.T, ctx context.Context) (*Handler, *stora
 		t.Fatalf("insert account: %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := auth.NewManager(&auth.Config{}, db)
+	manager := mailauth.New(&mailauth.Config{}, db)
 	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 	return &Handler{
-		db:        db,
-		auth:      manager,
-		blobStore: store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")),
-		syncer:    mailpkg.NewSyncOrchestrator(db, nil, nil, nil),
+		db:          db,
+		auth:        auth.NewManager(&auth.Config{}, db),
+		mailboxAuth: manager,
+		blobStore:   store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")),
+		syncer:      mailpkg.NewSyncOrchestrator(db, nil, nil, nil),
 	}, db
 }
 

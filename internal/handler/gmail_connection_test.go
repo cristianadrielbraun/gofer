@@ -10,6 +10,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -30,7 +31,7 @@ func TestHandleTestAccountUsesGmailAPIForGmail(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := auth.NewManager(&auth.Config{}, db)
+	manager := mailauth.New(&mailauth.Config{}, db)
 	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
@@ -55,7 +56,7 @@ func TestHandleTestAccountUsesGmailAPIForGmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAccountStore() error = %v", err)
 	}
-	h := New(db, store, nil, nil, manager, "")
+	h := New(db, store, nil, nil, auth.NewManager(&auth.Config{}, db), "", manager)
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/acc/test", nil)
 	req.SetPathValue("id", "acc")
 	rec := httptest.NewRecorder()

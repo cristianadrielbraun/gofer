@@ -20,6 +20,7 @@ import (
 	imapclient "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -137,15 +138,15 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	authManager := auth.NewManager(&auth.Config{}, db)
-	if err := authManager.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
+	mailCredentials := mailauth.New(&mailauth.Config{}, db)
+	if err := mailCredentials.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
 		t.Fatalf("NewAccountStore() error = %v", err)
 	}
-	h := New(db, accountStore, mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil), store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), authManager, "")
+	h := New(db, accountStore, mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil), store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), auth.NewManager(&auth.Config{}, db), "", mailCredentials)
 
 	var delivered []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -209,8 +210,8 @@ func TestOutgoingWorkerRetriesTemporaryGmailFailureWithSameSnapshot(t *testing.T
 		t.Fatalf("seed Gmail account: %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	authManager := auth.NewManager(&auth.Config{}, db)
-	if err := authManager.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
+	mailCredentials := mailauth.New(&mailauth.Config{}, db)
+	if err := mailCredentials.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
@@ -218,7 +219,7 @@ func TestOutgoingWorkerRetriesTemporaryGmailFailureWithSameSnapshot(t *testing.T
 		t.Fatalf("NewAccountStore() error = %v", err)
 	}
 	syncer := mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil)
-	h := New(db, accountStore, syncer, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), authManager, "")
+	h := New(db, accountStore, syncer, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), auth.NewManager(&auth.Config{}, db), "", mailCredentials)
 	events := syncer.Events().Subscribe()
 	defer syncer.Events().Unsubscribe(events)
 

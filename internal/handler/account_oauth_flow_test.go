@@ -22,16 +22,13 @@ func newAccountOAuthFlowTestHandler(t *testing.T) (*Handler, *mailauth.Service, 
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	manager := auth.NewManager(&auth.Config{
-		Enabled: true,
-		BaseURL: "https://gofer.example",
+	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
+	mailCredentials := mailauth.New(&mailauth.Config{
+		Enabled: true, BaseURL: "https://gofer.example",
 		GoogleClient: &oauth2.Config{
 			ClientID: "client-id",
 			Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/authorize"},
 		},
-	}, db)
-	mailCredentials := mailauth.New(&mailauth.Config{
-		Enabled: true, BaseURL: "https://gofer.example", GoogleClient: manager.Config().GoogleClient,
 	}, db)
 	return &Handler{db: db, auth: manager, mailboxAuth: mailCredentials}, mailCredentials, db
 }

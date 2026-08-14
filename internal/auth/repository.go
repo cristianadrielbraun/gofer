@@ -229,35 +229,3 @@ func (m *Manager) SetUserStatus(ctx context.Context, userID string, status UserS
 		return nil
 	})
 }
-
-func (m *Manager) UpsertOAuthAccount(ctx context.Context, userID, provider, providerAccountID, accessToken, refreshToken, tokenType string, expiresAt *time.Time, scopes string) error {
-	now := m.clock.Now()
-
-	var existingID string
-	err := m.db.Read().QueryRowContext(ctx,
-		`SELECT id FROM oauth_accounts WHERE provider = ? AND provider_account_id = ?`,
-		provider, providerAccountID,
-	).Scan(&existingID)
-
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("lookup oauth account: %w", err)
-	}
-
-	if existingID != "" {
-		_, err = m.db.Write().ExecContext(ctx,
-			`UPDATE oauth_accounts SET user_id = ?, access_token = ?, refresh_token = COALESCE(NULLIF(?, ''), refresh_token), token_type = ?, expires_at = ?, scopes = ?, updated_at = ? WHERE id = ?`,
-			userID, accessToken, refreshToken, tokenType, expiresAt, scopes, now, existingID,
-		)
-		return err
-	}
-
-	id, err := m.tokens.ID()
-	if err != nil {
-		return fmt.Errorf("generate OAuth account ID: %w", err)
-	}
-	_, err = m.db.Write().ExecContext(ctx,
-		`INSERT INTO oauth_accounts (id, user_id, provider, provider_account_id, access_token, refresh_token, token_type, expires_at, scopes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, userID, provider, providerAccountID, accessToken, refreshToken, tokenType, expiresAt, scopes, now, now,
-	)
-	return err
-}

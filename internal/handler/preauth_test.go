@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
@@ -25,7 +26,7 @@ func newPreAuthHandler(t *testing.T, tokenURL string) (*Handler, *storage.DB) {
 		Enabled:       true,
 		BaseURL:       "https://gofer.example",
 		SecureCookies: true,
-		GoogleClient: &oauth2.Config{
+		GoogleLoginClient: &oauth2.Config{
 			ClientID:     "client-id",
 			ClientSecret: "client-secret",
 			RedirectURL:  "https://gofer.example/auth/google/callback",
@@ -69,6 +70,38 @@ func beginGooglePreAuth(t *testing.T, handler *Handler) (*http.Cookie, string) {
 	}
 	t.Fatal("Google redirect omitted pre-authentication cookie")
 	return nil, ""
+}
+
+func TestGoogleLoginRouteIsUnavailableWithoutApplicationLoginClient(t *testing.T) {
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	handler := &Handler{db: db, auth: auth.NewManager(&auth.Config{
+		Enabled: true, BaseURL: "https://gofer.example", SecureCookies: true,
+	}, db)}
+
+	for _, path := range []string{"/auth/google", "/auth/google/callback?state=unused&code=unused"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		recorder := httptest.NewRecorder()
+		if strings.Contains(path, "callback") {
+			handler.handleGoogleCallback(recorder, request)
+		} else {
+			handler.handleGoogleRedirect(recorder, request)
+		}
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 404", path, recorder.Code)
+		}
+	}
+
+	var challengeCount int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM auth_challenges`).Scan(&challengeCount); err != nil {
+		t.Fatalf("count pre-authentication challenges: %v", err)
+	}
+	if challengeCount != 0 {
+		t.Fatalf("pre-authentication challenges = %d, want 0", challengeCount)
+	}
 }
 
 func TestGoogleRedirectTerminatesPreviousPreAuthChallenge(t *testing.T) {

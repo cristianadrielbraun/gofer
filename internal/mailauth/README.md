@@ -14,6 +14,7 @@ Handlers and background mail workers receive this service separately from the
 application authentication manager. Provider operations should depend on the
 narrow token-provider interfaces in `internal/mail`, not on `auth.Manager`.
 
-The existing Google application-login callback still links its historical Gmail
-mailbox for compatibility. Removing that compatibility behavior belongs with
-the later split between application login identities and mailbox grants.
+Application login clients are configured separately in `internal/auth`. A
+successful application login neither stores its provider tokens in
+`oauth_accounts` nor creates a mailbox. Gmail and Outlook grants enter this
+package only through the authenticated account-authorization callbacks.

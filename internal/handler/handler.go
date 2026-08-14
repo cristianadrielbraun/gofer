@@ -101,9 +101,6 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	var credentials *mailauth.Service
 	if len(mailboxCredentials) > 0 {
 		credentials = mailboxCredentials[0]
-	} else if authManager != nil {
-		cfg := authManager.Config()
-		credentials = mailauth.New(&mailauth.Config{Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, GoogleClient: cfg.GoogleClient, MicrosoftClient: cfg.MicrosoftClient}, db)
 	}
 	h := &Handler{
 		db:                  db,
@@ -162,14 +159,7 @@ func (h *Handler) mailCredentials() *mailauth.Service {
 	if h.mailboxAuth != nil {
 		return h.mailboxAuth
 	}
-	if h.auth == nil || h.db == nil {
-		return nil
-	}
-	cfg := h.auth.Config()
-	return mailauth.New(&mailauth.Config{
-		Enabled: cfg.Enabled, BaseURL: cfg.BaseURL,
-		GoogleClient: cfg.GoogleClient, MicrosoftClient: cfg.MicrosoftClient,
-	}, h.db)
+	return nil
 }
 
 func (h *Handler) StartAccountDeletionCleanup(ctx context.Context) {
@@ -5738,7 +5728,7 @@ func (h *Handler) handlePrefetchBody(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsEnabled() {
+	if !h.auth.IsEnabled() || !h.auth.HasGoogleLogin() {
 		http.Error(w, "auth not enabled", http.StatusNotFound)
 		return
 	}
@@ -5764,12 +5754,12 @@ func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.SetPreAuthCookie(w, challenge.Token, h.auth.Config().SecureCookies, 10*time.Minute)
 
-	url := h.auth.GoogleOAuthURL(challenge.Token)
+	url := h.auth.GoogleLoginOAuthURL(challenge.Token)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsEnabled() {
+	if !h.auth.IsEnabled() || !h.auth.HasGoogleLogin() {
 		http.Error(w, "auth not enabled", http.StatusNotFound)
 		return
 	}
@@ -5937,7 +5927,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	info, err := h.auth.GetGoogleUserInfo(r.Context(), token)
+	info, err := h.mailCredentials().GetGoogleAccountInfo(r.Context(), token)
 	if err != nil {
 		log.Printf("gmail callback: userinfo failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_userinfo_failed", http.StatusSeeOther)
@@ -6012,7 +6002,7 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 		return
 	}
 
-	info, err := h.auth.GetMicrosoftUserInfo(r.Context(), token)
+	info, err := h.mailCredentials().GetMicrosoftAccountInfo(r.Context(), token)
 	if err != nil {
 		log.Printf("microsoft callback: userinfo failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_userinfo_failed", http.StatusSeeOther)

@@ -2,10 +2,8 @@ package auth
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -14,151 +12,83 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func TestMicrosoftUserInfoFromIDToken(t *testing.T) {
-	idToken := testMicrosoftIDToken(t, map[string]any{
-		"aud":                "client-id",
-		"exp":                time.Now().Add(time.Hour).Unix(),
-		"sub":                "subject-id",
-		"preferred_username": "person@outlook.com",
-		"name":               "Person Outlook",
-	})
+type oauthRoundTripFunc func(*http.Request) (*http.Response, error)
 
-	info, err := microsoftUserInfoFromIDToken(idToken, "client-id", time.Now())
-	if err != nil {
-		t.Fatalf("parse microsoft id token: %v", err)
-	}
-	if got := info.ProviderAccountID(); got != "subject-id" {
-		t.Fatalf("provider account id = %q, want subject-id", got)
-	}
-	if got := info.EmailAddress(); got != "person@outlook.com" {
-		t.Fatalf("email address = %q, want person@outlook.com", got)
-	}
-	if info.Name != "Person Outlook" {
-		t.Fatalf("name = %q, want Person Outlook", info.Name)
-	}
+func (f oauthRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
-func TestMicrosoftUserInfoFromIDTokenRejectsAudienceMismatch(t *testing.T) {
-	idToken := testMicrosoftIDToken(t, map[string]any{
-		"aud":                "other-client",
-		"exp":                time.Now().Add(time.Hour).Unix(),
-		"sub":                "subject-id",
-		"preferred_username": "person@outlook.com",
+func TestGoogleApplicationLoginDoesNotCreateOrStoreMailboxAccess(t *testing.T) {
+	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids:    []string{"session-id"},
+		tokens: []string{"session-token"},
 	})
-
-	_, err := microsoftUserInfoFromIDToken(idToken, "client-id", time.Now())
-	if err == nil {
-		t.Fatal("expected audience mismatch")
-	}
-	if !strings.Contains(err.Error(), "audience mismatch") {
-		t.Fatalf("error = %q, want audience mismatch", err)
-	}
-}
-
-func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
-	manager := NewManager(&Config{
-		BaseURL: "https://gofer.example",
-		MicrosoftClient: &oauth2.Config{
-			ClientID:    "client-id",
-			RedirectURL: "https://gofer.example/auth/microsoft/account/callback",
-			Scopes: []string{
-				"openid",
-				"email",
-				"profile",
-				"offline_access",
-				microsoftGraphContactsScope,
-				microsoftGraphMailScope,
-				microsoftGraphMailSendScope,
-				microsoftGraphMailboxSettingsScope,
-			},
-			Endpoint: oauth2.Endpoint{AuthURL: "https://login.example/authorize"},
+	insertActiveUser(t, manager, "person", false, now)
+	manager.config.GoogleLoginClient = &oauth2.Config{
+		ClientID:     "login-client",
+		ClientSecret: "login-secret",
+		RedirectURL:  "https://gofer.example/auth/google/callback",
+		Scopes:       []string{"openid", "email", "profile"},
+		Endpoint: oauth2.Endpoint{
+			TokenURL: "https://accounts.example/token",
 		},
-	}, nil)
+	}
 
-	rawURL := manager.MicrosoftAccountOAuthURL("state-value")
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body := ""
+		switch request.URL.String() {
+		case "https://accounts.example/token":
+			body = `{"access_token":"application-access-token","refresh_token":"application-refresh-token","token_type":"Bearer","expires_in":3600}`
+		case "https://openidconnect.googleapis.com/v1/userinfo":
+			if got := request.Header.Get("Authorization"); got != "Bearer application-access-token" {
+				t.Fatalf("userinfo authorization = %q", got)
+			}
+			body = `{"sub":"google-subject","email":"person@example.com","email_verified":true,"name":"Person","picture":"https://images.example/person.png"}`
+		default:
+			t.Fatalf("unexpected OAuth request %s %s", request.Method, request.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    request,
+		}, nil
+	})}
+	ctx := context.WithValue(t.Context(), oauth2.HTTPClient, client)
+
+	user, result, err := manager.HandleGoogleCallback(ctx, "authorization-code", "Test Browser")
+	if err != nil || user == nil || user.ID != "person" || result == nil || result.Session == nil {
+		t.Fatalf("HandleGoogleCallback() = user:%#v result:%#v error:%v", user, result, err)
+	}
+	for table, want := range map[string]int{"oauth_accounts": 0, "accounts": 0, "sessions": 1} {
+		var count int
+		if err := manager.db.Read().QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if count != want {
+			t.Fatalf("%s rows = %d, want %d", table, count, want)
+		}
+	}
+}
+
+func TestGoogleApplicationLoginAuthorizationRequestsIdentityOnly(t *testing.T) {
+	manager := NewManager(&Config{GoogleLoginClient: &oauth2.Config{
+		ClientID: "login-client",
+		Scopes:   []string{"openid", "email", "profile"},
+		Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/authorize"},
+	}}, nil)
+
+	rawURL := manager.GoogleLoginOAuthURL("state-value")
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		t.Fatalf("parse auth url: %v", err)
+		t.Fatalf("parse authorization URL: %v", err)
 	}
-	values := parsed.Query()
-	if got := values.Get("prompt"); got != "consent" {
-		t.Fatalf("prompt = %q, want consent", got)
+	query := parsed.Query()
+	if query.Get("state") != "state-value" || query.Get("scope") != "openid email profile" {
+		t.Fatalf("authorization query = %q", query.Encode())
 	}
-	if !strings.Contains(values.Get("scope"), microsoftGraphContactsScope) {
-		t.Fatalf("scope = %q, want Graph contacts scope", values.Get("scope"))
+	if query.Get("access_type") != "" || query.Get("prompt") != "" {
+		t.Fatalf("application login requested offline or forced consent access: %q", query.Encode())
 	}
-	if !strings.Contains(values.Get("scope"), microsoftGraphMailScope) {
-		t.Fatalf("scope = %q, want Graph mail scope", values.Get("scope"))
-	}
-	if !strings.Contains(values.Get("scope"), microsoftGraphMailSendScope) {
-		t.Fatalf("scope = %q, want Graph mail send scope", values.Get("scope"))
-	}
-	if !strings.Contains(values.Get("scope"), microsoftGraphMailboxSettingsScope) {
-		t.Fatalf("scope = %q, want Graph mailbox settings scope", values.Get("scope"))
-	}
-	if strings.Contains(values.Get("scope"), "outlook.office.com/IMAP") || strings.Contains(values.Get("scope"), "outlook.office.com/SMTP") {
-		t.Fatalf("scope = %q, must not request Outlook IMAP/SMTP scopes", values.Get("scope"))
-	}
-}
-
-func TestExchangeMicrosoftAccountCodeRequestsGraphMailScopes(t *testing.T) {
-	ctx := context.Background()
-	var gotScope string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm() error = %v", err)
-		}
-		gotScope = r.FormValue("scope")
-		if got := r.FormValue("grant_type"); got != "authorization_code" {
-			t.Fatalf("grant_type = %q, want authorization_code", got)
-		}
-		if got := r.FormValue("code"); got != "auth-code" {
-			t.Fatalf("code = %q, want auth-code", got)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"graph-token","refresh_token":"refresh-token","token_type":"Bearer","expires_in":3600,"scope":"https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/MailboxSettings.ReadWrite"}`))
-	}))
-	defer server.Close()
-
-	manager := NewManager(&Config{
-		BaseURL: "https://gofer.example",
-		MicrosoftClient: &oauth2.Config{
-			ClientID:     "client-id",
-			ClientSecret: "client-secret",
-			RedirectURL:  "https://gofer.example/auth/microsoft/account/callback",
-			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
-		},
-	}, nil)
-
-	token, err := manager.ExchangeMicrosoftAccountCode(ctx, "auth-code")
-	if err != nil {
-		t.Fatalf("ExchangeMicrosoftAccountCode() error = %v", err)
-	}
-	if token.AccessToken != "graph-token" {
-		t.Fatalf("access token = %q, want graph-token", token.AccessToken)
-	}
-	if gotScope != strings.Join(microsoftAccountTokenExchangeScopes(), " ") {
-		t.Fatalf("scope = %q, want Microsoft token exchange scopes", gotScope)
-	}
-	for _, graphScope := range []string{microsoftGraphContactsScope, microsoftGraphMailScope, microsoftGraphMailSendScope, microsoftGraphMailboxSettingsScope} {
-		if !strings.Contains(gotScope, graphScope) {
-			t.Fatalf("scope = %q, want Graph scope %q during code exchange", gotScope, graphScope)
-		}
-	}
-	if strings.Contains(gotScope, "outlook.office.com/IMAP") || strings.Contains(gotScope, "outlook.office.com/SMTP") {
-		t.Fatalf("scope = %q, must not request Outlook IMAP/SMTP scopes during code exchange", gotScope)
-	}
-}
-
-func testMicrosoftIDToken(t *testing.T, payload map[string]any) string {
-	t.Helper()
-	header, err := json.Marshal(map[string]any{"alg": "none"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(body) + "."
 }

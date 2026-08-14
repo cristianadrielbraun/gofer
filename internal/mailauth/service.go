@@ -7,11 +7,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 type Config struct {
@@ -19,6 +22,49 @@ type Config struct {
 	BaseURL         string
 	GoogleClient    *oauth2.Config
 	MicrosoftClient *oauth2.Config
+}
+
+func LoadConfig(baseURL string, authenticationEnabled bool) *Config {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = "http://local.localhost:8090"
+	}
+	cfg := &Config{Enabled: authenticationEnabled, BaseURL: baseURL}
+
+	googleClientID := strings.TrimSpace(os.Getenv("GOOGLE_OAUTH_CLIENT_ID"))
+	googleClientSecret := strings.TrimSpace(os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"))
+	if googleClientID != "" && googleClientSecret != "" {
+		cfg.GoogleClient = &oauth2.Config{
+			ClientID:     googleClientID,
+			ClientSecret: googleClientSecret,
+			RedirectURL:  baseURL + "/auth/google/account/callback",
+			Scopes:       googleAccountScopes(),
+			Endpoint:     google.Endpoint,
+		}
+	}
+
+	microsoftClientID := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_CLIENT_ID"))
+	microsoftClientSecret := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_CLIENT_SECRET"))
+	if microsoftClientID != "" && microsoftClientSecret != "" {
+		cfg.MicrosoftClient = &oauth2.Config{
+			ClientID:     microsoftClientID,
+			ClientSecret: microsoftClientSecret,
+			RedirectURL:  baseURL + "/auth/microsoft/account/callback",
+			Scopes:       microsoftAccountTokenScopes(),
+			Endpoint:     microsoftEndpoint(os.Getenv("MICROSOFT_OAUTH_TENANT")),
+		}
+	}
+
+	return cfg
+}
+
+func microsoftEndpoint(tenant string) oauth2.Endpoint {
+	tenant = strings.Trim(strings.TrimSpace(tenant), "/")
+	if tenant == "" {
+		tenant = "common"
+	}
+	base := "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0"
+	return oauth2.Endpoint{AuthURL: base + "/authorize", TokenURL: base + "/token"}
 }
 
 type Service struct {

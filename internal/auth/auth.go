@@ -136,12 +136,11 @@ func ContextWithSession(ctx context.Context, session *Session) context.Context {
 }
 
 type Config struct {
-	Enabled         bool
-	SetupToken      string
-	GoogleClient    *oauth2.Config
-	MicrosoftClient *oauth2.Config
-	BaseURL         string
-	SecureCookies   bool
+	Enabled           bool
+	SetupToken        string
+	GoogleLoginClient *oauth2.Config
+	BaseURL           string
+	SecureCookies     bool
 }
 
 func LoadConfig(baseURL string) *Config {
@@ -157,66 +156,20 @@ func LoadConfig(baseURL string) *Config {
 		BaseURL:    baseURL,
 	}
 
-	clientID := os.Getenv("GOOGLE_OAUTH_CLIENT_ID")
-	clientSecret := os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+	clientID := strings.TrimSpace(os.Getenv("GOFER_GOOGLE_LOGIN_CLIENT_ID"))
+	clientSecret := strings.TrimSpace(os.Getenv("GOFER_GOOGLE_LOGIN_CLIENT_SECRET"))
 
 	if clientID != "" && clientSecret != "" {
-		cfg.GoogleClient = &oauth2.Config{
+		cfg.GoogleLoginClient = &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			RedirectURL:  baseURL + "/auth/google/callback",
-			Scopes: []string{
-				"openid",
-				"email",
-				"profile",
-				"https://mail.google.com/",
-				"https://www.googleapis.com/auth/contacts",
-			},
-			Endpoint: google.Endpoint,
-		}
-	} else if enabled {
-		fmt.Println("WARNING: GOFER_AUTH_ENABLED but GOOGLE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_SECRET not set")
-		cfg.Enabled = false
-	}
-
-	microsoftClientID := os.Getenv("MICROSOFT_OAUTH_CLIENT_ID")
-	microsoftClientSecret := os.Getenv("MICROSOFT_OAUTH_CLIENT_SECRET")
-	if microsoftClientID != "" && microsoftClientSecret != "" {
-		tenant := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_TENANT"))
-		if tenant == "" {
-			tenant = "common"
-		}
-		cfg.MicrosoftClient = &oauth2.Config{
-			ClientID:     microsoftClientID,
-			ClientSecret: microsoftClientSecret,
-			RedirectURL:  baseURL + "/auth/microsoft/account/callback",
-			Scopes: []string{
-				"openid",
-				"email",
-				"profile",
-				"offline_access",
-				microsoftGraphContactsScope,
-				microsoftGraphMailScope,
-				microsoftGraphMailSendScope,
-				microsoftGraphMailboxSettingsScope,
-			},
-			Endpoint: microsoftEndpoint(tenant),
+			Scopes:       []string{"openid", "email", "profile"},
+			Endpoint:     google.Endpoint,
 		}
 	}
 
 	return cfg
-}
-
-func microsoftEndpoint(tenant string) oauth2.Endpoint {
-	tenant = strings.Trim(strings.TrimSpace(tenant), "/")
-	if tenant == "" {
-		tenant = "common"
-	}
-	base := "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0"
-	return oauth2.Endpoint{
-		AuthURL:  base + "/authorize",
-		TokenURL: base + "/token",
-	}
 }
 
 type Manager struct {
@@ -261,12 +214,8 @@ func (m *Manager) IsEnabled() bool {
 	return m.config.Enabled
 }
 
-func (m *Manager) HasGoogleOAuth() bool {
-	return m.config.GoogleClient != nil
-}
-
-func (m *Manager) HasMicrosoftOAuth() bool {
-	return m.config.MicrosoftClient != nil
+func (m *Manager) HasGoogleLogin() bool {
+	return m.config.GoogleLoginClient != nil
 }
 
 func (m *Manager) DB() *storage.DB {

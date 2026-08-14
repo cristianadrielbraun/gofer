@@ -185,7 +185,7 @@ func (h *Handler) handleLoginMFASubmit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status int, message, identifier string) {
 	var page bytes.Buffer
-	if err := views.LoginPage(h.auth.HasGoogleOAuth(), message, identifier).Render(r.Context(), &page); err != nil {
+	if err := views.LoginPage(h.auth.HasGoogleLogin(), message, identifier).Render(r.Context(), &page); err != nil {
 		log.Printf("render login page: %v", err)
 		http.Error(w, "failed to render sign-in page", http.StatusInternalServerError)
 		return

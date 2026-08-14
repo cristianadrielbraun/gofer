@@ -12,6 +12,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"golang.org/x/oauth2"
@@ -33,7 +34,7 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 	expires := time.Now().Add(-time.Hour)
-	manager := auth.NewManager(&auth.Config{}, db)
+	manager := mailauth.New(&mailauth.Config{}, db)
 	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
@@ -68,7 +69,7 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager = auth.NewManager(&auth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
 	store, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
 		t.Fatalf("NewAccountStore() error = %v", err)
@@ -76,7 +77,7 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
-	h := New(db, store, nil, nil, manager, "")
+	h := New(db, store, nil, nil, auth.NewManager(&auth.Config{}, db), "", manager)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/acc/test", nil)
 	req.SetPathValue("id", "acc")

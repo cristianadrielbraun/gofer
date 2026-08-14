@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -157,7 +156,7 @@ func TestGmailRevokedOAuthStopsBeforeDeliveryRetryLoop(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"refresh token revoked"}`))
 	}))
 	defer tokenServer.Close()
-	h.auth = auth.NewManager(&auth.Config{GoogleClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: tokenServer.URL}}}, db)
+	h.mailboxAuth = mailauth.New(&mailauth.Config{GoogleClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: tokenServer.URL}}}, db)
 	if _, err := db.Write().ExecContext(ctx, `UPDATE oauth_accounts SET expires_at = ? WHERE provider = ?`, time.Now().Add(-time.Hour), providers.OAuthGoogle); err != nil {
 		t.Fatalf("expire cached OAuth token: %v", err)
 	}

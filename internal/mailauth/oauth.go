@@ -8,6 +8,16 @@ import (
 	"golang.org/x/oauth2"
 )
 
+func googleAccountScopes() []string {
+	return []string{
+		"openid",
+		"email",
+		"profile",
+		"https://mail.google.com/",
+		"https://www.googleapis.com/auth/contacts",
+	}
+}
+
 func (m *Service) GoogleAccountOAuthURL(state string) string {
 	return m.accountOAuthConfig().AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 }

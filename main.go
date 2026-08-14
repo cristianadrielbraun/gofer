@@ -65,6 +65,7 @@ func runServer() {
 	}
 	authConfig := auth.LoadConfig(httpConfig.BaseURL)
 	authConfig.SecureCookies = httpConfig.SecureCookies()
+	mailboxOAuthConfig := mailauth.LoadConfig(httpConfig.BaseURL, authConfig.Enabled)
 	if err := httpConfig.ValidateExposure(authConfig.Enabled); err != nil {
 		log.Fatalf("unsafe HTTP configuration: %v", err)
 	}
@@ -110,10 +111,7 @@ func runServer() {
 	if err := provisionInitialSetupToken(context.Background(), authManager, authConfig.SetupToken, os.Stderr); err != nil {
 		log.Fatalf("failed to provision authentication setup token: %v", err)
 	}
-	mailCredentials := mailauth.New(&mailauth.Config{
-		Enabled: authConfig.Enabled, BaseURL: authConfig.BaseURL,
-		GoogleClient: authConfig.GoogleClient, MicrosoftClient: authConfig.MicrosoftClient,
-	}, db)
+	mailCredentials := mailauth.New(mailboxOAuthConfig, db)
 	log.Printf("boot: mailbox credential service initialized")
 
 	if err := authManager.EnsureDefaultUser(); err != nil {
