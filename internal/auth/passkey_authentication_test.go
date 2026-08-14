@@ -2,6 +2,9 @@ package auth
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -370,7 +373,15 @@ func TestPasskeyCounterPolicyAcceptsSyncedZeroAndRejectsRegression(t *testing.T)
 
 func TestPasskeyAssertionFailureIsSingleUseAndDiscoverableOwnershipIsExact(t *testing.T) {
 	fixture := newPasskeyAuthenticationFixture(t, 4)
-	fixture.assertion.discoverableHandle = bytes.Repeat([]byte{0x72}, 32)
+	otherHandle := bytes.Repeat([]byte{0x72}, 32)
+	insertActiveUser(t, fixture.manager, "other-passkey-user", false, fixture.clock.now)
+	if _, err := fixture.manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO webauthn_users (user_id, rp_id, user_handle, created_at)
+		VALUES ('other-passkey-user', 'gofer.example', ?, ?)`, otherHandle, fixture.clock.now,
+	); err != nil {
+		t.Fatalf("insert other passkey user handle: %v", err)
+	}
+	fixture.assertion.discoverableHandle = otherHandle
 	started, err := fixture.manager.StartPasskeyLogin(t.Context(), "", "https://gofer.example", "source")
 	if err != nil {
 		t.Fatal(err)
@@ -502,4 +513,153 @@ func TestRealPasskeyAssertionAdapterBindsRequiredUserVerification(t *testing.T) 
 	if _, err := assertion.Finish(user, sessionJSON, []byte(`{"invalid":true}`)); err == nil {
 		t.Fatal("real assertion adapter accepted an invalid response")
 	}
+}
+
+func TestRealPasskeyAssertionAdapterRejectsOriginRPChallengeSignatureAndUserHandleFailures(t *testing.T) {
+	validUser, validSession, validResponse, validSignature := realPasskeyAssertionTestVector(t)
+	assertion, err := newPasskeyAssertionCeremony("https://example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record, err := assertion.Finish(validUser, validSession, validResponse); err != nil || record == nil {
+		t.Fatalf("valid assertion vector = %#v, %v", record, err)
+	}
+
+	tests := []struct {
+		name             string
+		configureAdapter func(*testing.T, passkeyAssertionCeremony)
+		mutateResponse   func(*testing.T, []byte, []byte) ([]byte, []byte)
+	}{
+		{
+			name: "origin mismatch",
+			configureAdapter: func(t *testing.T, adapter passkeyAssertionCeremony) {
+				configured, ok := adapter.(*goWebAuthnAssertion)
+				if !ok {
+					t.Fatalf("assertion adapter type = %T", adapter)
+				}
+				configured.webAuthn.Config.RPOrigins = []string{"https://other.example"}
+			},
+		},
+		{
+			name: "relying party mismatch",
+			configureAdapter: func(t *testing.T, adapter passkeyAssertionCeremony) {
+				configured, ok := adapter.(*goWebAuthnAssertion)
+				if !ok {
+					t.Fatalf("assertion adapter type = %T", adapter)
+				}
+				configured.webAuthn.Config.RPID = "other.example"
+			},
+		},
+		{
+			name: "challenge mismatch",
+			mutateResponse: func(t *testing.T, sessionJSON, responseJSON []byte) ([]byte, []byte) {
+				var session webauthn.SessionData
+				if err := json.Unmarshal(sessionJSON, &session); err != nil {
+					t.Fatal(err)
+				}
+				session.Challenge = base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x44}, 32))
+				return mustMarshalPasskeyTestJSON(t, session), responseJSON
+			},
+		},
+		{
+			name: "invalid signature",
+			mutateResponse: func(t *testing.T, sessionJSON, responseJSON []byte) ([]byte, []byte) {
+				var response map[string]any
+				if err := json.Unmarshal(responseJSON, &response); err != nil {
+					t.Fatal(err)
+				}
+				tampered := append([]byte(nil), validSignature...)
+				tampered[len(tampered)-1] ^= 0x01
+				response["response"].(map[string]any)["signature"] = base64.RawURLEncoding.EncodeToString(tampered)
+				return sessionJSON, mustMarshalPasskeyTestJSON(t, response)
+			},
+		},
+		{
+			name: "user handle mismatch",
+			mutateResponse: func(t *testing.T, sessionJSON, responseJSON []byte) ([]byte, []byte) {
+				var response map[string]any
+				if err := json.Unmarshal(responseJSON, &response); err != nil {
+					t.Fatal(err)
+				}
+				response["response"].(map[string]any)["userHandle"] = base64.RawURLEncoding.EncodeToString([]byte("wrong-user-handle"))
+				return sessionJSON, mustMarshalPasskeyTestJSON(t, response)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			user, sessionJSON, responseJSON, _ := realPasskeyAssertionTestVector(t)
+			if test.mutateResponse != nil {
+				sessionJSON, responseJSON = test.mutateResponse(t, sessionJSON, responseJSON)
+			}
+			assertion, err := newPasskeyAssertionCeremony("https://example.org")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.configureAdapter != nil {
+				test.configureAdapter(t, assertion)
+			}
+			if record, err := assertion.Finish(user, sessionJSON, responseJSON); err == nil || record != nil {
+				t.Fatalf("rejected assertion = %#v, %v", record, err)
+			}
+		})
+	}
+}
+
+func realPasskeyAssertionTestVector(t *testing.T) (passkeyUser, []byte, []byte, []byte) {
+	t.Helper()
+	// W3C WebAuthn Level 3 packed ES256 authentication vector.
+	const (
+		authenticatorDataHex = "bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b50d00000000"
+		clientDataJSONHex    = "7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a2273524276704770587676463446524841565833496d4b4130453958773858306b526a44426c4d6668726255222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c206669656c647320696e20746865206675747572652c207375636820617320746869733a20415a4d77794d78496244382d756775464e7036723851227d"
+		signatureHex         = "30450220694969d3ee928de6f02ef23a9c644d7d779916451734a94b432542f498a1ebe90221008b0819c824218a97152cd099c55bfb1477b29d900a49a64018314f9bfccda163"
+		credentialIDHex      = "c9a6f5b3462d02873fea0c56862234f99f081728084e511bb7760201a89054a5"
+		challengeHex         = "b1106fa46a57bef1781511c0557dc898a03413d5f0f17d244630c194c7e1adb5"
+		credentialPubKeyHex  = "a50102032620012158201cf27f25da591208a4239c2e324f104f585525479a29edeedd830f48e77aeae522582059e4b7da6c0106e206ce390c93ab98a15a5ec3887e57f0cc2bece803b920c423"
+	)
+	decode := func(value string) []byte {
+		decoded, err := hex.DecodeString(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return decoded
+	}
+	credentialID := decode(credentialIDHex)
+	publicKey := decode(credentialPubKeyHex)
+	signature := decode(signatureHex)
+	userID := []byte("test-user-id")
+	user := passkeyUser{
+		ID: userID, Name: "test-user", DisplayName: "Test User",
+		Credentials: []webauthn.Credential{{
+			ID: credentialID, PublicKey: publicKey,
+			Flags: webauthn.CredentialFlags{UserPresent: true, BackupEligible: true},
+		}},
+	}
+	session := webauthn.SessionData{
+		Challenge:            base64.RawURLEncoding.EncodeToString(decode(challengeHex)),
+		RelyingPartyID:       "example.org",
+		UserID:               userID,
+		AllowedCredentialIDs: [][]byte{credentialID},
+		Expires:              time.Now().Add(time.Minute),
+		UserVerification:     protocol.VerificationRequired,
+	}
+	id := base64.RawURLEncoding.EncodeToString(credentialID)
+	response := map[string]any{
+		"id": id, "rawId": id, "type": "public-key",
+		"response": map[string]any{
+			"authenticatorData": base64.RawURLEncoding.EncodeToString(decode(authenticatorDataHex)),
+			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(decode(clientDataJSONHex)),
+			"signature":         base64.RawURLEncoding.EncodeToString(signature),
+		},
+	}
+	return user, mustMarshalPasskeyTestJSON(t, session), mustMarshalPasskeyTestJSON(t, response), signature
+}
+
+func mustMarshalPasskeyTestJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }

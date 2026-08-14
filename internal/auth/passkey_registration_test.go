@@ -258,12 +258,13 @@ func TestRejectedAndDuplicatePasskeyRegistrationsAreSingleUse(t *testing.T) {
 		}
 	})
 
-	t.Run("duplicate credential", func(t *testing.T) {
+	t.Run("duplicate credential owned by another user", func(t *testing.T) {
 		fixture := newPasskeyTestFixture(t, false)
+		insertActiveUser(t, fixture.manager, "other-passkey-owner", false, fixture.clock.now)
 		if _, err := fixture.manager.db.Write().ExecContext(t.Context(), `
 			INSERT INTO webauthn_credentials (id, user_id, credential_id, public_key, name, rp_id)
 			VALUES ('existing-passkey', ?, ?, ?, 'Existing', 'gofer.example')`,
-			fixture.session.UserID, fixture.registration.finishRecord.CredentialID, fixture.registration.finishRecord.PublicKey,
+			"other-passkey-owner", fixture.registration.finishRecord.CredentialID, fixture.registration.finishRecord.PublicKey,
 		); err != nil {
 			t.Fatal(err)
 		}
