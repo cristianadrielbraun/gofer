@@ -178,6 +178,7 @@ type Manager struct {
 	clock                      Clock
 	tokens                     TokenGenerator
 	bucketHashKey              []byte
+	googleIDTokenVerifier      GoogleIDTokenVerifier
 	passkeyRegistrationFactory passkeyRegistrationFactory
 	passkeyAssertionFactory    passkeyAssertionFactory
 }
@@ -194,6 +195,12 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		if dependencies[0].BucketHashKey != nil {
 			deps.BucketHashKey = append([]byte(nil), dependencies[0].BucketHashKey...)
 		}
+		if dependencies[0].GoogleIDTokenVerifier != nil {
+			deps.GoogleIDTokenVerifier = dependencies[0].GoogleIDTokenVerifier
+		}
+	}
+	if deps.GoogleIDTokenVerifier == nil && config != nil && config.GoogleLoginClient != nil {
+		deps.GoogleIDTokenVerifier = newDiscoveredGoogleIDTokenVerifier(config.GoogleLoginClient.ClientID)
 	}
 	return &Manager{
 		config:                     config,
@@ -201,6 +208,7 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		clock:                      deps.Clock,
 		tokens:                     deps.Tokens,
 		bucketHashKey:              deps.BucketHashKey,
+		googleIDTokenVerifier:      deps.GoogleIDTokenVerifier,
 		passkeyRegistrationFactory: newPasskeyRegistrationCeremony,
 		passkeyAssertionFactory:    newPasskeyAssertionCeremony,
 	}

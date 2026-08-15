@@ -187,9 +187,10 @@ type TokenGenerator interface {
 }
 
 type Dependencies struct {
-	Clock         Clock
-	Tokens        TokenGenerator
-	BucketHashKey []byte
+	Clock                 Clock
+	Tokens                TokenGenerator
+	BucketHashKey         []byte
+	GoogleIDTokenVerifier GoogleIDTokenVerifier
 }
 
 type systemClock struct{}

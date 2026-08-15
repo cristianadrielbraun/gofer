@@ -171,7 +171,7 @@ func (m *Manager) ConsumePreAuthChallenge(ctx context.Context, token, nonce stri
 	now := m.clock.Now().UTC()
 	challenge, err := scanPreAuthChallenge(m.db.Write().QueryRowContext(ctx, `
 		UPDATE auth_challenges
-		SET attempts = attempts + 1, consumed_at = ?
+		SET attempts = attempts + 1, consumed_at = ?, payload_ciphertext = NULL
 		WHERE challenge_hash = ? AND purpose = ? AND origin = ?
 		  AND ((nonce_hash IS NULL AND ? = '') OR nonce_hash = ?)
 		  AND consumed_at IS NULL AND expires_at > ? AND attempts < max_attempts
@@ -182,7 +182,7 @@ func (m *Manager) ConsumePreAuthChallenge(ctx context.Context, token, nonce stri
 	if err == sql.ErrNoRows {
 		_, _ = m.recordPreAuthChallengeFailure(ctx, token, purpose, canonicalOrigin, now)
 		_, _ = m.db.Write().ExecContext(ctx, `
-			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?)
+		UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
 			WHERE challenge_hash = ? AND purpose = ? AND origin = ? AND expires_at <= ?`,
 			now, hashToken(token), purpose, canonicalOrigin, now)
 		return nil, ErrPreAuthChallengeInvalid
@@ -210,7 +210,8 @@ func (m *Manager) recordPreAuthChallengeFailure(ctx context.Context, token strin
 	err := m.db.Write().QueryRowContext(ctx, `
 		UPDATE auth_challenges
 		SET attempts = attempts + 1,
-		    consumed_at = CASE WHEN attempts + 1 >= max_attempts THEN ? ELSE NULL END
+		    consumed_at = CASE WHEN attempts + 1 >= max_attempts THEN ? ELSE NULL END,
+		    payload_ciphertext = CASE WHEN attempts + 1 >= max_attempts THEN NULL ELSE payload_ciphertext END
 		WHERE challenge_hash = ? AND purpose = ? AND origin = ?
 		  AND consumed_at IS NULL AND expires_at > ? AND attempts < max_attempts
 		RETURNING consumed_at`,
@@ -237,7 +238,7 @@ func (m *Manager) TerminatePreAuthChallenge(ctx context.Context, token string, p
 	result, err := m.db.Write().ExecContext(ctx, `
 		UPDATE auth_challenges
 		SET attempts = CASE WHEN attempts < max_attempts THEN attempts + 1 ELSE attempts END,
-		    consumed_at = COALESCE(consumed_at, ?)
+		    consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
 		WHERE challenge_hash = ? AND purpose = ? AND origin = ?`,
 		now, hashToken(token), purpose, canonicalOrigin)
 	if err != nil {

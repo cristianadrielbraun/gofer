@@ -35,8 +35,14 @@ func newPreAuthHandler(t *testing.T, tokenURL string) (*Handler, *storage.DB) {
 				TokenURL: tokenURL,
 			},
 		},
-	}, db)
+	}, db, auth.Dependencies{BucketHashKey: []byte("0123456789abcdef0123456789abcdef")})
 	return &Handler{db: db, auth: manager}, db
+}
+
+func googleCallbackRequest(target string) *http.Request {
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request.Host = "gofer.example"
+	return request
 }
 
 func beginGooglePreAuth(t *testing.T, handler *Handler) (*http.Cookie, string) {
@@ -84,6 +90,9 @@ func TestGoogleLoginRouteIsUnavailableWithoutApplicationLoginClient(t *testing.T
 
 	for _, path := range []string{"/auth/google", "/auth/google/callback?state=unused&code=unused"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
+		if strings.Contains(path, "callback") {
+			request.Host = "gofer.example"
+		}
 		recorder := httptest.NewRecorder()
 		if strings.Contains(path, "callback") {
 			handler.handleGoogleCallback(recorder, request)
@@ -161,7 +170,7 @@ func TestGoogleRedirectFailsClosedWhenPreviousChallengeCannotBeTerminated(t *tes
 	}
 }
 
-func TestGoogleRedirectCreatesHashOnlyPreAuthChallenge(t *testing.T) {
+func TestGoogleRedirectCreatesHashedStateNonceAndEncryptedPKCEChallenge(t *testing.T) {
 	handler, db := newPreAuthHandler(t, "https://accounts.example/token")
 	cookie, state := beginGooglePreAuth(t, handler)
 	if cookie.Value != state || !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge != 600 {
@@ -169,26 +178,30 @@ func TestGoogleRedirectCreatesHashOnlyPreAuthChallenge(t *testing.T) {
 	}
 	hash := sha256.Sum256([]byte(state))
 	wantHash := hex.EncodeToString(hash[:])
-	var storedHash, purpose, origin string
+	var storedHash, storedNonceHash, purpose, origin string
+	var payload []byte
 	var active bool
 	if err := db.Read().QueryRow(`
-		SELECT challenge_hash, purpose, origin, consumed_at IS NULL
-		FROM auth_challenges`).Scan(&storedHash, &purpose, &origin, &active); err != nil {
+		SELECT challenge_hash, nonce_hash, purpose, origin, payload_ciphertext, consumed_at IS NULL
+		FROM auth_challenges`).Scan(&storedHash, &storedNonceHash, &purpose, &origin, &payload, &active); err != nil {
 		t.Fatalf("query pre-authentication challenge: %v", err)
 	}
-	if storedHash != wantHash || storedHash == state || purpose != string(auth.ChallengePurposeFederatedLogin) || origin != "https://gofer.example" || !active {
-		t.Fatalf("stored challenge = hash:%q purpose:%q origin:%q active:%t", storedHash, purpose, origin, active)
+	if storedHash != wantHash || storedHash == state || storedNonceHash == "" || len(payload) == 0 || purpose != string(auth.ChallengePurposeFederatedLogin) || origin != "https://gofer.example" || !active {
+		t.Fatalf("stored challenge = hash:%q nonce_hash:%q purpose:%q origin:%q payload:%x active:%t", storedHash, storedNonceHash, purpose, origin, payload, active)
+	}
+	if strings.Contains(string(payload), "code_verifier") {
+		t.Fatalf("stored challenge exposed its PKCE verifier: %q", payload)
 	}
 }
 
 func TestGoogleCallbackTerminatesMismatchedStateAndClearsCookie(t *testing.T) {
 	handler, db := newPreAuthHandler(t, "https://accounts.example/token")
 	cookie, _ := beginGooglePreAuth(t, handler)
-	request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?state=wrong-state&code=unused", nil)
+	request := googleCallbackRequest("/auth/google/callback?state=wrong-state&code=unused")
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=invalid_state" {
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=auth_failed" {
 		t.Fatalf("mismatched callback = %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
 	assertPreAuthCookieCleared(t, recorder)
@@ -202,7 +215,7 @@ func TestGoogleCallbackTerminatesMismatchedStateAndClearsCookie(t *testing.T) {
 	}
 }
 
-func TestGoogleCallbackConsumesStateOnceBeforeCodeExchange(t *testing.T) {
+func TestGoogleCallbackTerminatesStateAfterFailedCodeExchange(t *testing.T) {
 	exchanges := 0
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		exchanges++
@@ -212,7 +225,7 @@ func TestGoogleCallbackConsumesStateOnceBeforeCodeExchange(t *testing.T) {
 	handler, db := newPreAuthHandler(t, provider.URL)
 	cookie, state := beginGooglePreAuth(t, handler)
 
-	request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&code=provider-code", nil)
+	request := googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
@@ -222,20 +235,21 @@ func TestGoogleCallbackConsumesStateOnceBeforeCodeExchange(t *testing.T) {
 	assertPreAuthCookieCleared(t, recorder)
 	firstExchanges := exchanges
 
-	request = httptest.NewRequest(http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&code=provider-code", nil)
+	request = googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
 	request.AddCookie(cookie)
 	recorder = httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=invalid_state" || exchanges != firstExchanges {
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=auth_failed" || exchanges != firstExchanges {
 		t.Fatalf("replayed callback = %d %q exchanges:%d", recorder.Code, recorder.Header().Get("Location"), exchanges)
 	}
 	var attempts int
 	var consumed bool
-	if err := db.Read().QueryRow(`SELECT attempts, consumed_at IS NOT NULL FROM auth_challenges`).Scan(&attempts, &consumed); err != nil {
+	var payload []byte
+	if err := db.Read().QueryRow(`SELECT attempts, consumed_at IS NOT NULL, payload_ciphertext FROM auth_challenges`).Scan(&attempts, &consumed, &payload); err != nil {
 		t.Fatalf("query consumed challenge: %v", err)
 	}
-	if attempts != 1 || !consumed {
-		t.Fatalf("consumed challenge = attempts:%d consumed:%t", attempts, consumed)
+	if attempts != 1 || !consumed || payload != nil {
+		t.Fatalf("consumed challenge = attempts:%d consumed:%t payload:%x", attempts, consumed, payload)
 	}
 }
 
@@ -252,14 +266,58 @@ func TestGoogleCallbackRejectsExpiredChallengeBeforeCodeExchange(t *testing.T) {
 		t.Fatalf("expire challenge: %v", err)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&code=provider-code", nil)
+	request := googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=invalid_state" || exchanges != 0 {
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=auth_failed" || exchanges != 0 {
 		t.Fatalf("expired callback = %d %q exchanges:%d", recorder.Code, recorder.Header().Get("Location"), exchanges)
 	}
 	assertPreAuthCookieCleared(t, recorder)
+}
+
+func TestGoogleCallbackRejectsNonCanonicalHostBeforeCodeExchange(t *testing.T) {
+	exchanges := 0
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		exchanges++
+		http.Error(w, "unexpected", http.StatusInternalServerError)
+	}))
+	defer provider.Close()
+	handler, db := newPreAuthHandler(t, provider.URL)
+	cookie, state := beginGooglePreAuth(t, handler)
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&code=provider-code", nil)
+	request.Host = "localhost"
+	request.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+	handler.handleGoogleCallback(recorder, request)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=auth_failed" || exchanges != 0 {
+		t.Fatalf("non-canonical callback = %d %q exchanges:%d", recorder.Code, recorder.Header().Get("Location"), exchanges)
+	}
+	assertPreAuthCookieCleared(t, recorder)
+	var consumed bool
+	var payload []byte
+	if err := db.Read().QueryRow(`SELECT consumed_at IS NOT NULL, payload_ciphertext FROM auth_challenges`).Scan(&consumed, &payload); err != nil {
+		t.Fatalf("query rejected callback challenge: %v", err)
+	}
+	if !consumed || payload != nil {
+		t.Fatalf("rejected callback challenge = consumed:%t payload:%x", consumed, payload)
+	}
+}
+
+func TestGoogleCallbackDoesNotReflectProviderError(t *testing.T) {
+	handler, _ := newPreAuthHandler(t, "https://accounts.example/token")
+	cookie, state := beginGooglePreAuth(t, handler)
+	request := googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&error=" + url.QueryEscape("private provider detail"))
+	request.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+	handler.handleGoogleCallback(recorder, request)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login?error=auth_failed" {
+		t.Fatalf("provider denial callback = %d %q", recorder.Code, recorder.Header().Get("Location"))
+	}
+	if strings.Contains(recorder.Body.String(), "private provider detail") || strings.Contains(recorder.Header().Get("Location"), "private") {
+		t.Fatal("provider error detail was reflected to the browser")
+	}
 }
 
 func assertPreAuthCookieCleared(t *testing.T, recorder *httptest.ResponseRecorder) {

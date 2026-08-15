@@ -5742,20 +5742,16 @@ func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	challenge, err := h.auth.CreatePreAuthChallenge(r.Context(), auth.PreAuthChallengeOptions{
-		Purpose:     auth.ChallengePurposeFederatedLogin,
-		Origin:      h.auth.Config().BaseURL,
-		Lifetime:    10 * time.Minute,
-		MaxAttempts: 1,
-	})
+	start, err := h.auth.BeginGoogleLogin(r.Context())
 	if err != nil {
+		log.Printf("Google application login could not start: reason=challenge_initialization_failed")
 		http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
 		return
 	}
-	auth.SetPreAuthCookie(w, challenge.Token, h.auth.Config().SecureCookies, 10*time.Minute)
+	challenge := start.Challenge
+	auth.SetPreAuthCookie(w, challenge.Token, h.auth.Config().SecureCookies, challenge.ExpiresAt.Sub(challenge.CreatedAt))
 
-	url := h.auth.GoogleLoginOAuthURL(challenge.Token)
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, start.AuthorizationURL, http.StatusTemporaryRedirect)
 }
 
 func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
@@ -5766,39 +5762,35 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
 
 	preAuthToken := auth.GetPreAuthToken(r)
+	if !h.auth.IsCanonicalGoogleCallbackRequest(r) {
+		h.rejectGoogleCallback(w, r, preAuthToken, "callback_origin_invalid", true)
+		return
+	}
 	if preAuthToken == "" {
-		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-		http.Redirect(w, r, "/login?error=missing_state", http.StatusSeeOther)
+		h.rejectGoogleCallback(w, r, "", "challenge_missing", false)
 		return
 	}
 
 	stateParam := r.URL.Query().Get("state")
 	if !auth.PreAuthTokensMatch(stateParam, preAuthToken) {
-		_ = h.auth.TerminatePreAuthChallenge(r.Context(), preAuthToken, auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL)
-		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-		http.Redirect(w, r, "/login?error=invalid_state", http.StatusSeeOther)
-		return
-	}
-
-	_, err := h.auth.ConsumePreAuthChallenge(r.Context(), preAuthToken, "", auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL)
-	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-	if err != nil {
-		http.Redirect(w, r, "/login?error=invalid_state", http.StatusSeeOther)
+		h.rejectGoogleCallback(w, r, preAuthToken, "state_mismatch", true)
 		return
 	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		errorDesc := r.URL.Query().Get("error")
-		if errorDesc == "" {
-			errorDesc = "no_code"
+		reason := "authorization_code_missing"
+		if strings.TrimSpace(r.URL.Query().Get("error")) != "" {
+			reason = "provider_denied"
 		}
-		http.Redirect(w, r, "/login?error="+errorDesc, http.StatusSeeOther)
+		h.rejectGoogleCallback(w, r, preAuthToken, reason, true)
 		return
 	}
 
-	user, result, err := h.auth.HandleGoogleCallback(r.Context(), code, r.UserAgent())
+	user, result, err := h.auth.HandleGoogleCallback(r.Context(), preAuthToken, code, r.UserAgent())
+	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 	if err != nil {
+		log.Printf("Google application login rejected: reason=%s", auth.FederatedLoginReason(err))
 		http.Redirect(w, r, "/login?error=auth_failed", http.StatusSeeOther)
 		return
 	}
@@ -5827,6 +5819,17 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		returnTo = "/"
 	}
 	http.Redirect(w, r, returnTo, http.StatusSeeOther)
+}
+
+func (h *Handler) rejectGoogleCallback(w http.ResponseWriter, r *http.Request, token, reason string, terminate bool) {
+	if terminate && token != "" {
+		if err := h.auth.TerminatePreAuthChallenge(r.Context(), token, auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL); err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
+			reason = "challenge_termination_failed"
+		}
+	}
+	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+	log.Printf("Google application login rejected: reason=%s", reason)
+	http.Redirect(w, r, "/login?error=auth_failed", http.StatusSeeOther)
 }
 
 func clearLegacyOAuthStateCookie(w http.ResponseWriter, secure bool) {

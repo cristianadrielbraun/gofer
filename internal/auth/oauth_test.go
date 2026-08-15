@@ -2,6 +2,10 @@ package auth
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -9,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
 )
 
@@ -18,11 +24,17 @@ func (f oauthRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, er
 	return f(request)
 }
 
-func TestGoogleApplicationLoginDoesNotCreateOrStoreMailboxAccess(t *testing.T) {
+type googleIDTokenVerifierFunc func(context.Context, string) (*GoogleIDTokenClaims, error)
+
+func (verify googleIDTokenVerifierFunc) Verify(ctx context.Context, rawIDToken string) (*GoogleIDTokenClaims, error) {
+	return verify(ctx, rawIDToken)
+}
+
+func TestGoogleApplicationLoginUsesVerifiedIDTokenWithoutCreatingMailboxAccess(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
-		ids:    []string{"session-id"},
-		tokens: []string{"session-token"},
+		ids:    []string{"challenge-id", "session-id"},
+		tokens: []string{"state-token", "nonce-token", "session-token"},
 	})
 	insertActiveUser(t, manager, "person", false, now)
 	manager.config.GoogleLoginClient = &oauth2.Config{
@@ -31,23 +43,22 @@ func TestGoogleApplicationLoginDoesNotCreateOrStoreMailboxAccess(t *testing.T) {
 		RedirectURL:  "https://gofer.example/auth/google/callback",
 		Scopes:       []string{"openid", "email", "profile"},
 		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.example/authorize",
 			TokenURL: "https://accounts.example/token",
 		},
 	}
 
 	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
-		body := ""
-		switch request.URL.String() {
-		case "https://accounts.example/token":
-			body = `{"access_token":"application-access-token","refresh_token":"application-refresh-token","token_type":"Bearer","expires_in":3600}`
-		case "https://openidconnect.googleapis.com/v1/userinfo":
-			if got := request.Header.Get("Authorization"); got != "Bearer application-access-token" {
-				t.Fatalf("userinfo authorization = %q", got)
-			}
-			body = `{"sub":"google-subject","email":"person@example.com","email_verified":true,"name":"Person","picture":"https://images.example/person.png"}`
-		default:
+		if request.URL.String() != "https://accounts.example/token" {
 			t.Fatalf("unexpected OAuth request %s %s", request.Method, request.URL)
 		}
+		if err := request.ParseForm(); err != nil {
+			t.Fatalf("parse token request: %v", err)
+		}
+		if request.Form.Get("code") != "authorization-code" || request.Form.Get("code_verifier") == "" {
+			t.Fatalf("token request form = %q", request.Form.Encode())
+		}
+		body := `{"access_token":"application-access-token","refresh_token":"application-refresh-token","token_type":"Bearer","expires_in":3600,"id_token":"signed-id-token"}`
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -56,8 +67,22 @@ func TestGoogleApplicationLoginDoesNotCreateOrStoreMailboxAccess(t *testing.T) {
 		}, nil
 	})}
 	ctx := context.WithValue(t.Context(), oauth2.HTTPClient, client)
+	start, err := manager.BeginGoogleLogin(ctx)
+	if err != nil {
+		t.Fatalf("BeginGoogleLogin() error = %v", err)
+	}
+	manager.googleIDTokenVerifier = googleIDTokenVerifierFunc(func(_ context.Context, rawIDToken string) (*GoogleIDTokenClaims, error) {
+		if rawIDToken != "signed-id-token" {
+			t.Fatalf("raw ID token = %q", rawIDToken)
+		}
+		return &GoogleIDTokenClaims{
+			Subject: "google-subject", Nonce: start.Challenge.Nonce,
+			Email: "person@example.com", EmailVerified: true,
+			Name: "Person", Picture: "https://images.example/person.png",
+		}, nil
+	})
 
-	user, result, err := manager.HandleGoogleCallback(ctx, "authorization-code", "Test Browser")
+	user, result, err := manager.HandleGoogleCallback(ctx, start.Challenge.Token, "authorization-code", "Test Browser")
 	if err != nil || user == nil || user.ID != "person" || result == nil || result.Session == nil {
 		t.Fatalf("HandleGoogleCallback() = user:%#v result:%#v error:%v", user, result, err)
 	}
@@ -70,25 +95,172 @@ func TestGoogleApplicationLoginDoesNotCreateOrStoreMailboxAccess(t *testing.T) {
 			t.Fatalf("%s rows = %d, want %d", table, count, want)
 		}
 	}
+	var consumed bool
+	var payload []byte
+	if err := manager.db.Read().QueryRowContext(ctx, `
+		SELECT consumed_at IS NOT NULL, payload_ciphertext FROM auth_challenges WHERE id = ?`,
+		start.Challenge.ID,
+	).Scan(&consumed, &payload); err != nil {
+		t.Fatalf("read consumed Google challenge: %v", err)
+	}
+	if !consumed || payload != nil {
+		t.Fatalf("consumed Google challenge = consumed:%t payload:%x", consumed, payload)
+	}
 }
 
-func TestGoogleApplicationLoginAuthorizationRequestsIdentityOnly(t *testing.T) {
-	manager := NewManager(&Config{GoogleLoginClient: &oauth2.Config{
+func TestGoogleApplicationLoginAuthorizationUsesPKCEStateNonceAndIdentityOnlyScopes(t *testing.T) {
+	manager := newDeterministicManager(t, &fixedClock{now: time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)}, &deterministicTokenGenerator{
+		ids:    []string{"challenge-id"},
+		tokens: []string{"state-value", "nonce-value"},
+	})
+	manager.config.GoogleLoginClient = &oauth2.Config{
 		ClientID: "login-client",
 		Scopes:   []string{"openid", "email", "profile"},
 		Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/authorize"},
-	}}, nil)
-
-	rawURL := manager.GoogleLoginOAuthURL("state-value")
-	parsed, err := url.Parse(rawURL)
+	}
+	start, err := manager.BeginGoogleLogin(t.Context())
+	if err != nil {
+		t.Fatalf("BeginGoogleLogin() error = %v", err)
+	}
+	parsed, err := url.Parse(start.AuthorizationURL)
 	if err != nil {
 		t.Fatalf("parse authorization URL: %v", err)
 	}
 	query := parsed.Query()
-	if query.Get("state") != "state-value" || query.Get("scope") != "openid email profile" {
+	if query.Get("state") != "state-value" || query.Get("nonce") != "nonce-value" || query.Get("scope") != "openid email profile" {
 		t.Fatalf("authorization query = %q", query.Encode())
+	}
+	if query.Get("code_challenge") == "" || query.Get("code_challenge_method") != "S256" {
+		t.Fatalf("authorization omitted S256 PKCE: %q", query.Encode())
 	}
 	if query.Get("access_type") != "" || query.Get("prompt") != "" {
 		t.Fatalf("application login requested offline or forced consent access: %q", query.Encode())
+	}
+
+	challenge, draft, _, err := manager.currentGoogleLoginChallenge(t.Context(), start.Challenge.Token)
+	if err != nil {
+		t.Fatalf("currentGoogleLoginChallenge() error = %v", err)
+	}
+	if query.Get("code_challenge") != oauth2.S256ChallengeFromVerifier(draft.CodeVerifier) {
+		t.Fatal("authorization PKCE challenge does not match the encrypted verifier")
+	}
+	if strings.Contains(string(challenge.PayloadCiphertext), draft.CodeVerifier) || strings.Contains(string(challenge.PayloadCiphertext), "code_verifier") {
+		t.Fatalf("Google challenge persisted plaintext PKCE data: %q", challenge.PayloadCiphertext)
+	}
+}
+
+func TestMaintainedGoogleIDTokenVerifierRejectsInvalidStandardClaims(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate signing key: %v", err)
+	}
+	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate alternate signing key: %v", err)
+	}
+	verifier := &maintainedGoogleIDTokenVerifier{verifier: oidc.NewVerifier(
+		googleLoginIssuer,
+		&oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{&key.PublicKey}},
+		&oidc.Config{ClientID: "login-client"},
+	)}
+	now := time.Now().UTC()
+	baseClaims := jwt.MapClaims{
+		"iss": googleLoginIssuer, "aud": "login-client", "sub": "google-subject",
+		"iat": now.Add(-time.Minute).Unix(), "exp": now.Add(5 * time.Minute).Unix(),
+		"nonce": "nonce-value", "email": "person@example.com", "email_verified": true,
+		"name": "Person", "picture": "https://images.example/person.png",
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(jwt.MapClaims)
+		key    *rsa.PrivateKey
+		valid  bool
+	}{
+		{name: "valid", key: key, valid: true},
+		{name: "wrong signature", key: otherKey},
+		{name: "wrong issuer", key: key, mutate: func(claims jwt.MapClaims) { claims["iss"] = "https://issuer.example" }},
+		{name: "wrong audience", key: key, mutate: func(claims jwt.MapClaims) { claims["aud"] = "other-client" }},
+		{name: "expired", key: key, mutate: func(claims jwt.MapClaims) { claims["exp"] = now.Add(-time.Minute).Unix() }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			claims := jwt.MapClaims{}
+			for name, value := range baseClaims {
+				claims[name] = value
+			}
+			if test.mutate != nil {
+				test.mutate(claims)
+			}
+			raw, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(test.key)
+			if err != nil {
+				t.Fatalf("sign ID token: %v", err)
+			}
+			got, err := verifier.Verify(t.Context(), raw)
+			if test.valid {
+				if err != nil || got == nil || got.Subject != "google-subject" || got.Nonce != "nonce-value" || !got.EmailVerified {
+					t.Fatalf("Verify(valid) = %#v, %v", got, err)
+				}
+				return
+			}
+			if err == nil || got != nil {
+				t.Fatalf("Verify(invalid) = %#v, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestGoogleApplicationLoginRejectsInvalidVerifiedIdentityClaims(t *testing.T) {
+	tests := []struct {
+		name       string
+		claims     *GoogleIDTokenClaims
+		verifyErr  error
+		wantReason FederatedLoginFailureReason
+	}{
+		{name: "invalid ID token", verifyErr: errors.New("signature rejected"), wantReason: FederatedLoginFailureIDTokenInvalid},
+		{name: "wrong nonce", claims: &GoogleIDTokenClaims{Subject: "subject", Nonce: "wrong", Email: "person@example.com", EmailVerified: true}, wantReason: FederatedLoginFailureNonceInvalid},
+		{name: "missing subject", claims: &GoogleIDTokenClaims{Nonce: "nonce-value", Email: "person@example.com", EmailVerified: true}, wantReason: FederatedLoginFailureSubjectInvalid},
+		{name: "unverified email", claims: &GoogleIDTokenClaims{Subject: "subject", Nonce: "nonce-value", Email: "person@example.com"}, wantReason: FederatedLoginFailureEmailUnverified},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
+			manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+				ids: []string{"challenge-id"}, tokens: []string{"state-value", "nonce-value"},
+			})
+			manager.config.GoogleLoginClient = &oauth2.Config{
+				ClientID: "login-client", Endpoint: oauth2.Endpoint{TokenURL: "https://accounts.example/token"},
+			}
+			manager.googleIDTokenVerifier = googleIDTokenVerifierFunc(func(context.Context, string) (*GoogleIDTokenClaims, error) {
+				return test.claims, test.verifyErr
+			})
+			start, err := manager.BeginGoogleLogin(t.Context())
+			if err != nil {
+				t.Fatalf("BeginGoogleLogin() error = %v", err)
+			}
+			client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+					Body: io.NopCloser(strings.NewReader(`{"access_token":"access","token_type":"Bearer","id_token":"signed-id-token"}`)), Request: request,
+				}, nil
+			})}
+			ctx := context.WithValue(t.Context(), oauth2.HTTPClient, client)
+			_, _, err = manager.HandleGoogleCallback(ctx, start.Challenge.Token, "authorization-code", "Test Browser")
+			if got := FederatedLoginReason(err); got != test.wantReason {
+				t.Fatalf("failure reason = %q, want %q (error %v)", got, test.wantReason, err)
+			}
+			var attempts int
+			var consumed bool
+			var payload []byte
+			if err := manager.db.Read().QueryRow(`
+				SELECT attempts, consumed_at IS NOT NULL, payload_ciphertext FROM auth_challenges WHERE id = ?`,
+				start.Challenge.ID,
+			).Scan(&attempts, &consumed, &payload); err != nil {
+				t.Fatalf("read rejected challenge: %v", err)
+			}
+			if attempts != 1 || !consumed || payload != nil {
+				t.Fatalf("rejected challenge = attempts:%d consumed:%t payload:%x", attempts, consumed, payload)
+			}
+		})
 	}
 }
