@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 func isFederatedAuthenticationMethod(method AuthenticationMethod) bool {
@@ -13,6 +14,15 @@ func isFederatedAuthenticationMethod(method AuthenticationMethod) bool {
 }
 
 func (m *Manager) completeFederatedPrimaryAuthentication(ctx context.Context, userID, userAgent string, method AuthenticationMethod) (*PrimaryAuthenticationResult, error) {
+	return m.completeFederatedPrimaryAuthenticationWithTransition(ctx, userID, userAgent, method, nil)
+}
+
+func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
+	ctx context.Context,
+	userID, userAgent string,
+	method AuthenticationMethod,
+	transition func(*sql.Tx, time.Time) error,
+) (*PrimaryAuthenticationResult, error) {
 	if !isFederatedAuthenticationMethod(method) {
 		return nil, fmt.Errorf("invalid federated authentication method %q", method)
 	}
@@ -60,6 +70,11 @@ func (m *Manager) completeFederatedPrimaryAuthentication(ctx context.Context, us
 				return err
 			}
 			return ErrAuthenticationPolicyNotSatisfied
+		}
+		if transition != nil {
+			if err := transition(tx, now); err != nil {
+				return err
+			}
 		}
 		if challenge != nil {
 			return m.insertMFAContinuation(ctx, tx, challenge, now)

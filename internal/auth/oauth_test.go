@@ -37,6 +37,15 @@ func TestGoogleApplicationLoginUsesVerifiedIDTokenWithoutCreatingMailboxAccess(t
 		tokens: []string{"state-token", "nonce-token", "session-token"},
 	})
 	insertActiveUser(t, manager, "person", false, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_identities (
+			id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
+		) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		"google-identity", "person", googleIdentityProvider, googleLoginIssuer,
+		"google-subject", "old-address@example.com", now, now,
+	); err != nil {
+		t.Fatalf("insert linked Google identity: %v", err)
+	}
 	manager.config.GoogleLoginClient = &oauth2.Config{
 		ClientID:     "login-client",
 		ClientSecret: "login-secret",
@@ -106,6 +115,131 @@ func TestGoogleApplicationLoginUsesVerifiedIDTokenWithoutCreatingMailboxAccess(t
 	if !consumed || payload != nil {
 		t.Fatalf("consumed Google challenge = consumed:%t payload:%x", consumed, payload)
 	}
+	var identityEmail string
+	var identityLastUsedAt *time.Time
+	if err := manager.db.Read().QueryRowContext(ctx, `
+		SELECT email, last_used_at FROM auth_identities WHERE id = ?`, "google-identity",
+	).Scan(&identityEmail, &identityLastUsedAt); err != nil {
+		t.Fatalf("read used Google identity: %v", err)
+	}
+	if identityEmail != "person@example.com" || identityLastUsedAt == nil || !identityLastUsedAt.Equal(now) {
+		t.Fatalf("used Google identity = email:%q last-used:%v", identityEmail, identityLastUsedAt)
+	}
+}
+
+func TestGoogleApplicationLoginRejectsUnlinkedIdentityEvenWhenEmailMatches(t *testing.T) {
+	now := time.Date(2026, time.August, 14, 12, 30, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids: []string{"challenge-id"}, tokens: []string{"state-token", "nonce-token"},
+	})
+	insertActiveUser(t, manager, "person", false, now)
+	configureGoogleOAuthTest(manager)
+
+	start, err := manager.BeginGoogleLogin(t.Context())
+	if err != nil {
+		t.Fatalf("BeginGoogleLogin() error = %v", err)
+	}
+	manager.googleIDTokenVerifier = googleIDTokenVerifierFunc(func(context.Context, string) (*GoogleIDTokenClaims, error) {
+		return &GoogleIDTokenClaims{
+			Subject: "unlinked-subject", Nonce: start.Challenge.Nonce,
+			Email: "person@example.com", EmailVerified: true,
+		}, nil
+	})
+
+	_, _, err = manager.HandleGoogleCallback(
+		googleOAuthTestContext(t), start.Challenge.Token, "authorization-code", "Test Browser",
+	)
+	if got := FederatedLoginReason(err); got != FederatedLoginFailureIdentityUnknown {
+		t.Fatalf("failure reason = %q, want %q (error %v)", got, FederatedLoginFailureIdentityUnknown, err)
+	}
+	for table, want := range map[string]int{"users": 1, "auth_identities": 0, "sessions": 0} {
+		var count int
+		if err := manager.db.Read().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if count != want {
+			t.Fatalf("%s rows = %d, want %d", table, count, want)
+		}
+	}
+}
+
+func TestGoogleApplicationLoginResolvesExactSubjectWithoutOverwritingUserProfile(t *testing.T) {
+	now := time.Date(2026, time.August, 14, 13, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids:    []string{"challenge-id", "session-id"},
+		tokens: []string{"state-token", "nonce-token", "session-token"},
+	})
+	insertActiveUser(t, manager, "owner", false, now)
+	insertActiveUser(t, manager, "email-match", false, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_identities (
+			id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
+		) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		"google-identity", "owner", googleIdentityProvider, googleLoginIssuer,
+		"exact-subject", "old-google-address@example.com", now, now,
+	); err != nil {
+		t.Fatalf("insert linked Google identity: %v", err)
+	}
+	configureGoogleOAuthTest(manager)
+
+	start, err := manager.BeginGoogleLogin(t.Context())
+	if err != nil {
+		t.Fatalf("BeginGoogleLogin() error = %v", err)
+	}
+	manager.googleIDTokenVerifier = googleIDTokenVerifierFunc(func(context.Context, string) (*GoogleIDTokenClaims, error) {
+		return &GoogleIDTokenClaims{
+			Subject: "exact-subject", Nonce: start.Challenge.Nonce,
+			Email: "email-match@example.com", EmailVerified: true,
+			Name: "Changed Google Name", Picture: "https://images.example/changed.png",
+		}, nil
+	})
+
+	user, result, err := manager.HandleGoogleCallback(
+		googleOAuthTestContext(t), start.Challenge.Token, "authorization-code", "Test Browser",
+	)
+	if err != nil || user == nil || user.ID != "owner" || result == nil || result.Session == nil {
+		t.Fatalf("HandleGoogleCallback() = user:%#v result:%#v error:%v", user, result, err)
+	}
+	var ownerEmail, ownerName, ownerAvatar string
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT email, name, avatar_url FROM users WHERE id = 'owner'`,
+	).Scan(&ownerEmail, &ownerName, &ownerAvatar); err != nil {
+		t.Fatalf("read owner profile: %v", err)
+	}
+	if ownerEmail != "owner@example.com" || ownerName != "owner" || ownerAvatar != "" {
+		t.Fatalf("owner profile was overwritten = email:%q name:%q avatar:%q", ownerEmail, ownerName, ownerAvatar)
+	}
+	var identityEmail string
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT email FROM auth_identities WHERE id = 'google-identity'`,
+	).Scan(&identityEmail); err != nil {
+		t.Fatalf("read Google identity email: %v", err)
+	}
+	if identityEmail != "email-match@example.com" {
+		t.Fatalf("Google identity email = %q", identityEmail)
+	}
+}
+
+func configureGoogleOAuthTest(manager *Manager) {
+	manager.config.GoogleLoginClient = &oauth2.Config{
+		ClientID: "login-client",
+		Endpoint: oauth2.Endpoint{
+			AuthURL: "https://accounts.example/authorize", TokenURL: "https://accounts.example/token",
+		},
+	}
+}
+
+func googleOAuthTestContext(t *testing.T) context.Context {
+	t.Helper()
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access","token_type":"Bearer","id_token":"signed-id-token"}`)),
+			Request:    request,
+		}, nil
+	})}
+	return context.WithValue(t.Context(), oauth2.HTTPClient, client)
 }
 
 func TestGoogleApplicationLoginAuthorizationUsesPKCEStateNonceAndIdentityOnlyScopes(t *testing.T) {

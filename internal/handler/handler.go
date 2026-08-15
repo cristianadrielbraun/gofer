@@ -358,6 +358,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+securityPasskeyFinishPath, h.handleSecurityPasskeyFinish)
 	mux.HandleFunc("POST "+securityPasskeyStepUpStartPath, h.handleSecurityPasskeyStepUpStart)
 	mux.HandleFunc("POST "+securityPasskeyStepUpFinishPath, h.handleSecurityPasskeyStepUpFinish)
+	mux.HandleFunc("POST "+securityGoogleIdentityLinkPath, h.handleSecurityGoogleIdentityLink)
 	mux.HandleFunc("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
@@ -2965,21 +2966,30 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
 		return
 	}
+	identities, err := h.auth.ListFederatedIdentities(ctx, user.ID)
+	if err != nil {
+		log.Printf("load federated identity security settings: %v", err)
+		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+		return
+	}
 	data := views.PasswordSecurityData{
 		HasPassword: hasPassword,
 		HasTOTP:     summary.HasTOTP, HasPasskey: summary.HasPasskey,
 		RequiresMFA:            summary.RequiresMFA,
 		RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
 		StepUpFresh:            summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
-		DisableTOTPReason: summary.DisableTOTPReason,
-		CSRFTokens:        map[string]string{},
+		DisableTOTPReason:    summary.DisableTOTPReason,
+		CSRFTokens:           map[string]string{},
+		GoogleLoginAvailable: h.auth.HasGoogleLogin(),
 	}
 	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
+	data.FederatedIdentities = federatedIdentityViewData(identities)
 	for _, path := range []string{
 		passwordChangePath, securityStepUpPath, securityTOTPStartPath, securityTOTPConfirmPath,
 		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,
 		securityRecoveryRevokePath, securityManagementCancelPath, securityPasskeyStartPath,
 		securityPasskeyFinishPath, securityPasskeyStepUpStartPath, securityPasskeyStepUpFinishPath,
+		securityGoogleIdentityLinkPath,
 	} {
 		data.CSRFTokens[path] = auth.CSRFToken(ctx, http.MethodPost, path)
 	}
@@ -3035,6 +3045,11 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			data.Message = "Passkey added. You can register another device or security key at any time."
 		case r.URL.Query().Get("passkey_removed") == "1":
 			data.Message = "Passkey removed. Other signed-in devices were signed out."
+		case r.URL.Query().Get("google_linked") == "1":
+			data.Message = "Google sign-in connected. You can now use that Google identity to sign in to this Gofer account."
+		case r.URL.Query().Get("google_link_failed") == "1":
+			data.Message = "Google sign-in could not be connected. It may already belong to another Gofer account, or the request may have expired."
+			data.MessageIsError = true
 		case r.URL.Query().Get("challenge_expired") == "1":
 			data.Message = "That security change expired or was replaced. Start again when you are ready."
 			data.MessageIsError = true
@@ -5734,7 +5749,7 @@ func (h *Handler) handleGoogleRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
 	if previousToken := auth.GetPreAuthToken(r); previousToken != "" {
-		err := h.auth.TerminatePreAuthChallenge(r.Context(), previousToken, auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL)
+		err := h.auth.TerminateGoogleAuthorizationChallenge(r.Context(), previousToken)
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 		if err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
 			http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
@@ -5762,18 +5777,29 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
 
 	preAuthToken := auth.GetPreAuthToken(r)
+	purpose := auth.ChallengePurposeFederatedLogin
+	if preAuthToken != "" {
+		callbackPurpose, err := h.auth.GetGoogleCallbackPurpose(r.Context(), preAuthToken)
+		if err == nil {
+			purpose = callbackPurpose
+		} else if !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
+			log.Printf("Google authorization callback purpose lookup failed")
+			h.rejectGoogleCallback(w, r, purpose, preAuthToken, "challenge_lookup_failed", false)
+			return
+		}
+	}
 	if !h.auth.IsCanonicalGoogleCallbackRequest(r) {
-		h.rejectGoogleCallback(w, r, preAuthToken, "callback_origin_invalid", true)
+		h.rejectGoogleCallback(w, r, purpose, preAuthToken, "callback_origin_invalid", true)
 		return
 	}
 	if preAuthToken == "" {
-		h.rejectGoogleCallback(w, r, "", "challenge_missing", false)
+		h.rejectGoogleCallback(w, r, purpose, "", "challenge_missing", false)
 		return
 	}
 
 	stateParam := r.URL.Query().Get("state")
 	if !auth.PreAuthTokensMatch(stateParam, preAuthToken) {
-		h.rejectGoogleCallback(w, r, preAuthToken, "state_mismatch", true)
+		h.rejectGoogleCallback(w, r, purpose, preAuthToken, "state_mismatch", true)
 		return
 	}
 
@@ -5783,7 +5809,28 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(r.URL.Query().Get("error")) != "" {
 			reason = "provider_denied"
 		}
-		h.rejectGoogleCallback(w, r, preAuthToken, reason, true)
+		h.rejectGoogleCallback(w, r, purpose, preAuthToken, reason, true)
+		return
+	}
+	if purpose == auth.ChallengePurposeFederatedLink {
+		_, err := h.auth.CompleteGoogleIdentityLink(
+			r.Context(), preAuthToken, auth.GetSessionToken(r), code, r.UserAgent(),
+		)
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		if err != nil {
+			reason := auth.FederatedLoginReason(err)
+			if errors.Is(err, auth.ErrFederatedIdentityConflict) {
+				reason = auth.FederatedLoginFailureIdentityConflict
+			}
+			log.Printf("Google identity link rejected: reason=%s", reason)
+			http.Redirect(w, r, "/settings/security?google_link_failed=1", http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, "/settings/security?google_linked=1", http.StatusSeeOther)
+		return
+	}
+	if purpose != auth.ChallengePurposeFederatedLogin {
+		h.rejectGoogleCallback(w, r, purpose, preAuthToken, "challenge_purpose_invalid", true)
 		return
 	}
 
@@ -5821,13 +5868,24 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
-func (h *Handler) rejectGoogleCallback(w http.ResponseWriter, r *http.Request, token, reason string, terminate bool) {
+func (h *Handler) rejectGoogleCallback(
+	w http.ResponseWriter,
+	r *http.Request,
+	purpose auth.ChallengePurpose,
+	token, reason string,
+	terminate bool,
+) {
 	if terminate && token != "" {
-		if err := h.auth.TerminatePreAuthChallenge(r.Context(), token, auth.ChallengePurposeFederatedLogin, h.auth.Config().BaseURL); err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
+		if err := h.auth.TerminateGoogleAuthorizationChallenge(r.Context(), token); err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
 			reason = "challenge_termination_failed"
 		}
 	}
 	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+	if purpose == auth.ChallengePurposeFederatedLink {
+		log.Printf("Google identity link rejected: reason=%s", reason)
+		http.Redirect(w, r, "/settings/security?google_link_failed=1", http.StatusSeeOther)
+		return
+	}
 	log.Printf("Google application login rejected: reason=%s", reason)
 	http.Redirect(w, r, "/login?error=auth_failed", http.StatusSeeOther)
 }

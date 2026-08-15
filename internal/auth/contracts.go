@@ -43,6 +43,7 @@ const (
 	ChallengePurposeRecovery       ChallengePurpose = "recovery"
 	ChallengePurposeStepUp         ChallengePurpose = "step_up"
 	ChallengePurposeFederatedLogin ChallengePurpose = "federated_login"
+	ChallengePurposeFederatedLink  ChallengePurpose = "federated_link"
 )
 
 type SessionRevocationReason string
@@ -93,7 +94,8 @@ func (purpose ChallengePurpose) Valid() bool {
 		ChallengePurposeEnrollment,
 		ChallengePurposeRecovery,
 		ChallengePurposeStepUp,
-		ChallengePurposeFederatedLogin:
+		ChallengePurposeFederatedLogin,
+		ChallengePurposeFederatedLink:
 		return true
 	default:
 		return false
@@ -138,6 +140,7 @@ const (
 	AuthEventStepUpSucceeded              AuthEventType = "step_up_succeeded"
 	AuthEventStepUpFailed                 AuthEventType = "step_up_failed"
 	AuthEventSecurityPolicyChanged        AuthEventType = "security_policy_changed"
+	AuthEventIdentityLinked               AuthEventType = "identity_linked"
 )
 
 type AuthEventReason string
@@ -169,6 +172,7 @@ const (
 	SecurityTransitionUserStatus        SecurityTransition = "user_status"
 	SecurityTransitionRoleChange        SecurityTransition = "role_change"
 	SecurityTransitionPolicyChange      SecurityTransition = "policy_change"
+	SecurityTransitionIdentityChange    SecurityTransition = "identity_change"
 )
 
 type Clock interface {

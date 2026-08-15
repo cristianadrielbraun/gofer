@@ -187,3 +187,45 @@ func TestPasswordSecuritySettingsRequiresStrongStepUpForMFAPasswordChange(t *tes
 		t.Fatal("normal password account should still be able to verify with its current password")
 	}
 }
+
+func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxConfusion(t *testing.T) {
+	const linkPath = "/settings/security/identities/google/link"
+	csrf := strings.Repeat("d", 64)
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		GoogleLoginAvailable: true,
+		StepUpFresh:          true,
+		FederatedIdentities: []FederatedIdentityData{{
+			Provider: "google", Email: `<person&family@gmail.example>`,
+			LinkedAt: "Aug 15, 2026", LastUsedAt: "Aug 16, 2026",
+		}},
+		CSRFTokens: map[string]string{linkPath: csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render(Google identity) error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-federated-identity-settings`, "1 connected", "Google · connected Aug 15, 2026",
+		"last used Aug 16, 2026", `action="` + linkPath + `"`,
+		`name="_csrf" value="` + csrf + `"`, `&lt;person&amp;family@gmail.example&gt;`,
+		"does not connect a Gmail mailbox", "does not", "mail, contacts, or calendars",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("Google identity settings missing %q", want)
+		}
+	}
+	if strings.Contains(html, `<person&family@gmail.example>`) {
+		t.Fatal("Google identity settings rendered an unescaped provider email")
+	}
+
+	output.Reset()
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		GoogleLoginAvailable: true,
+		CSRFTokens:           map[string]string{linkPath: csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render(stale Google identity) error = %v", err)
+	}
+	if strings.Contains(output.String(), `action="`+linkPath+`"`) || !strings.Contains(output.String(), "sign in again first") {
+		t.Fatalf("stale Google identity settings = %q", output.String())
+	}
+}

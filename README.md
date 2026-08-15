@@ -131,7 +131,7 @@ Generic IMAP/SMTP accounts do not need OAuth application credentials. Gmail and 
 
 For now, alpha builds expect you to provide your own OAuth client ID and client secret for Gmail and Outlook mailbox access. Create credentials in the provider console, configure the account callback URLs for your `GOFER_BASE_URL`, and keep the generated secrets private. For Gmail, enable the Gmail API and People API in the same project.
 
-Optional Google application login uses a separate OAuth client and callback. It requests only `openid email profile`; its provider tokens are not stored and signing in does not create or authorize a Gmail mailbox. Keep the login client separate from the Gmail mailbox client so their redirect URLs and granted scopes cannot be confused.
+Optional Google application login uses a separate OAuth client and callback. It requests only `openid email profile`; its provider tokens are not stored and signing in does not create or authorize a Gmail mailbox. Registration is closed: an authenticated user must explicitly connect a verified Google identity from Security settings before that identity can sign in. Matching a Google email claim to an existing Gofer email never creates, links, or merges an account. Keep the login client separate from the Gmail mailbox client so their redirect URLs and granted scopes cannot be confused.
 
 Official provider docs:
 
@@ -179,7 +179,7 @@ GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 
 The `GOFER_GOOGLE_LOGIN_*` client is used only for application identity. The `GOOGLE_OAUTH_*` client is used only for Gmail and Google Contacts, while `MICROSOFT_OAUTH_*` is used only for Outlook mail and contacts through Microsoft Graph.
 
-Google application login uses the authorization-code flow with S256 PKCE plus independent 256-bit state and nonce values. Gofer accepts the callback only on the exact host configured by `GOFER_BASE_URL`, verifies the signed ID token through Google's OIDC discovery and rotating key set, and requires a non-empty subject plus `email_verified=true` before using the email claim. The login flow does not call the UserInfo endpoint, retain the provider access or refresh token, or grant mailbox access.
+Google application login uses the authorization-code flow with S256 PKCE plus independent 256-bit state and nonce values. Gofer accepts the callback only on the exact host configured by `GOFER_BASE_URL`, verifies the signed ID token through Google's OIDC discovery and rotating key set, and requires a non-empty subject plus `email_verified=true`. Login ownership is resolved only by Google's exact issuer and subject; the email claim is display metadata and is never an account-linking key. Connecting a Google identity requires an authenticated, recently verified Gofer session and rejects identities already owned by another user. The login flow does not call the UserInfo endpoint, retain the provider access or refresh token, or grant mailbox access.
 
 On the first startup of an authentication-uninitialized database, Gofer stores only the hash of a 30-minute setup token. If `GOFER_SETUP_TOKEN` is set, its exact value is used without being echoed and must contain 32-1024 bytes. Otherwise Gofer generates a 256-bit token and prints it once to the local console. A restart never reprints or silently replaces the persisted token.
 

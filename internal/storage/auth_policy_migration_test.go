@@ -61,8 +61,8 @@ func TestMigrateV81AddsSafeDefaultInstanceMFAPolicy(t *testing.T) {
 	var owner string
 	var initializedAt, rotatedAt any
 	var updatedAt, updatedBy any
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 82 {
-		t.Fatalf("schema version = %d, %v; want 82", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 83 {
+		t.Fatalf("schema version = %d, %v; want 83", version, err)
 	}
 	if err := db.Read().QueryRow(`
 		SELECT initialized, owner_user_id, initialized_at, setup_attempts,

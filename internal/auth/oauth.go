@@ -41,7 +41,8 @@ const (
 	FederatedLoginFailureNonceInvalid     FederatedLoginFailureReason = "nonce_invalid"
 	FederatedLoginFailureSubjectInvalid   FederatedLoginFailureReason = "subject_invalid"
 	FederatedLoginFailureEmailUnverified  FederatedLoginFailureReason = "email_unverified"
-	FederatedLoginFailureIdentityWrite    FederatedLoginFailureReason = "identity_write_failed"
+	FederatedLoginFailureIdentityUnknown  FederatedLoginFailureReason = "identity_unknown"
+	FederatedLoginFailureIdentityConflict FederatedLoginFailureReason = "identity_conflict"
 	FederatedLoginFailurePolicyCompletion FederatedLoginFailureReason = "policy_completion_failed"
 	FederatedLoginFailureInternal         FederatedLoginFailureReason = "internal_failure"
 )
@@ -162,8 +163,19 @@ func boundedGoogleIdentityClaims(claims *GoogleIDTokenClaims) bool {
 }
 
 func (m *Manager) BeginGoogleLogin(ctx context.Context) (*GoogleLoginStart, error) {
+	return m.beginGoogleAuthorization(ctx, ChallengePurposeFederatedLogin, "")
+}
+
+func (m *Manager) BeginGoogleIdentityLink(ctx context.Context, sessionToken string) (*GoogleLoginStart, error) {
+	return m.beginGoogleAuthorization(ctx, ChallengePurposeFederatedLink, sessionToken)
+}
+
+func (m *Manager) beginGoogleAuthorization(ctx context.Context, purpose ChallengePurpose, sessionToken string) (*GoogleLoginStart, error) {
 	if !m.HasGoogleLogin() || m.db == nil {
 		return nil, fmt.Errorf("Google application login is not configured")
+	}
+	if purpose != ChallengePurposeFederatedLogin && purpose != ChallengePurposeFederatedLink {
+		return nil, fmt.Errorf("invalid Google authorization purpose %q", purpose)
 	}
 	origin, err := canonicalAuthOrigin(m.config.BaseURL)
 	if err != nil {
@@ -184,24 +196,73 @@ func (m *Manager) BeginGoogleLogin(ctx context.Context) (*GoogleLoginStart, erro
 	}
 	draft := &googleLoginDraft{Version: googleLoginDraftVersion, CodeVerifier: oauth2.GenerateVerifier()}
 	challenge := &PreAuthChallenge{
-		ID: id, Token: state, Nonce: nonce, Purpose: ChallengePurposeFederatedLogin,
+		ID: id, Token: state, Nonce: nonce, Purpose: purpose,
 		Origin: origin, MaxAttempts: 1, CreatedAt: now, ExpiresAt: now.Add(defaultPreAuthLifetime),
+	}
+	if purpose == ChallengePurposeFederatedLink {
+		session, err := m.GetSessionByToken(ctx, sessionToken)
+		if err != nil {
+			return nil, fmt.Errorf("load Google identity-link session: %w", err)
+		}
+		if session == nil {
+			return nil, ErrSecuritySessionInvalid
+		}
+		if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+			return nil, err
+		}
+		challenge.UserID = session.UserID
+		challenge.SessionID = session.ID
 	}
 	payload, err := m.encryptGoogleLoginDraft(challenge, draft)
 	if err != nil {
 		return nil, err
 	}
 	challenge.PayloadCiphertext = payload
-	if _, err := m.db.Write().ExecContext(ctx, `
-		INSERT INTO auth_challenges (
-			id, user_id, session_id, challenge_hash, nonce_hash, purpose, origin,
-			attempts, max_attempts, payload_ciphertext, created_at, expires_at
-		) VALUES (?, NULL, NULL, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-		challenge.ID, hashToken(challenge.Token), hashToken(challenge.Nonce), challenge.Purpose,
-		challenge.Origin, challenge.MaxAttempts, challenge.PayloadCiphertext,
-		challenge.CreatedAt, challenge.ExpiresAt,
-	); err != nil {
-		return nil, fmt.Errorf("insert Google login challenge: %w", err)
+	if purpose == ChallengePurposeFederatedLink {
+		err = m.runSecurityTransition(ctx, SecurityTransitionIdentityChange, func(tx *sql.Tx) error {
+			current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+			if err != nil {
+				return err
+			}
+			if current.ID != challenge.SessionID || current.UserID != challenge.UserID {
+				return ErrSecuritySessionInvalid
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
+				WHERE session_id = ? AND purpose = ? AND consumed_at IS NULL`,
+				now, current.ID, ChallengePurposeFederatedLink,
+			); err != nil {
+				return fmt.Errorf("replace Google identity-link challenge: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO auth_challenges (
+					id, user_id, session_id, challenge_hash, nonce_hash, purpose, origin,
+					attempts, max_attempts, payload_ciphertext, created_at, expires_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+				challenge.ID, current.UserID, current.ID, hashToken(challenge.Token), hashToken(challenge.Nonce),
+				challenge.Purpose, challenge.Origin, challenge.MaxAttempts, challenge.PayloadCiphertext,
+				challenge.CreatedAt, challenge.ExpiresAt,
+			); err != nil {
+				return fmt.Errorf("insert Google identity-link challenge: %w", err)
+			}
+			return nil
+		})
+	} else {
+		_, err = m.db.Write().ExecContext(ctx, `
+			INSERT INTO auth_challenges (
+				id, user_id, session_id, challenge_hash, nonce_hash, purpose, origin,
+				attempts, max_attempts, payload_ciphertext, created_at, expires_at
+			) VALUES (?, NULL, NULL, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+			challenge.ID, hashToken(challenge.Token), hashToken(challenge.Nonce), challenge.Purpose,
+			challenge.Origin, challenge.MaxAttempts, challenge.PayloadCiphertext,
+			challenge.CreatedAt, challenge.ExpiresAt,
+		)
+		if err != nil {
+			err = fmt.Errorf("insert Google login challenge: %w", err)
+		}
+	}
+	if err != nil {
+		return nil, err
 	}
 	authorizationURL := m.config.GoogleLoginClient.AuthCodeURL(
 		challenge.Token,
@@ -226,69 +287,40 @@ func (m *Manager) IsCanonicalGoogleCallbackRequest(request *http.Request) bool {
 }
 
 func (m *Manager) HandleGoogleCallback(ctx context.Context, challengeToken, code, userAgent string) (*User, *PrimaryAuthenticationResult, error) {
-	_, draft, expectedNonceHash, err := m.currentGoogleLoginChallenge(ctx, challengeToken)
+	_, _, claims, err := m.verifyGoogleCallback(ctx, challengeToken, ChallengePurposeFederatedLogin, code)
 	if err != nil {
-		reason := FederatedLoginFailureChallengeInvalid
-		if !errors.Is(err, ErrPreAuthChallengeInvalid) {
-			reason = FederatedLoginFailureInternal
-		}
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, reason)
-	}
-
-	token, err := m.config.GoogleLoginClient.Exchange(ctx, code, oauth2.VerifierOption(draft.CodeVerifier))
-	if err != nil {
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, FederatedLoginFailureCodeExchange)
-	}
-	rawIDToken, ok := token.Extra("id_token").(string)
-	if !ok || strings.TrimSpace(rawIDToken) == "" {
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, FederatedLoginFailureIDTokenMissing)
-	}
-	if m.googleIDTokenVerifier == nil {
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, FederatedLoginFailureInternal)
-	}
-	claims, err := m.googleIDTokenVerifier.Verify(ctx, rawIDToken)
-	if err != nil || !boundedGoogleIdentityClaims(claims) {
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, FederatedLoginFailureIDTokenInvalid)
-	}
-	if claims.Nonce == "" || subtle.ConstantTimeCompare([]byte(hashToken(claims.Nonce)), []byte(expectedNonceHash)) != 1 {
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, FederatedLoginFailureNonceInvalid)
-	}
-	if strings.TrimSpace(claims.Subject) == "" {
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, FederatedLoginFailureSubjectInvalid)
-	}
-	if !claims.EmailVerified || strings.TrimSpace(claims.Email) == "" {
-		return nil, nil, m.rejectGoogleLogin(ctx, challengeToken, FederatedLoginFailureEmailUnverified)
+		return nil, nil, err
 	}
 	if _, err := m.ConsumePreAuthChallenge(ctx, challengeToken, claims.Nonce, ChallengePurposeFederatedLogin, m.config.BaseURL); err != nil {
 		return nil, nil, federatedLoginError(FederatedLoginFailureChallengeInvalid)
 	}
-
-	user, err := m.CreateOrUpdateUser(ctx, claims.Email, claims.Name, claims.Picture)
-	if err != nil {
-		return nil, nil, federatedLoginError(FederatedLoginFailureIdentityWrite)
-	}
-	result, err := m.completeFederatedPrimaryAuthentication(
-		ctx, user.ID, userAgent, AuthenticationMethodFederatedGoogle,
-	)
-	if err != nil {
-		return nil, nil, federatedLoginError(FederatedLoginFailurePolicyCompletion)
-	}
-	return user, result, nil
+	return m.authenticateGoogleIdentity(ctx, claims, userAgent)
 }
 
 func (m *Manager) currentGoogleLoginChallenge(ctx context.Context, token string) (*PreAuthChallenge, *googleLoginDraft, string, error) {
+	return m.currentGoogleAuthorizationChallenge(ctx, m.db.Read(), token, ChallengePurposeFederatedLogin)
+}
+
+type googleChallengeQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (m *Manager) currentGoogleAuthorizationChallenge(ctx context.Context, queryer googleChallengeQueryer, token string, purpose ChallengePurpose) (*PreAuthChallenge, *googleLoginDraft, string, error) {
 	if strings.TrimSpace(token) == "" {
+		return nil, nil, "", ErrPreAuthChallengeInvalid
+	}
+	if purpose != ChallengePurposeFederatedLogin && purpose != ChallengePurposeFederatedLink {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
 	origin, err := canonicalAuthOrigin(m.config.BaseURL)
 	if err != nil {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
-	challenge, err := scanPreAuthChallenge(m.db.Read().QueryRowContext(ctx, preAuthChallengeSelect+`
+	challenge, err := scanPreAuthChallenge(queryer.QueryRowContext(ctx, preAuthChallengeSelect+`
 		WHERE challenge_hash = ? AND purpose = ? AND origin = ?
-		  AND session_id IS NULL AND nonce_hash IS NOT NULL AND consumed_at IS NULL
+		  AND nonce_hash IS NOT NULL AND consumed_at IS NULL
 		  AND expires_at > ? AND attempts < max_attempts AND payload_ciphertext IS NOT NULL`,
-		hashToken(token), ChallengePurposeFederatedLogin, origin, m.clock.Now().UTC(),
+		hashToken(token), purpose, origin, m.clock.Now().UTC(),
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
@@ -296,19 +328,96 @@ func (m *Manager) currentGoogleLoginChallenge(ctx context.Context, token string)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("load Google login challenge: %w", err)
 	}
+	if (purpose == ChallengePurposeFederatedLogin && challenge.SessionID != "") ||
+		(purpose == ChallengePurposeFederatedLink && (challenge.SessionID == "" || challenge.UserID == "")) {
+		return nil, nil, "", ErrPreAuthChallengeInvalid
+	}
 	draft, err := m.decryptGoogleLoginDraft(challenge, challenge.PayloadCiphertext)
 	if err != nil || !validGoogleLoginDraft(draft) {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
 	var nonceHash string
-	if err := m.db.Read().QueryRowContext(ctx, `SELECT nonce_hash FROM auth_challenges WHERE id = ?`, challenge.ID).Scan(&nonceHash); err != nil || nonceHash == "" {
+	if err := queryer.QueryRowContext(ctx, `SELECT nonce_hash FROM auth_challenges WHERE id = ?`, challenge.ID).Scan(&nonceHash); err != nil || nonceHash == "" {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
 	return challenge, draft, nonceHash, nil
 }
 
-func (m *Manager) rejectGoogleLogin(ctx context.Context, token string, reason FederatedLoginFailureReason) error {
-	if err := m.TerminatePreAuthChallenge(ctx, token, ChallengePurposeFederatedLogin, m.config.BaseURL); err != nil && !errors.Is(err, ErrPreAuthChallengeInvalid) {
+func (m *Manager) GetGoogleCallbackPurpose(ctx context.Context, token string) (ChallengePurpose, error) {
+	if strings.TrimSpace(token) == "" {
+		return "", ErrPreAuthChallengeInvalid
+	}
+	origin, err := canonicalAuthOrigin(m.config.BaseURL)
+	if err != nil {
+		return "", ErrPreAuthChallengeInvalid
+	}
+	var purpose ChallengePurpose
+	err = m.db.Read().QueryRowContext(ctx, `
+		SELECT purpose FROM auth_challenges
+		WHERE challenge_hash = ? AND purpose IN (?, ?) AND origin = ?
+		  AND nonce_hash IS NOT NULL AND consumed_at IS NULL AND expires_at > ?
+		  AND attempts < max_attempts AND payload_ciphertext IS NOT NULL`,
+		hashToken(token), ChallengePurposeFederatedLogin, ChallengePurposeFederatedLink,
+		origin, m.clock.Now().UTC(),
+	).Scan(&purpose)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrPreAuthChallengeInvalid
+	}
+	if err != nil {
+		return "", fmt.Errorf("load Google callback purpose: %w", err)
+	}
+	if _, _, _, err := m.currentGoogleAuthorizationChallenge(ctx, m.db.Read(), token, purpose); err != nil {
+		return "", err
+	}
+	return purpose, nil
+}
+
+func (m *Manager) TerminateGoogleAuthorizationChallenge(ctx context.Context, token string) error {
+	purpose, err := m.GetGoogleCallbackPurpose(ctx, token)
+	if err != nil {
+		return err
+	}
+	return m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL)
+}
+
+func (m *Manager) verifyGoogleCallback(ctx context.Context, challengeToken string, purpose ChallengePurpose, code string) (*PreAuthChallenge, *googleLoginDraft, *GoogleIDTokenClaims, error) {
+	challenge, draft, expectedNonceHash, err := m.currentGoogleAuthorizationChallenge(ctx, m.db.Read(), challengeToken, purpose)
+	if err != nil {
+		reason := FederatedLoginFailureChallengeInvalid
+		if !errors.Is(err, ErrPreAuthChallengeInvalid) {
+			reason = FederatedLoginFailureInternal
+		}
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, reason)
+	}
+	token, err := m.config.GoogleLoginClient.Exchange(ctx, code, oauth2.VerifierOption(draft.CodeVerifier))
+	if err != nil {
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, FederatedLoginFailureCodeExchange)
+	}
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok || strings.TrimSpace(rawIDToken) == "" {
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, FederatedLoginFailureIDTokenMissing)
+	}
+	if m.googleIDTokenVerifier == nil {
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, FederatedLoginFailureInternal)
+	}
+	claims, err := m.googleIDTokenVerifier.Verify(ctx, rawIDToken)
+	if err != nil || !boundedGoogleIdentityClaims(claims) {
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, FederatedLoginFailureIDTokenInvalid)
+	}
+	if claims.Nonce == "" || subtle.ConstantTimeCompare([]byte(hashToken(claims.Nonce)), []byte(expectedNonceHash)) != 1 {
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, FederatedLoginFailureNonceInvalid)
+	}
+	if strings.TrimSpace(claims.Subject) == "" {
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, FederatedLoginFailureSubjectInvalid)
+	}
+	if !claims.EmailVerified || strings.TrimSpace(claims.Email) == "" {
+		return nil, nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, purpose, FederatedLoginFailureEmailUnverified)
+	}
+	return challenge, draft, claims, nil
+}
+
+func (m *Manager) rejectGoogleAuthorization(ctx context.Context, token string, purpose ChallengePurpose, reason FederatedLoginFailureReason) error {
+	if err := m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL); err != nil && !errors.Is(err, ErrPreAuthChallengeInvalid) {
 		return federatedLoginError(FederatedLoginFailureInternal)
 	}
 	return federatedLoginError(reason)
