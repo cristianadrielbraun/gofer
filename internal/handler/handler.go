@@ -279,6 +279,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /setup/review", h.handleSetupReviewSubmit)
 	mux.HandleFunc("GET /account/redeem", h.handleEnrollmentRedemption)
 	mux.HandleFunc("POST /account/redeem", h.handleEnrollmentRedemptionSubmit)
+	mux.HandleFunc("POST /account/redeem/google", h.handleEnrollmentGoogleRedemption)
 	mux.HandleFunc("GET /account/redeem/complete", h.handleEnrollmentRedemptionComplete)
 	mux.HandleFunc("GET /auth/google", h.handleGoogleRedirect)
 	mux.HandleFunc("GET /auth/google/callback", h.handleGoogleCallback)
@@ -5829,6 +5830,41 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/settings/security?google_linked=1", http.StatusSeeOther)
 		return
 	}
+	if purpose == auth.ChallengePurposeFederatedEnrollment {
+		result, err := h.auth.CompleteGoogleEnrollment(
+			r.Context(), preAuthToken, code, r.UserAgent(),
+		)
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		if err != nil {
+			reason := auth.FederatedLoginReason(err)
+			if errors.Is(err, auth.ErrFederatedIdentityConflict) {
+				reason = auth.FederatedLoginFailureIdentityConflict
+			}
+			log.Printf("Google invitation enrollment rejected: reason=%s", reason)
+			http.Redirect(w, r, enrollmentRedemptionPath+"?google_failed=1", http.StatusSeeOther)
+			return
+		}
+		if result == nil || (result.Session == nil) == (result.PreAuthChallenge == nil) {
+			http.Redirect(w, r, enrollmentRedemptionPath+"?google_failed=1", http.StatusSeeOther)
+			return
+		}
+		if result.PreAuthChallenge != nil {
+			mfaChallenge := result.PreAuthChallenge
+			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+			auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
+			auth.SetPreAuthCookie(
+				w, mfaChallenge.Token, h.auth.Config().SecureCookies,
+				mfaChallenge.ExpiresAt.Sub(mfaChallenge.CreatedAt),
+			)
+			http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+			return
+		}
+		auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
+		auth.SetSessionCookie(w, result.Session.Token, h.auth.Config().SecureCookies)
+		auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	if purpose != auth.ChallengePurposeFederatedLogin {
 		h.rejectGoogleCallback(w, r, purpose, preAuthToken, "challenge_purpose_invalid", true)
 		return
@@ -5884,6 +5920,11 @@ func (h *Handler) rejectGoogleCallback(
 	if purpose == auth.ChallengePurposeFederatedLink {
 		log.Printf("Google identity link rejected: reason=%s", reason)
 		http.Redirect(w, r, "/settings/security?google_link_failed=1", http.StatusSeeOther)
+		return
+	}
+	if purpose == auth.ChallengePurposeFederatedEnrollment {
+		log.Printf("Google invitation enrollment rejected: reason=%s", reason)
+		http.Redirect(w, r, enrollmentRedemptionPath+"?google_failed=1", http.StatusSeeOther)
 		return
 	}
 	log.Printf("Google application login rejected: reason=%s", reason)

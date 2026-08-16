@@ -261,5 +261,6 @@ func validVerifiedGoogleIdentity(claims *GoogleIDTokenClaims) bool {
 
 func sameGoogleLoginDraft(left, right *googleLoginDraft) bool {
 	return validGoogleLoginDraft(left) && validGoogleLoginDraft(right) &&
-		left.Version == right.Version && left.CodeVerifier == right.CodeVerifier
+		left.Version == right.Version && left.CodeVerifier == right.CodeVerifier &&
+		left.EnrollmentTokenID == right.EnrollmentTokenID
 }

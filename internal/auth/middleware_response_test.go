@@ -152,7 +152,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 	publicPaths := []string{
 		"/login", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
-		"/account/redeem", "/account/redeem/complete",
+		"/account/redeem", "/account/redeem/google", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/assets/app.js", "/sw.js",
 	}
 	for _, path := range publicPaths {
@@ -164,7 +164,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{"/login", "/setup", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review", "/account/redeem"} {
+	for _, path := range []string{"/login", "/setup", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review", "/account/redeem", "/account/redeem/google"} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
 		if called[path] != 2 || recorder.Code != http.StatusNoContent {

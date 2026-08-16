@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,9 +14,21 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/httpguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"golang.org/x/oauth2"
 )
 
 const enrollmentRedemptionTestPassword = "an excellent redeemed passphrase"
+
+type enrollmentGoogleVerifier struct {
+	nonce string
+}
+
+func (verifier *enrollmentGoogleVerifier) Verify(context.Context, string) (*auth.GoogleIDTokenClaims, error) {
+	return &auth.GoogleIDTokenClaims{
+		Subject: "invited-google-subject", Nonce: verifier.nonce,
+		Email: "different-google-address@example.com", EmailVerified: true,
+	}, nil
+}
 
 func enrollmentRedemptionStack(t *testing.T, status auth.UserStatus, purpose auth.EnrollmentTokenPurpose) (*auth.Manager, *storage.DB, http.Handler, *auth.EnrollmentToken) {
 	t.Helper()
@@ -91,11 +105,180 @@ func TestEnrollmentRedemptionRoutesArePublicLocalAndNoStore(t *testing.T) {
 			t.Fatalf("redemption page missing %q", required)
 		}
 	}
-	if strings.Contains(body, token.Token) || strings.Contains(body, "fonts.googleapis.com") || strings.Contains(body, "fonts.gstatic.com") {
+	if strings.Contains(body, token.Token) || strings.Contains(body, "fonts.googleapis.com") || strings.Contains(body, "fonts.gstatic.com") ||
+		strings.Contains(body, enrollmentGoogleRedemptionPath) || strings.Contains(body, "Gmail mailbox") {
 		t.Fatal("redemption page exposed a token or requested a remote font")
 	}
 	if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Referrer-Policy") != "no-referrer" || recorder.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
 		t.Fatalf("redemption security headers = cache:%q referrer:%q robots:%q", recorder.Header().Get("Cache-Control"), recorder.Header().Get("Referrer-Policy"), recorder.Header().Get("X-Robots-Tag"))
+	}
+}
+
+func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingMailbox(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"application-access-token","refresh_token":"application-refresh-token","token_type":"Bearer","id_token":"signed-id-token"}`)
+	}))
+	defer provider.Close()
+
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	verifier := &enrollmentGoogleVerifier{}
+	manager := auth.NewManager(&auth.Config{
+		Enabled: true, BaseURL: "https://gofer.example", SecureCookies: true,
+		GoogleLoginClient: &oauth2.Config{
+			ClientID: "application-login-client", ClientSecret: "application-login-secret",
+			RedirectURL: "https://gofer.example/auth/google/callback",
+			Scopes:      []string{"openid", "email", "profile"},
+			Endpoint: oauth2.Endpoint{
+				AuthURL: "https://accounts.example/authorize", TokenURL: provider.URL,
+			},
+		},
+	}, db, auth.Dependencies{
+		BucketHashKey: []byte("redemption-handler-key-32-bytes!"), GoogleIDTokenVerifier: verifier,
+	})
+	now := time.Now().UTC().Add(-time.Minute)
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, email, email_normalized, username, username_normalized, name,
+			status, auth_version, is_admin, created_at, updated_at
+		) VALUES
+			('admin', 'admin@example.com', 'admin@example.com', 'admin', 'admin', 'Admin', 'active', 1, 1, ?, ?),
+			('invitee', 'invited@example.com', 'invited@example.com', 'invitee', 'invitee', 'Invitee', 'pending', 1, 0, ?, ?)`,
+		now, now, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	adminSession, err := manager.CreateAuthenticatedSession(t.Context(), "admin", "admin browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steppedUp, err := manager.RecordSessionStepUp(t.Context(), "admin", adminSession.ID, auth.AuthenticationMethodTOTP); err != nil || !steppedUp {
+		t.Fatalf("administrator step-up = %t, %v", steppedUp, err)
+	}
+	invitation, err := manager.IssueEnrollmentToken(t.Context(), auth.IssueEnrollmentTokenOptions{
+		UserID: "invitee", CreatedBy: "admin", ActorSessionID: adminSession.ID,
+		Purpose: auth.EnrollmentTokenPurposeEnrollment,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &Handler{db: db, auth: manager}
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	stack := manager.Middleware(mux)
+
+	pageRequest := httptest.NewRequest(http.MethodGet, enrollmentRedemptionPath, nil)
+	pageRecorder := httptest.NewRecorder()
+	stack.ServeHTTP(pageRecorder, pageRequest)
+	if pageRecorder.Code != http.StatusOK || !strings.Contains(pageRecorder.Body.String(), "does not connect your Gmail mailbox") {
+		t.Fatalf("Google invitation page = %d %q", pageRecorder.Code, pageRecorder.Body.String())
+	}
+
+	form := url.Values{"token": {invitation.Token}}
+	startRequest := httptest.NewRequest(http.MethodPost, enrollmentGoogleRedemptionPath, strings.NewReader(form.Encode()))
+	startRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	startRequest.Header.Set("Origin", "https://gofer.example")
+	startRecorder := httptest.NewRecorder()
+	stack.ServeHTTP(startRecorder, startRequest)
+	if startRecorder.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("Google invitation start = %d %q", startRecorder.Code, startRecorder.Body.String())
+	}
+	authorizationURL, err := url.Parse(startRecorder.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := authorizationURL.Query().Get("state")
+	verifier.nonce = authorizationURL.Query().Get("nonce")
+	if state == "" || verifier.nonce == "" || authorizationURL.Query().Get("scope") != "openid email profile" {
+		t.Fatalf("Google invitation authorization URL = %q", authorizationURL.String())
+	}
+	var preAuthCookie *http.Cookie
+	for _, cookie := range startRecorder.Result().Cookies() {
+		if cookie.Name == "gofer_pre_auth" && cookie.MaxAge > 0 {
+			preAuthCookie = cookie
+		}
+	}
+	if preAuthCookie == nil || preAuthCookie.Value != state {
+		t.Fatalf("Google invitation pre-auth cookie = %#v", preAuthCookie)
+	}
+	deniedRequest := httptest.NewRequest(
+		http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&error="+url.QueryEscape("private provider detail"), nil,
+	)
+	deniedRequest.Host = "gofer.example"
+	deniedRequest.AddCookie(preAuthCookie)
+	deniedRecorder := httptest.NewRecorder()
+	stack.ServeHTTP(deniedRecorder, deniedRequest)
+	if deniedRecorder.Code != http.StatusSeeOther || deniedRecorder.Header().Get("Location") != enrollmentRedemptionPath+"?google_failed=1" ||
+		strings.Contains(deniedRecorder.Header().Get("Location"), "private") || strings.Contains(deniedRecorder.Body.String(), "private provider detail") {
+		t.Fatalf("denied Google invitation callback = %d %q body=%q", deniedRecorder.Code, deniedRecorder.Header().Get("Location"), deniedRecorder.Body.String())
+	}
+	var invitationUsed int
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = ?`, invitation.ID,
+	).Scan(&invitationUsed); err != nil || invitationUsed != 0 {
+		t.Fatalf("invitation after provider denial = used:%d error:%v", invitationUsed, err)
+	}
+
+	startRequest = httptest.NewRequest(http.MethodPost, enrollmentGoogleRedemptionPath, strings.NewReader(form.Encode()))
+	startRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	startRequest.Header.Set("Origin", "https://gofer.example")
+	startRecorder = httptest.NewRecorder()
+	stack.ServeHTTP(startRecorder, startRequest)
+	if startRecorder.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("restarted Google invitation = %d %q", startRecorder.Code, startRecorder.Body.String())
+	}
+	authorizationURL, err = url.Parse(startRecorder.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = authorizationURL.Query().Get("state")
+	verifier.nonce = authorizationURL.Query().Get("nonce")
+	preAuthCookie = nil
+	for _, cookie := range startRecorder.Result().Cookies() {
+		if cookie.Name == "gofer_pre_auth" && cookie.MaxAge > 0 {
+			preAuthCookie = cookie
+		}
+	}
+	if state == "" || verifier.nonce == "" || preAuthCookie == nil || preAuthCookie.Value != state {
+		t.Fatalf("restarted Google invitation state = state:%q nonce:%q cookie:%#v", state, verifier.nonce, preAuthCookie)
+	}
+
+	callbackRequest := httptest.NewRequest(
+		http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil,
+	)
+	callbackRequest.Host = "gofer.example"
+	callbackRequest.Header.Set("User-Agent", "Invitation Browser/1.0")
+	callbackRequest.AddCookie(preAuthCookie)
+	callbackRecorder := httptest.NewRecorder()
+	stack.ServeHTTP(callbackRecorder, callbackRequest)
+	if callbackRecorder.Code != http.StatusSeeOther || callbackRecorder.Header().Get("Location") != "/" {
+		t.Fatalf("Google invitation callback = %d %q body=%q", callbackRecorder.Code, callbackRecorder.Header().Get("Location"), callbackRecorder.Body.String())
+	}
+	var sessionCookie *http.Cookie
+	for _, cookie := range callbackRecorder.Result().Cookies() {
+		if cookie.Name == "gofer_session" && cookie.MaxAge > 0 {
+			sessionCookie = cookie
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("Google invitation callback omitted authenticated session cookie")
+	}
+	session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || session == nil || session.UserID != "invitee" || session.AuthenticationMethod != auth.AuthenticationMethodFederatedGoogle {
+		t.Fatalf("Google invitation session = %#v, %v", session, err)
+	}
+	for table, want := range map[string]int{"accounts": 0, "oauth_accounts": 0, "auth_identities": 1} {
+		var count int
+		if err := db.Read().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Fatalf("%s rows = %d, want %d", table, count, want)
+		}
 	}
 }
 

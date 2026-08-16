@@ -12,6 +12,7 @@ import (
 
 const (
 	enrollmentRedemptionPath               = "/account/redeem"
+	enrollmentGoogleRedemptionPath         = "/account/redeem/google"
 	enrollmentRedemptionCompletePath       = "/account/redeem/complete"
 	enrollmentRedemptionFormMaximumBytes   = 12 << 10
 	enrollmentRedemptionFailureMessage     = "That invitation or reset token is invalid or no longer active."
@@ -24,7 +25,57 @@ func (h *Handler) handleEnrollmentRedemption(w http.ResponseWriter, r *http.Requ
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	h.renderEnrollmentRedemptionPage(w, r, http.StatusOK, "")
+	message := ""
+	if r.URL.Query().Get("google_failed") == "1" {
+		message = "Unable to complete Google sign-in with that invitation. The invitation was not consumed; please try again."
+	}
+	h.renderEnrollmentRedemptionPage(w, r, http.StatusOK, message)
+}
+
+func (h *Handler) handleEnrollmentGoogleRedemption(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsEnabled() || !h.auth.HasGoogleLogin() {
+		http.NotFound(w, r)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, enrollmentRedemptionFormMaximumBytes)
+	if err := r.ParseForm(); err != nil {
+		h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, enrollmentRedemptionFailureMessage)
+		return
+	}
+	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
+	if previousToken := auth.GetPreAuthToken(r); previousToken != "" {
+		err := h.auth.TerminateGoogleAuthorizationChallenge(r.Context(), previousToken)
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		if err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
+			log.Printf("replace Google enrollment challenge: %v", err)
+			h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+			return
+		}
+	}
+
+	start, err := h.auth.BeginGoogleEnrollment(r.Context(), r.PostFormValue("token"))
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrEnrollmentTokenInvalid):
+			h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, enrollmentRedemptionFailureMessage)
+		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
+			h.renderEnrollmentRedemptionPage(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
+		default:
+			log.Printf("start Google invitation enrollment: %v", err)
+			h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+		}
+		return
+	}
+	if start == nil || start.Challenge == nil || start.Challenge.Token == "" {
+		log.Printf("start Google invitation enrollment returned incomplete authorization")
+		h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+		return
+	}
+	auth.SetPreAuthCookie(
+		w, start.Challenge.Token, h.auth.Config().SecureCookies,
+		start.Challenge.ExpiresAt.Sub(start.Challenge.CreatedAt),
+	)
+	http.Redirect(w, r, start.AuthorizationURL, http.StatusTemporaryRedirect)
 }
 
 func (h *Handler) handleEnrollmentRedemptionSubmit(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +140,9 @@ func (h *Handler) handleEnrollmentRedemptionComplete(w http.ResponseWriter, r *h
 
 func (h *Handler) renderEnrollmentRedemptionPage(w http.ResponseWriter, r *http.Request, status int, message string) {
 	var page bytes.Buffer
-	if err := views.EnrollmentRedemptionPage(views.EnrollmentRedemptionData{Message: message}).Render(r.Context(), &page); err != nil {
+	if err := views.EnrollmentRedemptionPage(views.EnrollmentRedemptionData{
+		Message: message, GoogleLoginAvailable: h.auth.HasGoogleLogin(),
+	}).Render(r.Context(), &page); err != nil {
 		log.Printf("render enrollment redemption page: %v", err)
 		http.Error(w, "failed to render password form", http.StatusInternalServerError)
 		return

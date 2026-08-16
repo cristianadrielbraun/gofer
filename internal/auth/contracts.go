@@ -37,13 +37,14 @@ const (
 type ChallengePurpose string
 
 const (
-	ChallengePurposeLogin          ChallengePurpose = "login"
-	ChallengePurposeMFA            ChallengePurpose = "mfa"
-	ChallengePurposeEnrollment     ChallengePurpose = "enrollment"
-	ChallengePurposeRecovery       ChallengePurpose = "recovery"
-	ChallengePurposeStepUp         ChallengePurpose = "step_up"
-	ChallengePurposeFederatedLogin ChallengePurpose = "federated_login"
-	ChallengePurposeFederatedLink  ChallengePurpose = "federated_link"
+	ChallengePurposeLogin               ChallengePurpose = "login"
+	ChallengePurposeMFA                 ChallengePurpose = "mfa"
+	ChallengePurposeEnrollment          ChallengePurpose = "enrollment"
+	ChallengePurposeRecovery            ChallengePurpose = "recovery"
+	ChallengePurposeStepUp              ChallengePurpose = "step_up"
+	ChallengePurposeFederatedLogin      ChallengePurpose = "federated_login"
+	ChallengePurposeFederatedLink       ChallengePurpose = "federated_link"
+	ChallengePurposeFederatedEnrollment ChallengePurpose = "federated_enrollment"
 )
 
 type SessionRevocationReason string
@@ -95,7 +96,8 @@ func (purpose ChallengePurpose) Valid() bool {
 		ChallengePurposeRecovery,
 		ChallengePurposeStepUp,
 		ChallengePurposeFederatedLogin,
-		ChallengePurposeFederatedLink:
+		ChallengePurposeFederatedLink,
+		ChallengePurposeFederatedEnrollment:
 		return true
 	default:
 		return false

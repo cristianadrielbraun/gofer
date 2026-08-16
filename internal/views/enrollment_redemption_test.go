@@ -28,6 +28,25 @@ func TestEnrollmentRedemptionPageIsAccessibleLocalAndEscapesErrors(t *testing.T)
 	}
 }
 
+func TestEnrollmentRedemptionPageExplainsGoogleIsOnlyForGoferSignIn(t *testing.T) {
+	var output bytes.Buffer
+	if err := EnrollmentRedemptionPage(EnrollmentRedemptionData{GoogleLoginAvailable: true}).Render(t.Context(), &output); err != nil {
+		t.Fatalf("EnrollmentRedemptionPage.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`formaction="/account/redeem/google"`, `formnovalidate`,
+		"Continue with Google for Gofer sign-in",
+		"Google is used only to sign in to Gofer.",
+		"does not connect your Gmail mailbox",
+		"mail, contacts, or calendars",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("Google enrollment copy missing %q", want)
+		}
+	}
+}
+
 func TestEnrollmentRedemptionCompletionIsAccessibleAndLocal(t *testing.T) {
 	var output bytes.Buffer
 	if err := EnrollmentRedemptionCompletePage().Render(t.Context(), &output); err != nil {

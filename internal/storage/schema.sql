@@ -678,7 +678,7 @@ CREATE TABLE IF NOT EXISTS auth_challenges (
     session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
     challenge_hash TEXT NOT NULL UNIQUE CHECK (length(challenge_hash) = 64 AND challenge_hash NOT GLOB '*[^0-9a-f]*'),
     nonce_hash TEXT UNIQUE CHECK (nonce_hash IS NULL OR (length(nonce_hash) = 64 AND nonce_hash NOT GLOB '*[^0-9a-f]*')),
-    purpose TEXT NOT NULL CHECK (purpose IN ('login', 'mfa', 'enrollment', 'recovery', 'step_up', 'federated_login', 'federated_link')),
+    purpose TEXT NOT NULL CHECK (purpose IN ('login', 'mfa', 'enrollment', 'recovery', 'step_up', 'federated_login', 'federated_link', 'federated_enrollment')),
     origin TEXT NOT NULL CHECK (length(origin) <= 2048),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     max_attempts INTEGER NOT NULL DEFAULT 1 CHECK (max_attempts > 0),
@@ -1317,4 +1317,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (83);
+INSERT OR REPLACE INTO schema_version (version) VALUES (84);

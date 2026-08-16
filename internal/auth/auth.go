@@ -164,8 +164,12 @@ func LoadConfig(baseURL string) *Config {
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			RedirectURL:  baseURL + "/auth/google/callback",
-			Scopes:       []string{"openid", "email", "profile"},
-			Endpoint:     google.Endpoint,
+			Scopes: []string{
+				googleApplicationOpenIDScope,
+				googleApplicationEmailScope,
+				googleApplicationProfileScope,
+			},
+			Endpoint: google.Endpoint,
 		}
 	}
 

@@ -29,6 +29,9 @@ const (
 	googleLoginCallbackPath        = "/auth/google/callback"
 	maximumGoogleIDTokenLength     = 64 * 1024
 	maximumGoogleIdentityFieldSize = 8 * 1024
+	googleApplicationOpenIDScope   = "openid"
+	googleApplicationEmailScope    = "email"
+	googleApplicationProfileScope  = "profile"
 )
 
 type FederatedLoginFailureReason string
@@ -86,8 +89,9 @@ type GoogleLoginStart struct {
 }
 
 type googleLoginDraft struct {
-	Version      int    `json:"version"`
-	CodeVerifier string `json:"code_verifier"`
+	Version           int    `json:"version"`
+	CodeVerifier      string `json:"code_verifier"`
+	EnrollmentTokenID string `json:"enrollment_token_id,omitempty"`
 }
 
 type maintainedGoogleIDTokenVerifier struct {
@@ -264,12 +268,23 @@ func (m *Manager) beginGoogleAuthorization(ctx context.Context, purpose Challeng
 	if err != nil {
 		return nil, err
 	}
-	authorizationURL := m.config.GoogleLoginClient.AuthCodeURL(
+	authorizationURL := googleApplicationAuthorizationURL(
+		m.config.GoogleLoginClient,
 		challenge.Token,
 		oauth2.S256ChallengeOption(draft.CodeVerifier),
 		oidc.Nonce(challenge.Nonce),
 	)
 	return &GoogleLoginStart{Challenge: challenge, AuthorizationURL: authorizationURL}, nil
+}
+
+func googleApplicationAuthorizationURL(client *oauth2.Config, state string, options ...oauth2.AuthCodeOption) string {
+	config := *client
+	config.Scopes = []string{
+		googleApplicationOpenIDScope,
+		googleApplicationEmailScope,
+		googleApplicationProfileScope,
+	}
+	return config.AuthCodeURL(state, options...)
 }
 
 func (m *Manager) IsCanonicalGoogleCallbackRequest(request *http.Request) bool {
@@ -309,7 +324,7 @@ func (m *Manager) currentGoogleAuthorizationChallenge(ctx context.Context, query
 	if strings.TrimSpace(token) == "" {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
-	if purpose != ChallengePurposeFederatedLogin && purpose != ChallengePurposeFederatedLink {
+	if purpose != ChallengePurposeFederatedLogin && purpose != ChallengePurposeFederatedLink && purpose != ChallengePurposeFederatedEnrollment {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
 	origin, err := canonicalAuthOrigin(m.config.BaseURL)
@@ -328,12 +343,13 @@ func (m *Manager) currentGoogleAuthorizationChallenge(ctx context.Context, query
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("load Google login challenge: %w", err)
 	}
-	if (purpose == ChallengePurposeFederatedLogin && challenge.SessionID != "") ||
-		(purpose == ChallengePurposeFederatedLink && (challenge.SessionID == "" || challenge.UserID == "")) {
+	if (purpose == ChallengePurposeFederatedLogin && (challenge.SessionID != "" || challenge.UserID != "")) ||
+		(purpose == ChallengePurposeFederatedLink && (challenge.SessionID == "" || challenge.UserID == "")) ||
+		(purpose == ChallengePurposeFederatedEnrollment && (challenge.SessionID != "" || challenge.UserID == "")) {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
 	draft, err := m.decryptGoogleLoginDraft(challenge, challenge.PayloadCiphertext)
-	if err != nil || !validGoogleLoginDraft(draft) {
+	if err != nil || !validGoogleLoginDraftForPurpose(draft, purpose) {
 		return nil, nil, "", ErrPreAuthChallengeInvalid
 	}
 	var nonceHash string
@@ -354,20 +370,15 @@ func (m *Manager) GetGoogleCallbackPurpose(ctx context.Context, token string) (C
 	var purpose ChallengePurpose
 	err = m.db.Read().QueryRowContext(ctx, `
 		SELECT purpose FROM auth_challenges
-		WHERE challenge_hash = ? AND purpose IN (?, ?) AND origin = ?
-		  AND nonce_hash IS NOT NULL AND consumed_at IS NULL AND expires_at > ?
-		  AND attempts < max_attempts AND payload_ciphertext IS NOT NULL`,
-		hashToken(token), ChallengePurposeFederatedLogin, ChallengePurposeFederatedLink,
-		origin, m.clock.Now().UTC(),
+		WHERE challenge_hash = ? AND purpose IN (?, ?, ?) AND origin = ?`,
+		hashToken(token), ChallengePurposeFederatedLogin, ChallengePurposeFederatedLink, ChallengePurposeFederatedEnrollment,
+		origin,
 	).Scan(&purpose)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrPreAuthChallengeInvalid
 	}
 	if err != nil {
 		return "", fmt.Errorf("load Google callback purpose: %w", err)
-	}
-	if _, _, _, err := m.currentGoogleAuthorizationChallenge(ctx, m.db.Read(), token, purpose); err != nil {
-		return "", err
 	}
 	return purpose, nil
 }
@@ -434,6 +445,20 @@ func validGoogleLoginDraft(draft *googleLoginDraft) bool {
 		return false
 	}
 	return true
+}
+
+func validGoogleLoginDraftForPurpose(draft *googleLoginDraft, purpose ChallengePurpose) bool {
+	if !validGoogleLoginDraft(draft) {
+		return false
+	}
+	switch purpose {
+	case ChallengePurposeFederatedLogin, ChallengePurposeFederatedLink:
+		return draft.EnrollmentTokenID == ""
+	case ChallengePurposeFederatedEnrollment:
+		return strings.TrimSpace(draft.EnrollmentTokenID) != ""
+	default:
+		return false
+	}
 }
 
 func (m *Manager) googleLoginAEAD() (cipher.AEAD, error) {
