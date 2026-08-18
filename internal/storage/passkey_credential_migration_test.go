@@ -60,8 +60,8 @@ func TestMigrateV80AddsEncryptedPasskeyRecordsAndUserHandles(t *testing.T) {
 	var version int
 	var ciphertext, keyVersion, rpID any
 	var flags, cloneWarning int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 84 {
-		t.Fatalf("schema version = %d, %v; want 84", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 85 {
+		t.Fatalf("schema version = %d, %v; want 85", version, err)
 	}
 	if err := db.Read().QueryRow(`
 		SELECT credential_ciphertext, key_version, rp_id, flags, clone_warning
@@ -80,4 +80,76 @@ func TestMigrateV80AddsEncryptedPasskeyRecordsAndUserHandles(t *testing.T) {
 	assertExecFails(t, db.Write(), `
 		INSERT INTO webauthn_users (user_id, rp_id, user_handle)
 		VALUES ('owner', 'gofer.example', x'01')`)
+}
+
+func TestMigrateV84RepairsIncompletePasskeySchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gofer.db")
+	raw, err := openDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO schema_version (version) VALUES (84);
+		CREATE TABLE users (id TEXT PRIMARY KEY);
+		INSERT INTO users (id) VALUES ('owner');
+		CREATE TABLE webauthn_credentials (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			credential_id BLOB NOT NULL UNIQUE,
+			public_key BLOB NOT NULL,
+			sign_count INTEGER NOT NULL DEFAULT 0,
+			aaguid BLOB,
+			transports TEXT NOT NULL DEFAULT '[]',
+			attachment TEXT NOT NULL DEFAULT '',
+			backup_eligible INTEGER NOT NULL DEFAULT 0,
+			backup_state INTEGER NOT NULL DEFAULT 0,
+			name TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_used_at DATETIME,
+			revoked_at DATETIME,
+			credential_ciphertext BLOB,
+			key_version INTEGER
+		);
+		INSERT INTO webauthn_credentials (id, user_id, credential_id, public_key, name)
+		VALUES ('existing-passkey', 'owner', x'01', x'02', 'Existing passkey');
+	`); err != nil {
+		_ = raw.Close()
+		t.Fatalf("seed incomplete v84 passkey schema: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := New(path)
+	if err != nil {
+		t.Fatalf("repair incomplete v84 passkey schema: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	var version int
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 85 {
+		t.Fatalf("schema version = %d, %v; want 85", version, err)
+	}
+	for _, column := range []string{"credential_ciphertext", "key_version", "rp_id", "flags", "clone_warning"} {
+		if exists, err := columnExists(db.Read(), "webauthn_credentials", column); err != nil || !exists {
+			t.Fatalf("webauthn_credentials.%s exists=%t err=%v", column, exists, err)
+		}
+	}
+	if exists, err := tableExists(db.Read(), "webauthn_users"); err != nil || !exists {
+		t.Fatalf("webauthn_users exists=%t err=%v", exists, err)
+	}
+
+	var rpID any
+	var flags, cloneWarning int
+	if err := db.Read().QueryRow(`
+		SELECT rp_id, flags, clone_warning
+		FROM webauthn_credentials WHERE id = 'existing-passkey'`,
+	).Scan(&rpID, &flags, &cloneWarning); err != nil {
+		t.Fatalf("query repaired passkey: %v", err)
+	}
+	if rpID != nil || flags != 0 || cloneWarning != 0 {
+		t.Fatalf("repaired passkey = rp:%v flags:%d clone:%d, want NULL/0/0", rpID, flags, cloneWarning)
+	}
+	assertNoForeignKeyViolations(t, db.Read())
 }

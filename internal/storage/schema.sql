@@ -1317,4 +1317,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (84);
+INSERT OR REPLACE INTO schema_version (version) VALUES (85);

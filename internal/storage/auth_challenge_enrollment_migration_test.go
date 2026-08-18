@@ -46,8 +46,8 @@ func TestMigrateV83AddsFederatedEnrollmentChallengePurpose(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	var version, preserved int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 84 {
-		t.Fatalf("schema version = %d, %v; want 84", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 85 {
+		t.Fatalf("schema version = %d, %v; want 85", version, err)
 	}
 	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM auth_challenges WHERE id = 'login-challenge'`).Scan(&preserved); err != nil || preserved != 1 {
 		t.Fatalf("preserved challenge count = %d, %v", preserved, err)

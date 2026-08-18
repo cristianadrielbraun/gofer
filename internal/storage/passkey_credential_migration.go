@@ -6,12 +6,31 @@ import (
 )
 
 func migrateV80ToV81(tx *sql.Tx) error {
+	if err := ensurePasskeyCredentialSchema(tx); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 81)
+}
+
+// migrateV84ToV85 repairs databases that reached schema v81 while the passkey
+// migration was still being developed. Those databases can have the encrypted
+// credential columns but not the RP binding, authenticator flags, clone-warning
+// state, or opaque WebAuthn user handles. Re-running the idempotent schema
+// checks keeps existing credential rows intact.
+func migrateV84ToV85(tx *sql.Tx) error {
+	if err := ensurePasskeyCredentialSchema(tx); err != nil {
+		return err
+	}
+	return markSchemaVersion(tx, 85)
+}
+
+func ensurePasskeyCredentialSchema(tx *sql.Tx) error {
 	hasCredentials, err := tableExistsTx(tx, "webauthn_credentials")
 	if err != nil {
 		return err
 	}
 	if !hasCredentials {
-		return markSchemaVersion(tx, 81)
+		return nil
 	}
 
 	for _, column := range []struct {
@@ -49,5 +68,5 @@ func migrateV80ToV81(tx *sql.Tx) error {
 	if err := foreignKeyCheckTx(tx); err != nil {
 		return err
 	}
-	return markSchemaVersion(tx, 81)
+	return nil
 }

@@ -649,11 +649,26 @@ if (typeof MutationObserver !== "undefined" && document.documentElement) {
   })
 }
 
+var settingsTabs = [
+  "accounts",
+  "sync",
+  "operations",
+  "contacts",
+  "appearance",
+  "regional",
+  "compose-display",
+  "security",
+  "advanced",
+]
+
+function normalizeSettingsTab(tab) {
+  return settingsTabs.indexOf(tab) !== -1 ? tab : "accounts"
+}
+
 function setupSettingsHistory() {
   if (!window.location.pathname.startsWith("/settings")) return
   var parts = window.location.pathname.replace(/\/+$/, "").split("/")
-  var tab = parts[2] || "accounts"
-  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "regional" && tab !== "compose-display" && tab !== "advanced") tab = "accounts"
+  var tab = normalizeSettingsTab(parts[2] || "accounts")
   history.replaceState({ settingsTab: tab }, "", window.location.pathname)
 }
 
@@ -779,9 +794,7 @@ function setupEmailLinkHandler() {
 
 function settingsTabFromLocation() {
   var parts = window.location.pathname.replace(/\/+$/, "").split("/")
-  var tab = parts[2] || "accounts"
-  if (tab !== "accounts" && tab !== "sync" && tab !== "contacts" && tab !== "appearance" && tab !== "regional" && tab !== "compose-display" && tab !== "advanced") return "accounts"
-  return tab
+  return normalizeSettingsTab(parts[2] || "accounts")
 }
 
 function setSettingsSidebarActive(value) {
