@@ -62,28 +62,35 @@ func (h *Handler) handleSecurityTOTPStart(w http.ResponseWriter, r *http.Request
 	if !h.parseSecurityManagementForm(w, r, "Unable to read the authenticator request. Please try again.") {
 		return
 	}
-	state, err := h.auth.StartTOTPReplacement(r.Context(), auth.GetSessionToken(r), h.auth.Config().BaseURL)
+	state, err := h.auth.StartTOTPManagement(r.Context(), auth.GetSessionToken(r), h.auth.Config().BaseURL)
 	if err != nil {
-		h.handleSecurityManagementOperationError(w, r, err, "start TOTP replacement")
+		h.handleSecurityManagementOperationError(w, r, err, "start TOTP management")
 		return
 	}
 	if state == nil || state.Challenge == nil || state.Challenge.Token == "" {
-		log.Printf("start TOTP replacement returned no challenge")
-		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to replace the authenticator right now. Please try again.")
+		log.Printf("start TOTP management returned no challenge")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update the authenticator right now. Please try again.")
 		return
 	}
 	auth.SetSecurityChallengeCookie(
 		w, state.Challenge.Token, h.auth.Config().SecureCookies,
 		state.Challenge.ExpiresAt.Sub(state.Challenge.CreatedAt),
 	)
-	http.Redirect(w, r, "/settings/security?totp_replacement=1", http.StatusSeeOther)
+	redirect := "/settings/security?totp_enrollment=1"
+	if state.IsReplacement {
+		redirect = "/settings/security?totp_replacement=1"
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
 
 func (h *Handler) handleSecurityTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	if !h.parseSecurityManagementForm(w, r, "Unable to read the authenticator form. Please try again.") {
 		return
 	}
-	session, err := h.auth.ConfirmTOTPReplacement(
+	state, _ := h.auth.GetTOTPManagement(
+		r.Context(), auth.GetSecurityChallengeToken(r), auth.GetSessionToken(r), h.auth.Config().BaseURL,
+	)
+	session, err := h.auth.ConfirmTOTPManagement(
 		r.Context(), auth.GetSecurityChallengeToken(r), auth.GetSessionToken(r),
 		h.auth.Config().BaseURL, r.PostFormValue("code"), directLoginSource(r.RemoteAddr), r.UserAgent(),
 	)
@@ -111,18 +118,22 @@ func (h *Handler) handleSecurityTOTPConfirm(w http.ResponseWriter, r *http.Reque
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
 			http.Redirect(w, r, "/settings/security?challenge_expired=1", http.StatusSeeOther)
 		default:
-			log.Printf("confirm TOTP replacement: %v", err)
-			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to replace the authenticator right now. Please try again.")
+			log.Printf("confirm TOTP management: %v", err)
+			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update the authenticator right now. Please try again.")
 		}
 		return
 	}
 	if session == nil || session.Token == "" {
-		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to replace the authenticator right now. Please try again.")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update the authenticator right now. Please try again.")
 		return
 	}
 	auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
 	auth.SetSessionCookie(w, session.Token, h.auth.Config().SecureCookies)
-	http.Redirect(w, r, "/settings/security?totp_replaced=1", http.StatusSeeOther)
+	redirect := "/settings/security?totp_enrolled=1"
+	if state != nil && state.IsReplacement {
+		redirect = "/settings/security?totp_replaced=1"
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
 
 func (h *Handler) handleSecurityTOTPDisable(w http.ResponseWriter, r *http.Request) {
@@ -270,13 +281,13 @@ func (h *Handler) renderSecurityManagementError(w http.ResponseWriter, r *http.R
 	})
 }
 
-func totpManagementViewData(state *auth.TOTPManagementState) *views.TOTPReplacementData {
+func totpManagementViewData(state *auth.TOTPManagementState) *views.TOTPManagementData {
 	if state == nil || state.Enrollment == nil {
 		return nil
 	}
-	return &views.TOTPReplacementData{
+	return &views.TOTPManagementData{
 		QRCodeDataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(state.Enrollment.QRPNG),
 		ManualKey:     state.Enrollment.ManualKey, Algorithm: state.Enrollment.Algorithm,
-		Digits: state.Enrollment.Digits, Period: state.Enrollment.Period,
+		Digits: state.Enrollment.Digits, Period: state.Enrollment.Period, IsReplacement: state.IsReplacement,
 	}
 }

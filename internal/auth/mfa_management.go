@@ -25,7 +25,7 @@ const (
 	securityStepUpMaximumAge       = 10 * time.Minute
 	securityManagementDraftVersion = 1
 	securityManagementDraftKey     = "gofer/auth/security-management-draft/v1"
-	securityManagementKindTOTP     = "totp_replacement"
+	securityManagementKindTOTP     = "totp_management"
 	securityManagementKindRecovery = "recovery_replacement"
 )
 
@@ -58,8 +58,9 @@ func (err *TOTPManagementValidationError) Error() string {
 }
 
 type TOTPManagementState struct {
-	Challenge  *PreAuthChallenge
-	Enrollment *SetupTOTPEnrollment
+	Challenge     *PreAuthChallenge
+	Enrollment    *SetupTOTPEnrollment
+	IsReplacement bool
 }
 
 type RecoveryManagementState struct {
@@ -315,7 +316,7 @@ func (m *Manager) VerifySecurityTOTPStepUp(ctx context.Context, sessionToken, co
 	return nil
 }
 
-func (m *Manager) StartTOTPReplacement(ctx context.Context, sessionToken, origin string) (*TOTPManagementState, error) {
+func (m *Manager) StartTOTPManagement(ctx context.Context, sessionToken, origin string) (*TOTPManagementState, error) {
 	session, err := m.GetSessionByToken(ctx, sessionToken)
 	if err != nil || session == nil {
 		return nil, ErrSecuritySessionInvalid
@@ -328,19 +329,21 @@ func (m *Manager) StartTOTPReplacement(ctx context.Context, sessionToken, origin
 	if err != nil {
 		return nil, ErrSecurityChallengeInvalid
 	}
-	var originalTOTP, accountName string
+	var originalTOTP sql.NullString
+	var accountName string
 	err = m.db.Read().QueryRowContext(ctx, `
-		SELECT t.id, COALESCE(NULLIF(u.email_normalized, ''), NULLIF(u.username_normalized, ''), u.id)
-		FROM users u JOIN totp_credentials t ON t.user_id = u.id
-		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?
-		  AND t.enabled = 1 AND t.revoked_at IS NULL`,
+		SELECT COALESCE(NULLIF(u.email_normalized, ''), NULLIF(u.username_normalized, ''), u.id),
+		       (SELECT t.id FROM totp_credentials t
+		        WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL)
+		FROM users u
+		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
 		session.UserID, session.AuthVersion,
-	).Scan(&originalTOTP, &accountName)
+	).Scan(&accountName, &originalTOTP)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrTOTPManagementUnavailable
+		return nil, ErrSecuritySessionInvalid
 	}
 	if err != nil {
-		return nil, fmt.Errorf("load replaceable TOTP credential: %w", err)
+		return nil, fmt.Errorf("load TOTP management account: %w", err)
 	}
 	material, err := m.tokens.Token(32)
 	if err != nil {
@@ -369,18 +372,19 @@ func (m *Manager) StartTOTPReplacement(ctx context.Context, sessionToken, origin
 	}
 	draft := &securityManagementDraft{
 		Kind: securityManagementKindTOTP, AuthVersion: session.AuthVersion,
-		OriginalTOTP: originalTOTP, NewTOTP: newTOTP, TOTPSecret: key.Secret(),
+		OriginalTOTP: originalTOTP.String, NewTOTP: newTOTP, TOTPSecret: key.Secret(),
 	}
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
 		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID || current.AuthVersion != draft.AuthVersion {
 			return ErrSecuritySessionInvalid
 		}
-		credential, err := loadActiveTOTPCredential(ctx, tx, current.UserID)
+		credential, err := loadOptionalActiveTOTPCredential(ctx, tx, current.UserID)
 		if err != nil {
 			return err
 		}
-		if credential.id != draft.OriginalTOTP {
+		if (credential == nil) != (draft.OriginalTOTP == "") ||
+			(credential != nil && credential.id != draft.OriginalTOTP) {
 			return ErrSecurityChallengeInvalid
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -388,7 +392,7 @@ func (m *Manager) StartTOTPReplacement(ctx context.Context, sessionToken, origin
 			WHERE user_id = ? AND session_id = ? AND purpose = ? AND consumed_at IS NULL`,
 			now, current.UserID, current.ID, ChallengePurposeEnrollment,
 		); err != nil {
-			return fmt.Errorf("terminate prior TOTP replacement: %w", err)
+			return fmt.Errorf("terminate prior TOTP management challenge: %w", err)
 		}
 		payload, err := m.encryptSecurityManagementDraft(challenge, draft)
 		if err != nil {
@@ -404,7 +408,7 @@ func (m *Manager) StartTOTPReplacement(ctx context.Context, sessionToken, origin
 			challenge.Purpose, challenge.Origin, challenge.MaxAttempts,
 			challenge.PayloadCiphertext, challenge.CreatedAt, challenge.ExpiresAt,
 		); err != nil {
-			return fmt.Errorf("insert TOTP replacement challenge: %w", err)
+			return fmt.Errorf("insert TOTP management challenge: %w", err)
 		}
 		return nil
 	})
@@ -415,10 +419,12 @@ func (m *Manager) StartTOTPReplacement(ctx context.Context, sessionToken, origin
 	if err != nil {
 		return nil, err
 	}
-	return &TOTPManagementState{Challenge: challenge, Enrollment: enrollment}, nil
+	return &TOTPManagementState{
+		Challenge: challenge, Enrollment: enrollment, IsReplacement: draft.OriginalTOTP != "",
+	}, nil
 }
 
-func (m *Manager) GetTOTPReplacement(ctx context.Context, challengeToken, sessionToken, origin string) (*TOTPManagementState, error) {
+func (m *Manager) GetTOTPManagement(ctx context.Context, challengeToken, sessionToken, origin string) (*TOTPManagementState, error) {
 	challenge, draft, accountName, _, err := m.readSecurityManagementDraft(
 		ctx, challengeToken, sessionToken, origin, ChallengePurposeEnrollment, securityManagementKindTOTP,
 	)
@@ -429,10 +435,12 @@ func (m *Manager) GetTOTPReplacement(ctx context.Context, challengeToken, sessio
 	if err != nil {
 		return nil, err
 	}
-	return &TOTPManagementState{Challenge: challenge, Enrollment: enrollment}, nil
+	return &TOTPManagementState{
+		Challenge: challenge, Enrollment: enrollment, IsReplacement: draft.OriginalTOTP != "",
+	}, nil
 }
 
-func (m *Manager) ConfirmTOTPReplacement(ctx context.Context, challengeToken, sessionToken, origin, code, source, userAgent string) (*Session, error) {
+func (m *Manager) ConfirmTOTPManagement(ctx context.Context, challengeToken, sessionToken, origin, code, source, userAgent string) (*Session, error) {
 	challenge, draft, _, current, err := m.readSecurityManagementDraft(
 		ctx, challengeToken, sessionToken, origin, ChallengePurposeEnrollment, securityManagementKindTOTP,
 	)
@@ -476,6 +484,13 @@ func (m *Manager) ConfirmTOTPReplacement(ctx context.Context, challengeToken, se
 	invalid := false
 	terminal := false
 	retryAt := time.Time{}
+	isReplacement := draft.OriginalTOTP != ""
+	action := "enroll"
+	successAction := "enrolled"
+	if isReplacement {
+		action = "replace"
+		successAction = "replaced"
+	}
 	userAgent = boundedUserAgent(userAgent)
 	var rotated *Session
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
@@ -517,25 +532,34 @@ func (m *Manager) ConfirmTOTPReplacement(ctx context.Context, challengeToken, se
 				INSERT INTO auth_events (
 					id, occurred_at, actor_user_id, subject_user_id, session_id,
 					event_type, success, reason, user_agent, source_hash, metadata_json
-				) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, '{"action":"replace","factor":"totp"}')`,
+				) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
 				eventID, now, session.UserID, session.UserID, session.ID,
 				AuthEventCredentialChanged, AuthEventReasonInvalidCredentials, userAgent, sourceHash,
+				`{"action":"`+action+`","factor":"totp"}`,
 			); err != nil {
-				return fmt.Errorf("record rejected TOTP replacement: %w", err)
+				return fmt.Errorf("record rejected TOTP management code: %w", err)
 			}
 			return nil
 		}
-		result, err := tx.ExecContext(ctx, `
-			UPDATE totp_credentials SET enabled = 0, revoked_at = ?
-			WHERE id = ? AND user_id = ? AND enabled = 1 AND revoked_at IS NULL`,
-			now, currentDraft.OriginalTOTP, session.UserID,
-		)
-		if err != nil {
-			return fmt.Errorf("revoke replaced TOTP credential: %w", err)
-		}
-		changed, err := result.RowsAffected()
-		if err != nil || changed != 1 {
-			return ErrSecurityChallengeInvalid
+		if isReplacement {
+			result, err := tx.ExecContext(ctx, `
+				UPDATE totp_credentials SET enabled = 0, revoked_at = ?
+				WHERE id = ? AND user_id = ? AND enabled = 1 AND revoked_at IS NULL`,
+				now, currentDraft.OriginalTOTP, session.UserID,
+			)
+			if err != nil {
+				return fmt.Errorf("revoke replaced TOTP credential: %w", err)
+			}
+			changed, err := result.RowsAffected()
+			if err != nil || changed != 1 {
+				return ErrSecurityChallengeInvalid
+			}
+		} else if _, err := tx.ExecContext(ctx, `
+			UPDATE recovery_codes SET revoked_at = ?
+			WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL`,
+			now, session.UserID,
+		); err != nil {
+			return fmt.Errorf("revoke recovery codes before TOTP enrollment: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO totp_credentials (
@@ -545,7 +569,7 @@ func (m *Manager) ConfirmTOTPReplacement(ctx context.Context, challengeToken, se
 			currentDraft.NewTOTP, session.UserID, encryptedSeed, totpCredentialKeyVersion,
 			totpAlgorithm, totpDigits, totpPeriodSeconds, totpIssuer, matchedStep, now, now,
 		); err != nil {
-			return fmt.Errorf("insert replacement TOTP credential: %w", err)
+			return fmt.Errorf("insert managed TOTP credential: %w", err)
 		}
 		newAuthVersion, err := advanceSecurityAuthVersion(ctx, tx, session.UserID, session.AuthVersion, now)
 		if err != nil {
@@ -583,11 +607,12 @@ func (m *Manager) ConfirmTOTPReplacement(ctx context.Context, challengeToken, se
 			INSERT INTO auth_events (
 				id, occurred_at, actor_user_id, subject_user_id, session_id,
 				event_type, success, reason, user_agent, source_hash, metadata_json
-			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '{"action":"replaced","factor":"totp"}')`,
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
 			eventID, now, session.UserID, session.UserID, rotated.ID,
 			AuthEventCredentialChanged, AuthEventReasonChallengeVerified, userAgent, sourceHash,
+			`{"action":"`+successAction+`","factor":"totp"}`,
 		); err != nil {
-			return fmt.Errorf("record TOTP replacement: %w", err)
+			return fmt.Errorf("record TOTP management change: %w", err)
 		}
 		return nil
 	})
@@ -1042,6 +1067,14 @@ func loadActiveTOTPCredential(ctx context.Context, tx *sql.Tx, userID string) (*
 	return credential, nil
 }
 
+func loadOptionalActiveTOTPCredential(ctx context.Context, tx *sql.Tx, userID string) (*activeTOTPCredential, error) {
+	credential, err := loadActiveTOTPCredential(ctx, tx, userID)
+	if errors.Is(err, ErrTOTPManagementUnavailable) {
+		return nil, nil
+	}
+	return credential, err
+}
+
 func canDisableTOTPInTransaction(ctx context.Context, tx *sql.Tx, userID, rpID string, availability federatedLoginAvailability) (bool, error) {
 	return canRemoveAuthenticatorInTransaction(
 		ctx, tx, userID, rpID, availability, authenticatorRemoval{TOTP: true},
@@ -1097,8 +1130,9 @@ func (m *Manager) currentSecurityManagementDraft(ctx context.Context, tx *sql.Tx
 		return nil, nil, "", nil, ErrSecurityChallengeInvalid
 	}
 	if kind == securityManagementKindTOTP {
-		credential, err := loadActiveTOTPCredential(ctx, tx, session.UserID)
-		if err != nil || credential.id != draft.OriginalTOTP {
+		credential, err := loadOptionalActiveTOTPCredential(ctx, tx, session.UserID)
+		if err != nil || (credential == nil) != (draft.OriginalTOTP == "") ||
+			(credential != nil && credential.id != draft.OriginalTOTP) {
 			return nil, nil, "", nil, ErrSecurityChallengeInvalid
 		}
 	}
@@ -1119,7 +1153,7 @@ func validSecurityManagementDraft(draft *securityManagementDraft) bool {
 	}
 	switch draft.Kind {
 	case securityManagementKindTOTP:
-		return draft.OriginalTOTP != "" && draft.NewTOTP != "" && draft.TOTPSecret != "" &&
+		return draft.NewTOTP != "" && draft.TOTPSecret != "" &&
 			draft.RecoveryBatchID == "" && len(draft.RecoveryCodeIDs) == 0 && len(draft.RecoveryCodeHashes) == 0
 	case securityManagementKindRecovery:
 		if !isLowerHexHash(draft.RecoveryBatchID) || len(draft.RecoveryCodeIDs) != setupRecoveryCodeCount ||

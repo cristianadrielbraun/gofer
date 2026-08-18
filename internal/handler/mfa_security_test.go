@@ -208,11 +208,11 @@ func TestSecuritySettingsReplacesTOTPThroughSessionBoundChallenge(t *testing.T) 
 			t.Fatalf("replacement page missing %q", want)
 		}
 	}
-	state, err := manager.GetTOTPReplacement(
+	state, err := manager.GetTOTPManagement(
 		t.Context(), challengeCookie.Value, sessionCookie.Value, "https://gofer.example",
 	)
 	if err != nil || state == nil || state.Enrollment == nil {
-		t.Fatalf("GetTOTPReplacement() = %#v, %v", state, err)
+		t.Fatalf("GetTOTPManagement() = %#v, %v", state, err)
 	}
 	newSecret := strings.ReplaceAll(state.Enrollment.ManualKey, " ", "")
 	code := setupHandlerTOTPCode(t, newSecret)
@@ -239,6 +239,87 @@ func TestSecuritySettingsReplacesTOTPThroughSessionBoundChallenge(t *testing.T) 
 	}
 	if strings.Contains(confirmationPage.Body.String(), oldSecret) || strings.Contains(confirmationPage.Body.String(), newSecret) {
 		t.Fatal("security summary exposed an authenticator seed")
+	}
+}
+
+func TestSecuritySettingsEnrollsFirstAuthenticatorThroughSessionBoundChallenge(t *testing.T) {
+	manager, db, stack, sessionCookie, oldSecret := completedSecuritySettingsStack(t)
+	session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || session == nil {
+		t.Fatalf("load enrollment session = %#v, %v", session, err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `
+		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		DELETE FROM recovery_codes WHERE user_id = ?;
+		DELETE FROM totp_credentials WHERE user_id = ?`,
+		session.UserID, session.UserID, session.UserID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	page := getSecuritySettings(t, stack, sessionCookie)
+	for _, want := range []string{
+		"Not enrolled", "Set up authenticator", `action="/settings/security/totp/start"`,
+	} {
+		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("unenrolled security page missing %q: %d %q", want, page.Code, page.Body.String())
+		}
+	}
+	if strings.Contains(page.Body.String(), "Replace authenticator") {
+		t.Fatal("unenrolled security page rendered replacement action")
+	}
+	start := postSecuritySettings(t, stack, securityTOTPStartPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), securityTOTPStartPath)},
+	}, sessionCookie)
+	if start.Code != http.StatusSeeOther || start.Header().Get("Location") != "/settings/security?totp_enrollment=1" {
+		t.Fatalf("start TOTP enrollment = %d location:%q body:%q", start.Code, start.Header().Get("Location"), start.Body.String())
+	}
+	challengeCookie := responseCookie(start, "gofer_security_challenge", true)
+	if challengeCookie == nil || !challengeCookie.HttpOnly || !challengeCookie.Secure ||
+		challengeCookie.SameSite != http.SameSiteLaxMode || challengeCookie.Path != "/settings/security" {
+		t.Fatalf("TOTP enrollment challenge cookie = %#v", challengeCookie)
+	}
+	enrollmentPage := getSecuritySettings(t, stack, sessionCookie, challengeCookie)
+	for _, want := range []string{
+		"Verify the new authenticator", "authenticator is not enabled until the code is verified",
+		`alt="QR code containing the new Gofer authenticator key"`, "Enable authenticator",
+		`action="/settings/security/totp/confirm"`,
+	} {
+		if enrollmentPage.Code != http.StatusOK || !strings.Contains(enrollmentPage.Body.String(), want) {
+			t.Fatalf("TOTP enrollment page missing %q: %d %q", want, enrollmentPage.Code, enrollmentPage.Body.String())
+		}
+	}
+	if strings.Contains(enrollmentPage.Body.String(), "current authenticator remains active") {
+		t.Fatal("first-time TOTP enrollment claimed an existing authenticator remains active")
+	}
+	state, err := manager.GetTOTPManagement(
+		t.Context(), challengeCookie.Value, sessionCookie.Value, "https://gofer.example",
+	)
+	if err != nil || state == nil || state.Enrollment == nil || state.IsReplacement {
+		t.Fatalf("GetTOTPManagement() enrollment = %#v, %v", state, err)
+	}
+	newSecret := strings.ReplaceAll(state.Enrollment.ManualKey, " ", "")
+	confirm := postSecuritySettings(t, stack, securityTOTPConfirmPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, enrollmentPage.Body.String(), securityTOTPConfirmPath)},
+		"code":                 {setupHandlerTOTPCode(t, newSecret)},
+	}, sessionCookie, challengeCookie)
+	if confirm.Code != http.StatusSeeOther || confirm.Header().Get("Location") != "/settings/security?totp_enrolled=1" {
+		t.Fatalf("confirm TOTP enrollment = %d location:%q body:%q", confirm.Code, confirm.Header().Get("Location"), confirm.Body.String())
+	}
+	rotatedCookie := responseCookie(confirm, "gofer_session", true)
+	if rotatedCookie == nil || rotatedCookie.Value == sessionCookie.Value {
+		t.Fatalf("rotated TOTP enrollment session cookie = %#v", rotatedCookie)
+	}
+	confirmationPage := getSecuritySettingsPath(t, stack, "/settings/security?totp_enrolled=1", rotatedCookie)
+	for _, want := range []string{
+		"Authenticator enabled", "Generate and save recovery codes next", "Enrolled",
+		"0 remaining", "Generate new recovery codes",
+	} {
+		if confirmationPage.Code != http.StatusOK || !strings.Contains(confirmationPage.Body.String(), want) {
+			t.Fatalf("TOTP enrollment confirmation missing %q: %d %q", want, confirmationPage.Code, confirmationPage.Body.String())
+		}
+	}
+	if strings.Contains(confirmationPage.Body.String(), oldSecret) || strings.Contains(confirmationPage.Body.String(), newSecret) {
+		t.Fatal("TOTP enrollment confirmation exposed an authenticator seed")
 	}
 }
 

@@ -112,9 +112,9 @@ func TestPasswordSecuritySettingsRendersAccessibleFactorManagementAndEscapesSecr
 	csrf := strings.Repeat("b", 64)
 	data := PasswordSecurityData{
 		HasPassword: true, HasTOTP: true, RecoveryCodesRemaining: 7, StepUpFresh: true,
-		TOTPReplacement: &TOTPReplacementData{
+		TOTPManagement: &TOTPManagementData{
 			QRCodeDataURL: "data:image/png;base64,cG5n", ManualKey: `<new-authenticator-key>`,
-			Algorithm: "SHA1", Digits: 6, Period: 30,
+			Algorithm: "SHA1", Digits: 6, Period: 30, IsReplacement: true,
 		},
 		RecoveryReplacementPending: true,
 		RecoveryBatchID:            "batch-id",
@@ -133,7 +133,7 @@ func TestPasswordSecuritySettingsRendersAccessibleFactorManagementAndEscapesSecr
 	}
 	html := output.String()
 	for _, want := range []string{
-		`data-totp-replacement`,
+		`data-totp-management`,
 		`alt="QR code containing the replacement Gofer authenticator key"`,
 		`aria-label="Replacement authenticator manual setup key"`,
 		`action="/settings/security/totp/confirm"`,
@@ -152,6 +152,63 @@ func TestPasswordSecuritySettingsRendersAccessibleFactorManagementAndEscapesSecr
 	}
 	if strings.Contains(html, `<new-authenticator-key>`) || strings.Contains(html, `<script>recovery</script>`) {
 		t.Fatal("factor management view rendered unescaped credential material")
+	}
+}
+
+func TestPasswordSecuritySettingsRendersFirstTimeTOTPEnrollmentWithoutReplacementClaims(t *testing.T) {
+	csrf := strings.Repeat("d", 64)
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		HasPassword: true, StepUpFresh: true,
+		CSRFTokens: map[string]string{"/settings/security/totp/start": csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() setup action error = %v", err)
+	}
+	for _, want := range []string{
+		"Not enrolled", "Set up authenticator", `action="/settings/security/totp/start"`,
+		`name="_csrf" value="` + csrf + `"`,
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("first-time TOTP setup action missing %q: %q", want, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "Replace authenticator") {
+		t.Fatal("first-time TOTP setup action rendered replacement copy")
+	}
+
+	output.Reset()
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		HasPassword: true, StepUpFresh: true,
+		TOTPManagement: &TOTPManagementData{
+			QRCodeDataURL: "data:image/png;base64,cG5n", ManualKey: `<first-authenticator-key>`,
+			Algorithm: "SHA1", Digits: 6, Period: 30,
+		},
+		CSRFTokens: map[string]string{
+			"/settings/security/totp/confirm":      csrf,
+			"/settings/security/totp/start":        csrf,
+			"/settings/security/management/cancel": csrf,
+		},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() enrollment error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-totp-management`, "Verify the new authenticator",
+		`alt="QR code containing the new Gofer authenticator key"`,
+		`aria-label="New authenticator manual setup key"`,
+		"authenticator is not enabled until the code is verified", "Enable authenticator",
+		`&lt;first-authenticator-key&gt;`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("first-time TOTP enrollment missing %q: %q", want, html)
+		}
+	}
+	for _, forbidden := range []string{
+		"Verify the replacement authenticator", "current authenticator remains active", `<first-authenticator-key>`,
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("first-time TOTP enrollment rendered forbidden value %q", forbidden)
+		}
 	}
 }
 

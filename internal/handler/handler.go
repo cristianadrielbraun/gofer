@@ -3020,10 +3020,10 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	data.CSRFToken = data.CSRFTokens[passwordChangePath]
 	challengeToken := auth.GetSecurityChallengeToken(r)
 	if challengeToken != "" {
-		if state, stateErr := h.auth.GetTOTPReplacement(
+		if state, stateErr := h.auth.GetTOTPManagement(
 			ctx, challengeToken, auth.GetSessionToken(r), h.auth.Config().BaseURL,
 		); stateErr == nil {
-			data.TOTPReplacement = totpManagementViewData(state)
+			data.TOTPManagement = totpManagementViewData(state)
 		} else if state, recoveryErr := h.auth.GetRecoveryCodeReplacement(
 			ctx, challengeToken, auth.GetSessionToken(r), h.auth.Config().BaseURL,
 		); recoveryErr == nil {
@@ -3036,8 +3036,8 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	if override != nil {
 		data.Message = override.Message
 		data.MessageIsError = override.MessageIsError
-		if override.TOTPReplacement != nil {
-			data.TOTPReplacement = override.TOTPReplacement
+		if override.TOTPManagement != nil {
+			data.TOTPManagement = override.TOTPManagement
 		}
 		if override.RecoveryReplacementPending {
 			data.RecoveryReplacementPending = true
@@ -3055,6 +3055,8 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			data.Message = "Security verification complete. Sensitive actions are available for ten minutes."
 		case r.URL.Query().Get("totp_replaced") == "1":
 			data.Message = "Authenticator replaced. Other signed-in devices were signed out."
+		case r.URL.Query().Get("totp_enrolled") == "1":
+			data.Message = "Authenticator enabled. Generate and save recovery codes next. Other signed-in devices were signed out."
 		case r.URL.Query().Get("totp_disabled") == "1":
 			data.Message = "Authenticator disabled and recovery codes revoked. Other signed-in devices were signed out."
 		case r.URL.Query().Get("recovery_replaced") == "1":

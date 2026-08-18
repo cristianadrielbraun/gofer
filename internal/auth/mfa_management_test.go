@@ -36,6 +36,40 @@ func prepareMFAManagement(t *testing.T, now time.Time, freshStepUp bool) (*Manag
 	return manager, clock, secret, session
 }
 
+func prepareTOTPEnrollmentManagement(t *testing.T, now time.Time) (*Manager, *fixedClock, *Session) {
+	t.Helper()
+	clock := &fixedClock{now: now}
+	manager, _, _ := prepareTOTPLoginManager(t, now, secureTokenGenerator{})
+	manager.clock = clock
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		DELETE FROM recovery_codes WHERE user_id = ?;
+		DELETE FROM totp_credentials WHERE user_id = ?`,
+		totpLoginTestUserID, totpLoginTestUserID, totpLoginTestUserID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err := manager.CreateAuthenticatedSession(
+		t.Context(), totpLoginTestUserID, "Enrollment Browser/1.0",
+		AuthenticationMethodPassword, AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatalf("CreateAuthenticatedSession() error = %v", err)
+	}
+	if steppedUp, err := manager.RecordSessionStepUp(
+		t.Context(), session.UserID, session.ID, AuthenticationMethodPassword,
+	); err != nil || !steppedUp {
+		t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
+	}
+	token := session.Token
+	session, err = manager.GetSessionByToken(t.Context(), token)
+	if err != nil || session == nil {
+		t.Fatalf("reload enrollment session = %#v, %v", session, err)
+	}
+	session.Token = token
+	return manager, clock, session
+}
+
 func insertManagedRecoveryBatch(t *testing.T, manager *Manager, material string, createdAt time.Time) *SetupRecoveryBatch {
 	t.Helper()
 	batch, hashes, err := deriveSetupRecoveryBatch(material)
@@ -127,6 +161,107 @@ func TestSecurityTOTPStepUpIsReplaySafeThrottledSeparatelyAndRedacted(t *testing
 	}
 }
 
+func TestTOTPEnrollmentActivatesOnlyAfterVerifiedCodeAndRotatesSecurityState(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 15, 30, 0, 0, time.UTC)
+	manager, clock, session := prepareTOTPEnrollmentManagement(t, now)
+	insertManagedRecoveryBatch(t, manager, "orphaned recovery material", now.Add(-time.Hour))
+	other, err := manager.CreateAuthenticatedSession(
+		t.Context(), session.UserID, "Other Enrollment Browser",
+		AuthenticationMethodPassword, AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := manager.GetSecurityFactorSummary(t.Context(), session.Token)
+	if err != nil || summary.HasTOTP || !summary.StepUpFresh || summary.RecoveryCodesRemaining != setupRecoveryCodeCount {
+		t.Fatalf("initial enrollment summary = %#v, %v", summary, err)
+	}
+	clock.now = now.Add(securityStepUpMaximumAge + time.Second)
+	if _, err := manager.StartTOTPManagement(
+		t.Context(), session.Token, totpLoginTestOrigin,
+	); !errors.Is(err, ErrRecentStepUpRequired) {
+		t.Fatalf("stale StartTOTPManagement() enrollment error = %v", err)
+	}
+	clock.now = now
+	state, err := manager.StartTOTPManagement(t.Context(), session.Token, totpLoginTestOrigin)
+	if err != nil || state == nil || state.Challenge == nil || state.Enrollment == nil ||
+		state.IsReplacement || len(state.Enrollment.QRPNG) == 0 {
+		t.Fatalf("StartTOTPManagement() enrollment = %#v, %v", state, err)
+	}
+	secret := strings.ReplaceAll(state.Enrollment.ManualKey, " ", "")
+	var activeTOTP int
+	var payload []byte
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM totp_credentials
+		WHERE user_id = ? AND enabled = 1 AND revoked_at IS NULL`, session.UserID,
+	).Scan(&activeTOTP); err != nil || activeTOTP != 0 {
+		t.Fatalf("active TOTP before enrollment confirmation = %d, %v", activeTOTP, err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT payload_ciphertext FROM auth_challenges WHERE id = ?`, state.Challenge.ID,
+	).Scan(&payload); err != nil || len(payload) == 0 || strings.Contains(string(payload), secret) {
+		t.Fatalf("encrypted enrollment draft length=%d exposed=%t error=%v", len(payload), strings.Contains(string(payload), secret), err)
+	}
+	validCode := setupTOTPCode(t, secret, now)
+	if _, err := manager.ConfirmTOTPManagement(
+		t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
+		invalidTOTPCode(validCode), "198.51.100.29", "Enrollment Browser",
+	); err == nil {
+		t.Fatal("invalid enrollment code succeeded")
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM totp_credentials
+		WHERE user_id = ? AND enabled = 1 AND revoked_at IS NULL`, session.UserID,
+	).Scan(&activeTOTP); err != nil || activeTOTP != 0 || activeManagedRecoveryCount(t, manager) != setupRecoveryCodeCount {
+		t.Fatalf("state after invalid enrollment: TOTP=%d recovery=%d error=%v", activeTOTP, activeManagedRecoveryCount(t, manager), err)
+	}
+	rotated, err := manager.ConfirmTOTPManagement(
+		t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
+		validCode, "198.51.100.29", "  Enrollment Browser  ",
+	)
+	if err != nil || rotated == nil || rotated.Token == "" || rotated.Token == session.Token ||
+		rotated.AuthVersion != session.AuthVersion+1 || rotated.StepUpMethod != AuthenticationMethodTOTP {
+		t.Fatalf("ConfirmTOTPManagement() enrollment = %#v, %v", rotated, err)
+	}
+	for _, token := range []string{session.Token, other.Token} {
+		if stored, err := manager.GetSessionByToken(t.Context(), token); err != nil || stored != nil {
+			t.Fatalf("prior enrollment session after rotation = %#v, %v", stored, err)
+		}
+	}
+	if stored, err := manager.GetSessionByToken(t.Context(), rotated.Token); err != nil || stored == nil {
+		t.Fatalf("rotated enrollment session = %#v, %v", stored, err)
+	}
+	var activeID string
+	var encryptedSeed []byte
+	var keyVersion int
+	var lastAcceptedStep int64
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT id, encrypted_seed, key_version, last_accepted_step
+		FROM totp_credentials
+		WHERE user_id = ? AND enabled = 1 AND revoked_at IS NULL`, session.UserID,
+	).Scan(&activeID, &encryptedSeed, &keyVersion, &lastAcceptedStep); err != nil {
+		t.Fatal(err)
+	}
+	decrypted, err := manager.decryptTOTPSeed(session.UserID, activeID, encryptedSeed, keyVersion)
+	if err != nil || decrypted != secret || lastAcceptedStep < 0 {
+		t.Fatalf("enrolled TOTP id=%q secretMatch=%t step=%d error=%v", activeID, decrypted == secret, lastAcceptedStep, err)
+	}
+	if recovery := activeManagedRecoveryCount(t, manager); recovery != 0 {
+		t.Fatalf("orphaned recovery codes after TOTP enrollment = %d", recovery)
+	}
+	var eventText string
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT group_concat(metadata_json, '|') FROM auth_events
+		WHERE subject_user_id = ? AND event_type = ?`, session.UserID, AuthEventCredentialChanged,
+	).Scan(&eventText); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(eventText, `"action":"enroll"`) ||
+		!strings.Contains(eventText, `"action":"enrolled"`) || strings.Contains(eventText, secret) {
+		t.Fatalf("enrollment audit events = %q", eventText)
+	}
+}
+
 func TestTOTPReplacementKeepsOldFactorUntilAtomicCompletion(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 16, 0, 0, 0, time.UTC)
 	manager, _, oldSecret, session := prepareMFAManagement(t, now, true)
@@ -136,18 +271,19 @@ func TestTOTPReplacementKeepsOldFactorUntilAtomicCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := manager.StartTOTPReplacement(t.Context(), session.Token, totpLoginTestOrigin)
-	if err != nil || state == nil || state.Challenge == nil || state.Enrollment == nil || len(state.Enrollment.QRPNG) == 0 {
-		t.Fatalf("StartTOTPReplacement() = %#v, %v", state, err)
+	state, err := manager.StartTOTPManagement(t.Context(), session.Token, totpLoginTestOrigin)
+	if err != nil || state == nil || state.Challenge == nil || state.Enrollment == nil ||
+		!state.IsReplacement || len(state.Enrollment.QRPNG) == 0 {
+		t.Fatalf("StartTOTPManagement() = %#v, %v", state, err)
 	}
-	if _, err := manager.GetTOTPReplacement(
+	if _, err := manager.GetTOTPManagement(
 		t.Context(), state.Challenge.Token, session.Token, "https://other.example",
 	); !errors.Is(err, ErrSecurityChallengeInvalid) {
-		t.Fatalf("cross-origin GetTOTPReplacement() error = %v", err)
+		t.Fatalf("cross-origin GetTOTPManagement() error = %v", err)
 	}
 	replacementSecret := strings.ReplaceAll(state.Enrollment.ManualKey, " ", "")
 	validCode := setupTOTPCode(t, replacementSecret, now)
-	if _, err := manager.ConfirmTOTPReplacement(
+	if _, err := manager.ConfirmTOTPManagement(
 		t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
 		invalidTOTPCode(validCode), "198.51.100.30", "Replacement Browser",
 	); err == nil {
@@ -163,13 +299,13 @@ func TestTOTPReplacementKeepsOldFactorUntilAtomicCompletion(t *testing.T) {
 	if stored, err := manager.GetSessionByToken(t.Context(), other.Token); err != nil || stored == nil {
 		t.Fatalf("other session before replacement completion = %#v, %v", stored, err)
 	}
-	rotated, err := manager.ConfirmTOTPReplacement(
+	rotated, err := manager.ConfirmTOTPManagement(
 		t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
 		validCode, "198.51.100.30", "  Replacement Browser  ",
 	)
 	if err != nil || rotated == nil || rotated.Token == "" || rotated.Token == session.Token ||
 		rotated.AuthVersion != session.AuthVersion+1 || rotated.StepUpMethod != AuthenticationMethodTOTP {
-		t.Fatalf("ConfirmTOTPReplacement() = %#v, %v", rotated, err)
+		t.Fatalf("ConfirmTOTPManagement() = %#v, %v", rotated, err)
 	}
 	if stored, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || stored != nil {
 		t.Fatalf("old current session after replacement = %#v, %v", stored, err)
@@ -436,6 +572,56 @@ func TestRecoveryCodeRevocationRequiresFreshStepUpAndClearsOnlyUnusedCodes(t *te
 	}
 }
 
+func TestTOTPEnrollmentRollsBackFactorRecoverySessionsAndChallengeOnAuditFailure(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 19, 30, 0, 0, time.UTC)
+	manager, _, session := prepareTOTPEnrollmentManagement(t, now)
+	insertManagedRecoveryBatch(t, manager, "rollback recovery material", now.Add(-time.Hour))
+	state, err := manager.StartTOTPManagement(t.Context(), session.Token, totpLoginTestOrigin)
+	if err != nil || state.IsReplacement {
+		t.Fatalf("StartTOTPManagement() enrollment = %#v, %v", state, err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		CREATE TRIGGER fail_managed_totp_enrollment_event
+		BEFORE INSERT ON auth_events
+		WHEN NEW.metadata_json = '{"action":"enrolled","factor":"totp"}'
+		BEGIN SELECT RAISE(ABORT, 'injected managed TOTP enrollment event failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	secret := strings.ReplaceAll(state.Enrollment.ManualKey, " ", "")
+	if _, err := manager.ConfirmTOTPManagement(
+		t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
+		setupTOTPCode(t, secret, now), "198.51.100.31", "Rollback Enrollment Browser",
+	); err == nil || !strings.Contains(err.Error(), "injected managed TOTP enrollment event failure") {
+		t.Fatalf("ConfirmTOTPManagement() enrollment audit failure = %v", err)
+	}
+	var activeTOTP, authVersion int
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM totp_credentials
+		WHERE user_id = ? AND enabled = 1 AND revoked_at IS NULL`, session.UserID,
+	).Scan(&activeTOTP); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT auth_version FROM users WHERE id = ?`, session.UserID,
+	).Scan(&authVersion); err != nil {
+		t.Fatal(err)
+	}
+	if activeTOTP != 0 || authVersion != int(session.AuthVersion) ||
+		activeManagedRecoveryCount(t, manager) != setupRecoveryCodeCount {
+		t.Fatalf("rolled-back enrollment state: TOTP=%d authVersion=%d recovery=%d", activeTOTP, authVersion, activeManagedRecoveryCount(t, manager))
+	}
+	if stored, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || stored == nil {
+		t.Fatalf("enrollment session after rollback = %#v, %v", stored, err)
+	}
+	var consumedAt any
+	var payload []byte
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT consumed_at, payload_ciphertext FROM auth_challenges WHERE id = ?`, state.Challenge.ID,
+	).Scan(&consumedAt, &payload); err != nil || consumedAt != nil || len(payload) == 0 {
+		t.Fatalf("enrollment challenge after rollback = consumed:%v payload:%d error:%v", consumedAt, len(payload), err)
+	}
+}
+
 func TestTOTPReplacementRollsBackCredentialSessionsAndChallengeOnAuditFailure(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 20, 0, 0, 0, time.UTC)
 	manager, _, _, session := prepareMFAManagement(t, now, true)
@@ -445,7 +631,7 @@ func TestTOTPReplacementRollsBackCredentialSessionsAndChallengeOnAuditFailure(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := manager.StartTOTPReplacement(t.Context(), session.Token, totpLoginTestOrigin)
+	state, err := manager.StartTOTPManagement(t.Context(), session.Token, totpLoginTestOrigin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,11 +643,11 @@ func TestTOTPReplacementRollsBackCredentialSessionsAndChallengeOnAuditFailure(t 
 		t.Fatal(err)
 	}
 	secret := strings.ReplaceAll(state.Enrollment.ManualKey, " ", "")
-	if _, err := manager.ConfirmTOTPReplacement(
+	if _, err := manager.ConfirmTOTPManagement(
 		t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
 		setupTOTPCode(t, secret, now), "198.51.100.31", "Rollback Browser",
 	); err == nil || !strings.Contains(err.Error(), "injected managed TOTP event failure") {
-		t.Fatalf("ConfirmTOTPReplacement() audit failure = %v", err)
+		t.Fatalf("ConfirmTOTPManagement() audit failure = %v", err)
 	}
 	var activeTOTP, authVersion int
 	if err := manager.db.Read().QueryRowContext(t.Context(), `
@@ -490,10 +676,62 @@ func TestTOTPReplacementRollsBackCredentialSessionsAndChallengeOnAuditFailure(t 
 	}
 }
 
+func TestConcurrentTOTPEnrollmentHasOneWinner(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 20, 30, 0, 0, time.UTC)
+	manager, _, session := prepareTOTPEnrollmentManagement(t, now)
+	state, err := manager.StartTOTPManagement(t.Context(), session.Token, totpLoginTestOrigin)
+	if err != nil || state.IsReplacement {
+		t.Fatalf("StartTOTPManagement() enrollment = %#v, %v", state, err)
+	}
+	code := setupTOTPCode(t, strings.ReplaceAll(state.Enrollment.ManualKey, " ", ""), now)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wait sync.WaitGroup
+	for index := 0; index < 2; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			_, err := manager.ConfirmTOTPManagement(
+				t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
+				code, "198.51.100.32", "Concurrent Enrollment Browser",
+			)
+			results <- err
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("concurrent TOTP enrollment successes = %d", successes)
+	}
+	var activeTOTP, activeSessions int
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM totp_credentials
+		WHERE user_id = ? AND enabled = 1 AND revoked_at IS NULL`, session.UserID,
+	).Scan(&activeTOTP); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM sessions WHERE user_id = ? AND revoked_at IS NULL`, session.UserID,
+	).Scan(&activeSessions); err != nil {
+		t.Fatal(err)
+	}
+	if activeTOTP != 1 || activeSessions != 1 {
+		t.Fatalf("concurrent enrollment state: TOTP=%d sessions=%d", activeTOTP, activeSessions)
+	}
+}
+
 func TestConcurrentTOTPReplacementHasOneWinner(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 21, 0, 0, 0, time.UTC)
 	manager, _, _, session := prepareMFAManagement(t, now, true)
-	state, err := manager.StartTOTPReplacement(t.Context(), session.Token, totpLoginTestOrigin)
+	state, err := manager.StartTOTPManagement(t.Context(), session.Token, totpLoginTestOrigin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +744,7 @@ func TestConcurrentTOTPReplacementHasOneWinner(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			<-start
-			_, err := manager.ConfirmTOTPReplacement(
+			_, err := manager.ConfirmTOTPManagement(
 				t.Context(), state.Challenge.Token, session.Token, totpLoginTestOrigin,
 				code, "198.51.100.32", "Concurrent Browser",
 			)
