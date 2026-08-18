@@ -61,7 +61,7 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 			Scopes:      microsoftAccountTokenScopes(),
 			Endpoint:    oauth2.Endpoint{AuthURL: "https://login.example/authorize"},
 		},
-	}, nil)
+	}, nil, testMailboxCredentialKey)
 
 	rawURL := manager.MicrosoftAccountOAuthURL("state-value")
 	parsed, err := url.Parse(rawURL)
@@ -109,7 +109,7 @@ func TestExchangeMicrosoftAccountCodeRequestsGraphMailScopes(t *testing.T) {
 			RedirectURL:  "https://gofer.example/auth/microsoft/account/callback",
 			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
 		},
-	}, nil)
+	}, nil, testMailboxCredentialKey)
 
 	token, err := manager.ExchangeMicrosoftAccountCode(ctx, "auth-code")
 	if err != nil {

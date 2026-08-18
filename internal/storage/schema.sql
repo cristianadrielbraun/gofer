@@ -509,26 +509,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_normalized
 
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 
--- OAuth provider accounts (Google, future: GitHub, etc.)
+-- OAuth credentials for one exact Gmail or Outlook mailbox account. The
+-- plaintext token columns are retained empty for one compatibility release so
+-- upgraded rows can be encrypted after the application secret is loaded.
 CREATE TABLE IF NOT EXISTS oauth_accounts (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL UNIQUE REFERENCES accounts(id) ON DELETE CASCADE,
     provider TEXT NOT NULL,
-    provider_account_id TEXT NOT NULL,
+    provider_account_id TEXT NOT NULL CHECK (provider_account_id <> ''),
     access_token TEXT NOT NULL DEFAULT '',
     refresh_token TEXT NOT NULL DEFAULT '',
+    access_token_ciphertext BLOB CHECK (access_token_ciphertext IS NULL OR length(access_token_ciphertext) > 0),
+    refresh_token_ciphertext BLOB CHECK (refresh_token_ciphertext IS NULL OR length(refresh_token_ciphertext) > 0),
+    key_version INTEGER CHECK (key_version IS NULL OR key_version > 0),
     token_type TEXT NOT NULL DEFAULT 'Bearer',
     expires_at DATETIME,
     scopes TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (
+        (key_version IS NULL AND access_token_ciphertext IS NULL AND refresh_token_ciphertext IS NULL)
+        OR
+        (key_version IS NOT NULL AND access_token = '' AND refresh_token = '')
+    )
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_provider_account
     ON oauth_accounts(provider, provider_account_id);
 
-CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user
-    ON oauth_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_accounts_account
+    ON oauth_accounts(account_id);
 
 -- Sessions
 CREATE TABLE IF NOT EXISTS sessions (
@@ -1317,4 +1327,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (85);
+INSERT OR REPLACE INTO schema_version (version) VALUES (86);

@@ -6074,7 +6074,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	}
 
 	scopes, _ := token.Extra("scope").(string)
-	err = h.mailCredentials().UpsertOAuthAccount(r.Context(), userID, providers.OAuthGoogle, info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
+	err = h.mailCredentials().UpsertOAuthAccount(r.Context(), accountID, providers.OAuthGoogle, info.Sub, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
 	if err != nil {
 		log.Printf("warning: failed to store oauth tokens for account %s: %v", accountID, err)
 	}
@@ -6154,7 +6154,7 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	}
 
 	scopes, _ := token.Extra("scope").(string)
-	err = h.mailCredentials().UpsertOAuthAccount(r.Context(), userID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
+	err = h.mailCredentials().UpsertOAuthAccount(r.Context(), accountID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
 	if err != nil {
 		log.Printf("warning: failed to store microsoft oauth tokens for account %s: %v", accountID, err)
 	}

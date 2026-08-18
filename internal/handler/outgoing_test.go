@@ -138,8 +138,8 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	mailCredentials := mailauth.New(&mailauth.Config{}, db)
-	if err := mailCredentials.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
+	mailCredentials := mailauth.New(&mailauth.Config{}, db, testMailboxCredentialKey)
+	if err := mailCredentials.UpsertOAuthAccount(ctx, "acc", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
@@ -210,8 +210,8 @@ func TestOutgoingWorkerRetriesTemporaryGmailFailureWithSameSnapshot(t *testing.T
 		t.Fatalf("seed Gmail account: %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	mailCredentials := mailauth.New(&mailauth.Config{}, db)
-	if err := mailCredentials.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
+	mailCredentials := mailauth.New(&mailauth.Config{}, db, testMailboxCredentialKey)
+	if err := mailCredentials.UpsertOAuthAccount(ctx, "acc", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))

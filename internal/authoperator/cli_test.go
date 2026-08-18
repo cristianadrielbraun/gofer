@@ -70,7 +70,7 @@ func TestStatusReportsInitializationAndActiveAdministratorsWithoutSecretsOrWrite
 	if code := Run(t.Context(), []string{"status"}, databasePath, &stdout, &stderr); code != 0 {
 		t.Fatalf("Run(status) code = %d stderr=%q", code, stderr.String())
 	}
-	expected := "schema_version: 85\n" +
+	expected := fmt.Sprintf("schema_version: %d\n", storage.CurrentSchemaVersion) +
 		"authentication_initialized: true\n" +
 		"owner_user_id: \"owner\\x1b[31m\"\n" +
 		"setup_token_configured: false\n" +

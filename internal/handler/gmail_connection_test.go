@@ -31,8 +31,8 @@ func TestHandleTestAccountUsesGmailAPIForGmail(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := mailauth.New(&mailauth.Config{}, db)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
+	manager := mailauth.New(&mailauth.Config{}, db, testMailboxCredentialKey)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expires, "https://mail.google.com/"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 

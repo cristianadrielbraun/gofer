@@ -34,8 +34,8 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 	expires := time.Now().Add(-time.Hour)
-	manager := mailauth.New(&mailauth.Config{}, db)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
+	manager := mailauth.New(&mailauth.Config{}, db, testMailboxCredentialKey)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db, testMailboxCredentialKey)
 	store, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
 		t.Fatalf("NewAccountStore() error = %v", err)

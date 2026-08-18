@@ -17,7 +17,7 @@ func newAccountOAuthFlowTestManager(t *testing.T, enabled bool) (*Manager, *stor
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	manager := NewManager(&Config{Enabled: enabled}, db)
+	manager := NewManager(&Config{Enabled: enabled}, db, testMailboxCredentialKey)
 	return manager, db
 }
 

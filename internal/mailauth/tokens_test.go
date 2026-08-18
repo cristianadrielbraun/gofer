@@ -60,6 +60,60 @@ func TestRefreshTokenForScopesClassifiesPermanentAndTemporaryFailures(t *testing
 	}
 }
 
+func TestGmailRefreshUsesEncryptedMigratedCredential(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, email, name) VALUES ('owner', 'owner@example.com', 'Owner');
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('gmail-account', 'owner', 'gmail', 'google-subject', 'owner@gmail.com');
+		INSERT INTO oauth_accounts (
+			id, account_id, provider, provider_account_id, access_token, refresh_token, scopes
+		) VALUES (
+			'legacy-google', 'gmail-account', 'google', 'google-subject',
+			'expired-access-token', 'legacy-refresh-token', 'https://mail.google.com/'
+		);`); err != nil {
+		t.Fatalf("insert legacy Gmail credential: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm() error = %v", err)
+		}
+		if got := r.FormValue("grant_type"); got != "refresh_token" {
+			t.Fatalf("grant_type = %q, want refresh_token", got)
+		}
+		if got := r.FormValue("refresh_token"); got != "legacy-refresh-token" {
+			t.Fatalf("refresh_token = %q, want migrated credential", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-access-token","refresh_token":"rotated-refresh-token","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer server.Close()
+
+	manager := New(&Config{GoogleClient: &oauth2.Config{
+		ClientID: "client-id", ClientSecret: "client-secret",
+		Endpoint: oauth2.Endpoint{TokenURL: server.URL},
+	}}, db, testMailboxCredentialKey)
+	if err := manager.SecureOAuthCredentials(ctx); err != nil {
+		t.Fatalf("SecureOAuthCredentials() error = %v", err)
+	}
+	if token, err := manager.RefreshOAuthTokenForAccount(ctx, "gmail-account"); err != nil || token != "fresh-access-token" {
+		t.Fatalf("RefreshOAuthTokenForAccount() = %q, %v", token, err)
+	}
+	stored := storedOAuthTokenRecord(
+		t, manager, ctx, "gmail-account", providers.OAuthGoogle,
+		"expired-access-token", "legacy-refresh-token", "fresh-access-token", "rotated-refresh-token",
+	)
+	if stored.AccessToken != "fresh-access-token" || stored.RefreshToken != "rotated-refresh-token" {
+		t.Fatalf("refreshed credential = access:%q refresh:%q", stored.AccessToken, stored.RefreshToken)
+	}
+}
+
 func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
@@ -99,9 +153,9 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(
 			ClientSecret: "client-secret",
 			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
 		},
-	}, db)
+	}, db, testMailboxCredentialKey)
 	expiresAt := time.Now().Add(time.Hour)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "cached-mail-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphMailScope); err != nil {
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "cached-mail-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphMailScope); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -116,15 +170,15 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(
 		t.Fatalf("scope = %q, want %q", gotScope, microsoftGraphContactsScope)
 	}
 
-	var storedAccessToken, storedRefreshToken string
-	if err := db.Read().QueryRowContext(ctx, `SELECT access_token, refresh_token FROM oauth_accounts WHERE provider = ? AND provider_account_id = ?`, providers.OAuthMicrosoft, "subject-id").Scan(&storedAccessToken, &storedRefreshToken); err != nil {
-		t.Fatalf("query stored token: %v", err)
+	stored := storedOAuthTokenRecord(
+		t, manager, ctx, "acc", providers.OAuthMicrosoft,
+		"cached-mail-token", "refresh-token", "rotated-refresh-token",
+	)
+	if stored.AccessToken != "cached-mail-token" {
+		t.Fatalf("stored access token = %q, want cached access token preserved", stored.AccessToken)
 	}
-	if storedAccessToken != "cached-mail-token" {
-		t.Fatalf("stored access token = %q, want cached access token preserved", storedAccessToken)
-	}
-	if storedRefreshToken != "rotated-refresh-token" {
-		t.Fatalf("stored refresh token = %q, want rotated refresh token", storedRefreshToken)
+	if stored.RefreshToken != "rotated-refresh-token" {
+		t.Fatalf("stored refresh token = %q, want rotated refresh token", stored.RefreshToken)
 	}
 }
 
@@ -167,9 +221,9 @@ func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndPres
 			ClientSecret: "client-secret",
 			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
 		},
-	}, db)
+	}, db, testMailboxCredentialKey)
 	expiresAt := time.Now().Add(time.Hour)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "cached-contacts-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphContactsScope); err != nil {
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "cached-contacts-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphContactsScope); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -193,15 +247,15 @@ func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndPres
 		t.Fatalf("scope = %q, want Graph mailbox settings scope", gotScope)
 	}
 
-	var storedAccessToken, storedRefreshToken string
-	if err := db.Read().QueryRowContext(ctx, `SELECT access_token, refresh_token FROM oauth_accounts WHERE provider = ? AND provider_account_id = ?`, providers.OAuthMicrosoft, "subject-id").Scan(&storedAccessToken, &storedRefreshToken); err != nil {
-		t.Fatalf("query stored token: %v", err)
+	stored := storedOAuthTokenRecord(
+		t, manager, ctx, "acc", providers.OAuthMicrosoft,
+		"cached-contacts-token", "refresh-token", "rotated-refresh-token",
+	)
+	if stored.AccessToken != "cached-contacts-token" {
+		t.Fatalf("stored access token = %q, want cached access token preserved", stored.AccessToken)
 	}
-	if storedAccessToken != "cached-contacts-token" {
-		t.Fatalf("stored access token = %q, want cached access token preserved", storedAccessToken)
-	}
-	if storedRefreshToken != "rotated-refresh-token" {
-		t.Fatalf("stored refresh token = %q, want rotated refresh token", storedRefreshToken)
+	if stored.RefreshToken != "rotated-refresh-token" {
+		t.Fatalf("stored refresh token = %q, want rotated refresh token", stored.RefreshToken)
 	}
 }
 
@@ -221,9 +275,9 @@ func TestMicrosoftGraphMailTokenUsesFreshCachedGraphAccessToken(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 
-	manager := NewManager(&Config{}, db)
+	manager := NewManager(&Config{}, db, testMailboxCredentialKey)
 	expiresAt := time.Now().Add(time.Hour)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "cached-graph-token", "refresh-token", "Bearer", &expiresAt, strings.Join(microsoftAccountTokenScopes(), " ")); err != nil {
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "cached-graph-token", "refresh-token", "Bearer", &expiresAt, strings.Join(microsoftAccountTokenScopes(), " ")); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -272,9 +326,9 @@ func TestGetOAuthTokenForOutlookUsesGraphMailScopesAndPreservesStoredAccess(t *t
 			ClientSecret: "client-secret",
 			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
 		},
-	}, db)
+	}, db, testMailboxCredentialKey)
 	expiresAt := time.Now().Add(time.Hour)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "graph-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphContactsScope); err != nil {
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "graph-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphContactsScope); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -289,18 +343,18 @@ func TestGetOAuthTokenForOutlookUsesGraphMailScopesAndPreservesStoredAccess(t *t
 		t.Fatalf("scope = %q, want Graph mail scopes", gotScope)
 	}
 
-	var storedAccessToken, storedRefreshToken, storedScopes string
-	if err := db.Read().QueryRowContext(ctx, `SELECT access_token, refresh_token, scopes FROM oauth_accounts WHERE provider = ? AND provider_account_id = ?`, providers.OAuthMicrosoft, "subject-id").Scan(&storedAccessToken, &storedRefreshToken, &storedScopes); err != nil {
-		t.Fatalf("query stored token: %v", err)
+	stored := storedOAuthTokenRecord(
+		t, manager, ctx, "acc", providers.OAuthMicrosoft,
+		"graph-token", "refresh-token", "rotated-mail-refresh-token",
+	)
+	if stored.AccessToken != "graph-token" {
+		t.Fatalf("stored access token = %q, want existing access token preserved", stored.AccessToken)
 	}
-	if storedAccessToken != "graph-token" {
-		t.Fatalf("stored access token = %q, want existing access token preserved", storedAccessToken)
+	if stored.RefreshToken != "rotated-mail-refresh-token" {
+		t.Fatalf("stored refresh token = %q, want rotated refresh token", stored.RefreshToken)
 	}
-	if storedRefreshToken != "rotated-mail-refresh-token" {
-		t.Fatalf("stored refresh token = %q, want rotated refresh token", storedRefreshToken)
-	}
-	if storedScopes != microsoftGraphContactsScope {
-		t.Fatalf("stored scopes = %q, want existing scopes preserved", storedScopes)
+	if stored.Scopes != microsoftGraphContactsScope {
+		t.Fatalf("stored scopes = %q, want existing scopes preserved", stored.Scopes)
 	}
 }
 
@@ -320,7 +374,7 @@ func TestMicrosoftGraphContactsTokenRejectsNonOutlookAccount(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 
-	manager := NewManager(&Config{}, db)
+	manager := NewManager(&Config{}, db, testMailboxCredentialKey)
 	_, err = manager.GetMicrosoftGraphContactsTokenForAccount(ctx, "gmail_acc")
 	if err == nil || !strings.Contains(err.Error(), "not an Outlook account") {
 		t.Fatalf("error = %v, want non-Outlook account rejection", err)

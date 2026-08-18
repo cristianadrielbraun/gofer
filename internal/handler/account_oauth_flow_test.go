@@ -29,7 +29,7 @@ func newAccountOAuthFlowTestHandler(t *testing.T) (*Handler, *mailauth.Service, 
 			ClientID: "client-id",
 			Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example/authorize"},
 		},
-	}, db)
+	}, db, testMailboxCredentialKey)
 	return &Handler{db: db, auth: manager, mailboxAuth: mailCredentials}, mailCredentials, db
 }
 
@@ -38,23 +38,33 @@ func accountOAuthUserRequest(req *http.Request, userID, sessionToken string) *ht
 	return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Email: userID + "@example.com"}))
 }
 
-func TestHandleAccountOAuthAuthorizeStoresServerSideFlow(t *testing.T) {
+func TestPasswordAuthenticatedUserCanStartMailboxAuthorization(t *testing.T) {
 	h, manager, db := newAccountOAuthFlowTestHandler(t)
 	if _, err := db.Write().Exec(`INSERT INTO users (id, email, name) VALUES ('user', 'user@example.com', 'User')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
+	session, err := h.auth.CreateAuthenticatedSession(
+		t.Context(), "user", "Password Browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatalf("create password-authenticated session: %v", err)
+	}
+	const authorizePath = "/api/accounts/oauth2/authorize"
 	form := url.Values{
 		"provider":      {providers.ProviderGmail},
 		"email_address": {"user@gmail.com"},
 		"display_name":  {"User Gmail"},
 		"flow_action":   {"add"},
+		auth.CSRFFormFieldName: {
+			csrfProofForSession(t, h.auth, session.Token, authorizePath),
+		},
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/accounts/oauth2/authorize", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, authorizePath, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req = accountOAuthUserRequest(req, "user", "session-token")
+	req.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
 	rec := httptest.NewRecorder()
 
-	h.handleAccountOAuthAuthorize(rec, req)
+	h.auth.Middleware(http.HandlerFunc(h.handleAccountOAuthAuthorize)).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d body = %q, want redirect", rec.Code, rec.Body.String())
@@ -72,7 +82,7 @@ func TestHandleAccountOAuthAuthorizeStoresServerSideFlow(t *testing.T) {
 			t.Fatalf("legacy OAuth account cookie %q was set", cookie.Name)
 		}
 	}
-	flow, err := manager.ConsumeAccountOAuthFlow(req.Context(), state, "user", "session-token", providers.ProviderGmail)
+	flow, err := manager.ConsumeAccountOAuthFlow(req.Context(), state, "user", session.Token, providers.ProviderGmail)
 	if err != nil {
 		t.Fatalf("ConsumeAccountOAuthFlow() error = %v", err)
 	}

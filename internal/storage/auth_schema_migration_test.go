@@ -78,8 +78,17 @@ func seedV77AuthenticationSchema(t *testing.T, path, token string) {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE accounts (
+			id TEXT PRIMARY KEY,
+			user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL DEFAULT 'imap',
+			provider_account_id TEXT NOT NULL DEFAULT '',
+			email_address TEXT NOT NULL
+		);
 		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin)
 		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 3, 1);
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('owner-mailbox', 'owner', 'gmail', 'provider-subject', 'owner@example.com');
 		INSERT INTO sessions (id, user_id, token, user_agent, expires_at, created_at)
 		VALUES ('legacy-session', 'owner', ?, 'legacy-agent', '2026-09-03T10:30:00Z', '2026-08-04T10:30:00Z');
 		INSERT INTO oauth_accounts (
@@ -106,8 +115,8 @@ func TestMigrateV77AddsAuthenticationSchemaAndPreservesSessions(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 85 {
-		t.Fatalf("schema version = %d, %v; want 85", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 86 {
+		t.Fatalf("schema version = %d, %v; want 86", version, err)
 	}
 	hash := sha256.Sum256([]byte(rawToken))
 	wantHash := hex.EncodeToString(hash[:])

@@ -60,8 +60,8 @@ func TestOutlookGraphMutationUsesProviderMessageIDAndCachesMovedID(t *testing.T)
 		t.Fatal("provider message was not inserted")
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{}}, db)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
+	manager := mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{}}, db, testMailboxCredentialKey)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -113,7 +113,7 @@ func TestOutlookGraphMutationUsesProviderMessageIDAndCachesMovedID(t *testing.T)
 	}))
 	defer server.Close()
 
-	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db, testMailboxCredentialKey)
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
@@ -173,8 +173,8 @@ func TestOutlookGraphPermanentDeleteUsesProviderAPI(t *testing.T) {
 	}
 	messageID := ids["graph-delete-1"]
 	expires := time.Now().Add(time.Hour)
-	manager := mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{}}, db)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "graph-token", "refresh-token", "Bearer", &expires,
+	manager := mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{}}, db, testMailboxCredentialKey)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "graph-token", "refresh-token", "Bearer", &expires,
 		"https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/MailboxSettings.ReadWrite"); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
@@ -249,8 +249,8 @@ func TestOutlookGraphBodyFetchUsesProviderMessageID(t *testing.T) {
 		t.Fatal("provider message was not inserted")
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := mailauth.New(&mailauth.Config{}, db)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
+	manager := mailauth.New(&mailauth.Config{}, db, testMailboxCredentialKey)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -277,7 +277,7 @@ func TestOutlookGraphBodyFetchUsesProviderMessageID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db, testMailboxCredentialKey)
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
@@ -352,8 +352,8 @@ func TestOutlookGraphAttachmentFetchMaterializesProviderAttachment(t *testing.T)
 		t.Fatalf("query attachment id: %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := mailauth.New(&mailauth.Config{}, db)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
+	manager := mailauth.New(&mailauth.Config{}, db, testMailboxCredentialKey)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -379,7 +379,7 @@ func TestOutlookGraphAttachmentFetchMaterializesProviderAttachment(t *testing.T)
 	}))
 	defer server.Close()
 
-	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db, testMailboxCredentialKey)
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
@@ -463,8 +463,8 @@ func TestOutlookGraphInlineContentMaterializesProviderAttachment(t *testing.T) {
 		t.Fatalf("ReplaceAttachmentsInternal() error = %v", err)
 	}
 	expires := time.Now().Add(time.Hour)
-	manager := mailauth.New(&mailauth.Config{}, db)
-	if err := manager.UpsertOAuthAccount(ctx, "default", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
+	manager := mailauth.New(&mailauth.Config{}, db, testMailboxCredentialKey)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "stale-token", "refresh-token", "Bearer", &expires, ""); err != nil {
 		t.Fatalf("UpsertOAuthAccount() error = %v", err)
 	}
 
@@ -490,7 +490,7 @@ func TestOutlookGraphInlineContentMaterializesProviderAttachment(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db)
+	manager = mailauth.New(&mailauth.Config{MicrosoftClient: &oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token"}}}, db, testMailboxCredentialKey)
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })

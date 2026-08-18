@@ -72,8 +72,8 @@ func (e *OAuthTokenError) OAuthErrorStatus() int {
 }
 
 func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
-	var accountProvider, providerAccountID string
-	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider, provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider, &providerAccountID); err != nil {
+	var accountProvider string
+	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider); err != nil {
 		return "", fmt.Errorf("query account oauth identity: %w", err)
 	}
 	oauthProvider, err := oauthProviderForAccountProvider(accountProvider)
@@ -83,22 +83,19 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 	if accountProvider == providers.ProviderOutlook {
 		return m.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	}
-	if providerAccountID != "" {
-		return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider, true)
-	}
-	return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider, false)
+	return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider)
 }
 
 func (m *Manager) RefreshOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
-	var accountProvider, providerAccountID string
-	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider, provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider, &providerAccountID); err != nil {
+	var accountProvider string
+	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider); err != nil {
 		return "", fmt.Errorf("query account oauth identity: %w", err)
 	}
 	oauthProvider, err := oauthProviderForAccountProvider(accountProvider)
 	if err != nil {
 		return "", err
 	}
-	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider, providerAccountID != "")
+	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider)
 	if err != nil {
 		return "", err
 	}
@@ -117,14 +114,14 @@ func (m *Manager) GetMicrosoftGraphMailTokenForAccount(ctx context.Context, acco
 }
 
 func (m *Manager) getMicrosoftGraphTokenForAccount(ctx context.Context, accountID, label string, scopes ...string) (string, error) {
-	var accountProvider, providerAccountID string
-	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider, provider_account_id FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider, &providerAccountID); err != nil {
+	var accountProvider string
+	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider); err != nil {
 		return "", fmt.Errorf("query account oauth identity: %w", err)
 	}
 	if accountProvider != providers.ProviderOutlook {
 		return "", fmt.Errorf("account %s is not an Outlook account", accountID)
 	}
-	record, err := m.oauthTokenForAccount(ctx, accountID, providers.OAuthMicrosoft, providerAccountID != "")
+	record, err := m.oauthTokenForAccount(ctx, accountID, providers.OAuthMicrosoft)
 	if err != nil {
 		return "", err
 	}
@@ -184,8 +181,8 @@ func oauthProviderForAccountProvider(provider string) (string, error) {
 	}
 }
 
-func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID, oauthProvider string, useProviderIdentity bool) (string, error) {
-	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider, useProviderIdentity)
+func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID, oauthProvider string) (string, error) {
+	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider)
 	if err != nil {
 		return "", err
 	}
@@ -202,7 +199,7 @@ func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID, oauthP
 }
 
 type oauthTokenRecord struct {
-	ID           string
+	oauthCredentialContext
 	AccessToken  string
 	RefreshToken string
 	TokenType    string
@@ -210,31 +207,39 @@ type oauthTokenRecord struct {
 	Scopes       string
 }
 
-func (m *Manager) oauthTokenForAccount(ctx context.Context, accountID, oauthProvider string, useProviderIdentity bool) (oauthTokenRecord, error) {
+func (m *Manager) oauthTokenForAccount(ctx context.Context, accountID, oauthProvider string) (oauthTokenRecord, error) {
 	var record oauthTokenRecord
-	var err error
-	if useProviderIdentity {
-		err = m.db.Read().QueryRowContext(ctx,
-			`SELECT oa.id, oa.access_token, oa.refresh_token, oa.token_type, oa.expires_at, oa.scopes
-			 FROM accounts a
-			 JOIN oauth_accounts oa ON oa.user_id = a.user_id
-			  AND oa.provider = ?
-			  AND oa.provider_account_id = a.provider_account_id
-			 WHERE a.id = ? AND a.provider_account_id != ''`,
-			oauthProvider, accountID,
-		).Scan(&record.ID, &record.AccessToken, &record.RefreshToken, &record.TokenType, &record.ExpiresAt, &record.Scopes)
-	} else {
-		err = m.db.Read().QueryRowContext(ctx,
-			`SELECT id, access_token, refresh_token, token_type, expires_at, scopes
-			 FROM oauth_accounts WHERE user_id = (SELECT user_id FROM accounts WHERE id = ?) AND provider = ?`,
-			accountID, oauthProvider,
-		).Scan(&record.ID, &record.AccessToken, &record.RefreshToken, &record.TokenType, &record.ExpiresAt, &record.Scopes)
-	}
+	var accessCiphertext, refreshCiphertext []byte
+	var keyVersion sql.NullInt64
+	err := m.db.Read().QueryRowContext(ctx, `
+		SELECT oa.id, oa.account_id, oa.provider, oa.provider_account_id,
+		       oa.access_token_ciphertext, oa.refresh_token_ciphertext, oa.key_version,
+		       oa.token_type, oa.expires_at, oa.scopes
+		FROM accounts account
+		JOIN oauth_accounts oa ON oa.account_id = account.id
+		WHERE account.id = ? AND oa.provider = ?`,
+		accountID, oauthProvider,
+	).Scan(
+		&record.ID, &record.AccountID, &record.Provider, &record.ProviderAccountID,
+		&accessCiphertext, &refreshCiphertext, &keyVersion,
+		&record.TokenType, &record.ExpiresAt, &record.Scopes,
+	)
 	if err == sql.ErrNoRows {
 		return record, fmt.Errorf("no oauth token found for account %s", accountID)
 	}
 	if err != nil {
 		return record, fmt.Errorf("query oauth token: %w", err)
+	}
+	if !keyVersion.Valid {
+		return record, fmt.Errorf("mailbox credential for account %s has not been encrypted", accountID)
+	}
+	record.AccessToken, err = m.decryptOAuthToken(record.oauthCredentialContext, "access", accessCiphertext, int(keyVersion.Int64))
+	if err != nil {
+		return oauthTokenRecord{}, fmt.Errorf("decrypt mailbox access token: %w", err)
+	}
+	record.RefreshToken, err = m.decryptOAuthToken(record.oauthCredentialContext, "refresh", refreshCiphertext, int(keyVersion.Int64))
+	if err != nil {
+		return oauthTokenRecord{}, fmt.Errorf("decrypt mailbox refresh token: %w", err)
 	}
 	return record, nil
 }
@@ -334,9 +339,19 @@ func (m *Manager) storeOAuthRefreshToken(ctx context.Context, oauthAccountID, re
 	if oauthAccountID == "" || strings.TrimSpace(refreshToken) == "" {
 		return nil
 	}
-	_, err := m.db.Write().ExecContext(ctx,
-		`UPDATE oauth_accounts SET refresh_token = ?, updated_at = ? WHERE id = ?`,
-		refreshToken, time.Now(), oauthAccountID,
+	credential, err := m.loadOAuthCredentialContext(ctx, m.db.Read(), oauthAccountID)
+	if err != nil {
+		return err
+	}
+	ciphertext, err := m.encryptOAuthToken(credential, "refresh", refreshToken)
+	if err != nil {
+		return err
+	}
+	_, err = m.db.Write().ExecContext(ctx,
+		`UPDATE oauth_accounts
+		 SET refresh_token = '', refresh_token_ciphertext = ?, key_version = ?, updated_at = ?
+		 WHERE id = ? AND account_id = ?`,
+		ciphertext, mailboxCredentialKeyVersion, time.Now(), oauthAccountID, credential.AccountID,
 	)
 	if err != nil {
 		return fmt.Errorf("store refreshed token: %w", err)
@@ -358,16 +373,34 @@ func (m *Manager) storeOAuthAccessToken(ctx context.Context, oauthAccountID stri
 		tokenType = "Bearer"
 	}
 	scopes, _ := token.Extra("scope").(string)
-	_, err := m.db.Write().ExecContext(ctx,
+	credential, err := m.loadOAuthCredentialContext(ctx, m.db.Read(), oauthAccountID)
+	if err != nil {
+		return err
+	}
+	accessCiphertext, err := m.encryptOAuthToken(credential, "access", token.AccessToken)
+	if err != nil {
+		return err
+	}
+	var refreshCiphertext []byte
+	if token.RefreshToken != "" {
+		refreshCiphertext, err = m.encryptOAuthToken(credential, "refresh", token.RefreshToken)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = m.db.Write().ExecContext(ctx,
 		`UPDATE oauth_accounts
-		    SET access_token = ?,
-		        refresh_token = COALESCE(NULLIF(?, ''), refresh_token),
+		    SET access_token = '', refresh_token = '',
+		        access_token_ciphertext = ?,
+		        refresh_token_ciphertext = CASE WHEN ? IS NULL THEN refresh_token_ciphertext ELSE ? END,
+		        key_version = ?,
 		        token_type = ?,
 		        expires_at = ?,
 		        scopes = ?,
 		        updated_at = ?
-		  WHERE id = ?`,
-		token.AccessToken, token.RefreshToken, tokenType, expiresAt, scopes, time.Now(), oauthAccountID,
+		  WHERE id = ? AND account_id = ?`,
+		accessCiphertext, refreshCiphertext, refreshCiphertext, mailboxCredentialKeyVersion,
+		tokenType, expiresAt, scopes, time.Now(), oauthAccountID, credential.AccountID,
 	)
 	if err != nil {
 		return fmt.Errorf("store refreshed token: %w", err)

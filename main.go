@@ -111,7 +111,10 @@ func runServer() {
 	if err := provisionInitialSetupToken(context.Background(), authManager, authConfig.SetupToken, os.Stderr); err != nil {
 		log.Fatalf("failed to provision authentication setup token: %v", err)
 	}
-	mailCredentials := mailauth.New(mailboxOAuthConfig, db)
+	mailCredentials := mailauth.New(mailboxOAuthConfig, db, secretKey)
+	if err := mailCredentials.SecureOAuthCredentials(context.Background()); err != nil {
+		log.Fatalf("failed to secure mailbox OAuth credentials: %v", err)
+	}
 	log.Printf("boot: mailbox credential service initialized")
 
 	if err := authManager.EnsureDefaultUser(); err != nil {

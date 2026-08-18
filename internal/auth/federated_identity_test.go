@@ -391,10 +391,11 @@ func TestUnlinkGoogleIdentityRotatesSessionsAuditsAndPreservesMailboxOAuth(t *te
 		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
 		VALUES ('gmail-account', 'person', 'gmail', 'mailbox-subject', 'mailbox@gmail.example');
 		INSERT INTO oauth_accounts (
-			id, user_id, provider, provider_account_id, access_token, refresh_token, scopes
+			id, account_id, provider, provider_account_id,
+			access_token_ciphertext, refresh_token_ciphertext, key_version, scopes
 		) VALUES (
-			'gmail-oauth', 'person', 'google', 'mailbox-subject',
-			'mailbox-access-token', 'mailbox-refresh-token', 'mail.read contacts.read'
+			'gmail-oauth', 'gmail-account', 'google', 'mailbox-subject',
+			x'01020304', x'05060708', 1, 'mail.read contacts.read'
 		);`); err != nil {
 		t.Fatalf("insert independent Gmail mailbox OAuth: %v", err)
 	}
@@ -417,7 +418,7 @@ func TestUnlinkGoogleIdentityRotatesSessionsAuditsAndPreservesMailboxOAuth(t *te
 	}
 
 	var identities, accounts, oauthAccounts int
-	var accessToken, refreshToken string
+	var accessCiphertext, refreshCiphertext []byte
 	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_identities`).Scan(&identities); err != nil {
 		t.Fatal(err)
 	}
@@ -425,16 +426,16 @@ func TestUnlinkGoogleIdentityRotatesSessionsAuditsAndPreservesMailboxOAuth(t *te
 		t.Fatal(err)
 	}
 	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT COUNT(*), MIN(access_token), MIN(refresh_token)
+		SELECT COUNT(*), MIN(access_token_ciphertext), MIN(refresh_token_ciphertext)
 		FROM oauth_accounts WHERE id = 'gmail-oauth'`,
-	).Scan(&oauthAccounts, &accessToken, &refreshToken); err != nil {
+	).Scan(&oauthAccounts, &accessCiphertext, &refreshCiphertext); err != nil {
 		t.Fatal(err)
 	}
 	if identities != 0 || accounts != 1 || oauthAccounts != 1 ||
-		accessToken != "mailbox-access-token" || refreshToken != "mailbox-refresh-token" {
+		string(accessCiphertext) != "\x01\x02\x03\x04" || string(refreshCiphertext) != "\x05\x06\x07\x08" {
 		t.Fatalf(
-			"unlink boundary = identities:%d accounts:%d oauth:%d access:%q refresh:%q",
-			identities, accounts, oauthAccounts, accessToken, refreshToken,
+			"unlink boundary = identities:%d accounts:%d oauth:%d access:%x refresh:%x",
+			identities, accounts, oauthAccounts, accessCiphertext, refreshCiphertext,
 		)
 	}
 
