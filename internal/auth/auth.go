@@ -65,6 +65,23 @@ type Session struct {
 	CreatedAt            time.Time
 }
 
+type SecuritySessionSummary struct {
+	ID                   string
+	Current              bool
+	Active               bool
+	AuthenticationMethod AuthenticationMethod
+	AssuranceLevel       AssuranceLevel
+	UserAgent            string
+	AuthenticatedAt      time.Time
+	LastUsedAt           time.Time
+	RevokedAt            *time.Time
+}
+
+type SecuritySessionList struct {
+	Sessions  []SecuritySessionSummary
+	Truncated bool
+}
+
 type PreAuthChallenge struct {
 	ID                string
 	Token             string

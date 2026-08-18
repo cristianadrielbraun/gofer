@@ -175,6 +175,133 @@ func TestRotateSessionPreservesAuthenticationAndRevokesOldToken(t *testing.T) {
 	}
 }
 
+func TestListSecuritySessionsBindsOwnerAndIncludesOnlyActiveAndRecentHistory(t *testing.T) {
+	now := time.Date(2026, time.August, 19, 10, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids:    []string{"current-id", "active-id", "recent-id", "old-id", "foreign-id"},
+		tokens: []string{"current-token", "active-token", "recent-token", "old-token", "foreign-token"},
+	})
+	insertActiveUser(t, manager, "user-one", false, now)
+	insertActiveUser(t, manager, "user-two", false, now)
+	current, err := manager.CreateAuthenticatedSession(
+		t.Context(), "user-one", "Current Browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := manager.CreateAuthenticatedSession(
+		t.Context(), "user-one", "Other Browser", AuthenticationMethodPasskey, AssuranceLevelPhishingResistant,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recent, err := manager.CreateAuthenticatedSession(
+		t.Context(), "user-one", "Signed-out Browser", AuthenticationMethodFederatedGoogle, AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := manager.CreateAuthenticatedSession(
+		t.Context(), "user-one", "Old Browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := manager.CreateAuthenticatedSession(
+		t.Context(), "user-two", "Foreign Browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range []*Session{recent, old} {
+		if changed, err := manager.RevokeSession(
+			t.Context(), "user-one", session.ID, "user-one", SessionRevocationLogout,
+		); err != nil || !changed {
+			t.Fatalf("RevokeSession(%q) = %t, %v", session.ID, changed, err)
+		}
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE sessions SET revoked_at = ?, created_at = ?, authenticated_at = ?, last_used_at = ?
+		WHERE id = ?`,
+		now.Add(-sessionRevokedRetention-time.Second), now.Add(-45*24*time.Hour),
+		now.Add(-45*24*time.Hour), now.Add(-45*24*time.Hour), old.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := manager.ListSecuritySessions(t.Context(), current.Token)
+	if err != nil {
+		t.Fatalf("ListSecuritySessions() error = %v", err)
+	}
+	if list == nil || list.Truncated || len(list.Sessions) != 3 {
+		t.Fatalf("ListSecuritySessions() = %#v", list)
+	}
+	if list.Sessions[0].ID != current.ID || !list.Sessions[0].Current || !list.Sessions[0].Active {
+		t.Fatalf("current security session = %#v", list.Sessions[0])
+	}
+	seen := make(map[string]SecuritySessionSummary, len(list.Sessions))
+	for _, session := range list.Sessions {
+		seen[session.ID] = session
+	}
+	if summary := seen[active.ID]; summary.Current || !summary.Active || summary.UserAgent != "Other Browser" ||
+		summary.AuthenticationMethod != AuthenticationMethodPasskey {
+		t.Fatalf("active security session = %#v", summary)
+	}
+	if summary := seen[recent.ID]; summary.Current || summary.Active || summary.RevokedAt == nil ||
+		summary.UserAgent != "Signed-out Browser" {
+		t.Fatalf("recent security session = %#v", summary)
+	}
+	for _, omitted := range []string{old.ID, foreign.ID} {
+		if _, exists := seen[omitted]; exists {
+			t.Fatalf("security session list exposed omitted session %q", omitted)
+		}
+	}
+	if _, err := manager.ListSecuritySessions(t.Context(), foreign.Token); err != nil {
+		t.Fatalf("foreign owner can list own sessions: %v", err)
+	}
+	if _, err := manager.ListSecuritySessions(t.Context(), "invalid-token"); !errors.Is(err, ErrSecuritySessionInvalid) {
+		t.Fatalf("invalid ListSecuritySessions() error = %v", err)
+	}
+}
+
+func TestListSecuritySessionsCapsRetainedHistory(t *testing.T) {
+	now := time.Date(2026, time.August, 19, 11, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids: []string{"current-id"}, tokens: []string{"current-token"},
+	})
+	insertActiveUser(t, manager, "user-id", false, now)
+	current, err := manager.CreateAuthenticatedSession(
+		t.Context(), "user-id", "Current Browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < securitySessionListLimit; index++ {
+		occurredAt := now.Add(-time.Duration(index+1) * time.Minute)
+		if _, err := manager.db.Write().ExecContext(t.Context(), `
+			INSERT INTO sessions (
+				id, user_id, token_hash, auth_version, authentication_method, assurance_level,
+				user_agent, authenticated_at, last_used_at, idle_expires_at, absolute_expires_at,
+				revoked_at, revoked_by, revocation_reason, created_at
+			) VALUES (?, 'user-id', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'user-id', ?, ?)`,
+			fmt.Sprintf("revoked-%02d", index), hashToken(fmt.Sprintf("revoked-token-%02d", index)),
+			AuthenticationMethodPassword, AssuranceLevelSingleFactor, "Retained Browser",
+			occurredAt, occurredAt, now.Add(24*time.Hour), now.Add(30*24*time.Hour),
+			occurredAt, SessionRevocationLogout, occurredAt,
+		); err != nil {
+			t.Fatalf("insert retained session %d: %v", index, err)
+		}
+	}
+	list, err := manager.ListSecuritySessions(t.Context(), current.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list == nil || !list.Truncated || len(list.Sessions) != securitySessionListLimit ||
+		!list.Sessions[0].Current {
+		t.Fatalf("capped security session list = %#v", list)
+	}
+}
+
 func TestConcurrentSessionRotationSucceedsOnce(t *testing.T) {
 	now := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{

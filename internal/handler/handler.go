@@ -2982,6 +2982,12 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
 		return
 	}
+	sessions, err := h.auth.ListSecuritySessions(ctx, auth.GetSessionToken(r))
+	if err != nil {
+		log.Printf("load security session history: %v", err)
+		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+		return
+	}
 	data := views.PasswordSecurityData{
 		LoginUsername: user.Username,
 		LoginEmail:    user.Email,
@@ -2999,6 +3005,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	}
 	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
 	data.FederatedIdentities = federatedIdentityViewData(identities)
+	data.Sessions, data.SessionsTruncated = securitySessionViewData(sessions, data.OIDCLoginName)
 	for _, path := range []string{
 		passwordChangePath, securityStepUpPath, securityTOTPStartPath, securityTOTPConfirmPath,
 		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,

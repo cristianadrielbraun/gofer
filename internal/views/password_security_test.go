@@ -108,6 +108,47 @@ func TestPasswordSecuritySettingsRendersLocalLoginIdentifiersReadOnlyAndEscaped(
 	}
 }
 
+func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *testing.T) {
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		SessionsTruncated: true,
+		Sessions: []SecuritySessionData{
+			{
+				Client: "Firefox on Linux", Authentication: "Password", Assurance: "Multi-factor",
+				SignedInAt: "Aug 19, 2026 at 10:00 AM", LastActiveAt: "Aug 19, 2026 at 10:05 AM",
+				Current: true, Active: true,
+			},
+			{
+				Client: `<script>signed-out</script>`, Authentication: "Google", Assurance: "Single factor",
+				SignedInAt: "Aug 18, 2026 at 9:00 AM", LastActiveAt: "Aug 18, 2026 at 9:30 AM",
+				EndedAt: "Aug 18, 2026 at 9:31 AM",
+			},
+		},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() session history error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-security-sessions`, `aria-label="Current and recent sessions"`,
+		"Firefox on Linux", "Password · Multi-factor", "Current",
+		`&lt;script&gt;signed-out&lt;/script&gt;`, "Google · Single factor", "Signed out",
+		"Signed in Aug 19, 2026 at 10:00 AM", "Last active Aug 19, 2026 at 10:05 AM",
+		"Signed out Aug 18, 2026 at 9:31 AM", "Showing the 50 most relevant sessions",
+		"Session tokens and internal identifiers are never shown.",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("security session view missing %q: %q", want, html)
+		}
+	}
+	for _, forbidden := range []string{
+		`<script>signed-out</script>`, "session-token", "session-id", `action="/settings/security/sessions`,
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("security session view exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
 func TestPasswordSecuritySettingsRendersAccessibleFactorManagementAndEscapesSecrets(t *testing.T) {
 	csrf := strings.Repeat("b", 64)
 	data := PasswordSecurityData{

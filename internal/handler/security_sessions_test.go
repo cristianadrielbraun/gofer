@@ -1,0 +1,75 @@
+package handler
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/auth"
+)
+
+func TestSecuritySessionViewDataUsesBoundedHumanReadableMetadata(t *testing.T) {
+	now := time.Date(2026, time.August, 19, 12, 30, 0, 0, time.Local)
+	revokedAt := now.Add(15 * time.Minute)
+	list := &auth.SecuritySessionList{
+		Truncated: true,
+		Sessions: []auth.SecuritySessionSummary{
+			{
+				ID: "current-internal-id", Current: true, Active: true,
+				AuthenticationMethod: auth.AuthenticationMethodPassword,
+				AssuranceLevel:       auth.AssuranceLevelMultiFactor,
+				UserAgent:            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36",
+				AuthenticatedAt:      now, LastUsedAt: now.Add(5 * time.Minute),
+			},
+			{
+				ID: "signed-out-internal-id", Active: false,
+				AuthenticationMethod: auth.AuthenticationMethodFederatedOIDC,
+				AssuranceLevel:       auth.AssuranceLevelSingleFactor,
+				UserAgent:            "  <unrecognized\x00client>  ",
+				AuthenticatedAt:      now.Add(-time.Hour), LastUsedAt: now.Add(-time.Minute), RevokedAt: &revokedAt,
+			},
+		},
+	}
+	views, truncated := securitySessionViewData(list, "Company Login")
+	if !truncated || len(views) != 2 {
+		t.Fatalf("securitySessionViewData() = %#v, %t", views, truncated)
+	}
+	if views[0].Client != "Chrome on Linux" || views[0].Authentication != "Password" ||
+		views[0].Assurance != "Multi-factor" || !views[0].Current || !views[0].Active ||
+		views[0].SignedInAt != "Aug 19, 2026 at 12:30 PM" || views[0].EndedAt != "" {
+		t.Fatalf("current session view = %#v", views[0])
+	}
+	if views[1].Client != "<unrecognized client>" || views[1].Authentication != "Company Login" ||
+		views[1].Assurance != "Single factor" || views[1].Current || views[1].Active ||
+		views[1].EndedAt != "Aug 19, 2026 at 12:45 PM" {
+		t.Fatalf("signed-out session view = %#v", views[1])
+	}
+	for _, view := range views {
+		if strings.Contains(view.Client, "internal-id") {
+			t.Fatalf("session view exposed internal identifier: %#v", view)
+		}
+	}
+}
+
+func TestSecuritySessionClientLabelRecognizesCommonBrowsersAndBoundsFallback(t *testing.T) {
+	tests := []struct {
+		name      string
+		userAgent string
+		want      string
+	}{
+		{name: "edge windows", userAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/140.0 Safari/537.36 Edg/140.0", want: "Microsoft Edge on Windows"},
+		{name: "firefox mac", userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15) Gecko/20100101 Firefox/141.0", want: "Firefox on macOS"},
+		{name: "safari iphone", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) Version/19.0 Mobile/15E148 Safari/604.1", want: "Safari on iPhone"},
+		{name: "unknown", userAgent: "", want: "Unknown browser or device"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := securitySessionClientLabel(test.userAgent); got != test.want {
+				t.Fatalf("securitySessionClientLabel() = %q, want %q", got, test.want)
+			}
+		})
+	}
+	if got := securitySessionClientLabel(strings.Repeat("界", 120)); len([]rune(got)) != 96 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("bounded fallback = %q (%d runes)", got, len([]rune(got)))
+	}
+}

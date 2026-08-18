@@ -17,6 +17,7 @@ const (
 	sessionLastUsedWriteInterval = 5 * time.Minute
 	sessionRevokedRetention      = 30 * 24 * time.Hour
 	sessionCleanupBatchSize      = 500
+	securitySessionListLimit     = 50
 )
 
 const sessionSelect = `SELECT id, user_id, auth_version, authentication_method,
@@ -185,6 +186,75 @@ func (m *Manager) ListSessions(ctx context.Context, userID string) ([]Session, e
 		sessions = append(sessions, *session)
 	}
 	return sessions, rows.Err()
+}
+
+// ListSecuritySessions returns the current user's active sessions and the
+// recently revoked history retained by the session cleanup policy. The exact
+// active session token establishes ownership; no raw session token is returned.
+func (m *Manager) ListSecuritySessions(ctx context.Context, sessionToken string) (*SecuritySessionList, error) {
+	now := m.clock.Now().UTC()
+	tx, err := m.db.Read().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin security session list: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	current, err := currentSecuritySession(ctx, tx, sessionToken, now, false)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, sessionSelect+`
+		WHERE user_id = ? AND (
+			id = ?
+			OR (
+				revoked_at IS NULL AND auth_version = ?
+				AND idle_expires_at > ? AND absolute_expires_at > ?
+			)
+			OR (revoked_at IS NOT NULL AND revoked_at > ?)
+		)
+		ORDER BY CASE WHEN id = ? THEN 0 WHEN revoked_at IS NULL THEN 1 ELSE 2 END,
+		         COALESCE(revoked_at, last_used_at, created_at) DESC, id DESC
+		LIMIT ?`,
+		current.UserID, current.ID, current.AuthVersion, now, now,
+		now.Add(-sessionRevokedRetention), current.ID, securitySessionListLimit+1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list security sessions: %w", err)
+	}
+	defer rows.Close()
+	result := &SecuritySessionList{
+		Sessions: make([]SecuritySessionSummary, 0, securitySessionListLimit),
+	}
+	for rows.Next() {
+		session, err := scanSession(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan security session: %w", err)
+		}
+		if len(result.Sessions) == securitySessionListLimit {
+			result.Truncated = true
+			break
+		}
+		result.Sessions = append(result.Sessions, SecuritySessionSummary{
+			ID: session.ID, Current: session.ID == current.ID,
+			Active: session.RevokedAt == nil && session.AuthVersion == current.AuthVersion &&
+				session.IdleExpiresAt.After(now) && session.AbsoluteExpiresAt.After(now),
+			AuthenticationMethod: session.AuthenticationMethod,
+			AssuranceLevel:       session.AssuranceLevel,
+			UserAgent:            session.UserAgent,
+			AuthenticatedAt:      session.AuthenticatedAt,
+			LastUsedAt:           session.LastUsedAt,
+			RevokedAt:            session.RevokedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate security sessions: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close security session list: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit security session list: %w", err)
+	}
+	return result, nil
 }
 
 func (m *Manager) RevokeSessionByToken(ctx context.Context, token, actorID string, reason SessionRevocationReason) (bool, error) {

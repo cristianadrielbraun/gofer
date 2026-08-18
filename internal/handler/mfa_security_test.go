@@ -96,6 +96,69 @@ func TestSecuritySettingsRendersManagedFactorsAndProtectsActionsWithCSRF(t *test
 	}
 }
 
+func TestSecuritySettingsListsOnlyCurrentUsersActiveAndRecentSessions(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	current, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || current == nil {
+		t.Fatalf("load current security session = %#v, %v", current, err)
+	}
+	active, err := manager.CreateAuthenticatedSession(
+		t.Context(), current.UserID, "Other Browser", auth.AuthenticationMethodFederatedGoogle, auth.AssuranceLevelMultiFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedOut, err := manager.CreateAuthenticatedSession(
+		t.Context(), current.UserID, "Signed-out Browser", auth.AuthenticationMethodPasskey, auth.AssuranceLevelPhishingResistant,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := manager.RevokeSession(
+		t.Context(), current.UserID, signedOut.ID, current.UserID, auth.SessionRevocationLogout,
+	); err != nil || !changed {
+		t.Fatalf("RevokeSession() = %t, %v", changed, err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (id, email, email_normalized, name, status, auth_version, created_at, updated_at)
+		VALUES ('foreign-session-user', 'foreign@example.com', 'foreign@example.com', 'Foreign', 'active', 1, ?, ?)`,
+		now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := manager.CreateAuthenticatedSession(
+		t.Context(), "foreign-session-user", "Foreign Browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page := getSecuritySettings(t, stack, sessionCookie)
+	if page.Code != http.StatusOK {
+		t.Fatalf("security session page = %d %q", page.Code, page.Body.String())
+	}
+	html := page.Body.String()
+	for _, want := range []string{
+		`data-security-sessions`, `aria-label="Current and recent sessions"`, "Current",
+		"Other Browser", "Google", "Multi-factor", "Active",
+		"Signed-out Browser", "Passkey", "Phishing-resistant", "Signed out",
+		"retained for up to 30 days", "internal identifiers are never shown",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("security session page missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		current.ID, sessionCookie.Value, active.ID, active.Token, signedOut.ID, signedOut.Token,
+		foreign.ID, foreign.Token, "Foreign Browser", "/settings/security/sessions/",
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("security session page exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
 func TestSecuritySettingsStartsAndRejectsPasskeyRegistrationThroughBoundJSONEndpoints(t *testing.T) {
 	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
 	page := getSecuritySettings(t, stack, sessionCookie)
