@@ -1,6 +1,7 @@
 package mailauth
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"path/filepath"
@@ -59,6 +60,141 @@ func TestSecureOAuthCredentialsEncryptsLegacyRowsAndRejectsWrongKey(t *testing.T
 	wrongKey := []byte("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 	if err := New(&Config{}, db, wrongKey).SecureOAuthCredentials(ctx); err == nil || !strings.Contains(err.Error(), "authenticate mailbox credential") {
 		t.Fatalf("SecureOAuthCredentials(wrong key) error = %v", err)
+	}
+}
+
+func TestSecureOAuthCredentialsUpgradesBothVersionOneContextFormats(t *testing.T) {
+	ctx := context.Background()
+	db := newMailboxCredentialTestDB(t)
+	manager := New(&Config{}, db, testMailboxCredentialKey)
+	credentials := []struct {
+		context      oauthCredentialContext
+		accessToken  string
+		refreshToken string
+		legacyAAD    bool
+	}{
+		{
+			context: oauthCredentialContext{
+				ID: "version-one-delimited", AccountID: "gmail-one",
+				Provider: providers.OAuthGoogle, ProviderAccountID: "google-one",
+			},
+			accessToken: "delimited-access", refreshToken: "delimited-refresh", legacyAAD: true,
+		},
+		{
+			context: oauthCredentialContext{
+				ID: "version-one-length-prefixed", AccountID: "gmail-two",
+				Provider: providers.OAuthGoogle, ProviderAccountID: "google-two",
+			},
+			accessToken: "prefixed-access", refreshToken: "prefixed-refresh",
+		},
+	}
+	originalCiphertext := map[string][]byte{}
+	for _, credential := range credentials {
+		accessAAD := oauthTokenAAD(credential.context, "access")
+		refreshAAD := oauthTokenAAD(credential.context, "refresh")
+		if credential.legacyAAD {
+			accessAAD = legacyOAuthTokenAAD(credential.context, "access")
+			refreshAAD = legacyOAuthTokenAAD(credential.context, "refresh")
+		}
+		accessCiphertext := testOAuthTokenCiphertext(
+			t, manager, credential.accessToken,
+			mailboxCredentialLegacyKeyVersion, accessAAD,
+		)
+		refreshCiphertext := testOAuthTokenCiphertext(
+			t, manager, credential.refreshToken,
+			mailboxCredentialLegacyKeyVersion, refreshAAD,
+		)
+		originalCiphertext[credential.context.ID] = append([]byte(nil), accessCiphertext...)
+		if _, err := db.Write().Exec(`
+			INSERT INTO oauth_accounts (
+				id, account_id, provider, provider_account_id,
+				access_token_ciphertext, refresh_token_ciphertext, key_version
+			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			credential.context.ID, credential.context.AccountID,
+			credential.context.Provider, credential.context.ProviderAccountID,
+			accessCiphertext, refreshCiphertext, mailboxCredentialLegacyKeyVersion,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := manager.SecureOAuthCredentials(ctx); err != nil {
+		t.Fatalf("SecureOAuthCredentials(v1 upgrade) error = %v", err)
+	}
+	for _, credential := range credentials {
+		var accessCiphertext []byte
+		var keyVersion int
+		if err := db.Read().QueryRow(`
+			SELECT access_token_ciphertext, key_version
+			FROM oauth_accounts WHERE id = ?`, credential.context.ID,
+		).Scan(&accessCiphertext, &keyVersion); err != nil {
+			t.Fatal(err)
+		}
+		if keyVersion != mailboxCredentialKeyVersion || bytes.Equal(accessCiphertext, originalCiphertext[credential.context.ID]) {
+			t.Fatalf("upgraded %s = version:%d ciphertext-changed:%t", credential.context.ID, keyVersion, !bytes.Equal(accessCiphertext, originalCiphertext[credential.context.ID]))
+		}
+		stored := storedOAuthTokenRecord(
+			t, manager, ctx, credential.context.AccountID, credential.context.Provider,
+			credential.accessToken, credential.refreshToken,
+		)
+		if stored.AccessToken != credential.accessToken || stored.RefreshToken != credential.refreshToken {
+			t.Fatalf("upgraded %s token = access:%q refresh:%q", credential.context.ID, stored.AccessToken, stored.RefreshToken)
+		}
+	}
+	if err := manager.SecureOAuthCredentials(ctx); err != nil {
+		t.Fatalf("SecureOAuthCredentials(v2 idempotent) error = %v", err)
+	}
+}
+
+func TestSecureOAuthCredentialsRollsBackVersionOneUpgradeOnAuthenticationFailure(t *testing.T) {
+	ctx := context.Background()
+	db := newMailboxCredentialTestDB(t)
+	manager := New(&Config{}, db, testMailboxCredentialKey)
+	credentials := []oauthCredentialContext{
+		{ID: "credential-one", AccountID: "gmail-one", Provider: providers.OAuthGoogle, ProviderAccountID: "google-one"},
+		{ID: "credential-two", AccountID: "gmail-two", Provider: providers.OAuthGoogle, ProviderAccountID: "google-two"},
+	}
+	originalCiphertext := map[string][]byte{}
+	for index, credential := range credentials {
+		accessCiphertext := testOAuthTokenCiphertext(
+			t, manager, "access-secret",
+			mailboxCredentialLegacyKeyVersion, legacyOAuthTokenAAD(credential, "access"),
+		)
+		refreshCiphertext := testOAuthTokenCiphertext(
+			t, manager, "refresh-secret",
+			mailboxCredentialLegacyKeyVersion, legacyOAuthTokenAAD(credential, "refresh"),
+		)
+		if index == 1 {
+			accessCiphertext[len(accessCiphertext)-1] ^= 0xff
+		}
+		originalCiphertext[credential.ID] = append([]byte(nil), accessCiphertext...)
+		if _, err := db.Write().Exec(`
+			INSERT INTO oauth_accounts (
+				id, account_id, provider, provider_account_id,
+				access_token_ciphertext, refresh_token_ciphertext, key_version
+			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			credential.ID, credential.AccountID, credential.Provider, credential.ProviderAccountID,
+			accessCiphertext, refreshCiphertext, mailboxCredentialLegacyKeyVersion,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := manager.SecureOAuthCredentials(ctx); err == nil || !strings.Contains(err.Error(), "authenticate mailbox credential") {
+		t.Fatalf("SecureOAuthCredentials(corrupt v1) error = %v", err)
+	}
+	for _, credential := range credentials {
+		var accessCiphertext []byte
+		var keyVersion int
+		if err := db.Read().QueryRow(`
+			SELECT access_token_ciphertext, key_version
+			FROM oauth_accounts WHERE id = ?`, credential.ID,
+		).Scan(&accessCiphertext, &keyVersion); err != nil {
+			t.Fatal(err)
+		}
+		if keyVersion != mailboxCredentialLegacyKeyVersion || !bytes.Equal(accessCiphertext, originalCiphertext[credential.ID]) {
+			t.Fatalf("rolled-back %s = version:%d ciphertext-preserved:%t", credential.ID, keyVersion, bytes.Equal(accessCiphertext, originalCiphertext[credential.ID]))
+		}
 	}
 }
 

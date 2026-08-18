@@ -11,12 +11,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const (
-	mailboxCredentialKeyVersion = 1
-	mailboxCredentialKeyContext = "gofer/mailauth/oauth-account-credential/v1"
-	minimumMailboxCredentialKey = 32
+	mailboxCredentialLegacyKeyVersion = 1
+	mailboxCredentialKeyVersion       = 2
+	mailboxCredentialKeyContext       = "gofer/mailauth/oauth-account-credential/v1"
+	minimumMailboxCredentialKey       = 32
 )
 
 type oauthCredentialContext struct {
@@ -27,9 +29,12 @@ type oauthCredentialContext struct {
 }
 
 type legacyOAuthCredential struct {
-	Context      oauthCredentialContext
-	AccessToken  string
-	RefreshToken string
+	Context           oauthCredentialContext
+	AccessToken       string
+	RefreshToken      string
+	AccessCiphertext  []byte
+	RefreshCiphertext []byte
+	KeyVersion        sql.NullInt64
 }
 
 func (m *Service) mailboxCredentialAEAD() (cipher.AEAD, error) {
@@ -71,7 +76,7 @@ func (m *Service) decryptOAuthToken(credential oauthCredentialContext, kind stri
 	if len(payload) == 0 {
 		return "", nil
 	}
-	if keyVersion != mailboxCredentialKeyVersion {
+	if keyVersion != mailboxCredentialLegacyKeyVersion && keyVersion != mailboxCredentialKeyVersion {
 		return "", fmt.Errorf("unsupported mailbox credential key version %d", keyVersion)
 	}
 	aead, err := m.mailboxCredentialAEAD()
@@ -82,11 +87,38 @@ func (m *Service) decryptOAuthToken(credential oauthCredentialContext, kind stri
 		return "", fmt.Errorf("mailbox credential payload is invalid")
 	}
 	nonce := payload[1 : 1+aead.NonceSize()]
-	plaintext, err := aead.Open(nil, nonce, payload[1+aead.NonceSize():], oauthTokenAAD(credential, kind))
-	if err != nil {
-		return "", fmt.Errorf("authenticate mailbox credential: %w", err)
+	ciphertext := payload[1+aead.NonceSize():]
+	var authenticationErr error
+	for _, aad := range oauthTokenAADForVersion(credential, kind, keyVersion) {
+		var plaintext []byte
+		plaintext, authenticationErr = aead.Open(nil, nonce, ciphertext, aad)
+		if authenticationErr == nil {
+			return string(plaintext), nil
+		}
 	}
-	return string(plaintext), nil
+	return "", fmt.Errorf("authenticate mailbox credential: %w", authenticationErr)
+}
+
+func oauthTokenAADForVersion(credential oauthCredentialContext, kind string, keyVersion int) [][]byte {
+	if keyVersion == mailboxCredentialLegacyKeyVersion {
+		// Two v1 encodings existed briefly during development. Accept both only
+		// while startup rewrites the row to the unambiguous v2 encoding.
+		return [][]byte{
+			legacyOAuthTokenAAD(credential, kind),
+			oauthTokenAAD(credential, kind),
+		}
+	}
+	return [][]byte{oauthTokenAAD(credential, kind)}
+}
+
+func legacyOAuthTokenAAD(credential oauthCredentialContext, kind string) []byte {
+	return []byte(strings.Join([]string{
+		credential.ID,
+		credential.AccountID,
+		credential.Provider,
+		credential.ProviderAccountID,
+		kind,
+	}, "\x00"))
 }
 
 func oauthTokenAAD(credential oauthCredentialContext, kind string) []byte {
@@ -111,9 +143,10 @@ func oauthTokenAAD(credential oauthCredentialContext, kind string) []byte {
 	return payload
 }
 
-// SecureOAuthCredentials encrypts every legacy plaintext mailbox grant in one
-// transaction and verifies that every encrypted row can be authenticated with
-// the current application secret. It must run before mailbox workers start.
+// SecureOAuthCredentials encrypts every legacy plaintext mailbox grant and
+// upgrades every v1 ciphertext in one transaction. It verifies that every row
+// uses the current format and authenticates with the current application
+// secret before commit. It must run before mailbox workers start.
 func (m *Service) SecureOAuthCredentials(ctx context.Context) error {
 	if _, err := m.mailboxCredentialAEAD(); err != nil {
 		return err
@@ -125,10 +158,14 @@ func (m *Service) SecureOAuthCredentials(ctx context.Context) error {
 	defer func() { _ = tx.Rollback() }()
 
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, account_id, provider, provider_account_id, access_token, refresh_token
-		FROM oauth_accounts WHERE key_version IS NULL ORDER BY id`)
+		SELECT id, account_id, provider, provider_account_id,
+		       access_token, refresh_token,
+		       access_token_ciphertext, refresh_token_ciphertext, key_version
+		FROM oauth_accounts
+		WHERE key_version IS NULL OR key_version = ?
+		ORDER BY id`, mailboxCredentialLegacyKeyVersion)
 	if err != nil {
-		return fmt.Errorf("load plaintext mailbox credentials: %w", err)
+		return fmt.Errorf("load legacy mailbox credentials: %w", err)
 	}
 	legacy := []legacyOAuthCredential{}
 	for rows.Next() {
@@ -137,21 +174,45 @@ func (m *Service) SecureOAuthCredentials(ctx context.Context) error {
 			&credential.Context.ID, &credential.Context.AccountID,
 			&credential.Context.Provider, &credential.Context.ProviderAccountID,
 			&credential.AccessToken, &credential.RefreshToken,
+			&credential.AccessCiphertext, &credential.RefreshCiphertext, &credential.KeyVersion,
 		); err != nil {
 			rows.Close()
-			return fmt.Errorf("scan plaintext mailbox credential: %w", err)
+			return fmt.Errorf("scan legacy mailbox credential: %w", err)
 		}
 		legacy = append(legacy, credential)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return fmt.Errorf("load plaintext mailbox credentials: %w", err)
+		return fmt.Errorf("load legacy mailbox credentials: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close plaintext mailbox credentials: %w", err)
+		return fmt.Errorf("close legacy mailbox credentials: %w", err)
 	}
 
 	for _, credential := range legacy {
+		previousVersion := int64(0)
+		if credential.KeyVersion.Valid {
+			previousVersion = credential.KeyVersion.Int64
+			if credential.AccessToken != "" || credential.RefreshToken != "" {
+				return fmt.Errorf("mailbox credential %q mixes plaintext and ciphertext", credential.Context.ID)
+			}
+			var err error
+			credential.AccessToken, err = m.decryptOAuthToken(
+				credential.Context, "access", credential.AccessCiphertext, int(previousVersion),
+			)
+			if err != nil {
+				return fmt.Errorf("decrypt legacy mailbox access credential %q: %w", credential.Context.ID, err)
+			}
+			credential.RefreshToken, err = m.decryptOAuthToken(
+				credential.Context, "refresh", credential.RefreshCiphertext, int(previousVersion),
+			)
+			if err != nil {
+				return fmt.Errorf("decrypt legacy mailbox refresh credential %q: %w", credential.Context.ID, err)
+			}
+		} else if credential.AccessCiphertext != nil || credential.RefreshCiphertext != nil {
+			return fmt.Errorf("plaintext mailbox credential %q contains unexpected ciphertext", credential.Context.ID)
+		}
+
 		accessCiphertext, err := m.encryptOAuthToken(credential.Context, "access", credential.AccessToken)
 		if err != nil {
 			return err
@@ -164,16 +225,16 @@ func (m *Service) SecureOAuthCredentials(ctx context.Context) error {
 			UPDATE oauth_accounts
 			SET access_token = '', refresh_token = '',
 			    access_token_ciphertext = ?, refresh_token_ciphertext = ?, key_version = ?
-			WHERE id = ? AND account_id = ? AND key_version IS NULL`,
+			WHERE id = ? AND account_id = ? AND COALESCE(key_version, 0) = ?`,
 			accessCiphertext, refreshCiphertext, mailboxCredentialKeyVersion,
-			credential.Context.ID, credential.Context.AccountID,
+			credential.Context.ID, credential.Context.AccountID, previousVersion,
 		)
 		if err != nil {
-			return fmt.Errorf("encrypt mailbox credential %q: %w", credential.Context.ID, err)
+			return fmt.Errorf("upgrade mailbox credential %q: %w", credential.Context.ID, err)
 		}
 		changed, err := result.RowsAffected()
 		if err != nil || changed != 1 {
-			return fmt.Errorf("encrypt mailbox credential %q: row changed concurrently", credential.Context.ID)
+			return fmt.Errorf("upgrade mailbox credential %q: row changed concurrently", credential.Context.ID)
 		}
 	}
 
@@ -209,6 +270,9 @@ func (m *Service) verifyOAuthCredentialsInTransaction(ctx context.Context, tx *s
 		}
 		if plaintextAccess != "" || plaintextRefresh != "" || !keyVersion.Valid {
 			return fmt.Errorf("mailbox credential %q remains in plaintext", credential.ID)
+		}
+		if keyVersion.Int64 != mailboxCredentialKeyVersion {
+			return fmt.Errorf("mailbox credential %q has unsupported key version %d", credential.ID, keyVersion.Int64)
 		}
 		if _, err := m.decryptOAuthToken(credential, "access", accessCiphertext, int(keyVersion.Int64)); err != nil {
 			return fmt.Errorf("verify mailbox access credential %q: %w", credential.ID, err)

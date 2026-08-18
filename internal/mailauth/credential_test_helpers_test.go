@@ -3,10 +3,26 @@ package mailauth
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"io"
 	"testing"
 )
 
 var testMailboxCredentialKey = []byte("0123456789abcdef0123456789abcdef")
+
+func testOAuthTokenCiphertext(t *testing.T, manager *Service, token string, version int, aad []byte) []byte {
+	t.Helper()
+	aead, err := manager.mailboxCredentialAEAD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		t.Fatal(err)
+	}
+	payload := append([]byte{byte(version)}, nonce...)
+	return aead.Seal(payload, nonce, []byte(token), aad)
+}
 
 func storedOAuthTokenRecord(t *testing.T, manager *Service, ctx context.Context, accountID, provider string, secrets ...string) oauthTokenRecord {
 	t.Helper()
