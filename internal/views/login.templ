@@ -22,7 +22,7 @@ type RecoveryRepairCodesData struct {
 	ErrorMessage string
 }
 
-templ LoginPage(showGoogle, showMicrosoft bool, errorMessage string, identifier string) {
+templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage string, identifier string) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark" data-theme="classic">
 		<head>
@@ -102,7 +102,7 @@ templ LoginPage(showGoogle, showMicrosoft bool, errorMessage string, identifier 
 						<p data-passkey-authentication-status role="status" aria-live="polite" class="text-center text-xs text-muted-foreground">Enter a username or email to target its passkeys, or leave it blank to choose a saved account.</p>
 						<noscript><p class="text-center text-xs text-amber-800 dark:text-amber-200">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript>
 					</form>
-					if showGoogle || showMicrosoft {
+					if showGoogle || showMicrosoft || oidcName != "" {
 						<div class="relative my-6">
 							<div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-border"></div></div>
 							<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">or</span></div>
@@ -131,6 +131,17 @@ templ LoginPage(showGoogle, showMicrosoft bool, errorMessage string, identifier 
 											<path d="M13 13h9v9h-9z" fill="#ffb900"></path>
 										</svg>
 										Continue with Microsoft
+									</span>
+								}
+							}
+							if oidcName != "" {
+								@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/auth/oidc"}) {
+									<span class="flex items-center justify-center gap-3">
+										<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+											<circle cx="12" cy="12" r="9"></circle>
+											<path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path>
+										</svg>
+										Continue with { oidcName }
 									</span>
 								}
 							}

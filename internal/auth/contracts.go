@@ -199,6 +199,7 @@ type Dependencies struct {
 	BucketHashKey            []byte
 	GoogleIDTokenVerifier    GoogleIDTokenVerifier
 	MicrosoftIDTokenVerifier MicrosoftIDTokenVerifier
+	OIDCIDTokenVerifier      OIDCIDTokenVerifier
 }
 
 type systemClock struct{}

@@ -14,12 +14,17 @@ type authenticatorRemoval struct {
 }
 
 type federatedLoginAvailability struct {
-	Google    bool
-	Microsoft bool
+	Google     bool
+	Microsoft  bool
+	OIDC       bool
+	OIDCIssuer string
 }
 
 func (m *Manager) configuredFederatedLoginAvailability() federatedLoginAvailability {
-	return federatedLoginAvailability{Google: m.HasGoogleLogin(), Microsoft: m.HasMicrosoftLogin()}
+	return federatedLoginAvailability{
+		Google: m.HasGoogleLogin(), Microsoft: m.HasMicrosoftLogin(),
+		OIDC: m.HasOIDCLogin(), OIDCIssuer: m.config.OIDCLoginIssuer,
+	}
 }
 
 // canRemoveAuthenticatorInTransaction evaluates the usable authentication
@@ -34,7 +39,7 @@ func canRemoveAuthenticatorInTransaction(
 	availability federatedLoginAvailability,
 	removal authenticatorRemoval,
 ) (bool, error) {
-	var hasPassword, hasTOTP, passkeyCount, googleIdentityCount, microsoftIdentityCount int
+	var hasPassword, hasTOTP, passkeyCount, googleIdentityCount, microsoftIdentityCount, oidcIdentityCount int
 	err := tx.QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
@@ -50,13 +55,17 @@ func canRemoveAuthenticatorInTransaction(
 			(SELECT COUNT(*) FROM auth_identities identity
 				WHERE identity.user_id = u.id AND identity.provider = ?
 				  AND identity.issuer LIKE 'https://login.microsoftonline.com/%/v2.0'
+				  AND (? = '' OR identity.id != ?)),
+			(SELECT COUNT(*) FROM auth_identities identity
+				WHERE identity.user_id = u.id AND identity.provider = ? AND identity.issuer = ?
 				  AND (? = '' OR identity.id != ?))
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active'`,
 		rpID, removal.PasskeyID, removal.PasskeyID,
 		googleIdentityProvider, googleLoginIssuer, removal.IdentityID, removal.IdentityID,
-		microsoftIdentityProvider, removal.IdentityID, removal.IdentityID, userID,
-	).Scan(&hasPassword, &hasTOTP, &passkeyCount, &googleIdentityCount, &microsoftIdentityCount)
+		microsoftIdentityProvider, removal.IdentityID, removal.IdentityID,
+		oidcIdentityProvider, availability.OIDCIssuer, removal.IdentityID, removal.IdentityID, userID,
+	).Scan(&hasPassword, &hasTOTP, &passkeyCount, &googleIdentityCount, &microsoftIdentityCount, &oidcIdentityCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrSecuritySessionInvalid
 	}
@@ -72,12 +81,15 @@ func canRemoveAuthenticatorInTransaction(
 	if !availability.Microsoft {
 		microsoftIdentityCount = 0
 	}
+	if !availability.OIDC || availability.OIDCIssuer == "" {
+		oidcIdentityCount = 0
+	}
 
 	policy, err := queryAuthenticationPolicy(ctx, tx, userID, 0)
 	if err != nil {
 		return false, fmt.Errorf("load authenticator removal policy: %w", err)
 	}
-	hasPrimary := hasPassword == 1 || passkeyCount > 0 || googleIdentityCount > 0 || microsoftIdentityCount > 0
+	hasPrimary := hasPassword == 1 || passkeyCount > 0 || googleIdentityCount > 0 || microsoftIdentityCount > 0 || oidcIdentityCount > 0
 	hasStrong := hasTOTP == 1 || passkeyCount > 0
 	return hasPrimary && (!policy.RequiresMFA || hasStrong), nil
 }

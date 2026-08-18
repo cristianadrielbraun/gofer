@@ -185,6 +185,9 @@ func runServer() {
 		if authManager.HasMicrosoftLogin() {
 			providers = append(providers, "Microsoft")
 		}
+		if authManager.HasOIDCLogin() {
+			providers = append(providers, authManager.OIDCLoginName())
+		}
 		appLogin := "none"
 		if len(providers) > 0 {
 			appLogin = strings.Join(providers, ", ")

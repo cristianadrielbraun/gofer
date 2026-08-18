@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -141,6 +142,9 @@ type Config struct {
 	GoogleLoginClient    *oauth2.Config
 	MicrosoftLoginClient *oauth2.Config
 	MicrosoftLoginTenant string
+	OIDCLoginClient      *oauth2.Config
+	OIDCLoginIssuer      string
+	OIDCLoginName        string
 	BaseURL              string
 	SecureCookies        bool
 }
@@ -193,6 +197,24 @@ func LoadConfig(baseURL string) *Config {
 		}
 	}
 
+	oidcClientID := strings.TrimSpace(os.Getenv("GOFER_OIDC_LOGIN_CLIENT_ID"))
+	oidcClientSecret := strings.TrimSpace(os.Getenv("GOFER_OIDC_LOGIN_CLIENT_SECRET"))
+	oidcIssuer := normalizeOIDCLoginIssuer(os.Getenv("GOFER_OIDC_LOGIN_ISSUER"))
+	if oidcClientID != "" && oidcClientSecret != "" && oidcIssuer != "" {
+		cfg.OIDCLoginIssuer = oidcIssuer
+		cfg.OIDCLoginName = normalizeOIDCLoginName(os.Getenv("GOFER_OIDC_LOGIN_NAME"))
+		cfg.OIDCLoginClient = &oauth2.Config{
+			ClientID:     oidcClientID,
+			ClientSecret: oidcClientSecret,
+			RedirectURL:  baseURL + oidcLoginCallbackPath,
+			Scopes: []string{
+				oidcApplicationOpenIDScope,
+				oidcApplicationProfileScope,
+				oidcApplicationEmailScope,
+			},
+		}
+	}
+
 	return cfg
 }
 
@@ -204,6 +226,9 @@ type Manager struct {
 	bucketHashKey              []byte
 	googleIDTokenVerifier      GoogleIDTokenVerifier
 	microsoftIDTokenVerifier   MicrosoftIDTokenVerifier
+	oidcIDTokenVerifier        OIDCIDTokenVerifier
+	oidcEndpointMu             sync.Mutex
+	oidcEndpoint               *oauth2.Endpoint
 	passkeyRegistrationFactory passkeyRegistrationFactory
 	passkeyAssertionFactory    passkeyAssertionFactory
 }
@@ -226,6 +251,9 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		if dependencies[0].MicrosoftIDTokenVerifier != nil {
 			deps.MicrosoftIDTokenVerifier = dependencies[0].MicrosoftIDTokenVerifier
 		}
+		if dependencies[0].OIDCIDTokenVerifier != nil {
+			deps.OIDCIDTokenVerifier = dependencies[0].OIDCIDTokenVerifier
+		}
 	}
 	if deps.GoogleIDTokenVerifier == nil && config != nil && config.GoogleLoginClient != nil {
 		deps.GoogleIDTokenVerifier = newDiscoveredGoogleIDTokenVerifier(config.GoogleLoginClient.ClientID)
@@ -233,6 +261,11 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 	if deps.MicrosoftIDTokenVerifier == nil && config != nil && config.MicrosoftLoginClient != nil {
 		deps.MicrosoftIDTokenVerifier = newDiscoveredMicrosoftIDTokenVerifier(
 			config.MicrosoftLoginClient.ClientID, config.MicrosoftLoginTenant,
+		)
+	}
+	if deps.OIDCIDTokenVerifier == nil && config != nil && config.OIDCLoginClient != nil {
+		deps.OIDCIDTokenVerifier = newDiscoveredOIDCIDTokenVerifier(
+			config.OIDCLoginIssuer, config.OIDCLoginClient.ClientID,
 		)
 	}
 	return &Manager{
@@ -243,6 +276,7 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		bucketHashKey:              deps.BucketHashKey,
 		googleIDTokenVerifier:      deps.GoogleIDTokenVerifier,
 		microsoftIDTokenVerifier:   deps.MicrosoftIDTokenVerifier,
+		oidcIDTokenVerifier:        deps.OIDCIDTokenVerifier,
 		passkeyRegistrationFactory: newPasskeyRegistrationCeremony,
 		passkeyAssertionFactory:    newPasskeyAssertionCeremony,
 	}
@@ -262,6 +296,17 @@ func (m *Manager) HasGoogleLogin() bool {
 
 func (m *Manager) HasMicrosoftLogin() bool {
 	return m.config.MicrosoftLoginClient != nil
+}
+
+func (m *Manager) HasOIDCLogin() bool {
+	return m.config.OIDCLoginClient != nil
+}
+
+func (m *Manager) OIDCLoginName() string {
+	if !m.HasOIDCLogin() {
+		return ""
+	}
+	return normalizeOIDCLoginName(m.config.OIDCLoginName)
 }
 
 func (m *Manager) DB() *storage.DB {

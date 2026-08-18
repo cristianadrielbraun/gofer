@@ -13,6 +13,7 @@ import (
 const (
 	googleIdentityProvider    = "google"
 	microsoftIdentityProvider = "microsoft"
+	oidcIdentityProvider      = "oidc"
 )
 
 var (
@@ -80,7 +81,7 @@ func (m *Manager) ListFederatedIdentities(ctx context.Context, userID string) ([
 		return nil, fmt.Errorf("validate identity-removal relying party: %w", err)
 	}
 	for index := range identities {
-		if identities[index].Provider != googleIdentityProvider && identities[index].Provider != microsoftIdentityProvider {
+		if identities[index].Provider != googleIdentityProvider && identities[index].Provider != microsoftIdentityProvider && identities[index].Provider != oidcIdentityProvider {
 			identities[index].UnlinkReason = "This sign-in provider cannot be disconnected here yet."
 			continue
 		}

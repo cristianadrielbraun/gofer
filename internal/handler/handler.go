@@ -285,6 +285,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/google/callback", h.handleGoogleCallback)
 	mux.HandleFunc("GET /auth/microsoft", h.handleMicrosoftRedirect)
 	mux.HandleFunc("GET /auth/microsoft/callback", h.handleMicrosoftCallback)
+	mux.HandleFunc("GET /auth/oidc", h.handleOIDCRedirect)
+	mux.HandleFunc("GET /auth/oidc/callback", h.handleOIDCCallback)
 	mux.HandleFunc("GET /auth/google/account/callback", h.handleGoogleAccountCallback)
 	mux.HandleFunc("GET /auth/microsoft/account/callback", h.handleMicrosoftAccountCallback)
 	mux.HandleFunc("POST /auth/logout", h.handleLogout)
@@ -365,6 +367,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/security/identities/google/{id}/unlink", h.handleSecurityGoogleIdentityUnlink)
 	mux.HandleFunc("POST "+securityMicrosoftIdentityLinkPath, h.handleSecurityMicrosoftIdentityLink)
 	mux.HandleFunc("POST /settings/security/identities/microsoft/{id}/unlink", h.handleSecurityMicrosoftIdentityUnlink)
+	mux.HandleFunc("POST "+securityOIDCIdentityLinkPath, h.handleSecurityOIDCIdentityLink)
+	mux.HandleFunc("POST /settings/security/identities/oidc/{id}/unlink", h.handleSecurityOIDCIdentityUnlink)
 	mux.HandleFunc("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
@@ -2988,6 +2992,8 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		CSRFTokens:              map[string]string{},
 		GoogleLoginAvailable:    h.auth.HasGoogleLogin(),
 		MicrosoftLoginAvailable: h.auth.HasMicrosoftLogin(),
+		OIDCLoginAvailable:      h.auth.HasOIDCLogin(),
+		OIDCLoginName:           h.auth.OIDCLoginName(),
 	}
 	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
 	data.FederatedIdentities = federatedIdentityViewData(identities)
@@ -2996,7 +3002,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,
 		securityRecoveryRevokePath, securityManagementCancelPath, securityPasskeyStartPath,
 		securityPasskeyFinishPath, securityPasskeyStepUpStartPath, securityPasskeyStepUpFinishPath,
-		securityGoogleIdentityLinkPath, securityMicrosoftIdentityLinkPath,
+		securityGoogleIdentityLinkPath, securityMicrosoftIdentityLinkPath, securityOIDCIdentityLinkPath,
 	} {
 		data.CSRFTokens[path] = auth.CSRFToken(ctx, http.MethodPost, path)
 	}
@@ -3070,6 +3076,13 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			data.Message = "Microsoft sign-in disconnected. That identity can no longer sign in to this Gofer account."
 		case r.URL.Query().Get("microsoft_link_failed") == "1":
 			data.Message = "Microsoft sign-in could not be connected. It may already belong to another Gofer account, or the request may have expired."
+			data.MessageIsError = true
+		case r.URL.Query().Get("oidc_linked") == "1":
+			data.Message = data.OIDCLoginName + " sign-in connected. You can now use that identity to sign in to this Gofer account."
+		case r.URL.Query().Get("oidc_unlinked") == "1":
+			data.Message = data.OIDCLoginName + " sign-in disconnected. That identity can no longer sign in to this Gofer account."
+		case r.URL.Query().Get("oidc_link_failed") == "1":
+			data.Message = data.OIDCLoginName + " sign-in could not be connected. It may already belong to another Gofer account, or the request may have expired."
 			data.MessageIsError = true
 		case r.URL.Query().Get("challenge_expired") == "1":
 			data.Message = "That security change expired or was replaced. Start again when you are ready."

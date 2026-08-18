@@ -107,7 +107,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	if err != nil {
 		return nil, fmt.Errorf("validate security settings relying party: %w", err)
 	}
-	var hasTOTP, recoveryCount, hasPassword, passkeyCount, googleIdentityCount, microsoftIdentityCount int
+	var hasTOTP, recoveryCount, hasPassword, passkeyCount, googleIdentityCount, microsoftIdentityCount, oidcIdentityCount int
 	err = m.db.Read().QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
@@ -120,12 +120,15 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 			 WHERE identity.user_id = u.id AND identity.provider = ? AND identity.issuer = ?),
 			(SELECT COUNT(*) FROM auth_identities identity
 			 WHERE identity.user_id = u.id AND identity.provider = ?
-			   AND identity.issuer LIKE 'https://login.microsoftonline.com/%/v2.0')
+			   AND identity.issuer LIKE 'https://login.microsoftonline.com/%/v2.0'),
+			(SELECT COUNT(*) FROM auth_identities identity
+			 WHERE identity.user_id = u.id AND identity.provider = ? AND identity.issuer = ?)
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
 		rpID, googleIdentityProvider, googleLoginIssuer, microsoftIdentityProvider,
+		oidcIdentityProvider, m.config.OIDCLoginIssuer,
 		session.UserID, session.AuthVersion,
-	).Scan(&hasTOTP, &recoveryCount, &hasPassword, &passkeyCount, &googleIdentityCount, &microsoftIdentityCount)
+	).Scan(&hasTOTP, &recoveryCount, &hasPassword, &passkeyCount, &googleIdentityCount, &microsoftIdentityCount, &oidcIdentityCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrSecuritySessionInvalid
 	}
@@ -155,7 +158,8 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	if summary.HasTOTP {
 		hasPrimary := hasPassword == 1 || passkeyCount > 0 ||
 			(m.HasGoogleLogin() && googleIdentityCount > 0) ||
-			(m.HasMicrosoftLogin() && microsoftIdentityCount > 0)
+			(m.HasMicrosoftLogin() && microsoftIdentityCount > 0) ||
+			(m.HasOIDCLogin() && oidcIdentityCount > 0)
 		hasOtherStrongFactor := passkeyCount > 0
 		summary.CanDisableTOTP = hasPrimary && (!policy.RequiresMFA || hasOtherStrongFactor)
 		if !summary.CanDisableTOTP {

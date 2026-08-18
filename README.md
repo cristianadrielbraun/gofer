@@ -43,7 +43,7 @@ Things that already work (well, they work on my machine):
 - CardDAV contact sync with discovery, multiple address books, pull, push, update, and delete paths
 - the Contacts area, in general, aims to offer a "centralized" contacts solution, where you can use Gofer as a source of truth and syncronize with the accounts you want. Interesting idea, I'm not so sure about the execution. We'll see how it progress
 - account colors, account testing, account service toggles, and encrypted stored passwords/tokens
-- local mode by default, with optional Google login/session auth when configured (I recommend you not to use this for now, very very alpha stage)
+- local mode by default, with optional Google, Microsoft, or generic OpenID Connect login/session auth when configured (I recommend you not to use this for now, very very alpha stage)
 - optional browser-tab notifications and Web Push notifications for new mail
 - theme, layout, list navigation, compose, signature, contact, sync, timezone, and notification settings
 - local cached blobs for message bodies, remote assets, and attachments
@@ -135,10 +135,14 @@ Optional Google application login uses a separate OAuth client and callback. It 
 
 Optional Microsoft application login likewise uses a dedicated app registration and callback. It requests only `openid profile email`, stores no provider tokens, calls no Microsoft Graph API, and never creates or authorizes an Outlook mailbox. Registration remains closed: an authenticated Gofer user must explicitly connect the Microsoft identity from Security settings before it can sign in. Microsoft `email` and `preferred_username` claims are mutable display metadata, not verified ownership keys; Gofer resolves the identity only by the verified tenant issuer and immutable OIDC subject. Keep this app registration separate from the Outlook mailbox app registration.
 
+Optional generic OpenID Connect application login supports one configured provider, such as a self-hosted identity service or company SSO. Gofer discovers the provider from an exact HTTPS issuer and requests only `openid profile email`. It stores no provider access or refresh tokens and does not create or authorize a mailbox. Registration remains closed: an authenticated Gofer user must explicitly connect the external identity from Security settings before it can sign in. Gofer identifies the connection only by the verified issuer and subject; email-like claims are display metadata and never create, link, or merge a Gofer account.
+
 Official provider docs:
 
 - [Google OAuth 2.0 for web server applications](https://developers.google.com/identity/protocols/oauth2/web-server)
 - [Microsoft Entra app registration](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)
+- [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+- [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 
 Default local callback URLs:
 
@@ -147,9 +151,10 @@ http://local.localhost:8090/auth/google/account/callback
 http://local.localhost:8090/auth/google/callback
 http://local.localhost:8090/auth/microsoft/account/callback
 http://local.localhost:8090/auth/microsoft/callback
+http://local.localhost:8090/auth/oidc/callback
 ```
 
-The Google and Microsoft login callbacks are needed only for their optional application-login clients. Gmail and Outlook mailbox setup use only the provider-specific `account/callback` URLs.
+The Google, Microsoft, and generic OpenID Connect login callbacks are needed only for their optional application-login clients. Gmail and Outlook mailbox setup use only the provider-specific `account/callback` URLs. Register the generic callback only with the identity provider configured by `GOFER_OIDC_LOGIN_ISSUER`.
 
 ## configuration
 
@@ -173,6 +178,10 @@ GOFER_GOOGLE_LOGIN_CLIENT_SECRET=optional_identity_only_google_login
 GOFER_MICROSOFT_LOGIN_CLIENT_ID=optional_identity_only_microsoft_login
 GOFER_MICROSOFT_LOGIN_CLIENT_SECRET=optional_identity_only_microsoft_login
 GOFER_MICROSOFT_LOGIN_TENANT=common
+GOFER_OIDC_LOGIN_ISSUER=https://identity.example/application
+GOFER_OIDC_LOGIN_CLIENT_ID=optional_identity_only_oidc_login
+GOFER_OIDC_LOGIN_CLIENT_SECRET=optional_identity_only_oidc_login
+GOFER_OIDC_LOGIN_NAME=Company SSO
 GOOGLE_OAUTH_CLIENT_ID=optional_for_gmail_and_google_contacts
 GOOGLE_OAUTH_CLIENT_SECRET=optional_for_gmail_and_google_contacts
 MICROSOFT_OAUTH_CLIENT_ID=optional_for_outlook_oauth_mail
@@ -183,11 +192,13 @@ GOFER_VAPID_PRIVATE_KEY=optional_web_push_private_key
 GOFER_VAPID_SUBJECT=mailto:gofer@gofer.email
 ```
 
-The `GOFER_GOOGLE_LOGIN_*` and `GOFER_MICROSOFT_LOGIN_*` clients are used only for application identity. The `GOOGLE_OAUTH_*` client is used only for Gmail and Google Contacts, while `MICROSOFT_OAUTH_*` is used only for Outlook mail and contacts through Microsoft Graph. `GOFER_MICROSOFT_LOGIN_TENANT` accepts `common` (work/school and personal accounts), `organizations`, `consumers`, a tenant GUID, or a tenant domain; it defaults to `common`.
+The `GOFER_GOOGLE_LOGIN_*`, `GOFER_MICROSOFT_LOGIN_*`, and `GOFER_OIDC_LOGIN_*` clients are used only for application identity. The `GOOGLE_OAUTH_*` client is used only for Gmail and Google Contacts, while `MICROSOFT_OAUTH_*` is used only for Outlook mail and contacts through Microsoft Graph. `GOFER_MICROSOFT_LOGIN_TENANT` accepts `common` (work/school and personal accounts), `organizations`, `consumers`, a tenant GUID, or a tenant domain; it defaults to `common`. Generic OpenID Connect login is enabled only when its HTTPS issuer, client ID, and client secret are all present. `GOFER_OIDC_LOGIN_NAME` is an optional UI label and defaults to `OpenID Connect`.
 
 Google application login uses the authorization-code flow with S256 PKCE plus independent 256-bit state and nonce values. Gofer accepts the callback only on the exact host configured by `GOFER_BASE_URL`, verifies the signed ID token through Google's OIDC discovery and rotating key set, and requires a non-empty subject plus `email_verified=true`. Login ownership is resolved only by Google's exact issuer and subject; the email claim is display metadata and is never an account-linking key. Connecting a Google identity requires an authenticated, recently verified Gofer session and rejects identities already owned by another user. The login flow does not call the UserInfo endpoint, retain the provider access or refresh token, or grant mailbox access.
 
 Microsoft application login uses the same authorization-code, S256 PKCE, independent state/nonce, exact-callback-host, closed-registration, recent-step-up linking, cross-user conflict, and last-authenticator protections. Gofer discovers the exact tenant issuer indicated by a structurally valid tenant ID, then uses the maintained OIDC verifier for signature, exact issuer, client audience, and expiry validation before accepting the nonce and subject. For multitenant configurations, the verified tenant is also checked against the configured `common`, `organizations`, or `consumers` audience. Because Microsoft does not guarantee its email-like claims as verified or stable identifiers, Gofer stores them only as unverified display metadata and never uses them to link, merge, create, or authorize a Gofer account.
+
+Generic OpenID Connect application login uses the authorization-code flow with S256 PKCE, independent 256-bit state and nonce values, and the exact callback host from `GOFER_BASE_URL`. Gofer discovers HTTPS authorization, token, and signing-key metadata from the configured issuer and verifies the ID token signature, exact issuer, client audience, expiry, nonce, and non-empty printable subject through the maintained OIDC library. The encrypted server-side challenge retains the PKCE verifier only until the single-use callback completes. Linking requires a recently verified Gofer session, cross-user identity conflicts are rejected, and disconnecting the last usable sign-in method is blocked. The flow does not call provider resource APIs or persist any provider access or refresh token; the optional `email`, `email_verified`, `preferred_username`, and `name` claims remain display-only metadata.
 
 On the first startup of an authentication-uninitialized database, Gofer stores only the hash of a 30-minute setup token. If `GOFER_SETUP_TOKEN` is set, its exact value is used without being echoed and must contain 32-1024 bytes. Otherwise Gofer generates a 256-bit token and prints it once to the local console. A restart never reprints or silently replaces the persisted token.
 

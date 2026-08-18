@@ -8,7 +8,7 @@ import (
 
 func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(false, false, "Unable to sign in with those credentials.", `person"@example.com`).Render(t.Context(), &output); err != nil {
+	if err := LoginPage(false, false, "", "Unable to sign in with those credentials.", `person"@example.com`).Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -35,7 +35,7 @@ func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 
 func TestLoginPageShowsGoogleOnlyWhenConfigured(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(true, false, "", "").Render(t.Context(), &output); err != nil {
+	if err := LoginPage(true, false, "", "", "").Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -49,7 +49,7 @@ func TestLoginPageShowsGoogleOnlyWhenConfigured(t *testing.T) {
 
 func TestLoginPageShowsMicrosoftOnlyWhenConfigured(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(false, true, "", "").Render(t.Context(), &output); err != nil {
+	if err := LoginPage(false, true, "", "", "").Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -58,6 +58,21 @@ func TestLoginPageShowsMicrosoftOnlyWhenConfigured(t *testing.T) {
 	}
 	if strings.Contains(html, `href="/auth/google"`) || strings.Contains(html, "graph.microsoft.com") {
 		t.Fatalf("Microsoft sign-in option crossed provider/resource boundary: %q", html)
+	}
+}
+
+func TestLoginPageShowsConfiguredOIDCProviderWithoutMailboxAccess(t *testing.T) {
+	var output bytes.Buffer
+	if err := LoginPage(false, false, "Company SSO", "", "").Render(t.Context(), &output); err != nil {
+		t.Fatalf("LoginPage().Render() error = %v", err)
+	}
+	html := output.String()
+	if !strings.Contains(html, `href="/auth/oidc"`) || !strings.Contains(html, "Continue with Company SSO") {
+		t.Fatalf("configured OIDC option missing: %q", html)
+	}
+	if strings.Contains(html, `href="/auth/google"`) || strings.Contains(html, `href="/auth/microsoft"`) ||
+		strings.Contains(html, "offline_access") {
+		t.Fatalf("OIDC sign-in option crossed provider/resource boundary: %q", html)
 	}
 }
 

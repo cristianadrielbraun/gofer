@@ -290,3 +290,36 @@ func TestPasswordSecuritySettingsRendersMicrosoftIdentityWithoutOutlookMailboxCo
 		t.Fatal("Microsoft application sign-in UI exposed mailbox authorization")
 	}
 }
+
+func TestPasswordSecuritySettingsRendersConfiguredOIDCIdentityWithoutMailboxConfusion(t *testing.T) {
+	const linkPath = "/settings/security/identities/oidc/link"
+	const unlinkPath = "/settings/security/identities/oidc/identity-id/unlink"
+	csrf := strings.Repeat("f", 64)
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		OIDCLoginAvailable: true,
+		OIDCLoginName:      "Company SSO",
+		StepUpFresh:        true,
+		FederatedIdentities: []FederatedIdentityData{{
+			ID: "identity-id", Provider: "oidc", Email: "person@identity.example",
+			LinkedAt: "Aug 18, 2026", CanUnlink: true, UnlinkPath: unlinkPath,
+		}},
+		CSRFTokens: map[string]string{linkPath: csrf, unlinkPath: csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Company SSO · connected Aug 18, 2026", "person@identity.example",
+		`action="` + linkPath + `"`, `action="` + unlinkPath + `"`,
+		"Connect Company SSO sign-in", "grants no mailbox or provider-resource access",
+		`name="_csrf" value="` + csrf + `"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("OIDC identity settings missing %q: %q", want, html)
+		}
+	}
+	if strings.Contains(html, "offline_access") || strings.Contains(html, "Mail.Read") {
+		t.Fatal("OIDC application sign-in UI exposed provider resource authorization")
+	}
+}
