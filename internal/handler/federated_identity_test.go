@@ -54,8 +54,10 @@ func googleIdentityLinkHandlerStack(
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
 			id, email, email_normalized, name, status, auth_version, created_at, updated_at
-		) VALUES ('person', 'person@example.com', 'person@example.com', 'Person', 'active', 1, ?, ?)`,
-		now, now,
+		) VALUES ('person', 'person@example.com', 'person@example.com', 'Person', 'active', 1, ?, ?);
+		INSERT INTO password_credentials (user_id, password_hash, created_at, changed_at)
+		VALUES ('person', 'password-hash', ?, ?)`,
+		now, now, now, now,
 	); err != nil {
 		t.Fatalf("insert Google-link user: %v", err)
 	}
@@ -162,6 +164,129 @@ func TestGoogleIdentityLinkRouteRequiresCSRFAndRendersConnectedIdentity(t *testi
 	}
 	if userID != "person" || subject != "google-subject" || strings.Contains(confirmation.Body.String(), subject) {
 		t.Fatalf("linked identity = user:%q subject:%q rendered-subject:%t", userID, subject, strings.Contains(confirmation.Body.String(), subject))
+	}
+}
+
+func TestGoogleIdentityUnlinkRouteRequiresCSRFRotatesSessionAndPreservesGmailMailbox(t *testing.T) {
+	manager, db, stack, sessionCookie, verifier := googleIdentityLinkHandlerStack(t)
+	preAuthCookie, state := startGoogleIdentityLinkHandlerFlow(t, manager, stack, sessionCookie, verifier)
+	callback := googleCallbackRequest(
+		"/auth/google/callback?state=" + url.QueryEscape(state) + "&code=authorization-code",
+	)
+	callback.AddCookie(sessionCookie)
+	callback.AddCookie(preAuthCookie)
+	linked := httptest.NewRecorder()
+	stack.ServeHTTP(linked, callback)
+	if linked.Code != http.StatusSeeOther || linked.Header().Get("Location") != "/settings/security?google_linked=1" {
+		t.Fatalf("complete identity link before unlink = %d %q", linked.Code, linked.Header().Get("Location"))
+	}
+	var identityID string
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT id FROM auth_identities WHERE user_id = 'person' AND provider = 'google'`,
+	).Scan(&identityID); err != nil {
+		t.Fatalf("read linked identity ID: %v", err)
+	}
+	unlinkPath := securityGoogleIdentityUnlinkPath(identityID)
+	page := getSecuritySettings(t, stack, sessionCookie)
+	for _, want := range []string{`action="` + unlinkPath + `"`, "Disconnect", "does not connect a Gmail mailbox"} {
+		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("unlink settings missing %q: %d %q", want, page.Code, page.Body.String())
+		}
+	}
+	withoutCSRF := postSecuritySettings(t, stack, unlinkPath, url.Values{}, sessionCookie)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("Google identity unlink without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('gmail-mailbox', 'person', 'gmail', 'mailbox-subject', 'mailbox@gmail.example');
+		INSERT INTO oauth_accounts (
+			id, user_id, provider, provider_account_id, access_token, refresh_token, scopes
+		) VALUES (
+			'gmail-mailbox-oauth', 'person', 'google', 'mailbox-subject',
+			'mailbox-access', 'mailbox-refresh', 'mail.read contacts.read'
+		);`); err != nil {
+		t.Fatalf("insert independent Gmail mailbox: %v", err)
+	}
+
+	unlinked := postSecuritySettings(t, stack, unlinkPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofForSession(t, manager, sessionCookie.Value, unlinkPath)},
+	}, sessionCookie)
+	if unlinked.Code != http.StatusSeeOther || unlinked.Header().Get("Location") != "/settings/security?google_unlinked=1" {
+		t.Fatalf("Google identity unlink = %d %q body:%q", unlinked.Code, unlinked.Header().Get("Location"), unlinked.Body.String())
+	}
+	rotatedCookie := responseCookie(unlinked, "gofer_session", true)
+	if rotatedCookie == nil || rotatedCookie.Value == "" || rotatedCookie.Value == sessionCookie.Value {
+		t.Fatalf("rotated identity-unlink session cookie = %#v", rotatedCookie)
+	}
+	if old := getSecuritySettings(t, stack, sessionCookie); old.Code != http.StatusSeeOther || old.Header().Get("Location") != "/login" {
+		t.Fatalf("old session after identity unlink = %d %q", old.Code, old.Header().Get("Location"))
+	}
+	confirmation := getSecuritySettingsPath(t, stack, "/settings/security?google_unlinked=1", rotatedCookie)
+	if confirmation.Code != http.StatusOK ||
+		!strings.Contains(confirmation.Body.String(), "Google sign-in disconnected.") ||
+		strings.Contains(confirmation.Body.String(), "person@gmail.example") ||
+		strings.Contains(confirmation.Body.String(), `action="`+unlinkPath+`"`) {
+		t.Fatalf("identity-unlink confirmation = %d %q", confirmation.Code, confirmation.Body.String())
+	}
+	var identities, accounts, oauthAccounts int
+	var accessToken, refreshToken string
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_identities`).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM accounts WHERE id = 'gmail-mailbox'`).Scan(&accounts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*), MIN(access_token), MIN(refresh_token)
+		FROM oauth_accounts WHERE id = 'gmail-mailbox-oauth'`,
+	).Scan(&oauthAccounts, &accessToken, &refreshToken); err != nil {
+		t.Fatal(err)
+	}
+	if identities != 0 || accounts != 1 || oauthAccounts != 1 ||
+		accessToken != "mailbox-access" || refreshToken != "mailbox-refresh" {
+		t.Fatalf(
+			"handler unlink boundary = identities:%d accounts:%d oauth:%d access:%q refresh:%q",
+			identities, accounts, oauthAccounts, accessToken, refreshToken,
+		)
+	}
+}
+
+func TestGoogleIdentityUnlinkRouteProtectsLastSignInMethod(t *testing.T) {
+	manager, db, stack, sessionCookie, verifier := googleIdentityLinkHandlerStack(t)
+	preAuthCookie, state := startGoogleIdentityLinkHandlerFlow(t, manager, stack, sessionCookie, verifier)
+	callback := googleCallbackRequest(
+		"/auth/google/callback?state=" + url.QueryEscape(state) + "&code=authorization-code",
+	)
+	callback.AddCookie(sessionCookie)
+	callback.AddCookie(preAuthCookie)
+	linked := httptest.NewRecorder()
+	stack.ServeHTTP(linked, callback)
+	if linked.Code != http.StatusSeeOther {
+		t.Fatalf("complete identity link before protected unlink = %d", linked.Code)
+	}
+	var identityID string
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT id FROM auth_identities WHERE user_id = 'person'`).Scan(&identityID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `DELETE FROM password_credentials WHERE user_id = 'person'`); err != nil {
+		t.Fatal(err)
+	}
+	unlinkPath := securityGoogleIdentityUnlinkPath(identityID)
+	page := getSecuritySettings(t, stack, sessionCookie)
+	if page.Code != http.StatusOK || strings.Contains(page.Body.String(), `action="`+unlinkPath+`"`) ||
+		!strings.Contains(page.Body.String(), "Add another usable sign-in method") {
+		t.Fatalf("protected identity settings = %d %q", page.Code, page.Body.String())
+	}
+	blocked := postSecuritySettings(t, stack, unlinkPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofForSession(t, manager, sessionCookie.Value, unlinkPath)},
+	}, sessionCookie)
+	if blocked.Code != http.StatusConflict || !strings.Contains(blocked.Body.String(), "Add another usable sign-in method") {
+		t.Fatalf("protected identity unlink = %d %q", blocked.Code, blocked.Body.String())
+	}
+	var identities int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_identities`).Scan(&identities); err != nil || identities != 1 {
+		t.Fatalf("identity after protected handler unlink = %d, %v", identities, err)
 	}
 }
 

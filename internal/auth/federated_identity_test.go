@@ -44,6 +44,28 @@ func prepareGoogleIdentityLink(
 	return manager, clock, "person-session-token"
 }
 
+func insertLinkedGoogleIdentity(t *testing.T, manager *Manager, id, userID, subject, email string, now time.Time) {
+	t.Helper()
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_identities (
+			id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
+		) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		id, userID, googleIdentityProvider, googleLoginIssuer, subject, email, now, now,
+	); err != nil {
+		t.Fatalf("insert linked Google identity %q: %v", id, err)
+	}
+}
+
+func insertFederatedIdentityTestPassword(t *testing.T, manager *Manager, userID string, now time.Time) {
+	t.Helper()
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO password_credentials (user_id, password_hash, created_at, changed_at)
+		VALUES (?, 'password-hash', ?, ?)`, userID, now, now,
+	); err != nil {
+		t.Fatalf("insert federated identity test password: %v", err)
+	}
+}
+
 func TestBeginGoogleIdentityLinkRequiresRecentStepUpAndBindsChallengeToSession(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 10, 0, 0, 0, time.UTC)
 	manager, _, sessionToken := prepareGoogleIdentityLink(
@@ -351,5 +373,193 @@ func TestCompleteGoogleIdentityLinkRequiresOriginalFreshSession(t *testing.T) {
 		googleOAuthTestContext(t), start2.Challenge.Token, sessionToken2, "authorization-code", "Link Browser",
 	); !errors.Is(err, ErrRecentStepUpRequired) || identity != nil {
 		t.Fatalf("CompleteGoogleIdentityLink(stale step-up) = %#v, %v", identity, err)
+	}
+}
+
+func TestUnlinkGoogleIdentityRotatesSessionsAuditsAndPreservesMailboxOAuth(t *testing.T) {
+	stepUpAt := time.Date(2026, time.August, 15, 10, 0, 0, 0, time.UTC)
+	manager, clock, sessionToken := prepareGoogleIdentityLink(
+		t, []string{"rotated-session", "unlink-event"}, stepUpAt,
+	)
+	now := clock.now
+	insertFederatedIdentityTestPassword(t, manager, "person", now)
+	insertLinkedGoogleIdentity(
+		t, manager, "person-google", "person", "google-subject", "person@gmail.example", now,
+	)
+	insertGoogleLinkSession(t, manager, "person", "other-session", "other-session-token", now, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('gmail-account', 'person', 'gmail', 'mailbox-subject', 'mailbox@gmail.example');
+		INSERT INTO oauth_accounts (
+			id, user_id, provider, provider_account_id, access_token, refresh_token, scopes
+		) VALUES (
+			'gmail-oauth', 'person', 'google', 'mailbox-subject',
+			'mailbox-access-token', 'mailbox-refresh-token', 'mail.read contacts.read'
+		);`); err != nil {
+		t.Fatalf("insert independent Gmail mailbox OAuth: %v", err)
+	}
+
+	rotated, err := manager.UnlinkGoogleIdentity(
+		t.Context(), sessionToken, "person-google", "  Unlink Browser/1.0  ",
+	)
+	if err != nil || rotated == nil || rotated.ID != "rotated-session" ||
+		rotated.Token != "link-state" || rotated.AuthVersion != 2 ||
+		rotated.UserAgent != "Unlink Browser/1.0" {
+		t.Fatalf("UnlinkGoogleIdentity() = %#v, %v", rotated, err)
+	}
+	for _, oldToken := range []string{sessionToken, "other-session-token"} {
+		if old, err := manager.GetSessionByToken(t.Context(), oldToken); err != nil || old != nil {
+			t.Fatalf("old session %q after identity unlink = %#v, %v", oldToken, old, err)
+		}
+	}
+	if current, err := manager.GetSessionByToken(t.Context(), rotated.Token); err != nil || current == nil || current.ID != rotated.ID {
+		t.Fatalf("rotated identity-unlink session = %#v, %v", current, err)
+	}
+
+	var identities, accounts, oauthAccounts int
+	var accessToken, refreshToken string
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_identities`).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM accounts WHERE id = 'gmail-account'`).Scan(&accounts); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*), MIN(access_token), MIN(refresh_token)
+		FROM oauth_accounts WHERE id = 'gmail-oauth'`,
+	).Scan(&oauthAccounts, &accessToken, &refreshToken); err != nil {
+		t.Fatal(err)
+	}
+	if identities != 0 || accounts != 1 || oauthAccounts != 1 ||
+		accessToken != "mailbox-access-token" || refreshToken != "mailbox-refresh-token" {
+		t.Fatalf(
+			"unlink boundary = identities:%d accounts:%d oauth:%d access:%q refresh:%q",
+			identities, accounts, oauthAccounts, accessToken, refreshToken,
+		)
+	}
+
+	var eventType AuthEventType
+	var success int
+	var userAgent, metadata string
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT event_type, success, user_agent, metadata_json
+		FROM auth_events WHERE id = 'unlink-event'`,
+	).Scan(&eventType, &success, &userAgent, &metadata); err != nil {
+		t.Fatalf("read identity-unlink event: %v", err)
+	}
+	if eventType != AuthEventIdentityUnlinked || success != 1 || userAgent != "Unlink Browser/1.0" ||
+		metadata != `{"provider":"google","result":"unlinked"}` ||
+		strings.Contains(metadata, "google-subject") || strings.Contains(metadata, "person@gmail.example") {
+		t.Fatalf("identity-unlink event = type:%q success:%d agent:%q metadata:%q", eventType, success, userAgent, metadata)
+	}
+}
+
+func TestUnlinkGoogleIdentityProtectsLastSignInMethodAndExactOwnership(t *testing.T) {
+	stepUpAt := time.Date(2026, time.August, 15, 10, 0, 0, 0, time.UTC)
+	manager, clock, sessionToken := prepareGoogleIdentityLink(
+		t, []string{"unused-session", "unused-event", "foreign-session", "foreign-event"}, stepUpAt,
+	)
+	now := clock.now
+	insertLinkedGoogleIdentity(t, manager, "only-google", "person", "person-subject", "person@example.com", now)
+	insertActiveUser(t, manager, "other", false, now)
+	insertLinkedGoogleIdentity(t, manager, "other-google", "other", "other-subject", "other@example.com", now)
+
+	identities, err := manager.ListFederatedIdentities(t.Context(), "person")
+	if err != nil || len(identities) != 1 || identities[0].CanUnlink || identities[0].UnlinkReason == "" {
+		t.Fatalf("protected Google identity summary = %#v, %v", identities, err)
+	}
+	if rotated, err := manager.UnlinkGoogleIdentity(
+		t.Context(), sessionToken, "only-google", "Browser",
+	); !errors.Is(err, ErrLastAuthenticator) || rotated != nil {
+		t.Fatalf("UnlinkGoogleIdentity(last) = %#v, %v", rotated, err)
+	}
+	if rotated, err := manager.UnlinkGoogleIdentity(
+		t.Context(), sessionToken, "other-google", "Browser",
+	); !errors.Is(err, ErrFederatedIdentityUnknown) || rotated != nil {
+		t.Fatalf("UnlinkGoogleIdentity(foreign) = %#v, %v", rotated, err)
+	}
+	var personIdentity, otherIdentity, activeSessions, events int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM auth_identities WHERE id = 'only-google' AND user_id = 'person'`: &personIdentity,
+		`SELECT COUNT(*) FROM auth_identities WHERE id = 'other-google' AND user_id = 'other'`: &otherIdentity,
+		`SELECT COUNT(*) FROM sessions WHERE user_id = 'person' AND revoked_at IS NULL`:        &activeSessions,
+		`SELECT COUNT(*) FROM auth_events WHERE event_type = 'identity_unlinked'`:              &events,
+	} {
+		if err := manager.db.Read().QueryRowContext(t.Context(), query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if personIdentity != 1 || otherIdentity != 1 || activeSessions != 1 || events != 0 {
+		t.Fatalf(
+			"protected unlink state = person:%d other:%d sessions:%d events:%d",
+			personIdentity, otherIdentity, activeSessions, events,
+		)
+	}
+}
+
+func TestUnlinkGoogleIdentityAcceptsAnotherConfiguredIdentityAndRollsBackOnAuditFailure(t *testing.T) {
+	stepUpAt := time.Date(2026, time.August, 15, 10, 0, 0, 0, time.UTC)
+	manager, clock, sessionToken := prepareGoogleIdentityLink(
+		t, []string{"rotated-session", "unlink-event"}, stepUpAt,
+	)
+	now := clock.now
+	insertLinkedGoogleIdentity(t, manager, "first-google", "person", "first-subject", "first@example.com", now)
+	insertLinkedGoogleIdentity(t, manager, "second-google", "person", "second-subject", "second@example.com", now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		CREATE TRIGGER reject_google_identity_unlink_event
+		BEFORE INSERT ON auth_events
+		WHEN NEW.id = 'unlink-event'
+		BEGIN
+			SELECT RAISE(ABORT, 'forced audit failure');
+		END`); err != nil {
+		t.Fatalf("create identity-unlink audit failure trigger: %v", err)
+	}
+
+	identities, err := manager.ListFederatedIdentities(t.Context(), "person")
+	if err != nil || len(identities) != 2 || !identities[0].CanUnlink || !identities[1].CanUnlink {
+		t.Fatalf("alternate Google identity summaries = %#v, %v", identities, err)
+	}
+	if rotated, err := manager.UnlinkGoogleIdentity(
+		t.Context(), sessionToken, "first-google", "Browser",
+	); err == nil || rotated != nil {
+		t.Fatalf("UnlinkGoogleIdentity(audit failure) = %#v, %v", rotated, err)
+	}
+	var identitiesAfter, authVersion, activeSessions, events int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM auth_identities WHERE user_id = 'person'`:                 &identitiesAfter,
+		`SELECT auth_version FROM users WHERE id = 'person'`:                            &authVersion,
+		`SELECT COUNT(*) FROM sessions WHERE user_id = 'person' AND revoked_at IS NULL`: &activeSessions,
+		`SELECT COUNT(*) FROM auth_events WHERE event_type = 'identity_unlinked'`:       &events,
+	} {
+		if err := manager.db.Read().QueryRowContext(t.Context(), query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if identitiesAfter != 2 || authVersion != 1 || activeSessions != 1 || events != 0 {
+		t.Fatalf(
+			"audit rollback = identities:%d auth-version:%d sessions:%d events:%d",
+			identitiesAfter, authVersion, activeSessions, events,
+		)
+	}
+}
+
+func TestUnlinkGoogleIdentityRequiresRecentStepUp(t *testing.T) {
+	stepUpAt := time.Date(2026, time.August, 15, 9, 0, 0, 0, time.UTC)
+	manager, clock, sessionToken := prepareGoogleIdentityLink(t, nil, stepUpAt)
+	now := clock.now
+	insertFederatedIdentityTestPassword(t, manager, "person", now)
+	insertLinkedGoogleIdentity(t, manager, "person-google", "person", "person-subject", "person@example.com", now)
+
+	if rotated, err := manager.UnlinkGoogleIdentity(
+		t.Context(), sessionToken, "person-google", "Browser",
+	); !errors.Is(err, ErrRecentStepUpRequired) || rotated != nil {
+		t.Fatalf("UnlinkGoogleIdentity(stale) = %#v, %v", rotated, err)
+	}
+	var identities int
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_identities`).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if identities != 1 {
+		t.Fatalf("identities after stale unlink = %d", identities)
 	}
 }

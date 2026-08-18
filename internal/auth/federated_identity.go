@@ -25,6 +25,8 @@ type FederatedIdentitySummary struct {
 	EmailVerified bool
 	LinkedAt      time.Time
 	LastUsedAt    *time.Time
+	CanUnlink     bool
+	UnlinkReason  string
 }
 
 func scanFederatedIdentity(row rowScanner) (*FederatedIdentitySummary, error) {
@@ -64,7 +66,151 @@ func (m *Manager) ListFederatedIdentities(ctx context.Context, userID string) ([
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list federated identities: %w", err)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close federated identities: %w", err)
+	}
+	if len(identities) == 0 {
+		return identities, nil
+	}
+	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("validate identity-removal relying party: %w", err)
+	}
+	for index := range identities {
+		if identities[index].Provider != googleIdentityProvider {
+			identities[index].UnlinkReason = "This sign-in provider cannot be disconnected here yet."
+			continue
+		}
+		identities[index].CanUnlink, err = m.canUnlinkFederatedIdentity(
+			ctx, strings.TrimSpace(userID), identities[index].ID, rpID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !identities[index].CanUnlink {
+			identities[index].UnlinkReason = "Add another usable sign-in method or required authenticator before disconnecting this identity."
+		}
+	}
 	return identities, nil
+}
+
+func (m *Manager) canUnlinkFederatedIdentity(ctx context.Context, userID, identityID, rpID string) (bool, error) {
+	tx, err := m.db.Read().BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin identity-removal check: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	return canRemoveAuthenticatorInTransaction(
+		ctx, tx, userID, rpID, m.HasGoogleLogin(), authenticatorRemoval{IdentityID: identityID},
+	)
+}
+
+// UnlinkGoogleIdentity removes one exact Google application-login identity
+// owned by the current user. It does not inspect or mutate mailbox accounts or
+// provider OAuth credentials.
+func (m *Manager) UnlinkGoogleIdentity(
+	ctx context.Context,
+	sessionToken string,
+	identityID string,
+	userAgent string,
+) (*Session, error) {
+	session, err := m.GetSessionByToken(ctx, sessionToken)
+	if err != nil || session == nil {
+		return nil, ErrSecuritySessionInvalid
+	}
+	now := m.clock.Now().UTC()
+	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
+		return nil, err
+	}
+	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("validate Google identity-removal relying party: %w", err)
+	}
+	identityID = strings.TrimSpace(identityID)
+	if identityID == "" {
+		return nil, ErrFederatedIdentityUnknown
+	}
+	newSessionID, newSessionToken, eventID, err := m.securityRotationMaterial()
+	if err != nil {
+		return nil, err
+	}
+	userAgent = boundedUserAgent(userAgent)
+	var rotated *Session
+	err = m.runSecurityTransition(ctx, SecurityTransitionIdentityChange, func(tx *sql.Tx) error {
+		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		if err != nil || current.ID != session.ID {
+			return ErrSecuritySessionInvalid
+		}
+		var provider string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT provider FROM auth_identities
+			WHERE id = ? AND user_id = ?`, identityID, current.UserID,
+		).Scan(&provider); errors.Is(err, sql.ErrNoRows) {
+			return ErrFederatedIdentityUnknown
+		} else if err != nil {
+			return fmt.Errorf("load removable federated identity: %w", err)
+		}
+		if provider != googleIdentityProvider {
+			return ErrFederatedIdentityUnknown
+		}
+		canUnlink, err := canRemoveAuthenticatorInTransaction(
+			ctx, tx, current.UserID, rpID, m.HasGoogleLogin(), authenticatorRemoval{IdentityID: identityID},
+		)
+		if err != nil {
+			return err
+		}
+		if !canUnlink {
+			return ErrLastAuthenticator
+		}
+		removed, err := tx.ExecContext(ctx, `
+			DELETE FROM auth_identities
+			WHERE id = ? AND user_id = ? AND provider = ?`,
+			identityID, current.UserID, googleIdentityProvider,
+		)
+		if err != nil {
+			return fmt.Errorf("unlink Google identity: %w", err)
+		}
+		changed, err := removed.RowsAffected()
+		if err != nil || changed != 1 {
+			return ErrFederatedIdentityUnknown
+		}
+		newAuthVersion, err := advanceSecurityAuthVersion(ctx, tx, current.UserID, current.AuthVersion, now)
+		if err != nil {
+			return err
+		}
+		if err := revokeSecuritySessions(ctx, tx, current.UserID, now); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE auth_challenges SET consumed_at = COALESCE(consumed_at, ?), payload_ciphertext = NULL
+			WHERE user_id = ? AND session_id IS NOT NULL AND consumed_at IS NULL`,
+			now, current.UserID,
+		); err != nil {
+			return fmt.Errorf("terminate identity-management challenges: %w", err)
+		}
+		rotated, err = insertRotatedSecuritySession(
+			ctx, tx, current, newAuthVersion, newSessionID, newSessionToken, userAgent,
+			current.StepUpMethod, now,
+		)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO auth_events (
+				id, occurred_at, actor_user_id, subject_user_id, session_id,
+				event_type, success, reason, user_agent, metadata_json
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, '{"provider":"google","result":"unlinked"}')`,
+			eventID, now, current.UserID, current.UserID, rotated.ID,
+			AuthEventIdentityUnlinked, AuthEventReasonChallengeVerified, userAgent,
+		); err != nil {
+			return fmt.Errorf("record Google identity unlink: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rotated, nil
 }
 
 func (m *Manager) authenticateGoogleIdentity(ctx context.Context, claims *GoogleIDTokenClaims, userAgent string) (*User, *PrimaryAuthenticationResult, error) {

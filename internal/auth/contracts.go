@@ -143,6 +143,7 @@ const (
 	AuthEventStepUpFailed                 AuthEventType = "step_up_failed"
 	AuthEventSecurityPolicyChanged        AuthEventType = "security_policy_changed"
 	AuthEventIdentityLinked               AuthEventType = "identity_linked"
+	AuthEventIdentityUnlinked             AuthEventType = "identity_unlinked"
 )
 
 type AuthEventReason string

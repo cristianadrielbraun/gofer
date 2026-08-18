@@ -353,6 +353,69 @@ func TestTOTPDisableProtectsRequiredLastFactorAndRevokesRecovery(t *testing.T) {
 	}
 }
 
+func TestTOTPDisableCountsConfiguredGoogleIdentityAsPrimarySignIn(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 18, 30, 0, 0, time.UTC)
+	manager, _, _, session := prepareMFAManagement(t, now, true)
+	configureGoogleOAuthTest(manager)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		DELETE FROM password_credentials WHERE user_id = ?`,
+		session.UserID, session.UserID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	insertLinkedGoogleIdentity(
+		t, manager, "remaining-google", session.UserID,
+		"remaining-subject", "remaining@example.com", now,
+	)
+	summary, err := manager.GetSecurityFactorSummary(t.Context(), session.Token)
+	if err != nil || !summary.HasTOTP || !summary.CanDisableTOTP || summary.RequiresMFA {
+		t.Fatalf("Google-primary factor summary = %#v, %v", summary, err)
+	}
+	rotated, err := manager.DisableTOTP(t.Context(), session.Token, "Browser")
+	if err != nil || rotated == nil {
+		t.Fatalf("DisableTOTP(Google primary) = %#v, %v", rotated, err)
+	}
+	var identities int
+	if err := manager.db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM auth_identities WHERE id = 'remaining-google'`,
+	).Scan(&identities); err != nil || identities != 1 {
+		t.Fatalf("Google identity after TOTP disable = %d, %v", identities, err)
+	}
+}
+
+func TestTOTPDisableDoesNotCountGoogleIdentityWithAnotherIssuer(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 18, 45, 0, 0, time.UTC)
+	manager, _, _, session := prepareMFAManagement(t, now, true)
+	configureGoogleOAuthTest(manager)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		DELETE FROM password_credentials WHERE user_id = ?`,
+		session.UserID, session.UserID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_identities (
+			id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
+		) VALUES ('other-issuer-google', ?, ?, 'https://accounts.example.invalid',
+			'other-subject', 'other@example.com', 1, ?, ?)`,
+		session.UserID, googleIdentityProvider, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := manager.GetSecurityFactorSummary(t.Context(), session.Token)
+	if err != nil || !summary.HasTOTP || summary.CanDisableTOTP {
+		t.Fatalf("other-issuer factor summary = %#v, %v", summary, err)
+	}
+	if rotated, err := manager.DisableTOTP(
+		t.Context(), session.Token, "Browser",
+	); !errors.Is(err, ErrLastAuthenticator) || rotated != nil {
+		t.Fatalf("DisableTOTP(other-issuer identity) = %#v, %v", rotated, err)
+	}
+}
+
 func TestRecoveryCodeRevocationRequiresFreshStepUpAndClearsOnlyUnusedCodes(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 19, 0, 0, 0, time.UTC)
 	manager, clock, _, session := prepareMFAManagement(t, now, true)

@@ -342,6 +342,42 @@ func TestPasskeyRemovalRotatesSessionsAndProtectsLastAuthenticator(t *testing.T)
 			t.Fatalf("foreign passkey removal error = %v", err)
 		}
 	})
+
+	t.Run("configured Google identity remains a primary sign-in method", func(t *testing.T) {
+		fixture := newPasskeyTestFixture(t, false)
+		configureGoogleOAuthTest(fixture.manager)
+		started, err := fixture.manager.StartPasskeyRegistration(
+			t.Context(), fixture.session.Token, "https://gofer.example", "Google alternative",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := fixture.manager.FinishPasskeyRegistration(
+			t.Context(), started.Challenge.Token, fixture.session.Token, "https://gofer.example", []byte(`{}`), "Browser",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.manager.db.Write().ExecContext(t.Context(), `
+			DELETE FROM password_credentials WHERE user_id = ?`,
+			fixture.session.UserID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		insertLinkedGoogleIdentity(
+			t, fixture.manager, "remaining-google", fixture.session.UserID,
+			"remaining-subject", "remaining@example.com", fixture.clock.now,
+		)
+		listed, err := fixture.manager.ListPasskeys(t.Context(), fixture.session.Token)
+		if err != nil || len(listed) != 1 || !listed[0].CanRemove {
+			t.Fatalf("passkey with Google alternative = %#v, %v", listed, err)
+		}
+		if rotated, err := fixture.manager.RemovePasskey(
+			t.Context(), fixture.session.Token, created.ID, "Browser",
+		); err != nil || rotated == nil {
+			t.Fatalf("RemovePasskey(Google alternative) = %#v, %v", rotated, err)
+		}
+	})
 }
 
 func TestCanonicalWebAuthnRelyingPartyValidation(t *testing.T) {

@@ -190,16 +190,18 @@ func TestPasswordSecuritySettingsRequiresStrongStepUpForMFAPasswordChange(t *tes
 
 func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxConfusion(t *testing.T) {
 	const linkPath = "/settings/security/identities/google/link"
+	const unlinkPath = "/settings/security/identities/google/identity-id/unlink"
 	csrf := strings.Repeat("d", 64)
 	var output bytes.Buffer
 	if err := PasswordSecuritySettings(PasswordSecurityData{
 		GoogleLoginAvailable: true,
 		StepUpFresh:          true,
 		FederatedIdentities: []FederatedIdentityData{{
-			Provider: "google", Email: `<person&family@gmail.example>`,
+			ID: "identity-id", Provider: "google", Email: `<person&family@gmail.example>`,
 			LinkedAt: "Aug 15, 2026", LastUsedAt: "Aug 16, 2026",
+			CanUnlink: true, UnlinkPath: unlinkPath,
 		}},
-		CSRFTokens: map[string]string{linkPath: csrf},
+		CSRFTokens: map[string]string{linkPath: csrf, unlinkPath: csrf},
 	}).Render(context.Background(), &output); err != nil {
 		t.Fatalf("PasswordSecuritySettings.Render(Google identity) error = %v", err)
 	}
@@ -207,6 +209,7 @@ func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxCon
 	for _, want := range []string{
 		`data-federated-identity-settings`, "1 connected", "Google · connected Aug 15, 2026",
 		"last used Aug 16, 2026", `action="` + linkPath + `"`,
+		`action="` + unlinkPath + `"`, "Disconnect", "removes only this identity",
 		`name="_csrf" value="` + csrf + `"`, `&lt;person&amp;family@gmail.example&gt;`,
 		"does not connect a Gmail mailbox", "does not", "mail, contacts, or calendars",
 	} {
@@ -221,11 +224,36 @@ func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxCon
 	output.Reset()
 	if err := PasswordSecuritySettings(PasswordSecurityData{
 		GoogleLoginAvailable: true,
-		CSRFTokens:           map[string]string{linkPath: csrf},
+		FederatedIdentities: []FederatedIdentityData{{
+			ID: "identity-id", Provider: "google", Email: "person@example.com",
+			LinkedAt: "Aug 15, 2026", CanUnlink: true, UnlinkPath: unlinkPath,
+		}},
+		CSRFTokens: map[string]string{linkPath: csrf, unlinkPath: csrf},
 	}).Render(context.Background(), &output); err != nil {
 		t.Fatalf("PasswordSecuritySettings.Render(stale Google identity) error = %v", err)
 	}
-	if strings.Contains(output.String(), `action="`+linkPath+`"`) || !strings.Contains(output.String(), "sign in again first") {
+	if strings.Contains(output.String(), `action="`+linkPath+`"`) ||
+		strings.Contains(output.String(), `action="`+unlinkPath+`"`) ||
+		!strings.Contains(output.String(), "sign in again first") ||
+		!strings.Contains(output.String(), "Verify this session before disconnecting") {
 		t.Fatalf("stale Google identity settings = %q", output.String())
+	}
+
+	output.Reset()
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		GoogleLoginAvailable: true,
+		StepUpFresh:          true,
+		FederatedIdentities: []FederatedIdentityData{{
+			ID: "identity-id", Provider: "google", Email: "person@example.com",
+			LinkedAt: "Aug 15, 2026", UnlinkPath: unlinkPath,
+			UnlinkReason: "Add another usable sign-in method before disconnecting this identity.",
+		}},
+		CSRFTokens: map[string]string{linkPath: csrf, unlinkPath: csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render(protected Google identity) error = %v", err)
+	}
+	if strings.Contains(output.String(), `action="`+unlinkPath+`"`) ||
+		!strings.Contains(output.String(), "Add another usable sign-in method") {
+		t.Fatalf("protected Google identity settings = %q", output.String())
 	}
 }

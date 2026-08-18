@@ -107,7 +107,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	if err != nil {
 		return nil, fmt.Errorf("validate security settings relying party: %w", err)
 	}
-	var hasTOTP, recoveryCount, hasPassword, passkeyCount int
+	var hasTOTP, recoveryCount, hasPassword, passkeyCount, googleIdentityCount int
 	err = m.db.Read().QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
@@ -115,11 +115,13 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
 			(SELECT COUNT(*) FROM webauthn_credentials w
 			 WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
-			   AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL)
+			   AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL),
+			(SELECT COUNT(*) FROM auth_identities identity
+			 WHERE identity.user_id = u.id AND identity.provider = ? AND identity.issuer = ?)
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
-		rpID, session.UserID, session.AuthVersion,
-	).Scan(&hasTOTP, &recoveryCount, &hasPassword, &passkeyCount)
+		rpID, googleIdentityProvider, googleLoginIssuer, session.UserID, session.AuthVersion,
+	).Scan(&hasTOTP, &recoveryCount, &hasPassword, &passkeyCount, &googleIdentityCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrSecuritySessionInvalid
 	}
@@ -147,7 +149,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		summary.StepUpExpiresAt = &expiresAt
 	}
 	if summary.HasTOTP {
-		hasPrimary := hasPassword == 1 || passkeyCount > 0
+		hasPrimary := hasPassword == 1 || passkeyCount > 0 || (m.HasGoogleLogin() && googleIdentityCount > 0)
 		hasOtherStrongFactor := passkeyCount > 0
 		summary.CanDisableTOTP = hasPrimary && (!policy.RequiresMFA || hasOtherStrongFactor)
 		if !summary.CanDisableTOTP {
@@ -619,7 +621,7 @@ func (m *Manager) DisableTOTP(ctx context.Context, sessionToken, userAgent strin
 		if err != nil {
 			return err
 		}
-		canDisable, err := canDisableTOTPInTransaction(ctx, tx, current.UserID, rpID)
+		canDisable, err := canDisableTOTPInTransaction(ctx, tx, current.UserID, rpID, m.HasGoogleLogin())
 		if err != nil {
 			return err
 		}
@@ -1030,28 +1032,10 @@ func loadActiveTOTPCredential(ctx context.Context, tx *sql.Tx, userID string) (*
 	return credential, nil
 }
 
-func canDisableTOTPInTransaction(ctx context.Context, tx *sql.Tx, userID, rpID string) (bool, error) {
-	var hasPassword, passkeyCount int
-	err := tx.QueryRowContext(ctx, `
-		SELECT
-			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
-			(SELECT COUNT(*) FROM webauthn_credentials w
-			 WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
-			   AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL)
-		FROM users u WHERE u.id = ? AND u.status = 'active'`, rpID, userID,
-	).Scan(&hasPassword, &passkeyCount)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, ErrSecuritySessionInvalid
-	}
-	if err != nil {
-		return false, fmt.Errorf("check last authenticator: %w", err)
-	}
-	policy, err := queryAuthenticationPolicy(ctx, tx, userID, 0)
-	if err != nil {
-		return false, fmt.Errorf("load last-authenticator policy: %w", err)
-	}
-	hasPrimary := hasPassword == 1 || passkeyCount > 0
-	return hasPrimary && (!policy.RequiresMFA || passkeyCount > 0), nil
+func canDisableTOTPInTransaction(ctx context.Context, tx *sql.Tx, userID, rpID string, googleLoginAvailable bool) (bool, error) {
+	return canRemoveAuthenticatorInTransaction(
+		ctx, tx, userID, rpID, googleLoginAvailable, authenticatorRemoval{TOTP: true},
+	)
 }
 
 func (m *Manager) readSecurityManagementDraft(ctx context.Context, challengeToken, sessionToken, origin string, purpose ChallengePurpose, kind string) (*PreAuthChallenge, *securityManagementDraft, string, *Session, error) {

@@ -379,7 +379,9 @@ func (m *Manager) RemovePasskey(ctx context.Context, sessionToken, passkeyID, us
 		if owned != 1 {
 			return ErrPasskeyNotFound
 		}
-		canRemove, err := canRemovePasskeyInTransaction(ctx, tx, current.UserID, passkeyID, rpID)
+		canRemove, err := canRemovePasskeyInTransaction(
+			ctx, tx, current.UserID, passkeyID, rpID, m.HasGoogleLogin(),
+		)
 		if err != nil {
 			return err
 		}
@@ -589,33 +591,20 @@ func (m *Manager) canRemovePasskey(ctx context.Context, userID, passkeyID, rpID 
 		return false, err
 	}
 	defer tx.Rollback()
-	return canRemovePasskeyInTransaction(ctx, tx, userID, passkeyID, rpID)
+	return canRemovePasskeyInTransaction(ctx, tx, userID, passkeyID, rpID, m.HasGoogleLogin())
 }
 
-func canRemovePasskeyInTransaction(ctx context.Context, tx *sql.Tx, userID, passkeyID, rpID string) (bool, error) {
-	var hasPassword, hasTOTP, otherPasskeys int
-	err := tx.QueryRowContext(ctx, `
-		SELECT
-			EXISTS(SELECT 1 FROM password_credentials WHERE user_id = u.id),
-			EXISTS(SELECT 1 FROM totp_credentials WHERE user_id = u.id AND enabled = 1 AND revoked_at IS NULL),
-			(SELECT COUNT(*) FROM webauthn_credentials
-			 WHERE user_id = u.id AND id != ? AND rp_id = ? AND revoked_at IS NULL
-			   AND credential_ciphertext IS NOT NULL AND key_version IS NOT NULL)
-		FROM users u WHERE u.id = ? AND u.status = 'active'`, passkeyID, rpID, userID,
-	).Scan(&hasPassword, &hasTOTP, &otherPasskeys)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, ErrSecuritySessionInvalid
-	}
-	if err != nil {
-		return false, fmt.Errorf("check passkey removal protection: %w", err)
-	}
-	policy, err := queryAuthenticationPolicy(ctx, tx, userID, 0)
-	if err != nil {
-		return false, fmt.Errorf("load passkey removal policy: %w", err)
-	}
-	hasPrimary := hasPassword == 1 || otherPasskeys > 0
-	hasStrong := hasTOTP == 1 || otherPasskeys > 0
-	return hasPrimary && (!policy.RequiresMFA || hasStrong), nil
+func canRemovePasskeyInTransaction(
+	ctx context.Context,
+	tx *sql.Tx,
+	userID string,
+	passkeyID string,
+	rpID string,
+	googleLoginAvailable bool,
+) (bool, error) {
+	return canRemoveAuthenticatorInTransaction(
+		ctx, tx, userID, rpID, googleLoginAvailable, authenticatorRemoval{PasskeyID: passkeyID},
+	)
 }
 
 func (m *Manager) readPasskeyRegistrationDraft(ctx context.Context, challengeToken, sessionToken, origin string) (*PreAuthChallenge, *passkeyRegistrationDraft, *Session, error) {

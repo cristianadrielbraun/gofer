@@ -360,6 +360,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+securityPasskeyStepUpStartPath, h.handleSecurityPasskeyStepUpStart)
 	mux.HandleFunc("POST "+securityPasskeyStepUpFinishPath, h.handleSecurityPasskeyStepUpFinish)
 	mux.HandleFunc("POST "+securityGoogleIdentityLinkPath, h.handleSecurityGoogleIdentityLink)
+	mux.HandleFunc("POST /settings/security/identities/google/{id}/unlink", h.handleSecurityGoogleIdentityUnlink)
 	mux.HandleFunc("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
@@ -2998,6 +2999,11 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		path := "/settings/security/passkeys/" + passkey.ID + "/remove"
 		data.CSRFTokens[path] = auth.CSRFToken(ctx, http.MethodPost, path)
 	}
+	for _, identity := range data.FederatedIdentities {
+		if identity.UnlinkPath != "" {
+			data.CSRFTokens[identity.UnlinkPath] = auth.CSRFToken(ctx, http.MethodPost, identity.UnlinkPath)
+		}
+	}
 	data.CSRFToken = data.CSRFTokens[passwordChangePath]
 	challengeToken := auth.GetSecurityChallengeToken(r)
 	if challengeToken != "" {
@@ -3048,6 +3054,8 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			data.Message = "Passkey removed. Other signed-in devices were signed out."
 		case r.URL.Query().Get("google_linked") == "1":
 			data.Message = "Google sign-in connected. You can now use that Google identity to sign in to this Gofer account."
+		case r.URL.Query().Get("google_unlinked") == "1":
+			data.Message = "Google sign-in disconnected. That identity can no longer sign in to this Gofer account."
 		case r.URL.Query().Get("google_link_failed") == "1":
 			data.Message = "Google sign-in could not be connected. It may already belong to another Gofer account, or the request may have expired."
 			data.MessageIsError = true
