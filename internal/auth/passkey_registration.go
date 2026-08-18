@@ -380,7 +380,7 @@ func (m *Manager) RemovePasskey(ctx context.Context, sessionToken, passkeyID, us
 			return ErrPasskeyNotFound
 		}
 		canRemove, err := canRemovePasskeyInTransaction(
-			ctx, tx, current.UserID, passkeyID, rpID, m.HasGoogleLogin(),
+			ctx, tx, current.UserID, passkeyID, rpID, m.configuredFederatedLoginAvailability(),
 		)
 		if err != nil {
 			return err
@@ -591,7 +591,7 @@ func (m *Manager) canRemovePasskey(ctx context.Context, userID, passkeyID, rpID 
 		return false, err
 	}
 	defer tx.Rollback()
-	return canRemovePasskeyInTransaction(ctx, tx, userID, passkeyID, rpID, m.HasGoogleLogin())
+	return canRemovePasskeyInTransaction(ctx, tx, userID, passkeyID, rpID, m.configuredFederatedLoginAvailability())
 }
 
 func canRemovePasskeyInTransaction(
@@ -600,10 +600,10 @@ func canRemovePasskeyInTransaction(
 	userID string,
 	passkeyID string,
 	rpID string,
-	googleLoginAvailable bool,
+	availability federatedLoginAvailability,
 ) (bool, error) {
 	return canRemoveAuthenticatorInTransaction(
-		ctx, tx, userID, rpID, googleLoginAvailable, authenticatorRemoval{PasskeyID: passkeyID},
+		ctx, tx, userID, rpID, availability, authenticatorRemoval{PasskeyID: passkeyID},
 	)
 }
 

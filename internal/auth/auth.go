@@ -136,11 +136,13 @@ func ContextWithSession(ctx context.Context, session *Session) context.Context {
 }
 
 type Config struct {
-	Enabled           bool
-	SetupToken        string
-	GoogleLoginClient *oauth2.Config
-	BaseURL           string
-	SecureCookies     bool
+	Enabled              bool
+	SetupToken           string
+	GoogleLoginClient    *oauth2.Config
+	MicrosoftLoginClient *oauth2.Config
+	MicrosoftLoginTenant string
+	BaseURL              string
+	SecureCookies        bool
 }
 
 func LoadConfig(baseURL string) *Config {
@@ -173,6 +175,24 @@ func LoadConfig(baseURL string) *Config {
 		}
 	}
 
+	microsoftClientID := strings.TrimSpace(os.Getenv("GOFER_MICROSOFT_LOGIN_CLIENT_ID"))
+	microsoftClientSecret := strings.TrimSpace(os.Getenv("GOFER_MICROSOFT_LOGIN_CLIENT_SECRET"))
+	microsoftTenant := normalizeMicrosoftLoginTenant(os.Getenv("GOFER_MICROSOFT_LOGIN_TENANT"))
+	if microsoftClientID != "" && microsoftClientSecret != "" && microsoftTenant != "" {
+		cfg.MicrosoftLoginTenant = microsoftTenant
+		cfg.MicrosoftLoginClient = &oauth2.Config{
+			ClientID:     microsoftClientID,
+			ClientSecret: microsoftClientSecret,
+			RedirectURL:  baseURL + microsoftLoginCallbackPath,
+			Scopes: []string{
+				microsoftApplicationOpenIDScope,
+				microsoftApplicationProfileScope,
+				microsoftApplicationEmailScope,
+			},
+			Endpoint: microsoftLoginOAuthEndpoint(microsoftTenant),
+		}
+	}
+
 	return cfg
 }
 
@@ -183,6 +203,7 @@ type Manager struct {
 	tokens                     TokenGenerator
 	bucketHashKey              []byte
 	googleIDTokenVerifier      GoogleIDTokenVerifier
+	microsoftIDTokenVerifier   MicrosoftIDTokenVerifier
 	passkeyRegistrationFactory passkeyRegistrationFactory
 	passkeyAssertionFactory    passkeyAssertionFactory
 }
@@ -202,9 +223,17 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		if dependencies[0].GoogleIDTokenVerifier != nil {
 			deps.GoogleIDTokenVerifier = dependencies[0].GoogleIDTokenVerifier
 		}
+		if dependencies[0].MicrosoftIDTokenVerifier != nil {
+			deps.MicrosoftIDTokenVerifier = dependencies[0].MicrosoftIDTokenVerifier
+		}
 	}
 	if deps.GoogleIDTokenVerifier == nil && config != nil && config.GoogleLoginClient != nil {
 		deps.GoogleIDTokenVerifier = newDiscoveredGoogleIDTokenVerifier(config.GoogleLoginClient.ClientID)
+	}
+	if deps.MicrosoftIDTokenVerifier == nil && config != nil && config.MicrosoftLoginClient != nil {
+		deps.MicrosoftIDTokenVerifier = newDiscoveredMicrosoftIDTokenVerifier(
+			config.MicrosoftLoginClient.ClientID, config.MicrosoftLoginTenant,
+		)
 	}
 	return &Manager{
 		config:                     config,
@@ -213,6 +242,7 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		tokens:                     deps.Tokens,
 		bucketHashKey:              deps.BucketHashKey,
 		googleIDTokenVerifier:      deps.GoogleIDTokenVerifier,
+		microsoftIDTokenVerifier:   deps.MicrosoftIDTokenVerifier,
 		passkeyRegistrationFactory: newPasskeyRegistrationCeremony,
 		passkeyAssertionFactory:    newPasskeyAssertionCeremony,
 	}
@@ -228,6 +258,10 @@ func (m *Manager) IsEnabled() bool {
 
 func (m *Manager) HasGoogleLogin() bool {
 	return m.config.GoogleLoginClient != nil
+}
+
+func (m *Manager) HasMicrosoftLogin() bool {
+	return m.config.MicrosoftLoginClient != nil
 }
 
 func (m *Manager) DB() *storage.DB {

@@ -8,11 +8,11 @@ import (
 
 type RecoveryRepairMFAData struct {
 	QRCodeDataURL string
-	ManualKey    string
-	Algorithm    string
-	Digits       int
-	Period       int
-	ErrorMessage string
+	ManualKey     string
+	Algorithm     string
+	Digits        int
+	Period        int
+	ErrorMessage  string
 }
 
 type RecoveryRepairCodesData struct {
@@ -22,7 +22,7 @@ type RecoveryRepairCodesData struct {
 	ErrorMessage string
 }
 
-templ LoginPage(showGoogle bool, errorMessage string, identifier string) {
+templ LoginPage(showGoogle, showMicrosoft bool, errorMessage string, identifier string) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark" data-theme="classic">
 		<head>
@@ -102,22 +102,39 @@ templ LoginPage(showGoogle bool, errorMessage string, identifier string) {
 						<p data-passkey-authentication-status role="status" aria-live="polite" class="text-center text-xs text-muted-foreground">Enter a username or email to target its passkeys, or leave it blank to choose a saved account.</p>
 						<noscript><p class="text-center text-xs text-amber-800 dark:text-amber-200">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript>
 					</form>
-					if showGoogle {
+					if showGoogle || showMicrosoft {
 						<div class="relative my-6">
 							<div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-border"></div></div>
 							<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">or</span></div>
 						</div>
-						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/auth/google"}) {
-							<span class="flex items-center justify-center gap-3">
-								<svg class="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
-									<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-									<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-									<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-									<path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-								</svg>
-								Continue with Google
-							</span>
-						}
+						<div class="space-y-3">
+							if showGoogle {
+								@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/auth/google"}) {
+									<span class="flex items-center justify-center gap-3">
+										<svg class="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"></path>
+											<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"></path>
+											<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"></path>
+											<path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"></path>
+										</svg>
+										Continue with Google
+									</span>
+								}
+							}
+							if showMicrosoft {
+								@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/auth/microsoft"}) {
+									<span class="flex items-center justify-center gap-3">
+										<svg class="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M2 2h9v9H2z" fill="#f25022"></path>
+											<path d="M13 2h9v9h-9z" fill="#7fba00"></path>
+											<path d="M2 13h9v9H2z" fill="#00a4ef"></path>
+											<path d="M13 13h9v9h-9z" fill="#ffb900"></path>
+										</svg>
+										Continue with Microsoft
+									</span>
+								}
+							}
+						</div>
 					}
 				</div>
 			</div>
@@ -170,10 +187,14 @@ templ LoginMFAContinuationPage(errorMessage string) {
 								class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-xl tracking-[0.35em] outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
 							/>
 						</div>
-						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Verify and sign in }
+						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+							Verify and sign in
+						}
 					</form>
 					<div class="mt-4">
-						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login"}) { Restart sign-in }
+						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login"}) {
+							Restart sign-in
+						}
 					</div>
 					<div class="mt-4 text-center">
 						<a href="/login/mfa/recovery" class="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">Use a recovery code instead</a>
@@ -225,10 +246,14 @@ templ RecoveryCodeLoginPage(errorMessage string) {
 								class="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-sm uppercase tracking-wider outline-none transition-shadow focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"
 							/>
 						</div>
-						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Continue to authenticator repair }
+						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+							Continue to authenticator repair
+						}
 					</form>
 					<div class="mt-4">
-						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login/mfa"}) { Use an authenticator code }
+						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login/mfa"}) {
+							Use an authenticator code
+						}
 					</div>
 				</div>
 			</main>
@@ -274,11 +299,15 @@ templ RecoveryRepairMFAPage(data RecoveryRepairMFAData) {
 							<label for="recovery-repair-code" class="text-sm font-medium">Code from the replacement authenticator</label>
 							<input id="recovery-repair-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-xl tracking-[0.35em] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"/>
 						</div>
-						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Verify replacement authenticator }
+						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+							Verify replacement authenticator
+						}
 					</form>
 					<form method="post" action="/login/recovery/mfa" class="mt-2">
 						<input type="hidden" name="action" value="restart"/>
-						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) { Generate a different setup key }
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
+							Generate a different setup key
+						}
 					</form>
 					<p class="mt-6 text-center text-xs text-muted-foreground">Your current authenticator and remaining recovery codes stay active until repair completes.</p>
 				</div>
@@ -333,16 +362,22 @@ templ RecoveryRepairCodesPage(data RecoveryRepairCodesData) {
 								<input type="checkbox" name="saved" value="yes" required class="mt-0.5 h-4 w-4 rounded border-input"/>
 								<span>I saved these new recovery codes and understand the old authenticator, old codes, and earlier sessions will be replaced.</span>
 							</label>
-							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Complete repair and sign in }
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+								Complete repair and sign in
+							}
 						</form>
 						<form method="post" action="/login/recovery/codes" class="mt-2">
 							<input type="hidden" name="action" value="regenerate"/>
-							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) { Replace these new recovery codes }
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
+								Replace these new recovery codes
+							}
 						</form>
 					} else {
 						<form method="post" action="/login/recovery/codes" class="mt-4">
 							<input type="hidden" name="action" value="generate"/>
-							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) { Generate fresh recovery codes }
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+								Generate fresh recovery codes
+							}
 						</form>
 					}
 					<p class="mt-6 text-center text-xs text-muted-foreground">No session exists until repair completes successfully.</p>

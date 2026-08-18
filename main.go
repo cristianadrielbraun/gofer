@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -177,7 +178,18 @@ func runServer() {
 	fmt.Printf("listening on %s\n", httpConfig.ListenAddr)
 	fmt.Printf("database: %s\n", db.Path())
 	if authConfig.Enabled {
-		fmt.Printf("auth: enabled (Google OAuth2)\n")
+		providers := []string{}
+		if authManager.HasGoogleLogin() {
+			providers = append(providers, "Google")
+		}
+		if authManager.HasMicrosoftLogin() {
+			providers = append(providers, "Microsoft")
+		}
+		appLogin := "none"
+		if len(providers) > 0 {
+			appLogin = strings.Join(providers, ", ")
+		}
+		fmt.Printf("auth: enabled (application login: %s)\n", appLogin)
 	} else {
 		fmt.Printf("auth: disabled (local mode)\n")
 	}

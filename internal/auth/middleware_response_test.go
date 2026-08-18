@@ -153,7 +153,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 		"/login", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/redeem", "/account/redeem/google", "/account/redeem/complete",
-		"/auth/google", "/auth/google/callback", "/assets/app.js", "/sw.js",
+		"/auth/google", "/auth/google/callback", "/auth/microsoft", "/auth/microsoft/callback", "/assets/app.js", "/sw.js",
 	}
 	for _, path := range publicPaths {
 		t.Run(path, func(t *testing.T) {

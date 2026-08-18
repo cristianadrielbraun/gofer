@@ -8,7 +8,7 @@ import (
 
 func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(false, "Unable to sign in with those credentials.", `person"@example.com`).Render(t.Context(), &output); err != nil {
+	if err := LoginPage(false, false, "Unable to sign in with those credentials.", `person"@example.com`).Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -28,14 +28,14 @@ func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 	if strings.Contains(html, `person"@example.com`) || !strings.Contains(html, `person&#34;@example.com`) {
 		t.Fatalf("login identifier was not safely escaped: %q", html)
 	}
-	if strings.Contains(html, "https://") || strings.Contains(html, "/auth/google") {
+	if strings.Contains(html, "https://") || strings.Contains(html, "/auth/google") || strings.Contains(html, "/auth/microsoft") {
 		t.Fatalf("local-only login page contains external/provider content: %q", html)
 	}
 }
 
 func TestLoginPageShowsGoogleOnlyWhenConfigured(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(true, "", "").Render(t.Context(), &output); err != nil {
+	if err := LoginPage(true, false, "", "").Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -44,6 +44,20 @@ func TestLoginPageShowsGoogleOnlyWhenConfigured(t *testing.T) {
 	}
 	if strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
 		t.Fatalf("login page loads remote fonts: %q", html)
+	}
+}
+
+func TestLoginPageShowsMicrosoftOnlyWhenConfigured(t *testing.T) {
+	var output bytes.Buffer
+	if err := LoginPage(false, true, "", "").Render(t.Context(), &output); err != nil {
+		t.Fatalf("LoginPage().Render() error = %v", err)
+	}
+	html := output.String()
+	if !strings.Contains(html, `href="/auth/microsoft"`) || !strings.Contains(html, "Continue with Microsoft") {
+		t.Fatalf("configured Microsoft option missing: %q", html)
+	}
+	if strings.Contains(html, `href="/auth/google"`) || strings.Contains(html, "graph.microsoft.com") {
+		t.Fatalf("Microsoft sign-in option crossed provider/resource boundary: %q", html)
 	}
 }
 

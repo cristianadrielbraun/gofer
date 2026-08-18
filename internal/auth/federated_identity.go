@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const googleIdentityProvider = "google"
+const (
+	googleIdentityProvider    = "google"
+	microsoftIdentityProvider = "microsoft"
+)
 
 var (
 	ErrFederatedIdentityUnknown  = errors.New("federated identity is not linked")
@@ -77,7 +80,7 @@ func (m *Manager) ListFederatedIdentities(ctx context.Context, userID string) ([
 		return nil, fmt.Errorf("validate identity-removal relying party: %w", err)
 	}
 	for index := range identities {
-		if identities[index].Provider != googleIdentityProvider {
+		if identities[index].Provider != googleIdentityProvider && identities[index].Provider != microsoftIdentityProvider {
 			identities[index].UnlinkReason = "This sign-in provider cannot be disconnected here yet."
 			continue
 		}
@@ -101,7 +104,7 @@ func (m *Manager) canUnlinkFederatedIdentity(ctx context.Context, userID, identi
 	}
 	defer func() { _ = tx.Rollback() }()
 	return canRemoveAuthenticatorInTransaction(
-		ctx, tx, userID, rpID, m.HasGoogleLogin(), authenticatorRemoval{IdentityID: identityID},
+		ctx, tx, userID, rpID, m.configuredFederatedLoginAvailability(), authenticatorRemoval{IdentityID: identityID},
 	)
 }
 
@@ -154,7 +157,7 @@ func (m *Manager) UnlinkGoogleIdentity(
 			return ErrFederatedIdentityUnknown
 		}
 		canUnlink, err := canRemoveAuthenticatorInTransaction(
-			ctx, tx, current.UserID, rpID, m.HasGoogleLogin(), authenticatorRemoval{IdentityID: identityID},
+			ctx, tx, current.UserID, rpID, m.configuredFederatedLoginAvailability(), authenticatorRemoval{IdentityID: identityID},
 		)
 		if err != nil {
 			return err

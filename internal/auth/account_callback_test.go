@@ -18,6 +18,9 @@ func TestAccountOAuthCallbacksRequireAuthentication(t *testing.T) {
 	if !isPublicPath("/auth/google/callback") {
 		t.Fatal("login callback must remain public")
 	}
+	if !isPublicPath("/auth/microsoft/callback") {
+		t.Fatal("Microsoft login callback must remain public")
+	}
 }
 
 func newAccountOAuthFlowTestManager(t *testing.T, enabled bool) (*Manager, *storage.DB) {

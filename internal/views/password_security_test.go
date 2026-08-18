@@ -257,3 +257,36 @@ func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxCon
 		t.Fatalf("protected Google identity settings = %q", output.String())
 	}
 }
+
+func TestPasswordSecuritySettingsRendersMicrosoftIdentityWithoutOutlookMailboxConfusion(t *testing.T) {
+	const linkPath = "/settings/security/identities/microsoft/link"
+	const unlinkPath = "/settings/security/identities/microsoft/identity-id/unlink"
+	csrf := strings.Repeat("e", 64)
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		MicrosoftLoginAvailable: true,
+		StepUpFresh:             true,
+		FederatedIdentities: []FederatedIdentityData{{
+			ID: "identity-id", Provider: "microsoft", Email: "person@microsoft.example",
+			LinkedAt: "Aug 18, 2026", CanUnlink: true, UnlinkPath: unlinkPath,
+		}},
+		CSRFTokens: map[string]string{linkPath: csrf, unlinkPath: csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Microsoft · connected Aug 18, 2026", "person@microsoft.example",
+		`action="` + linkPath + `"`, `action="` + unlinkPath + `"`,
+		"Microsoft sign-in does not connect an Outlook mailbox",
+		"neither grants access to mail, contacts, or calendars",
+		`name="_csrf" value="` + csrf + `"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("Microsoft identity settings missing %q: %q", want, html)
+		}
+	}
+	if strings.Contains(html, "Mail.Read") || strings.Contains(html, "graph.microsoft.com") {
+		t.Fatal("Microsoft application sign-in UI exposed mailbox authorization")
+	}
+}
