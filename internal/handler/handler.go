@@ -2983,8 +2983,10 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	data := views.PasswordSecurityData{
-		HasPassword: hasPassword,
-		HasTOTP:     summary.HasTOTP, HasPasskey: summary.HasPasskey,
+		LoginUsername: user.Username,
+		LoginEmail:    user.Email,
+		HasPassword:   hasPassword,
+		HasTOTP:       summary.HasTOTP, HasPasskey: summary.HasPasskey,
 		RequiresMFA:            summary.RequiresMFA,
 		RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
 		StepUpFresh:            summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,

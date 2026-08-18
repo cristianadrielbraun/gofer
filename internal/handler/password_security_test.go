@@ -43,6 +43,11 @@ func getPasswordSecurityPage(t *testing.T, manager *auth.Manager, mux *http.Serv
 
 func TestPasswordSecurityPageRendersLocalAccessibleChangeForm(t *testing.T) {
 	_, manager, mux, current, _ := passwordSecurityStack(t)
+	if _, err := manager.DB().Write().ExecContext(t.Context(), `
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('mailbox', 'person', 'imap', 'mailbox@example.net')`); err != nil {
+		t.Fatal(err)
+	}
 	recorder := getPasswordSecurityPage(t, manager, mux, current.Token)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("security settings status = %d body=%q", recorder.Code, recorder.Body.String())
@@ -50,6 +55,10 @@ func TestPasswordSecurityPageRendersLocalAccessibleChangeForm(t *testing.T) {
 	html := recorder.Body.String()
 	for _, want := range []string{
 		`href="/settings/security"`,
+		`data-local-login-identifiers`,
+		`data-local-login-username>Person</dd>`,
+		`data-local-login-email>Person@Example.com</dd>`,
+		"separate from mailbox addresses and external sign-in identities",
 		`action="/settings/security/password"`,
 		`name="_csrf"`,
 		`name="current_password"`,
@@ -66,6 +75,9 @@ func TestPasswordSecurityPageRendersLocalAccessibleChangeForm(t *testing.T) {
 	}
 	if strings.Contains(html, current.Token) {
 		t.Fatal("security settings exposed the raw session bearer")
+	}
+	if strings.Contains(html, "mailbox@example.net") || strings.Contains(html, "person@example.com") {
+		t.Fatal("security settings rendered a mailbox address or normalized lookup identifier as a local sign-in display value")
 	}
 	if strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
 		t.Fatal("security settings requested a remote font")

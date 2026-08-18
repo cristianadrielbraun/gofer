@@ -69,6 +69,45 @@ func TestPasswordSecuritySettingsDoesNotOfferChangeWithoutCredential(t *testing.
 	}
 }
 
+func TestPasswordSecuritySettingsRendersLocalLoginIdentifiersReadOnlyAndEscaped(t *testing.T) {
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		LoginUsername: `<owner&name>`,
+		LoginEmail:    `<owner@example.com>`,
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-local-login-identifiers`, `aria-label="Local sign-in identifiers"`,
+		`data-local-login-username`, `data-local-login-email`,
+		"Local sign-in", "Username", "Account email",
+		`&lt;owner&amp;name&gt;`, `&lt;owner@example.com&gt;`,
+		"separate from mailbox addresses and external sign-in identities",
+		"An identifier is not a credential",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("local sign-in identifiers missing %q: %q", want, html)
+		}
+	}
+	for _, forbidden := range []string{
+		`<owner&name>`, `<owner@example.com>`, `name="username"`, `name="email"`,
+		`username_normalized`, `email_normalized`,
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("local sign-in identifiers exposed editable or unescaped value %q", forbidden)
+		}
+	}
+
+	output.Reset()
+	if err := PasswordSecuritySettings(PasswordSecurityData{}).Render(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(output.String(), ">Not set</") != 2 {
+		t.Fatalf("missing local identifiers should render two Not set values: %q", output.String())
+	}
+}
+
 func TestPasswordSecuritySettingsRendersAccessibleFactorManagementAndEscapesSecrets(t *testing.T) {
 	csrf := strings.Repeat("b", 64)
 	data := PasswordSecurityData{
