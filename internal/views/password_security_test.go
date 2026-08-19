@@ -169,11 +169,43 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 	}
 }
 
-func TestPasswordSecuritySettingsRendersSecurityActivityWithoutAuditInternals(t *testing.T) {
+func TestPasswordSecuritySettingsRendersCompactLazySecurityActivityCard(t *testing.T) {
 	var output bytes.Buffer
 	if err := PasswordSecuritySettings(PasswordSecurityData{
-		SecurityEventsTruncated: true,
-		SecurityEvents: []SecurityEventData{
+		SecurityEventCount: 42,
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() compact security activity error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-security-events`, "Security activity", "42 events", "View activity",
+		`data-tui-dialog-target="security-activity-dialog"`,
+		`hx-get="/settings/security/activity?page=1"`,
+		`hx-target="#security-activity-dialog-body"`, `hx-swap="innerHTML"`,
+		`id="security-activity-dialog"`, `id="security-activity-dialog-body"`,
+		"Loading security activity…",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("compact security activity view missing %q: %q", want, html)
+		}
+	}
+	for _, forbidden := range []string{
+		"Signed in", "A verified security request was completed.", "Chrome on Linux",
+		"audit-event-id", "actor-user-id", "subject-user-id",
+		"session-id", "source-hash", "request-id", "metadata_json", "provider-subject",
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("compact security activity view exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
+func TestSecurityActivityDialogPageRendersPaginationWithoutAuditInternals(t *testing.T) {
+	var output bytes.Buffer
+	if err := SecurityActivityDialogPage(SecurityActivityPageData{
+		TotalEvents: 42, Page: 2, TotalPages: 3, FirstEvent: 21, LastEvent: 40,
+		PreviousPage: 1, NextPage: 3, HasPrevious: true, HasNext: true,
+		Events: []SecurityEventData{
 			{
 				Title: "Signed in", Detail: "A verified security request was completed.",
 				OccurredAt: "Aug 19, 2026 at 6:00 PM", Client: "Chrome on Linux",
@@ -186,19 +218,21 @@ func TestPasswordSecuritySettingsRendersSecurityActivityWithoutAuditInternals(t 
 			},
 		},
 	}).Render(context.Background(), &output); err != nil {
-		t.Fatalf("PasswordSecuritySettings.Render() security activity error = %v", err)
+		t.Fatalf("SecurityActivityDialogPage.Render() error = %v", err)
 	}
 	html := output.String()
 	for _, want := range []string{
-		`data-security-events`, `aria-label="Recent security activity"`, "Security activity",
+		`data-security-activity-page`, `aria-label="Security activity events"`,
 		"Signed in", "A verified security request was completed.", "Aug 19, 2026 at 6:00 PM",
 		"From Chrome on Linux", ">Completed</span>",
 		`&lt;script&gt;failed&lt;/script&gt;`, `Rejected &lt;private&gt; detail`,
-		`From &lt;unknown client&gt;`, ">Failed</span>",
-		"Showing the 50 most recent security events", "Raw audit metadata and internal identifiers are not displayed",
+		`From &lt;unknown client&gt;`, ">Failed</span>", "Showing 21–40 of 42", "Page 2 of 3",
+		`hx-get="/settings/security/activity?page=1"`,
+		`hx-get="/settings/security/activity?page=3"`,
+		"Raw audit metadata and internal identifiers are not displayed",
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("security activity view missing %q: %q", want, html)
+			t.Fatalf("security activity dialog page missing %q: %q", want, html)
 		}
 	}
 	for _, forbidden := range []string{
@@ -206,7 +240,7 @@ func TestPasswordSecuritySettingsRendersSecurityActivityWithoutAuditInternals(t 
 		"session-id", "source-hash", "request-id", "metadata_json", "provider-subject",
 	} {
 		if strings.Contains(html, forbidden) {
-			t.Fatalf("security activity view exposed forbidden value %q", forbidden)
+			t.Fatalf("security activity dialog page exposed forbidden value %q", forbidden)
 		}
 	}
 }

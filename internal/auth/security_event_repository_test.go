@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestListSecurityEventsRequiresExactFreshSessionAndReturnsOnlySubjectEvents(t *testing.T) {
+func TestSecurityEventQueriesRequireExactFreshSessionAndReturnOnlySubjectEvents(t *testing.T) {
 	now := time.Date(2026, time.August, 19, 16, 0, 0, 0, time.UTC)
 	clock := &fixedClock{now: now}
 	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{
@@ -93,43 +93,61 @@ func TestListSecurityEventsRequiresExactFreshSessionAndReturnsOnlySubjectEvents(
 		}
 	}
 
-	list, err := manager.ListSecurityEvents(t.Context(), current.Token)
+	overview, err := manager.GetSecurityEventOverview(t.Context(), current.Token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list == nil || list.Truncated || len(list.Events) != 3 {
-		t.Fatalf("ListSecurityEvents() = %#v", list)
+	if overview == nil || overview.TotalEvents != 3 {
+		t.Fatalf("GetSecurityEventOverview() = %#v", overview)
 	}
-	if list.Events[0].EventType != AuthEventIdentityLinked || !list.Events[0].Success ||
-		list.Events[0].Reason != AuthEventReasonChallengeVerified ||
-		list.Events[0].UserAgent != "  <security\x00client>  " ||
-		!list.Events[0].OccurredAt.Equal(now.Add(-time.Minute)) {
-		t.Fatalf("newest security event = %#v", list.Events[0])
+	page, err := manager.ListSecurityEventPage(t.Context(), current.Token, 1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if list.Events[1].EventType != AuthEventEnrollmentIssued || !list.Events[1].Success ||
-		list.Events[2].EventType != AuthEventLoginFailed || list.Events[2].Success {
-		t.Fatalf("security event ordering = %#v", list.Events)
+	if page == nil || page.TotalEvents != 3 || page.Page != 1 || page.TotalPages != 1 ||
+		page.PageSize != securityEventPageSize || len(page.Events) != 3 {
+		t.Fatalf("ListSecurityEventPage() = %#v", page)
+	}
+	if page.Events[0].EventType != AuthEventIdentityLinked || !page.Events[0].Success ||
+		page.Events[0].Reason != AuthEventReasonChallengeVerified ||
+		page.Events[0].UserAgent != "  <security\x00client>  " ||
+		!page.Events[0].OccurredAt.Equal(now.Add(-time.Minute)) {
+		t.Fatalf("newest security event = %#v", page.Events[0])
+	}
+	if page.Events[1].EventType != AuthEventEnrollmentIssued || !page.Events[1].Success ||
+		page.Events[2].EventType != AuthEventLoginFailed || page.Events[2].Success {
+		t.Fatalf("security event ordering = %#v", page.Events)
 	}
 
-	foreignList, err := manager.ListSecurityEvents(t.Context(), foreign.Token)
-	if err != nil || foreignList == nil || len(foreignList.Events) != 2 {
-		t.Fatalf("foreign ListSecurityEvents() = %#v, %v", foreignList, err)
+	foreignOverview, err := manager.GetSecurityEventOverview(t.Context(), foreign.Token)
+	if err != nil || foreignOverview == nil || foreignOverview.TotalEvents != 2 {
+		t.Fatalf("foreign GetSecurityEventOverview() = %#v, %v", foreignOverview, err)
 	}
-	for _, event := range foreignList.Events {
+	foreignPage, err := manager.ListSecurityEventPage(t.Context(), foreign.Token, 1)
+	if err != nil || foreignPage == nil || len(foreignPage.Events) != 2 {
+		t.Fatalf("foreign ListSecurityEventPage() = %#v, %v", foreignPage, err)
+	}
+	for _, event := range foreignPage.Events {
 		if event.UserAgent == "Rejected Browser" || event.UserAgent == "Admin Browser" {
-			t.Fatalf("foreign event list exposed another subject: %#v", foreignList.Events)
+			t.Fatalf("foreign event page exposed another subject: %#v", foreignPage.Events)
 		}
 	}
-	if list, err := manager.ListSecurityEvents(t.Context(), "invalid-token"); list != nil || !errors.Is(err, ErrSecuritySessionInvalid) {
-		t.Fatalf("invalid ListSecurityEvents() = %#v, %v", list, err)
+	if result, err := manager.GetSecurityEventOverview(t.Context(), "invalid-token"); result != nil || !errors.Is(err, ErrSecuritySessionInvalid) {
+		t.Fatalf("invalid GetSecurityEventOverview() = %#v, %v", result, err)
+	}
+	if result, err := manager.ListSecurityEventPage(t.Context(), "invalid-token", 1); result != nil || !errors.Is(err, ErrSecuritySessionInvalid) {
+		t.Fatalf("invalid ListSecurityEventPage() = %#v, %v", result, err)
 	}
 	clock.now = now.Add(securityStepUpMaximumAge + time.Second)
-	if list, err := manager.ListSecurityEvents(t.Context(), current.Token); list != nil || !errors.Is(err, ErrRecentStepUpRequired) {
-		t.Fatalf("stale ListSecurityEvents() = %#v, %v", list, err)
+	if result, err := manager.GetSecurityEventOverview(t.Context(), current.Token); result != nil || !errors.Is(err, ErrRecentStepUpRequired) {
+		t.Fatalf("stale GetSecurityEventOverview() = %#v, %v", result, err)
+	}
+	if result, err := manager.ListSecurityEventPage(t.Context(), current.Token, 1); result != nil || !errors.Is(err, ErrRecentStepUpRequired) {
+		t.Fatalf("stale ListSecurityEventPage() = %#v, %v", result, err)
 	}
 }
 
-func TestListSecurityEventsCapsNewestHistory(t *testing.T) {
+func TestListSecurityEventPagePaginatesNewestHistory(t *testing.T) {
 	now := time.Date(2026, time.August, 19, 17, 0, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
 		ids:    []string{"current-session"},
@@ -147,7 +165,8 @@ func TestListSecurityEventsCapsNewestHistory(t *testing.T) {
 	); err != nil || !steppedUp {
 		t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
 	}
-	for index := 0; index < securityEventListLimit+5; index++ {
+	totalEvents := securityEventPageSize*2 + 5
+	for index := int64(0); index < totalEvents; index++ {
 		occurredAt := now.Add(-time.Duration(index+1) * time.Minute)
 		if _, err := manager.db.Write().ExecContext(t.Context(), `
 			INSERT INTO auth_events (
@@ -159,15 +178,35 @@ func TestListSecurityEventsCapsNewestHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	list, err := manager.ListSecurityEvents(t.Context(), current.Token)
+	overview, err := manager.GetSecurityEventOverview(t.Context(), current.Token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list == nil || !list.Truncated || len(list.Events) != securityEventListLimit {
-		t.Fatalf("capped ListSecurityEvents() = %#v", list)
+	if overview == nil || overview.TotalEvents != totalEvents {
+		t.Fatalf("GetSecurityEventOverview() = %#v", overview)
 	}
-	if list.Events[0].UserAgent != "Browser 00" ||
-		list.Events[len(list.Events)-1].UserAgent != fmt.Sprintf("Browser %02d", securityEventListLimit-1) {
-		t.Fatalf("capped event ordering = first:%#v last:%#v", list.Events[0], list.Events[len(list.Events)-1])
+	for _, test := range []struct {
+		requested int64
+		wantPage  int64
+		wantCount int
+		wantFirst string
+		wantLast  string
+	}{
+		{requested: 0, wantPage: 1, wantCount: 20, wantFirst: "Browser 00", wantLast: "Browser 19"},
+		{requested: 2, wantPage: 2, wantCount: 20, wantFirst: "Browser 20", wantLast: "Browser 39"},
+		{requested: 3, wantPage: 3, wantCount: 5, wantFirst: "Browser 40", wantLast: "Browser 44"},
+		{requested: 999, wantPage: 3, wantCount: 5, wantFirst: "Browser 40", wantLast: "Browser 44"},
+	} {
+		page, err := manager.ListSecurityEventPage(t.Context(), current.Token, test.requested)
+		if err != nil {
+			t.Fatalf("ListSecurityEventPage(%d): %v", test.requested, err)
+		}
+		if page == nil || page.TotalEvents != totalEvents || page.TotalPages != 3 ||
+			page.Page != test.wantPage || page.PageSize != securityEventPageSize || len(page.Events) != test.wantCount {
+			t.Fatalf("ListSecurityEventPage(%d) = %#v", test.requested, page)
+		}
+		if page.Events[0].UserAgent != test.wantFirst || page.Events[len(page.Events)-1].UserAgent != test.wantLast {
+			t.Fatalf("ListSecurityEventPage(%d) ordering = first:%#v last:%#v", test.requested, page.Events[0], page.Events[len(page.Events)-1])
+		}
 	}
 }

@@ -350,6 +350,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/accounts/{id}/deletion-status", h.handleAccountDeletionStatus)
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
+	mux.HandleFunc("GET "+securityActivityPath, h.handleSecurityActivityPage)
 	mux.HandleFunc("POST /settings/security/password", h.handleChangePassword)
 	mux.HandleFunc("POST "+securityStepUpPath, h.handleSecurityStepUp)
 	mux.HandleFunc("POST "+securityTOTPStartPath, h.handleSecurityTOTPStart)
@@ -3046,7 +3047,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
 		return
 	}
-	securityEvents, err := h.auth.ListSecurityEvents(ctx, auth.GetSessionToken(r))
+	securityEventOverview, err := h.auth.GetSecurityEventOverview(ctx, auth.GetSessionToken(r))
 	if errors.Is(err, auth.ErrRecentStepUpRequired) {
 		http.Redirect(w, r, "/settings/security?verification_required=1", http.StatusSeeOther)
 		return
@@ -3079,7 +3080,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
 	data.FederatedIdentities = federatedIdentityViewData(identities)
 	data.Sessions, data.SessionsTruncated = securitySessionViewData(sessions, data.OIDCLoginName)
-	data.SecurityEvents, data.SecurityEventsTruncated = securityEventViewData(securityEvents)
+	data.SecurityEventCount = securityEventOverview.TotalEvents
 	for _, session := range data.Sessions {
 		if session.RevokePath != "" {
 			data.CanRevokeOtherSessions = true

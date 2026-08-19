@@ -91,9 +91,16 @@ type SecurityEventSummary struct {
 	UserAgent  string
 }
 
-type SecurityEventList struct {
-	Events    []SecurityEventSummary
-	Truncated bool
+type SecurityEventOverview struct {
+	TotalEvents int64
+}
+
+type SecurityEventPage struct {
+	Events      []SecurityEventSummary
+	TotalEvents int64
+	Page        int64
+	TotalPages  int64
+	PageSize    int64
 }
 
 type PreAuthChallenge struct {

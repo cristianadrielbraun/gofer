@@ -1,18 +1,23 @@
 package handler
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
-func securityEventViewData(list *auth.SecurityEventList) ([]views.SecurityEventData, bool) {
-	if list == nil {
-		return nil, false
-	}
-	result := make([]views.SecurityEventData, 0, len(list.Events))
-	for _, event := range list.Events {
+const securityActivityPath = "/settings/security/activity"
+
+func securityEventViewData(events []auth.SecurityEventSummary) []views.SecurityEventData {
+	result := make([]views.SecurityEventData, 0, len(events))
+	for _, event := range events {
 		view := views.SecurityEventData{
 			Title:      securityEventTitle(event.EventType, event.Success),
 			Detail:     securityEventDetail(event.Reason, event.Success),
@@ -28,7 +33,87 @@ func securityEventViewData(list *auth.SecurityEventList) ([]views.SecurityEventD
 		}
 		result = append(result, view)
 	}
-	return result, list.Truncated
+	return result
+}
+
+func securityActivityPageViewData(page *auth.SecurityEventPage) views.SecurityActivityPageData {
+	if page == nil {
+		return views.SecurityActivityPageData{}
+	}
+	result := views.SecurityActivityPageData{
+		Events:       securityEventViewData(page.Events),
+		TotalEvents:  page.TotalEvents,
+		Page:         page.Page,
+		TotalPages:   page.TotalPages,
+		PreviousPage: page.Page - 1,
+		NextPage:     page.Page + 1,
+		HasPrevious:  page.Page > 1,
+		HasNext:      page.Page < page.TotalPages,
+	}
+	if len(page.Events) > 0 {
+		result.FirstEvent = (page.Page-1)*page.PageSize + 1
+		result.LastEvent = result.FirstEvent + int64(len(page.Events)) - 1
+	}
+	return result
+}
+
+func parseSecurityActivityPage(r *http.Request) (int64, error) {
+	values, present := r.URL.Query()["page"]
+	if !present {
+		return 1, nil
+	}
+	if len(values) != 1 || values[0] == "" {
+		return 0, fmt.Errorf("page must be one positive integer")
+	}
+	page, err := strconv.ParseInt(values[0], 10, 64)
+	if err != nil || page < 1 {
+		return 0, fmt.Errorf("page must be one positive integer")
+	}
+	return page, nil
+}
+
+func setSecurityActivityHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+}
+
+func (h *Handler) handleSecurityActivityPage(w http.ResponseWriter, r *http.Request) {
+	setSecurityActivityHeaders(w)
+	if r.Header.Get("HX-Request") != "true" {
+		http.Redirect(w, r, "/settings/security", http.StatusSeeOther)
+		return
+	}
+	requestedPage, err := parseSecurityActivityPage(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	page, err := h.auth.ListSecurityEventPage(r.Context(), auth.GetSessionToken(r), requestedPage)
+	if errors.Is(err, auth.ErrRecentStepUpRequired) {
+		w.Header().Set("HX-Redirect", "/settings/security?verification_required=1")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if errors.Is(err, auth.ErrSecuritySessionInvalid) {
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		w.Header().Set("HX-Redirect", "/login")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		log.Printf("load security activity page: %v", err)
+		http.Error(w, "failed to load security activity", http.StatusInternalServerError)
+		return
+	}
+	var output bytes.Buffer
+	if err := views.SecurityActivityDialogPage(securityActivityPageViewData(page)).Render(r.Context(), &output); err != nil {
+		log.Printf("render security activity page: %v", err)
+		http.Error(w, "failed to render security activity", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = output.WriteTo(w)
 }
 
 func securityEventTitle(eventType auth.AuthEventType, success bool) string {
