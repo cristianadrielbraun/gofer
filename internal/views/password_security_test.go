@@ -459,6 +459,36 @@ func TestPasswordSecuritySettingsUsesOneGenericVerificationNoticeForApplicationS
 	}
 }
 
+func TestPasswordSecuritySettingsRendersGoogleAndMicrosoftActionsSideBySideWithIcons(t *testing.T) {
+	const googlePath = "/settings/security/identities/google/link"
+	const microsoftPath = "/settings/security/identities/microsoft/link"
+	csrf := strings.Repeat("p", 64)
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		GoogleLoginAvailable:    true,
+		MicrosoftLoginAvailable: true,
+		StepUpFresh:             true,
+		CSRFTokens: map[string]string{
+			googlePath:    csrf,
+			microsoftPath: csrf,
+		},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+
+	html := output.String()
+	for _, want := range []string{
+		`data-application-sign-in-actions`, `class="grid gap-3 sm:grid-cols-2"`,
+		`action="` + googlePath + `"`, "Connect Google sign-in", `<title>Gmail</title>`,
+		`action="` + microsoftPath + `"`, "Connect Microsoft sign-in", `viewBox="0 0 14 14"`,
+		`class="size-4 shrink-0"`, `name="_csrf" value="` + csrf + `"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("provider sign-in actions missing %q: %q", want, html)
+		}
+	}
+}
+
 func TestPasswordSecuritySettingsRendersMicrosoftIdentityWithoutOutlookMailboxConfusion(t *testing.T) {
 	const linkPath = "/settings/security/identities/microsoft/link"
 	const unlinkPath = "/settings/security/identities/microsoft/identity-id/unlink"
