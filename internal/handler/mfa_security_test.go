@@ -564,6 +564,7 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 		`data-federated-identity-settings`,
 		`data-passkey-security-settings`,
 		`data-security-sessions`,
+		`data-security-events`,
 		"Authenticator app",
 		"Recovery codes",
 		`action="/settings/security/password"`,

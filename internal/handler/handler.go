@@ -3046,6 +3046,21 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
 		return
 	}
+	securityEvents, err := h.auth.ListSecurityEvents(ctx, auth.GetSessionToken(r))
+	if errors.Is(err, auth.ErrRecentStepUpRequired) {
+		http.Redirect(w, r, "/settings/security?verification_required=1", http.StatusSeeOther)
+		return
+	}
+	if errors.Is(err, auth.ErrSecuritySessionInvalid) {
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		log.Printf("load security event history: %v", err)
+		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+		return
+	}
 	data := views.PasswordSecurityData{
 		LoginUsername: user.Username,
 		LoginEmail:    user.Email,
@@ -3064,6 +3079,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
 	data.FederatedIdentities = federatedIdentityViewData(identities)
 	data.Sessions, data.SessionsTruncated = securitySessionViewData(sessions, data.OIDCLoginName)
+	data.SecurityEvents, data.SecurityEventsTruncated = securityEventViewData(securityEvents)
 	for _, session := range data.Sessions {
 		if session.RevokePath != "" {
 			data.CanRevokeOtherSessions = true

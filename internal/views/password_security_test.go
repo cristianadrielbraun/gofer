@@ -169,6 +169,48 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 	}
 }
 
+func TestPasswordSecuritySettingsRendersSecurityActivityWithoutAuditInternals(t *testing.T) {
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		SecurityEventsTruncated: true,
+		SecurityEvents: []SecurityEventData{
+			{
+				Title: "Signed in", Detail: "A verified security request was completed.",
+				OccurredAt: "Aug 19, 2026 at 6:00 PM", Client: "Chrome on Linux",
+				Status: "Completed", Successful: true,
+			},
+			{
+				Title: `<script>failed</script>`, Detail: `Rejected <private> detail`,
+				OccurredAt: "Aug 19, 2026 at 5:59 PM", Client: `<unknown client>`,
+				Status: "Failed", Successful: false,
+			},
+		},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecuritySettings.Render() security activity error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		`data-security-events`, `aria-label="Recent security activity"`, "Security activity",
+		"Signed in", "A verified security request was completed.", "Aug 19, 2026 at 6:00 PM",
+		"From Chrome on Linux", ">Completed</span>",
+		`&lt;script&gt;failed&lt;/script&gt;`, `Rejected &lt;private&gt; detail`,
+		`From &lt;unknown client&gt;`, ">Failed</span>",
+		"Showing the 50 most recent security events", "Raw audit metadata and internal identifiers are not displayed",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("security activity view missing %q: %q", want, html)
+		}
+	}
+	for _, forbidden := range []string{
+		`<script>failed</script>`, "audit-event-id", "actor-user-id", "subject-user-id",
+		"session-id", "source-hash", "request-id", "metadata_json", "provider-subject",
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("security activity view exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
 func TestPasswordSecuritySettingsRendersAccessibleFactorManagementAndEscapesSecrets(t *testing.T) {
 	csrf := strings.Repeat("b", 64)
 	data := PasswordSecurityData{
@@ -304,6 +346,7 @@ func TestPasswordSecurityVerificationRendersOnlyAvailableStepUpMethods(t *testin
 		`data-federated-identity-settings`,
 		`data-passkey-security-settings`,
 		`data-security-sessions`,
+		`data-security-events`,
 		`action="/settings/security/totp/start"`,
 		`action="/settings/security/totp/disable"`,
 		`action="/settings/security/recovery/start"`,

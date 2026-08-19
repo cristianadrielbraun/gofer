@@ -83,6 +83,19 @@ type SecuritySessionList struct {
 	Truncated bool
 }
 
+type SecurityEventSummary struct {
+	OccurredAt time.Time
+	EventType  AuthEventType
+	Success    bool
+	Reason     AuthEventReason
+	UserAgent  string
+}
+
+type SecurityEventList struct {
+	Events    []SecurityEventSummary
+	Truncated bool
+}
+
 type PreAuthChallenge struct {
 	ID                string
 	Token             string
