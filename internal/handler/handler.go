@@ -369,6 +369,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/security/identities/microsoft/{id}/unlink", h.handleSecurityMicrosoftIdentityUnlink)
 	mux.HandleFunc("POST "+securityOIDCIdentityLinkPath, h.handleSecurityOIDCIdentityLink)
 	mux.HandleFunc("POST /settings/security/identities/oidc/{id}/unlink", h.handleSecurityOIDCIdentityUnlink)
+	mux.HandleFunc("POST "+securitySessionRevokeOthersPath, h.handleSecuritySessionRevokeOthers)
+	mux.HandleFunc("POST /settings/security/sessions/{reference}/revoke", h.handleSecuritySessionRevoke)
 	mux.HandleFunc("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
@@ -3062,6 +3064,12 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
 	data.FederatedIdentities = federatedIdentityViewData(identities)
 	data.Sessions, data.SessionsTruncated = securitySessionViewData(sessions, data.OIDCLoginName)
+	for _, session := range data.Sessions {
+		if session.RevokePath != "" {
+			data.CanRevokeOtherSessions = true
+			break
+		}
+	}
 	for _, path := range []string{
 		passwordChangePath, securityStepUpPath, securityTOTPStartPath, securityTOTPConfirmPath,
 		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,
@@ -3078,6 +3086,14 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	for _, identity := range data.FederatedIdentities {
 		if identity.UnlinkPath != "" {
 			data.CSRFTokens[identity.UnlinkPath] = auth.CSRFToken(ctx, http.MethodPost, identity.UnlinkPath)
+		}
+	}
+	if data.CanRevokeOtherSessions {
+		data.CSRFTokens[securitySessionRevokeOthersPath] = auth.CSRFToken(ctx, http.MethodPost, securitySessionRevokeOthersPath)
+	}
+	for _, session := range data.Sessions {
+		if session.RevokePath != "" {
+			data.CSRFTokens[session.RevokePath] = auth.CSRFToken(ctx, http.MethodPost, session.RevokePath)
 		}
 	}
 	data.CSRFToken = data.CSRFTokens[passwordChangePath]
@@ -3130,6 +3146,14 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			data.Message = "Passkey added. You can register another device or security key at any time."
 		case r.URL.Query().Get("passkey_removed") == "1":
 			data.Message = "Passkey removed. Other signed-in devices were signed out."
+		case r.URL.Query().Get("session_revoked") == "1":
+			data.Message = "Session signed out."
+		case r.URL.Query().Get("other_sessions_revoked") == "1":
+			data.Message = "Other active sessions signed out."
+		case r.URL.Query().Get("other_sessions_unchanged") == "1":
+			data.Message = "No other active sessions needed signing out."
+		case r.URL.Query().Get("session_unavailable") == "1":
+			data.Message = "That session is no longer active."
 		case r.URL.Query().Get("google_linked") == "1":
 			data.Message = "Google sign-in connected. You can now use that Google identity to sign in to this Gofer account."
 		case r.URL.Query().Get("google_unlinked") == "1":

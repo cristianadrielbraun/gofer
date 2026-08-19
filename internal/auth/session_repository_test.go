@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -239,17 +240,29 @@ func TestListSecuritySessionsBindsOwnerAndIncludesOnlyActiveAndRecentHistory(t *
 	if list.Sessions[0].ID != current.ID || !list.Sessions[0].Current || !list.Sessions[0].Active {
 		t.Fatalf("current security session = %#v", list.Sessions[0])
 	}
+	if list.Sessions[0].ActionReference != "" {
+		t.Fatalf("current security session received a revocation reference: %#v", list.Sessions[0])
+	}
 	seen := make(map[string]SecuritySessionSummary, len(list.Sessions))
 	for _, session := range list.Sessions {
 		seen[session.ID] = session
 	}
 	if summary := seen[active.ID]; summary.Current || !summary.Active || summary.UserAgent != "Other Browser" ||
-		summary.AuthenticationMethod != AuthenticationMethodPasskey {
+		summary.AuthenticationMethod != AuthenticationMethodPasskey ||
+		!canonicalSecuritySessionActionReference(summary.ActionReference) {
 		t.Fatalf("active security session = %#v", summary)
 	}
 	if summary := seen[recent.ID]; summary.Current || summary.Active || summary.RevokedAt == nil ||
-		summary.UserAgent != "Signed-out Browser" {
+		summary.UserAgent != "Signed-out Browser" || summary.ActionReference != "" {
 		t.Fatalf("recent security session = %#v", summary)
+	}
+	activeReference := seen[active.ID].ActionReference
+	for _, secret := range []string{
+		current.ID, current.Token, active.ID, active.Token, hashToken(current.Token), hashToken(active.Token),
+	} {
+		if strings.Contains(activeReference, secret) {
+			t.Fatalf("session action reference exposed internal value %q: %q", secret, activeReference)
+		}
 	}
 	for _, omitted := range []string{old.ID, foreign.ID} {
 		if _, exists := seen[omitted]; exists {

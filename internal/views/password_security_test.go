@@ -115,9 +115,13 @@ func TestPasswordSecuritySettingsRendersLocalLoginIdentifiersReadOnlyAndEscaped(
 }
 
 func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *testing.T) {
+	const revokePath = "/settings/security/sessions/opaque-reference/revoke"
+	const revokeOthersPath = "/settings/security/sessions/revoke-others"
+	csrf := strings.Repeat("r", 64)
 	var output bytes.Buffer
 	if err := PasswordSecuritySettings(PasswordSecurityData{
-		SessionsTruncated: true,
+		SessionsTruncated:      true,
+		CanRevokeOtherSessions: true,
 		Sessions: []SecuritySessionData{
 			{
 				Client: "Firefox on Linux", Authentication: "Password", Assurance: "Multi-factor",
@@ -125,11 +129,17 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 				Current: true, Active: true,
 			},
 			{
+				Client: "Chrome on macOS", Authentication: "Passkey", Assurance: "Phishing-resistant",
+				SignedInAt: "Aug 19, 2026 at 9:00 AM", LastActiveAt: "Aug 19, 2026 at 9:05 AM",
+				Active: true, RevokePath: revokePath,
+			},
+			{
 				Client: `<script>signed-out</script>`, Authentication: "Google", Assurance: "Single factor",
 				SignedInAt: "Aug 18, 2026 at 9:00 AM", LastActiveAt: "Aug 18, 2026 at 9:30 AM",
 				EndedAt: "Aug 18, 2026 at 9:31 AM",
 			},
 		},
+		CSRFTokens: map[string]string{revokePath: csrf, revokeOthersPath: csrf},
 	}).Render(context.Background(), &output); err != nil {
 		t.Fatalf("PasswordSecuritySettings.Render() session history error = %v", err)
 	}
@@ -137,6 +147,10 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 	for _, want := range []string{
 		`data-security-sessions`, `aria-label="Current and recent sessions"`,
 		"Firefox on Linux", "Password · Multi-factor", "Current",
+		"Chrome on macOS", "Passkey · Phishing-resistant", "Active",
+		`action="` + revokePath + `"`, ">Sign out</button>",
+		`action="` + revokeOthersPath + `"`, "Sign out all other sessions",
+		`name="_csrf" value="` + csrf + `"`,
 		`&lt;script&gt;signed-out&lt;/script&gt;`, "Google · Single factor", "Signed out",
 		"Signed in Aug 19, 2026 at 10:00 AM", "Last active Aug 19, 2026 at 10:05 AM",
 		"Signed out Aug 18, 2026 at 9:31 AM", "Showing the 50 most relevant sessions",
@@ -147,7 +161,7 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 		}
 	}
 	for _, forbidden := range []string{
-		`<script>signed-out</script>`, "session-token", "session-id", `action="/settings/security/sessions`,
+		`<script>signed-out</script>`, "session-token", "session-id", "target-session-id",
 	} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("security session view exposed forbidden value %q", forbidden)

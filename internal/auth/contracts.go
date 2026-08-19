@@ -157,6 +157,7 @@ const (
 	AuthEventReasonThrottled            AuthEventReason = "throttled"
 	AuthEventReasonPolicyRequired       AuthEventReason = "policy_required"
 	AuthEventReasonAdministratorAction  AuthEventReason = "administrator_action"
+	AuthEventReasonUserAction           AuthEventReason = "user_action"
 	AuthEventReasonLocalOperator        AuthEventReason = "local_operator"
 	AuthEventReasonSystemInitialization AuthEventReason = "system_initialization"
 )

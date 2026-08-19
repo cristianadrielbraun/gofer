@@ -67,6 +67,7 @@ type Session struct {
 
 type SecuritySessionSummary struct {
 	ID                   string
+	ActionReference      string
 	Current              bool
 	Active               bool
 	AuthenticationMethod AuthenticationMethod

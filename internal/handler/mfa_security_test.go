@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,17 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
+
+var securitySessionRevokeActionPattern = regexp.MustCompile(`action="(/settings/security/sessions/[A-Za-z0-9_-]+/revoke)"`)
+
+func securitySessionRevokeActionFromPage(t *testing.T, html string) string {
+	t.Helper()
+	match := securitySessionRevokeActionPattern.FindStringSubmatch(html)
+	if len(match) != 2 {
+		t.Fatalf("security settings omitted an opaque session revocation action: %q", html)
+	}
+	return match[1]
+}
 
 func completedSecuritySettingsStack(t *testing.T) (*auth.Manager, *storage.DB, http.Handler, *http.Cookie, string) {
 	t.Helper()
@@ -144,6 +156,7 @@ func TestSecuritySettingsListsOnlyCurrentUsersActiveAndRecentSessions(t *testing
 		"Other Browser", "Google", "Multi-factor", "Active",
 		"Signed-out Browser", "Passkey", "Phishing-resistant", "Signed out",
 		"retained for up to 30 days", "internal identifiers are never shown",
+		`action="` + securitySessionRevokeOthersPath + `"`, "Sign out all other sessions",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("security session page missing %q", want)
@@ -151,11 +164,104 @@ func TestSecuritySettingsListsOnlyCurrentUsersActiveAndRecentSessions(t *testing
 	}
 	for _, forbidden := range []string{
 		current.ID, sessionCookie.Value, active.ID, active.Token, signedOut.ID, signedOut.Token,
-		foreign.ID, foreign.Token, "Foreign Browser", "/settings/security/sessions/",
+		foreign.ID, foreign.Token, "Foreign Browser",
 	} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("security session page exposed forbidden value %q", forbidden)
 		}
+	}
+	revokePath := securitySessionRevokeActionFromPage(t, html)
+	withoutCSRF := postSecuritySettings(t, stack, revokePath, url.Values{}, sessionCookie)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("session revocation without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+	if found, err := manager.GetSessionByToken(t.Context(), active.Token); err != nil || found == nil {
+		t.Fatalf("target session after CSRF rejection = %#v, %v", found, err)
+	}
+	revoked := postSecuritySettings(t, stack, revokePath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, html, revokePath)},
+	}, sessionCookie)
+	if revoked.Code != http.StatusSeeOther || revoked.Header().Get("Location") != "/settings/security?session_revoked=1" {
+		t.Fatalf("session revocation = %d location:%q body:%q", revoked.Code, revoked.Header().Get("Location"), revoked.Body.String())
+	}
+	if found, err := manager.GetSessionByToken(t.Context(), active.Token); err != nil || found != nil {
+		t.Fatalf("target session after revocation = %#v, %v", found, err)
+	}
+	for label, token := range map[string]string{"current": sessionCookie.Value, "foreign": foreign.Token} {
+		if found, err := manager.GetSessionByToken(t.Context(), token); err != nil || found == nil {
+			t.Fatalf("%s session after targeted revocation = %#v, %v", label, found, err)
+		}
+	}
+	confirmation := getSecuritySettingsPath(t, stack, revoked.Header().Get("Location"), sessionCookie)
+	if confirmation.Code != http.StatusOK || !strings.Contains(confirmation.Body.String(), "Session signed out.") ||
+		!strings.Contains(confirmation.Body.String(), "Other Browser") ||
+		!strings.Contains(confirmation.Body.String(), "Signed out") {
+		t.Fatalf("session revocation confirmation = %d %q", confirmation.Code, confirmation.Body.String())
+	}
+}
+
+func TestSecuritySettingsRevokeOtherSessionsRequiresFreshVerificationAndPreservesCurrent(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	current, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || current == nil {
+		t.Fatalf("load current security session = %#v, %v", current, err)
+	}
+	otherTokens := make([]string, 0, 2)
+	for _, client := range []string{"Other laptop", "Other phone"} {
+		session, err := manager.CreateAuthenticatedSession(
+			t.Context(), current.UserID, client,
+			auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherTokens = append(otherTokens, session.Token)
+	}
+	page := getSecuritySettings(t, stack, sessionCookie)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `action="`+securitySessionRevokeOthersPath+`"`) {
+		t.Fatalf("other-session revocation page = %d %q", page.Code, page.Body.String())
+	}
+	proof := csrfProofFromForm(t, page.Body.String(), securitySessionRevokeOthersPath)
+	if _, err := db.Write().ExecContext(t.Context(), `
+		UPDATE sessions SET step_up_at = ? WHERE id = ?`, time.Now().UTC().Add(-11*time.Minute), current.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stale := postSecuritySettings(t, stack, securitySessionRevokeOthersPath, url.Values{
+		auth.CSRFFormFieldName: {proof},
+	}, sessionCookie)
+	if stale.Code != http.StatusSeeOther || stale.Header().Get("Location") != "/settings/security?verification_required=1" {
+		t.Fatalf("stale other-session revocation = %d location:%q body:%q", stale.Code, stale.Header().Get("Location"), stale.Body.String())
+	}
+	for _, token := range otherTokens {
+		if found, err := manager.GetSessionByToken(t.Context(), token); err != nil || found == nil {
+			t.Fatalf("other session after stale revocation = %#v, %v", found, err)
+		}
+	}
+	if changed, err := manager.RecordSessionStepUp(
+		t.Context(), current.UserID, current.ID, auth.AuthenticationMethodTOTP,
+	); err != nil || !changed {
+		t.Fatalf("RecordSessionStepUp() = %t, %v", changed, err)
+	}
+	revoked := postSecuritySettings(t, stack, securitySessionRevokeOthersPath, url.Values{
+		auth.CSRFFormFieldName: {proof},
+	}, sessionCookie)
+	if revoked.Code != http.StatusSeeOther || revoked.Header().Get("Location") != "/settings/security?other_sessions_revoked=1" {
+		t.Fatalf("other-session revocation = %d location:%q body:%q", revoked.Code, revoked.Header().Get("Location"), revoked.Body.String())
+	}
+	if found, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value); err != nil || found == nil {
+		t.Fatalf("current session after other-session revocation = %#v, %v", found, err)
+	}
+	for _, token := range otherTokens {
+		if found, err := manager.GetSessionByToken(t.Context(), token); err != nil || found != nil {
+			t.Fatalf("other session after revocation = %#v, %v", found, err)
+		}
+	}
+	replayed := postSecuritySettings(t, stack, securitySessionRevokeOthersPath, url.Values{
+		auth.CSRFFormFieldName: {proof},
+	}, sessionCookie)
+	if replayed.Code != http.StatusSeeOther || replayed.Header().Get("Location") != "/settings/security?other_sessions_unchanged=1" {
+		t.Fatalf("replayed other-session revocation = %d location:%q body:%q", replayed.Code, replayed.Header().Get("Location"), replayed.Body.String())
 	}
 }
 

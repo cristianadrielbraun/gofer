@@ -22,6 +22,13 @@ func TestSecuritySessionViewDataUsesBoundedHumanReadableMetadata(t *testing.T) {
 				AuthenticatedAt:      now, LastUsedAt: now.Add(5 * time.Minute),
 			},
 			{
+				ID: "active-internal-id", ActionReference: "opaque_action_reference", Active: true,
+				AuthenticationMethod: auth.AuthenticationMethodPasskey,
+				AssuranceLevel:       auth.AssuranceLevelPhishingResistant,
+				UserAgent:            "Mozilla/5.0 (Macintosh) Version/19.0 Safari/605.1.15",
+				AuthenticatedAt:      now.Add(-time.Hour), LastUsedAt: now.Add(-time.Minute),
+			},
+			{
 				ID: "signed-out-internal-id", Active: false,
 				AuthenticationMethod: auth.AuthenticationMethodFederatedOIDC,
 				AssuranceLevel:       auth.AssuranceLevelSingleFactor,
@@ -31,7 +38,7 @@ func TestSecuritySessionViewDataUsesBoundedHumanReadableMetadata(t *testing.T) {
 		},
 	}
 	views, truncated := securitySessionViewData(list, "Company Login")
-	if !truncated || len(views) != 2 {
+	if !truncated || len(views) != 3 {
 		t.Fatalf("securitySessionViewData() = %#v, %t", views, truncated)
 	}
 	if views[0].Client != "Chrome on Linux" || views[0].Authentication != "Password" ||
@@ -39,10 +46,15 @@ func TestSecuritySessionViewDataUsesBoundedHumanReadableMetadata(t *testing.T) {
 		views[0].SignedInAt != "Aug 19, 2026 at 12:30 PM" || views[0].EndedAt != "" {
 		t.Fatalf("current session view = %#v", views[0])
 	}
-	if views[1].Client != "<unrecognized client>" || views[1].Authentication != "Company Login" ||
-		views[1].Assurance != "Single factor" || views[1].Current || views[1].Active ||
-		views[1].EndedAt != "Aug 19, 2026 at 12:45 PM" {
-		t.Fatalf("signed-out session view = %#v", views[1])
+	if views[1].Client != "Safari on macOS" || views[1].Authentication != "Passkey" ||
+		views[1].Assurance != "Phishing-resistant" || !views[1].Active || views[1].Current ||
+		views[1].RevokePath != "/settings/security/sessions/opaque_action_reference/revoke" {
+		t.Fatalf("active session view = %#v", views[1])
+	}
+	if views[2].Client != "<unrecognized client>" || views[2].Authentication != "Company Login" ||
+		views[2].Assurance != "Single factor" || views[2].Current || views[2].Active ||
+		views[2].EndedAt != "Aug 19, 2026 at 12:45 PM" || views[2].RevokePath != "" {
+		t.Fatalf("signed-out session view = %#v", views[2])
 	}
 	for _, view := range views {
 		if strings.Contains(view.Client, "internal-id") {

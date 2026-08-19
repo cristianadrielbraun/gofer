@@ -233,7 +233,7 @@ func (m *Manager) ListSecuritySessions(ctx context.Context, sessionToken string)
 			result.Truncated = true
 			break
 		}
-		result.Sessions = append(result.Sessions, SecuritySessionSummary{
+		summary := SecuritySessionSummary{
 			ID: session.ID, Current: session.ID == current.ID,
 			Active: session.RevokedAt == nil && session.AuthVersion == current.AuthVersion &&
 				session.IdleExpiresAt.After(now) && session.AbsoluteExpiresAt.After(now),
@@ -243,7 +243,14 @@ func (m *Manager) ListSecuritySessions(ctx context.Context, sessionToken string)
 			AuthenticatedAt:      session.AuthenticatedAt,
 			LastUsedAt:           session.LastUsedAt,
 			RevokedAt:            session.RevokedAt,
-		})
+		}
+		if summary.Active && !summary.Current {
+			summary.ActionReference, err = m.securitySessionActionReference(current.ID, session.ID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		result.Sessions = append(result.Sessions, summary)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate security sessions: %w", err)

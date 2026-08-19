@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"errors"
+	"log"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -8,6 +12,66 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
+
+const securitySessionRevokeOthersPath = "/settings/security/sessions/revoke-others"
+
+func securitySessionRevokePath(actionReference string) string {
+	if actionReference == "" {
+		return ""
+	}
+	return "/settings/security/sessions/" + url.PathEscape(actionReference) + "/revoke"
+}
+
+func (h *Handler) handleSecuritySessionRevoke(w http.ResponseWriter, r *http.Request) {
+	result, err := h.auth.RevokeSecuritySession(
+		r.Context(), auth.GetSessionToken(r), r.PathValue("reference"), r.UserAgent(),
+	)
+	if err != nil {
+		h.handleSecuritySessionRevocationError(w, r, err, "revoke security session")
+		return
+	}
+	if result == nil || result.RevokedSessions != 1 {
+		log.Printf("revoke security session returned unexpected result: %#v", result)
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to sign out that session right now. Please try again.")
+		return
+	}
+	http.Redirect(w, r, "/settings/security?session_revoked=1", http.StatusSeeOther)
+}
+
+func (h *Handler) handleSecuritySessionRevokeOthers(w http.ResponseWriter, r *http.Request) {
+	result, err := h.auth.RevokeOtherSecuritySessions(
+		r.Context(), auth.GetSessionToken(r), r.UserAgent(),
+	)
+	if err != nil {
+		h.handleSecuritySessionRevocationError(w, r, err, "revoke other security sessions")
+		return
+	}
+	if result == nil {
+		log.Printf("revoke other security sessions returned no result")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to sign out other sessions right now. Please try again.")
+		return
+	}
+	redirect := "/settings/security?other_sessions_revoked=1"
+	if result.RevokedSessions == 0 {
+		redirect = "/settings/security?other_sessions_unchanged=1"
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
+}
+
+func (h *Handler) handleSecuritySessionRevocationError(w http.ResponseWriter, r *http.Request, err error, operation string) {
+	switch {
+	case errors.Is(err, auth.ErrRecentStepUpRequired):
+		http.Redirect(w, r, "/settings/security?verification_required=1", http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSecuritySessionInvalid):
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	case errors.Is(err, auth.ErrSecuritySessionTargetInvalid):
+		http.Redirect(w, r, "/settings/security?session_unavailable=1", http.StatusSeeOther)
+	default:
+		log.Printf("%s: %v", operation, err)
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update signed-in sessions right now. Please try again.")
+	}
+}
 
 func securitySessionViewData(list *auth.SecuritySessionList, oidcName string) ([]views.SecuritySessionData, bool) {
 	if list == nil {
@@ -26,6 +90,9 @@ func securitySessionViewData(list *auth.SecuritySessionList, oidcName string) ([
 		}
 		if session.RevokedAt != nil {
 			view.EndedAt = formatSecuritySessionTime(*session.RevokedAt)
+		}
+		if session.Active && !session.Current {
+			view.RevokePath = securitySessionRevokePath(session.ActionReference)
 		}
 		result = append(result, view)
 	}
