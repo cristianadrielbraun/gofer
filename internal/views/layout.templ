@@ -150,17 +150,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
 			@SavedPanelSizeStyle()
 			<link rel="stylesheet" href="/assets/css/output.css"/>
-			@dialog.Script()
-			@dropdown.Script()
-			@checkbox.Script()
-			@calendar.Script()
-			@input.Script()
-			@selectbox.Script()
-			@tabs.Script()
-			@tooltip.Script()
-			@popover.Script()
-			@copybutton.Script()
-			@toast.Script()
+			@SettingsComponentScripts()
 			@AppSidebarResponsiveStyle()
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
@@ -171,51 +161,69 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 					@SettingsPage(accounts, syncSettings, activeTab, uiSettings, signatureData)
 				</div>
 			</div>
-			@ComposeDialog(accounts)
-			@ChooseAccountTypeDialog()
-			@GmailAccountDialog()
-			@OutlookAccountDialog()
-			@AddAccountDialog()
-			<div id="edit-account-container"></div>
-			<script src="/assets/js/htmx.min.js"></script>
-			<script src="/assets/js/virtual-scroll.js"></script>
-			<script src="/assets/js/app.js"></script>
-			<script src="/assets/js/settings.js"></script>
-			<script src="/assets/js/ui-settings.js"></script>
-			<script src="/assets/js/resize.js"></script>
-			<script src="/assets/js/passkey-registration.js"></script>
-			<script src="/assets/js/passkey-authentication.js"></script>
-			<script>
-				function setupEditAccountDialog() {
-					var dlg = document.querySelector('#edit-account-dialog dialog[data-tui-dialog-content]');
-					if (!dlg) return;
-
-					if (window.tui && window.tui.dialog) {
-						window.tui.dialog.open('edit-account-dialog');
-					}
-
-					requestAnimationFrame(function() {
-						var track = document.getElementById('edit-wizard-track');
-						if (!track || !dlg.open) return;
-
-						track.style.transform = 'translateX(0)';
-						if (typeof _editWizStep !== 'undefined') _editWizStep = 0;
-
-						document.querySelectorAll('#edit-account-dialog [data-account-wizard-step]').forEach(function(item) {
-							item.dataset.active = String(+item.dataset.accountWizardStep === 0);
-							if (+item.dataset.accountWizardStep === 4) item.disabled = true;
-						});
-					});
-				}
-
-				document.addEventListener('htmx:afterSettle', function(e) {
-					if (e.target && e.target.querySelector && e.target.querySelector('#edit-account-dialog')) {
-						setTimeout(setupEditAccountDialog, 20);
-					}
-				});
-			</script>
+			@SettingsRuntime(accounts)
 		</body>
 	</html>
+}
+
+templ SettingsComponentScripts() {
+	@dialog.Script()
+	@dropdown.Script()
+	@checkbox.Script()
+	@calendar.Script()
+	@input.Script()
+	@selectbox.Script()
+	@tabs.Script()
+	@tooltip.Script()
+	@popover.Script()
+	@copybutton.Script()
+	@toast.Script()
+}
+
+templ SettingsRuntime(accounts []models.Account) {
+	@ComposeDialog(accounts)
+	@ChooseAccountTypeDialog()
+	@GmailAccountDialog()
+	@OutlookAccountDialog()
+	@AddAccountDialog()
+	<div id="edit-account-container"></div>
+	<script src="/assets/js/htmx.min.js"></script>
+	<script src="/assets/js/virtual-scroll.js"></script>
+	<script src="/assets/js/app.js"></script>
+	<script src="/assets/js/settings.js"></script>
+	<script src="/assets/js/ui-settings.js"></script>
+	<script src="/assets/js/resize.js"></script>
+	<script src="/assets/js/passkey-registration.js"></script>
+	<script src="/assets/js/passkey-authentication.js"></script>
+	<script>
+		function setupEditAccountDialog() {
+			var dlg = document.querySelector('#edit-account-dialog dialog[data-tui-dialog-content]');
+			if (!dlg) return;
+
+			if (window.tui && window.tui.dialog) {
+				window.tui.dialog.open('edit-account-dialog');
+			}
+
+			requestAnimationFrame(function() {
+				var track = document.getElementById('edit-wizard-track');
+				if (!track || !dlg.open) return;
+
+				track.style.transform = 'translateX(0)';
+				if (typeof _editWizStep !== 'undefined') _editWizStep = 0;
+
+				document.querySelectorAll('#edit-account-dialog [data-account-wizard-step]').forEach(function(item) {
+					item.dataset.active = String(+item.dataset.accountWizardStep === 0);
+					if (+item.dataset.accountWizardStep === 4) item.disabled = true;
+				});
+			});
+		}
+
+		document.addEventListener('htmx:afterSettle', function(e) {
+			if (e.target && e.target.querySelector && e.target.querySelector('#edit-account-dialog')) {
+				setTimeout(setupEditAccountDialog, 20);
+			}
+		});
+	</script>
 }
 
 templ MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {

@@ -39,6 +39,12 @@ func TestPasswordSecurityLayoutIsLocalAccessibleAndEscapesMessages(t *testing.T)
 	html := output.String()
 	for _, want := range []string{
 		`role="alert"`,
+		`src="/assets/js/popover.min.js?`,
+		`src="/assets/js/htmx.min.js"`,
+		`src="/assets/js/app.js"`,
+		`src="/assets/js/settings.js"`,
+		`id="choose-account-type-dialog"`,
+		`id="edit-account-container"`,
 		`action="/settings/security/password"`,
 		`name="_csrf" value="` + data.CSRFToken + `"`,
 		`autocomplete="current-password"`,
@@ -253,25 +259,24 @@ func TestPasswordSecuritySettingsRendersFirstTimeTOTPEnrollmentWithoutReplacemen
 	}
 }
 
-func TestPasswordSecuritySettingsRequiresStepUpBeforeSensitiveFactorForms(t *testing.T) {
+func TestPasswordSecurityVerificationRendersOnlyAvailableStepUpMethods(t *testing.T) {
 	csrf := strings.Repeat("c", 64)
 	var output bytes.Buffer
-	if err := PasswordSecuritySettings(PasswordSecurityData{
-		HasPassword: true, HasTOTP: true, HasPasskey: true, RecoveryCodesRemaining: 10,
-		Passkeys: []PasskeySecurityData{{ID: "passkey", Name: "Laptop"}},
+	if err := PasswordSecurityVerification(PasswordSecurityVerificationData{
+		HasTOTP: true, HasPasskey: true,
 		CSRFTokens: map[string]string{
 			"/settings/security/step-up":                 csrf,
 			"/settings/security/passkeys/step-up/start":  csrf,
 			"/settings/security/passkeys/step-up/finish": csrf,
 		},
 	}).Render(context.Background(), &output); err != nil {
-		t.Fatalf("PasswordSecuritySettings.Render() error = %v", err)
+		t.Fatalf("PasswordSecurityVerification.Render() error = %v", err)
 	}
 	html := output.String()
 	for _, want := range []string{
 		`data-security-step-up`, `action="/settings/security/step-up"`,
 		`inputmode="numeric"`, `autocomplete="one-time-code"`,
-		"unlock sensitive security changes for ten minutes",
+		"has not loaded your security details yet",
 		`data-passkey-authentication`, `data-start-path="/settings/security/passkeys/step-up/start"`,
 		`data-finish-path="/settings/security/passkeys/step-up/finish"`, "Verify with a passkey",
 	} {
@@ -280,6 +285,11 @@ func TestPasswordSecuritySettingsRequiresStepUpBeforeSensitiveFactorForms(t *tes
 		}
 	}
 	for _, forbidden := range []string{
+		`data-password-security-settings`,
+		`data-local-login-identifiers`,
+		`data-federated-identity-settings`,
+		`data-passkey-security-settings`,
+		`data-security-sessions`,
 		`action="/settings/security/totp/start"`,
 		`action="/settings/security/totp/disable"`,
 		`action="/settings/security/recovery/start"`,
@@ -287,6 +297,33 @@ func TestPasswordSecuritySettingsRequiresStepUpBeforeSensitiveFactorForms(t *tes
 	} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("stale security view exposed sensitive action %q", forbidden)
+		}
+	}
+}
+
+func TestPasswordSecurityVerificationRequiresSignInAgainWithoutStepUpFactor(t *testing.T) {
+	csrf := strings.Repeat("s", 64)
+	var output bytes.Buffer
+	if err := PasswordSecurityVerification(PasswordSecurityVerificationData{
+		CSRFTokens: map[string]string{"/auth/logout": csrf},
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatalf("PasswordSecurityVerification.Render() error = %v", err)
+	}
+	html := output.String()
+	for _, want := range []string{
+		"Sign in again to securely load", `action="/auth/logout"`,
+		`name="_csrf" value="` + csrf + `"`, ">Sign in again</button>",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("verification fallback missing %q: %q", want, html)
+		}
+	}
+	for _, forbidden := range []string{
+		`action="/settings/security/step-up"`, `data-passkey-authentication`,
+		`data-password-security-settings`, `data-local-login-identifiers`,
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("verification fallback exposed %q", forbidden)
 		}
 	}
 }
@@ -348,7 +385,7 @@ func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxCon
 		"last used Aug 16, 2026", `action="` + linkPath + `"`,
 		`action="` + unlinkPath + `"`, "Disconnect", "removes only this identity",
 		`name="_csrf" value="` + csrf + `"`, `&lt;person&amp;family@gmail.example&gt;`,
-		"does not connect a Gmail mailbox", "does not", "mail, contacts, or calendars",
+		"For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox", "mail, contacts, calendars",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("Google identity settings missing %q", want)
@@ -395,6 +432,33 @@ func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxCon
 	}
 }
 
+func TestPasswordSecuritySettingsUsesOneGenericVerificationNoticeForApplicationSignIn(t *testing.T) {
+	var output bytes.Buffer
+	if err := PasswordSecuritySettings(PasswordSecurityData{
+		GoogleLoginAvailable:    true,
+		MicrosoftLoginAvailable: true,
+		OIDCLoginAvailable:      true,
+		OIDCLoginName:           "Company SSO",
+	}).Render(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+
+	html := output.String()
+	const notice = "Verify this session above before connecting another sign-in method. If no verification form is shown, sign in again first."
+	if strings.Count(html, notice) != 1 {
+		t.Fatalf("generic application sign-in verification notice count = %d, want 1: %q", strings.Count(html, notice), html)
+	}
+	for _, providerNotice := range []string{
+		"before connecting a Google identity",
+		"before connecting a Microsoft identity",
+		"before connecting a Company SSO identity",
+	} {
+		if strings.Contains(html, providerNotice) {
+			t.Fatalf("application sign-in settings rendered provider-specific notice %q: %q", providerNotice, html)
+		}
+	}
+}
+
 func TestPasswordSecuritySettingsRendersMicrosoftIdentityWithoutOutlookMailboxConfusion(t *testing.T) {
 	const linkPath = "/settings/security/identities/microsoft/link"
 	const unlinkPath = "/settings/security/identities/microsoft/identity-id/unlink"
@@ -415,8 +479,8 @@ func TestPasswordSecuritySettingsRendersMicrosoftIdentityWithoutOutlookMailboxCo
 	for _, want := range []string{
 		"Microsoft · connected Aug 18, 2026", "person@microsoft.example",
 		`action="` + linkPath + `"`, `action="` + unlinkPath + `"`,
-		"Microsoft sign-in does not connect an Outlook mailbox",
-		"neither grants access to mail, contacts, or calendars",
+		"For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox",
+		"grant Gofer access to mail, contacts, calendars",
 		`name="_csrf" value="` + csrf + `"`,
 	} {
 		if !strings.Contains(html, want) {
@@ -449,7 +513,7 @@ func TestPasswordSecuritySettingsRendersConfiguredOIDCIdentityWithoutMailboxConf
 	for _, want := range []string{
 		"Company SSO · connected Aug 18, 2026", "person@identity.example",
 		`action="` + linkPath + `"`, `action="` + unlinkPath + `"`,
-		"Connect Company SSO sign-in", "grants no mailbox or provider-resource access",
+		"Connect Company SSO sign-in", "For Gofer sign-in only", "other provider resources",
 		`name="_csrf" value="` + csrf + `"`,
 	} {
 		if !strings.Contains(html, want) {

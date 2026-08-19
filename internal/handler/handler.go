@@ -2964,6 +2964,62 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
+	access, err := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
+	if errors.Is(err, auth.ErrSecuritySessionInvalid) {
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		log.Printf("authorize security settings access: %v", err)
+		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+		return
+	}
+	if !access.StepUpFresh {
+		data := views.PasswordSecurityVerificationData{
+			HasTOTP:    access.HasTOTP,
+			HasPasskey: access.HasPasskey,
+			CSRFTokens: map[string]string{},
+		}
+		if access.HasTOTP {
+			data.CSRFTokens[securityStepUpPath] = auth.CSRFToken(ctx, http.MethodPost, securityStepUpPath)
+		}
+		if access.HasPasskey {
+			data.CSRFTokens[securityPasskeyStepUpStartPath] = auth.CSRFToken(ctx, http.MethodPost, securityPasskeyStepUpStartPath)
+			data.CSRFTokens[securityPasskeyStepUpFinishPath] = auth.CSRFToken(ctx, http.MethodPost, securityPasskeyStepUpFinishPath)
+		}
+		if !access.HasTOTP && !access.HasPasskey {
+			data.CSRFTokens["/auth/logout"] = auth.CSRFToken(ctx, http.MethodPost, "/auth/logout")
+		}
+		if override != nil {
+			data.Message = override.Message
+			data.MessageIsError = override.MessageIsError
+		} else if r.URL.Query().Get("challenge_expired") == "1" {
+			data.Message = "That security change expired or was replaced. Verify again when you are ready."
+			data.MessageIsError = true
+		}
+
+		uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+		var page bytes.Buffer
+		if r.Header.Get("HX-Request") == "true" {
+			if err := views.PasswordSecurityVerificationPartial(data).Render(ctx, &page); err != nil {
+				log.Printf("render security verification partial: %v", err)
+				http.Error(w, "failed to render security settings", http.StatusInternalServerError)
+				return
+			}
+		} else if err := views.PasswordSecurityVerificationLayout(uiSettings, data).Render(ctx, &page); err != nil {
+			log.Printf("render security verification layout: %v", err)
+			http.Error(w, "failed to render security settings", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		_, _ = page.WriteTo(w)
+		return
+	}
 	hasPassword, err := h.auth.HasPasswordCredential(ctx, user.ID)
 	if err != nil {
 		log.Printf("load password security settings: %v", err)

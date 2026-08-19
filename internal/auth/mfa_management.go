@@ -49,6 +49,14 @@ type SecurityFactorSummary struct {
 	DisableTOTPReason      string
 }
 
+// SecuritySettingsAccess contains only the factor availability required to
+// verify a stale session before any security-setting details are requested.
+type SecuritySettingsAccess struct {
+	HasTOTP     bool
+	HasPasskey  bool
+	StepUpFresh bool
+}
+
 type TOTPManagementValidationError struct {
 	Terminal bool
 }
@@ -92,6 +100,51 @@ type activeTOTPCredential struct {
 	digits           int
 	period           int
 	lastAcceptedStep sql.NullInt64
+}
+
+// GetSecuritySettingsAccess authorizes access to Security settings for the
+// exact active session. Before recent verification, callers should use only
+// this minimal result and must not load the full factor, identity, or session
+// inventory.
+func (m *Manager) GetSecuritySettingsAccess(ctx context.Context, sessionToken string) (*SecuritySettingsAccess, error) {
+	session, err := m.GetSessionByToken(ctx, sessionToken)
+	if err != nil {
+		return nil, fmt.Errorf("load security settings session: %w", err)
+	}
+	if session == nil {
+		return nil, ErrSecuritySessionInvalid
+	}
+	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("validate security settings relying party: %w", err)
+	}
+	var hasTOTP, hasPasskey int
+	err = m.db.Read().QueryRowContext(ctx, `
+		SELECT
+			EXISTS(SELECT 1 FROM totp_credentials t
+				WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
+			EXISTS(SELECT 1 FROM webauthn_credentials w
+				WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
+				  AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL)
+		FROM users u
+		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
+		rpID, session.UserID, session.AuthVersion,
+	).Scan(&hasTOTP, &hasPasskey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrSecuritySessionInvalid
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load security settings access: %w", err)
+	}
+	policy, err := m.loadAuthenticationPolicy(ctx, m.db.Read(), session.UserID, session.AuthVersion)
+	if err != nil {
+		return nil, fmt.Errorf("load security settings access policy: %w", err)
+	}
+	return &SecuritySettingsAccess{
+		HasTOTP:     hasTOTP == 1,
+		HasPasskey:  hasPasskey == 1,
+		StepUpFresh: hasRecentSecurityStepUp(session, policy, m.clock.Now().UTC()),
+	}, nil
 }
 
 // GetSecurityFactorSummary returns non-secret factor state for the exact

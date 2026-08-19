@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 )
@@ -20,6 +21,11 @@ func passwordSecurityStack(t *testing.T) (*Handler, *auth.Manager, *http.ServeMu
 	)
 	if err != nil {
 		t.Fatalf("CreateAuthenticatedSession(current) error = %v", err)
+	}
+	if steppedUp, err := manager.RecordSessionStepUp(
+		t.Context(), current.UserID, current.ID, auth.AuthenticationMethodPassword,
+	); err != nil || !steppedUp {
+		t.Fatalf("RecordSessionStepUp(current) = %t, %v", steppedUp, err)
 	}
 	other, err := manager.CreateAuthenticatedSession(
 		t.Context(), "person", "other browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor,
@@ -55,6 +61,8 @@ func TestPasswordSecurityPageRendersLocalAccessibleChangeForm(t *testing.T) {
 	html := recorder.Body.String()
 	for _, want := range []string{
 		`href="/settings/security"`,
+		`src="/assets/js/htmx.min.js"`,
+		`src="/assets/js/settings.js"`,
 		`data-local-login-identifiers`,
 		`data-local-login-username>Person</dd>`,
 		`data-local-login-email>Person@Example.com</dd>`,
@@ -84,6 +92,34 @@ func TestPasswordSecurityPageRendersLocalAccessibleChangeForm(t *testing.T) {
 	}
 	if recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("security settings Cache-Control = %q", recorder.Header().Get("Cache-Control"))
+	}
+}
+
+func TestPasswordSecurityPageRequiresReauthenticationAfterPasswordStepUpExpires(t *testing.T) {
+	_, manager, mux, current, _ := passwordSecurityStack(t)
+	if _, err := manager.DB().Write().ExecContext(t.Context(), `
+		UPDATE sessions SET step_up_at = ? WHERE id = ?`, time.Now().UTC().Add(-11*time.Minute), current.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	page := getPasswordSecurityPage(t, manager, mux, current.Token)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Verify it’s you") ||
+		!strings.Contains(page.Body.String(), `action="/auth/logout"`) ||
+		!strings.Contains(page.Body.String(), ">Sign in again</button>") {
+		t.Fatalf("expired password step-up page = %d %q", page.Code, page.Body.String())
+	}
+	for _, forbidden := range []string{
+		`data-password-security-settings`, `data-local-login-identifiers`,
+		`action="/settings/security/password"`, "Person@Example.com",
+	} {
+		if strings.Contains(page.Body.String(), forbidden) {
+			t.Fatalf("expired password step-up page exposed %q", forbidden)
+		}
+	}
+	proof := csrfProofFromForm(t, page.Body.String(), "/auth/logout")
+	if proof == "" {
+		t.Fatal("sign-in-again action omitted its endpoint-bound CSRF proof")
 	}
 }
 
@@ -274,6 +310,11 @@ func TestPasswordSecurityPageExplainsMissingLocalCredentialWithoutRenderingForm(
 	session, err := manager.CreateAuthenticatedSession(t.Context(), "federated", "browser", auth.AuthenticationMethodFederatedGoogle, auth.AssuranceLevelSingleFactor)
 	if err != nil {
 		t.Fatalf("CreateAuthenticatedSession() error = %v", err)
+	}
+	if steppedUp, err := manager.RecordSessionStepUp(
+		t.Context(), session.UserID, session.ID, auth.AuthenticationMethodFederatedGoogle,
+	); err != nil || !steppedUp {
+		t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
 	}
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)

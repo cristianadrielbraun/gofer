@@ -150,7 +150,8 @@ func TestGoogleIdentityLinkRouteRequiresCSRFAndRendersConnectedIdentity(t *testi
 	confirmation := getSecuritySettingsPath(t, stack, "/settings/security?google_linked=1", sessionCookie)
 	for _, want := range []string{
 		"Google sign-in connected.", "person@gmail.example", "Connected",
-		"does not connect a Gmail mailbox", `action="` + securityGoogleIdentityLinkPath + `"`,
+		"For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox",
+		`action="` + securityGoogleIdentityLinkPath + `"`,
 	} {
 		if confirmation.Code != http.StatusOK || !strings.Contains(confirmation.Body.String(), want) {
 			t.Fatalf("connected identity page missing %q: %d %q", want, confirmation.Code, confirmation.Body.String())
@@ -188,7 +189,7 @@ func TestGoogleIdentityUnlinkRouteRequiresCSRFRotatesSessionAndPreservesGmailMai
 	}
 	unlinkPath := securityGoogleIdentityUnlinkPath(identityID)
 	page := getSecuritySettings(t, stack, sessionCookie)
-	for _, want := range []string{`action="` + unlinkPath + `"`, "Disconnect", "does not connect a Gmail mailbox"} {
+	for _, want := range []string{`action="` + unlinkPath + `"`, "Disconnect", "For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox"} {
 		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("unlink settings missing %q: %d %q", want, page.Code, page.Body.String())
 		}

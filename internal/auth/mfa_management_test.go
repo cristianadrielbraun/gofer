@@ -105,6 +105,10 @@ func activeManagedRecoveryCount(t *testing.T, manager *Manager) int {
 func TestSecurityTOTPStepUpIsReplaySafeThrottledSeparatelyAndRedacted(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 15, 0, 0, 0, time.UTC)
 	manager, _, secret, session := prepareMFAManagement(t, now, false)
+	access, err := manager.GetSecuritySettingsAccess(t.Context(), session.Token)
+	if err != nil || access.StepUpFresh || !access.HasTOTP || access.HasPasskey {
+		t.Fatalf("initial security access = %#v, %v", access, err)
+	}
 	summary, err := manager.GetSecurityFactorSummary(t.Context(), session.Token)
 	if err != nil || summary.StepUpFresh || !summary.HasTOTP || summary.RecoveryCodesRemaining != setupRecoveryCodeCount {
 		t.Fatalf("initial security summary = %#v, %v", summary, err)
@@ -126,6 +130,10 @@ func TestSecurityTOTPStepUpIsReplaySafeThrottledSeparatelyAndRedacted(t *testing
 		t.Context(), session.Token, validCode, "198.51.100.20", "  Step-up Browser/1.0  ",
 	); err != nil {
 		t.Fatalf("valid VerifySecurityTOTPStepUp() error = %v", err)
+	}
+	access, err = manager.GetSecuritySettingsAccess(t.Context(), session.Token)
+	if err != nil || !access.StepUpFresh || !access.HasTOTP {
+		t.Fatalf("verified security access = %#v, %v", access, err)
 	}
 	summary, err = manager.GetSecurityFactorSummary(t.Context(), session.Token)
 	if err != nil || !summary.StepUpFresh || summary.StepUpExpiresAt == nil ||

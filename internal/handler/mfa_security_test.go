@@ -442,20 +442,62 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	var loginEmail string
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT email FROM users WHERE id = ?`, session.UserID).Scan(&loginEmail); err != nil {
+		t.Fatal(err)
+	}
 	page := getSecuritySettings(t, stack, sessionCookie)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Verify it’s you") ||
-		strings.Contains(page.Body.String(), `action="/settings/security/recovery/start"`) {
+		!strings.Contains(page.Body.String(), "has not loaded your security details yet") {
 		t.Fatalf("stale security page = %d %q", page.Code, page.Body.String())
 	}
-	stepUp := postSecuritySettings(t, stack, securityStepUpPath, url.Values{
+	for _, forbidden := range []string{
+		loginEmail,
+		`data-password-security-settings`,
+		`data-local-login-identifiers`,
+		`data-federated-identity-settings`,
+		`data-passkey-security-settings`,
+		`data-security-sessions`,
+		"Authenticator app",
+		"Recovery codes",
+		`action="/settings/security/password"`,
+		`action="/settings/security/totp/start"`,
+		`action="/settings/security/recovery/start"`,
+		`action="/settings/security/identities/google/link"`,
+	} {
+		if strings.Contains(page.Body.String(), forbidden) {
+			t.Fatalf("unverified security page exposed %q: %q", forbidden, page.Body.String())
+		}
+	}
+	validCode := setupHandlerTOTPCodeAt(t, secret, now)
+	invalidCode := "000000"
+	if invalidCode == validCode {
+		invalidCode = "000001"
+	}
+	rejected := postSecuritySettings(t, stack, securityStepUpPath, url.Values{
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), securityStepUpPath)},
-		"code":                 {setupHandlerTOTPCodeAt(t, secret, now)},
+		"code":                 {invalidCode},
+	}, sessionCookie)
+	if rejected.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rejected.Body.String(), securityTOTPFailureMessage) ||
+		!strings.Contains(rejected.Body.String(), `data-password-security-verification`) ||
+		strings.Contains(rejected.Body.String(), `data-password-security-settings`) ||
+		strings.Contains(rejected.Body.String(), loginEmail) {
+		t.Fatalf("rejected security step-up = %d %q", rejected.Code, rejected.Body.String())
+	}
+	stepUp := postSecuritySettings(t, stack, securityStepUpPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, rejected.Body.String(), securityStepUpPath)},
+		"code":                 {validCode},
 	}, sessionCookie)
 	if stepUp.Code != http.StatusSeeOther || stepUp.Header().Get("Location") != "/settings/security?verified=1" {
 		t.Fatalf("security step-up = %d location:%q body:%q", stepUp.Code, stepUp.Header().Get("Location"), stepUp.Body.String())
 	}
 	verified := getSecuritySettingsPath(t, stack, "/settings/security?verified=1", sessionCookie)
-	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), "Sensitive actions are available for ten minutes") {
+	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), "Sensitive actions are available for ten minutes") ||
+		!strings.Contains(verified.Body.String(), `data-password-security-settings`) ||
+		!strings.Contains(verified.Body.String(), `data-local-login-identifiers`) ||
+		!strings.Contains(verified.Body.String(), loginEmail) ||
+		!strings.Contains(verified.Body.String(), "Recovery codes") {
 		t.Fatalf("verified security page = %d %q", verified.Code, verified.Body.String())
 	}
 }
