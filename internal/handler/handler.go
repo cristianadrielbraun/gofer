@@ -299,6 +299,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/avatars/{tab}", h.handleAdmin)
 	adminRoute("GET /admin/contacts", h.handleAdminContacts)
 	adminRoute("GET /admin/contacts/{$}", h.handleAdminContacts)
+	adminRoute("GET /admin/users", h.handleAdminUsers)
+	adminRoute("GET /admin/users/{$}", h.handleAdminUsers)
 	adminRoute("GET /admin/labels", h.handleAdminLabels)
 	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)
 	adminRoute("GET /admin/operations", h.handleAdminOperations)

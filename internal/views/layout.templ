@@ -352,7 +352,7 @@ templ ContactsShell(accounts []models.Account, contacts []models.Contact, select
 	</div>
 }
 
-templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
+templ AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
 		<head>
@@ -380,8 +380,11 @@ templ AdminLayout(uiSettings map[string]string, avatarStatus models.AvatarStatus
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
 			<div class="flex h-screen overflow-hidden bg-background">
 				@AdminSidebar(activeSection)
-				<div id="main-content" class="flex flex-1 min-w-0">
-					if activeSection == "contacts" {
+				<div id="main-content" class="relative flex flex-1 min-w-0">
+					@AdminNavigationLoading()
+					if activeSection == "users" {
+						@AdminUsersPage(userData)
+					} else if activeSection == "contacts" {
 						@AdminContactsPage(contactStatus)
 					} else if activeSection == "labels" {
 						@AdminLabelsPage(labelStatus)
@@ -489,9 +492,12 @@ templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSetting
 	<div id="edit-account-container"></div>
 }
 
-templ AdminPartial(avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
-	<div id="main-content" class="flex flex-1 min-w-0">
-		if activeSection == "contacts" {
+templ AdminPartial(userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
+	<div id="main-content" class="relative flex flex-1 min-w-0">
+		@AdminNavigationLoading()
+		if activeSection == "users" {
+			@AdminUsersPage(userData)
+		} else if activeSection == "contacts" {
 			@AdminContactsPage(contactStatus)
 		} else if activeSection == "labels" {
 			@AdminLabelsPage(labelStatus)

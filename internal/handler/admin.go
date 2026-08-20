@@ -19,7 +19,11 @@ import (
 )
 
 func (h *Handler) handleAdminRedirect(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/admin/avatars/", http.StatusFound)
+	target := "/admin/users"
+	if strings.HasPrefix(r.URL.Path, "/admin/avatars") {
+		target = "/admin/avatars/"
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -39,11 +43,11 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "avatars", activeTab).Render(ctx, w)
+		views.AdminPartial(views.AdminUsersData{}, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "avatars", activeTab).Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "avatars", activeTab).Render(ctx, w)
+	views.AdminLayout(uiSettings, views.AdminUsersData{}, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "avatars", activeTab).Render(ctx, w)
 }
 
 func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
@@ -57,11 +61,11 @@ func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "contacts", "").Render(ctx, w)
+		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "contacts", "").Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "contacts", "").Render(ctx, w)
+	views.AdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "contacts", "").Render(ctx, w)
 }
 
 func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
@@ -75,11 +79,11 @@ func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "labels", "").Render(ctx, w)
+		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "labels", "").Render(ctx, w)
 		return
 	}
 
-	views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "labels", "").Render(ctx, w)
+	views.AdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "labels", "").Render(ctx, w)
 }
 
 func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
@@ -127,10 +131,10 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "").Render(ctx, w)
+		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "").Render(ctx, w)
 		return
 	}
-	views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "").Render(ctx, w)
+	views.AdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "").Render(ctx, w)
 }
 
 func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http.Request) {

@@ -176,10 +176,10 @@ func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) 
 	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		_ = views.AdminPartial(models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
+		_ = views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
 		return
 	}
-	_ = views.AdminLayout(uiSettings, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
+	_ = views.AdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
 }
 
 func (h *Handler) mailOperationsAdminStatus(ctx context.Context) (models.MailOperationsAdminStatus, error) {

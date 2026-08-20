@@ -1,6 +1,52 @@
 (function () {
   "use strict"
 
+  function clearNavigationLoading() {
+    var main = document.getElementById("main-content")
+    if (main) main.removeAttribute("aria-busy")
+    var indicator = document.querySelector("[data-admin-navigation-loading]")
+    if (indicator) {
+      indicator.classList.add("hidden")
+      indicator.classList.remove("flex")
+      indicator.setAttribute("aria-hidden", "true")
+    }
+    document.querySelectorAll("[data-admin-navigation-link][aria-busy='true']").forEach(function (link) {
+      link.removeAttribute("aria-busy")
+    })
+  }
+
+  document.addEventListener("click", function (event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    var target = event.target
+    var link = target && target.closest ? target.closest("[data-admin-navigation-link]") : null
+    if (!link || (link.target && link.target !== "_self") || link.hasAttribute("download")) return
+
+    var destination
+    try {
+      destination = new URL(link.href, window.location.href)
+    } catch (_) {
+      return
+    }
+    if (destination.origin !== window.location.origin) return
+    var main = document.getElementById("main-content")
+    var indicator = document.querySelector("[data-admin-navigation-loading]")
+    if (!main || !indicator) return
+
+    var label = indicator.querySelector("[data-admin-navigation-loading-label]")
+    if (label) label.textContent = "Loading " + (link.getAttribute("data-admin-navigation-label") || "section") + "…"
+    main.setAttribute("aria-busy", "true")
+    link.setAttribute("aria-busy", "true")
+    indicator.classList.remove("hidden")
+    indicator.classList.add("flex")
+    indicator.setAttribute("aria-hidden", "false")
+  })
+
+  window.addEventListener("pageshow", clearNavigationLoading)
+})();
+
+(function () {
+  "use strict"
+
 	var avatarRoot = document.querySelector("[data-avatar-admin]")
 	var contactRoot = document.querySelector("[data-contact-admin]")
 	if (!avatarRoot && !contactRoot) return

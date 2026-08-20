@@ -33,6 +33,14 @@ type User struct {
 	UpdatedAt          time.Time
 }
 
+type AdministratorUserSummary struct {
+	ID       string
+	Username string
+	Email    string
+	Status   UserStatus
+	IsAdmin  bool
+}
+
 type UserStatus string
 
 const (

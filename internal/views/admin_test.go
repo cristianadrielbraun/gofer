@@ -9,6 +9,38 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
+func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T) {
+	data := AdminUsersData{
+		Total: 3, Active: 1, Pending: 1, Disabled: 1, Administrators: 2,
+		Users: []AdminUserData{
+			{ID: "current-id", Username: "owner", Email: "owner@example.com", Status: "Active", Role: "Administrator", Current: true},
+			{ID: "pending-id", Username: `<script>pending</script>`, Email: `pending+<tag>@example.com`, Status: "Pending", Role: "User"},
+			{ID: "disabled-id", Email: "disabled@example.com", Status: "Disabled", Role: "Administrator"},
+		},
+	}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`data-admin-users`, "3 users", "Application users", "Read only",
+		"owner@example.com", "You", "Active", "Pending", "Disabled",
+		"Administrator", "User", "current-id", "pending-id", "disabled-id",
+		`&lt;script&gt;pending&lt;/script&gt;`, `pending+&lt;tag&gt;@example.com`, "No username",
+		"Mailboxes, messages, contacts, credentials",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("administrator users view missing %q: %s", want, html)
+		}
+	}
+	for _, forbidden := range []string{`<script>pending</script>`, `pending+<tag>@example.com`, "private-password-hash", "private-provider-subject"} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("administrator users view exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
 func TestAdminLabelsPageRendersOutlookGraphDiagnostics(t *testing.T) {
 	status := models.LabelAdminStatus{
 		Accounts: []models.LabelAccountSyncStatus{{

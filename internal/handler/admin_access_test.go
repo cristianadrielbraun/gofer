@@ -16,6 +16,7 @@ func TestAdminRoutesRejectNonAdminUsers(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	for _, target := range []string{
+		"/admin/users",
 		"/admin/security",
 		"/api/admin/contacts/status",
 		"/api/admin/labels/status",
@@ -30,6 +31,32 @@ func TestAdminRoutesRejectNonAdminUsers(t *testing.T) {
 
 			if rec.Code != http.StatusForbidden {
 				t.Fatalf("status = %d, want 403", rec.Code)
+			}
+		})
+	}
+}
+
+func TestAdminRootRedirectsToFirstSidebarSection(t *testing.T) {
+	h := &Handler{}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	for _, test := range []struct {
+		path     string
+		location string
+	}{
+		{path: "/admin", location: "/admin/users"},
+		{path: "/admin/avatars", location: "/admin/avatars/"},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, test.path, nil)
+			req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "admin", IsAdmin: true}))
+			rec := httptest.NewRecorder()
+
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusFound || rec.Header().Get("Location") != test.location {
+				t.Fatalf("redirect = %d %q, want 302 %q", rec.Code, rec.Header().Get("Location"), test.location)
 			}
 		})
 	}
