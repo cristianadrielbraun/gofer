@@ -5,8 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/copybutton"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
 	"github.com/cristianadrielbraun/gofer/components/tabs"
@@ -23,12 +26,33 @@ type AdminUserData struct {
 }
 
 type AdminUsersData struct {
-	Users          []AdminUserData
-	Total          int
-	Active         int
-	Pending        int
-	Disabled       int
-	Administrators int
+	Users               []AdminUserData
+	Total               int
+	Active              int
+	Pending             int
+	Disabled            int
+	Administrators      int
+	StepUpRequired      bool
+	InvitationCSRFToken string
+	InvitationForm      AdminUserInvitationFormData
+	Invitation          *AdminUserInvitationData
+	Error               string
+}
+
+type AdminUserInvitationFormData struct {
+	Name        string
+	Username    string
+	Email       string
+	FieldErrors map[string]string
+}
+
+type AdminUserInvitationData struct {
+	Name          string
+	Username      string
+	Email         string
+	RedemptionURL string
+	Token         string
+	ExpiresAt     time.Time
 }
 
 func adminUserUsername(username string) string {
@@ -36,6 +60,29 @@ func adminUserUsername(username string) string {
 		return "No username"
 	}
 	return username
+}
+
+func adminUserInvitationFieldError(data AdminUserInvitationFormData, field string) string {
+	if data.FieldErrors == nil {
+		return ""
+	}
+	return data.FieldErrors[field]
+}
+
+func adminUserInvitationFormOpen(data AdminUserInvitationFormData) bool {
+	return len(data.FieldErrors) != 0 || strings.TrimSpace(data.Name) != "" ||
+		strings.TrimSpace(data.Username) != "" || strings.TrimSpace(data.Email) != ""
+}
+
+func adminUserInvitationCopyText(data *AdminUserInvitationData) string {
+	if data == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Gofer invitation for %s (%s)\nOpen: %s\nInvitation token: %s\nExpires: %s",
+		data.Username, data.Email, data.RedemptionURL, data.Token,
+		data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST"),
+	)
 }
 
 templ AdminSidebar(activeSection string) {
@@ -48,51 +95,87 @@ templ AdminSidebar(activeSection string) {
 			<p class="mt-2 text-xs text-muted-foreground leading-relaxed">Operational controls and diagnostics.</p>
 		</div>
 		<nav class="flex-1 px-3 py-4 space-y-1">
-			<a href="/admin/users" data-admin-navigation-link data-admin-navigation-label="Users" aria-current?={ activeSection == "users" } class={
-				"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-				templ.KV("bg-accent font-semibold text-foreground", activeSection == "users"),
-				templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "users"),
-			}>
+			<a
+				href="/admin/users"
+				data-admin-navigation-link
+				data-admin-navigation-label="Users"
+				aria-current?={ activeSection == "users" }
+				class={
+					"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+					templ.KV("bg-accent font-semibold text-foreground", activeSection == "users"),
+					templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "users"),
+				}
+			>
 				@icon.Users(icon.Props{Class: "size-4 text-primary"})
 				Users
 			</a>
-			<a href="/admin/avatars/" data-admin-navigation-link data-admin-navigation-label="Avatar checks" aria-current?={ activeSection == "avatars" || activeSection == "" } class={
-				"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-				templ.KV("bg-accent font-semibold text-foreground", activeSection == "avatars" || activeSection == ""),
-				templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "avatars" && activeSection != ""),
-			}>
+			<a
+				href="/admin/avatars/"
+				data-admin-navigation-link
+				data-admin-navigation-label="Avatar checks"
+				aria-current?={ activeSection == "avatars" || activeSection == "" }
+				class={
+					"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+					templ.KV("bg-accent font-semibold text-foreground", activeSection == "avatars" || activeSection == ""),
+					templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "avatars" && activeSection != ""),
+				}
+			>
 				@icon.Activity(icon.Props{Class: "size-4 text-primary"})
 				Avatar checks
 			</a>
-			<a href="/admin/contacts" data-admin-navigation-link data-admin-navigation-label="Contacts" aria-current?={ activeSection == "contacts" } class={
-				"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-				templ.KV("bg-accent font-semibold text-foreground", activeSection == "contacts"),
-				templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "contacts"),
-			}>
+			<a
+				href="/admin/contacts"
+				data-admin-navigation-link
+				data-admin-navigation-label="Contacts"
+				aria-current?={ activeSection == "contacts" }
+				class={
+					"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+					templ.KV("bg-accent font-semibold text-foreground", activeSection == "contacts"),
+					templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "contacts"),
+				}
+			>
 				@icon.BookUser(icon.Props{Class: "size-4 text-primary"})
 				Contacts
 			</a>
-			<a href="/admin/labels" data-admin-navigation-link data-admin-navigation-label="Labels" aria-current?={ activeSection == "labels" } class={
-				"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-				templ.KV("bg-accent font-semibold text-foreground", activeSection == "labels"),
-				templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "labels"),
-			}>
+			<a
+				href="/admin/labels"
+				data-admin-navigation-link
+				data-admin-navigation-label="Labels"
+				aria-current?={ activeSection == "labels" }
+				class={
+					"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+					templ.KV("bg-accent font-semibold text-foreground", activeSection == "labels"),
+					templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "labels"),
+				}
+			>
 				@icon.Tags(icon.Props{Class: "size-4 text-primary"})
 				Labels
 			</a>
-			<a href="/admin/operations" data-admin-navigation-link data-admin-navigation-label="Mail operations" aria-current?={ activeSection == "operations" } class={
-				"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-				templ.KV("bg-accent font-semibold text-foreground", activeSection == "operations"),
-				templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "operations"),
-			}>
+			<a
+				href="/admin/operations"
+				data-admin-navigation-link
+				data-admin-navigation-label="Mail operations"
+				aria-current?={ activeSection == "operations" }
+				class={
+					"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+					templ.KV("bg-accent font-semibold text-foreground", activeSection == "operations"),
+					templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "operations"),
+				}
+			>
 				@icon.ClipboardList(icon.Props{Class: "size-4 text-primary"})
 				Mail operations
 			</a>
-			<a href="/admin/security" data-admin-navigation-link data-admin-navigation-label="Mail security" aria-current?={ activeSection == "security" } class={
-				"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-				templ.KV("bg-accent font-semibold text-foreground", activeSection == "security"),
-				templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "security"),
-			}>
+			<a
+				href="/admin/security"
+				data-admin-navigation-link
+				data-admin-navigation-label="Mail security"
+				aria-current?={ activeSection == "security" }
+				class={
+					"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+					templ.KV("bg-accent font-semibold text-foreground", activeSection == "security"),
+					templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "security"),
+				}
+			>
 				@icon.ShieldAlert(icon.Props{Class: "size-4 text-primary"})
 				Mail security
 			</a>
@@ -135,10 +218,31 @@ templ AdminUsersPage(data AdminUsersData) {
 				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 					<div>
 						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Users</h2>
-						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">Review Gofer application users, account state, and role.</p>
+						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">Review Gofer application users, account state, and role. Invite a new standard user without setting their credentials.</p>
 					</div>
-					<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{ fmt.Sprintf("%d users", data.Total) }</span>
+					<div class="flex flex-wrap items-center gap-2">
+						@dialog.Trigger(dialog.TriggerProps{For: "admin-user-invitation-dialog"}) {
+							@button.Button(button.Props{Disabled: data.StepUpRequired}) {
+								@icon.UserPlus(icon.Props{Class: "size-4"})
+								Invite user
+							}
+						}
+						<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{ fmt.Sprintf("%d users", data.Total) }</span>
+					</div>
 				</div>
+				if data.Error != "" {
+					<div role="alert" class="mt-5 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">{ data.Error }</div>
+				}
+				if data.StepUpRequired {
+					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+						<p class="font-semibold">Recent administrator verification required</p>
+						<p class="mt-1">Verify with a passkey or authenticator in <a href="/settings/security" class="font-semibold underline underline-offset-2">Security settings</a> to create invitations for the next ten minutes.</p>
+					</div>
+				}
+				@AdminUserInvitationDialog(data)
+				if data.Invitation != nil {
+					@AdminUserInvitationResultDialog(data.Invitation)
+				}
 				<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="User summary">
 					<div class="rounded-lg border border-border bg-card px-4 py-3">
 						<p class="text-xs font-medium text-muted-foreground">Active</p>
@@ -160,7 +264,7 @@ templ AdminUsersPage(data AdminUsersData) {
 				<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-users-heading">
 					<div class="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
 						<h3 id="admin-users-heading" class="text-sm font-semibold text-foreground">Application users</h3>
-						<span class="text-xs text-muted-foreground">Read only</span>
+						<span class="text-xs text-muted-foreground">Profile metadata only</span>
 					</div>
 					if len(data.Users) == 0 {
 						<div class="px-4 py-10 text-center text-sm text-muted-foreground">No Gofer users are available.</div>
@@ -188,19 +292,23 @@ templ AdminUsersPage(data AdminUsersData) {
 												<p class="mt-0.5 break-all text-xs text-muted-foreground">{ user.Email }</p>
 											</td>
 											<td class="px-4 py-3">
-												<span class={
-													"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-													templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.Status == "Active"),
-													templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.Status == "Pending"),
-													templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.Status == "Disabled"),
-												}>{ user.Status }</span>
+												<span
+													class={
+														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+														templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.Status == "Active"),
+														templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.Status == "Pending"),
+														templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.Status == "Disabled"),
+													}
+												>{ user.Status }</span>
 											</td>
 											<td class="px-4 py-3">
-												<span class={
-													"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-													templ.KV("border-primary/30 bg-primary/10 text-primary", user.Role == "Administrator"),
-													templ.KV("border-border bg-muted text-muted-foreground", user.Role == "User"),
-												}>{ user.Role }</span>
+												<span
+													class={
+														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+														templ.KV("border-primary/30 bg-primary/10 text-primary", user.Role == "Administrator"),
+														templ.KV("border-border bg-muted text-muted-foreground", user.Role == "User"),
+													}
+												>{ user.Role }</span>
 											</td>
 											<td class="px-4 py-3"><code class="break-all font-mono text-xs text-muted-foreground">{ user.ID }</code></td>
 										</tr>
@@ -214,6 +322,151 @@ templ AdminUsersPage(data AdminUsersData) {
 			</div>
 		</div>
 	</div>
+}
+
+templ AdminUserInvitationDialog(data AdminUsersData) {
+	@dialog.Dialog(dialog.Props{ID: "admin-user-invitation-dialog", Open: adminUserInvitationFormOpen(data.InvitationForm)}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Invite a Gofer user
+				}
+				@dialog.Description() {
+					Create a pending standard user and a private, single-use enrollment token. The invited person chooses their own credential.
+				}
+			}
+			<form method="post" action="/admin/users/invitations" class="space-y-4">
+				if data.InvitationCSRFToken != "" {
+					<input type="hidden" name="_csrf" value={ data.InvitationCSRFToken }/>
+				}
+				<div class="space-y-1.5">
+					<label for="admin-invitation-name" class="block text-sm font-semibold text-foreground">Display name</label>
+					<input
+						id="admin-invitation-name"
+						name="name"
+						type="text"
+						value={ data.InvitationForm.Name }
+						maxlength="100"
+						required
+						autocomplete="off"
+						if adminUserInvitationFieldError(data.InvitationForm, "name") != "" {
+							aria-invalid="true"
+							aria-describedby="admin-invitation-name-error"
+						}
+						class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 aria-[invalid=true]:border-destructive"
+					/>
+					if fieldError := adminUserInvitationFieldError(data.InvitationForm, "name"); fieldError != "" {
+						<p id="admin-invitation-name-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
+					}
+				</div>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-1.5">
+						<label for="admin-invitation-username" class="block text-sm font-semibold text-foreground">Gofer username</label>
+						<input
+							id="admin-invitation-username"
+							name="username"
+							type="text"
+							value={ data.InvitationForm.Username }
+							minlength="3"
+							maxlength="32"
+							required
+							autocomplete="off"
+							autocapitalize="none"
+							spellcheck="false"
+							if adminUserInvitationFieldError(data.InvitationForm, "username") != "" {
+								aria-invalid="true"
+								aria-describedby="admin-invitation-username-help admin-invitation-username-error"
+							} else {
+								aria-describedby="admin-invitation-username-help"
+							}
+							class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 aria-[invalid=true]:border-destructive"
+						/>
+						<p id="admin-invitation-username-help" class="text-xs text-muted-foreground">3–32 letters, numbers, periods, underscores, or hyphens.</p>
+						if fieldError := adminUserInvitationFieldError(data.InvitationForm, "username"); fieldError != "" {
+							<p id="admin-invitation-username-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
+						}
+					</div>
+					<div class="space-y-1.5">
+						<label for="admin-invitation-email" class="block text-sm font-semibold text-foreground">Gofer account email</label>
+						<input
+							id="admin-invitation-email"
+							name="email"
+							type="email"
+							value={ data.InvitationForm.Email }
+							maxlength="254"
+							required
+							autocomplete="off"
+							spellcheck="false"
+							if adminUserInvitationFieldError(data.InvitationForm, "email") != "" {
+								aria-invalid="true"
+								aria-describedby="admin-invitation-email-error"
+							}
+							class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 aria-[invalid=true]:border-destructive"
+						/>
+						if fieldError := adminUserInvitationFieldError(data.InvitationForm, "email"); fieldError != "" {
+							<p id="admin-invitation-email-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
+						}
+					</div>
+				</div>
+				<div class="rounded-md border border-border bg-muted/35 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+					This creates only a Gofer application account. It does not create, connect, or authorize a mailbox. The invitation expires after 24 hours.
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: "admin-user-invitation-dialog"}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							Cancel
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Disabled: data.StepUpRequired || data.InvitationCSRFToken == ""}) {
+						@icon.UserPlus(icon.Props{Class: "size-4"})
+						Create invitation
+					}
+				}
+			</form>
+		}
+	}
+}
+
+templ AdminUserInvitationResultDialog(data *AdminUserInvitationData) {
+	@dialog.Dialog(dialog.Props{ID: "admin-user-invitation-result-dialog", Open: true, DisableClickAway: true, DisableESC: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Invitation created
+				}
+				@dialog.Description() {
+					Copy these details now. Gofer stores only a hash of the token and cannot display it again.
+				}
+			}
+			<div role="status" class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+				<p class="font-semibold">{ data.Username } is pending enrollment</p>
+				<p class="mt-1 text-xs">{ data.Name } · { data.Email } · expires { data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST") }</p>
+			</div>
+			<div class="space-y-2">
+				<div class="flex items-center justify-between gap-3">
+					<label for="admin-user-invitation-details" class="text-sm font-semibold text-foreground">Invitation details</label>
+					<div class="flex items-center gap-1 text-xs text-muted-foreground">
+						<span data-copy-tooltip-text>Copy details</span>
+						@copybutton.CopyButton(copybutton.Props{
+							TargetID: "admin-user-invitation-details",
+							Attrs:    templ.Attributes{"aria-label": "Copy invitation details"},
+						})
+					</div>
+				</div>
+				<textarea id="admin-user-invitation-details" readonly rows="6" class="w-full resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none">{ adminUserInvitationCopyText(data) }</textarea>
+			</div>
+			<div class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
+				Send the page address and token through a trusted channel. The token is deliberately not placed in the URL, where browser history, proxies, or logs could retain it.
+			</div>
+			@dialog.Footer() {
+				@dialog.Close(dialog.CloseProps{For: "admin-user-invitation-result-dialog"}) {
+					@button.Button() {
+						I saved the invitation
+					}
+				}
+			}
+		}
+	}
 }
 
 func adminMailSecurityEndpoint(item models.MailSecurityException) string {
@@ -277,7 +530,6 @@ templ AdminSecurityPage(data models.MailSecurityAdminData) {
 						</div>
 					</div>
 				</div>
-
 				<div class="grid gap-5 xl:grid-cols-2">
 					<section class="rounded-lg border border-border bg-card p-5">
 						<div class={ adminPanelTitleClass() }>HTTP discovery</div>
@@ -297,7 +549,6 @@ templ AdminSecurityPage(data models.MailSecurityAdminData) {
 							<button type="submit" class="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-200" disabled?={ data.StepUpRequired }>Add HTTP exception</button>
 						</form>
 					</section>
-
 					<section class="rounded-lg border border-border bg-card p-5">
 						<div class={ adminPanelTitleClass() }>Plaintext mail transport</div>
 						<p class="mt-1 text-sm text-muted-foreground">Allow one exact IMAP or SMTP endpoint to connect without TLS. OAuth tokens are never allowed over this mode.</p>
@@ -330,7 +581,6 @@ templ AdminSecurityPage(data models.MailSecurityAdminData) {
 						</form>
 					</section>
 				</div>
-
 				<section class="mt-5 rounded-lg border border-border bg-card p-5">
 					<div class={ adminPanelTitleClass() }>Private discovery or mail target</div>
 					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">Allow one exact loopback, private, link-local, or otherwise internal target after Gofer validates the hostname. This is for local test servers and controlled lab environments only.</p>
@@ -364,12 +614,11 @@ templ AdminSecurityPage(data models.MailSecurityAdminData) {
 						<button type="submit" class="rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-800 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-200" disabled?={ data.StepUpRequired }>Add private-target exception</button>
 					</form>
 				</section>
-
 				<section class="mt-6 rounded-lg border border-border bg-card p-5">
 					<div class="flex items-end justify-between gap-4">
 						<div>
 							<div class={ adminPanelTitleClass() }>Approved exceptions</div>
-						<p class="mt-1 text-sm text-muted-foreground">Revoking an exception immediately removes that one approved discovery or mail target.</p>
+							<p class="mt-1 text-sm text-muted-foreground">Revoking an exception immediately removes that one approved discovery or mail target.</p>
 						</div>
 						<div class="text-xs font-semibold tabular-nums text-muted-foreground">{ fmt.Sprintf("%d total", len(data.Exceptions)) }</div>
 					</div>
@@ -382,12 +631,14 @@ templ AdminSecurityPage(data models.MailSecurityAdminData) {
 									<div class="min-w-0">
 										<div class="flex flex-wrap items-center gap-2">
 											<span class="font-mono text-sm font-bold text-foreground">{ adminMailSecurityEndpoint(item) }</span>
-											<span class={
-														"rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-															templ.KV("bg-amber-500/12 text-amber-800 dark:text-amber-200", item.Kind == models.MailSecurityExceptionHTTPDiscovery),
-															templ.KV("bg-red-500/12 text-red-800 dark:text-red-200", item.Kind == models.MailSecurityExceptionPlaintextTransport),
-														templ.KV("bg-red-500/12 text-red-800 dark:text-red-200", item.Kind == models.MailSecurityExceptionPrivateTarget),
-											}>
+											<span
+												class={
+													"rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+													templ.KV("bg-amber-500/12 text-amber-800 dark:text-amber-200", item.Kind == models.MailSecurityExceptionHTTPDiscovery),
+													templ.KV("bg-red-500/12 text-red-800 dark:text-red-200", item.Kind == models.MailSecurityExceptionPlaintextTransport),
+													templ.KV("bg-red-500/12 text-red-800 dark:text-red-200", item.Kind == models.MailSecurityExceptionPrivateTarget),
+												}
+											>
 												{ adminMailSecurityKindLabel(item) }
 											</span>
 										</div>
@@ -524,12 +775,19 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 				</div>
 				@tabs.Tabs(tabs.Props{ID: "avatar-admin-tabs", Attributes: templ.Attributes{"data-avatar-admin": ""}}) {
 					@tabs.List(tabs.ListProps{Class: "bg-card"}) {
-						@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: activeTab == "overview"}) { Overview }
-						@tabs.Trigger(tabs.TriggerProps{Value: "senders", IsActive: activeTab == "senders"}) { Sender registry }
-						@tabs.Trigger(tabs.TriggerProps{Value: "providers", IsActive: activeTab == "providers"}) { Providers }
-						@tabs.Trigger(tabs.TriggerProps{Value: "events", IsActive: activeTab == "events"}) { Event log }
+						@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: activeTab == "overview"}) {
+							Overview
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "senders", IsActive: activeTab == "senders"}) {
+							Sender registry
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "providers", IsActive: activeTab == "providers"}) {
+							Providers
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "events", IsActive: activeTab == "events"}) {
+							Event log
+						}
 					}
-
 					@tabs.Content(tabs.ContentProps{Value: "overview", IsActive: activeTab == "overview", Class: "mt-6 space-y-5", Attributes: templ.Attributes{"data-avatar-tab-panel": "overview"}}) {
 						<div class="rounded-lg border border-border bg-card p-4">
 							<div class="flex items-start justify-between gap-4">
@@ -537,12 +795,15 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									<div class={ adminPanelTitleClass() }>Check run</div>
 									<p class="mt-1 text-sm text-muted-foreground" data-avatar-run-description>{ adminAvatarRunDescription(status.Backfill) }</p>
 								</div>
-								<span class={
-											"inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold",
-											templ.KV("bg-red-500/12 text-red-700 dark:text-red-300", status.Backfill.CancelRequested || status.Backfill.Canceled),
-											templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress && !status.Backfill.CancelRequested),
-											templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress && !status.Backfill.Canceled),
-										} data-avatar-state>
+								<span
+									class={
+										"inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold",
+										templ.KV("bg-red-500/12 text-red-700 dark:text-red-300", status.Backfill.CancelRequested || status.Backfill.Canceled),
+										templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress && !status.Backfill.CancelRequested),
+										templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress && !status.Backfill.Canceled),
+									}
+									data-avatar-state
+								>
 									if status.Backfill.CancelRequested {
 										Canceling
 									} else if status.Backfill.InProgress {
@@ -551,7 +812,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 										Canceled
 									} else {
 										Idle
-										}
+									}
 								</span>
 							</div>
 							<div class="mt-2 flex items-center justify-between gap-4">
@@ -573,7 +834,6 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 								}
 							</div>
 						</div>
-
 						<div class="grid gap-4 lg:grid-cols-2">
 							<div class="rounded-lg border border-border bg-card p-4">
 								<div class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Avatar outcomes</div>
@@ -597,10 +857,9 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 							</div>
 						</div>
 					}
-
 					@tabs.Content(tabs.ContentProps{Value: "senders", IsActive: activeTab == "senders", Class: "mt-6", Attributes: templ.Attributes{"data-avatar-tab-panel": "senders"}}) {
 						<div class="rounded-lg border border-border bg-card p-4" data-avatar-explorer>
-						<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+							<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 								<div>
 									<div class={ adminPanelTitleClass() }>Sender registry</div>
 									<p class="mt-1 text-sm text-muted-foreground">Search senders, inspect final avatar status, and review provider states per sender.</p>
@@ -618,12 +877,18 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider checked</span>
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "provider"}}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) { All providers }
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) {
+											All providers
+											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
+											All providers
+											}
 											for _, provider := range status.Cache.ProviderStats {
-												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) { { adminProviderLabel(provider.Provider) } }
+												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) {
+													{ adminProviderLabel(provider.Provider) }
+												}
 											}
 										}
 									}
@@ -632,14 +897,26 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Final status</span>
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "status"}}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: "All statuses"}) { All statuses }
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All statuses"}) {
+											All statuses
+											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All statuses }
-											@selectbox.Item(selectbox.ItemProps{Value: "found"}) { Found }
-											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) { Missing }
-											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) { Skipped }
-											@selectbox.Item(selectbox.ItemProps{Value: "error"}) { Error }
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
+											All statuses
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "found"}) {
+											Found
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) {
+											Missing
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) {
+											Skipped
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "error"}) {
+											Error
+											}
 										}
 									}
 								</label>
@@ -647,11 +924,17 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Errors only</span>
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "errors"}}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) { No }
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) {
+											No
+											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) { No }
-											@selectbox.Item(selectbox.ItemProps{Value: "true"}) { Yes }
+											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) {
+											No
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "true"}) {
+											Yes
+											}
 										}
 									}
 								</label>
@@ -659,17 +942,16 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 							<div class="mt-3 text-xs font-medium text-muted-foreground" data-avatar-log-count>Loading senders...</div>
 							<div class="mt-4 overflow-x-auto rounded-lg border border-border bg-muted/25 shadow-inner">
 								<div class="min-w-[48rem]">
-								<div class="grid gap-2 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground" data-avatar-sender-header>
-									<div>Sender</div>
-									<div>In use</div>
-									<div>Providers</div>
-								</div>
-								<div class="h-[34rem] overflow-y-auto" data-avatar-log-viewport></div>
+									<div class="grid gap-2 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground" data-avatar-sender-header>
+										<div>Sender</div>
+										<div>In use</div>
+										<div>Providers</div>
+									</div>
+									<div class="h-[34rem] overflow-y-auto" data-avatar-log-viewport></div>
 								</div>
 							</div>
 						</div>
 					}
-
 					@tabs.Content(tabs.ContentProps{Value: "providers", IsActive: activeTab == "providers", Class: "mt-6 space-y-5", Attributes: templ.Attributes{"data-avatar-tab-panel": "providers"}}) {
 						<div class="rounded-lg border border-border bg-card p-4">
 							<div class="grid gap-5 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
@@ -701,18 +983,17 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 							}
 						</div>
 					}
-
 					@tabs.Content(tabs.ContentProps{Value: "events", IsActive: activeTab == "events", Class: "mt-6 space-y-4", Attributes: templ.Attributes{"data-avatar-tab-panel": "events"}}) {
-							<div class="rounded-lg border border-border bg-card p-4">
-								<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-									<div>
-										<div class={ adminPanelTitleClass() }>Event log</div>
-										<p class="mt-1 text-sm text-muted-foreground">Technical provider attempt history, including specific errors.</p>
-									</div>
-									<div class="flex flex-col gap-2 lg:items-end">
-										@AdminTableUpdateControls()
-									</div>
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+								<div>
+									<div class={ adminPanelTitleClass() }>Event log</div>
+									<p class="mt-1 text-sm text-muted-foreground">Technical provider attempt history, including specific errors.</p>
 								</div>
+								<div class="flex flex-col gap-2 lg:items-end">
+									@AdminTableUpdateControls()
+								</div>
+							</div>
 							<div class="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_10rem_10rem_auto]">
 								<label class="block">
 									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sender search</span>
@@ -722,12 +1003,18 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider</span>
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "provider"}}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) { All providers }
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) {
+											All providers
+											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All providers }
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
+											All providers
+											}
 											for _, provider := range status.Cache.ProviderStats {
-												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) { { adminProviderLabel(provider.Provider) } }
+												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) {
+													{ adminProviderLabel(provider.Provider) }
+												}
 											}
 										}
 									}
@@ -736,14 +1023,26 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Outcome</span>
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "status"}}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: "All outcomes"}) { All outcomes }
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "All outcomes"}) {
+											All outcomes
+											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All outcomes }
-											@selectbox.Item(selectbox.ItemProps{Value: "found"}) { Found }
-											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) { Missing }
-											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) { Skipped }
-											@selectbox.Item(selectbox.ItemProps{Value: "error"}) { Error }
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
+											All outcomes
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "found"}) {
+											Found
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) {
+											Missing
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) {
+											Skipped
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "error"}) {
+											Error
+											}
 										}
 									}
 								</label>
@@ -751,30 +1050,36 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									<span class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Errors only</span>
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "errors"}}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) { No }
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) {
+											No
+											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) { No }
-											@selectbox.Item(selectbox.ItemProps{Value: "true"}) { Yes }
+											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) {
+											No
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "true"}) {
+											Yes
+											}
 										}
 									}
 								</label>
 							</div>
 							<div class="mt-3 text-xs font-medium text-muted-foreground" data-avatar-event-count>Loading events...</div>
-								<div class="mt-4 overflow-x-auto rounded-lg border border-border bg-muted/25 shadow-inner">
-									<div class="min-w-[58rem]">
-										<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_8rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-											<div>Time</div>
-											<div>Sender</div>
-											<div>Provider</div>
-											<div>Outcome</div>
-											<div>Details</div>
-										</div>
-										<div class="h-[34rem] overflow-y-auto" data-avatar-event-viewport></div>
+							<div class="mt-4 overflow-x-auto rounded-lg border border-border bg-muted/25 shadow-inner">
+								<div class="min-w-[58rem]">
+									<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_8rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+										<div>Time</div>
+										<div>Sender</div>
+										<div>Provider</div>
+										<div>Outcome</div>
+										<div>Details</div>
 									</div>
+									<div class="h-[34rem] overflow-y-auto" data-avatar-event-viewport></div>
 								</div>
 							</div>
-							}
+						</div>
+					}
 				}
 			</div>
 		</div>
@@ -1175,14 +1480,14 @@ templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
 			</div>
 		</div>
 		<div class="grid gap-2 sm:grid-cols-2">
-			@AdminDetail("labels_total_" + account.AccountID, "Visible messages", fmt.Sprintf("%d", account.TotalMessages))
-			@AdminDetail("labels_any_" + account.AccountID, "With labels", fmt.Sprintf("%d", account.MessagesWithLabels))
-			@AdminDetail("labels_provider_" + account.AccountID, "Provider-backed", fmt.Sprintf("%d", account.ProviderBackedMessages))
-			@AdminDetail("labels_local_only_" + account.AccountID, "Local only", fmt.Sprintf("%d", account.LocalOnlyMessages))
-			@AdminDetail("labels_missing_provider_" + account.AccountID, "Missing provider IDs", fmt.Sprintf("%d", account.MissingProviderMessages))
-			@AdminDetail("labels_missing_identity_" + account.AccountID, "Missing Message-ID", fmt.Sprintf("%d", account.MissingIdentityMessages))
-			@AdminDetail("labels_catalog_" + account.AccountID, "Known labels", fmt.Sprintf("%d", account.KnownLabels))
-			@AdminDetail("labels_queue_" + account.AccountID, "Queued mutations", fmt.Sprintf("%d", account.PendingMutations))
+			@AdminDetail("labels_total_"+account.AccountID, "Visible messages", fmt.Sprintf("%d", account.TotalMessages))
+			@AdminDetail("labels_any_"+account.AccountID, "With labels", fmt.Sprintf("%d", account.MessagesWithLabels))
+			@AdminDetail("labels_provider_"+account.AccountID, "Provider-backed", fmt.Sprintf("%d", account.ProviderBackedMessages))
+			@AdminDetail("labels_local_only_"+account.AccountID, "Local only", fmt.Sprintf("%d", account.LocalOnlyMessages))
+			@AdminDetail("labels_missing_provider_"+account.AccountID, "Missing provider IDs", fmt.Sprintf("%d", account.MissingProviderMessages))
+			@AdminDetail("labels_missing_identity_"+account.AccountID, "Missing Message-ID", fmt.Sprintf("%d", account.MissingIdentityMessages))
+			@AdminDetail("labels_catalog_"+account.AccountID, "Known labels", fmt.Sprintf("%d", account.KnownLabels))
+			@AdminDetail("labels_queue_"+account.AccountID, "Queued mutations", fmt.Sprintf("%d", account.PendingMutations))
 		</div>
 		if account.OutlookGraph != nil {
 			<div class="mt-4 rounded-lg border border-border bg-background/35 p-3">
@@ -1191,14 +1496,14 @@ templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
 					<div class="text-[11px] font-bold tabular-nums text-foreground">{ fmt.Sprintf("%d/%d folders", account.OutlookGraph.GraphBackedFolders, account.OutlookGraph.LocalFolders) }</div>
 				</div>
 				<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-					@AdminCompactMetric("labels_graph_messages_" + account.AccountID, "Graph IDs", account.OutlookGraph.GraphBackedMessages)
-					@AdminCompactMetric("labels_imap_messages_" + account.AccountID, "IMAP rows", account.OutlookGraph.IMAPBackedMessages)
-					@AdminCompactMetric("labels_graph_delta_" + account.AccountID, "Parity delta", account.OutlookGraph.MessageParityDelta)
-					@AdminCompactDetail("labels_graph_ready_" + account.AccountID, "Parity status", adminOutlookGraphParityStatus(account.OutlookGraph))
-					@AdminCompactMetric("labels_missing_graph_" + account.AccountID, "Missing Graph IDs", account.OutlookGraph.MessagesMissingGraphID)
-					@AdminCompactMetric("labels_backfillable_" + account.AccountID, "Backfillable", account.OutlookGraph.MissingGraphIDWithInternetID)
-					@AdminCompactMetric("labels_unresolvable_" + account.AccountID, "No Message-ID", account.OutlookGraph.MissingGraphIDWithoutInternetID)
-					@AdminCompactMetric("labels_missing_graph_folder_" + account.AccountID, "No Graph folder", account.OutlookGraph.MissingGraphIDWithoutGraphFolder)
+					@AdminCompactMetric("labels_graph_messages_"+account.AccountID, "Graph IDs", account.OutlookGraph.GraphBackedMessages)
+					@AdminCompactMetric("labels_imap_messages_"+account.AccountID, "IMAP rows", account.OutlookGraph.IMAPBackedMessages)
+					@AdminCompactMetric("labels_graph_delta_"+account.AccountID, "Parity delta", account.OutlookGraph.MessageParityDelta)
+					@AdminCompactDetail("labels_graph_ready_"+account.AccountID, "Parity status", adminOutlookGraphParityStatus(account.OutlookGraph))
+					@AdminCompactMetric("labels_missing_graph_"+account.AccountID, "Missing Graph IDs", account.OutlookGraph.MessagesMissingGraphID)
+					@AdminCompactMetric("labels_backfillable_"+account.AccountID, "Backfillable", account.OutlookGraph.MissingGraphIDWithInternetID)
+					@AdminCompactMetric("labels_unresolvable_"+account.AccountID, "No Message-ID", account.OutlookGraph.MissingGraphIDWithoutInternetID)
+					@AdminCompactMetric("labels_missing_graph_folder_"+account.AccountID, "No Graph folder", account.OutlookGraph.MissingGraphIDWithoutGraphFolder)
 				</div>
 			</div>
 		}
@@ -1209,15 +1514,15 @@ templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
 					<div class="text-[11px] font-bold tabular-nums text-foreground">{ fmt.Sprintf("%d/%d folders", account.GmailAPI.GmailBackedFolders, account.GmailAPI.LocalFolders) }</div>
 				</div>
 				<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-					@AdminCompactMetric("labels_gmail_messages_" + account.AccountID, "Gmail IDs", account.GmailAPI.APIBackedMessages)
-					@AdminCompactMetric("labels_gmail_imap_messages_" + account.AccountID, "IMAP rows", account.GmailAPI.IMAPBackedMessages)
-					@AdminCompactMetric("labels_gmail_delta_" + account.AccountID, "Parity delta", account.GmailAPI.MessageParityDelta)
-					@AdminCompactDetail("labels_gmail_ready_" + account.AccountID, "Parity status", adminGmailAPIParityStatus(account.GmailAPI))
-					@AdminCompactMetric("labels_missing_gmail_" + account.AccountID, "Missing Gmail IDs", account.GmailAPI.MessagesMissingGmailID)
-					@AdminCompactMetric("labels_gmail_backfillable_" + account.AccountID, "Backfillable", account.GmailAPI.MissingGmailIDWithInternetID)
-					@AdminCompactMetric("labels_gmail_unresolvable_" + account.AccountID, "No Message-ID", account.GmailAPI.MissingGmailIDWithoutInternetID)
-					@AdminCompactMetric("labels_missing_gmail_folder_" + account.AccountID, "No Gmail label", account.GmailAPI.MissingGmailIDWithoutGmailLabel)
-					@AdminCompactDetail("labels_gmail_cursor_" + account.AccountID, "History cursor", account.GmailAPI.HistoryCursor)
+					@AdminCompactMetric("labels_gmail_messages_"+account.AccountID, "Gmail IDs", account.GmailAPI.APIBackedMessages)
+					@AdminCompactMetric("labels_gmail_imap_messages_"+account.AccountID, "IMAP rows", account.GmailAPI.IMAPBackedMessages)
+					@AdminCompactMetric("labels_gmail_delta_"+account.AccountID, "Parity delta", account.GmailAPI.MessageParityDelta)
+					@AdminCompactDetail("labels_gmail_ready_"+account.AccountID, "Parity status", adminGmailAPIParityStatus(account.GmailAPI))
+					@AdminCompactMetric("labels_missing_gmail_"+account.AccountID, "Missing Gmail IDs", account.GmailAPI.MessagesMissingGmailID)
+					@AdminCompactMetric("labels_gmail_backfillable_"+account.AccountID, "Backfillable", account.GmailAPI.MissingGmailIDWithInternetID)
+					@AdminCompactMetric("labels_gmail_unresolvable_"+account.AccountID, "No Message-ID", account.GmailAPI.MissingGmailIDWithoutInternetID)
+					@AdminCompactMetric("labels_missing_gmail_folder_"+account.AccountID, "No Gmail label", account.GmailAPI.MissingGmailIDWithoutGmailLabel)
+					@AdminCompactDetail("labels_gmail_cursor_"+account.AccountID, "History cursor", account.GmailAPI.HistoryCursor)
 				</div>
 			</div>
 		}
@@ -1225,12 +1530,12 @@ templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
 			<div class="rounded-lg border border-border bg-background/35 p-3">
 				<div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Last sync run</div>
 				<div class="space-y-2">
-					@AdminCompactDetail("labels_sync_finished_" + account.AccountID, "Finished", adminTime(account.Sync.LastRunFinishedAt))
-					@AdminCompactMetric("labels_sync_total_" + account.AccountID, "Scanned", account.Sync.LastTotalMessages)
-					@AdminCompactMetric("labels_sync_synced_" + account.AccountID, "Synced", account.Sync.LastSyncedMessages)
-					@AdminCompactMetric("labels_sync_missing_" + account.AccountID, "Not found", account.Sync.LastMissingProviderMessages)
-					@AdminCompactMetric("labels_sync_skipped_" + account.AccountID, "Skipped", account.Sync.LastSkippedMessages)
-					@AdminCompactMetric("labels_sync_failed_" + account.AccountID, "Failed", account.Sync.LastFailedMessages)
+					@AdminCompactDetail("labels_sync_finished_"+account.AccountID, "Finished", adminTime(account.Sync.LastRunFinishedAt))
+					@AdminCompactMetric("labels_sync_total_"+account.AccountID, "Scanned", account.Sync.LastTotalMessages)
+					@AdminCompactMetric("labels_sync_synced_"+account.AccountID, "Synced", account.Sync.LastSyncedMessages)
+					@AdminCompactMetric("labels_sync_missing_"+account.AccountID, "Not found", account.Sync.LastMissingProviderMessages)
+					@AdminCompactMetric("labels_sync_skipped_"+account.AccountID, "Skipped", account.Sync.LastSkippedMessages)
+					@AdminCompactMetric("labels_sync_failed_"+account.AccountID, "Failed", account.Sync.LastFailedMessages)
 				</div>
 			</div>
 			<div class="rounded-lg border border-border bg-background/35 p-3">
@@ -1290,8 +1595,12 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 				</div>
 				@tabs.Tabs(tabs.Props{ID: "contact-admin-tabs", Attributes: templ.Attributes{"data-contact-admin": ""}}) {
 					@tabs.List(tabs.ListProps{Class: "bg-card"}) {
-						@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: true}) { Overview }
-						@tabs.Trigger(tabs.TriggerProps{Value: "events"}) { Event log }
+						@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: true}) {
+							Overview
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "events"}) {
+							Event log
+						}
 					}
 					@tabs.Content(tabs.ContentProps{Value: "overview", IsActive: true, Class: "mt-6 space-y-5"}) {
 						<div class="rounded-lg border border-border bg-card p-4">
@@ -1300,12 +1609,15 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 									<div class={ adminPanelTitleClass() }>Backfill run</div>
 									<p class="mt-1 text-sm text-muted-foreground" data-contact-run-description>{ adminContactRunDescription(status.Backfill) }</p>
 								</div>
-								<span class={
-									"inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold",
-									templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress),
-									templ.KV("bg-red-500/12 text-red-700 dark:text-red-300", !status.Backfill.InProgress && status.Backfill.LastError != ""),
-									templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress && status.Backfill.LastError == ""),
-								} data-contact-state>
+								<span
+									class={
+										"inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold",
+										templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress),
+										templ.KV("bg-red-500/12 text-red-700 dark:text-red-300", !status.Backfill.InProgress && status.Backfill.LastError != ""),
+										templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress && status.Backfill.LastError == ""),
+									}
+									data-contact-state
+								>
 									{ adminContactRunLabel(status.Backfill) }
 								</span>
 							</div>
@@ -1405,10 +1717,10 @@ templ AdminContactSyncCard(sync models.ContactSyncStatus) {
 			<span class={ "inline-flex shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold", adminContactSyncClass(sync) }>{ adminContactSyncLabel(sync) }</span>
 		</div>
 		<div class="grid gap-2 sm:grid-cols-2">
-			@AdminDetail("contact_sync_provider_" + sync.AccountID, "Provider", adminContactSyncProviderLabel(sync.Provider))
-			@AdminDetail("contact_sync_imported_" + sync.AccountID, "Last import", fmt.Sprintf("%d", sync.LastImportCount))
-			@AdminDetail("contact_sync_started_" + sync.AccountID, "Started", adminTime(sync.LastStartedAt))
-			@AdminDetail("contact_sync_success_" + sync.AccountID, "Last success", adminTime(sync.LastSuccessAt))
+			@AdminDetail("contact_sync_provider_"+sync.AccountID, "Provider", adminContactSyncProviderLabel(sync.Provider))
+			@AdminDetail("contact_sync_imported_"+sync.AccountID, "Last import", fmt.Sprintf("%d", sync.LastImportCount))
+			@AdminDetail("contact_sync_started_"+sync.AccountID, "Started", adminTime(sync.LastStartedAt))
+			@AdminDetail("contact_sync_success_"+sync.AccountID, "Last success", adminTime(sync.LastSuccessAt))
 		</div>
 		if sync.LastError != "" {
 			<div class="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">{ sync.LastError }</div>
@@ -1599,19 +1911,23 @@ func adminMailHealthKindLabel(kind string) string {
 }
 
 templ AdminMailHealthCard(label string, value int, warning bool, danger bool) {
-	<div class={
-		"rounded-lg border bg-card p-4",
-		templ.KV("border-amber-500/30", warning && !danger),
-		templ.KV("border-red-500/35", danger),
-		templ.KV("border-border", !warning && !danger),
-	}>
+	<div
+		class={
+			"rounded-lg border bg-card p-4",
+			templ.KV("border-amber-500/30", warning && !danger),
+			templ.KV("border-red-500/35", danger),
+			templ.KV("border-border", !warning && !danger),
+		}
+	>
 		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
-		<div class={
-			"mt-2 text-2xl font-bold tabular-nums",
-			templ.KV("text-amber-700 dark:text-amber-300", warning && !danger),
-			templ.KV("text-red-700 dark:text-red-300", danger),
-			templ.KV("text-foreground", !warning && !danger),
-		}>{ fmt.Sprintf("%d", value) }</div>
+		<div
+			class={
+				"mt-2 text-2xl font-bold tabular-nums",
+				templ.KV("text-amber-700 dark:text-amber-300", warning && !danger),
+				templ.KV("text-red-700 dark:text-red-300", danger),
+				templ.KV("text-foreground", !warning && !danger),
+			}
+		>{ fmt.Sprintf("%d", value) }</div>
 	</div>
 }
 
@@ -1635,17 +1951,21 @@ templ AdminMailOperationsPage(status models.MailOperationsAdminStatus) {
 						<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Retained operations</div>
 						<div class="mt-2 text-2xl font-bold tabular-nums text-foreground">{ fmt.Sprintf("%d", status.Total) }</div>
 					</div>
-					<div class={
-						"rounded-lg border bg-card p-4",
-						templ.KV("border-amber-500/30", status.ActionRequired > 0),
-						templ.KV("border-border", status.ActionRequired == 0),
-					}>
+					<div
+						class={
+							"rounded-lg border bg-card p-4",
+							templ.KV("border-amber-500/30", status.ActionRequired > 0),
+							templ.KV("border-border", status.ActionRequired == 0),
+						}
+					>
 						<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Need attention</div>
-						<div class={
-							"mt-2 text-2xl font-bold tabular-nums",
-							templ.KV("text-amber-700 dark:text-amber-300", status.ActionRequired > 0),
-							templ.KV("text-foreground", status.ActionRequired == 0),
-						}>{ fmt.Sprintf("%d", status.ActionRequired) }</div>
+						<div
+							class={
+								"mt-2 text-2xl font-bold tabular-nums",
+								templ.KV("text-amber-700 dark:text-amber-300", status.ActionRequired > 0),
+								templ.KV("text-foreground", status.ActionRequired == 0),
+							}
+						>{ fmt.Sprintf("%d", status.ActionRequired) }</div>
 					</div>
 				</div>
 				<section class="mt-5 rounded-lg border border-border bg-card p-5">
@@ -1672,10 +1992,10 @@ templ AdminMailOperationsPage(status models.MailOperationsAdminStatus) {
 						<p class="mt-1 text-xs text-muted-foreground">Current durable work from SQLite. Retrying work is expected background activity; failed and ambiguous work needs attention.</p>
 					</div>
 					<div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-						@AdminMailHealthCard("Outgoing active", status.Health.Outgoing.Pending + status.Health.Outgoing.Sending, false, false)
+						@AdminMailHealthCard("Outgoing active", status.Health.Outgoing.Pending+status.Health.Outgoing.Sending, false, false)
 						@AdminMailHealthCard("Outgoing failed", status.Health.Outgoing.Failed, status.Health.Outgoing.Failed > 0, false)
 						@AdminMailHealthCard("Outgoing ambiguous", status.Health.Outgoing.Ambiguous, false, status.Health.Outgoing.Ambiguous > 0)
-						@AdminMailHealthCard("Sent-copy active", status.Health.SentCopy.Pending + status.Health.SentCopy.Copying, false, false)
+						@AdminMailHealthCard("Sent-copy active", status.Health.SentCopy.Pending+status.Health.SentCopy.Copying, false, false)
 						@AdminMailHealthCard("Sent-copy failed", status.Health.SentCopy.Failed, status.Health.SentCopy.Failed > 0, false)
 						@AdminMailHealthCard("Sent-copy ambiguous", status.Health.SentCopy.Ambiguous, false, status.Health.SentCopy.Ambiguous > 0)
 					</div>
@@ -1722,8 +2042,8 @@ templ AdminMailOperationsPage(status models.MailOperationsAdminStatus) {
 								<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Folder sync</span><span class="font-semibold tabular-nums text-foreground">{ fmt.Sprintf("%d complete · %d partial · %d failed", status.Health.FolderSync.Complete, status.Health.FolderSync.Partial, status.Health.FolderSync.Failed) }</span></div>
 								<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Oldest pending</span><span class="font-semibold text-foreground">{ adminMailPendingAge(status.Health.OldestPendingAt) }</span></div>
 								<div class="flex items-center justify-between gap-3"><span class="text-muted-foreground">Next retry</span><span class="font-semibold text-foreground">{ adminTime(status.Health.NextRetryAt) }</span></div>
-								</div>
-							</section>
+							</div>
+						</section>
 					</div>
 					<section class="mt-5 rounded-lg border border-border/70 bg-background/35 p-4">
 						<div class="flex items-baseline justify-between gap-3">

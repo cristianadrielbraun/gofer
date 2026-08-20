@@ -66,12 +66,14 @@ func TestPrivateTargetExceptionRouteRejectsNonAdminUsers(t *testing.T) {
 	h := &Handler{}
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
-	req := httptest.NewRequest(http.MethodPost, "/admin/security/private-target", nil)
-	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "user", IsAdmin: false}))
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
+	for _, target := range []string{"/admin/security/private-target", "/admin/users/invitations"} {
+		req := httptest.NewRequest(http.MethodPost, target, nil)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "user", IsAdmin: false}))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s status = %d, want 403", target, rec.Code)
+		}
 	}
 }
 

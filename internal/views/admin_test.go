@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -24,7 +25,7 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 	}
 	html := out.String()
 	for _, want := range []string{
-		`data-admin-users`, "3 users", "Application users", "Read only",
+		`data-admin-users`, "3 users", "Application users", "Profile metadata only",
 		"owner@example.com", "You", "Active", "Pending", "Disabled",
 		"Administrator", "User", "current-id", "pending-id", "disabled-id",
 		`&lt;script&gt;pending&lt;/script&gt;`, `pending+&lt;tag&gt;@example.com`, "No username",
@@ -37,6 +38,70 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 	for _, forbidden := range []string{`<script>pending</script>`, `pending+<tag>@example.com`, "private-password-hash", "private-provider-subject"} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("administrator users view exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
+func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing.T) {
+	expiresAt := time.Date(2026, time.August, 21, 12, 30, 0, 0, time.Local)
+	data := AdminUsersData{
+		InvitationCSRFToken: strings.Repeat("a", 64),
+		InvitationForm: AdminUserInvitationFormData{
+			Name: `<Admin & helper>`, Username: "invalid username", Email: "invalid-email",
+			FieldErrors: map[string]string{
+				"username": `Username <already> exists`, "email": "Enter a valid email.",
+			},
+		},
+		Invitation: &AdminUserInvitationData{
+			Name: "Invited Person", Username: "invited.person", Email: "invited@example.com",
+			RedemptionURL: "https://gofer.example/account/redeem",
+			Token:         `private-token</textarea><script>alert("token")</script>`,
+			ExpiresAt:     expiresAt,
+		},
+	}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`data-tui-dialog-target="admin-user-invitation-dialog"`, "Invite user",
+		`action="/admin/users/invitations"`, `name="_csrf"`, strings.Repeat("a", 64),
+		`name="name"`, `name="username"`, `name="email"`, `aria-invalid="true"`,
+		`&lt;Admin &amp; helper&gt;`, `Username &lt;already&gt; exists`,
+		"does not create, connect, or authorize a mailbox", "Invitation created",
+		`data-tui-dialog-disable-click-away="true"`, `data-tui-dialog-disable-esc="true"`,
+		"Gofer stores only a hash of the token", "https://gofer.example/account/redeem",
+		"Copy invitation details", "deliberately not placed in the URL",
+		`private-token&lt;/textarea&gt;&lt;script&gt;alert(&#34;token&#34;)&lt;/script&gt;`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("administrator invitation view missing %q: %s", want, html)
+		}
+	}
+	for _, forbidden := range []string{
+		`<script>alert("token")</script>`,
+		`https://gofer.example/account/redeem?token=`,
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("administrator invitation view exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
+func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
+	data := AdminUsersData{StepUpRequired: true, InvitationCSRFToken: strings.Repeat("b", 64)}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Recent administrator verification required", `href="/settings/security"`,
+		"create invitations for the next ten minutes", " disabled",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)
 		}
 	}
 }

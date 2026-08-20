@@ -12,6 +12,29 @@ import (
 
 const csrfTestAction = "/admin/security/private-target"
 
+func TestSessionCSRFIncludesAdministratorUserMutations(t *testing.T) {
+	for _, path := range []string{
+		"/admin/users/invitations",
+		"/admin/users/person/role",
+		"/admin/security/private-target",
+		"/settings/security/password",
+		"/auth/logout",
+	} {
+		request := httptest.NewRequest(http.MethodPost, path, nil)
+		if !requiresSessionCSRF(request) {
+			t.Fatalf("POST %s does not require session CSRF", path)
+		}
+	}
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/admin/users/invitations", nil),
+		httptest.NewRequest(http.MethodGet, "/admin/users", nil),
+	} {
+		if requiresSessionCSRF(request) {
+			t.Fatalf("%s %s unexpectedly requires session CSRF", request.Method, request.URL.Path)
+		}
+	}
+}
+
 func csrfTokenThroughMiddleware(t *testing.T, manager *Manager, sessionToken, method, path string) string {
 	t.Helper()
 	handler := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
