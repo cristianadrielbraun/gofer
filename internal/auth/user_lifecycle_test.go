@@ -22,16 +22,16 @@ func newUserLifecycleManager(t *testing.T) *Manager {
 
 func TestUserLifecycleUsesNormalizedIdentifiersAndRevokesSessions(t *testing.T) {
 	manager := newUserLifecycleManager(t)
-	admin, err := manager.CreateOrUpdateUser(t.Context(), "Admin@example.com", "Admin", "")
+	admin, err := manager.CreateOrUpdateUser(t.Context(), "Admin", "Admin", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateUser(admin) error = %v", err)
 	}
-	user, err := manager.CreateOrUpdateUser(t.Context(), " Person@Example.COM ", "Person", "")
+	user, err := manager.CreateOrUpdateUser(t.Context(), " Person.User ", "Person", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateUser(person) error = %v", err)
 	}
-	found, err := manager.GetUserByLoginIdentifier(t.Context(), "person@example.com")
-	if err != nil || found == nil || found.ID != user.ID || found.EmailNormalized != "person@example.com" {
+	found, err := manager.GetUserByUsername(t.Context(), "person.user")
+	if err != nil || found == nil || found.ID != user.ID || found.UsernameNormalized != "person.user" {
 		t.Fatalf("normalized lookup = %#v, %v", found, err)
 	}
 	session, err := manager.CreateAuthenticatedSession(
@@ -61,7 +61,7 @@ func TestUserLifecycleUsesNormalizedIdentifiersAndRevokesSessions(t *testing.T) 
 
 func TestUserLifecycleProtectsLastActiveAdministrator(t *testing.T) {
 	manager := newUserLifecycleManager(t)
-	admin, err := manager.CreateOrUpdateUser(t.Context(), "admin@example.com", "Admin", "")
+	admin, err := manager.CreateOrUpdateUser(t.Context(), "admin", "Admin", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateUser() error = %v", err)
 	}
@@ -72,11 +72,11 @@ func TestUserLifecycleProtectsLastActiveAdministrator(t *testing.T) {
 
 func TestUserLifecycleRequiresStrongFactorBeforeActivationUnderGlobalMFA(t *testing.T) {
 	manager := newUserLifecycleManager(t)
-	admin, err := manager.CreateOrUpdateUser(t.Context(), "admin@example.com", "Admin", "")
+	admin, err := manager.CreateOrUpdateUser(t.Context(), "admin", "Admin", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := manager.CreateOrUpdateUser(t.Context(), "user@example.com", "User", "")
+	user, err := manager.CreateOrUpdateUser(t.Context(), "user", "User", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestUserLifecycleRequiresStrongFactorBeforeActivationUnderGlobalMFA(t *test
 
 func TestMiddlewareRejectsDisabledUserWithExistingSession(t *testing.T) {
 	manager := newUserLifecycleManager(t)
-	user, err := manager.CreateOrUpdateUser(t.Context(), "user@example.com", "User", "")
+	user, err := manager.CreateOrUpdateUser(t.Context(), "user", "User", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateUser() error = %v", err)
 	}

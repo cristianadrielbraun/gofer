@@ -15,8 +15,27 @@ func seedV85MailboxOAuthSchema(t *testing.T, path, accounts, credentials string)
 	if _, err := db.Exec(`
 		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
 		INSERT INTO schema_version (version) VALUES (85);
-		CREATE TABLE users (id TEXT PRIMARY KEY);
-		INSERT INTO users (id) VALUES ('owner'), ('other');
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL UNIQUE,
+			email_normalized TEXT,
+			username TEXT,
+			username_normalized TEXT,
+			name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active',
+			auth_version INTEGER NOT NULL DEFAULT 1,
+			mfa_required INTEGER NOT NULL DEFAULT 0,
+			last_login_at DATETIME,
+			disabled_at DATETIME,
+			disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+			is_admin INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO users (id, email, email_normalized, username, username_normalized) VALUES
+			('owner', 'owner@example.com', 'owner@example.com', 'owner', 'owner'),
+			('other', 'other@example.com', 'other@example.com', 'other', 'other');
 		CREATE TABLE accounts (
 			id TEXT PRIMARY KEY,
 			user_id TEXT REFERENCES users(id) ON DELETE CASCADE,

@@ -39,7 +39,7 @@ func TestListAdministratorUsersRequiresActiveAdministratorAndReturnsOnlySafeMeta
 	}
 	if users[0].Status != UserStatusActive || !users[0].IsAdmin ||
 		users[1].Username != "Alpha" || users[1].Status != UserStatusPending || users[1].IsAdmin ||
-		users[2].Username != "Bravo" || users[2].Email != "ordinary@example.com" || users[2].IsAdmin ||
+		users[2].Username != "Bravo" || users[2].IsAdmin ||
 		users[3].Username != "Zulu" || users[3].Status != UserStatusDisabled || !users[3].IsAdmin {
 		t.Fatalf("administrator user projection = %#v", users)
 	}

@@ -51,9 +51,9 @@ func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, name, status, auth_version,
+			id, username, username_normalized, name, status, auth_version,
 			user_type, is_admin, created_at, updated_at
-		) VALUES ('management-admin', 'management@example.com', 'management@example.com',
+		) VALUES ('management-admin', 'management-admin', 'management-admin',
 			'Management Admin', 'active', 1, 'management', 1, ?, ?)`, now, now); err != nil {
 		t.Fatalf("insert management administrator: %v", err)
 	}
@@ -147,9 +147,9 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, name, status, auth_version,
+			id, username, username_normalized, name, status, auth_version,
 			user_type, is_admin, created_at, updated_at
-		) VALUES ('management-admin', 'management@example.com', 'management@example.com',
+		) VALUES ('management-admin', 'management-admin', 'management-admin',
 			'Management Admin', 'active', 1, 'management', 1, ?, ?)`, now, now); err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +253,8 @@ func TestLogoutRequiresSessionCSRFBeforeRevocation(t *testing.T) {
 	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, created_at, updated_at)
-		VALUES ('user-id', 'user@example.com', 'user@example.com', 'User', 'active', 1, ?, ?)`, now, now); err != nil {
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, created_at, updated_at)
+		VALUES ('user-id', 'user', 'user', 'User', 'active', 1, ?, ?)`, now, now); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	session, err := manager.CreateSession(t.Context(), "user-id", "test-agent")

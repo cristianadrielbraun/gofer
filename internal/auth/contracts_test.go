@@ -91,9 +91,9 @@ func insertActiveUser(t *testing.T, manager *Manager, id string, isAdmin bool, n
 		userType = UserTypeManagement
 	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, email_normalized, name, status, user_type, is_admin, created_at, updated_at)
+		INSERT INTO users (id, username, username_normalized, name, status, user_type, is_admin, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, id+"@example.com", id+"@example.com", id, UserStatusActive, userType, admin, now, now,
+		id, id, id, id, UserStatusActive, userType, admin, now, now,
 	); err != nil {
 		t.Fatalf("insert user %q: %v", id, err)
 	}

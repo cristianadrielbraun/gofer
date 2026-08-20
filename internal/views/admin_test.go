@@ -14,9 +14,9 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 	data := AdminUsersData{
 		Total: 3, Active: 1, Pending: 1, Disabled: 1, Administrators: 2,
 		Users: []AdminUserData{
-			{ID: "current-id", Username: "owner", Email: "owner@example.com", Status: "Active", Role: "Administrator", Current: true},
-			{ID: "pending-id", Username: `<script>pending</script>`, Email: `pending+<tag>@example.com`, Status: "Pending", Role: "User"},
-			{ID: "disabled-id", Email: "disabled@example.com", Status: "Disabled", Role: "Administrator"},
+			{ID: "current-id", Username: "owner", Status: "Active", Role: "Administrator", Current: true},
+			{ID: "pending-id", Username: `<script>pending</script>`, Status: "Pending", Role: "User"},
+			{ID: "disabled-id", Username: "disabled", Status: "Disabled", Role: "Administrator"},
 		},
 	}
 	var out bytes.Buffer
@@ -26,16 +26,16 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 	html := out.String()
 	for _, want := range []string{
 		`data-admin-users`, "3 users", "Application users", "Application identity and invitation state",
-		"owner@example.com", "You", "Active", "Pending", "Disabled",
+		"owner", "You", "Active", "Pending", "Disabled",
 		"Administrator", "User", "current-id", "pending-id", "disabled-id",
-		`&lt;script&gt;pending&lt;/script&gt;`, `pending+&lt;tag&gt;@example.com`, "No username",
+		`&lt;script&gt;pending&lt;/script&gt;`,
 		"Mailboxes, messages, contacts, credentials",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("administrator users view missing %q: %s", want, html)
 		}
 	}
-	for _, forbidden := range []string{`<script>pending</script>`, `pending+<tag>@example.com`, "private-password-hash", "private-provider-subject"} {
+	for _, forbidden := range []string{`<script>pending</script>`, "private-password-hash", "private-provider-subject"} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("administrator users view exposed forbidden value %q", forbidden)
 		}
@@ -48,7 +48,7 @@ func TestAdminUsersPageRendersProtectedInvitationLifecycleActions(t *testing.T) 
 	rotatePath := "/admin/users/invitations/" + reference + "/rotate"
 	revokePath := "/admin/users/invitations/" + reference + "/revoke"
 	data := AdminUsersData{Users: []AdminUserData{{
-		ID: "pending-internal-id", Username: "pending.user", Email: "pending@example.com",
+		ID: "pending-internal-id", Username: "pending.user",
 		Status: "Pending", Role: "Webmail user", InvitationState: "active",
 		InvitationExpiresAt:  &expiresAt,
 		InvitationRevokePath: revokePath, InvitationRevokeCSRFToken: strings.Repeat("b", 64),
@@ -79,13 +79,13 @@ func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing
 	data := AdminUsersData{
 		InvitationCSRFToken: strings.Repeat("a", 64),
 		InvitationForm: AdminUserInvitationFormData{
-			Name: `<Admin & helper>`, Username: "invalid username", Email: "invalid-email",
+			Name: `<Admin & helper>`, Username: "invalid username",
 			FieldErrors: map[string]string{
-				"username": `Username <already> exists`, "email": "Enter a valid email.",
+				"username": `Username <already> exists`,
 			},
 		},
 		Invitation: &AdminUserInvitationData{
-			Name: "Invited Person", Username: "invited.person", Email: "invited@example.com",
+			Name: "Invited Person", Username: "invited.person",
 			RedemptionURL: "https://gofer.example/account/redeem",
 			Token:         `private-token</textarea><script>alert("token")</script>`,
 			ExpiresAt:     expiresAt,
@@ -99,7 +99,7 @@ func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing
 	for _, want := range []string{
 		`data-tui-dialog-target="admin-user-invitation-dialog"`, "Invite user",
 		`action="/admin/users/invitations"`, `name="_csrf"`, strings.Repeat("a", 64),
-		`name="name"`, `name="username"`, `name="email"`, `aria-invalid="true"`,
+		`name="name"`, `name="username"`, `aria-invalid="true"`,
 		`&lt;Admin &amp; helper&gt;`, `Username &lt;already&gt; exists`,
 		"does not create, connect, or authorize a mailbox", "Invitation created",
 		`data-tui-dialog-disable-click-away="true"`, `data-tui-dialog-disable-esc="true"`,

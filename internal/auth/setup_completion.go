@@ -94,12 +94,11 @@ func (m *Manager) CompleteSetup(ctx context.Context, options CompleteSetupOption
 		ownerID := generatedOwnerID
 		if _, err := tx.ExecContext(ctx, `
 				INSERT INTO users (
-					id, email, email_normalized, username, username_normalized, name,
+					id, username, username_normalized, name,
 					status, auth_version, mfa_required, user_type, is_admin, last_login_at,
 					created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, 1, 'management', 1, ?, ?, ?)`,
-			ownerID, draft.Email, draft.EmailNormalized, draft.Username,
-			draft.UsernameNormalized, draft.Name, now, now, now,
+				) VALUES (?, ?, ?, ?, 'active', 1, 1, 'management', 1, ?, ?, ?)`,
+			ownerID, draft.Username, draft.UsernameNormalized, draft.Name, now, now, now,
 		); err != nil {
 			return fmt.Errorf("create setup owner: %w", err)
 		}

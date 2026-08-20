@@ -33,11 +33,11 @@ func TestSetupOwnerPageIsAccessibleAndLocal(t *testing.T) {
 	if err := SetupOwnerPage(SetupOwnerData{
 		Kind: "existing", DraftSaved: true,
 		Candidates: []SetupOwnerCandidateData{{
-			ID: "person-id", Name: "Person <Owner>", Email: "person@example.com",
+			ID: "person-id", Name: "Person <Owner>", Username: "person",
 			Status: "active", MailboxCount: 2, LegacySessions: 1,
 		}},
 		Form: SetupOwnerFormData{
-			Target: "existing:person-id", Name: "Person <Owner>", Username: "person", Email: "person@example.com",
+			Target: "existing:person-id", Name: "Person <Owner>", Username: "person",
 			Errors: map[string]string{"username": `<script>alert("owner")</script>`},
 		},
 	}).Render(t.Context(), &output); err != nil {
@@ -47,7 +47,7 @@ func TestSetupOwnerPageIsAccessibleAndLocal(t *testing.T) {
 	for _, want := range []string{
 		"Setup access verified", "Choose the Gofer owner", `action="/setup/owner"`,
 		`name="owner_target"`, `value="existing:person-id"`, "2 mail accounts", "1 legacy sessions",
-		`autocomplete="username"`, `autocomplete="email"`, `role="alert"`, `&lt;script&gt;alert`,
+		`autocomplete="username"`, `role="alert"`, `&lt;script&gt;alert`,
 		"No user, role, credential, or owned data has been changed yet", `href="/setup/password"`,
 	} {
 		if !strings.Contains(html, want) {
@@ -219,9 +219,9 @@ func TestSetupReviewPageIsAccessibleLocalAndEscapesIdentity(t *testing.T) {
 	message := `<script>alert("review")</script>`
 	if err := SetupReviewPage(SetupReviewData{
 		TopologyKind: "existing", Mode: "existing", TargetUserID: "existing-user",
-		CurrentName: "Current Person", CurrentUsername: "current", CurrentEmail: "current@example.com",
+		CurrentName: "Current Person", CurrentUsername: "current",
 		CurrentStatus: "disabled", CurrentIsAdmin: false,
-		OwnerName: message, OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+		OwnerName: message, OwnerUsername: "owner",
 		ExistingUserCount: 2, TotalMailboxCount: 3, TargetMailboxCount: 2,
 		UnrevokedSessionCount: 4, TargetLegacySessions: 1,
 		ExistingPasswordCredentials: 1, RetainedPasskeys: 2, ReplacedTOTPs: 1,
@@ -260,7 +260,7 @@ func TestSetupReviewFreshAndBlockedImpactAreExplicit(t *testing.T) {
 	var fresh bytes.Buffer
 	if err := SetupReviewPage(SetupReviewData{
 		TopologyKind: "fresh", Mode: "create", CreatesNewOwner: true,
-		OwnerName: "Owner", OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+		OwnerName: "Owner", OwnerUsername: "owner",
 	}).Render(t.Context(), &fresh); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestSetupReviewFreshAndBlockedImpactAreExplicit(t *testing.T) {
 
 	var blocked bytes.Buffer
 	if err := SetupReviewPage(SetupReviewData{
-		CreatesNewOwner: true, OwnerName: "Owner", OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+		CreatesNewOwner: true, OwnerName: "Owner", OwnerUsername: "owner",
 		UnassignedMailboxCount: 1, BlockedMessage: "One mailbox has no valid owner.",
 	}).Render(t.Context(), &blocked); err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestSetupReviewFreshAndBlockedImpactAreExplicit(t *testing.T) {
 
 	var failed bytes.Buffer
 	if err := SetupReviewPage(SetupReviewData{
-		CreatesNewOwner: true, OwnerName: "Owner", OwnerUsername: "owner", OwnerEmail: "owner@example.com",
+		CreatesNewOwner: true, OwnerName: "Owner", OwnerUsername: "owner",
 		CompletionError: `<script>retry</script>`,
 	}).Render(t.Context(), &failed); err != nil {
 		t.Fatal(err)

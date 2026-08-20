@@ -52,8 +52,8 @@ func seedV78SessionSchema(t *testing.T, path, tokenHash string) {
 		}
 	}
 	if _, err := db.Exec(`
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin)
-		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 4, 1);
+		INSERT INTO users (id, email, email_normalized, username, username_normalized, name, status, auth_version, is_admin)
+		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'owner', 'owner', 'Owner', 'active', 4, 1);
 		INSERT INTO sessions (
 			id, user_id, token, token_hash, auth_version, authentication_method, assurance_level,
 			user_agent, expires_at, authenticated_at, last_used_at, idle_expires_at,

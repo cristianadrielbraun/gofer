@@ -41,7 +41,7 @@ func TestHandleComposeDraftQueuesGenericIMAPRevision(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/compose/draft", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
 	rec := httptest.NewRecorder()
 
 	h.handleComposeDraft(rec, req)

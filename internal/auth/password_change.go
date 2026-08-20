@@ -29,7 +29,6 @@ type passwordChangeCandidate struct {
 	session      *Session
 	passwordHash string
 	username     string
-	email        string
 }
 
 // ChangePassword verifies the current local credential and atomically replaces
@@ -52,7 +51,6 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 	}
 	preparedPassword, err := PrepareNewPassword(options.NewPassword, PasswordPolicyContext{
 		Username: candidate.username,
-		Email:    candidate.email,
 	})
 	if err != nil {
 		return nil, err
@@ -117,21 +115,21 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 			return ErrRecentStepUpRequired
 		}
 
-		var currentHash, username, email string
+		var currentHash, username string
 		err = tx.QueryRowContext(ctx, `
-			SELECT p.password_hash, COALESCE(u.username, ''), u.email
+			SELECT p.password_hash, u.username
 			FROM users u
 			JOIN password_credentials p ON p.user_id = u.id
 			WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
 			current.UserID, current.AuthVersion,
-		).Scan(&currentHash, &username, &email)
+		).Scan(&currentHash, &username)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrCurrentPasswordInvalid
 		}
 		if err != nil {
 			return fmt.Errorf("recheck password credential: %w", err)
 		}
-		if currentHash != candidate.passwordHash || username != candidate.username || email != candidate.email {
+		if currentHash != candidate.passwordHash || username != candidate.username {
 			return ErrCurrentPasswordInvalid
 		}
 
@@ -277,12 +275,12 @@ func (m *Manager) passwordChangeCandidate(ctx context.Context, sessionToken stri
 	}
 	candidate := &passwordChangeCandidate{session: session}
 	err = m.db.Read().QueryRowContext(ctx, `
-		SELECT p.password_hash, COALESCE(u.username, ''), u.email
+		SELECT p.password_hash, u.username
 		FROM users u
 		JOIN password_credentials p ON p.user_id = u.id
 		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
 		session.UserID, session.AuthVersion,
-	).Scan(&candidate.passwordHash, &candidate.username, &candidate.email)
+	).Scan(&candidate.passwordHash, &candidate.username)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

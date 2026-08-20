@@ -16,10 +16,10 @@ func insertRedemptionUser(t *testing.T, manager *Manager, id string, status User
 	t.Helper()
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name,
+			id, username, username_normalized, name,
 			status, auth_version, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-		id, id+"@example.com", id+"@example.com", id, id, id, status, now, now,
+		) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+		id, id, id, id, status, now, now,
 	); err != nil {
 		t.Fatalf("insert redemption user %q: %v", id, err)
 	}

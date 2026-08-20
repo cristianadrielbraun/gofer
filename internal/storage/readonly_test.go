@@ -14,8 +14,8 @@ func TestOpenReadOnlyRequiresExistingCurrentDatabaseAndRejectsWrites(t *testing.
 		t.Fatalf("New() error = %v", err)
 	}
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, user_type, is_admin)
-		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 1, 'management', 1)`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, user_type, is_admin)
+		VALUES ('owner', 'owner', 'owner', 'Owner', 'active', 1, 'management', 1)`); err != nil {
 		t.Fatalf("insert read-only fixture: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -73,8 +73,8 @@ func TestOpenExistingRequiresCurrentSchemaAndPermitsOperatorMutation(t *testing.
 		t.Fatal(err)
 	}
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin)
-		VALUES ('operator-target', 'target@example.com', 'target@example.com', 'Target', 'active', 1, 0)`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, is_admin)
+		VALUES ('operator-target', 'operator-target', 'operator-target', 'Target', 'active', 1, 0)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {

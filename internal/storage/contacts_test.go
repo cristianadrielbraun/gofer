@@ -18,7 +18,7 @@ func newContactsTestDB(t *testing.T) *DB {
 		t.Fatalf("New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	return db
@@ -31,7 +31,7 @@ func TestMigrateV70SeparatesContactSyncMembershipsFromCards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Write().Exec(`INSERT INTO contact_profiles (id, user_id, display_name, primary_email) VALUES ('profile-1', 'default', 'Jane', 'jane@example.com')`); err != nil {
@@ -73,7 +73,7 @@ func TestMigrateV74ConvertsPreferencesToCanonicalFieldsAndDropsPreferenceTable(t
 		t.Fatalf("New() error = %v", err)
 	}
 	if _, err := db.Write().Exec(`
-		INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default');
+		INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default');
 		INSERT INTO contact_profiles (id, user_id, display_name, primary_email, sync_enabled)
 		VALUES ('profile-1', 'default', 'Jane', 'jane@example.com', 1);
 		INSERT INTO contact_fields (id, user_id, profile_id, kind, value, normalized_value, is_primary, ordinal, source)
@@ -825,7 +825,7 @@ func TestContactProfileUsesProviderAvatarFromSameRemoteContact(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('user_b', 'user-b@example.com', 'User B');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('user_b', 'user_b', 'user_b', 'User B');
 		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, auth_method)
 		VALUES
 			('gmail_a', 'default', 'gmail', 'google-subject-1', 'owner@example.com', 'oauth2'),

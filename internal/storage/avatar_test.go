@@ -9,7 +9,7 @@ func TestGetSenderAvatarUserIDsUsesActiveAccountOwnership(t *testing.T) {
 	ctx := t.Context()
 	db := newContactsTestDB(t)
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('user-b', 'b@example.com', 'User B');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('user-b', 'user-b', 'user-b', 'User B');
 		INSERT INTO accounts (id, user_id, email_address) VALUES ('account-a', 'default', 'a@example.com');
 		INSERT INTO accounts (id, user_id, email_address, is_deleting) VALUES ('account-b', 'user-b', 'b@example.com', 1);
 	`); err != nil {

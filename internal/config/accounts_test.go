@@ -27,7 +27,7 @@ func newAccountStoreTestStore(t *testing.T) (*storage.DB, *AccountStore) {
 
 func seedAccountStoreTestUser(t *testing.T, ctx context.Context, db *storage.DB) {
 	t.Helper()
-	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 }
@@ -315,7 +315,7 @@ func TestGetAccountByIDForUserScopesByUserAndDeletingState(t *testing.T) {
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)
 	seedAccountStoreTestUser(t, ctx, db)
-	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('other', 'other@example.com', 'Other')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES ('other', 'other', 'other', 'Other')`); err != nil {
 		t.Fatalf("insert other user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -393,7 +393,7 @@ func TestAccountDeletionStatusIsScopedAndTracksCompletion(t *testing.T) {
 	db, store := newAccountStoreTestStore(t)
 	seedAccountStoreTestUser(t, ctx, db)
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('other', 'other@example.com', 'Other');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('other', 'other', 'other', 'Other');
 		INSERT INTO accounts (id, user_id, provider, email_address)
 		VALUES ('acc_delete', 'default', 'outlook', 'user@outlook.com')`); err != nil {
 		t.Fatalf("seed account: %v", err)

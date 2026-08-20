@@ -58,8 +58,8 @@ func oidcLoginHandlerStack(
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, name, status, auth_version, created_at, updated_at
-		) VALUES ('person', 'person@example.com', 'person@example.com', 'Gofer Person', 'active', 1, ?, ?);`,
+			id, username, username_normalized, name, status, auth_version, created_at, updated_at
+		) VALUES ('person', 'person', 'person', 'Gofer Person', 'active', 1, ?, ?);`,
 		now, now,
 	); err != nil {
 		t.Fatal(err)

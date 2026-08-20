@@ -190,7 +190,7 @@ func TestSetupRecoveryIsInvalidatedByTOTPReplacementAndOwnerEdit(t *testing.T) {
 		t.Fatalf("recovery state after TOTP replacement = %v", err)
 	}
 	if _, err := manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "recovery-owner", Email: "recovery-owner@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "recovery-owner",
 	}); err != nil {
 		t.Fatal(err)
 	}

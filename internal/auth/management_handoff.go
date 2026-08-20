@@ -21,7 +21,6 @@ type CreateManagementHandoffOptions struct {
 	ActorSessionID string
 	Name           string
 	Username       string
-	Email          string
 }
 
 type ManagementHandoff struct {
@@ -61,10 +60,6 @@ func (m *Manager) CreateManagementHandoff(ctx context.Context, options CreateMan
 	if err != nil {
 		fieldErrors["username"] = err.Error()
 	}
-	email, emailNormalized, err := PrepareEmail(options.Email)
-	if err != nil {
-		fieldErrors["email"] = err.Error()
-	}
 	if len(fieldErrors) != 0 {
 		return nil, &AdministratorUserInvitationValidationError{Fields: fieldErrors}
 	}
@@ -93,7 +88,7 @@ func (m *Manager) CreateManagementHandoff(ctx context.Context, options CreateMan
 	handoff := &ManagementHandoff{
 		ID: handoffID, SourceID: actorUserID, Name: name, Status: "pending", CreatedAt: now,
 		Target: AdministratorUserSummary{
-			ID: targetID, Username: username, Email: email, Status: UserStatusPending,
+			ID: targetID, Username: username, Status: UserStatusPending,
 			UserType: UserTypeManagement,
 		},
 		Token: EnrollmentToken{
@@ -130,7 +125,7 @@ func (m *Manager) CreateManagementHandoff(ctx context.Context, options CreateMan
 		if pending != 0 {
 			return ErrManagementHandoffUnavailable
 		}
-		collisions, err := administratorInvitationIdentifierCollisions(ctx, tx, usernameNormalized, emailNormalized)
+		collisions, err := administratorInvitationIdentifierCollisions(ctx, tx, usernameNormalized)
 		if err != nil {
 			return err
 		}
@@ -139,10 +134,10 @@ func (m *Manager) CreateManagementHandoff(ctx context.Context, options CreateMan
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO users (
-				id, email, email_normalized, username, username_normalized, name,
+				id, username, username_normalized, name,
 				status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, 0, 'management', 0, ?, ?)`,
-			targetID, email, emailNormalized, username, usernameNormalized, name, now, now,
+			) VALUES (?, ?, ?, ?, 'pending', 1, 0, 'management', 0, ?, ?)`,
+			targetID, username, usernameNormalized, name, now, now,
 		); err != nil {
 			return fmt.Errorf("create pending management user: %w", err)
 		}
@@ -190,14 +185,14 @@ func (m *Manager) GetPendingManagementHandoff(ctx context.Context, sourceUserID 
 	status := &ManagementHandoffStatus{SourceID: sourceUserID}
 	var isAdmin int
 	err := m.db.Read().QueryRowContext(ctx, `
-		SELECT handoff.id, target.id, COALESCE(target.username, ''), target.email,
+		SELECT handoff.id, target.id, target.username,
 		       target.name, target.status, target.user_type, target.is_admin,
 		       handoff.status, handoff.created_at
 		FROM management_handoffs handoff
 		JOIN users target ON target.id = handoff.target_user_id
 		WHERE handoff.source_user_id = ? AND handoff.status = 'pending'`, sourceUserID,
 	).Scan(
-		&status.ID, &status.Target.ID, &status.Target.Username, &status.Target.Email,
+		&status.ID, &status.Target.ID, &status.Target.Username,
 		&status.Name, &status.Target.Status, &status.Target.UserType, &isAdmin,
 		&status.Status, &status.CreatedAt,
 	)
@@ -217,7 +212,7 @@ func (m *Manager) GetPendingManagementEnrollment(ctx context.Context, targetUser
 	var isAdmin int
 	err := m.db.Read().QueryRowContext(ctx, `
 		SELECT handoff.id, handoff.source_user_id, target.id,
-		       COALESCE(target.username, ''), target.email, target.name,
+		       target.username, target.name,
 		       target.status, target.user_type, target.is_admin,
 		       handoff.status, handoff.created_at
 		FROM management_handoffs handoff
@@ -226,7 +221,7 @@ func (m *Manager) GetPendingManagementEnrollment(ctx context.Context, targetUser
 		  AND target.user_type = 'management' AND target.is_admin = 0`, targetUserID,
 	).Scan(
 		&status.ID, &status.SourceID, &status.Target.ID,
-		&status.Target.Username, &status.Target.Email, &status.Name,
+		&status.Target.Username, &status.Name,
 		&status.Target.Status, &status.Target.UserType, &isAdmin,
 		&status.Status, &status.CreatedAt,
 	)

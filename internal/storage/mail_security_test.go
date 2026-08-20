@@ -39,7 +39,7 @@ func TestMailSecurityExceptionsAreExactAndTrackAffectedAccounts(t *testing.T) {
 	}
 
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name, is_admin) VALUES ('owner', 'owner@example.com', 'Owner', 0);
+		INSERT INTO users (id, username, username_normalized, name, is_admin) VALUES ('owner', 'owner', 'owner', 'Owner', 0);
 		INSERT INTO accounts (
 			id, user_id, provider, email_address, imap_host, imap_port, imap_tls_mode,
 			smtp_host, smtp_port, smtp_tls_mode, username, auth_method

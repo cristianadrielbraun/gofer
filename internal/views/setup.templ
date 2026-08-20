@@ -13,7 +13,6 @@ type SetupTokenData struct {
 type SetupOwnerCandidateData struct {
 	ID             string
 	Name           string
-	Email          string
 	Username       string
 	Status         string
 	IsAdmin        bool
@@ -25,7 +24,6 @@ type SetupOwnerFormData struct {
 	Target   string
 	Name     string
 	Username string
-	Email    string
 	Errors   map[string]string
 }
 
@@ -67,12 +65,10 @@ type SetupReviewData struct {
 	TargetUserID string
 	CurrentName string
 	CurrentUsername string
-	CurrentEmail string
 	CurrentStatus string
 	CurrentIsAdmin bool
 	OwnerName string
 	OwnerUsername string
-	OwnerEmail string
 	ExistingUserCount int
 	TotalMailboxCount int64
 	TargetMailboxCount int64
@@ -229,7 +225,7 @@ templ SetupOwnerPage(data SetupOwnerData) {
 											} else {
 												<span class="block text-sm font-medium">Unnamed Gofer user</span>
 											}
-											<span class="mt-1 block break-all text-xs text-muted-foreground">{ candidate.Email } · ID <code class="font-mono">{ candidate.ID }</code></span>
+											<span class="mt-1 block break-all text-xs text-muted-foreground">{ "@" + candidate.Username } · ID <code class="font-mono">{ candidate.ID }</code></span>
 											<span class="mt-1 block text-xs text-muted-foreground">
 												{ fmt.Sprintf("%d mail accounts · %d legacy sessions · %s", candidate.MailboxCount, candidate.LegacySessions, candidate.Status) }
 												if candidate.IsAdmin {
@@ -254,8 +250,8 @@ templ SetupOwnerPage(data SetupOwnerData) {
 								<p class="mt-1 text-xs text-muted-foreground">For an existing target, these values replace its current profile only when final enrollment succeeds.</p>
 							}
 						</div>
-						<div class="grid gap-4 sm:grid-cols-2">
-							<div class="space-y-2 sm:col-span-2">
+						<div class="space-y-4">
+							<div class="space-y-2">
 								<label for="owner-name" class="text-sm font-medium">Display name</label>
 								<input id="owner-name" name="name" type="text" value={ data.Form.Name } autocomplete="name" maxlength="100" required aria-invalid={ fmt.Sprintf("%t", data.Form.Errors["name"] != "") } aria-describedby={ setupOwnerDescription("", "owner-name-error", data.Form.Errors["name"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
 								if data.Form.Errors["name"] != "" {
@@ -268,13 +264,6 @@ templ SetupOwnerPage(data SetupOwnerData) {
 								<p id="owner-username-help" class="text-xs text-muted-foreground">3–32 ASCII letters, numbers, periods, underscores, or hyphens.</p>
 								if data.Form.Errors["username"] != "" {
 									<p id="owner-username-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["username"] }</p>
-								}
-							</div>
-							<div class="space-y-2">
-								<label for="owner-email" class="text-sm font-medium">Email</label>
-								<input id="owner-email" name="email" type="email" value={ data.Form.Email } autocomplete="email" maxlength="254" required aria-invalid={ fmt.Sprintf("%t", data.Form.Errors["email"] != "") } aria-describedby={ setupOwnerDescription("", "owner-email-error", data.Form.Errors["email"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
-								if data.Form.Errors["email"] != "" {
-									<p id="owner-email-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["email"] }</p>
 								}
 							</div>
 						</div>
@@ -561,7 +550,7 @@ templ SetupReviewPage(data SetupReviewData) {
 						} else {
 							<p class="mt-2 text-sm">Update user <code class="font-mono">{ data.TargetUserID }</code> in place, then make that same user active, owner, and administrator.</p>
 							<dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-								<div><dt class="text-xs text-muted-foreground">Current profile</dt><dd class="mt-1 break-words">{ data.CurrentName } · { data.CurrentUsername } · { data.CurrentEmail }</dd></div>
+								<div><dt class="text-xs text-muted-foreground">Current profile</dt><dd class="mt-1 break-words">{ data.CurrentName } · { "@" + data.CurrentUsername }</dd></div>
 								<div>
 									<dt class="text-xs text-muted-foreground">Current access</dt>
 									<dd class="mt-1">
@@ -575,10 +564,9 @@ templ SetupReviewPage(data SetupReviewData) {
 								</div>
 							</dl>
 						}
-						<dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+						<dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
 							<div><dt class="text-xs text-muted-foreground">Reviewed name</dt><dd class="mt-1 break-words">{ data.OwnerName }</dd></div>
 							<div><dt class="text-xs text-muted-foreground">Username</dt><dd class="mt-1 break-all">{ data.OwnerUsername }</dd></div>
-							<div><dt class="text-xs text-muted-foreground">Email</dt><dd class="mt-1 break-all">{ data.OwnerEmail }</dd></div>
 						</dl>
 					</section>
 					<section aria-labelledby="review-security-heading" class="mt-4 rounded-xl border border-border bg-card p-6">

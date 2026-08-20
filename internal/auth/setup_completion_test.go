@@ -28,7 +28,7 @@ func completePreparedSetup(t *testing.T, manager *Manager) *SetupCompletionResul
 func TestCompleteSetupFreshOwnerCommitsCredentialsStateEventAndSession(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
 	batch := prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "cristian", Email: "cristian@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "cristian",
 	})
 	prepared, err := manager.GetSetupOwnerState(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
 	if err != nil || prepared.Draft == nil {
@@ -45,23 +45,23 @@ func TestCompleteSetupFreshOwnerCommitsCredentialsStateEventAndSession(t *testin
 		t.Fatalf("fresh setup result = %#v", result)
 	}
 
-	var email, emailNormalized, username, usernameNormalized, name, status, passwordHash string
+	var username, usernameNormalized, name, status, passwordHash string
 	var authVersion int64
 	var mfaRequired, isAdmin int
 	if err := manager.db.Read().QueryRow(`
-		SELECT email, email_normalized, username, username_normalized, name, status,
+		SELECT username, username_normalized, name, status,
 		       auth_version, mfa_required, is_admin
 		FROM users WHERE id = ?`, result.OwnerUserID).Scan(
-		&email, &emailNormalized, &username, &usernameNormalized, &name, &status,
+		&username, &usernameNormalized, &name, &status,
 		&authVersion, &mfaRequired, &isAdmin,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if email != draft.Email || emailNormalized != draft.EmailNormalized || username != draft.Username ||
-		usernameNormalized != draft.UsernameNormalized || name != draft.Name || status != string(UserStatusActive) ||
+	if username != draft.Username || usernameNormalized != draft.UsernameNormalized ||
+		name != draft.Name || status != string(UserStatusActive) ||
 		authVersion != 1 || mfaRequired != 1 || isAdmin != 1 {
-		t.Fatalf("fresh owner = email:%q normalized:%q username:%q usernameNormalized:%q name:%q status:%q authVersion:%d mfa:%d admin:%d",
-			email, emailNormalized, username, usernameNormalized, name, status, authVersion, mfaRequired, isAdmin)
+		t.Fatalf("fresh owner = username:%q usernameNormalized:%q name:%q status:%q authVersion:%d mfa:%d admin:%d",
+			username, usernameNormalized, name, status, authVersion, mfaRequired, isAdmin)
 	}
 	if err := manager.db.Read().QueryRow(`SELECT password_hash FROM password_credentials WHERE user_id = ?`, result.OwnerUserID).Scan(&passwordHash); err != nil {
 		t.Fatal(err)
@@ -218,28 +218,28 @@ func TestCompleteSetupCreatesSeparateOwnerAndLeavesLegacyWebmailInPlace(t *testi
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
 		Mode: SetupOwnerModeCreate, Name: "Real Owner",
-		Username: "owner", Email: "owner@example.com",
+		Username: "owner",
 	})
 	result := completePreparedSetup(t, manager)
 	if result.OwnerUserID == "default" || result.RevokedSessions != 1 {
 		t.Fatalf("legacy completion = %#v", result)
 	}
 
-	var ownerID, name, email, username, status, userType, accountOwner string
+	var ownerID, name, username, status, userType, accountOwner string
 	var legacyAdmin int
 	var authVersion int64
-	if err := manager.db.Read().QueryRow(`SELECT id, name, email, COALESCE(username, ''), status, auth_version, user_type, is_admin FROM users WHERE id = 'default'`).Scan(
-		&ownerID, &name, &email, &username, &status, &authVersion, &userType, &legacyAdmin,
+	if err := manager.db.Read().QueryRow(`SELECT id, name, username, status, auth_version, user_type, is_admin FROM users WHERE id = 'default'`).Scan(
+		&ownerID, &name, &username, &status, &authVersion, &userType, &legacyAdmin,
 	); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.db.Read().QueryRow(`SELECT user_id FROM accounts WHERE id = 'legacy-mailbox'`).Scan(&accountOwner); err != nil {
 		t.Fatal(err)
 	}
-	if ownerID != "default" || name != "Local User" || email != "local@gofer.local" || username != "" ||
+	if ownerID != "default" || name != "Local User" || username != "local" ||
 		status != string(UserStatusActive) || authVersion != 2 || userType != string(UserTypeWebmail) || legacyAdmin != 0 || accountOwner != "default" {
-		t.Fatalf("claimed legacy owner = id:%q name:%q email:%q username:%q status:%q version:%d mailboxOwner:%q",
-			ownerID, name, email, username, status, authVersion, accountOwner)
+		t.Fatalf("separated legacy user = id:%q name:%q username:%q status:%q version:%d mailboxOwner:%q",
+			ownerID, name, username, status, authVersion, accountOwner)
 	}
 	var passkeys, identities, activeTOTPs, revokedTOTPs, activeRecovery, revokedRecovery int
 	for query, target := range map[string]*int{
@@ -281,7 +281,7 @@ func TestCompleteSetupCreatesSeparateOwnerWithoutMovingExistingUsers(t *testing.
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
 		Mode: SetupOwnerModeCreate, Name: "Separate Owner",
-		Username: "separate-owner", Email: "separate-owner@example.com",
+		Username: "separate-owner",
 	})
 	result := completePreparedSetup(t, manager)
 	if result.OwnerUserID == "selected" || result.OwnerUserID == "other" {
@@ -312,7 +312,7 @@ func TestCompleteSetupBlocksInvalidOwnershipAndStaleTopologyWithoutMutation(t *t
 			t.Fatal(err)
 		}
 		prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 		})
 		manager.tokens = secureTokenGenerator{}
 		if result, err := manager.CompleteSetup(t.Context(), CompleteSetupOptions{Token: setupOwnerTestToken, Origin: setupOwnerTestOrigin}); result != nil || !errors.Is(err, ErrSetupCompletionBlocked) {
@@ -324,7 +324,7 @@ func TestCompleteSetupBlocksInvalidOwnershipAndStaleTopologyWithoutMutation(t *t
 	t.Run("stale topology", func(t *testing.T) {
 		manager, clock := setupOwnerTestManager(t)
 		prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 		})
 		insertSetupOwnerUser(t, manager, "appeared", "appeared@example.com", "appeared", "Appeared", UserStatusActive, false)
 		manager.tokens = secureTokenGenerator{}
@@ -364,7 +364,7 @@ func TestCompleteSetupRollsBackEveryPersistenceStage(t *testing.T) {
 				t.Fatal(err)
 			}
 			prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-				Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+				Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 			})
 			if _, err := manager.db.Write().Exec(test.trigger); err != nil {
 				t.Fatal(err)
@@ -381,7 +381,7 @@ func TestCompleteSetupRollsBackEveryPersistenceStage(t *testing.T) {
 func TestCompleteSetupGenerationFailureDoesNotBeginCutover(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 	})
 	manager.tokens = &deterministicTokenGenerator{idErr: errors.New("entropy unavailable")}
 	if result, err := manager.CompleteSetup(t.Context(), CompleteSetupOptions{Token: setupOwnerTestToken, Origin: setupOwnerTestOrigin}); result != nil || err == nil || !strings.Contains(err.Error(), "entropy unavailable") {
@@ -393,7 +393,7 @@ func TestCompleteSetupGenerationFailureDoesNotBeginCutover(t *testing.T) {
 func TestCompleteSetupIsSingleUseUnderConcurrency(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 	})
 	manager.tokens = secureTokenGenerator{}
 	type outcome struct {

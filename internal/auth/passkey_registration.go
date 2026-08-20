@@ -516,9 +516,6 @@ func (m *Manager) loadPasskeyUser(ctx context.Context, userID, rpID string) (*lo
 	}
 	name := strings.TrimSpace(user.Username)
 	if name == "" {
-		name = strings.TrimSpace(user.Email)
-	}
-	if name == "" {
 		name = user.ID
 	}
 	displayName := strings.TrimSpace(user.Name)

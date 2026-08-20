@@ -49,10 +49,9 @@ func newLocalLoginHandler(t *testing.T, status auth.UserStatus, isAdmin, mfaRequ
 		}
 		if _, err := db.Write().ExecContext(t.Context(), `
 			INSERT INTO users (
-				id, email, email_normalized, username, username_normalized, name,
+				id, username, username_normalized, name,
 				status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
-			) VALUES ('person', 'Person@Example.com', 'person@example.com',
-			          'Person', 'person', 'Person', ?, 1, ?, ?, ?, ?, ?)`,
+			) VALUES ('person', 'Person', 'person', 'Person', ?, 1, ?, ?, ?, ?, ?)`,
 			status, mfaValue, userType, adminValue, now, now,
 		); err != nil {
 			t.Fatalf("insert login user: %v", err)
@@ -115,7 +114,7 @@ func TestLocalLoginSuccessSetsSessionAndUsesSafeReturnTarget(t *testing.T) {
 		t.Fatal("return-to setup omitted cookie")
 	}
 
-	recorder := postLocalLogin(t, handler, " PERSON@example.COM ", localLoginPassword, returnCookie)
+	recorder := postLocalLogin(t, handler, " PERSON ", localLoginPassword, returnCookie)
 	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/settings/advanced?from=login" {
 		t.Fatalf("successful login = %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
@@ -152,7 +151,7 @@ func TestLocalLoginFailuresUseOneGenericResponse(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			handler, _, _ := newLocalLoginHandler(t, test.status, false, false, test.insertUser, false)
-			recorder := postLocalLogin(t, handler, "person@example.com", test.password)
+			recorder := postLocalLogin(t, handler, "person", test.password)
 			body := recorder.Body.String()
 			if recorder.Code != http.StatusUnauthorized || !strings.Contains(body, loginFailureMessage) || strings.Contains(strings.ToLower(body), test.name) {
 				t.Fatalf("generic login failure = status:%d body:%q", recorder.Code, body)
@@ -182,7 +181,7 @@ func TestLocalAndAdminLoginRejectTheOppositeAccountTypeGenerically(t *testing.T)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, test.isAdmin, false, true, false)
-			recorder := test.post(t, handler, "person@example.com", localLoginPassword)
+			recorder := test.post(t, handler, "person", localLoginPassword)
 			if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), loginFailureMessage) ||
 				!strings.Contains(recorder.Body.String(), test.pageMarker) || responseCookie(recorder, "gofer_session", true) != nil {
 				t.Fatalf("cross-surface login = status:%d cookies:%#v body:%q", recorder.Code, recorder.Result().Cookies(), recorder.Body.String())
@@ -204,11 +203,11 @@ func TestLocalAndAdminLoginRejectTheOppositeAccountTypeGenerically(t *testing.T)
 func TestLocalLoginThrottleReturnsRetryAfter(t *testing.T) {
 	handler, manager, _ := newLocalLoginHandler(t, auth.UserStatusActive, false, false, true, false)
 	for attempt := 1; attempt < 5; attempt++ {
-		if _, err := manager.RecordLoginFailure(t.Context(), "person@example.com", "seed-source-"+string(rune('0'+attempt))); err != nil {
+		if _, err := manager.RecordLoginFailure(t.Context(), "person", "seed-source-"+string(rune('0'+attempt))); err != nil {
 			t.Fatalf("seed login failure %d: %v", attempt, err)
 		}
 	}
-	recorder := postLocalLogin(t, handler, "person@example.com", "incorrect passphrase")
+	recorder := postLocalLogin(t, handler, "person", "incorrect passphrase")
 	if recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") != "1" || !strings.Contains(recorder.Body.String(), loginFailureMessage) {
 		t.Fatalf("throttled login = status:%d retry:%q body:%q", recorder.Code, recorder.Header().Get("Retry-After"), recorder.Body.String())
 	}

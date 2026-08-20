@@ -85,8 +85,8 @@ func seedV77AuthenticationSchema(t *testing.T, path, token string) {
 			provider_account_id TEXT NOT NULL DEFAULT '',
 			email_address TEXT NOT NULL
 		);
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin)
-		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 3, 1);
+		INSERT INTO users (id, email, email_normalized, username, username_normalized, name, status, auth_version, is_admin)
+		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'owner', 'owner', 'Owner', 'active', 3, 1);
 		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
 		VALUES ('owner-mailbox', 'owner', 'gmail', 'provider-subject', 'owner@example.com');
 		INSERT INTO sessions (id, user_id, token, user_agent, expires_at, created_at)
@@ -168,8 +168,17 @@ func TestMigrateV77AcceptsLegacyV12AuthenticationTables(t *testing.T) {
 		CREATE TABLE users (
 			id TEXT PRIMARY KEY,
 			email TEXT NOT NULL UNIQUE,
+			email_normalized TEXT,
+			username TEXT,
+			username_normalized TEXT,
 			name TEXT NOT NULL DEFAULT '',
 			avatar_url TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active',
+			auth_version INTEGER NOT NULL DEFAULT 1,
+			mfa_required INTEGER NOT NULL DEFAULT 0,
+			last_login_at DATETIME,
+			disabled_at DATETIME,
+			disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
 			is_admin INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -182,7 +191,9 @@ func TestMigrateV77AcceptsLegacyV12AuthenticationTables(t *testing.T) {
 			expires_at DATETIME NOT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
-		INSERT INTO users (id, email, name, is_admin) VALUES ('legacy-owner', 'owner@example.com', 'Owner', 1);
+		INSERT INTO users (
+			id, email, email_normalized, username, username_normalized, name, is_admin
+		) VALUES ('legacy-owner', 'owner@example.com', 'owner@example.com', 'legacy-owner', 'legacy-owner', 'Owner', 1);
 		INSERT INTO sessions (id, user_id, token, expires_at)
 		VALUES ('legacy-session', 'legacy-owner', 'legacy-token', '2026-09-03T10:30:00Z');
 	`); err != nil {
@@ -248,8 +259,8 @@ func TestAuthenticationSchemaConstraints(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, name, status, user_type, is_admin)
-		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 'webmail', 0)`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name, status, user_type, is_admin)
+		VALUES ('owner', 'owner', 'owner', 'Owner', 'active', 'webmail', 0)`); err != nil {
 		t.Fatalf("insert owner: %v", err)
 	}
 

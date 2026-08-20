@@ -200,14 +200,14 @@ func TestGoogleApplicationLoginResolvesExactSubjectWithoutOverwritingUserProfile
 	if err != nil || user == nil || user.ID != "owner" || result == nil || result.Session == nil {
 		t.Fatalf("HandleGoogleCallback() = user:%#v result:%#v error:%v", user, result, err)
 	}
-	var ownerEmail, ownerName, ownerAvatar string
+	var ownerUsername, ownerName, ownerAvatar string
 	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT email, name, avatar_url FROM users WHERE id = 'owner'`,
-	).Scan(&ownerEmail, &ownerName, &ownerAvatar); err != nil {
+		SELECT username, name, avatar_url FROM users WHERE id = 'owner'`,
+	).Scan(&ownerUsername, &ownerName, &ownerAvatar); err != nil {
 		t.Fatalf("read owner profile: %v", err)
 	}
-	if ownerEmail != "owner@example.com" || ownerName != "owner" || ownerAvatar != "" {
-		t.Fatalf("owner profile was overwritten = email:%q name:%q avatar:%q", ownerEmail, ownerName, ownerAvatar)
+	if ownerUsername != "owner" || ownerName != "owner" || ownerAvatar != "" {
+		t.Fatalf("owner profile was overwritten = username:%q name:%q avatar:%q", ownerUsername, ownerName, ownerAvatar)
 	}
 	var identityEmail string
 	if err := manager.db.Read().QueryRowContext(t.Context(), `

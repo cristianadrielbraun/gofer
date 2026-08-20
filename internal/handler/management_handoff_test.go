@@ -25,10 +25,9 @@ func legacyManagementHandoffStack(t *testing.T) (*auth.Manager, *storage.DB, htt
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name,
+			id, username, username_normalized, name,
 			status, user_type, is_admin, created_at, updated_at
-		) VALUES ('legacy-admin', 'legacy@example.com', 'legacy@example.com',
-			'legacy', 'legacy', 'Legacy Admin', 'active', 'webmail', 0, ?, ?);
+		) VALUES ('legacy-admin', 'legacy', 'legacy', 'Legacy Admin', 'active', 'webmail', 0, ?, ?);
 		INSERT INTO accounts (id, user_id, email_address)
 		VALUES ('legacy-mailbox', 'legacy-admin', 'mailbox@example.com');
 		DROP TRIGGER users_management_type_update;
@@ -68,7 +67,7 @@ func TestManagementHandoffInvitationRouteIsAtomicAndShowsTokenOnce(t *testing.T)
 	}
 
 	withoutCSRF := postSecuritySettings(t, stack, managementHandoffInvitationPath, url.Values{
-		"name": {"Management Owner"}, "username": {"management-owner"}, "email": {"management@example.com"},
+		"name": {"Management Owner"}, "username": {"management-owner"},
 	}, sessionCookie)
 	if withoutCSRF.Code != http.StatusForbidden {
 		t.Fatalf("handoff invitation without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
@@ -78,7 +77,6 @@ func TestManagementHandoffInvitationRouteIsAtomicAndShowsTokenOnce(t *testing.T)
 		auth.CSRFFormFieldName: {csrfProofForSession(t, manager, sessionCookie.Value, managementHandoffInvitationPath)},
 		"name":                 {"Management Owner"},
 		"username":             {"management-owner"},
-		"email":                {"management@example.com"},
 	}, sessionCookie)
 	if created.Code != http.StatusCreated || created.Header().Get("Cache-Control") != "no-store" ||
 		created.Header().Get("Referrer-Policy") != "no-referrer" {

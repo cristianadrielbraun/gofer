@@ -31,7 +31,6 @@ type enrollmentRedemptionCandidate struct {
 	purpose  EnrollmentTokenPurpose
 	status   UserStatus
 	username string
-	email    string
 	userType UserType
 }
 
@@ -55,7 +54,6 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 	if candidate != nil {
 		preparedPassword, err = PrepareNewPassword(options.NewPassword, PasswordPolicyContext{
 			Username: candidate.username,
-			Email:    candidate.email,
 		})
 		if err != nil {
 			return nil, err
@@ -79,7 +77,7 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
 		current, err := scanEnrollmentRedemptionCandidate(tx.QueryRowContext(ctx, `
 			SELECT t.id, t.user_id, t.purpose, u.status,
-			       COALESCE(u.username, ''), u.email, u.user_type
+			       u.username, u.user_type
 			FROM user_enrollment_tokens t
 			JOIN users u ON u.id = t.user_id
 			WHERE t.id = ? AND t.token_hash = ?
@@ -218,7 +216,7 @@ func (m *Manager) findEnrollmentRedemptionCandidate(ctx context.Context, rawToke
 	}
 	candidate, err := scanEnrollmentRedemptionCandidate(m.db.Read().QueryRowContext(ctx, `
 		SELECT t.id, t.user_id, t.purpose, u.status,
-		       COALESCE(u.username, ''), u.email, u.user_type
+		       u.username, u.user_type
 		FROM user_enrollment_tokens t
 		JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?
@@ -241,7 +239,7 @@ func scanEnrollmentRedemptionCandidate(row rowScanner) (*enrollmentRedemptionCan
 	candidate := &enrollmentRedemptionCandidate{}
 	if err := row.Scan(
 		&candidate.tokenID, &candidate.userID, &candidate.purpose,
-		&candidate.status, &candidate.username, &candidate.email, &candidate.userType,
+		&candidate.status, &candidate.username, &candidate.userType,
 	); err != nil {
 		return nil, err
 	}
@@ -252,7 +250,7 @@ func sameEnrollmentRedemptionCandidate(left, right *enrollmentRedemptionCandidat
 	return left != nil && right != nil &&
 		left.tokenID == right.tokenID && left.userID == right.userID &&
 		left.purpose == right.purpose && left.status == right.status &&
-		left.username == right.username && left.email == right.email && left.userType == right.userType
+		left.username == right.username && left.userType == right.userType
 }
 
 func enrollmentRedemptionStatusEligible(purpose EnrollmentTokenPurpose, status UserStatus) bool {

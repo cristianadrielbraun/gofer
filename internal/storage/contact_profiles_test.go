@@ -226,7 +226,7 @@ func TestMigrateV39ToV40WipesLegacyContacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() initial error = %v", err)
 	}
-	if _, err := db.Write().Exec(`INSERT INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default') ON CONFLICT(id) DO NOTHING`); err != nil {
+	if _, err := db.Write().Exec(`INSERT INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default') ON CONFLICT(id) DO NOTHING`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.SaveContact(ctx, "default", models.Contact{Name: "Legacy", Email: "legacy@example.com"}); err != nil {

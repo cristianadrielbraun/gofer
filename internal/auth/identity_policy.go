@@ -2,7 +2,6 @@ package auth
 
 import (
 	"errors"
-	"net/mail"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -18,8 +17,6 @@ var (
 	ErrUsernameRequired    = errors.New("username is required")
 	ErrUsernameLength      = errors.New("username must contain 3 to 32 characters")
 	ErrUsernameSyntax      = errors.New("username may contain ASCII letters, numbers, periods, underscores, and hyphens, and must start and end with a letter or number")
-	ErrEmailRequired       = errors.New("email is required")
-	ErrEmailInvalid        = errors.New("email address is invalid")
 	ErrPasswordInvalid     = errors.New("password contains invalid characters")
 	ErrPasswordTooShort    = errors.New("password must contain at least 15 characters")
 	ErrPasswordTooLong     = errors.New("password must contain no more than 256 characters")
@@ -30,8 +27,6 @@ const (
 	displayNameMaximumLength = 100
 	usernameMinimumLength    = 3
 	usernameMaximumLength    = 32
-	emailMaximumLength       = 254
-	emailLocalMaximumLength  = 64
 	passwordMinimumLength    = 15
 	passwordMaximumLength    = 256
 	passwordMaximumBytes     = passwordMaximumLength * utf8.UTFMax
@@ -61,7 +56,6 @@ func PrepareDisplayName(value string) (string, error) {
 
 type PasswordPolicyContext struct {
 	Username string
-	Email    string
 }
 
 // PrepareUsername preserves the user's trimmed display spelling while
@@ -89,31 +83,6 @@ func PrepareUsername(value string) (display, normalized string, err error) {
 		return "", "", ErrUsernameSyntax
 	}
 	return display, normalized, nil
-}
-
-// PrepareEmail validates a mailbox address without accepting display-name
-// syntax. Its normalization intentionally matches the existing user lookup
-// and schema migration behavior: trim surrounding space and lowercase.
-func PrepareEmail(value string) (display, normalized string, err error) {
-	if !utf8.ValidString(value) {
-		return "", "", ErrEmailInvalid
-	}
-	display = strings.TrimSpace(value)
-	if display == "" {
-		return "", "", ErrEmailRequired
-	}
-	if len(display) > emailMaximumLength || strings.Count(display, "@") != 1 {
-		return "", "", ErrEmailInvalid
-	}
-	separator := strings.LastIndexByte(display, '@')
-	if separator <= 0 || separator == len(display)-1 || separator > emailLocalMaximumLength {
-		return "", "", ErrEmailInvalid
-	}
-	address, parseErr := mail.ParseAddress(display)
-	if parseErr != nil || address.Name != "" || address.Address != display {
-		return "", "", ErrEmailInvalid
-	}
-	return display, normalizeLoginIdentifier(display), nil
 }
 
 // PrepareNewPassword applies the establishment/change policy and returns the
@@ -159,10 +128,6 @@ func isContextSpecificPassword(password string, context PasswordPolicyContext) b
 		"gofermail",
 		"gofer-authentication",
 		context.Username,
-		context.Email,
-	}
-	if separator := strings.LastIndexByte(context.Email, '@'); separator > 0 {
-		bases = append(bases, context.Email[:separator])
 	}
 	for _, base := range bases {
 		base = canonicalPasswordBlocklistValue(strings.TrimSpace(base))

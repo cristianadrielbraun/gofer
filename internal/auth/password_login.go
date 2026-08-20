@@ -112,9 +112,9 @@ func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier str
 		SELECT u.id, u.status, u.auth_version, p.must_change, p.password_hash, u.user_type
 		FROM users u
 		JOIN password_credentials p ON p.user_id = u.id
-		WHERE u.email_normalized = ? OR u.username_normalized = ?
+		WHERE u.username_normalized = ?
 		ORDER BY u.id
-		LIMIT 2`, normalized, normalized)
+		LIMIT 2`, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("lookup password login candidate: %w", err)
 	}
@@ -189,21 +189,20 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 	}
 
 	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
-		var passwordHash, emailNormalized, usernameNormalized string
+		var passwordHash, usernameNormalized string
 		var status UserStatus
 		var userType UserType
 		var authVersion int64
 		var mustChange int
 		err := tx.QueryRowContext(ctx, `
 			SELECT p.password_hash, u.status, u.auth_version,
-			       p.must_change, COALESCE(u.email_normalized, ''),
-			       COALESCE(u.username_normalized, ''), u.user_type
+			       p.must_change, u.username_normalized, u.user_type
 			FROM users u
 			JOIN password_credentials p ON p.user_id = u.id
 			WHERE u.id = ?`, candidate.userID,
 		).Scan(
 			&passwordHash, &status, &authVersion,
-			&mustChange, &emailNormalized, &usernameNormalized, &userType,
+			&mustChange, &usernameNormalized, &userType,
 		)
 		if errors.Is(err, sql.ErrNoRows) {
 			return errPasswordStateMoved
@@ -222,7 +221,7 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 			currentPolicy != policy {
 			return errPasswordStateMoved
 		}
-		if normalizedIdentifier != emailNormalized && normalizedIdentifier != usernameNormalized {
+		if normalizedIdentifier != usernameNormalized {
 			return errPasswordStateMoved
 		}
 

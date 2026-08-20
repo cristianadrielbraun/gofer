@@ -88,7 +88,7 @@ func TestHandleComposePersistsMIMEBeforeReturningAccepted(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/compose", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
 	rec := httptest.NewRecorder()
 
 	h.handleCompose(rec, req)
@@ -126,7 +126,7 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -204,7 +204,7 @@ func TestOutgoingWorkerRetriesTemporaryGmailFailureWithSameSnapshot(t *testing.T
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default');
 		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
 		VALUES ('acc', 'default', ?, 'google-subject', 'user@example.com')`, providers.ProviderGmail); err != nil {
 		t.Fatalf("seed Gmail account: %v", err)

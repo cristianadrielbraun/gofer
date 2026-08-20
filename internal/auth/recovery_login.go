@@ -149,18 +149,18 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 		if err != nil || currentChallenge.ID != preflight.ID || !sameMFAContinuationDraft(currentPrimary, primary) {
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}
-		var emailNormalized, totpID string
+		var usernameNormalized, totpID string
 		var authVersion int64
 		err = tx.QueryRowContext(ctx, `
 			SELECT u.auth_version,
-			       COALESCE(NULLIF(u.email_normalized, ''), NULLIF(u.username_normalized, ''), u.id),
+			       u.username_normalized,
 			       t.id
 			FROM users u
 			JOIN totp_credentials t ON t.user_id = u.id
 			WHERE u.id = ? AND u.status = 'active'
 			  AND t.enabled = 1 AND t.revoked_at IS NULL`,
 			currentChallenge.UserID,
-		).Scan(&authVersion, &emailNormalized, &totpID)
+		).Scan(&authVersion, &usernameNormalized, &totpID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}
@@ -243,7 +243,7 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 		if err != nil {
 			return fmt.Errorf("generate recovery-repair TOTP material: %w", err)
 		}
-		key, err := newTOTPKey(emailNormalized, seedMaterial)
+		key, err := newTOTPKey(usernameNormalized, seedMaterial)
 		if err != nil {
 			return err
 		}
@@ -838,7 +838,7 @@ func (m *Manager) currentRecoveryRepairDraft(ctx context.Context, tx *sql.Tx, to
 		SELECT c.id, c.user_id, COALESCE(c.session_id, ''), c.purpose, c.origin,
 		       c.attempts, c.max_attempts, c.payload_ciphertext, c.created_at,
 		       c.expires_at, c.consumed_at,
-		       COALESCE(NULLIF(u.email_normalized, ''), NULLIF(u.username_normalized, ''), u.id),
+		       u.username_normalized,
 		       u.auth_version, t.id
 		FROM auth_challenges c
 		JOIN users u ON u.id = c.user_id

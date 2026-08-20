@@ -68,7 +68,7 @@ func TestGmailRefreshUsesEncryptedMigratedCredential(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('owner', 'owner@example.com', 'Owner');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('owner', 'owner', 'owner', 'Owner');
 		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
 		VALUES ('gmail-account', 'owner', 'gmail', 'google-subject', 'owner@gmail.com');
 		INSERT INTO oauth_accounts (
@@ -121,7 +121,7 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -189,7 +189,7 @@ func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndPres
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -266,7 +266,7 @@ func TestMicrosoftGraphMailTokenUsesFreshCachedGraphAccessToken(t *testing.T) {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -297,7 +297,7 @@ func TestGetOAuthTokenForOutlookUsesGraphMailScopesAndPreservesStoredAccess(t *t
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -365,7 +365,7 @@ func TestMicrosoftGraphContactsTokenRejectsNonOutlookAccount(t *testing.T) {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `

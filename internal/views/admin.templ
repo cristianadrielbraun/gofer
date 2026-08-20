@@ -19,7 +19,6 @@ import (
 type AdminUserData struct {
 	ID                        string
 	Username                  string
-	Email                     string
 	Status                    string
 	Role                      string
 	Current                   bool
@@ -49,14 +48,12 @@ type AdminUsersData struct {
 type AdminUserInvitationFormData struct {
 	Name        string
 	Username    string
-	Email       string
 	FieldErrors map[string]string
 }
 
 type AdminUserInvitationData struct {
 	Name          string
 	Username      string
-	Email         string
 	RedemptionURL string
 	Token         string
 	ExpiresAt     time.Time
@@ -79,7 +76,7 @@ func adminUserInvitationFieldError(data AdminUserInvitationFormData, field strin
 
 func adminUserInvitationFormOpen(data AdminUserInvitationFormData) bool {
 	return len(data.FieldErrors) != 0 || strings.TrimSpace(data.Name) != "" ||
-		strings.TrimSpace(data.Username) != "" || strings.TrimSpace(data.Email) != ""
+		strings.TrimSpace(data.Username) != ""
 }
 
 func adminUserInvitationCopyText(data *AdminUserInvitationData) string {
@@ -87,8 +84,8 @@ func adminUserInvitationCopyText(data *AdminUserInvitationData) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"Gofer invitation for %s (%s)\nOpen: %s\nInvitation token: %s\nExpires: %s",
-		data.Username, data.Email, data.RedemptionURL, data.Token,
+		"Gofer invitation for %s\nOpen: %s\nInvitation token: %s\nExpires: %s",
+		data.Username, data.RedemptionURL, data.Token,
 		data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST"),
 	)
 }
@@ -327,7 +324,6 @@ templ AdminUsersPage(data AdminUsersData) {
 														<span class="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">You</span>
 													}
 												</div>
-												<p class="mt-0.5 break-all text-xs text-muted-foreground">{ user.Email }</p>
 											</td>
 											<td class="px-4 py-3">
 												<span
@@ -504,7 +500,7 @@ templ AdminUserInvitationDialog(data AdminUsersData) {
 						<p id="admin-invitation-name-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
 					}
 				</div>
-				<div class="grid gap-4 sm:grid-cols-2">
+				<div class="space-y-1.5">
 					<div class="space-y-1.5">
 						<label for="admin-invitation-username" class="block text-sm font-semibold text-foreground">Gofer username</label>
 						<input
@@ -529,27 +525,6 @@ templ AdminUserInvitationDialog(data AdminUsersData) {
 						<p id="admin-invitation-username-help" class="text-xs text-muted-foreground">3–32 letters, numbers, periods, underscores, or hyphens.</p>
 						if fieldError := adminUserInvitationFieldError(data.InvitationForm, "username"); fieldError != "" {
 							<p id="admin-invitation-username-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
-						}
-					</div>
-					<div class="space-y-1.5">
-						<label for="admin-invitation-email" class="block text-sm font-semibold text-foreground">Gofer account email</label>
-						<input
-							id="admin-invitation-email"
-							name="email"
-							type="email"
-							value={ data.InvitationForm.Email }
-							maxlength="254"
-							required
-							autocomplete="off"
-							spellcheck="false"
-							if adminUserInvitationFieldError(data.InvitationForm, "email") != "" {
-								aria-invalid="true"
-								aria-describedby="admin-invitation-email-error"
-							}
-							class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 aria-[invalid=true]:border-destructive"
-						/>
-						if fieldError := adminUserInvitationFieldError(data.InvitationForm, "email"); fieldError != "" {
-							<p id="admin-invitation-email-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
 						}
 					</div>
 				</div>
@@ -595,7 +570,7 @@ templ AdminUserInvitationResultDialog(data *AdminUserInvitationData) {
 						{ data.Username } is pending enrollment
 					}
 				</p>
-				<p class="mt-1 text-xs">{ data.Name } · { data.Email } · expires { data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST") }</p>
+				<p class="mt-1 text-xs">{ data.Name } · expires { data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST") }</p>
 			</div>
 			<div class="space-y-2">
 				<div class="flex items-center justify-between gap-3">

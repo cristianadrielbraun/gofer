@@ -72,7 +72,7 @@ func (m *Manager) BeginGoogleEnrollment(ctx context.Context, invitationToken str
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
 		current, err := scanEnrollmentRedemptionCandidate(tx.QueryRowContext(ctx, `
 			SELECT t.id, t.user_id, t.purpose, u.status,
-			       COALESCE(u.username, ''), u.email, u.user_type
+			       u.username, u.user_type
 			FROM user_enrollment_tokens t
 			JOIN users u ON u.id = t.user_id
 			WHERE t.id = ? AND t.token_hash = ?

@@ -27,7 +27,6 @@ type InstanceStatus struct {
 type UserSummary struct {
 	ID       string
 	Username string
-	Email    string
 	Status   auth.UserStatus
 	UserType auth.UserType
 	IsAdmin  bool
@@ -71,9 +70,9 @@ func (service *Service) Status(ctx context.Context) (InstanceStatus, error) {
 
 func (service *Service) ListUsers(ctx context.Context) ([]UserSummary, error) {
 	rows, err := service.db.Read().QueryContext(ctx, `
-		SELECT id, COALESCE(username, ''), email, status, user_type, is_admin
+		SELECT id, username, status, user_type, is_admin
 		FROM users
-		ORDER BY COALESCE(username_normalized, email_normalized, lower(trim(email))), id`)
+		ORDER BY username_normalized, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list authentication users: %w", err)
 	}
@@ -84,7 +83,7 @@ func (service *Service) ListUsers(ctx context.Context) ([]UserSummary, error) {
 		var user UserSummary
 		var status string
 		var isAdmin int
-		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &status, &user.UserType, &isAdmin); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &status, &user.UserType, &isAdmin); err != nil {
 			return nil, fmt.Errorf("scan authentication user: %w", err)
 		}
 		user.Status = auth.UserStatus(status)

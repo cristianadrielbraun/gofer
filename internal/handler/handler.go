@@ -3115,7 +3115,6 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	}
 	data := views.PasswordSecurityData{
 		LoginUsername: user.Username,
-		LoginEmail:    user.Email,
 		HasPassword:   hasPassword,
 		HasTOTP:       summary.HasTOTP, HasPasskey: summary.HasPasskey,
 		RequiresMFA:            summary.RequiresMFA,

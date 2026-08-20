@@ -133,8 +133,8 @@ func TestSecuritySettingsListsOnlyCurrentUsersActiveAndRecentSessions(t *testing
 	}
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, created_at, updated_at)
-		VALUES ('foreign-session-user', 'foreign@example.com', 'foreign@example.com', 'Foreign', 'active', 1, ?, ?)`,
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, created_at, updated_at)
+		VALUES ('foreign-session-user', 'foreign-session-user', 'foreign-session-user', 'Foreign', 'active', 1, ?, ?)`,
 		now, now,
 	); err != nil {
 		t.Fatal(err)
@@ -548,8 +548,8 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	var loginEmail string
-	if err := db.Read().QueryRowContext(t.Context(), `SELECT email FROM users WHERE id = ?`, session.UserID).Scan(&loginEmail); err != nil {
+	var loginUsername string
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT username FROM users WHERE id = ?`, session.UserID).Scan(&loginUsername); err != nil {
 		t.Fatal(err)
 	}
 	page := getSecuritySettings(t, stack, sessionCookie)
@@ -558,7 +558,7 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 		t.Fatalf("stale security page = %d %q", page.Code, page.Body.String())
 	}
 	for _, forbidden := range []string{
-		loginEmail,
+		loginUsername,
 		`data-password-security-settings`,
 		`data-local-login-identifiers`,
 		`data-federated-identity-settings`,
@@ -589,7 +589,7 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 		!strings.Contains(rejected.Body.String(), securityTOTPFailureMessage) ||
 		!strings.Contains(rejected.Body.String(), `data-password-security-verification`) ||
 		strings.Contains(rejected.Body.String(), `data-password-security-settings`) ||
-		strings.Contains(rejected.Body.String(), loginEmail) {
+		strings.Contains(rejected.Body.String(), loginUsername) {
 		t.Fatalf("rejected security step-up = %d %q", rejected.Code, rejected.Body.String())
 	}
 	stepUp := postSecuritySettings(t, stack, securityStepUpPath, url.Values{
@@ -603,7 +603,7 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), "Sensitive actions are available for ten minutes") ||
 		!strings.Contains(verified.Body.String(), `data-password-security-settings`) ||
 		!strings.Contains(verified.Body.String(), `data-local-login-identifiers`) ||
-		!strings.Contains(verified.Body.String(), loginEmail) ||
+		!strings.Contains(verified.Body.String(), loginUsername) ||
 		!strings.Contains(verified.Body.String(), "Recovery codes") {
 		t.Fatalf("verified security page = %d %q", verified.Code, verified.Body.String())
 	}

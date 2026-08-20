@@ -16,7 +16,7 @@ func seedMailOperationsTest(t *testing.T) (*DB, string, string) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('other', 'other@example.com', 'Other');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('other', 'other', 'other', 'Other');
 		INSERT INTO accounts (id, user_id, provider, email_address) VALUES
 			('acc', 'default', 'imap', 'user@example.com'),
 			('other-acc', 'other', 'imap', 'other@example.com');

@@ -20,14 +20,22 @@ func seedV79ChallengeSchema(t *testing.T, path string) {
 		CREATE TABLE users (
 			id TEXT PRIMARY KEY,
 			email TEXT NOT NULL UNIQUE,
+			username TEXT,
+			username_normalized TEXT,
 			name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'active',
 			auth_version INTEGER NOT NULL DEFAULT 1,
+			mfa_required INTEGER NOT NULL DEFAULT 0,
+			last_login_at DATETIME,
+			disabled_at DATETIME,
+			disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
 			is_admin INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
-		INSERT INTO users (id, email, name) VALUES ('owner', 'owner@example.com', 'Owner');
+		INSERT INTO users (id, email, username, username_normalized, name)
+		VALUES ('owner', 'owner@example.com', 'owner', 'owner', 'Owner');
 	`); err != nil {
 		t.Fatalf("seed v79 base schema: %v", err)
 	}

@@ -47,7 +47,6 @@ const (
 
 type SetupOwnerCandidate struct {
 	ID                      string
-	Email                   string
 	Username                string
 	Name                    string
 	Status                  UserStatus
@@ -74,8 +73,6 @@ type SetupOwnerDraft struct {
 	Name                 string         `json:"name"`
 	Username             string         `json:"username"`
 	UsernameNormalized   string         `json:"username_normalized"`
-	Email                string         `json:"email"`
-	EmailNormalized      string         `json:"email_normalized"`
 	TopologyFingerprint  string         `json:"topology_fingerprint"`
 	PasswordHash         string         `json:"password_hash,omitempty"`
 	TOTPSecret           string         `json:"totp_secret,omitempty"`
@@ -101,7 +98,6 @@ type SetupOwnerDraftInput struct {
 	TargetUserID string
 	Name         string
 	Username     string
-	Email        string
 }
 
 type SetupOwnerValidationError struct {
@@ -243,7 +239,6 @@ func (m *Manager) SaveSetupPasswordDraft(ctx context.Context, token, origin stri
 	}
 	preparedPassword, err := PrepareNewPassword(input.Password, PasswordPolicyContext{
 		Username: preflight.Draft.Username,
-		Email:    preflight.Draft.Email,
 	})
 	if err != nil {
 		return nil, &SetupPasswordValidationError{Fields: map[string]string{
@@ -327,8 +322,7 @@ func sameSetupOwnerProfile(left, right *SetupOwnerDraft) bool {
 	}
 	return left.Mode == right.Mode && left.TargetUserID == right.TargetUserID &&
 		left.Name == right.Name && left.Username == right.Username &&
-		left.UsernameNormalized == right.UsernameNormalized && left.Email == right.Email &&
-		left.EmailNormalized == right.EmailNormalized && left.TopologyFingerprint == right.TopologyFingerprint
+		left.UsernameNormalized == right.UsernameNormalized && left.TopologyFingerprint == right.TopologyFingerprint
 }
 
 func prepareSetupOwnerDraft(input SetupOwnerDraftInput) (*SetupOwnerDraft, error) {
@@ -341,17 +335,12 @@ func prepareSetupOwnerDraft(input SetupOwnerDraftInput) (*SetupOwnerDraft, error
 	if err != nil {
 		fieldErrors["username"] = err.Error()
 	}
-	email, emailNormalized, err := PrepareEmail(input.Email)
-	if err != nil {
-		fieldErrors["email"] = err.Error()
-	}
 	if len(fieldErrors) > 0 {
 		return nil, &SetupOwnerValidationError{Fields: fieldErrors}
 	}
 	return &SetupOwnerDraft{
 		Mode: input.Mode, TargetUserID: strings.TrimSpace(input.TargetUserID),
 		Name: name, Username: username, UsernameNormalized: usernameNormalized,
-		Email: email, EmailNormalized: emailNormalized,
 	}, nil
 }
 
@@ -362,13 +351,11 @@ type setupOwnerQuerier interface {
 
 type setupOwnerCandidateRecord struct {
 	candidate          SetupOwnerCandidate
-	emailNormalized    string
 	usernameNormalized string
 }
 
 type setupOwnerFingerprintRecord struct {
 	Candidate          SetupOwnerCandidate `json:"candidate"`
-	EmailNormalized    string              `json:"email_normalized"`
 	UsernameNormalized string              `json:"username_normalized"`
 	UpdatedAt          time.Time           `json:"updated_at"`
 	Passwords          int64               `json:"passwords"`
@@ -380,8 +367,7 @@ type setupOwnerFingerprintRecord struct {
 
 func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (SetupOwnerTopology, error) {
 	rows, err := queryer.QueryContext(ctx, `
-		SELECT users.id, users.email, COALESCE(users.email_normalized, ''),
-		       COALESCE(users.username, ''), COALESCE(users.username_normalized, ''),
+		SELECT users.id, users.username, users.username_normalized,
 		       users.name, users.status, users.is_admin, users.updated_at,
 		       (SELECT COUNT(*) FROM accounts WHERE accounts.user_id = users.id),
 		       (SELECT COUNT(*) FROM sessions WHERE sessions.user_id = users.id AND sessions.authentication_method = 'legacy'),
@@ -391,7 +377,7 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 		       (SELECT COUNT(*) FROM auth_identities WHERE auth_identities.user_id = users.id),
 		       (SELECT COUNT(*) FROM recovery_codes WHERE recovery_codes.user_id = users.id AND recovery_codes.used_at IS NULL AND recovery_codes.revoked_at IS NULL)
 		FROM users
-		ORDER BY lower(trim(COALESCE(users.username, users.email))), users.id
+		ORDER BY users.username_normalized, users.id
 		LIMIT ?`, maximumSetupOwnerCandidates+1)
 	if err != nil {
 		return SetupOwnerTopology{}, fmt.Errorf("list setup owner candidates: %w", err)
@@ -403,8 +389,7 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 		var record setupOwnerCandidateRecord
 		var isAdmin int
 		if err := rows.Scan(
-			&record.candidate.ID, &record.candidate.Email, &record.emailNormalized,
-			&record.candidate.Username, &record.usernameNormalized, &record.candidate.Name,
+			&record.candidate.ID, &record.candidate.Username, &record.usernameNormalized, &record.candidate.Name,
 			&record.candidate.Status, &isAdmin, &record.candidate.updatedAt,
 			&record.candidate.MailboxCount, &record.candidate.LegacySessions,
 			&record.candidate.PasswordCredentialCount, &record.candidate.ActivePasskeyCount,
@@ -414,10 +399,7 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 			return SetupOwnerTopology{}, fmt.Errorf("scan setup owner candidate: %w", err)
 		}
 		record.candidate.IsAdmin = isAdmin == 1
-		for _, identifier := range []string{
-			firstNonempty(record.emailNormalized, normalizeLoginIdentifier(record.candidate.Email)),
-			firstNonempty(record.usernameNormalized, normalizeLoginIdentifier(record.candidate.Username)),
-		} {
+		for _, identifier := range []string{record.usernameNormalized} {
 			if identifier == "" {
 				continue
 			}
@@ -446,8 +428,8 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 	fingerprintRecords := make([]setupOwnerFingerprintRecord, 0, len(records))
 	for _, record := range records {
 		fingerprintRecords = append(fingerprintRecords, setupOwnerFingerprintRecord{
-			Candidate: record.candidate, EmailNormalized: record.emailNormalized,
-			UsernameNormalized: record.usernameNormalized, UpdatedAt: record.candidate.updatedAt,
+			Candidate: record.candidate, UsernameNormalized: record.usernameNormalized,
+			UpdatedAt: record.candidate.updatedAt,
 			Passwords: record.candidate.PasswordCredentialCount, Passkeys: record.candidate.ActivePasskeyCount,
 			TOTPs: record.candidate.ActiveTOTPCount, Identities: record.candidate.IdentityCount,
 			RecoveryCodes: record.candidate.ActiveRecoveryCodeCount,
@@ -464,8 +446,7 @@ func loadSetupOwnerTopology(ctx context.Context, queryer setupOwnerQuerier) (Set
 
 func isLegacyDefaultOwnerCandidate(record setupOwnerCandidateRecord) bool {
 	return record.candidate.ID == "default" &&
-		normalizeLoginIdentifier(record.candidate.Email) == "local@gofer.local" &&
-		strings.TrimSpace(record.candidate.Username) == "" &&
+		record.usernameNormalized == "local" &&
 		strings.TrimSpace(record.candidate.Name) == "Local User" &&
 		record.candidate.PasswordCredentialCount == 0 && record.candidate.ActivePasskeyCount == 0 &&
 		record.candidate.ActiveTOTPCount == 0 && record.candidate.IdentityCount == 0 &&
@@ -494,32 +475,18 @@ func validateSetupOwnerTarget(topology SetupOwnerTopology, mode SetupOwnerMode, 
 func setupOwnerIdentifierCollisions(ctx context.Context, tx *sql.Tx, draft *SetupOwnerDraft) (map[string]string, error) {
 	excludedID := draft.TargetUserID
 	fields := make(map[string]string)
-	for field, normalized := range map[string]string{
-		"username": draft.UsernameNormalized,
-		"email":    draft.EmailNormalized,
-	} {
-		var conflictingID string
-		err := tx.QueryRowContext(ctx, `
-			SELECT id FROM users
-			WHERE id != ? AND (
-				CASE
-					WHEN trim(COALESCE(username_normalized, '')) != '' THEN username_normalized
-					ELSE lower(trim(COALESCE(username, '')))
-				END = ? OR
-				CASE
-					WHEN trim(COALESCE(email_normalized, '')) != '' THEN email_normalized
-					ELSE lower(trim(email))
-				END = ?
-			)
-			ORDER BY id LIMIT 1`, excludedID, normalized, normalized).Scan(&conflictingID)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("check setup owner %s collision: %w", field, err)
-		}
-		fields[field] = "That " + field + " is already used by another Gofer user."
+	var conflictingID string
+	err := tx.QueryRowContext(ctx, `
+		SELECT id FROM users
+		WHERE id != ? AND username_normalized = ?
+		ORDER BY id LIMIT 1`, excludedID, draft.UsernameNormalized).Scan(&conflictingID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fields, nil
 	}
+	if err != nil {
+		return nil, fmt.Errorf("check setup owner username collision: %w", err)
+	}
+	fields["username"] = "That username is already used by another Gofer user."
 	return fields, nil
 }
 

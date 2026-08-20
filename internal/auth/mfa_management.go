@@ -385,7 +385,7 @@ func (m *Manager) StartTOTPManagement(ctx context.Context, sessionToken, origin 
 	var originalTOTP sql.NullString
 	var accountName string
 	err = m.db.Read().QueryRowContext(ctx, `
-		SELECT COALESCE(NULLIF(u.email_normalized, ''), NULLIF(u.username_normalized, ''), u.id),
+		SELECT u.username_normalized,
 		       (SELECT t.id FROM totp_credentials t
 		        WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL)
 		FROM users u
@@ -1197,7 +1197,7 @@ func (m *Manager) currentSecurityManagementDraft(ctx context.Context, tx *sql.Tx
 	}
 	var accountName string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT COALESCE(NULLIF(email_normalized, ''), NULLIF(username_normalized, ''), id)
+		SELECT username_normalized
 		FROM users WHERE id = ? AND status = 'active' AND auth_version = ?`,
 		session.UserID, session.AuthVersion,
 	).Scan(&accountName); err != nil {

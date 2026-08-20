@@ -29,11 +29,11 @@ func (h *Handler) handleCreateManagementHandoff(w http.ResponseWriter, r *http.R
 		return
 	}
 	form := views.ManagementHandoffFormData{
-		Name: r.PostFormValue("name"), Username: r.PostFormValue("username"), Email: r.PostFormValue("email"),
+		Name: r.PostFormValue("name"), Username: r.PostFormValue("username"),
 	}
 	handoff, err := h.auth.CreateManagementHandoff(r.Context(), auth.CreateManagementHandoffOptions{
 		ActorUserID: user.ID, ActorSessionID: session.ID,
-		Name: form.Name, Username: form.Username, Email: form.Email,
+		Name: form.Name, Username: form.Username,
 	})
 	if err != nil {
 		var validationErr *auth.AdministratorUserInvitationValidationError
@@ -52,7 +52,7 @@ func (h *Handler) handleCreateManagementHandoff(w http.ResponseWriter, r *http.R
 		return
 	}
 	invitation := &views.ManagementHandoffInvitationData{
-		Name: handoff.Name, Username: handoff.Target.Username, Email: handoff.Target.Email,
+		Name: handoff.Name, Username: handoff.Target.Username,
 		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
 		Token:         handoff.Token.Token, ExpiresAt: handoff.Token.ExpiresAt,
 	}
@@ -77,7 +77,7 @@ func (h *Handler) renderManagementSeparation(w http.ResponseWriter, r *http.Requ
 	}
 	if pending != nil {
 		data.Pending = &views.ManagementHandoffInvitationData{
-			Name: pending.Name, Username: pending.Target.Username, Email: pending.Target.Email,
+			Name: pending.Name, Username: pending.Target.Username,
 		}
 	}
 	var page bytes.Buffer

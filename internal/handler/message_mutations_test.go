@@ -418,7 +418,7 @@ func TestDeleteThreadOnlyQueuesMessagesFromTheViewedTrashFolder(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodDelete, "/api/messages/"+strconv.FormatInt(trashID, 10)+"/thread?folder_id=victim-trash", nil)
 	req.SetPathValue("id", strconv.FormatInt(trashID, 10))
-	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
 	recorder := httptest.NewRecorder()
 
 	h.handleDeleteThread(recorder, req)
@@ -458,7 +458,7 @@ func TestEmailPartialUsesViewedFolderForDeleteAction(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/email/"+strconv.FormatInt(messageID, 10)+"?folder_id="+folderID, nil)
 		req.SetPathValue("id", strconv.FormatInt(messageID, 10))
-		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
 		recorder := httptest.NewRecorder()
 		h.handleEmailPartial(recorder, req)
 		if recorder.Code != http.StatusOK {
@@ -507,7 +507,7 @@ func TestEmailPartialResolvesOwnedFolderAlias(t *testing.T) {
 	ownerRequest := func(userID, folderID string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/email/"+strconv.FormatInt(messageID, 10)+"?folder_id="+folderID, nil)
 		req.SetPathValue("id", strconv.FormatInt(messageID, 10))
-		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Email: userID + "@example.com"}))
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Username: userID}))
 		recorder := httptest.NewRecorder()
 		h.handleEmailPartial(recorder, req)
 		return recorder

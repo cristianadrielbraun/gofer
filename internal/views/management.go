@@ -13,14 +13,12 @@ import (
 type ManagementHandoffFormData struct {
 	Name        string
 	Username    string
-	Email       string
 	FieldErrors map[string]string
 }
 
 type ManagementHandoffInvitationData struct {
 	Name          string
 	Username      string
-	Email         string
 	RedemptionURL string
 	Token         string
 	ExpiresAt     time.Time
@@ -61,7 +59,7 @@ func ManagementLoginPage(errorMessage, identifier string) templ.Component {
 				return err
 			}
 		}
-		return writeHTML(w, `<form method="post" action="/admin/login" class="space-y-4"><div class="space-y-2"><label for="admin-login-identifier" class="text-sm font-medium">Username or email</label><input id="admin-login-identifier" name="identifier" type="text" value="`, escaped(identifier), `" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"></div><div class="space-y-2"><label for="admin-login-password" class="text-sm font-medium">Password</label><input id="admin-login-password" name="password" type="password" autocomplete="current-password" required class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"></div><button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">Sign in to Admin</button></form><p class="mt-6 text-center text-xs text-muted-foreground">Looking for your mailbox? <a href="/login" class="font-semibold underline underline-offset-4 hover:text-foreground">Use webmail sign-in</a>.</p></div></main></body></html>`)
+		return writeHTML(w, `<form method="post" action="/admin/login" class="space-y-4"><div class="space-y-2"><label for="admin-login-identifier" class="text-sm font-medium">Username</label><input id="admin-login-identifier" name="identifier" type="text" value="`, escaped(identifier), `" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"></div><div class="space-y-2"><label for="admin-login-password" class="text-sm font-medium">Password</label><input id="admin-login-password" name="password" type="password" autocomplete="current-password" required class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"></div><button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">Sign in to Admin</button></form><p class="mt-6 text-center text-xs text-muted-foreground">Looking for your mailbox? <a href="/login" class="font-semibold underline underline-offset-4 hover:text-foreground">Use webmail sign-in</a>.</p></div></main></body></html>`)
 	})
 }
 
@@ -259,7 +257,7 @@ func ManagementHandoffPage(data ManagementHandoffPageData) templ.Component {
 			invitation = data.Pending
 		}
 		if invitation != nil {
-			if err := writeHTML(w, `<section class="mt-6 rounded-lg border bg-card p-6"><h2 class="text-lg font-semibold">Management invitation pending</h2><dl class="mt-4 grid gap-3 sm:grid-cols-2"><div><dt class="text-xs uppercase text-muted-foreground">Name</dt><dd class="mt-1 text-sm font-medium">`, escaped(invitation.Name), `</dd></div><div><dt class="text-xs uppercase text-muted-foreground">Username</dt><dd class="mt-1 text-sm font-medium">`, escaped(invitation.Username), `</dd></div><div class="sm:col-span-2"><dt class="text-xs uppercase text-muted-foreground">Email</dt><dd class="mt-1 text-sm font-medium">`, escaped(invitation.Email), `</dd></div></dl>`); err != nil {
+			if err := writeHTML(w, `<section class="mt-6 rounded-lg border bg-card p-6"><h2 class="text-lg font-semibold">Management invitation pending</h2><dl class="mt-4 grid gap-3 sm:grid-cols-2"><div><dt class="text-xs uppercase text-muted-foreground">Name</dt><dd class="mt-1 text-sm font-medium">`, escaped(invitation.Name), `</dd></div><div><dt class="text-xs uppercase text-muted-foreground">Username</dt><dd class="mt-1 text-sm font-medium">`, escaped(invitation.Username), `</dd></div></dl>`); err != nil {
 				return err
 			}
 			if data.Invitation != nil {
@@ -283,14 +281,6 @@ func ManagementHandoffPage(data ManagementHandoffPageData) templ.Component {
 			return err
 		}
 		if message := handoffFieldError(data.Form, "username"); message != "" {
-			if err := writeHTML(w, `<p class="mt-1 text-xs text-destructive">`, escaped(message), `</p>`); err != nil {
-				return err
-			}
-		}
-		if err := writeHTML(w, `</div><div><label for="handoff-email" class="text-sm font-medium">Email</label><input id="handoff-email" name="email" type="email" value="`, escaped(data.Form.Email), `" required class="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">`); err != nil {
-			return err
-		}
-		if message := handoffFieldError(data.Form, "email"); message != "" {
 			if err := writeHTML(w, `<p class="mt-1 text-xs text-destructive">`, escaped(message), `</p>`); err != nil {
 				return err
 			}
@@ -329,7 +319,6 @@ func SeparatedSetupOwnerPage(data SetupOwnerData) templ.Component {
 		fields := []struct{ key, id, label, typ, autocomplete, value, help string }{
 			{"name", "setup-owner-name", "Display name", "text", "name", data.Form.Name, ""},
 			{"username", "setup-owner-username", "Username", "text", "username", data.Form.Username, "3–32 ASCII letters, numbers, periods, underscores, or hyphens."},
-			{"email", "setup-owner-email", "Account email", "email", "email", data.Form.Email, "Used as a management sign-in identifier; it does not create or connect a mailbox."},
 		}
 		for _, field := range fields {
 			if err := writeHTML(w, `<div class="space-y-2"><label for="`, field.id, `" class="text-sm font-medium">`, escaped(field.label), `</label><input id="`, field.id, `" name="`, field.key, `" type="`, field.typ, `" value="`, escaped(field.value), `" autocomplete="`, field.autocomplete, `" required class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">`); err != nil {

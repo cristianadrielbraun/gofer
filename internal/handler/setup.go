@@ -539,10 +539,10 @@ func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request)
 	mode, targetUserID := parseSetupOwnerTarget(r.PostFormValue("owner_target"))
 	form := views.SetupOwnerFormData{
 		Target: r.PostFormValue("owner_target"), Name: r.PostFormValue("name"),
-		Username: r.PostFormValue("username"), Email: r.PostFormValue("email"),
+		Username: r.PostFormValue("username"),
 	}
 	_, err = h.auth.SaveSetupOwnerDraft(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL, auth.SetupOwnerDraftInput{
-		Mode: mode, TargetUserID: targetUserID, Name: form.Name, Username: form.Username, Email: form.Email,
+		Mode: mode, TargetUserID: targetUserID, Name: form.Name, Username: form.Username,
 	})
 	if err != nil {
 		var validationErr *auth.SetupOwnerValidationError
@@ -658,9 +658,9 @@ func setupReviewViewData(review *auth.SetupReview) views.SetupReviewData {
 		TopologyKind: string(review.TopologyKind), Mode: string(review.Mode),
 		TargetUserID: review.TargetUserID,
 		CurrentName:  review.CurrentName, CurrentUsername: review.CurrentUsername,
-		CurrentEmail: review.CurrentEmail, CurrentStatus: string(review.CurrentStatus),
+		CurrentStatus:  string(review.CurrentStatus),
 		CurrentIsAdmin: review.CurrentIsAdmin,
-		OwnerName:      review.OwnerName, OwnerUsername: review.OwnerUsername, OwnerEmail: review.OwnerEmail,
+		OwnerName:      review.OwnerName, OwnerUsername: review.OwnerUsername,
 		ExistingUserCount: review.ExistingUserCount, TotalMailboxCount: review.TotalMailboxCount,
 		TargetMailboxCount: review.TargetMailboxCount, UnassignedMailboxCount: review.UnassignedMailboxCount,
 		UnrevokedSessionCount: review.UnrevokedSessionCount, TargetLegacySessions: review.TargetLegacySessions,
@@ -739,7 +739,7 @@ func setupOwnerViewData(state *auth.SetupOwnerState, submitted views.SetupOwnerF
 	}
 	for _, candidate := range state.Topology.Candidates {
 		data.Candidates = append(data.Candidates, views.SetupOwnerCandidateData{
-			ID: candidate.ID, Name: candidate.Name, Email: candidate.Email, Username: candidate.Username,
+			ID: candidate.ID, Name: candidate.Name, Username: candidate.Username,
 			Status: string(candidate.Status), IsAdmin: candidate.IsAdmin,
 			MailboxCount: candidate.MailboxCount, LegacySessions: candidate.LegacySessions,
 		})
@@ -749,10 +749,10 @@ func setupOwnerViewData(state *auth.SetupOwnerState, submitted views.SetupOwnerF
 		data.DraftSaved = !state.DraftStale
 		data.Form = views.SetupOwnerFormData{
 			Target: setupOwnerTargetValue(state.Draft.Mode, state.Draft.TargetUserID),
-			Name:   state.Draft.Name, Username: state.Draft.Username, Email: state.Draft.Email,
+			Name:   state.Draft.Name, Username: state.Draft.Username,
 		}
 	}
-	if submitted.Target != "" || submitted.Name != "" || submitted.Username != "" || submitted.Email != "" || len(submitted.Errors) > 0 {
+	if submitted.Target != "" || submitted.Name != "" || submitted.Username != "" || len(submitted.Errors) > 0 {
 		data.Form = submitted
 	}
 	return data

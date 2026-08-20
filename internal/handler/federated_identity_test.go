@@ -53,8 +53,8 @@ func googleIdentityLinkHandlerStack(
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, name, status, auth_version, created_at, updated_at
-		) VALUES ('person', 'person@example.com', 'person@example.com', 'Person', 'active', 1, ?, ?);
+			id, username, username_normalized, name, status, auth_version, created_at, updated_at
+		) VALUES ('person', 'person', 'person', 'Person', 'active', 1, ?, ?);
 		INSERT INTO password_credentials (user_id, password_hash, created_at, changed_at)
 		VALUES ('person', 'password-hash', ?, ?)`,
 		now, now, now, now,
@@ -297,8 +297,8 @@ func TestGoogleIdentityLinkConflictReturnsGenericSettingsFailure(t *testing.T) {
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, name, status, auth_version, created_at, updated_at
-		) VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 1, ?, ?);
+			id, username, username_normalized, name, status, auth_version, created_at, updated_at
+		) VALUES ('owner', 'owner', 'owner', 'Owner', 'active', 1, ?, ?);
 		INSERT INTO auth_identities (
 			id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
 		) VALUES ('owner-google', 'owner', 'google', 'https://accounts.google.com',

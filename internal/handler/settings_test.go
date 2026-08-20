@@ -39,7 +39,7 @@ func TestBuildSyncSettingsUsesRemoteFolderPaths(t *testing.T) {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, email_address) VALUES ('acc', 'default', 'user@example.com')`); err != nil {

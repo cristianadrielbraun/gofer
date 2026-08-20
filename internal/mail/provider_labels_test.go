@@ -56,7 +56,7 @@ func newLabelSyncTestDB(t *testing.T) *storage.DB {
 	if err != nil {
 		t.Fatalf("storage.New() error = %v", err)
 	}
-	if _, err := db.Write().Exec(`INSERT INTO users (id, email, name, is_admin, user_type) VALUES ('default', 'local@example.com', 'Local', 0, 'webmail')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT INTO users (id, username, username_normalized, name, is_admin, user_type) VALUES ('default', 'default', 'default', 'Local', 0, 'webmail')`); err != nil {
 		t.Fatalf("insert default user: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })

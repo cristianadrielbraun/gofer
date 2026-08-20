@@ -17,13 +17,11 @@ type SetupReview struct {
 	TargetUserID    string
 	CurrentName     string
 	CurrentUsername string
-	CurrentEmail    string
 	CurrentStatus   UserStatus
 	CurrentIsAdmin  bool
 
 	OwnerName     string
 	OwnerUsername string
-	OwnerEmail    string
 
 	ExistingUserCount      int
 	TotalMailboxCount      int64
@@ -75,7 +73,6 @@ func (m *Manager) GetSetupReview(ctx context.Context, token, origin string) (*Se
 		TargetUserID:        draft.TargetUserID,
 		OwnerName:           draft.Name,
 		OwnerUsername:       draft.Username,
-		OwnerEmail:          draft.Email,
 		ExistingUserCount:   len(topology.Candidates),
 		CreatesNewOwner:     draft.Mode == SetupOwnerModeCreate,
 		ClaimsLegacyDefault: topology.Kind == SetupOwnerTopologyLegacyDefault && draft.Mode == SetupOwnerModeExisting,
@@ -89,7 +86,6 @@ func (m *Manager) GetSetupReview(ctx context.Context, token, origin string) (*Se
 		}
 		review.CurrentName = candidate.Name
 		review.CurrentUsername = candidate.Username
-		review.CurrentEmail = candidate.Email
 		review.CurrentStatus = candidate.Status
 		review.CurrentIsAdmin = candidate.IsAdmin
 		review.TargetMailboxCount = candidate.MailboxCount

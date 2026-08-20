@@ -31,7 +31,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	}
 	now := m.clock.Now().UTC()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT u.id, COALESCE(u.username, ''), u.email, u.status, u.user_type, u.is_admin,
+		SELECT u.id, u.username, u.status, u.user_type, u.is_admin,
 		       invitation.id, invitation.expires_at, invitation.used_at, invitation.revoked_at
 		FROM users u
 		LEFT JOIN user_enrollment_tokens invitation ON invitation.id = (
@@ -44,12 +44,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 			END, candidate.created_at DESC, candidate.id DESC
 			LIMIT 1
 		)
-		ORDER BY COALESCE(
-			NULLIF(trim(u.username_normalized), ''),
-			NULLIF(trim(u.email_normalized), ''),
-			lower(trim(u.email)),
-			u.id
-		), u.id`, now)
+		ORDER BY u.username_normalized, u.id`, now)
 	if err != nil {
 		return nil, fmt.Errorf("list administrator users: %w", err)
 	}
@@ -61,7 +56,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		var tokenID sql.NullString
 		var expiresAt, usedAt, revokedAt sql.NullTime
 		if err := rows.Scan(
-			&user.ID, &user.Username, &user.Email, &user.Status, &user.UserType, &isAdmin,
+			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin,
 			&tokenID, &expiresAt, &usedAt, &revokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan administrator user: %w", err)

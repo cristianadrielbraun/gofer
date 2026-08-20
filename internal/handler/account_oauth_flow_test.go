@@ -35,12 +35,12 @@ func newAccountOAuthFlowTestHandler(t *testing.T) (*Handler, *mailauth.Service, 
 
 func accountOAuthUserRequest(req *http.Request, userID, sessionToken string) *http.Request {
 	req.AddCookie(&http.Cookie{Name: "gofer_session", Value: sessionToken})
-	return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Email: userID + "@example.com"}))
+	return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Username: userID}))
 }
 
 func TestPasswordAuthenticatedUserCanStartMailboxAuthorization(t *testing.T) {
 	h, manager, db := newAccountOAuthFlowTestHandler(t)
-	if _, err := db.Write().Exec(`INSERT INTO users (id, email, name) VALUES ('user', 'user@example.com', 'User')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT INTO users (id, username, username_normalized, name) VALUES ('user', 'user', 'user', 'User')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	session, err := h.auth.CreateAuthenticatedSession(
@@ -105,7 +105,7 @@ func TestAccountOAuthSuccessRedirectMatchesFlowAction(t *testing.T) {
 
 func TestReadAccountOAuthCallbackUsesBoundFlowUser(t *testing.T) {
 	h, manager, db := newAccountOAuthFlowTestHandler(t)
-	if _, err := db.Write().Exec(`INSERT INTO users (id, email, name) VALUES ('user', 'user@example.com', 'User')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT INTO users (id, username, username_normalized, name) VALUES ('user', 'user', 'user', 'User')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	state, err := manager.CreateAccountOAuthFlow(t.Context(), "user", "session-token", providers.ProviderGmail, map[string]string{"email_address": "user@gmail.com"})

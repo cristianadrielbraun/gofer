@@ -11,7 +11,7 @@ import (
 func seedSecondOwnershipUser(t *testing.T, db *DB) {
 	t.Helper()
 	if _, err := db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, name) VALUES ('attacker', 'attacker@example.com', 'Attacker')`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('attacker', 'attacker', 'attacker', 'Attacker')`); err != nil {
 		t.Fatalf("insert attacker: %v", err)
 	}
 }

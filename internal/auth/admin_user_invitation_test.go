@@ -19,36 +19,35 @@ func TestCreateAdministratorUserInvitationIsAtomicHashOnlyAndAudited(t *testing.
 
 	invitation, err := manager.CreateAdministratorUserInvitation(t.Context(), CreateAdministratorUserInvitationOptions{
 		ActorUserID: "administrator", ActorSessionID: sessionID,
-		Name: "  Invited Person  ", Username: "Invited.Person", Email: " Invited@Example.COM ",
+		Name: "  Invited Person  ", Username: "Invited.Person",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if invitation.User.ID != "invited-user-id" || invitation.User.Username != "Invited.Person" ||
-		invitation.User.Email != "Invited@Example.COM" || invitation.User.Status != UserStatusPending ||
+		invitation.User.Status != UserStatusPending ||
 		invitation.User.IsAdmin || invitation.Name != "Invited Person" ||
 		invitation.Token.Token != "private-invitation-token" ||
 		invitation.Token.ExpiresAt.Sub(invitation.Token.CreatedAt) != defaultEnrollmentTokenLifetime {
 		t.Fatalf("CreateAdministratorUserInvitation() = %#v", invitation)
 	}
 
-	var email, emailNormalized, username, usernameNormalized, name, status string
+	var username, usernameNormalized, name, status string
 	var authVersion, mfaRequired, isAdmin int
 	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT email, email_normalized, username, username_normalized, name, status,
+		SELECT username, username_normalized, name, status,
 		       auth_version, mfa_required, is_admin
 		FROM users WHERE id = ?`, invitation.User.ID).Scan(
-		&email, &emailNormalized, &username, &usernameNormalized, &name, &status,
+		&username, &usernameNormalized, &name, &status,
 		&authVersion, &mfaRequired, &isAdmin,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if email != invitation.User.Email || emailNormalized != "invited@example.com" ||
-		username != invitation.User.Username || usernameNormalized != "invited.person" ||
+	if username != invitation.User.Username || usernameNormalized != "invited.person" ||
 		name != invitation.Name || status != string(UserStatusPending) || authVersion != 1 ||
 		mfaRequired != 0 || isAdmin != 0 {
-		t.Fatalf("stored invited user = email:%q normalized:%q username:%q usernameNormalized:%q name:%q status:%q auth:%d mfa:%d admin:%d",
-			email, emailNormalized, username, usernameNormalized, name, status, authVersion, mfaRequired, isAdmin)
+		t.Fatalf("stored invited user = username:%q usernameNormalized:%q name:%q status:%q auth:%d mfa:%d admin:%d",
+			username, usernameNormalized, name, status, authVersion, mfaRequired, isAdmin)
 	}
 
 	var tokenHash, eventType, reason, metadata string
@@ -89,20 +88,20 @@ func TestCreateAdministratorUserInvitationValidatesFieldsAndIdentifierCollisions
 
 	result, err := manager.CreateAdministratorUserInvitation(t.Context(), CreateAdministratorUserInvitationOptions{
 		ActorUserID: "administrator", ActorSessionID: sessionID,
-		Name: "\x00", Username: "x", Email: "not-an-email",
+		Name: "\x00", Username: "x",
 	})
 	var validationErr *AdministratorUserInvitationValidationError
-	if result != nil || !errors.As(err, &validationErr) || len(validationErr.Fields) != 3 ||
-		validationErr.Fields["name"] == "" || validationErr.Fields["username"] == "" || validationErr.Fields["email"] == "" {
+	if result != nil || !errors.As(err, &validationErr) || len(validationErr.Fields) != 2 ||
+		validationErr.Fields["name"] == "" || validationErr.Fields["username"] == "" {
 		t.Fatalf("invalid invitation = %#v, %#v", result, err)
 	}
 
 	result, err = manager.CreateAdministratorUserInvitation(t.Context(), CreateAdministratorUserInvitationOptions{
 		ActorUserID: "administrator", ActorSessionID: sessionID,
-		Name: "Another Person", Username: "taken.user", Email: "EXISTING@example.com",
+		Name: "Another Person", Username: "taken.user",
 	})
 	validationErr = nil
-	if result != nil || !errors.As(err, &validationErr) || validationErr.Fields["username"] == "" || validationErr.Fields["email"] == "" {
+	if result != nil || !errors.As(err, &validationErr) || validationErr.Fields["username"] == "" {
 		t.Fatalf("colliding invitation = %#v, %#v", result, err)
 	}
 	var invitedUsers, invitationTokens int
@@ -131,7 +130,7 @@ func TestCreateAdministratorUserInvitationRequiresActiveAdminRecentStepUp(t *tes
 	ordinarySession := insertEnrollmentStepUpSession(t, manager, "ordinary", now, now)
 	staleAdminSession := insertEnrollmentStepUpSession(t, manager, "administrator", now.Add(-11*time.Minute), now)
 
-	base := CreateAdministratorUserInvitationOptions{Name: "Person", Username: "person", Email: "person@example.com"}
+	base := CreateAdministratorUserInvitationOptions{Name: "Person", Username: "person"}
 	ordinary := base
 	ordinary.ActorUserID = "ordinary"
 	ordinary.ActorSessionID = ordinarySession
@@ -169,7 +168,7 @@ func TestCreateAdministratorUserInvitationRollsBackUserAndTokenWhenAuditFails(t 
 
 	result, err := manager.CreateAdministratorUserInvitation(t.Context(), CreateAdministratorUserInvitationOptions{
 		ActorUserID: "administrator", ActorSessionID: sessionID,
-		Name: "Rollback Person", Username: "rollback", Email: "rollback@example.com",
+		Name: "Rollback Person", Username: "rollback",
 	})
 	if result != nil || err == nil {
 		t.Fatalf("audit-failing invitation = %#v, %v", result, err)

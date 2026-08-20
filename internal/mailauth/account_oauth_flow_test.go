@@ -25,9 +25,9 @@ func TestAccountOAuthFlowIsBoundToUserSessionAndSingleUse(t *testing.T) {
 	ctx := context.Background()
 	manager, db := newAccountOAuthFlowTestManager(t, true)
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES
-		('user-one', 'one@example.com', 'One'),
-		('user-two', 'two@example.com', 'Two')`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name) VALUES
+		('user-one', 'user-one', 'user-one', 'One'),
+		('user-two', 'user-two', 'user-two', 'Two')`); err != nil {
 		t.Fatalf("insert users: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func TestAccountOAuthFlowIsBoundToUserSessionAndSingleUse(t *testing.T) {
 func TestAccountOAuthFlowRejectsAndDeletesExpiredState(t *testing.T) {
 	ctx := context.Background()
 	manager, db := newAccountOAuthFlowTestManager(t, true)
-	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('user', 'user@example.com', 'User')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES ('user', 'user', 'user', 'User')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	state := "expired-state"
@@ -97,7 +97,7 @@ func TestAccountOAuthFlowRejectsAndDeletesExpiredState(t *testing.T) {
 func TestAccountOAuthFlowWorksForSingleUserDefaultAccount(t *testing.T) {
 	ctx := context.Background()
 	manager, db := newAccountOAuthFlowTestManager(t, false)
-	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('default', 'local@gofer.local', 'Local User')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Local User')`); err != nil {
 		t.Fatalf("insert default user: %v", err)
 	}
 	state, err := manager.CreateAccountOAuthFlow(ctx, "default", "", "gmail", map[string]string{"email_address": "local@gmail.com"})

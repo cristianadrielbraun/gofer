@@ -20,9 +20,9 @@ var administratorInvitationRevokeActionPattern = regexp.MustCompile(`action="(/a
 
 func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 	data := adminUsersViewData([]auth.AdministratorUserSummary{
-		{ID: "admin", Username: "owner", Email: "owner@example.com", Status: auth.UserStatusActive, UserType: auth.UserTypeManagement, IsAdmin: true},
-		{ID: "pending", Email: "pending@example.com", Status: auth.UserStatusPending, UserType: auth.UserTypeWebmail},
-		{ID: "disabled", Username: "disabled", Email: "disabled@example.com", Status: auth.UserStatusDisabled, UserType: auth.UserTypeManagement, IsAdmin: true},
+		{ID: "admin", Username: "owner", Status: auth.UserStatusActive, UserType: auth.UserTypeManagement, IsAdmin: true},
+		{ID: "pending", Username: "pending", Status: auth.UserStatusPending, UserType: auth.UserTypeWebmail},
+		{ID: "disabled", Username: "disabled", Status: auth.UserStatusDisabled, UserType: auth.UserTypeManagement, IsAdmin: true},
 	}, "admin")
 	if data.Total != 3 || data.Active != 1 || data.Pending != 1 || data.Disabled != 1 || data.Administrators != 2 || len(data.Users) != 3 {
 		t.Fatalf("adminUsersViewData() = %#v", data)
@@ -47,15 +47,13 @@ func TestAdminUsersPageListsOnlyAuthenticationProfileMetadata(t *testing.T) {
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name, avatar_url,
+			id, username, username_normalized, name, avatar_url,
 			status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
 		) VALUES (
-			'pending-user-id', 'pending@example.com', 'pending@example.com',
-			'<script>pending-user</script>', 'pending-user', 'private-profile-name',
+			'pending-user-id', 'pending-user', 'pending-user', 'private-profile-name',
 			'private-avatar-url', 'pending', 7, 1, 'webmail', 0, ?, ?
 		), (
-			'disabled-admin-id', 'disabled@example.com', 'disabled@example.com',
-			'disabled-admin', 'disabled-admin', 'Disabled administrator', '',
+			'disabled-admin-id', 'disabled-admin', 'disabled-admin', 'Disabled administrator', '',
 			'disabled', 3, 1, 'management', 1, ?, ?
 		);
 		INSERT INTO password_credentials (user_id, password_hash)
@@ -81,8 +79,8 @@ func TestAdminUsersPageListsOnlyAuthenticationProfileMetadata(t *testing.T) {
 	for _, want := range []string{
 		`data-admin-users`, `href="/admin/users"`, `data-admin-navigation-link`, `data-admin-navigation-loading`,
 		`data-admin-navigation-label="Users"`, `aria-current`, "Loading section", "Application users", "Application identity and invitation state",
-		currentUser.Email, "You", "pending@example.com", "disabled@example.com",
-		`&lt;script&gt;pending-user&lt;/script&gt;`, "pending-user-id", "disabled-admin-id",
+		currentUser.Username, "You", "pending-user", "disabled-admin",
+		"pending-user-id", "disabled-admin-id",
 		"Active", "Pending", "Disabled", "Management administrator", "Webmail user",
 		"3 users", "Mailboxes, messages, contacts, credentials",
 	} {
@@ -91,7 +89,7 @@ func TestAdminUsersPageListsOnlyAuthenticationProfileMetadata(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		`<script>pending-user</script>`, "private-profile-name", "private-avatar-url",
+		"private-profile-name", "private-avatar-url",
 		"private-password-hash", "private-identity-id", "private-provider-subject",
 		"private-provider-email@example.com", sessionCookie.Value,
 	} {
@@ -128,7 +126,7 @@ func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Invite user", `action="/admin/users/invitations"`, `name="name"`,
-		`name="username"`, `name="email"`, "does not create, connect, or authorize a mailbox",
+		`name="username"`, "does not create, connect, or authorize a mailbox",
 	} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("administrator invitation form missing %q: %q", want, page.Body.String())
@@ -138,14 +136,13 @@ func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 	invitationForm := url.Values{
 		"name":     {"Invited Person"},
 		"username": {"invited.person"},
-		"email":    {"Invited@Example.com"},
 	}
 	withoutCSRF := postSecuritySettings(t, stack, adminUserInvitationPath, invitationForm, sessionCookie)
 	if withoutCSRF.Code != http.StatusForbidden {
 		t.Fatalf("invitation without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
 	}
 	var before int
-	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM users WHERE email_normalized = 'invited@example.com'`).Scan(&before); err != nil || before != 0 {
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM users WHERE username_normalized = 'invited.person'`).Scan(&before); err != nil || before != 0 {
 		t.Fatalf("user after rejected invitation = %d, %v", before, err)
 	}
 
@@ -177,18 +174,18 @@ func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 		t.Fatal("created invitation exposed its token in a URL or exposed the session bearer")
 	}
 
-	var userID, email, username, name, status string
+	var userID, username, name, status string
 	var isAdmin, mfaRequired int
 	if err := db.Read().QueryRowContext(t.Context(), `
-		SELECT id, email, username, name, status, is_admin, mfa_required
-		FROM users WHERE email_normalized = 'invited@example.com'`,
-	).Scan(&userID, &email, &username, &name, &status, &isAdmin, &mfaRequired); err != nil {
+		SELECT id, username, name, status, is_admin, mfa_required
+		FROM users WHERE username_normalized = 'invited.person'`,
+	).Scan(&userID, &username, &name, &status, &isAdmin, &mfaRequired); err != nil {
 		t.Fatal(err)
 	}
-	if email != "Invited@Example.com" || username != "invited.person" || name != "Invited Person" ||
+	if username != "invited.person" || name != "Invited Person" ||
 		status != string(auth.UserStatusPending) || isAdmin != 0 || mfaRequired != 0 {
-		t.Fatalf("created invited user = id:%q email:%q username:%q name:%q status:%q admin:%d mfa:%d",
-			userID, email, username, name, status, isAdmin, mfaRequired)
+		t.Fatalf("created invited user = id:%q username:%q name:%q status:%q admin:%d mfa:%d",
+			userID, username, name, status, isAdmin, mfaRequired)
 	}
 	var storedHash string
 	if err := db.Read().QueryRowContext(t.Context(), `
@@ -260,7 +257,7 @@ func TestAdministratorCanRotateAndRevokeInvitationWithoutExposingInternalTargets
 		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
 	}
 	createForm := url.Values{
-		"name": {"Lifecycle Person"}, "username": {"lifecycle.person"}, "email": {"lifecycle@example.com"},
+		"name": {"Lifecycle Person"}, "username": {"lifecycle.person"},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), adminUserInvitationPath)},
 	}
 	created := postSecuritySettings(t, stack, adminUserInvitationPath, createForm, sessionCookie)
@@ -276,7 +273,7 @@ func TestAdministratorCanRotateAndRevokeInvitationWithoutExposingInternalTargets
 	originalToken := originalMatch[1]
 	rotatePath := rotateMatch[1]
 	var userID, originalTokenID, originalHash string
-	if err := db.Read().QueryRowContext(t.Context(), `SELECT id FROM users WHERE email_normalized = 'lifecycle@example.com'`).Scan(&userID); err != nil {
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT id FROM users WHERE username_normalized = 'lifecycle.person'`).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Read().QueryRowContext(t.Context(), `
@@ -390,7 +387,7 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 		t.Fatalf("stale administrator users page = %d %q", page.Code, page.Body.String())
 	}
 	form := url.Values{
-		"name": {"Blocked Person"}, "username": {"blocked.person"}, "email": {"blocked@example.com"},
+		"name": {"Blocked Person"}, "username": {"blocked.person"},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), adminUserInvitationPath)},
 	}
 	blocked := postSecuritySettings(t, stack, adminUserInvitationPath, form, sessionCookie)
@@ -399,7 +396,7 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 		t.Fatalf("stale administrator invitation = %d %q", blocked.Code, blocked.Body.String())
 	}
 	var users, tokens int
-	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM users WHERE email_normalized = 'blocked@example.com'`).Scan(&users); err != nil {
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM users WHERE username_normalized = 'blocked.person'`).Scan(&users); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM user_enrollment_tokens WHERE created_by = ?`, currentSession.UserID).Scan(&tokens); err != nil {
@@ -429,7 +426,7 @@ func TestAdministratorUserInvitationReturnsSafeFieldErrorsWithoutMutation(t *tes
 		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
 	}
 	form := url.Values{
-		"name": {`<Conflicting Person>`}, "username": {currentUser.Username}, "email": {currentUser.Email},
+		"name": {`<Conflicting Person>`}, "username": {currentUser.Username},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), adminUserInvitationPath)},
 	}
 	rejected := postSecuritySettings(t, stack, adminUserInvitationPath, form, sessionCookie)
@@ -440,7 +437,6 @@ func TestAdministratorUserInvitationReturnsSafeFieldErrorsWithoutMutation(t *tes
 	for _, want := range []string{
 		"Correct the highlighted invitation details.",
 		"That username is already used by another Gofer user.",
-		"That email is already used by another Gofer user.",
 		`value="&lt;Conflicting Person&gt;"`, `data-tui-dialog-open="true"`, `aria-invalid="true"`,
 	} {
 		if !strings.Contains(html, want) {

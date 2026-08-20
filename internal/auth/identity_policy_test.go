@@ -61,47 +61,6 @@ func TestPrepareUsername(t *testing.T) {
 	}
 }
 
-func TestPrepareEmailUsesExistingLookupNormalization(t *testing.T) {
-	tests := []struct {
-		name       string
-		value      string
-		display    string
-		normalized string
-		err        error
-	}{
-		{name: "normalized lookup", value: "  Person+Mail@Example.COM  ", display: "Person+Mail@Example.COM", normalized: "person+mail@example.com"},
-		{name: "quoted local", value: `"person mail"@example.com`, err: ErrEmailInvalid},
-		{name: "required", value: "  ", err: ErrEmailRequired},
-		{name: "display name", value: "Person <person@example.com>", err: ErrEmailInvalid},
-		{name: "missing local", value: "@example.com", err: ErrEmailInvalid},
-		{name: "missing domain", value: "person@", err: ErrEmailInvalid},
-		{name: "multiple separators", value: "person@@example.com", err: ErrEmailInvalid},
-		{name: "oversized local", value: strings.Repeat("a", emailLocalMaximumLength+1) + "@example.com", err: ErrEmailInvalid},
-		{name: "oversized address", value: strings.Repeat("a", emailMaximumLength) + "@x", err: ErrEmailInvalid},
-		{name: "invalid UTF-8", value: string([]byte{'a', 0xff, '@', 'x'}), err: ErrEmailInvalid},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			display, normalized, err := PrepareEmail(test.value)
-			if !errors.Is(err, test.err) || display != test.display || normalized != test.normalized {
-				t.Fatalf("PrepareEmail(%q) = display:%q normalized:%q error:%v", test.value, display, normalized, err)
-			}
-		})
-	}
-
-	_, first, err := PrepareEmail("Person@Example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, second, err := PrepareEmail(" person@example.COM ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("normalized collision values = %q and %q", first, second)
-	}
-}
-
 func TestPrepareNewPasswordLengthUnicodeAndWhitespacePolicy(t *testing.T) {
 	valid := []string{
 		"a long passphrase",
@@ -157,7 +116,6 @@ func TestPrepareNewPasswordRejectsCommonAndContextualValues(t *testing.T) {
 		{name: "compromised case folded", password: "PASSWORDPASSWORD"},
 		{name: "username derivative", password: "cristianpassword", context: PasswordPolicyContext{Username: "Cristian"}},
 		{name: "username numeric derivative", password: "longaccountname2042", context: PasswordPolicyContext{Username: "longaccountname"}},
-		{name: "email local derivative", password: "securitypassword", context: PasswordPolicyContext{Email: "security@example.com"}},
 		{name: "service specific", password: "gofer-authentication"},
 		{name: "service derivative", password: "goferpassword123"},
 	}
@@ -171,7 +129,7 @@ func TestPrepareNewPasswordRejectsCommonAndContextualValues(t *testing.T) {
 	}
 
 	const allowed = "a safe gofer sentence with several words"
-	prepared, err := PrepareNewPassword(allowed, PasswordPolicyContext{Username: "person", Email: "person@example.com"})
+	prepared, err := PrepareNewPassword(allowed, PasswordPolicyContext{Username: "person"})
 	if err != nil || prepared != allowed {
 		t.Fatalf("PrepareNewPassword(non-substring policy) = %q, %v", prepared, err)
 	}

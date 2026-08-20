@@ -65,7 +65,6 @@ func TestPasswordSecurityPageRendersLocalAccessibleChangeForm(t *testing.T) {
 		`src="/assets/js/settings.js"`,
 		`data-local-login-identifiers`,
 		`data-local-login-username>Person</dd>`,
-		`data-local-login-email>Person@Example.com</dd>`,
 		"separate from mailbox addresses and external sign-in identities",
 		`action="/settings/security/password"`,
 		`name="_csrf"`,
@@ -303,8 +302,8 @@ func TestPasswordChangeRejectsOversizedFormBeforeMutation(t *testing.T) {
 func TestPasswordSecurityPageExplainsMissingLocalCredentialWithoutRenderingForm(t *testing.T) {
 	handler, manager, db := newLocalLoginHandler(t, auth.UserStatusActive, false, false, false, false)
 	if _, err := db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version)
-		VALUES ('federated', 'federated@example.com', 'federated@example.com', 'Federated', 'active', 1)`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version)
+		VALUES ('federated', 'federated', 'federated', 'Federated', 'active', 1)`); err != nil {
 		t.Fatalf("insert federated user: %v", err)
 	}
 	session, err := manager.CreateAuthenticatedSession(t.Context(), "federated", "browser", auth.AuthenticationMethodFederatedGoogle, auth.AssuranceLevelSingleFactor)

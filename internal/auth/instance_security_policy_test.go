@@ -303,7 +303,7 @@ func TestInstanceMFAPolicyAllUsersRejectsImplicitActiveUserCreation(t *testing.T
 		ids:    []string{"administrator", "administrator-session-id", "policy-event"},
 		tokens: []string{"administrator-session"},
 	})
-	administrator, err := manager.CreateOrUpdateUser(t.Context(), "administrator@example.com", "Administrator", "")
+	administrator, err := manager.CreateOrUpdateUser(t.Context(), "administrator", "Administrator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,18 +316,18 @@ func TestInstanceMFAPolicyAllUsersRejectsImplicitActiveUserCreation(t *testing.T
 		t.Fatal(err)
 	}
 
-	created, err := manager.CreateOrUpdateUser(t.Context(), "new-user@example.com", "New User", "")
+	created, err := manager.CreateOrUpdateUser(t.Context(), "new-user", "New User", "")
 	if created != nil || !errors.Is(err, ErrInstanceMFAEnrollmentNeeded) {
 		t.Fatalf("CreateOrUpdateUser(global MFA) = %#v, %v", created, err)
 	}
 	var newUsers int
 	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT COUNT(*) FROM users WHERE email_normalized = 'new-user@example.com'`,
+		SELECT COUNT(*) FROM users WHERE username_normalized = 'new-user'`,
 	).Scan(&newUsers); err != nil || newUsers != 0 {
 		t.Fatalf("implicitly created users = %d, %v", newUsers, err)
 	}
 
-	updated, err := manager.CreateOrUpdateUser(t.Context(), administrator.Email, "Updated Administrator", "")
+	updated, err := manager.CreateOrUpdateUser(t.Context(), administrator.Username, "Updated Administrator", "")
 	if err != nil || updated == nil || updated.ID != administrator.ID || updated.Name != "Updated Administrator" {
 		t.Fatalf("CreateOrUpdateUser(existing global-MFA user) = %#v, %v", updated, err)
 	}

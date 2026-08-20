@@ -29,7 +29,6 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		view := views.AdminUserData{
 			ID:                  user.ID,
 			Username:            user.Username,
-			Email:               user.Email,
 			Status:              "Disabled",
 			Role:                "Webmail user",
 			Current:             user.ID == currentUserID,
@@ -81,11 +80,11 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 		return
 	}
 	form := views.AdminUserInvitationFormData{
-		Name: r.PostFormValue("name"), Username: r.PostFormValue("username"), Email: r.PostFormValue("email"),
+		Name: r.PostFormValue("name"), Username: r.PostFormValue("username"),
 	}
 	invitation, err := h.auth.CreateAdministratorUserInvitation(ctx, auth.CreateAdministratorUserInvitationOptions{
 		ActorUserID: currentUser.ID, ActorSessionID: currentSession.ID,
-		Name: form.Name, Username: form.Username, Email: form.Email,
+		Name: form.Name, Username: form.Username,
 	})
 	if err != nil {
 		var validationErr *auth.AdministratorUserInvitationValidationError
@@ -104,7 +103,7 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 		return
 	}
 	result := &views.AdminUserInvitationData{
-		Name: invitation.Name, Username: invitation.User.Username, Email: invitation.User.Email,
+		Name: invitation.Name, Username: invitation.User.Username,
 		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
 		Token:         invitation.Token.Token, ExpiresAt: invitation.Token.ExpiresAt,
 	}
@@ -167,7 +166,7 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 		return
 	}
 	result := &views.AdminUserInvitationData{
-		Name: invitation.Name, Username: invitation.User.Username, Email: invitation.User.Email,
+		Name: invitation.Name, Username: invitation.User.Username,
 		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
 		Token:         invitation.Token.Token, ExpiresAt: invitation.Token.ExpiresAt,
 		Rotated: true,

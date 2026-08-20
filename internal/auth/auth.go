@@ -16,8 +16,6 @@ import (
 
 type User struct {
 	ID                 string
-	Email              string
-	EmailNormalized    string
 	Username           string
 	UsernameNormalized string
 	Name               string
@@ -58,7 +56,6 @@ func (user *User) RequiresManagementHandoff() bool {
 type AdministratorUserSummary struct {
 	ID                        string
 	Username                  string
-	Email                     string
 	Status                    UserStatus
 	UserType                  UserType
 	IsAdmin                   bool
@@ -401,8 +398,8 @@ func (m *Manager) EnsureDefaultUser() error {
 
 	now := m.clock.Now()
 	_, err = m.db.Write().Exec(
-		`INSERT INTO users (id, email, email_normalized, name, status, user_type, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"default", "local@gofer.local", "local@gofer.local", "Local User", UserStatusActive, UserTypeWebmail, 0, now, now,
+		`INSERT INTO users (id, username, username_normalized, name, status, user_type, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"default", "local", "local", "Local User", UserStatusActive, UserTypeWebmail, 0, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("create default user: %w", err)
@@ -426,13 +423,14 @@ func (m *Manager) GetDefaultUser() *User {
 		return nil
 	}
 	return &User{
-		ID:              "default",
-		Email:           "local@gofer.local",
-		EmailNormalized: "local@gofer.local",
-		Name:            "Local User",
-		Status:          UserStatusActive,
-		AuthVersion:     1,
-		IsAdmin:         true,
+		ID:                 "default",
+		Username:           "local",
+		UsernameNormalized: "local",
+		Name:               "Local User",
+		Status:             UserStatusActive,
+		AuthVersion:        1,
+		UserType:           UserTypeWebmail,
+		IsAdmin:            true,
 	}
 }
 

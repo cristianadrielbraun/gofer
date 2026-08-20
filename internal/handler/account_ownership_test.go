@@ -27,9 +27,9 @@ func newAccountOwnershipTestHandler(t *testing.T) (*Handler, *storage.DB) {
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := t.Context()
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name)
-		VALUES ('owner', 'owner@example.com', 'Owner'),
-		       ('attacker', 'attacker@example.com', 'Attacker')`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name)
+		VALUES ('owner', 'owner', 'owner', 'Owner'),
+		       ('attacker', 'attacker', 'attacker', 'Attacker')`); err != nil {
 		t.Fatalf("insert users: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -60,12 +60,12 @@ func attackerRequest(req *http.Request) *http.Request {
 }
 
 func attackerRequestWithAdmin(req *http.Request, isAdmin bool) *http.Request {
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "attacker", Email: "attacker@example.com", IsAdmin: isAdmin})
+	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "attacker", Username: "attacker", IsAdmin: isAdmin})
 	return req.WithContext(ctx)
 }
 
 func ownerRequest(req *http.Request) *http.Request {
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Email: "owner@example.com", IsAdmin: true})
+	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner", IsAdmin: true})
 	return req.WithContext(ctx)
 }
 
@@ -186,7 +186,7 @@ func TestHandleAccountDeletionStatusTracksOwnedAccountWithoutLeakingForeignState
 
 	ownerReq := httptest.NewRequest(http.MethodGet, "/api/accounts/victim-account/deletion-status", nil)
 	ownerReq.SetPathValue("id", "victim-account")
-	ownerReq = ownerReq.WithContext(auth.ContextWithUser(ownerReq.Context(), &auth.User{ID: "owner", Email: "owner@example.com"}))
+	ownerReq = ownerReq.WithContext(auth.ContextWithUser(ownerReq.Context(), &auth.User{ID: "owner", Username: "owner"}))
 	ownerRec := httptest.NewRecorder()
 	h.handleAccountDeletionStatus(ownerRec, ownerReq)
 	if ownerRec.Code != http.StatusOK || !strings.Contains(ownerRec.Body.String(), `"status":"deleting"`) {

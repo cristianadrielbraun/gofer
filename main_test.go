@@ -22,8 +22,8 @@ func createMainAuthCommandDatabase(t *testing.T) string {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin, user_type)
-		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 1, 1, 'management')`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, is_admin, user_type)
+		VALUES ('owner', 'owner', 'owner', 'Owner', 'active', 1, 1, 'management')`); err != nil {
 		db.Close()
 		t.Fatalf("insert auth command owner: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestAuthCommandSubprocessRemainsIsolatedFromServerRuntime(t *testing.T) {
 		t.Fatalf("auth command subprocess error = %v output=%q", err, output)
 	}
 	text := string(output)
-	if !strings.Contains(text, `"owner"`) || !strings.Contains(text, `"owner@example.com"`) {
+	if !strings.Contains(text, `"owner"`) || !strings.Contains(text, "USERNAME") {
 		t.Fatalf("auth command subprocess output = %q", text)
 	}
 	for _, forbidden := range []string{"server-started", "boot:", "Gofer running on", "listening on"} {

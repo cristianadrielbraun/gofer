@@ -14,8 +14,8 @@ func TestUserScopedMessageReadsRejectForeignUser(t *testing.T) {
 	db := newContactsTestDB(t)
 
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name)
-		VALUES ('other', 'other@example.com', 'Other')`); err != nil {
+		INSERT INTO users (id, username, username_normalized, name)
+		VALUES ('other', 'other', 'other', 'Other')`); err != nil {
 		t.Fatalf("insert other user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -170,8 +170,8 @@ func seedUserScopedMessageMutationTest(t *testing.T) (*DB, int64, int64) {
 	db := newContactsTestDB(t)
 
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name)
-		VALUES ('other', 'other@example.com', 'Other');
+		INSERT INTO users (id, username, username_normalized, name)
+		VALUES ('other', 'other', 'other', 'Other');
 		INSERT INTO accounts (id, user_id, provider, email_address)
 		VALUES ('owned-account', 'default', 'imap', 'default@example.com'),
 		       ('other-account', 'other', 'imap', 'other@example.com');

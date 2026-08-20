@@ -46,7 +46,7 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 					}
 					<form method="post" action="/login" class="space-y-4">
 						<div class="space-y-2">
-							<label for="login-identifier" class="text-sm font-medium">Username or email</label>
+							<label for="login-identifier" class="text-sm font-medium">Username</label>
 							<input
 								id="login-identifier"
 								name="identifier"
@@ -99,7 +99,7 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
 							Sign in with a passkey
 						}
-						<p data-passkey-authentication-status role="status" aria-live="polite" class="text-center text-xs text-muted-foreground">Enter a username or email to target its passkeys, or leave it blank to choose a saved account.</p>
+						<p data-passkey-authentication-status role="status" aria-live="polite" class="text-center text-xs text-muted-foreground">Enter a username to target its passkeys, or leave it blank to choose a saved account.</p>
 						<noscript><p class="text-center text-xs text-amber-800 dark:text-amber-200">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript>
 					</form>
 					if showGoogle || showMicrosoft || oidcName != "" {

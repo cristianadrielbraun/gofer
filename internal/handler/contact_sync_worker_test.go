@@ -17,7 +17,7 @@ func TestContactSyncWorkerCancelsMissingContactBeforeProviderWork(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('user-a', 'a@example.com', 'User A');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('user-a', 'user-a', 'user-a', 'User A');
 		INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('account-a', 'user-a', 'gmail', 'a@example.com');
 	`); err != nil {
 		t.Fatalf("seed user and account: %v", err)

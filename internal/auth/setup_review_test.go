@@ -49,7 +49,7 @@ func TestSetupReviewRequiresEveryPreparedSecurityStep(t *testing.T) {
 		t.Fatalf("review without owner = %v", err)
 	}
 	if _, err := manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestSetupReviewRequiresEveryPreparedSecurityStep(t *testing.T) {
 func TestSetupReviewFreshOwnerIsSecretFreeReadOnlyAndExact(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
 	batch := prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "cristian", Email: "cristian@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "cristian",
 	})
 	state, err := manager.GetSetupOwnerState(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
 	if err != nil {
@@ -105,7 +105,7 @@ func TestSetupReviewFreshOwnerIsSecretFreeReadOnlyAndExact(t *testing.T) {
 	review, err := manager.GetSetupReview(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
 	if err != nil || review == nil || review.TopologyKind != SetupOwnerTopologyFresh || review.Mode != SetupOwnerModeCreate ||
 		!review.CreatesNewOwner || review.ClaimsLegacyDefault || review.ClaimsExistingUser || review.TargetUserID != "" ||
-		review.OwnerName != "Cristian Braun" || review.OwnerUsername != "cristian" || review.OwnerEmail != "cristian@example.com" ||
+		review.OwnerName != "Cristian Braun" || review.OwnerUsername != "cristian" ||
 		review.ExistingUserCount != 0 || review.TotalMailboxCount != 0 || review.UnrevokedSessionCount != 0 || review.BlockedMessage != "" {
 		t.Fatalf("fresh setup review = %#v, %v", review, err)
 	}
@@ -158,19 +158,19 @@ func TestSetupReviewLegacyDefaultCreatesSeparateOwnerAndPreservesMail(t *testing
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
 		Mode: SetupOwnerModeCreate, Name: "Cristian Braun",
-		Username: "cristian", Email: "cristian@example.com",
+		Username: "cristian",
 	})
 	review, err := manager.GetSetupReview(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
 	if err != nil || review == nil || review.ClaimsLegacyDefault || !review.CreatesNewOwner || review.ClaimsExistingUser ||
-		review.TargetUserID != "" || review.CurrentName != "" || review.CurrentEmail != "" ||
-		review.OwnerName != "Cristian Braun" || review.OwnerUsername != "cristian" || review.OwnerEmail != "cristian@example.com" ||
+		review.TargetUserID != "" || review.CurrentName != "" ||
+		review.OwnerName != "Cristian Braun" || review.OwnerUsername != "cristian" ||
 		review.TargetMailboxCount != 0 || review.TotalMailboxCount != 2 || review.TargetLegacySessions != 0 ||
 		review.UnrevokedSessionCount != 1 || review.ExistingUserCount != 1 || review.BlockedMessage != "" {
 		t.Fatalf("legacy setup review = %#v, %v", review, err)
 	}
-	var name, email, accountOwners string
+	var name, username, accountOwners string
 	var revokedAt any
-	if err := manager.db.Read().QueryRow(`SELECT name, email FROM users WHERE id = 'default'`).Scan(&name, &email); err != nil {
+	if err := manager.db.Read().QueryRow(`SELECT name, username FROM users WHERE id = 'default'`).Scan(&name, &username); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.db.Read().QueryRow(`SELECT group_concat(user_id, ',') FROM (SELECT user_id FROM accounts ORDER BY id)`).Scan(&accountOwners); err != nil {
@@ -179,8 +179,8 @@ func TestSetupReviewLegacyDefaultCreatesSeparateOwnerAndPreservesMail(t *testing
 	if err := manager.db.Read().QueryRow(`SELECT revoked_at FROM sessions WHERE id = 'legacy-session'`).Scan(&revokedAt); err != nil {
 		t.Fatal(err)
 	}
-	if name != "Local User" || email != "local@gofer.local" || accountOwners != "default,default" || revokedAt != nil {
-		t.Fatalf("legacy review mutated data = name:%q email:%q owners:%q revoked:%#v", name, email, accountOwners, revokedAt)
+	if name != "Local User" || username != "local" || accountOwners != "default,default" || revokedAt != nil {
+		t.Fatalf("legacy review mutated data = name:%q username:%q owners:%q revoked:%#v", name, username, accountOwners, revokedAt)
 	}
 }
 
@@ -203,7 +203,7 @@ func TestSetupReviewExistingUsersCreatesSeparateOwnerWithoutCredentialReplacemen
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
 		Mode: SetupOwnerModeCreate, Name: "New Owner Name",
-		Username: "new-owner", Email: "new-owner@example.com",
+		Username: "new-owner",
 	})
 	review, err := manager.GetSetupReview(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
 	if err != nil || review == nil || review.ClaimsExistingUser || review.ClaimsLegacyDefault || !review.CreatesNewOwner ||
@@ -242,7 +242,7 @@ func TestSetupReviewBlocksUnassignedMailboxesAndRejectsStaleTopology(t *testing.
 			t.Fatal(err)
 		}
 		prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 		})
 		review, err := manager.GetSetupReview(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
 		if err != nil || review == nil || review.UnassignedMailboxCount != 1 || review.TotalMailboxCount != 1 || review.BlockedMessage == "" {
@@ -260,7 +260,7 @@ func TestSetupReviewBlocksUnassignedMailboxesAndRejectsStaleTopology(t *testing.
 	t.Run("stale topology", func(t *testing.T) {
 		manager, clock := setupOwnerTestManager(t)
 		prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
+			Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner",
 		})
 		insertSetupOwnerUser(t, manager, "appeared", "appeared@example.com", "appeared", "Appeared", UserStatusActive, false)
 		if review, err := manager.GetSetupReview(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin); review != nil || !errors.Is(err, ErrSetupOwnerDraftRequired) {

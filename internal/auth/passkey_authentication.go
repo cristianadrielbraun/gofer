@@ -704,7 +704,7 @@ func (m *Manager) findPasskeyLoginUser(ctx context.Context, identifier, rpID str
 	rows, err := m.db.Read().QueryContext(ctx, `
 		SELECT u.id
 		FROM users u
-		WHERE (u.email_normalized = ? OR u.username_normalized = ?)
+		WHERE u.username_normalized = ?
 		  AND u.status = 'active' AND u.user_type = 'webmail'
 		  AND EXISTS (
 			SELECT 1 FROM webauthn_users wu
@@ -715,7 +715,7 @@ func (m *Manager) findPasskeyLoginUser(ctx context.Context, identifier, rpID str
 			WHERE wc.user_id = u.id AND wc.rp_id = ? AND wc.revoked_at IS NULL
 			  AND wc.credential_ciphertext IS NOT NULL AND wc.key_version IS NOT NULL
 		  )
-		ORDER BY u.id LIMIT 2`, identifier, identifier, rpID, rpID)
+		ORDER BY u.id LIMIT 2`, identifier, rpID, rpID)
 	if err != nil {
 		return "", fmt.Errorf("lookup passkey login user: %w", err)
 	}
@@ -832,9 +832,6 @@ func (m *Manager) loadPasskeyAuthenticationUser(ctx context.Context, userID, rpI
 		return nil, ErrPasskeyAuthenticationUnavailable
 	}
 	name := strings.TrimSpace(user.Username)
-	if name == "" {
-		name = strings.TrimSpace(user.Email)
-	}
 	if name == "" {
 		name = user.ID
 	}

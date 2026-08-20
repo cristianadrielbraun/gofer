@@ -21,7 +21,7 @@ func newMailboxCredentialTestDB(t *testing.T) *storage.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, name) VALUES ('owner', 'owner@example.com', 'Owner');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('owner', 'owner', 'owner', 'Owner');
 		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address) VALUES
 			('gmail-one', 'owner', 'gmail', 'google-one', 'one@example.com'),
 			('gmail-two', 'owner', 'gmail', 'google-two', 'two@example.com');

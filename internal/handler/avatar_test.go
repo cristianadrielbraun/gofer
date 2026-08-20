@@ -234,7 +234,7 @@ func TestHandleAvatarImageAddsStrictHeadersForSVG(t *testing.T) {
 		t.Fatalf("SaveSenderAvatarFound() error = %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
-		INSERT INTO users (id, email, name) VALUES ('viewer', 'viewer@example.com', 'Viewer');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('viewer', 'viewer', 'viewer', 'Viewer');
 		INSERT INTO accounts (id, user_id, email_address) VALUES ('viewer-account', 'viewer', 'viewer@example.com');
 		INSERT INTO messages (account_id, internet_message_id, from_email) VALUES ('viewer-account', '<brand@example.com>', ?)
 	`, email); err != nil {

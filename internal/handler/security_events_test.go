@@ -129,8 +129,8 @@ func TestSecurityActivityDialogPaginatesOnlyCurrentUsersEventsWithoutAuditIntern
 	}
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, created_at, updated_at)
-		VALUES ('foreign-event-user', 'foreign-events@example.com', 'foreign-events@example.com',
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, created_at, updated_at)
+		VALUES ('foreign-event-user', 'foreign-events', 'foreign-events',
 		        'Foreign events', 'active', 1, ?, ?)`, now, now,
 	); err != nil {
 		t.Fatal(err)

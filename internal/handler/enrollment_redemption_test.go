@@ -43,11 +43,11 @@ func enrollmentRedemptionStack(t *testing.T, status auth.UserStatus, purpose aut
 	now := time.Now().UTC().Add(-time.Minute)
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name,
+			id, username, username_normalized, name,
 			status, auth_version, user_type, is_admin, created_at, updated_at
 		) VALUES
-			('admin', 'admin@example.com', 'admin@example.com', 'admin', 'admin', 'Admin', 'active', 1, 'management', 1, ?, ?),
-			('person', 'person@example.com', 'person@example.com', 'person', 'person', 'Person', ?, 1, 'webmail', 0, ?, ?)`,
+			('admin', 'admin', 'admin', 'Admin', 'active', 1, 'management', 1, ?, ?),
+			('person', 'person', 'person', 'Person', ?, 1, 'webmail', 0, ?, ?)`,
 		now, now, status, now, now,
 	); err != nil {
 		t.Fatalf("insert redemption users: %v", err)
@@ -143,11 +143,11 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 	now := time.Now().UTC().Add(-time.Minute)
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name,
+			id, username, username_normalized, name,
 			status, auth_version, user_type, is_admin, created_at, updated_at
 		) VALUES
-			('admin', 'admin@example.com', 'admin@example.com', 'admin', 'admin', 'Admin', 'active', 1, 'management', 1, ?, ?),
-			('invitee', 'invited@example.com', 'invited@example.com', 'invitee', 'invitee', 'Invitee', 'pending', 1, 'webmail', 0, ?, ?)`,
+			('admin', 'admin', 'admin', 'Admin', 'active', 1, 'management', 1, ?, ?),
+			('invitee', 'invitee', 'invitee', 'Invitee', 'pending', 1, 'webmail', 0, ?, ?)`,
 		now, now, now, now,
 	); err != nil {
 		t.Fatal(err)

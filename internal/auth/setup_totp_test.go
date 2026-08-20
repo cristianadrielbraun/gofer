@@ -284,7 +284,7 @@ func TestSetupTOTPReplacementAndOwnerEditInvalidatePriorConfirmation(t *testing.
 		t.Fatalf("replaced TOTP state = %#v", replaced)
 	}
 	if _, err := manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "new-cristian", Email: "new-cristian@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Cristian Braun", Username: "new-cristian",
 	}); err != nil {
 		t.Fatal(err)
 	}

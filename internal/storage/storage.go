@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"embed"
@@ -49,7 +50,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 87
+const CurrentSchemaVersion = 88
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -789,11 +790,202 @@ func (db *DB) migrate() error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration: %w", err)
 	}
+	if currentVersion <= 87 {
+		if err := migrateV87ToV88(db.write); err != nil {
+			return fmt.Errorf("migrate v87 to v88: %w", err)
+		}
+	}
 
 	if _, err := db.write.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		log.Printf("wal checkpoint: %v", err)
 	}
 	return nil
+}
+
+func migrateV87ToV88(db *sql.DB) (returnErr error) {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer conn.Close()
+
+	var currentVersion int
+	if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&currentVersion); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if currentVersion != 87 {
+		return fmt.Errorf("expected schema version 87, found %d", currentVersion)
+	}
+	var userTableCount int
+	if err := conn.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'`,
+	).Scan(&userTableCount); err != nil {
+		return fmt.Errorf("inspect legacy users table: %w", err)
+	}
+	if userTableCount == 0 {
+		if _, err := conn.ExecContext(ctx, `INSERT OR REPLACE INTO schema_version (version) VALUES (88)`); err != nil {
+			return fmt.Errorf("mark schema version 88 without users table: %w", err)
+		}
+		return nil
+	}
+	if err := validateLegacyUsernames(ctx, conn); err != nil {
+		return err
+	}
+
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("disable foreign keys: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA legacy_alter_table = ON`); err != nil {
+		_, _ = conn.ExecContext(ctx, `PRAGMA foreign_keys = ON`)
+		return fmt.Errorf("enable legacy alter table mode: %w", err)
+	}
+	defer func() {
+		if _, err := conn.ExecContext(ctx, `PRAGMA legacy_alter_table = OFF`); returnErr == nil && err != nil {
+			returnErr = fmt.Errorf("disable legacy alter table mode: %w", err)
+		}
+		if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = ON`); returnErr == nil && err != nil {
+			returnErr = fmt.Errorf("restore foreign keys: %w", err)
+		}
+	}()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin username-only user migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	statements := []string{
+		`ALTER TABLE users RENAME TO users_v87`,
+		`CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			username_normalized TEXT NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending', 'active', 'disabled')),
+			auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0),
+			mfa_required INTEGER NOT NULL DEFAULT 0 CHECK (mfa_required IN (0, 1)),
+			last_login_at DATETIME,
+			disabled_at DATETIME,
+			disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+			user_type TEXT NOT NULL DEFAULT 'webmail' CHECK (user_type IN ('webmail', 'management')),
+			is_admin INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			CHECK (username = trim(username)),
+			CHECK (length(username) BETWEEN 3 AND 32),
+			CHECK (username NOT GLOB '*[^A-Za-z0-9._-]*'),
+			CHECK (substr(username, 1, 1) GLOB '[A-Za-z0-9]'),
+			CHECK (substr(username, -1, 1) GLOB '[A-Za-z0-9]'),
+			CHECK (username_normalized = lower(username))
+		)`,
+		`INSERT INTO users (
+			id, username, username_normalized, name, avatar_url, status, auth_version,
+			mfa_required, last_login_at, disabled_at, disabled_by, user_type, is_admin,
+			created_at, updated_at
+		)
+		SELECT id, trim(username), lower(trim(username)), name, avatar_url, status,
+			auth_version, mfa_required, last_login_at, disabled_at, disabled_by,
+			user_type, is_admin, created_at, updated_at
+		FROM users_v87`,
+		`DROP TABLE users_v87`,
+		`CREATE UNIQUE INDEX idx_users_username_normalized ON users(username_normalized)`,
+		`CREATE INDEX idx_users_status ON users(status)`,
+		`CREATE TRIGGER users_management_type_insert
+		BEFORE INSERT ON users
+		WHEN NEW.is_admin = 1 AND NEW.user_type != 'management'
+		BEGIN
+			SELECT RAISE(ABORT, 'administrator must be a management user');
+		END`,
+		`CREATE TRIGGER users_management_type_update
+		BEFORE UPDATE OF is_admin, user_type ON users
+		WHEN NEW.is_admin = 1 AND NEW.user_type != 'management'
+		 AND (OLD.is_admin != NEW.is_admin OR OLD.user_type != NEW.user_type)
+		BEGIN
+			SELECT RAISE(ABORT, 'administrator must be a management user');
+		END`,
+		`CREATE TRIGGER users_management_mailbox_update
+		BEFORE UPDATE OF user_type ON users
+		WHEN NEW.user_type = 'management'
+		 AND EXISTS (SELECT 1 FROM accounts WHERE user_id = NEW.id)
+		BEGIN
+			SELECT RAISE(ABORT, 'management user cannot own a mailbox');
+		END`,
+		`CREATE TRIGGER users_management_identity_update
+		BEFORE UPDATE OF user_type ON users
+		WHEN NEW.user_type = 'management'
+		 AND EXISTS (SELECT 1 FROM auth_identities WHERE user_id = NEW.id)
+		BEGIN
+			SELECT RAISE(ABORT, 'management user cannot own an application sign-in identity');
+		END`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("rebuild users table: %w", err)
+		}
+	}
+	if err := foreignKeyCheckTx(tx); err != nil {
+		return err
+	}
+	if err := markSchemaVersion(tx, 88); err != nil {
+		return fmt.Errorf("mark schema version 88: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit username-only user migration: %w", err)
+	}
+	return nil
+}
+
+func validateLegacyUsernames(ctx context.Context, conn *sql.Conn) error {
+	rows, err := conn.QueryContext(ctx, `SELECT id, COALESCE(username, '') FROM users ORDER BY id`)
+	if err != nil {
+		return fmt.Errorf("read legacy usernames: %w", err)
+	}
+	defer rows.Close()
+
+	owners := make(map[string]string)
+	for rows.Next() {
+		var userID, username string
+		if err := rows.Scan(&userID, &username); err != nil {
+			return fmt.Errorf("scan legacy username: %w", err)
+		}
+		normalized, err := validateStorageUsername(username)
+		if err != nil {
+			return fmt.Errorf("user %q requires a valid username before upgrading: %w", userID, err)
+		}
+		if ownerID, exists := owners[normalized]; exists {
+			return fmt.Errorf("users %q and %q have conflicting usernames before upgrading", ownerID, userID)
+		}
+		owners[normalized] = userID
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read legacy usernames: %w", err)
+	}
+	return nil
+}
+
+func validateStorageUsername(value string) (string, error) {
+	display := strings.TrimSpace(value)
+	if len(display) < 3 || len(display) > 32 {
+		return "", fmt.Errorf("username must contain 3 to 32 characters")
+	}
+	normalized := strings.ToLower(display)
+	for index := 0; index < len(normalized); index++ {
+		character := normalized[index]
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') ||
+			character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return "", fmt.Errorf("username contains an unsupported character")
+	}
+	isAlphanumeric := func(character byte) bool {
+		return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
+	}
+	if !isAlphanumeric(normalized[0]) || !isAlphanumeric(normalized[len(normalized)-1]) {
+		return "", fmt.Errorf("username must start and end with a letter or number")
+	}
+	return normalized, nil
 }
 
 func migrateV1ToV2(tx *sql.Tx) error {

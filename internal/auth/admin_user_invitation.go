@@ -44,7 +44,6 @@ type CreateAdministratorUserInvitationOptions struct {
 	ActorSessionID string
 	Name           string
 	Username       string
-	Email          string
 	Lifetime       time.Duration
 }
 
@@ -65,7 +64,6 @@ type administratorUserInvitationTarget struct {
 	ID       string
 	Name     string
 	Username string
-	Email    string
 }
 
 // CreateAdministratorUserInvitation creates an ordinary pending Gofer user
@@ -89,10 +87,6 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 	username, usernameNormalized, err := PrepareUsername(options.Username)
 	if err != nil {
 		fieldErrors["username"] = err.Error()
-	}
-	email, emailNormalized, err := PrepareEmail(options.Email)
-	if err != nil {
-		fieldErrors["email"] = err.Error()
 	}
 	if len(fieldErrors) != 0 {
 		return nil, &AdministratorUserInvitationValidationError{Fields: fieldErrors}
@@ -123,7 +117,7 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 	result := &AdministratorUserInvitation{
 		Name: name,
 		User: AdministratorUserSummary{
-			ID: userID, Username: username, Email: email, Status: UserStatusPending,
+			ID: userID, Username: username, Status: UserStatusPending,
 		},
 		Token: EnrollmentToken{
 			ID: tokenID, Token: rawToken, UserID: userID, CreatedBy: actorUserID,
@@ -138,7 +132,7 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
 			return err
 		}
-		collisions, err := administratorInvitationIdentifierCollisions(ctx, tx, usernameNormalized, emailNormalized)
+		collisions, err := administratorInvitationIdentifierCollisions(ctx, tx, usernameNormalized)
 		if err != nil {
 			return err
 		}
@@ -148,11 +142,10 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO users (
-				id, email, email_normalized, username, username_normalized, name,
+				id, username, username_normalized, name,
 				status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, 0, 'webmail', 0, ?, ?)`,
-			result.User.ID, result.User.Email, emailNormalized, result.User.Username,
-			usernameNormalized, result.Name, now, now,
+			) VALUES (?, ?, ?, ?, 'pending', 1, 0, 'webmail', 0, ?, ?)`,
+			result.User.ID, result.User.Username, usernameNormalized, result.Name, now, now,
 		); err != nil {
 			return fmt.Errorf("create pending invited user: %w", err)
 		}
@@ -189,33 +182,20 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 	return result, nil
 }
 
-func administratorInvitationIdentifierCollisions(ctx context.Context, tx *sql.Tx, usernameNormalized, emailNormalized string) (map[string]string, error) {
+func administratorInvitationIdentifierCollisions(ctx context.Context, tx *sql.Tx, usernameNormalized string) (map[string]string, error) {
 	fields := make(map[string]string)
-	for field, normalized := range map[string]string{
-		"username": usernameNormalized,
-		"email":    emailNormalized,
-	} {
-		var conflictingID string
-		err := tx.QueryRowContext(ctx, `
-			SELECT id FROM users
-			WHERE
-				CASE
-					WHEN trim(COALESCE(username_normalized, '')) != '' THEN username_normalized
-					ELSE lower(trim(COALESCE(username, '')))
-				END = ? OR
-				CASE
-					WHEN trim(COALESCE(email_normalized, '')) != '' THEN email_normalized
-					ELSE lower(trim(email))
-				END = ?
-			ORDER BY id LIMIT 1`, normalized, normalized).Scan(&conflictingID)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("check invited user %s collision: %w", field, err)
-		}
-		fields[field] = "That " + field + " is already used by another Gofer user."
+	var conflictingID string
+	err := tx.QueryRowContext(ctx, `
+		SELECT id FROM users
+		WHERE username_normalized = ?
+		ORDER BY id LIMIT 1`, usernameNormalized).Scan(&conflictingID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fields, nil
 	}
+	if err != nil {
+		return nil, fmt.Errorf("check invited user username collision: %w", err)
+	}
+	fields["username"] = "That username is already used by another Gofer user."
 	return fields, nil
 }
 
@@ -246,7 +226,7 @@ func (m *Manager) administratorUserInvitationTarget(
 	ctx context.Context, tx *sql.Tx, actorSessionID, actionReference string,
 ) (*administratorUserInvitationTarget, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, name, COALESCE(username, ''), email
+		SELECT id, name, username
 		FROM users
 		WHERE status = 'pending' AND user_type = 'webmail' AND is_admin = 0
 		ORDER BY id`)
@@ -257,7 +237,7 @@ func (m *Manager) administratorUserInvitationTarget(
 	var target *administratorUserInvitationTarget
 	for rows.Next() {
 		candidate := &administratorUserInvitationTarget{}
-		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.Username, &candidate.Email); err != nil {
+		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.Username); err != nil {
 			return nil, fmt.Errorf("scan administrator invitation target: %w", err)
 		}
 		candidateReference, err := m.administratorUserInvitationActionReference(actorSessionID, candidate.ID)
@@ -448,7 +428,7 @@ func (m *Manager) RotateAdministratorUserInvitation(
 		invitation = &AdministratorUserInvitation{
 			Name: target.Name,
 			User: AdministratorUserSummary{
-				ID: target.ID, Username: target.Username, Email: target.Email,
+				ID: target.ID, Username: target.Username,
 				Status: UserStatusPending, UserType: UserTypeWebmail,
 			},
 			Token: token,

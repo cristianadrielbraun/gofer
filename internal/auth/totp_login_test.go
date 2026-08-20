@@ -18,7 +18,7 @@ func prepareTOTPLoginManager(t *testing.T, now time.Time, tokens TokenGenerator)
 	t.Helper()
 	manager := newDeterministicManager(t, &fixedClock{now: now}, tokens)
 	insertPasswordLoginUser(
-		t, manager, totpLoginTestUserID, "totp@example.com", "totp-person",
+		t, manager, totpLoginTestUserID, "totp-person",
 		UserStatusActive, true, true, false, currentPasswordLoginHash(t), now.Add(-time.Hour),
 	)
 	key, err := newTOTPKey("totp@example.com", "deterministic TOTP login seed material")

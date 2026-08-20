@@ -22,10 +22,10 @@ func insertEnrollmentTokenUser(t *testing.T, manager *Manager, id string, status
 	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, name, status, auth_version, user_type, is_admin,
+			id, username, username_normalized, name, status, auth_version, user_type, is_admin,
 			created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-		id, id+"@example.com", id+"@example.com", id, status, userType, admin, now, now,
+		id, id, id, id, status, userType, admin, now, now,
 	); err != nil {
 		t.Fatalf("insert enrollment token user %q: %v", id, err)
 	}

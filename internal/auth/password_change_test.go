@@ -18,7 +18,7 @@ func newPasswordChangeFixture(t *testing.T) (*Manager, *fixedClock, *Session, *S
 		tokens: []string{"current-session-token", "other-session-token", "changed-session-token"},
 	})
 	insertPasswordLoginUser(
-		t, manager, "person", "Person@Example.com", "Person.Name", UserStatusActive,
+		t, manager, "person", "Person.Name", UserStatusActive,
 		false, false, true, currentPasswordLoginHash(t), now.Add(-time.Hour),
 	)
 	current, err := manager.CreateAuthenticatedSession(
@@ -131,7 +131,7 @@ func TestChangePasswordRequiresRecentStrongStepUpForMFAAccounts(t *testing.T) {
 		})
 		originalHash := currentPasswordLoginHash(t)
 		insertPasswordLoginUser(
-			t, manager, "administrator", "admin@example.com", "administrator",
+			t, manager, "administrator", "administrator",
 			UserStatusActive, true, true, false, originalHash, now.Add(-time.Hour),
 		)
 		current, err := manager.CreateAuthenticatedSession(

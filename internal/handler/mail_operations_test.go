@@ -15,7 +15,7 @@ import (
 )
 
 func mailOperationsRequest(req *http.Request, userID string, isAdmin bool) *http.Request {
-	return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Email: userID + "@example.com", IsAdmin: isAdmin}))
+	return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Username: userID, IsAdmin: isAdmin}))
 }
 
 func seedHandlerMailOperation(t *testing.T, h *Handler, db *storage.DB) string {

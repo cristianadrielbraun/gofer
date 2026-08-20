@@ -226,7 +226,7 @@ func seedV65FolderIdentityDB(t *testing.T, duplicate bool) string {
 		DROP TABLE IF EXISTS folder_id_aliases;
 		CREATE INDEX idx_folders_account_provider_remote ON folders(account_id, provider_remote_id);
 		UPDATE schema_version SET version = 65;
-		INSERT INTO users (id, email, name) VALUES ('owner', 'owner@example.com', 'Owner');
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('owner', 'owner', 'owner', 'Owner');
 		INSERT INTO accounts (id, user_id, provider, email_address) VALUES
 			('imap-acc', 'owner', 'imap', 'imap@example.com'),
 			('gmail-acc', 'owner', 'gmail', 'gmail@example.com');

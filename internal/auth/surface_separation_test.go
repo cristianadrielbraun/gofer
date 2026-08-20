@@ -57,8 +57,8 @@ func TestMiddlewareSeparatesWebmailAndManagementSurfaces(t *testing.T) {
 	t.Run("pending management user is limited to security setup", func(t *testing.T) {
 		manager, now := newSurfaceTestManager(t)
 		if _, err := manager.db.Write().ExecContext(t.Context(), `
-			INSERT INTO users (id, email, email_normalized, name, status, user_type, is_admin, created_at, updated_at)
-			VALUES ('pending-management', 'pending@example.com', 'pending@example.com', 'Pending', 'active', 'management', 0, ?, ?)`, now, now); err != nil {
+			INSERT INTO users (id, username, username_normalized, name, status, user_type, is_admin, created_at, updated_at)
+			VALUES ('pending-management', 'pending-management', 'pending-management', 'Pending', 'active', 'management', 0, ?, ?)`, now, now); err != nil {
 			t.Fatal(err)
 		}
 		insertManagementHandoffSession(t, manager, "pending-session", "pending-management", "pending-token", now)

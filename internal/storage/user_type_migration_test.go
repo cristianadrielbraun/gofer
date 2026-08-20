@@ -17,8 +17,20 @@ func TestMigrateV86SeparatesManagementUsersAndPreservesLegacyMixedAdministrator(
 		CREATE TABLE users (
 			id TEXT PRIMARY KEY,
 			email TEXT NOT NULL UNIQUE,
+			email_normalized TEXT,
+			username TEXT,
+			username_normalized TEXT,
+			name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'active',
-			is_admin INTEGER NOT NULL DEFAULT 0
+			auth_version INTEGER NOT NULL DEFAULT 1,
+			mfa_required INTEGER NOT NULL DEFAULT 0,
+			last_login_at DATETIME,
+			disabled_at DATETIME,
+			disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+			is_admin INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE accounts (
 			id TEXT PRIMARY KEY,
@@ -29,11 +41,11 @@ func TestMigrateV86SeparatesManagementUsersAndPreservesLegacyMixedAdministrator(
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
 		);
-		INSERT INTO users (id, email, is_admin) VALUES
-			('management-owner', 'owner@example.com', 1),
-			('legacy-mixed', 'mixed@example.com', 1),
-			('legacy-federated', 'federated@example.com', 1),
-			('webmail-user', 'mail@example.com', 0);
+		INSERT INTO users (id, email, email_normalized, username, username_normalized, is_admin) VALUES
+			('management-owner', 'owner@example.com', 'owner@example.com', 'management-owner', 'management-owner', 1),
+			('legacy-mixed', 'mixed@example.com', 'mixed@example.com', 'legacy-mixed', 'legacy-mixed', 1),
+			('legacy-federated', 'federated@example.com', 'federated@example.com', 'legacy-federated', 'legacy-federated', 1),
+			('webmail-user', 'mail@example.com', 'mail@example.com', 'webmail-user', 'webmail-user', 0);
 		INSERT INTO accounts (id, user_id, email_address)
 		VALUES ('legacy-mailbox', 'legacy-mixed', 'mixed-mailbox@example.com');
 		INSERT INTO auth_identities (id, user_id)
@@ -81,10 +93,10 @@ func TestSeparatedUserSchemaRejectsNewMixedAccountsAndManagementMailboxes(t *tes
 	t.Cleanup(func() { _ = db.Close() })
 
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, user_type, is_admin) VALUES
-			('management-owner', 'owner@example.com', 'management', 1),
-			('webmail-user', 'mail@example.com', 'webmail', 0),
-			('identity-user', 'identity@example.com', 'webmail', 0);
+		INSERT INTO users (id, username, username_normalized, user_type, is_admin) VALUES
+			('management-owner', 'management-owner', 'management-owner', 'management', 1),
+			('webmail-user', 'webmail-user', 'webmail-user', 'webmail', 0),
+			('identity-user', 'identity-user', 'identity-user', 'webmail', 0);
 		INSERT INTO accounts (id, user_id, email_address)
 		VALUES ('webmail-mailbox', 'webmail-user', 'mailbox@example.com');
 		INSERT INTO auth_identities (id, user_id, provider, issuer, subject)
@@ -94,8 +106,8 @@ func TestSeparatedUserSchemaRejectsNewMixedAccountsAndManagementMailboxes(t *tes
 	}
 
 	assertExecFails(t, db.Write(), `
-		INSERT INTO users (id, email, user_type, is_admin)
-		VALUES ('mixed', 'mixed@example.com', 'webmail', 1)`)
+		INSERT INTO users (id, username, username_normalized, user_type, is_admin)
+		VALUES ('mixed', 'mixed', 'mixed', 'webmail', 1)`)
 	assertExecFails(t, db.Write(), `UPDATE users SET is_admin = 1 WHERE id = 'webmail-user'`)
 	assertExecFails(t, db.Write(), `UPDATE users SET user_type = 'management' WHERE id = 'webmail-user'`)
 	assertExecFails(t, db.Write(), `

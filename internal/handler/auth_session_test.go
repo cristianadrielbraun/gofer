@@ -20,8 +20,8 @@ func TestLogoutRevokesSessionWithTypedMetadata(t *testing.T) {
 	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, created_at, updated_at)
-		VALUES ('user-id', 'user@example.com', 'user@example.com', 'User', 'active', 1, ?, ?)`, now, now); err != nil {
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, created_at, updated_at)
+		VALUES ('user-id', 'user', 'user', 'User', 'active', 1, ?, ?)`, now, now); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	session, err := manager.CreateSession(t.Context(), "user-id", "test-agent")

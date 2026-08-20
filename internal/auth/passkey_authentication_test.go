@@ -191,7 +191,7 @@ func TestPasskeyLoginSupportsIdentifierAndDiscoverableAssertions(t *testing.T) {
 		requireMFA   bool
 		instanceMFA  bool
 	}{
-		{name: "identifier first with required MFA", identifier: " PASSKEY-LOGIN-USER@EXAMPLE.COM ", requireMFA: true},
+		{name: "identifier first with required MFA", identifier: " PASSKEY-LOGIN-USER ", requireMFA: true},
 		{name: "discoverable", discoverable: true},
 		{name: "discoverable with instance MFA", discoverable: true, instanceMFA: true},
 	} {

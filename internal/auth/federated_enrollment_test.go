@@ -38,11 +38,6 @@ func TestGoogleInvitationEnrollmentActivatesOnlyGoferIdentityAndSession(t *testi
 		tokens: []string{"state-token", "nonce-token", "session-token"},
 	})
 	insertRedemptionUser(t, manager, "invitee", UserStatusPending, now)
-	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		UPDATE users SET email = 'invited@example.com', email_normalized = 'invited@example.com'
-		WHERE id = 'invitee'`); err != nil {
-		t.Fatal(err)
-	}
 	insertRedemptionToken(t, manager, "invitation-id", "invitee", "private-invitation", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour))
 
 	start, err := manager.BeginGoogleEnrollment(t.Context(), " private-invitation ")
@@ -83,9 +78,9 @@ func TestGoogleInvitationEnrollmentActivatesOnlyGoferIdentityAndSession(t *testi
 	}
 
 	var status UserStatus
-	var profileEmail string
+	var username string
 	var used, consumed int
-	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT status, email FROM users WHERE id = 'invitee'`).Scan(&status, &profileEmail); err != nil {
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT status, username FROM users WHERE id = 'invitee'`).Scan(&status, &username); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = 'invitation-id'`).Scan(&used); err != nil {
@@ -94,8 +89,8 @@ func TestGoogleInvitationEnrollmentActivatesOnlyGoferIdentityAndSession(t *testi
 	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT consumed_at IS NOT NULL FROM auth_challenges WHERE id = 'google-challenge'`).Scan(&consumed); err != nil {
 		t.Fatal(err)
 	}
-	if status != UserStatusActive || profileEmail != "invited@example.com" || used != 1 || consumed != 1 {
-		t.Fatalf("enrolled Gofer user = status:%q email:%q invitation-used:%d challenge-consumed:%d", status, profileEmail, used, consumed)
+	if status != UserStatusActive || username != "invitee" || used != 1 || consumed != 1 {
+		t.Fatalf("enrolled Gofer user = status:%q username:%q invitation-used:%d challenge-consumed:%d", status, username, used, consumed)
 	}
 	var identityUserID, identityEmail, identitySubject string
 	if err := manager.db.Read().QueryRowContext(t.Context(), `

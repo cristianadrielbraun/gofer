@@ -33,10 +33,9 @@ func insertLegacyMixedAdministrator(t *testing.T, manager *Manager, now time.Tim
 	t.Helper()
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name,
+			id, username, username_normalized, name,
 			status, user_type, is_admin, created_at, updated_at
-		) VALUES ('legacy-admin', 'legacy@example.com', 'legacy@example.com',
-			'legacy', 'legacy', 'Legacy Admin', 'active', 'webmail', 0, ?, ?);
+		) VALUES ('legacy-admin', 'legacy', 'legacy', 'Legacy Admin', 'active', 'webmail', 0, ?, ?);
 		INSERT INTO accounts (id, user_id, email_address)
 		VALUES ('legacy-mailbox', 'legacy-admin', 'mailbox@example.com');
 		DROP TRIGGER users_management_type_update;
@@ -58,10 +57,9 @@ func insertLegacyFederatedAdministrator(t *testing.T, manager *Manager, now time
 	t.Helper()
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name,
+			id, username, username_normalized, name,
 			status, user_type, is_admin, created_at, updated_at
-		) VALUES ('legacy-federated-admin', 'federated@example.com', 'federated@example.com',
-			'federated-admin', 'federated-admin', 'Federated Admin', 'active', 'webmail', 0, ?, ?);
+		) VALUES ('legacy-federated-admin', 'federated-admin', 'federated-admin', 'Federated Admin', 'active', 'webmail', 0, ?, ?);
 		INSERT INTO auth_identities (id, user_id, provider, issuer, subject)
 		VALUES ('legacy-federated-identity', 'legacy-federated-admin', 'google',
 			'https://accounts.google.com', 'legacy-federated-subject');
@@ -90,7 +88,7 @@ func TestManagementHandoffAllowsLegacyFederatedAdministratorWithoutMailbox(t *te
 
 	handoff, err := manager.CreateManagementHandoff(t.Context(), CreateManagementHandoffOptions{
 		ActorUserID: "legacy-federated-admin", ActorSessionID: "legacy-federated-session",
-		Name: "Management Owner", Username: "management", Email: "management@example.com",
+		Name: "Management Owner", Username: "management",
 	})
 	if err != nil {
 		t.Fatalf("CreateManagementHandoff() error = %v", err)
@@ -119,7 +117,7 @@ func newManagementHandoffFixture(t *testing.T, withRecoveryCodes bool) managemen
 	}
 	handoff, err := manager.CreateManagementHandoff(t.Context(), CreateManagementHandoffOptions{
 		ActorUserID: "legacy-admin", ActorSessionID: "legacy-session",
-		Name: "Management Owner", Username: "management", Email: "management@example.com",
+		Name: "Management Owner", Username: "management",
 	})
 	if err != nil {
 		t.Fatalf("CreateManagementHandoff() error = %v", err)

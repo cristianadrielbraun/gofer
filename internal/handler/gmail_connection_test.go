@@ -22,7 +22,7 @@ func TestHandleTestAccountUsesGmailAPIForGmail(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := t.Context()
-	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, email, name) VALUES ('default', 'default@example.com', 'Default')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `

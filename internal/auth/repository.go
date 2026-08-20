@@ -12,8 +12,7 @@ import (
 var ErrLastActiveAdmin = errors.New("cannot deactivate the last active administrator")
 var ErrUserNotActive = errors.New("user is not active")
 
-const userSelect = `SELECT id, email, COALESCE(email_normalized, ''),
-	COALESCE(username, ''), COALESCE(username_normalized, ''), name, avatar_url,
+const userSelect = `SELECT id, username, username_normalized, name, avatar_url,
 	status, auth_version, mfa_required, last_login_at, disabled_at,
 	COALESCE(disabled_by, ''), user_type, is_admin, created_at, updated_at
 	FROM users`
@@ -31,7 +30,7 @@ func scanUser(row rowScanner) (*User, error) {
 	var isAdmin, mfaRequired int
 	var lastLoginAt, disabledAt sql.NullTime
 	if err := row.Scan(
-		&user.ID, &user.Email, &user.EmailNormalized, &user.Username, &user.UsernameNormalized,
+		&user.ID, &user.Username, &user.UsernameNormalized,
 		&user.Name, &user.AvatarURL, &user.Status, &user.AuthVersion, &mfaRequired,
 		&lastLoginAt, &disabledAt, &user.DisabledBy, &user.UserType, &isAdmin, &user.CreatedAt, &user.UpdatedAt,
 	); err != nil {
@@ -51,15 +50,13 @@ func scanUser(row rowScanner) (*User, error) {
 	return user, nil
 }
 
-func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL string) (*User, error) {
-	email = strings.TrimSpace(email)
-	emailNormalized := normalizeLoginIdentifier(email)
-	if emailNormalized == "" {
-		return nil, errors.New("email is required")
+func (m *Manager) CreateOrUpdateUser(ctx context.Context, username, name, avatarURL string) (*User, error) {
+	username, usernameNormalized, err := PrepareUsername(username)
+	if err != nil {
+		return nil, err
 	}
 	existing, err := scanUser(m.db.Read().QueryRowContext(ctx,
-		userSelect+` WHERE email_normalized = ? OR (email_normalized IS NULL AND lower(trim(email)) = ?)`,
-		emailNormalized, emailNormalized,
+		userSelect+` WHERE username_normalized = ?`, usernameNormalized,
 	))
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("lookup user: %w", err)
@@ -69,8 +66,8 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 		now := m.clock.Now()
 		if name != "" {
 			_, err = m.db.Write().ExecContext(ctx,
-				`UPDATE users SET email = ?, email_normalized = ?, name = ?, avatar_url = ?, updated_at = ? WHERE id = ?`,
-				email, emailNormalized, name, avatarURL, now, existing.ID,
+				`UPDATE users SET username = ?, name = ?, avatar_url = ?, updated_at = ? WHERE id = ?`,
+				username, name, avatarURL, now, existing.ID,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("update user: %w", err)
@@ -78,13 +75,12 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 			existing.Name = name
 			existing.AvatarURL = avatarURL
 		} else if _, err := m.db.Write().ExecContext(ctx,
-			`UPDATE users SET email = ?, email_normalized = ?, updated_at = ? WHERE id = ?`,
-			email, emailNormalized, now, existing.ID,
+			`UPDATE users SET username = ?, updated_at = ? WHERE id = ?`,
+			username, now, existing.ID,
 		); err != nil {
-			return nil, fmt.Errorf("normalize user email: %w", err)
+			return nil, fmt.Errorf("update user spelling: %w", err)
 		}
-		existing.Email = email
-		existing.EmailNormalized = emailNormalized
+		existing.Username = username
 		return existing, nil
 	}
 
@@ -115,8 +111,8 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 		}
 		now = m.clock.Now()
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO users (id, email, email_normalized, name, avatar_url, status, user_type, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, email, emailNormalized, name, avatarURL, UserStatusActive, userType, isAdminVal, now, now,
+			`INSERT INTO users (id, username, username_normalized, name, avatar_url, status, user_type, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, username, usernameNormalized, name, avatarURL, UserStatusActive, userType, isAdminVal, now, now,
 		); err != nil {
 			return fmt.Errorf("insert user: %w", err)
 		}
@@ -127,27 +123,27 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 	}
 
 	return &User{
-		ID:              id,
-		Email:           email,
-		EmailNormalized: emailNormalized,
-		Name:            name,
-		AvatarURL:       avatarURL,
-		Status:          UserStatusActive,
-		AuthVersion:     1,
-		UserType:        userType,
-		IsAdmin:         isAdminVal == 1,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		ID:                 id,
+		Username:           username,
+		UsernameNormalized: usernameNormalized,
+		Name:               name,
+		AvatarURL:          avatarURL,
+		Status:             UserStatusActive,
+		AuthVersion:        1,
+		UserType:           userType,
+		IsAdmin:            isAdminVal == 1,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}, nil
 }
 
-func (m *Manager) GetUserByLoginIdentifier(ctx context.Context, identifier string) (*User, error) {
-	normalized := normalizeLoginIdentifier(identifier)
+func (m *Manager) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	normalized := normalizeLoginIdentifier(username)
 	if normalized == "" {
 		return nil, nil
 	}
 	user, err := scanUser(m.db.Read().QueryRowContext(ctx, userSelect+`
-		WHERE email_normalized = ? OR username_normalized = ?`, normalized, normalized))
+		WHERE username_normalized = ?`, normalized))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

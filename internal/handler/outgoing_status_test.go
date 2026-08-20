@@ -13,7 +13,7 @@ import (
 )
 
 func outgoingStatusRequest(req *http.Request, userID string) *http.Request {
-	return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Email: userID + "@example.com"}))
+	return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: userID, Username: userID}))
 }
 
 func TestOutgoingSendStatusIsScopedToCurrentUser(t *testing.T) {

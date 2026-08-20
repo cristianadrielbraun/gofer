@@ -19,13 +19,16 @@ func TestMigrateV76AddsUserLifecycleFields(t *testing.T) {
 		CREATE TABLE users (
 			id TEXT PRIMARY KEY,
 			email TEXT NOT NULL UNIQUE,
+			username TEXT,
+			username_normalized TEXT,
 			name TEXT NOT NULL DEFAULT '',
 			avatar_url TEXT NOT NULL DEFAULT '',
 			is_admin INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
-		INSERT INTO users (id, email, name, is_admin) VALUES ('owner', ' Owner@Example.COM ', 'Owner', 1);
+		INSERT INTO users (id, email, username, username_normalized, name, is_admin)
+		VALUES ('owner', ' Owner@Example.COM ', 'Owner.Name', 'owner.name', 'Owner', 1);
 	`); err != nil {
 		raw.Close()
 		t.Fatalf("seed v76 database: %v", err)
@@ -41,27 +44,26 @@ func TestMigrateV76AddsUserLifecycleFields(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	var version, authVersion, mfaRequired int
-	var emailNormalized, status string
+	var username, status string
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query version: %v", err)
 	}
 	if err := db.Read().QueryRow(`
-		SELECT email_normalized, status, auth_version, mfa_required
-		FROM users WHERE id = 'owner'`).Scan(&emailNormalized, &status, &authVersion, &mfaRequired); err != nil {
+		SELECT username, status, auth_version, mfa_required
+		FROM users WHERE id = 'owner'`).Scan(&username, &status, &authVersion, &mfaRequired); err != nil {
 		t.Fatalf("query migrated user: %v", err)
 	}
-	if version != CurrentSchemaVersion || emailNormalized != "owner@example.com" || status != "active" || authVersion != 1 || mfaRequired != 0 {
-		t.Fatalf("migrated user = version:%d email:%q status:%q auth:%d mfa:%d", version, emailNormalized, status, authVersion, mfaRequired)
+	if version != CurrentSchemaVersion || username != "Owner.Name" || status != "active" || authVersion != 1 || mfaRequired != 0 {
+		t.Fatalf("migrated user = version:%d username:%q status:%q auth:%d mfa:%d", version, username, status, authVersion, mfaRequired)
 	}
-	if _, err := db.Write().Exec(`INSERT INTO users (id, email, email_normalized) VALUES ('duplicate', 'duplicate@example.com', 'owner@example.com')`); err == nil {
-		t.Fatal("normalized email uniqueness accepted a duplicate")
-	}
-	if _, err := db.Write().Exec(`UPDATE users SET username = 'Owner.Name', username_normalized = 'owner.name' WHERE id = 'owner'`); err != nil {
-		t.Fatalf("set normalized username: %v", err)
+	for _, removedColumn := range []string{"email", "email_normalized"} {
+		if exists, err := columnExists(db.Read(), "users", removedColumn); err != nil || exists {
+			t.Fatalf("users.%s exists=%t err=%v, want removed", removedColumn, exists, err)
+		}
 	}
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, username, username_normalized)
-		VALUES ('duplicate-username', 'other@example.com', 'other@example.com', 'owner.name', 'owner.name')`); err == nil {
+		INSERT INTO users (id, username, username_normalized)
+		VALUES ('duplicate-username', 'owner.name', 'owner.name')`); err == nil {
 		t.Fatal("normalized username uniqueness accepted a duplicate")
 	}
 }

@@ -37,7 +37,7 @@ func (m *Manager) GetSetupTOTPEnrollment(ctx context.Context, token, origin stri
 	if state.Draft.TOTPSecret == "" {
 		return nil, ErrSetupTOTPDraftRequired
 	}
-	return setupTOTPEnrollment(state.Draft.EmailNormalized, state.Draft.TOTPSecret, state.TOTPReady)
+	return setupTOTPEnrollment(state.Draft.UsernameNormalized, state.Draft.TOTPSecret, state.TOTPReady)
 }
 
 // StartSetupTOTP creates or deliberately replaces a TOTP seed, then stores it
@@ -57,7 +57,7 @@ func (m *Manager) StartSetupTOTP(ctx context.Context, token, origin string, repl
 		if err != nil {
 			return nil, fmt.Errorf("generate setup TOTP secret: %w", err)
 		}
-		key, err := newTOTPKey(preflight.Draft.EmailNormalized, randomMaterial)
+		key, err := newTOTPKey(preflight.Draft.UsernameNormalized, randomMaterial)
 		if err != nil {
 			return nil, err
 		}
@@ -112,7 +112,7 @@ func (m *Manager) StartSetupTOTP(ctx context.Context, token, origin string, repl
 	if err != nil {
 		return nil, err
 	}
-	return setupTOTPEnrollment(savedDraft.EmailNormalized, savedDraft.TOTPSecret, savedDraft.TOTPConfirmedStep != nil)
+	return setupTOTPEnrollment(savedDraft.UsernameNormalized, savedDraft.TOTPSecret, savedDraft.TOTPConfirmedStep != nil)
 }
 
 // ConfirmSetupTOTP accepts a code only from the current, immediately previous,

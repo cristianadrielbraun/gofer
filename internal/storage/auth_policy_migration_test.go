@@ -17,15 +17,23 @@ func TestMigrateV81AddsSafeDefaultInstanceMFAPolicy(t *testing.T) {
 		CREATE TABLE users (
 			id TEXT PRIMARY KEY,
 			email TEXT NOT NULL UNIQUE,
+			email_normalized TEXT,
+			username TEXT,
+			username_normalized TEXT,
 			name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'active',
 			auth_version INTEGER NOT NULL DEFAULT 1,
+			mfa_required INTEGER NOT NULL DEFAULT 0,
+			last_login_at DATETIME,
+			disabled_at DATETIME,
+			disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
 			is_admin INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
-		INSERT INTO users (id, email, name, is_admin)
-		VALUES ('owner', 'owner@example.com', 'Owner', 1);
+		INSERT INTO users (id, email, email_normalized, username, username_normalized, name, is_admin)
+		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'owner', 'owner', 'Owner', 1);
 		CREATE TABLE auth_system_state (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			initialized INTEGER NOT NULL DEFAULT 0 CHECK (initialized IN (0, 1)),
@@ -93,7 +101,24 @@ func TestMigrateV81RepairsPartialAuthenticationPolicyColumns(t *testing.T) {
 	if _, err := raw.Exec(`
 		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
 		INSERT INTO schema_version (version) VALUES (81);
-		CREATE TABLE users (id TEXT PRIMARY KEY);
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL UNIQUE,
+			email_normalized TEXT,
+			username TEXT,
+			username_normalized TEXT,
+			name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active',
+			auth_version INTEGER NOT NULL DEFAULT 1,
+			mfa_required INTEGER NOT NULL DEFAULT 0,
+			last_login_at DATETIME,
+			disabled_at DATETIME,
+			disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+			is_admin INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
 		CREATE TABLE auth_system_state (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			mfa_policy TEXT NOT NULL DEFAULT 'administrators' CHECK (mfa_policy IN ('administrators', 'all_users'))

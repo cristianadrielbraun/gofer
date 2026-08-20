@@ -2450,7 +2450,7 @@ func TestResetFolderUIDStateStartsANewUIDGeneration(t *testing.T) {
 func TestGetAttachmentFetchInfoForUserRejectsForeignAttachment(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
-	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, email, name) VALUES ('other', 'other@example.com', 'Other')`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES ('other', 'other', 'other', 'Other')`); err != nil {
 		t.Fatalf("insert other user: %v", err)
 	}
 	if _, err := db.Write().ExecContext(ctx, `
@@ -2818,7 +2818,17 @@ func TestMigrateV56AddsOAuthAccountFlows(t *testing.T) {
 	if _, err := raw.Exec(`
 		CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
 		INSERT INTO schema_version (version) VALUES (56);
-		CREATE TABLE users (id TEXT PRIMARY KEY);
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL UNIQUE,
+			username TEXT,
+			username_normalized TEXT,
+			name TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
+			is_admin INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
 	`); err != nil {
 		raw.Close()
 		t.Fatalf("seed v56 database: %v", err)

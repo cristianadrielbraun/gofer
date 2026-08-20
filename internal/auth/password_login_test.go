@@ -11,7 +11,7 @@ import (
 
 const passwordLoginTestPassword = "a safe local login passphrase"
 
-func insertPasswordLoginUser(t *testing.T, manager *Manager, id, email, username string, status UserStatus, isAdmin, mfaRequired, mustChange bool, passwordHash string, now time.Time) {
+func insertPasswordLoginUser(t *testing.T, manager *Manager, id, username string, status UserStatus, isAdmin, mfaRequired, mustChange bool, passwordHash string, now time.Time) {
 	t.Helper()
 	adminValue := 0
 	userType := UserTypeWebmail
@@ -27,19 +27,13 @@ func insertPasswordLoginUser(t *testing.T, manager *Manager, id, email, username
 	if mustChange {
 		mustChangeValue = 1
 	}
-	emailNormalized := normalizeLoginIdentifier(email)
 	usernameNormalized := normalizeLoginIdentifier(username)
-	var usernameValue, usernameNormalizedValue any
-	if username != "" {
-		usernameValue = username
-		usernameNormalizedValue = usernameNormalized
-	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
-			id, email, email_normalized, username, username_normalized, name,
+			id, username, username_normalized, name,
 			status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-		id, email, emailNormalized, usernameValue, usernameNormalizedValue, id,
+		) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+		id, username, usernameNormalized, id,
 		status, mfaValue, userType, adminValue, now, now,
 	); err != nil {
 		t.Fatalf("insert password login user %q: %v", id, err)
@@ -69,15 +63,15 @@ func TestAuthenticatePasswordCreatesSingleFactorSessionAtomically(t *testing.T) 
 		ids:    []string{"password-session-id"},
 		tokens: []string{"password-session-token"},
 	})
-	insertPasswordLoginUser(t, manager, "person", "Person@Example.com", "Person.Name", UserStatusActive, false, false, false, currentPasswordLoginHash(t), now.Add(-time.Hour))
+	insertPasswordLoginUser(t, manager, "person", "Person.Name", UserStatusActive, false, false, false, currentPasswordLoginHash(t), now.Add(-time.Hour))
 
 	for attempt := 1; attempt < int(loginThrottlePolicies[loginThrottleBucketIdentifier].delayStartsAt); attempt++ {
-		if _, err := manager.RecordLoginFailure(t.Context(), "person@example.com", fmt.Sprintf("source-%d", attempt)); err != nil {
+		if _, err := manager.RecordLoginFailure(t.Context(), "person.name", fmt.Sprintf("source-%d", attempt)); err != nil {
 			t.Fatalf("seed throttle failure %d: %v", attempt, err)
 		}
 	}
 	result, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
-		Identifier: " PERSON@example.COM ",
+		Identifier: " PERSON.NAME ",
 		Password:   passwordLoginTestPassword,
 		Source:     "success-source",
 		UserAgent:  "  test browser  ",
@@ -107,7 +101,7 @@ func TestAuthenticatePasswordCreatesSingleFactorSessionAtomically(t *testing.T) 
 	if !lastLoginAt.Equal(now) {
 		t.Fatalf("last_login_at = %v, want %v", lastLoginAt, now)
 	}
-	identifierHash, err := manager.loginThrottleBucketHash(loginThrottleBucketIdentifier, "person@example.com")
+	identifierHash, err := manager.loginThrottleBucketHash(loginThrottleBucketIdentifier, "person.name")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,10 +134,10 @@ func TestAuthenticatePasswordReturnsGenericFailures(t *testing.T) {
 			clock := &fixedClock{now: now}
 			manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{})
 			if test.insertUser {
-				insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", test.status, false, false, test.mustChange, currentPasswordLoginHash(t), now)
+				insertPasswordLoginUser(t, manager, "person", "person", test.status, false, false, test.mustChange, currentPasswordLoginHash(t), now)
 			}
 			result, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
-				Identifier: "person@example.com",
+				Identifier: "person",
 				Password:   test.password,
 				Source:     "198.51.100.40",
 			})
@@ -164,13 +158,11 @@ func TestAuthenticatePasswordReturnsGenericFailures(t *testing.T) {
 	}
 }
 
-func TestAuthenticatePasswordDetectsAmbiguousCrossNamespaceIdentifier(t *testing.T) {
+func TestAuthenticatePasswordRejectsFormerAccountEmailIdentifier(t *testing.T) {
 	now := time.Date(2026, time.August, 5, 18, 30, 0, 0, time.UTC)
 	clock := &fixedClock{now: now}
 	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{})
-	hash := currentPasswordLoginHash(t)
-	insertPasswordLoginUser(t, manager, "email-owner", "shared@example.com", "email-owner", UserStatusActive, false, false, false, hash, now)
-	insertPasswordLoginUser(t, manager, "username-owner", "other@example.com", "shared@example.com", UserStatusActive, false, false, false, hash, now)
+	insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, false, false, false, currentPasswordLoginHash(t), now)
 
 	result, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
 		Identifier: "shared@example.com",
@@ -178,7 +170,7 @@ func TestAuthenticatePasswordDetectsAmbiguousCrossNamespaceIdentifier(t *testing
 		Source:     "198.51.100.41",
 	})
 	if result != nil || !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("AuthenticatePassword(ambiguous) = %#v, %v, want generic rejection", result, err)
+		t.Fatalf("AuthenticatePassword(former account email) = %#v, %v, want generic rejection", result, err)
 	}
 }
 
@@ -186,12 +178,12 @@ func TestAuthenticatePasswordReturnsPersistentThrottleDecision(t *testing.T) {
 	now := time.Date(2026, time.August, 5, 19, 0, 0, 0, time.UTC)
 	clock := &fixedClock{now: now}
 	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{})
-	insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", UserStatusActive, false, false, false, currentPasswordLoginHash(t), now)
+	insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, false, false, false, currentPasswordLoginHash(t), now)
 
 	var err error
 	for attempt := int64(1); attempt <= loginThrottlePolicies[loginThrottleBucketIdentifier].delayStartsAt; attempt++ {
 		_, err = manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
-			Identifier: "person@example.com",
+			Identifier: "person",
 			Password:   "incorrect passphrase",
 			Source:     fmt.Sprintf("source-%d", attempt),
 		})
@@ -204,7 +196,7 @@ func TestAuthenticatePasswordReturnsPersistentThrottleDecision(t *testing.T) {
 		t.Fatalf("throttle error = %#v", throttleError)
 	}
 	if _, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
-		Identifier: "person@example.com",
+		Identifier: "person",
 		Password:   passwordLoginTestPassword,
 		Source:     "new-source",
 	}); !errors.Is(err, ErrLoginThrottled) {
@@ -230,7 +222,7 @@ func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
 				ids:    []string{"mfa-challenge-id"},
 				tokens: []string{"mfa-challenge-token"},
 			})
-			insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", UserStatusActive, test.isAdmin, test.mfaRequired, false, currentPasswordLoginHash(t), now)
+			insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, test.isAdmin, test.mfaRequired, false, currentPasswordLoginHash(t), now)
 			if test.instanceMFA {
 				if _, err := manager.db.Write().ExecContext(t.Context(), `
 					INSERT INTO auth_system_state (id, initialized, mfa_policy)
@@ -277,7 +269,7 @@ func TestAuthenticatePasswordReplacesPriorMFAContinuation(t *testing.T) {
 		ids:    []string{"first-challenge", "second-challenge"},
 		tokens: []string{"first-token", "second-token"},
 	})
-	insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", UserStatusActive, true, false, false, currentPasswordLoginHash(t), now)
+	insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, true, false, false, currentPasswordLoginHash(t), now)
 	first, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
 		Identifier: "person", Password: passwordLoginTestPassword, Source: "198.51.100.42",
 	})
@@ -322,7 +314,7 @@ func TestAuthenticatePasswordUpgradesStaleHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hashPassword(stale) error = %v", err)
 	}
-	insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", UserStatusActive, false, false, false, staleHash, now)
+	insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, false, false, false, staleHash, now)
 
 	if _, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
 		Identifier: "person",
@@ -354,9 +346,9 @@ func TestAuthenticatePasswordCompletionRollsBackAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertPasswordLoginUser(t, manager, "person", "person@example.com", "person", UserStatusActive, false, false, false, staleHash, now.Add(-time.Hour))
+	insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, false, false, false, staleHash, now.Add(-time.Hour))
 	for attempt := 1; attempt < int(loginThrottlePolicies[loginThrottleBucketIdentifier].delayStartsAt); attempt++ {
-		if _, err := manager.RecordLoginFailure(t.Context(), "person@example.com", fmt.Sprintf("source-%d", attempt)); err != nil {
+		if _, err := manager.RecordLoginFailure(t.Context(), "person", fmt.Sprintf("source-%d", attempt)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -370,7 +362,7 @@ func TestAuthenticatePasswordCompletionRollsBackAtomically(t *testing.T) {
 	}
 
 	if result, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
-		Identifier: "person@example.com",
+		Identifier: "person",
 		Password:   passwordLoginTestPassword,
 		Source:     "success-source",
 	}); err == nil || result != nil || errors.Is(err, ErrInvalidCredentials) {
@@ -391,7 +383,7 @@ func TestAuthenticatePasswordCompletionRollsBackAtomically(t *testing.T) {
 	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_throttle`).Scan(&throttleCount); err != nil {
 		t.Fatal(err)
 	}
-	identifierHash, err := manager.loginThrottleBucketHash(loginThrottleBucketIdentifier, "person@example.com")
+	identifierHash, err := manager.loginThrottleBucketHash(loginThrottleBucketIdentifier, "person")
 	if err != nil {
 		t.Fatal(err)
 	}

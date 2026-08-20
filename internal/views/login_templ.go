@@ -82,7 +82,7 @@ func LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage str
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<form method=\"post\" action=\"/login\" class=\"space-y-4\"><div class=\"space-y-2\"><label for=\"login-identifier\" class=\"text-sm font-medium\">Username or email</label> <input id=\"login-identifier\" name=\"identifier\" type=\"text\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<form method=\"post\" action=\"/login\" class=\"space-y-4\"><div class=\"space-y-2\"><label for=\"login-identifier\" class=\"text-sm font-medium\">Username</label> <input id=\"login-identifier\" name=\"identifier\" type=\"text\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -179,7 +179,7 @@ func LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage str
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<p data-passkey-authentication-status role=\"status\" aria-live=\"polite\" class=\"text-center text-xs text-muted-foreground\">Enter a username or email to target its passkeys, or leave it blank to choose a saved account.</p><noscript><p class=\"text-center text-xs text-amber-800 dark:text-amber-200\">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript></form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<p data-passkey-authentication-status role=\"status\" aria-live=\"polite\" class=\"text-center text-xs text-muted-foreground\">Enter a username to target its passkeys, or leave it blank to choose a saved account.</p><noscript><p class=\"text-center text-xs text-amber-800 dark:text-amber-200\">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
