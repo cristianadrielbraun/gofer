@@ -168,7 +168,7 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 	now := m.clock.Now().UTC()
 	result := &SetInstanceMFAPolicyResult{}
 	err := m.runSecurityTransition(ctx, SecurityTransitionPolicyChange, func(tx *sql.Tx) error {
-		if err := requireActiveAdministrator(ctx, tx, actorUserID); err != nil {
+		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
 			return err
 		}
 		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {

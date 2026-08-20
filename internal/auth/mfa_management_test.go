@@ -42,7 +42,7 @@ func prepareTOTPEnrollmentManagement(t *testing.T, now time.Time) (*Manager, *fi
 	manager, _, _ := prepareTOTPLoginManager(t, now, secureTokenGenerator{})
 	manager.clock = clock
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		UPDATE users SET is_admin = 0, mfa_required = 0, user_type = 'webmail' WHERE id = ?;
 		DELETE FROM recovery_codes WHERE user_id = ?;
 		DELETE FROM totp_credentials WHERE user_id = ?`,
 		totpLoginTestUserID, totpLoginTestUserID, totpLoginTestUserID,
@@ -502,7 +502,7 @@ func TestTOTPDisableCountsConfiguredGoogleIdentityAsPrimarySignIn(t *testing.T) 
 	manager, _, _, session := prepareMFAManagement(t, now, true)
 	configureGoogleOAuthTest(manager)
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		UPDATE users SET is_admin = 0, mfa_required = 0, user_type = 'webmail' WHERE id = ?;
 		DELETE FROM password_credentials WHERE user_id = ?`,
 		session.UserID, session.UserID,
 	); err != nil {
@@ -533,7 +533,7 @@ func TestTOTPDisableDoesNotCountGoogleIdentityWithAnotherIssuer(t *testing.T) {
 	manager, _, _, session := prepareMFAManagement(t, now, true)
 	configureGoogleOAuthTest(manager)
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		UPDATE users SET is_admin = 0, mfa_required = 0, user_type = 'webmail' WHERE id = ?;
 		DELETE FROM password_credentials WHERE user_id = ?`,
 		session.UserID, session.UserID,
 	); err != nil {

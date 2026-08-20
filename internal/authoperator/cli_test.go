@@ -25,10 +25,10 @@ func createOperatorTestDatabase(t *testing.T) string {
 	if _, err := db.Write().Exec(`
 		INSERT INTO users (
 			id, email, email_normalized, username, username_normalized, name,
-			status, auth_version, is_admin
+			status, auth_version, is_admin, user_type
 		) VALUES
-			(?, 'Owner@Example.com', 'owner@example.com', 'Owner', 'owner', 'Owner', 'active', 3, 1),
-			('disabled-user', 'disabled@example.com', 'disabled@example.com', NULL, NULL, 'Disabled', 'disabled', 2, 0)`,
+			(?, 'Owner@Example.com', 'owner@example.com', 'Owner', 'owner', 'Owner', 'active', 3, 1, 'management'),
+			('disabled-user', 'disabled@example.com', 'disabled@example.com', NULL, NULL, 'Disabled', 'disabled', 2, 0, 'webmail')`,
 		ownerID,
 	); err != nil {
 		db.Close()
@@ -100,9 +100,9 @@ func TestUsersListIsDeterministicScopedAndTerminalSafe(t *testing.T) {
 	}
 	output := stdout.String()
 	for _, required := range []string{
-		"ID", "USERNAME", "EMAIL", "STATUS", "ROLE",
-		`"disabled-user"`, `"disabled@example.com"`, "disabled", "user",
-		`"owner\x1b[31m"`, `"Owner"`, `"Owner@Example.com"`, "active", "administrator",
+		"ID", "USERNAME", "EMAIL", "STATUS", "TYPE", "ROLE",
+		`"disabled-user"`, `"disabled@example.com"`, "disabled", "webmail", "user",
+		`"owner\x1b[31m"`, `"Owner"`, `"Owner@Example.com"`, "active", "management", "administrator",
 	} {
 		if !strings.Contains(output, required) {
 			t.Fatalf("users list missing %q: %q", required, output)

@@ -14,8 +14,10 @@ const passwordLoginTestPassword = "a safe local login passphrase"
 func insertPasswordLoginUser(t *testing.T, manager *Manager, id, email, username string, status UserStatus, isAdmin, mfaRequired, mustChange bool, passwordHash string, now time.Time) {
 	t.Helper()
 	adminValue := 0
+	userType := UserTypeWebmail
 	if isAdmin {
 		adminValue = 1
+		userType = UserTypeManagement
 	}
 	mfaValue := 0
 	if mfaRequired {
@@ -35,10 +37,10 @@ func insertPasswordLoginUser(t *testing.T, manager *Manager, id, email, username
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
 			id, email, email_normalized, username, username_normalized, name,
-			status, auth_version, mfa_required, is_admin, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+			status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
 		id, email, emailNormalized, usernameValue, usernameNormalizedValue, id,
-		status, mfaValue, adminValue, now, now,
+		status, mfaValue, userType, adminValue, now, now,
 	); err != nil {
 		t.Fatalf("insert password login user %q: %v", id, err)
 	}

@@ -35,8 +35,10 @@ func setupOwnerTestManager(t *testing.T) (*Manager, *fixedClock) {
 func insertSetupOwnerUser(t *testing.T, manager *Manager, id, email, username, name string, status UserStatus, admin bool) {
 	t.Helper()
 	adminValue := 0
+	userType := UserTypeWebmail
 	if admin {
 		adminValue = 1
+		userType = UserTypeManagement
 	}
 	var normalizedUsername any
 	if username != "" {
@@ -45,10 +47,10 @@ func insertSetupOwnerUser(t *testing.T, manager *Manager, id, email, username, n
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
 			id, email, email_normalized, username, username_normalized, name,
-			status, is_admin, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			status, user_type, is_admin, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, email, strings.ToLower(email), nullableIdentifier(username), normalizedUsername,
-		name, status, adminValue, manager.clock.Now(), manager.clock.Now()); err != nil {
+		name, status, userType, adminValue, manager.clock.Now(), manager.clock.Now()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -64,7 +66,7 @@ func TestSetupOwnerTopologyDistinguishesFreshLegacyAndExistingUsers(t *testing.T
 
 	t.Run("legacy default", func(t *testing.T) {
 		manager, _ := setupOwnerTestManager(t)
-		insertSetupOwnerUser(t, manager, "default", "local@gofer.local", "", "Local User", UserStatusActive, true)
+		insertSetupOwnerUser(t, manager, "default", "local@gofer.local", "", "Local User", UserStatusActive, false)
 		if _, err := manager.db.Write().ExecContext(t.Context(), `
 			INSERT INTO accounts (id, user_id, email_address) VALUES ('mailbox', 'default', 'mail@example.com')`); err != nil {
 			t.Fatal(err)
@@ -138,7 +140,7 @@ func TestSaveSetupOwnerDraftIsEncryptedChallengeBoundAndNonMutating(t *testing.T
 	}
 }
 
-func TestSetupOwnerExistingSelectionPreservesOwnershipAndRejectsCollisions(t *testing.T) {
+func TestSetupOwnerRejectsExistingTargetsAndPreservesOwnership(t *testing.T) {
 	manager, _ := setupOwnerTestManager(t)
 	insertSetupOwnerUser(t, manager, "existing", "existing@example.com", "existing", "Existing User", UserStatusActive, false)
 	insertSetupOwnerUser(t, manager, "other", "other@example.com", "other", "Other User", UserStatusActive, true)
@@ -151,8 +153,9 @@ func TestSetupOwnerExistingSelectionPreservesOwnershipAndRejectsCollisions(t *te
 		Mode: SetupOwnerModeExisting, TargetUserID: "existing", Name: "Real Owner",
 		Username: "existing", Email: "existing@example.com",
 	})
-	if err != nil {
-		t.Fatalf("save existing owner draft: %v", err)
+	var validationErr *SetupOwnerValidationError
+	if !errors.As(err, &validationErr) || validationErr.Fields["target"] == "" {
+		t.Fatalf("existing target error = %#v, %v", validationErr, err)
 	}
 	var userID, name, email, username string
 	if err := manager.db.Read().QueryRow(`SELECT id, name, email, username FROM users WHERE id = 'existing'`).Scan(&userID, &name, &email, &username); err != nil {
@@ -164,14 +167,6 @@ func TestSetupOwnerExistingSelectionPreservesOwnershipAndRejectsCollisions(t *te
 	}
 	if userID != "existing" || name != "Existing User" || email != "existing@example.com" || username != "existing" || accountOwner != "existing" {
 		t.Fatalf("existing selection mutated ownership/profile = user:%q name:%q email:%q username:%q account:%q", userID, name, email, username, accountOwner)
-	}
-
-	_, err = manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeExisting, TargetUserID: "missing", Name: "Owner", Username: "new-owner", Email: "new@example.com",
-	})
-	var validationErr *SetupOwnerValidationError
-	if !errors.As(err, &validationErr) || validationErr.Fields["target"] == "" {
-		t.Fatalf("forged target error = %v", err)
 	}
 
 	_, err = manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
@@ -187,7 +182,7 @@ func TestSetupOwnerDraftBecomesStaleWhenUserTopologyChanges(t *testing.T) {
 	manager, _ := setupOwnerTestManager(t)
 	insertSetupOwnerUser(t, manager, "existing", "existing@example.com", "existing", "Existing", UserStatusActive, false)
 	if _, err := manager.SaveSetupOwnerDraft(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeExisting, TargetUserID: "existing", Name: "Owner", Username: "owner", Email: "owner@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Owner", Username: "owner", Email: "owner@example.com",
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -101,7 +101,7 @@ func startGoogleIdentityLinkHandlerFlow(
 	verifier *handlerGoogleIDTokenVerifier,
 ) (*http.Cookie, string) {
 	t.Helper()
-	page := getSecuritySettings(t, stack, sessionCookie)
+	page := getSecuritySettingsPath(t, stack, "/settings/security", sessionCookie)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `action="`+securityGoogleIdentityLinkPath+`"`) {
 		t.Fatalf("Google identity settings = %d %q", page.Code, page.Body.String())
 	}
@@ -188,7 +188,7 @@ func TestGoogleIdentityUnlinkRouteRequiresCSRFRotatesSessionAndPreservesGmailMai
 		t.Fatalf("read linked identity ID: %v", err)
 	}
 	unlinkPath := securityGoogleIdentityUnlinkPath(identityID)
-	page := getSecuritySettings(t, stack, sessionCookie)
+	page := getSecuritySettingsPath(t, stack, "/settings/security", sessionCookie)
 	for _, want := range []string{`action="` + unlinkPath + `"`, "Disconnect", "For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox"} {
 		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("unlink settings missing %q: %d %q", want, page.Code, page.Body.String())
@@ -221,7 +221,7 @@ func TestGoogleIdentityUnlinkRouteRequiresCSRFRotatesSessionAndPreservesGmailMai
 	if rotatedCookie == nil || rotatedCookie.Value == "" || rotatedCookie.Value == sessionCookie.Value {
 		t.Fatalf("rotated identity-unlink session cookie = %#v", rotatedCookie)
 	}
-	if old := getSecuritySettings(t, stack, sessionCookie); old.Code != http.StatusSeeOther || old.Header().Get("Location") != "/login" {
+	if old := getSecuritySettingsPath(t, stack, "/settings/security", sessionCookie); old.Code != http.StatusSeeOther || old.Header().Get("Location") != "/login" {
 		t.Fatalf("old session after identity unlink = %d %q", old.Code, old.Header().Get("Location"))
 	}
 	confirmation := getSecuritySettingsPath(t, stack, "/settings/security?google_unlinked=1", rotatedCookie)
@@ -275,7 +275,7 @@ func TestGoogleIdentityUnlinkRouteProtectsLastSignInMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	unlinkPath := securityGoogleIdentityUnlinkPath(identityID)
-	page := getSecuritySettings(t, stack, sessionCookie)
+	page := getSecuritySettingsPath(t, stack, "/settings/security", sessionCookie)
 	if page.Code != http.StatusOK || strings.Contains(page.Body.String(), `action="`+unlinkPath+`"`) ||
 		!strings.Contains(page.Body.String(), "Add another usable sign-in method") {
 		t.Fatalf("protected identity settings = %d %q", page.Code, page.Body.String())

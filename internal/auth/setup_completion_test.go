@@ -185,11 +185,20 @@ func TestCompleteSetupFreshOwnerCommitsCredentialsStateEventAndSession(t *testin
 	}
 }
 
-func TestCompleteSetupClaimsLegacyDefaultInPlaceAndReplacesOnlyPlannedSecurity(t *testing.T) {
+func TestCompleteSetupCreatesSeparateOwnerAndLeavesLegacyWebmailInPlace(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
-	insertSetupOwnerUser(t, manager, "default", "local@gofer.local", "", "Local User", UserStatusActive, true)
+	insertSetupOwnerUser(t, manager, "default", "local@gofer.local", "", "Local User", UserStatusActive, false)
 	if _, err := manager.db.Write().Exec(`
 		INSERT INTO accounts (id, user_id, email_address) VALUES ('legacy-mailbox', 'default', 'mail@example.com');
+		DROP TRIGGER users_management_type_update;
+		UPDATE users SET is_admin = 1 WHERE id = 'default';
+		CREATE TRIGGER users_management_type_update
+		BEFORE UPDATE OF is_admin, user_type ON users
+		WHEN NEW.is_admin = 1 AND NEW.user_type != 'management'
+		 AND (OLD.is_admin != NEW.is_admin OR OLD.user_type != NEW.user_type)
+		BEGIN
+			SELECT RAISE(ABORT, 'administrator must be a management user');
+		END;
 		INSERT INTO password_credentials (user_id, password_hash) VALUES ('default', 'old-password');
 		INSERT INTO webauthn_credentials (id, user_id, credential_id, public_key, name)
 		VALUES ('legacy-passkey', 'default', x'01', x'02', 'Legacy passkey');
@@ -208,26 +217,27 @@ func TestCompleteSetupClaimsLegacyDefaultInPlaceAndReplacesOnlyPlannedSecurity(t
 		t.Fatal(err)
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeExisting, TargetUserID: "default", Name: "Real Owner",
+		Mode: SetupOwnerModeCreate, Name: "Real Owner",
 		Username: "owner", Email: "owner@example.com",
 	})
 	result := completePreparedSetup(t, manager)
-	if result.OwnerUserID != "default" || result.RevokedSessions != 1 {
+	if result.OwnerUserID == "default" || result.RevokedSessions != 1 {
 		t.Fatalf("legacy completion = %#v", result)
 	}
 
-	var ownerID, name, email, username, status, accountOwner string
+	var ownerID, name, email, username, status, userType, accountOwner string
+	var legacyAdmin int
 	var authVersion int64
-	if err := manager.db.Read().QueryRow(`SELECT id, name, email, username, status, auth_version FROM users WHERE id = 'default'`).Scan(
-		&ownerID, &name, &email, &username, &status, &authVersion,
+	if err := manager.db.Read().QueryRow(`SELECT id, name, email, COALESCE(username, ''), status, auth_version, user_type, is_admin FROM users WHERE id = 'default'`).Scan(
+		&ownerID, &name, &email, &username, &status, &authVersion, &userType, &legacyAdmin,
 	); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.db.Read().QueryRow(`SELECT user_id FROM accounts WHERE id = 'legacy-mailbox'`).Scan(&accountOwner); err != nil {
 		t.Fatal(err)
 	}
-	if ownerID != "default" || name != "Real Owner" || email != "owner@example.com" || username != "owner" ||
-		status != string(UserStatusActive) || authVersion != 2 || accountOwner != "default" {
+	if ownerID != "default" || name != "Local User" || email != "local@gofer.local" || username != "" ||
+		status != string(UserStatusActive) || authVersion != 2 || userType != string(UserTypeWebmail) || legacyAdmin != 0 || accountOwner != "default" {
 		t.Fatalf("claimed legacy owner = id:%q name:%q email:%q username:%q status:%q version:%d mailboxOwner:%q",
 			ownerID, name, email, username, status, authVersion, accountOwner)
 	}
@@ -244,8 +254,8 @@ func TestCompleteSetupClaimsLegacyDefaultInPlaceAndReplacesOnlyPlannedSecurity(t
 			t.Fatal(err)
 		}
 	}
-	if passkeys != 1 || identities != 1 || activeTOTPs != 1 || revokedTOTPs != 1 ||
-		activeRecovery != setupRecoveryCodeCount || revokedRecovery != 1 {
+	if passkeys != 1 || identities != 1 || activeTOTPs != 1 || revokedTOTPs != 0 ||
+		activeRecovery != 1 || revokedRecovery != 0 {
 		t.Fatalf("legacy security retention = passkeys:%d identities:%d activeTOTP:%d revokedTOTP:%d activeRecovery:%d revokedRecovery:%d",
 			passkeys, identities, activeTOTPs, revokedTOTPs, activeRecovery, revokedRecovery)
 	}
@@ -259,10 +269,10 @@ func TestCompleteSetupClaimsLegacyDefaultInPlaceAndReplacesOnlyPlannedSecurity(t
 	}
 }
 
-func TestCompleteSetupActivatesSelectedExistingUserWithoutMovingOtherUsers(t *testing.T) {
+func TestCompleteSetupCreatesSeparateOwnerWithoutMovingExistingUsers(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
 	insertSetupOwnerUser(t, manager, "selected", "selected@example.com", "selected", "Selected", UserStatusDisabled, false)
-	insertSetupOwnerUser(t, manager, "other", "other@example.com", "other", "Other", UserStatusActive, true)
+	insertSetupOwnerUser(t, manager, "other", "other@example.com", "other", "Other", UserStatusActive, false)
 	if _, err := manager.db.Write().Exec(`
 		INSERT INTO accounts (id, user_id, email_address) VALUES
 			('selected-mailbox', 'selected', 'selected-mail@example.com'),
@@ -270,11 +280,11 @@ func TestCompleteSetupActivatesSelectedExistingUserWithoutMovingOtherUsers(t *te
 		t.Fatal(err)
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeExisting, TargetUserID: "selected", Name: "Selected Owner",
-		Username: "selected", Email: "selected@example.com",
+		Mode: SetupOwnerModeCreate, Name: "Separate Owner",
+		Username: "separate-owner", Email: "separate-owner@example.com",
 	})
 	result := completePreparedSetup(t, manager)
-	if result.OwnerUserID != "selected" {
+	if result.OwnerUserID == "selected" || result.OwnerUserID == "other" {
 		t.Fatalf("selected owner ID = %q", result.OwnerUserID)
 	}
 	var selectedOwner, otherOwner, otherName, otherStatus string
@@ -289,7 +299,7 @@ func TestCompleteSetupActivatesSelectedExistingUserWithoutMovingOtherUsers(t *te
 		t.Fatal(err)
 	}
 	if selectedOwner != "selected" || otherOwner != "other" || otherName != "Other" ||
-		otherStatus != string(UserStatusActive) || otherAdmin != 1 {
+		otherStatus != string(UserStatusActive) || otherAdmin != 0 {
 		t.Fatalf("existing ownership changed = selected:%q other:%q otherName:%q otherStatus:%q otherAdmin:%d",
 			selectedOwner, otherOwner, otherName, otherStatus, otherAdmin)
 	}

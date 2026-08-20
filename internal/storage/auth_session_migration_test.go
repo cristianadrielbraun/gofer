@@ -94,8 +94,8 @@ func TestMigrateV78RemovesRawSessionTokensAndPreservesReferences(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 86 {
-		t.Fatalf("schema version = %d, %v; want 86", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, %v; want %d", version, err, CurrentSchemaVersion)
 	}
 	for _, column := range []string{"token", "expires_at"} {
 		if exists, err := columnExists(db.Read(), "sessions", column); err != nil || exists {

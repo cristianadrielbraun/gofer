@@ -45,7 +45,7 @@ func completedSecuritySettingsStack(t *testing.T) (*auth.Manager, *storage.DB, h
 
 func getSecuritySettings(t *testing.T, stack http.Handler, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
-	return getSecuritySettingsPath(t, stack, "/settings/security", cookies...)
+	return getSecuritySettingsPath(t, stack, "/admin/account/security", cookies...)
 }
 
 func getSecuritySettingsPath(t *testing.T, stack http.Handler, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
@@ -192,7 +192,7 @@ func TestSecuritySettingsListsOnlyCurrentUsersActiveAndRecentSessions(t *testing
 			t.Fatalf("%s session after targeted revocation = %#v, %v", label, found, err)
 		}
 	}
-	confirmation := getSecuritySettingsPath(t, stack, revoked.Header().Get("Location"), sessionCookie)
+	confirmation := getSecuritySettingsPath(t, stack, "/admin/account/security?session_revoked=1", sessionCookie)
 	if confirmation.Code != http.StatusOK || !strings.Contains(confirmation.Body.String(), "Session signed out.") ||
 		!strings.Contains(confirmation.Body.String(), "Other Browser") ||
 		!strings.Contains(confirmation.Body.String(), "Signed out") {
@@ -287,7 +287,7 @@ func TestSecuritySettingsStartsAndRejectsPasskeyRegistrationThroughBoundJSONEndp
 	}
 	challengeCookie := responseCookie(started, "gofer_security_challenge", true)
 	if challengeCookie == nil || !challengeCookie.HttpOnly || !challengeCookie.Secure ||
-		challengeCookie.Path != "/settings/security" || challengeCookie.SameSite != http.SameSiteLaxMode {
+		challengeCookie.Path != "/" || challengeCookie.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("passkey challenge cookie = %#v", challengeCookie)
 	}
 	finishRequest := httptest.NewRequest(http.MethodPost, securityPasskeyFinishPath, strings.NewReader(`{}`))
@@ -362,7 +362,7 @@ func TestSecuritySettingsReplacesTOTPThroughSessionBoundChallenge(t *testing.T) 
 	}
 	challengeCookie := responseCookie(start, "gofer_security_challenge", true)
 	if challengeCookie == nil || !challengeCookie.HttpOnly || !challengeCookie.Secure ||
-		challengeCookie.SameSite != http.SameSiteLaxMode || challengeCookie.Path != "/settings/security" {
+		challengeCookie.SameSite != http.SameSiteLaxMode || challengeCookie.Path != "/" {
 		t.Fatalf("security challenge cookie = %#v", challengeCookie)
 	}
 	replacementPage := getSecuritySettings(t, stack, sessionCookie, challengeCookie)
@@ -418,14 +418,14 @@ func TestSecuritySettingsEnrollsFirstAuthenticatorThroughSessionBoundChallenge(t
 		t.Fatalf("load enrollment session = %#v, %v", session, err)
 	}
 	if _, err := db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?;
+		UPDATE users SET is_admin = 0, mfa_required = 0, user_type = 'webmail' WHERE id = ?;
 		DELETE FROM recovery_codes WHERE user_id = ?;
 		DELETE FROM totp_credentials WHERE user_id = ?`,
 		session.UserID, session.UserID, session.UserID,
 	); err != nil {
 		t.Fatal(err)
 	}
-	page := getSecuritySettings(t, stack, sessionCookie)
+	page := getSecuritySettingsPath(t, stack, "/settings/security", sessionCookie)
 	for _, want := range []string{
 		"Not enrolled", "Set up authenticator", `action="/settings/security/totp/start"`,
 	} {
@@ -444,10 +444,10 @@ func TestSecuritySettingsEnrollsFirstAuthenticatorThroughSessionBoundChallenge(t
 	}
 	challengeCookie := responseCookie(start, "gofer_security_challenge", true)
 	if challengeCookie == nil || !challengeCookie.HttpOnly || !challengeCookie.Secure ||
-		challengeCookie.SameSite != http.SameSiteLaxMode || challengeCookie.Path != "/settings/security" {
+		challengeCookie.SameSite != http.SameSiteLaxMode || challengeCookie.Path != "/" {
 		t.Fatalf("TOTP enrollment challenge cookie = %#v", challengeCookie)
 	}
-	enrollmentPage := getSecuritySettings(t, stack, sessionCookie, challengeCookie)
+	enrollmentPage := getSecuritySettingsPath(t, stack, "/settings/security", sessionCookie, challengeCookie)
 	for _, want := range []string{
 		"Verify the new authenticator", "authenticator is not enabled until the code is verified",
 		`alt="QR code containing the new Gofer authenticator key"`, "Enable authenticator",
@@ -523,7 +523,7 @@ func TestSecuritySettingsRecoveryBatchIsDisplayedOnceThenAcknowledged(t *testing
 	if complete.Code != http.StatusSeeOther || complete.Header().Get("Location") != "/settings/security?recovery_replaced=1" {
 		t.Fatalf("complete recovery batch = %d location:%q body:%q", complete.Code, complete.Header().Get("Location"), complete.Body.String())
 	}
-	confirmation := getSecuritySettingsPath(t, stack, "/settings/security?recovery_replaced=1", sessionCookie)
+	confirmation := getSecuritySettingsPath(t, stack, "/admin/account/security?recovery_replaced=1", sessionCookie)
 	if confirmation.Code != http.StatusOK || !strings.Contains(confirmation.Body.String(), "previous unused codes no longer work") ||
 		!strings.Contains(confirmation.Body.String(), "10 remaining") {
 		t.Fatalf("recovery replacement confirmation = %d %q", confirmation.Code, confirmation.Body.String())
@@ -599,7 +599,7 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 	if stepUp.Code != http.StatusSeeOther || stepUp.Header().Get("Location") != "/settings/security?verified=1" {
 		t.Fatalf("security step-up = %d location:%q body:%q", stepUp.Code, stepUp.Header().Get("Location"), stepUp.Body.String())
 	}
-	verified := getSecuritySettingsPath(t, stack, "/settings/security?verified=1", sessionCookie)
+	verified := getSecuritySettingsPath(t, stack, "/admin/account/security?verified=1", sessionCookie)
 	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), "Sensitive actions are available for ten minutes") ||
 		!strings.Contains(verified.Body.String(), `data-password-security-settings`) ||
 		!strings.Contains(verified.Body.String(), `data-local-login-identifiers`) ||

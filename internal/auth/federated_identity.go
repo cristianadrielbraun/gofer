@@ -19,7 +19,35 @@ const (
 var (
 	ErrFederatedIdentityUnknown  = errors.New("federated identity is not linked")
 	ErrFederatedIdentityConflict = errors.New("federated identity belongs to another user")
+	ErrWebmailAccountRequired    = errors.New("webmail account is required")
 )
+
+func (m *Manager) requireWebmailSessionUser(ctx context.Context, session *Session) error {
+	if session == nil {
+		return ErrSecuritySessionInvalid
+	}
+	user, err := m.GetUserByID(ctx, session.UserID)
+	if err != nil {
+		return fmt.Errorf("load application identity owner: %w", err)
+	}
+	if user == nil || user.UserType != UserTypeWebmail {
+		return ErrWebmailAccountRequired
+	}
+	return nil
+}
+
+func requireWebmailUser(ctx context.Context, tx *sql.Tx, userID string) error {
+	var allowed int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM users WHERE id = ? AND user_type = 'webmail')`, userID,
+	).Scan(&allowed); err != nil {
+		return fmt.Errorf("check application identity owner type: %w", err)
+	}
+	if allowed != 1 {
+		return ErrWebmailAccountRequired
+	}
+	return nil
+}
 
 type FederatedIdentitySummary struct {
 	ID            string
@@ -227,7 +255,7 @@ func (m *Manager) authenticateGoogleIdentity(ctx context.Context, claims *Google
 		FROM auth_identities identity
 		JOIN users ON users.id = identity.user_id
 		WHERE identity.provider = ? AND identity.issuer = ? AND identity.subject = ?
-		  AND users.status = 'active'`,
+		  AND users.status = 'active' AND users.user_type = 'webmail'`,
 		googleIdentityProvider, googleLoginIssuer, claims.Subject,
 	).Scan(&identityID, &userID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -313,6 +341,9 @@ func (m *Manager) CompleteGoogleIdentityLink(
 		}
 		if currentChallenge.SessionID != currentSession.ID || currentChallenge.UserID != currentSession.UserID {
 			return ErrSecuritySessionInvalid
+		}
+		if err := requireWebmailUser(ctx, tx, currentSession.UserID); err != nil {
+			return err
 		}
 
 		inserted, err := tx.ExecContext(ctx, `

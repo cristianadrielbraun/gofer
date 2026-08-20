@@ -22,8 +22,8 @@ func createMainAuthCommandDatabase(t *testing.T) string {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin)
-		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 1, 1)`); err != nil {
+		INSERT INTO users (id, email, email_normalized, name, status, auth_version, is_admin, user_type)
+		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 1, 1, 'management')`); err != nil {
 		db.Close()
 		t.Fatalf("insert auth command owner: %v", err)
 	}

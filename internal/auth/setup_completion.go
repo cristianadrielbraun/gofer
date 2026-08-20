@@ -88,41 +88,27 @@ func (m *Manager) CompleteSetup(ctx context.Context, options CompleteSetupOption
 			return ErrSetupCompletionBlocked
 		}
 
-		ownerID := draft.TargetUserID
-		if draft.Mode == SetupOwnerModeCreate {
-			ownerID = generatedOwnerID
-			if _, err := tx.ExecContext(ctx, `
+		if draft.Mode != SetupOwnerModeCreate || draft.TargetUserID != "" {
+			return ErrSetupOwnerDraftRequired
+		}
+		ownerID := generatedOwnerID
+		if _, err := tx.ExecContext(ctx, `
 				INSERT INTO users (
 					id, email, email_normalized, username, username_normalized, name,
-					status, auth_version, mfa_required, is_admin, last_login_at,
+					status, auth_version, mfa_required, user_type, is_admin, last_login_at,
 					created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, 1, 1, ?, ?, ?)`,
-				ownerID, draft.Email, draft.EmailNormalized, draft.Username,
-				draft.UsernameNormalized, draft.Name, now, now, now,
-			); err != nil {
-				return fmt.Errorf("create setup owner: %w", err)
-			}
-		} else {
-			update, err := tx.ExecContext(ctx, `
-				UPDATE users
-				SET email = ?, email_normalized = ?, username = ?, username_normalized = ?,
-				    name = ?, status = 'active', auth_version = auth_version + 1,
-				    mfa_required = 1, is_admin = 1, last_login_at = ?,
-				    disabled_at = NULL, disabled_by = NULL, updated_at = ?
-				WHERE id = ?`,
-				draft.Email, draft.EmailNormalized, draft.Username, draft.UsernameNormalized,
-				draft.Name, now, now, ownerID,
-			)
-			if err != nil {
-				return fmt.Errorf("update setup owner: %w", err)
-			}
-			changed, err := update.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("count updated setup owners: %w", err)
-			}
-			if changed != 1 {
-				return ErrSetupOwnerDraftRequired
-			}
+				) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, 1, 'management', 1, ?, ?, ?)`,
+			ownerID, draft.Email, draft.EmailNormalized, draft.Username,
+			draft.UsernameNormalized, draft.Name, now, now, now,
+		); err != nil {
+			return fmt.Errorf("create setup owner: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE users
+			SET is_admin = 0, mfa_required = 0,
+			    auth_version = auth_version + 1, updated_at = ?
+			WHERE user_type = 'webmail' AND is_admin = 1`, now); err != nil {
+			return fmt.Errorf("demote legacy webmail administrators during setup: %w", err)
 		}
 
 		if _, err := tx.ExecContext(ctx, `

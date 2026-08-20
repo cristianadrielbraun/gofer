@@ -29,6 +29,7 @@ type UserSummary struct {
 	Username string
 	Email    string
 	Status   auth.UserStatus
+	UserType auth.UserType
 	IsAdmin  bool
 }
 
@@ -70,7 +71,7 @@ func (service *Service) Status(ctx context.Context) (InstanceStatus, error) {
 
 func (service *Service) ListUsers(ctx context.Context) ([]UserSummary, error) {
 	rows, err := service.db.Read().QueryContext(ctx, `
-		SELECT id, COALESCE(username, ''), email, status, is_admin
+		SELECT id, COALESCE(username, ''), email, status, user_type, is_admin
 		FROM users
 		ORDER BY COALESCE(username_normalized, email_normalized, lower(trim(email))), id`)
 	if err != nil {
@@ -83,12 +84,15 @@ func (service *Service) ListUsers(ctx context.Context) ([]UserSummary, error) {
 		var user UserSummary
 		var status string
 		var isAdmin int
-		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &status, &isAdmin); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &status, &user.UserType, &isAdmin); err != nil {
 			return nil, fmt.Errorf("scan authentication user: %w", err)
 		}
 		user.Status = auth.UserStatus(status)
 		if user.Status != auth.UserStatusPending && user.Status != auth.UserStatusActive && user.Status != auth.UserStatusDisabled {
 			return nil, fmt.Errorf("user %q has invalid status %q", user.ID, status)
+		}
+		if user.UserType != auth.UserTypeWebmail && user.UserType != auth.UserTypeManagement {
+			return nil, fmt.Errorf("user %q has invalid type %q", user.ID, user.UserType)
 		}
 		user.IsAdmin = isAdmin == 1
 		users = append(users, user)

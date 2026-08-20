@@ -140,12 +140,12 @@ func TestGoogleInvitationEnrollmentRejectsCredentialResetAndFactorlessMFAAccount
 	}
 
 	insertRedemptionUser(t, manager, "pending-admin", UserStatusPending, now)
-	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET is_admin = 1 WHERE id = 'pending-admin'`); err != nil {
+	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET user_type = 'management' WHERE id = 'pending-admin'`); err != nil {
 		t.Fatal(err)
 	}
 	insertRedemptionToken(t, manager, "admin-invite-id", "pending-admin", "admin-invite", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour))
-	if start, err := manager.BeginGoogleEnrollment(t.Context(), "admin-invite"); start != nil || !errors.Is(err, ErrInstanceMFAEnrollmentNeeded) {
-		t.Fatalf("factorless administrator Google enrollment = %#v, %v", start, err)
+	if start, err := manager.BeginGoogleEnrollment(t.Context(), "admin-invite"); start != nil || !errors.Is(err, ErrEnrollmentTokenInvalid) {
+		t.Fatalf("management-account Google enrollment = %#v, %v", start, err)
 	}
 	var challenges, identities, sessions int
 	for table, target := range map[string]*int{"auth_challenges": &challenges, "auth_identities": &identities, "sessions": &sessions} {
@@ -173,7 +173,7 @@ func TestGoogleInvitationEnrollmentContinuesToExistingMFA(t *testing.T) {
 		tokens: []string{"state-token", "nonce-token", "mfa-token"},
 	})
 	insertRedemptionUser(t, manager, "pending-admin", UserStatusPending, now)
-	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET is_admin = 1 WHERE id = 'pending-admin'`); err != nil {
+	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET mfa_required = 1 WHERE id = 'pending-admin'`); err != nil {
 		t.Fatal(err)
 	}
 	insertPolicyTestTOTP(t, manager, "pending-admin", now)

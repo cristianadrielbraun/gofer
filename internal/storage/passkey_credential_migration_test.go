@@ -60,8 +60,8 @@ func TestMigrateV80AddsEncryptedPasskeyRecordsAndUserHandles(t *testing.T) {
 	var version int
 	var ciphertext, keyVersion, rpID any
 	var flags, cloneWarning int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 86 {
-		t.Fatalf("schema version = %d, %v; want 86", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, %v; want %d", version, err, CurrentSchemaVersion)
 	}
 	if err := db.Read().QueryRow(`
 		SELECT credential_ciphertext, key_version, rp_id, flags, clone_warning
@@ -128,8 +128,8 @@ func TestMigrateV84RepairsIncompletePasskeySchema(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 86 {
-		t.Fatalf("schema version = %d, %v; want 86", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, %v; want %d", version, err, CurrentSchemaVersion)
 	}
 	for _, column := range []string{"credential_ciphertext", "key_version", "rp_id", "flags", "clone_warning"} {
 		if exists, err := columnExists(db.Read(), "webauthn_credentials", column); err != nil || !exists {

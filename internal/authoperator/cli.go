@@ -236,7 +236,7 @@ func writeUsers(ctx context.Context, output io.Writer, service *Service) error {
 		return err
 	}
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(writer, "ID\tUSERNAME\tEMAIL\tSTATUS\tROLE"); err != nil {
+	if _, err := fmt.Fprintln(writer, "ID\tUSERNAME\tEMAIL\tSTATUS\tTYPE\tROLE"); err != nil {
 		return err
 	}
 	for _, user := range users {
@@ -244,8 +244,8 @@ func writeUsers(ctx context.Context, output io.Writer, service *Service) error {
 		if user.IsAdmin {
 			role = "administrator"
 		}
-		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n",
-			printableField(user.ID), printableField(user.Username), printableField(user.Email), user.Status, role,
+		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			printableField(user.ID), printableField(user.Username), printableField(user.Email), user.Status, user.UserType, role,
 		); err != nil {
 			return err
 		}

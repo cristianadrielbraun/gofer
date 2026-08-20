@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const csrfTestAction = "/admin/security/private-target"
+const csrfTestAction = "/settings/security/password"
 
 func TestSessionCSRFIncludesAdministratorUserMutations(t *testing.T) {
 	for _, path := range []string{
@@ -73,7 +73,7 @@ func TestSessionCSRFRejectsMissingInvalidCrossSessionStaleAndActionReplay(t *tes
 
 	tokenOne := csrfTokenThroughMiddleware(t, manager, sessionOne.Token, http.MethodPost, csrfTestAction)
 	tokenTwo := csrfTokenThroughMiddleware(t, manager, sessionTwo.Token, http.MethodPost, csrfTestAction)
-	otherActionToken := csrfTokenThroughMiddleware(t, manager, sessionOne.Token, http.MethodPost, "/admin/security/plaintext")
+	otherActionToken := csrfTokenThroughMiddleware(t, manager, sessionOne.Token, http.MethodPost, "/settings/security/totp/start")
 	if tokenOne == tokenTwo || tokenOne == otherActionToken || strings.Contains(tokenOne, sessionOne.Token) {
 		t.Fatalf("CSRF proofs are not isolated: one=%q two=%q other=%q", tokenOne, tokenTwo, otherActionToken)
 	}

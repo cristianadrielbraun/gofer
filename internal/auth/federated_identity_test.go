@@ -66,6 +66,66 @@ func insertFederatedIdentityTestPassword(t *testing.T, manager *Manager, userID 
 	}
 }
 
+func TestManagementAccountCannotBeginApplicationIdentityLink(t *testing.T) {
+	now := time.Date(2026, time.August, 20, 13, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{})
+	insertActiveUser(t, manager, "management-admin", true, now)
+	insertGoogleLinkSession(t, manager, "management-admin", "management-session", "management-token", now, now)
+
+	tests := []struct {
+		name      string
+		configure func()
+		begin     func() error
+	}{
+		{
+			name: "Google",
+			configure: func() {
+				configureGoogleOAuthTest(manager)
+			},
+			begin: func() error {
+				_, err := manager.BeginGoogleIdentityLink(t.Context(), "management-token")
+				return err
+			},
+		},
+		{
+			name: "Microsoft",
+			configure: func() {
+				configureMicrosoftOAuthTest(manager)
+			},
+			begin: func() error {
+				_, err := manager.BeginMicrosoftIdentityLink(t.Context(), "management-token")
+				return err
+			},
+		},
+		{
+			name: "OIDC",
+			configure: func() {
+				configureOIDCTest(manager)
+			},
+			begin: func() error {
+				_, err := manager.BeginOIDCIdentityLink(t.Context(), "management-token")
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.configure()
+			err := test.begin()
+			if !errors.Is(err, ErrWebmailAccountRequired) {
+				t.Fatalf("begin management identity link error = %v", err)
+			}
+		})
+	}
+	var challenges int
+	if err := manager.db.Read().QueryRow(`SELECT COUNT(*) FROM auth_challenges`).Scan(&challenges); err != nil {
+		t.Fatal(err)
+	}
+	if challenges != 0 {
+		t.Fatalf("management identity-link attempts created %d challenges", challenges)
+	}
+}
+
 func TestBeginGoogleIdentityLinkRequiresRecentStepUpAndBindsChallengeToSession(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 10, 0, 0, 0, time.UTC)
 	manager, _, sessionToken := prepareGoogleIdentityLink(

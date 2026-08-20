@@ -73,6 +73,9 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 
 		ctx := contextWithSessionCSRF(ContextWithSession(ContextWithUser(r.Context(), user), session), token)
 		r = r.WithContext(ctx)
+		if m.enforceUserSurface(w, r, user) {
+			return
+		}
 		if requiresSessionCSRF(r) {
 			r.Body = http.MaxBytesReader(w, r.Body, sessionCSRFFormMaximumBytes)
 			if !validSessionCSRF(r) {
@@ -84,11 +87,73 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+func (m *Manager) enforceUserSurface(w http.ResponseWriter, r *http.Request, user *User) bool {
+	path := r.URL.Path
+	managementRoute := path == "/admin" || strings.HasPrefix(path, "/admin/") || strings.HasPrefix(path, "/api/admin/")
+	sharedSecurityRoute := path == "/auth/logout" || path == "/settings/security" || strings.HasPrefix(path, "/settings/security/")
+
+	if user.RequiresManagementHandoff() {
+		allowed := path == "/admin/separate" || strings.HasPrefix(path, "/admin/separate/") ||
+			path == "/admin/account/security" || sharedSecurityRoute
+		if !allowed {
+			m.rejectWrongSurface(w, r, "/admin/separate")
+			return true
+		}
+		return false
+	}
+	if user.IsManagement() {
+		allowed := managementRoute || sharedSecurityRoute
+		destination := "/admin"
+		if !user.IsAdmin {
+			allowed = path == "/admin/account/security" || path == "/admin/management/activate" || sharedSecurityRoute
+			destination = "/admin/account/security"
+		}
+		if !allowed {
+			m.rejectWrongSurface(w, r, destination)
+			return true
+		}
+		if path == "/settings/security" && r.Method == http.MethodGet {
+			destination := "/admin/account/security"
+			if r.URL.RawQuery != "" {
+				destination += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, destination, http.StatusSeeOther)
+			return true
+		}
+		return false
+	}
+	if managementRoute {
+		m.rejectWrongSurface(w, r, "/")
+		return true
+	}
+	return false
+}
+
+func (m *Manager) rejectWrongSurface(w http.ResponseWriter, r *http.Request, destination string) {
+	w.Header().Set("Cache-Control", "no-store")
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("{\"error\":\"account_surface_forbidden\"}\n"))
+		return
+	}
+	if isHTMXRequest(r) {
+		w.Header().Set("HX-Redirect", destination)
+		http.Error(w, "account surface forbidden", http.StatusForbidden)
+		return
+	}
+	http.Redirect(w, r, destination, http.StatusSeeOther)
+}
+
 func (m *Manager) rejectUnauthenticated(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Vary", "HX-Request")
+	loginPath := "/login"
+	if r.URL.Path == "/admin" || strings.HasPrefix(r.URL.Path, "/admin/") || strings.HasPrefix(r.URL.Path, "/api/admin/") {
+		loginPath = "/admin/login"
+	}
 	if isHTMXRequest(r) {
-		w.Header().Set("HX-Redirect", "/login")
+		w.Header().Set("HX-Redirect", loginPath)
 		if r.Method == http.MethodGet {
 			SetReturnToCookie(w, r.URL.RequestURI(), m.config.SecureCookies)
 		}
@@ -108,7 +173,7 @@ func (m *Manager) rejectUnauthenticated(w http.ResponseWriter, r *http.Request) 
 	if r.Method == http.MethodGet {
 		SetReturnToCookie(w, r.URL.RequestURI(), m.config.SecureCookies)
 	}
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, loginPath, http.StatusSeeOther)
 }
 
 func isHTMXRequest(r *http.Request) bool {
@@ -117,7 +182,7 @@ func isHTMXRequest(r *http.Request) bool {
 
 func isPublicPath(path string) bool {
 	public := []string{
-		"/login", "/login/passkey/start", "/login/passkey/finish", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
+		"/login", "/admin/login", "/login/passkey/start", "/login/passkey/finish", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/redeem", "/account/redeem/google", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/auth/microsoft", "/auth/microsoft/callback", "/auth/oidc", "/auth/oidc/callback", "/sw.js",

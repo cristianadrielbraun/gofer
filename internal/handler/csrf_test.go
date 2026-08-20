@@ -20,7 +20,13 @@ func csrfProofForSession(t *testing.T, manager *auth.Manager, sessionToken, acti
 	probe := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, auth.CSRFToken(r.Context(), http.MethodPost, action))
 	}))
-	request := httptest.NewRequest(http.MethodGet, "/csrf-token-probe", nil)
+	probePath := "/settings/security"
+	if session, err := manager.GetSessionByToken(t.Context(), sessionToken); err == nil && session != nil {
+		if user, err := manager.GetUserByID(t.Context(), session.UserID); err == nil && user != nil && user.IsManagement() {
+			probePath = "/admin/account/security"
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, probePath, nil)
 	request.AddCookie(&http.Cookie{Name: "gofer_session", Value: sessionToken})
 	recorder := httptest.NewRecorder()
 	probe.ServeHTTP(recorder, request)
@@ -42,14 +48,19 @@ func csrfProofFromForm(t *testing.T, body, action string) string {
 
 func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 	handler, db := newAccountOwnershipTestHandler(t)
+	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 1, status = 'active', auth_version = 1 WHERE id = 'owner'`); err != nil {
-		t.Fatalf("promote owner: %v", err)
+		INSERT INTO users (
+			id, email, email_normalized, name, status, auth_version,
+			user_type, is_admin, created_at, updated_at
+		) VALUES ('management-admin', 'management@example.com', 'management@example.com',
+			'Management Admin', 'active', 1, 'management', 1, ?, ?)`, now, now); err != nil {
+		t.Fatalf("insert management administrator: %v", err)
 	}
 	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
 	handler.auth = manager
 	session, err := manager.CreateAuthenticatedSession(
-		t.Context(), "owner", "test-agent",
+		t.Context(), "management-admin", "test-agent",
 		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
 	)
 	if err != nil {
@@ -60,7 +71,7 @@ func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 	); err != nil || !steppedUp {
 		t.Fatalf("RecordSessionStepUp() = %t, %v", steppedUp, err)
 	}
-	if err := db.AddHTTPDiscoveryException(t.Context(), "mail.example.test", "owner"); err != nil {
+	if err := db.AddHTTPDiscoveryException(t.Context(), "mail.example.test", "management-admin"); err != nil {
 		t.Fatalf("seed HTTP discovery exception: %v", err)
 	}
 	exceptions, err := db.ListMailSecurityExceptions(t.Context())
@@ -133,20 +144,25 @@ func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 
 func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 	handler, db := newAccountOwnershipTestHandler(t)
+	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 1, status = 'active', auth_version = 1 WHERE id = 'owner'`); err != nil {
+		INSERT INTO users (
+			id, email, email_normalized, name, status, auth_version,
+			user_type, is_admin, created_at, updated_at
+		) VALUES ('management-admin', 'management@example.com', 'management@example.com',
+			'Management Admin', 'active', 1, 'management', 1, ?, ?)`, now, now); err != nil {
 		t.Fatal(err)
 	}
 	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
 	handler.auth = manager
 	session, err := manager.CreateAuthenticatedSession(
-		t.Context(), "owner", "admin browser",
+		t.Context(), "management-admin", "admin browser",
 		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AddHTTPDiscoveryException(t.Context(), "existing.example.test", "owner"); err != nil {
+	if err := db.AddHTTPDiscoveryException(t.Context(), "existing.example.test", "management-admin"); err != nil {
 		t.Fatal(err)
 	}
 	exceptions, err := db.ListMailSecurityExceptions(t.Context())
@@ -163,7 +179,7 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Recent administrator verification required") ||
-		!strings.Contains(page.Body.String(), `href="/settings/security"`) || !strings.Contains(page.Body.String(), " disabled") {
+		!strings.Contains(page.Body.String(), `href="/admin/account/security"`) || !strings.Contains(page.Body.String(), " disabled") {
 		t.Fatalf("stale admin security page = %d %q", page.Code, page.Body.String())
 	}
 

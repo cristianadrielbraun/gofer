@@ -179,7 +179,7 @@ func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) 
 		_ = views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
 		return
 	}
-	_ = views.AdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
+	_ = views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
 }
 
 func (h *Handler) mailOperationsAdminStatus(ctx context.Context) (models.MailOperationsAdminStatus, error) {

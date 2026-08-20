@@ -50,7 +50,7 @@ func startOwnerPasswordMFA(t *testing.T, stack http.Handler, cookies ...*http.Co
 		"identifier": {"owner"},
 		"password":   {"correct horse battery staple for owner"},
 	}
-	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	request := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", "https://gofer.example")
 	request.Header.Set("User-Agent", "Recovery Flow Browser/1.0")
@@ -83,7 +83,7 @@ func postRecoveryRoute(stack http.Handler, path string, cookie *http.Cookie, val
 func TestRecoveryCodeLoginRequiresFactorRepairBeforeIssuingSession(t *testing.T) {
 	manager, db, stack, recoveryCode := completedSetupWithRecoveryCode(t)
 	returnRecorder := httptest.NewRecorder()
-	auth.SetReturnToCookie(returnRecorder, "/settings/advanced?from=recovery", true)
+	auth.SetReturnToCookie(returnRecorder, "/admin/account/security?from=recovery", true)
 	returnCookie := responseCookie(returnRecorder, "gofer_auth_return_to", true)
 	password := startOwnerPasswordMFA(t, stack, returnCookie)
 	if password.Code != http.StatusSeeOther || password.Header().Get("Location") != "/login/mfa" {
@@ -169,7 +169,7 @@ func TestRecoveryCodeLoginRequiresFactorRepairBeforeIssuingSession(t *testing.T)
 	completed := postRecoveryRoute(stack, "/login/recovery/codes", repairCookie, url.Values{
 		"action": {"complete"}, "batch_id": {repairState.RecoveryBatchID}, "saved": {"yes"},
 	}, returnCookie)
-	if completed.Code != http.StatusSeeOther || completed.Header().Get("Location") != "/settings/advanced?from=recovery" {
+	if completed.Code != http.StatusSeeOther || completed.Header().Get("Location") != "/admin/account/security?from=recovery" {
 		t.Fatalf("recovery completion = %d location:%q body:%q", completed.Code, completed.Header().Get("Location"), completed.Body.String())
 	}
 	sessionCookie := responseCookie(completed, "gofer_session", true)

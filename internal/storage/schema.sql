@@ -495,6 +495,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at DATETIME,
     disabled_at DATETIME,
     disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    user_type TEXT NOT NULL DEFAULT 'webmail' CHECK (user_type IN ('webmail', 'management')),
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -508,6 +509,61 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_normalized
     WHERE username_normalized IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+
+CREATE TRIGGER IF NOT EXISTS users_management_type_insert
+BEFORE INSERT ON users
+WHEN NEW.is_admin = 1 AND NEW.user_type != 'management'
+BEGIN
+    SELECT RAISE(ABORT, 'administrator must be a management user');
+END;
+
+CREATE TRIGGER IF NOT EXISTS users_management_type_update
+BEFORE UPDATE OF is_admin, user_type ON users
+WHEN NEW.is_admin = 1 AND NEW.user_type != 'management'
+ AND (OLD.is_admin != NEW.is_admin OR OLD.user_type != NEW.user_type)
+BEGIN
+    SELECT RAISE(ABORT, 'administrator must be a management user');
+END;
+
+CREATE TRIGGER IF NOT EXISTS users_management_mailbox_update
+BEFORE UPDATE OF user_type ON users
+WHEN NEW.user_type = 'management'
+ AND EXISTS (SELECT 1 FROM accounts WHERE user_id = NEW.id)
+BEGIN
+    SELECT RAISE(ABORT, 'management user cannot own a mailbox');
+END;
+
+CREATE TRIGGER IF NOT EXISTS accounts_management_owner_insert
+BEFORE INSERT ON accounts
+WHEN NEW.user_id IS NOT NULL
+ AND EXISTS (SELECT 1 FROM users WHERE id = NEW.user_id AND user_type != 'webmail')
+BEGIN
+    SELECT RAISE(ABORT, 'management user cannot own a mailbox');
+END;
+
+CREATE TRIGGER IF NOT EXISTS accounts_management_owner_update
+BEFORE UPDATE OF user_id ON accounts
+WHEN NEW.user_id IS NOT NULL
+ AND EXISTS (SELECT 1 FROM users WHERE id = NEW.user_id AND user_type != 'webmail')
+BEGIN
+    SELECT RAISE(ABORT, 'management user cannot own a mailbox');
+END;
+
+CREATE TABLE IF NOT EXISTS management_handoffs (
+    id TEXT PRIMARY KEY,
+    source_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'canceled')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    canceled_at DATETIME,
+    CHECK (source_user_id != target_user_id),
+    CHECK ((status = 'completed') = (completed_at IS NOT NULL)),
+    CHECK ((status = 'canceled') = (canceled_at IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_management_handoffs_source_pending
+ON management_handoffs(source_user_id) WHERE status = 'pending';
 
 -- OAuth credentials for one exact Gmail or Outlook mailbox account. The
 -- plaintext token columns are retained empty for one compatibility release so
@@ -596,6 +652,28 @@ CREATE TABLE IF NOT EXISTS auth_identities (
 
 CREATE INDEX IF NOT EXISTS idx_auth_identities_user
     ON auth_identities(user_id);
+
+CREATE TRIGGER IF NOT EXISTS users_management_identity_update
+BEFORE UPDATE OF user_type ON users
+WHEN NEW.user_type = 'management'
+ AND EXISTS (SELECT 1 FROM auth_identities WHERE user_id = NEW.id)
+BEGIN
+    SELECT RAISE(ABORT, 'management user cannot own an application sign-in identity');
+END;
+
+CREATE TRIGGER IF NOT EXISTS auth_identities_management_owner_insert
+BEFORE INSERT ON auth_identities
+WHEN EXISTS (SELECT 1 FROM users WHERE id = NEW.user_id AND user_type != 'webmail')
+BEGIN
+    SELECT RAISE(ABORT, 'management user cannot own an application sign-in identity');
+END;
+
+CREATE TRIGGER IF NOT EXISTS auth_identities_management_owner_update
+BEFORE UPDATE OF user_id ON auth_identities
+WHEN EXISTS (SELECT 1 FROM users WHERE id = NEW.user_id AND user_type != 'webmail')
+BEGIN
+    SELECT RAISE(ABORT, 'management user cannot own an application sign-in identity');
+END;
 
 CREATE TABLE IF NOT EXISTS password_credentials (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -1327,4 +1405,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (86);
+INSERT OR REPLACE INTO schema_version (version) VALUES (87);

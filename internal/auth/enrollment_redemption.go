@@ -20,6 +20,7 @@ type RedeemEnrollmentTokenOptions struct {
 
 type EnrollmentRedemptionResult struct {
 	UserID          string
+	UserType        UserType
 	Purpose         EnrollmentTokenPurpose
 	RevokedSessions int64
 }
@@ -31,6 +32,7 @@ type enrollmentRedemptionCandidate struct {
 	status   UserStatus
 	username string
 	email    string
+	userType UserType
 }
 
 // RedeemEnrollmentToken establishes the subject's password credential and
@@ -73,11 +75,11 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 		return nil, fmt.Errorf("generate enrollment redemption event ID: %w", err)
 	}
 	userAgent := boundedUserAgent(options.UserAgent)
-	result := &EnrollmentRedemptionResult{UserID: candidate.userID, Purpose: candidate.purpose}
+	result := &EnrollmentRedemptionResult{UserID: candidate.userID, UserType: candidate.userType, Purpose: candidate.purpose}
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
 		current, err := scanEnrollmentRedemptionCandidate(tx.QueryRowContext(ctx, `
 			SELECT t.id, t.user_id, t.purpose, u.status,
-			       COALESCE(u.username, ''), u.email
+			       COALESCE(u.username, ''), u.email, u.user_type
 			FROM user_enrollment_tokens t
 			JOIN users u ON u.id = t.user_id
 			WHERE t.id = ? AND t.token_hash = ?
@@ -93,7 +95,7 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 		if !sameEnrollmentRedemptionCandidate(current, candidate) || !enrollmentRedemptionStatusEligible(current.purpose, current.status) {
 			return ErrEnrollmentTokenInvalid
 		}
-		if current.purpose == EnrollmentTokenPurposeEnrollment {
+		if current.purpose == EnrollmentTokenPurposeEnrollment && current.userType != UserTypeManagement {
 			if err := m.requireUserReadyForInstanceMFA(ctx, tx, current.userID); err != nil {
 				return err
 			}
@@ -216,7 +218,7 @@ func (m *Manager) findEnrollmentRedemptionCandidate(ctx context.Context, rawToke
 	}
 	candidate, err := scanEnrollmentRedemptionCandidate(m.db.Read().QueryRowContext(ctx, `
 		SELECT t.id, t.user_id, t.purpose, u.status,
-		       COALESCE(u.username, ''), u.email
+		       COALESCE(u.username, ''), u.email, u.user_type
 		FROM user_enrollment_tokens t
 		JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?
@@ -239,7 +241,7 @@ func scanEnrollmentRedemptionCandidate(row rowScanner) (*enrollmentRedemptionCan
 	candidate := &enrollmentRedemptionCandidate{}
 	if err := row.Scan(
 		&candidate.tokenID, &candidate.userID, &candidate.purpose,
-		&candidate.status, &candidate.username, &candidate.email,
+		&candidate.status, &candidate.username, &candidate.email, &candidate.userType,
 	); err != nil {
 		return nil, err
 	}
@@ -250,7 +252,7 @@ func sameEnrollmentRedemptionCandidate(left, right *enrollmentRedemptionCandidat
 	return left != nil && right != nil &&
 		left.tokenID == right.tokenID && left.userID == right.userID &&
 		left.purpose == right.purpose && left.status == right.status &&
-		left.username == right.username && left.email == right.email
+		left.username == right.username && left.email == right.email && left.userType == right.userType
 }
 
 func enrollmentRedemptionStatusEligible(purpose EnrollmentTokenPurpose, status UserStatus) bool {

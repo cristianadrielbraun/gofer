@@ -98,7 +98,7 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 	}
 
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireActiveAdministrator(ctx, tx, actorUserID); err != nil {
+		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
 			return err
 		}
 		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
@@ -115,8 +115,8 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO users (
 				id, email, email_normalized, username, username_normalized, name,
-				status, auth_version, mfa_required, is_admin, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, 0, 0, ?, ?)`,
+				status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, 0, 'webmail', 0, ?, ?)`,
 			result.User.ID, result.User.Email, emailNormalized, result.User.Username,
 			usernameNormalized, result.Name, now, now,
 		); err != nil {

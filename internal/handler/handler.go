@@ -225,8 +225,35 @@ func (h *Handler) requireOwnedAccount(w http.ResponseWriter, r *http.Request, ac
 func (h *Handler) adminOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := auth.GetCurrentUser(r.Context())
-		if user == nil || !user.IsAdmin {
+		authEnabled := h.auth != nil && h.auth.IsEnabled()
+		allowed := user != nil && user.IsAdmin
+		if !authEnabled && user != nil && user.ID == "default" {
+			allowed = true
+		}
+		if !allowed || (authEnabled && !user.IsManagement()) {
 			http.Error(w, "admin access required", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) managementAccountOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := auth.GetCurrentUser(r.Context())
+		if user == nil || (!user.IsManagement() && !user.RequiresManagementHandoff()) {
+			http.Error(w, "management account required", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) managementHandoffOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := auth.GetCurrentUser(r.Context())
+		if user == nil || !user.RequiresManagementHandoff() {
+			http.Error(w, "management account separation required", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -255,6 +282,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("POST /login", h.handleLoginSubmit)
+	mux.HandleFunc("GET /admin/login", h.handleAdminLogin)
+	mux.HandleFunc("POST /admin/login", h.handleAdminLoginSubmit)
 	mux.HandleFunc("POST "+loginPasskeyStartPath, h.handleLoginPasskeyStart)
 	mux.HandleFunc("POST "+loginPasskeyFinishPath, h.handleLoginPasskeyFinish)
 	mux.HandleFunc("GET /login/mfa", h.handleLoginMFA)
@@ -293,6 +322,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/oauth2/authorize", h.handleAccountOAuthAuthorize)
 
 	mux.HandleFunc("GET /", h.handleIndex)
+	mux.Handle("GET /admin/separate", h.managementHandoffOnly(http.HandlerFunc(h.handleManagementSeparation)))
+	mux.Handle("POST /admin/separate/invitations", h.managementHandoffOnly(http.HandlerFunc(h.handleCreateManagementHandoff)))
+	mux.Handle("GET /admin/account/security", h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
+	mux.Handle("POST /admin/management/activate", h.managementAccountOnly(http.HandlerFunc(h.handleActivateManagementHandoff)))
 	adminRoute("GET /admin", h.handleAdminRedirect)
 	adminRoute("GET /admin/avatars", h.handleAdminRedirect)
 	adminRoute("GET /admin/avatars/{$}", h.handleAdmin)
@@ -2970,10 +3003,15 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
+	managementSurface := r.URL.Path == "/admin/account/security" && (user.IsManagement() || user.RequiresManagementHandoff())
+	loginPath := "/login"
+	if managementSurface {
+		loginPath = "/admin/login"
+	}
 	access, err := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
 	if errors.Is(err, auth.ErrSecuritySessionInvalid) {
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, loginPath, http.StatusSeeOther)
 		return
 	}
 	if err != nil {
@@ -3007,13 +3045,18 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 
 		uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 		var page bytes.Buffer
-		if r.Header.Get("HX-Request") == "true" {
+		if managementSurface {
+			err = views.ManagementSecurityLayout(uiSettings, views.PasswordSecurityVerification(data), views.ManagementActivationData{}).Render(ctx, &page)
+		} else if r.Header.Get("HX-Request") == "true" {
 			if err := views.PasswordSecurityVerificationPartial(data).Render(ctx, &page); err != nil {
 				log.Printf("render security verification partial: %v", err)
 				http.Error(w, "failed to render security settings", http.StatusInternalServerError)
 				return
 			}
-		} else if err := views.PasswordSecurityVerificationLayout(uiSettings, data).Render(ctx, &page); err != nil {
+		} else {
+			err = views.PasswordSecurityVerificationLayout(uiSettings, data).Render(ctx, &page)
+		}
+		if err != nil {
 			log.Printf("render security verification layout: %v", err)
 			http.Error(w, "failed to render security settings", http.StatusInternalServerError)
 			return
@@ -3038,11 +3081,14 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
 		return
 	}
-	identities, err := h.auth.ListFederatedIdentities(ctx, user.ID)
-	if err != nil {
-		log.Printf("load federated identity security settings: %v", err)
-		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
-		return
+	var identities []auth.FederatedIdentitySummary
+	if !managementSurface {
+		identities, err = h.auth.ListFederatedIdentities(ctx, user.ID)
+		if err != nil {
+			log.Printf("load federated identity security settings: %v", err)
+			http.Error(w, "failed to load security settings", http.StatusInternalServerError)
+			return
+		}
 	}
 	sessions, err := h.auth.ListSecuritySessions(ctx, auth.GetSessionToken(r))
 	if err != nil {
@@ -3057,7 +3103,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	}
 	if errors.Is(err, auth.ErrSecuritySessionInvalid) {
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, loginPath, http.StatusSeeOther)
 		return
 	}
 	if err != nil {
@@ -3075,9 +3121,9 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		StepUpFresh:            summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
 		DisableTOTPReason:       summary.DisableTOTPReason,
 		CSRFTokens:              map[string]string{},
-		GoogleLoginAvailable:    h.auth.HasGoogleLogin(),
-		MicrosoftLoginAvailable: h.auth.HasMicrosoftLogin(),
-		OIDCLoginAvailable:      h.auth.HasOIDCLogin(),
+		GoogleLoginAvailable:    !managementSurface && h.auth.HasGoogleLogin(),
+		MicrosoftLoginAvailable: !managementSurface && h.auth.HasMicrosoftLogin(),
+		OIDCLoginAvailable:      !managementSurface && h.auth.HasOIDCLogin(),
 		OIDCLoginName:           h.auth.OIDCLoginName(),
 	}
 	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
@@ -3203,13 +3249,32 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	var page bytes.Buffer
-	if r.Header.Get("HX-Request") == "true" {
+	if managementSurface {
+		activation := views.ManagementActivationData{}
+		if user.IsManagement() && !user.IsAdmin {
+			pending, pendingErr := h.auth.GetPendingManagementEnrollment(ctx, user.ID)
+			if pendingErr != nil {
+				log.Printf("load management enrollment status: %v", pendingErr)
+				http.Error(w, "failed to load management enrollment", http.StatusInternalServerError)
+				return
+			}
+			activation.Pending = pending != nil
+			activation.Ready = pending != nil && summary.HasTOTP && summary.RecoveryCodesRemaining > 0 && summary.StepUpFresh
+			if activation.Ready {
+				activation.CSRFToken = auth.CSRFToken(ctx, http.MethodPost, "/admin/management/activate")
+			}
+		}
+		err = views.ManagementSecurityLayout(uiSettings, views.PasswordSecuritySettings(data), activation).Render(ctx, &page)
+	} else if r.Header.Get("HX-Request") == "true" {
 		if err := views.PasswordSecurityPartial(data).Render(ctx, &page); err != nil {
 			log.Printf("render password security partial: %v", err)
 			http.Error(w, "failed to render security settings", http.StatusInternalServerError)
 			return
 		}
-	} else if err := views.PasswordSecurityLayout(uiSettings, data).Render(ctx, &page); err != nil {
+	} else {
+		err = views.PasswordSecurityLayout(uiSettings, data).Render(ctx, &page)
+	}
+	if err != nil {
 		log.Printf("render password security layout: %v", err)
 		http.Error(w, "failed to render security settings", http.StatusInternalServerError)
 		return

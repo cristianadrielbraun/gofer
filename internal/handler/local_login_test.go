@@ -39,8 +39,10 @@ func newLocalLoginHandler(t *testing.T, status auth.UserStatus, isAdmin, mfaRequ
 		}
 		now := time.Now().UTC().Add(-time.Hour)
 		adminValue, mfaValue := 0, 0
+		userType := auth.UserTypeWebmail
 		if isAdmin {
 			adminValue = 1
+			userType = auth.UserTypeManagement
 		}
 		if mfaRequired {
 			mfaValue = 1
@@ -48,10 +50,10 @@ func newLocalLoginHandler(t *testing.T, status auth.UserStatus, isAdmin, mfaRequ
 		if _, err := db.Write().ExecContext(t.Context(), `
 			INSERT INTO users (
 				id, email, email_normalized, username, username_normalized, name,
-				status, auth_version, mfa_required, is_admin, created_at, updated_at
+				status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
 			) VALUES ('person', 'Person@Example.com', 'person@example.com',
-			          'Person', 'person', 'Person', ?, 1, ?, ?, ?, ?)`,
-			status, mfaValue, adminValue, now, now,
+			          'Person', 'person', 'Person', ?, 1, ?, ?, ?, ?, ?)`,
+			status, mfaValue, userType, adminValue, now, now,
 		); err != nil {
 			t.Fatalf("insert login user: %v", err)
 		}
@@ -77,6 +79,21 @@ func postLocalLogin(t *testing.T, handler *Handler, identifier, password string,
 	}
 	recorder := httptest.NewRecorder()
 	handler.handleLoginSubmit(recorder, request)
+	return recorder
+}
+
+func postAdminLogin(t *testing.T, handler *Handler, identifier, password string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	form := url.Values{"identifier": {identifier}, "password": {password}}
+	request := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("User-Agent", "Gofer Admin Login Test/1.0")
+	request.RemoteAddr = "198.51.100.71:43120"
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	recorder := httptest.NewRecorder()
+	handler.handleAdminLoginSubmit(recorder, request)
 	return recorder
 }
 
@@ -152,6 +169,38 @@ func TestLocalLoginFailuresUseOneGenericResponse(t *testing.T) {
 	}
 }
 
+func TestLocalAndAdminLoginRejectTheOppositeAccountTypeGenerically(t *testing.T) {
+	tests := []struct {
+		name       string
+		isAdmin    bool
+		post       func(*testing.T, *Handler, string, string, ...*http.Cookie) *httptest.ResponseRecorder
+		pageMarker string
+	}{
+		{name: "management identity on webmail login", isAdmin: true, post: postLocalLogin, pageMarker: `action="/login"`},
+		{name: "webmail identity on admin login", isAdmin: false, post: postAdminLogin, pageMarker: `action="/admin/login"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, test.isAdmin, false, true, false)
+			recorder := test.post(t, handler, "person@example.com", localLoginPassword)
+			if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), loginFailureMessage) ||
+				!strings.Contains(recorder.Body.String(), test.pageMarker) || responseCookie(recorder, "gofer_session", true) != nil {
+				t.Fatalf("cross-surface login = status:%d cookies:%#v body:%q", recorder.Code, recorder.Result().Cookies(), recorder.Body.String())
+			}
+			var sessions, challenges int
+			if err := db.Read().QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Read().QueryRow(`SELECT COUNT(*) FROM auth_challenges`).Scan(&challenges); err != nil {
+				t.Fatal(err)
+			}
+			if sessions != 0 || challenges != 0 {
+				t.Fatalf("cross-surface login state = sessions:%d challenges:%d", sessions, challenges)
+			}
+		})
+	}
+}
+
 func TestLocalLoginThrottleReturnsRetryAfter(t *testing.T) {
 	handler, manager, _ := newLocalLoginHandler(t, auth.UserStatusActive, false, false, true, false)
 	for attempt := 1; attempt < 5; attempt++ {
@@ -166,7 +215,7 @@ func TestLocalLoginThrottleReturnsRetryAfter(t *testing.T) {
 }
 
 func TestLocalLoginMFAContinuationNeverCreatesSession(t *testing.T) {
-	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, true, false, true, false)
+	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
 	recorder := postLocalLogin(t, handler, "person", localLoginPassword)
 	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login/mfa" {
 		t.Fatalf("MFA login = %d %q", recorder.Code, recorder.Header().Get("Location"))
@@ -224,6 +273,34 @@ func TestLocalLoginMFAContinuationRequiresCookie(t *testing.T) {
 	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login" {
 		t.Fatalf("forged MFA cookie response = %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
+
+	returnRecorder := httptest.NewRecorder()
+	auth.SetReturnToCookie(returnRecorder, "/admin", true)
+	request = httptest.NewRequest(http.MethodGet, "/login/mfa", nil)
+	request.AddCookie(responseCookie(returnRecorder, "gofer_auth_return_to", true))
+	recorder = httptest.NewRecorder()
+	handler.handleLoginMFA(recorder, request)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("missing management MFA cookie response = %d %q", recorder.Code, recorder.Header().Get("Location"))
+	}
+}
+
+func TestAdminPasswordMFASeedsManagementReturnTarget(t *testing.T) {
+	handler, _, _ := newLocalLoginHandler(t, auth.UserStatusActive, true, true, true, false)
+	recorder := postAdminLogin(t, handler, "person", localLoginPassword)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login/mfa" ||
+		responseCookie(recorder, "gofer_pre_auth", true) == nil {
+		t.Fatalf("admin MFA start = status:%d location:%q cookies:%#v", recorder.Code, recorder.Header().Get("Location"), recorder.Result().Cookies())
+	}
+	returnCookie := responseCookie(recorder, "gofer_auth_return_to", true)
+	if returnCookie == nil {
+		t.Fatalf("admin MFA start omitted return target: %#v", recorder.Result().Cookies())
+	}
+	request := httptest.NewRequest(http.MethodGet, "/login/mfa", nil)
+	request.AddCookie(returnCookie)
+	if got := auth.GetReturnTo(request); got != "/admin" {
+		t.Fatalf("admin MFA return target = %q", got)
+	}
 }
 
 func TestLocalLoginTOTPContinuationCreatesMultiFactorSession(t *testing.T) {
@@ -239,13 +316,13 @@ func TestLocalLoginTOTPContinuationCreatesMultiFactorSession(t *testing.T) {
 	}
 
 	returnCookieRecorder := httptest.NewRecorder()
-	auth.SetReturnToCookie(returnCookieRecorder, "/settings/advanced?from=mfa", true)
+	auth.SetReturnToCookie(returnCookieRecorder, "/admin/account/security?from=mfa", true)
 	returnCookie := responseCookie(returnCookieRecorder, "gofer_auth_return_to", true)
 	loginForm := url.Values{
 		"identifier": {"owner"},
 		"password":   {"correct horse battery staple for owner"},
 	}
-	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(loginForm.Encode()))
+	request := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader(loginForm.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", "https://gofer.example")
 	request.Header.Set("User-Agent", "Owner MFA Browser/1.0")
@@ -299,7 +376,7 @@ func TestLocalLoginTOTPContinuationCreatesMultiFactorSession(t *testing.T) {
 	request.AddCookie(returnCookie)
 	verified := httptest.NewRecorder()
 	stack.ServeHTTP(verified, request)
-	if verified.Code != http.StatusSeeOther || verified.Header().Get("Location") != "/settings/advanced?from=mfa" || strings.Contains(verified.Body.String(), validCode) {
+	if verified.Code != http.StatusSeeOther || verified.Header().Get("Location") != "/admin/account/security?from=mfa" || strings.Contains(verified.Body.String(), validCode) {
 		t.Fatalf("verified TOTP continuation = %d location:%q body:%q", verified.Code, verified.Header().Get("Location"), verified.Body.String())
 	}
 	sessionCookie := responseCookie(verified, "gofer_session", true)
@@ -321,7 +398,7 @@ func TestLocalLoginTOTPContinuationCreatesMultiFactorSession(t *testing.T) {
 }
 
 func TestLocalLoginMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
-	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, true, false, true, false)
+	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
 	password := postLocalLogin(t, handler, "person", localLoginPassword)
 	challengeCookie := responseCookie(password, "gofer_pre_auth", true)
 	if challengeCookie == nil {
@@ -358,7 +435,7 @@ func TestLocalLoginMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 }
 
 func TestLocalLoginMFARejectsMissingCookieAndOversizedForm(t *testing.T) {
-	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, true, false, true, false)
+	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
 	request := httptest.NewRequest(http.MethodPost, "/login/mfa", strings.NewReader(url.Values{"code": {"123456"}}.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	recorder := httptest.NewRecorder()

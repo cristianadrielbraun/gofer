@@ -254,6 +254,9 @@ func (h *Handler) handleRecoveryRepairCodesSubmit(w http.ResponseWriter, r *http
 		auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
 		if returnTo == "" {
 			returnTo = "/"
+			if user, loadErr := h.auth.GetUserByID(r.Context(), session.UserID); loadErr == nil && user != nil && user.IsManagement() {
+				returnTo = "/admin"
+			}
 		}
 		http.Redirect(w, r, returnTo, http.StatusSeeOther)
 	default:

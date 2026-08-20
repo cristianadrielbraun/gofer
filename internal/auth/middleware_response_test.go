@@ -52,7 +52,7 @@ func TestMiddlewareUsesDistinctUnauthenticatedResponseModes(t *testing.T) {
 		},
 		{
 			name: "browser form", method: http.MethodPost, target: "/admin/security/private-target",
-			status: http.StatusSeeOther, location: "/login",
+			status: http.StatusSeeOther, location: "/admin/login",
 		},
 	}
 	for _, test := range tests {
@@ -150,7 +150,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	publicPaths := []string{
-		"/login", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
+		"/login", "/admin/login", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/redeem", "/account/redeem/google", "/account/redeem/complete",
 		"/auth/google", "/auth/google/callback", "/auth/microsoft", "/auth/microsoft/callback", "/assets/app.js", "/sw.js",

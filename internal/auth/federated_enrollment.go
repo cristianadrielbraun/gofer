@@ -27,7 +27,8 @@ func (m *Manager) BeginGoogleEnrollment(ctx context.Context, invitationToken str
 	if err != nil {
 		return nil, err
 	}
-	if candidate == nil || candidate.purpose != EnrollmentTokenPurposeEnrollment || candidate.status != UserStatusPending {
+	if candidate == nil || candidate.purpose != EnrollmentTokenPurposeEnrollment ||
+		candidate.status != UserStatusPending || candidate.userType != UserTypeWebmail {
 		return nil, ErrEnrollmentTokenInvalid
 	}
 	policy, err := queryPendingEnrollmentAuthenticationPolicy(ctx, m.db.Read(), candidate.userID, 0)
@@ -71,7 +72,7 @@ func (m *Manager) BeginGoogleEnrollment(ctx context.Context, invitationToken str
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
 		current, err := scanEnrollmentRedemptionCandidate(tx.QueryRowContext(ctx, `
 			SELECT t.id, t.user_id, t.purpose, u.status,
-			       COALESCE(u.username, ''), u.email
+			       COALESCE(u.username, ''), u.email, u.user_type
 			FROM user_enrollment_tokens t
 			JOIN users u ON u.id = t.user_id
 			WHERE t.id = ? AND t.token_hash = ?
@@ -85,7 +86,8 @@ func (m *Manager) BeginGoogleEnrollment(ctx context.Context, invitationToken str
 			return fmt.Errorf("recheck Google enrollment invitation: %w", err)
 		}
 		if !sameEnrollmentRedemptionCandidate(current, candidate) ||
-			current.purpose != EnrollmentTokenPurposeEnrollment || current.status != UserStatusPending {
+			current.purpose != EnrollmentTokenPurposeEnrollment || current.status != UserStatusPending ||
+			current.userType != UserTypeWebmail {
 			return ErrEnrollmentTokenInvalid
 		}
 		currentPolicy, err := queryPendingEnrollmentAuthenticationPolicy(ctx, tx, current.userID, policy.AuthVersion)

@@ -25,10 +25,11 @@ func (err *LoginThrottleError) Error() string { return ErrLoginThrottled.Error()
 func (err *LoginThrottleError) Unwrap() error { return ErrLoginThrottled }
 
 type PasswordLoginOptions struct {
-	Identifier string
-	Password   string
-	Source     string
-	UserAgent  string
+	Identifier       string
+	Password         string
+	RequiredUserType UserType
+	Source           string
+	UserAgent        string
 }
 
 type PrimaryAuthenticationResult struct {
@@ -44,6 +45,7 @@ type passwordLoginCandidate struct {
 	authVersion  int64
 	mustChange   bool
 	passwordHash string
+	userType     UserType
 }
 
 // AuthenticatePassword completes a local password primary-factor attempt. A
@@ -64,6 +66,9 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 		return nil, err
 	}
 	passwordHash := ""
+	if candidate != nil && options.RequiredUserType != "" && candidate.userType != options.RequiredUserType {
+		candidate = nil
+	}
 	if candidate != nil {
 		passwordHash = candidate.passwordHash
 	}
@@ -104,7 +109,7 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier string) (*passwordLoginCandidate, error) {
 	normalized := normalizeLoginIdentifier(identifier)
 	rows, err := m.db.Read().QueryContext(ctx, `
-		SELECT u.id, u.status, u.auth_version, p.must_change, p.password_hash
+		SELECT u.id, u.status, u.auth_version, p.must_change, p.password_hash, u.user_type
 		FROM users u
 		JOIN password_credentials p ON p.user_id = u.id
 		WHERE u.email_normalized = ? OR u.username_normalized = ?
@@ -121,7 +126,7 @@ func (m *Manager) findPasswordLoginCandidate(ctx context.Context, identifier str
 		var mustChange int
 		if err := rows.Scan(
 			&candidate.userID, &candidate.status, &candidate.authVersion,
-			&mustChange, &candidate.passwordHash,
+			&mustChange, &candidate.passwordHash, &candidate.userType,
 		); err != nil {
 			return nil, fmt.Errorf("scan password login candidate: %w", err)
 		}
@@ -186,18 +191,19 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
 		var passwordHash, emailNormalized, usernameNormalized string
 		var status UserStatus
+		var userType UserType
 		var authVersion int64
 		var mustChange int
 		err := tx.QueryRowContext(ctx, `
 			SELECT p.password_hash, u.status, u.auth_version,
 			       p.must_change, COALESCE(u.email_normalized, ''),
-			       COALESCE(u.username_normalized, '')
+			       COALESCE(u.username_normalized, ''), u.user_type
 			FROM users u
 			JOIN password_credentials p ON p.user_id = u.id
 			WHERE u.id = ?`, candidate.userID,
 		).Scan(
 			&passwordHash, &status, &authVersion,
-			&mustChange, &emailNormalized, &usernameNormalized,
+			&mustChange, &emailNormalized, &usernameNormalized, &userType,
 		)
 		if errors.Is(err, sql.ErrNoRows) {
 			return errPasswordStateMoved
@@ -212,7 +218,7 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 			}
 			return err
 		}
-		if passwordHash != candidate.passwordHash || !status.AllowsAuthentication() || mustChange == 1 ||
+		if passwordHash != candidate.passwordHash || !status.AllowsAuthentication() || mustChange == 1 || userType != candidate.userType ||
 			currentPolicy != policy {
 			return errPasswordStateMoved
 		}

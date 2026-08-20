@@ -15,7 +15,7 @@ var ErrUserNotActive = errors.New("user is not active")
 const userSelect = `SELECT id, email, COALESCE(email_normalized, ''),
 	COALESCE(username, ''), COALESCE(username_normalized, ''), name, avatar_url,
 	status, auth_version, mfa_required, last_login_at, disabled_at,
-	COALESCE(disabled_by, ''), is_admin, created_at, updated_at
+	COALESCE(disabled_by, ''), user_type, is_admin, created_at, updated_at
 	FROM users`
 
 type rowScanner interface {
@@ -33,12 +33,15 @@ func scanUser(row rowScanner) (*User, error) {
 	if err := row.Scan(
 		&user.ID, &user.Email, &user.EmailNormalized, &user.Username, &user.UsernameNormalized,
 		&user.Name, &user.AvatarURL, &user.Status, &user.AuthVersion, &mfaRequired,
-		&lastLoginAt, &disabledAt, &user.DisabledBy, &isAdmin, &user.CreatedAt, &user.UpdatedAt,
+		&lastLoginAt, &disabledAt, &user.DisabledBy, &user.UserType, &isAdmin, &user.CreatedAt, &user.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
 	user.IsAdmin = isAdmin == 1
 	user.MFARequired = mfaRequired == 1
+	if !user.UserType.Valid() {
+		return nil, fmt.Errorf("user %q has invalid type %q", user.ID, user.UserType)
+	}
 	if lastLoginAt.Valid {
 		user.LastLoginAt = &lastLoginAt.Time
 	}
@@ -88,6 +91,7 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 	var id string
 	var now time.Time
 	isAdminVal := 0
+	userType := UserTypeWebmail
 	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
 		policy, err := readInstanceSecurityPolicy(ctx, tx)
 		if err != nil {
@@ -103,6 +107,7 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 		}
 		if userCount == 0 {
 			isAdminVal = 1
+			userType = UserTypeManagement
 		}
 		id, err = m.tokens.ID()
 		if err != nil {
@@ -110,8 +115,8 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 		}
 		now = m.clock.Now()
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO users (id, email, email_normalized, name, avatar_url, status, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, email, emailNormalized, name, avatarURL, UserStatusActive, isAdminVal, now, now,
+			`INSERT INTO users (id, email, email_normalized, name, avatar_url, status, user_type, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, email, emailNormalized, name, avatarURL, UserStatusActive, userType, isAdminVal, now, now,
 		); err != nil {
 			return fmt.Errorf("insert user: %w", err)
 		}
@@ -129,6 +134,7 @@ func (m *Manager) CreateOrUpdateUser(ctx context.Context, email, name, avatarURL
 		AvatarURL:       avatarURL,
 		Status:          UserStatusActive,
 		AuthVersion:     1,
+		UserType:        userType,
 		IsAdmin:         isAdminVal == 1,
 		CreatedAt:       now,
 		UpdatedAt:       now,

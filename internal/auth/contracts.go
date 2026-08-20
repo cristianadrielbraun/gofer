@@ -144,6 +144,8 @@ const (
 	AuthEventSecurityPolicyChanged        AuthEventType = "security_policy_changed"
 	AuthEventIdentityLinked               AuthEventType = "identity_linked"
 	AuthEventIdentityUnlinked             AuthEventType = "identity_unlinked"
+	AuthEventManagementHandoffStarted     AuthEventType = "management_handoff_started"
+	AuthEventManagementHandoffCompleted   AuthEventType = "management_handoff_completed"
 )
 
 type AuthEventReason string

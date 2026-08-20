@@ -479,25 +479,15 @@ func validateSetupOwnerTarget(topology SetupOwnerTopology, mode SetupOwnerMode, 
 	case SetupOwnerTopologyFresh:
 		valid = mode == SetupOwnerModeCreate && targetUserID == ""
 	case SetupOwnerTopologyLegacyDefault:
-		valid = mode == SetupOwnerModeExisting && targetUserID == "default"
+		valid = mode == SetupOwnerModeCreate && targetUserID == ""
 	case SetupOwnerTopologyExisting:
-		if mode == SetupOwnerModeCreate && targetUserID == "" {
-			valid = true
-		}
-		if mode == SetupOwnerModeExisting && targetUserID != "" {
-			for _, candidate := range topology.Candidates {
-				if candidate.ID == targetUserID {
-					valid = true
-					break
-				}
-			}
-		}
+		valid = mode == SetupOwnerModeCreate && targetUserID == ""
 	}
 	if valid {
 		return nil
 	}
 	return &SetupOwnerValidationError{Fields: map[string]string{
-		"target": "Choose which Gofer user should become the owner.",
+		"target": "Setup must create a separate management owner.",
 	}}
 }
 

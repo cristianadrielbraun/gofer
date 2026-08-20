@@ -22,7 +22,7 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			Username: user.Username,
 			Email:    user.Email,
 			Status:   "Disabled",
-			Role:     "User",
+			Role:     "Webmail user",
 			Current:  user.ID == currentUserID,
 		}
 		switch user.Status {
@@ -36,8 +36,13 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			data.Disabled++
 		}
 		if user.IsAdmin {
-			view.Role = "Administrator"
+			view.Role = "Management administrator"
 			data.Administrators++
+		} else if user.UserType == auth.UserTypeManagement {
+			view.Role = "Management user"
+		}
+		if user.UserType == auth.UserTypeWebmail && user.IsAdmin {
+			view.Role = "Legacy mixed account"
 		}
 		data.Users = append(data.Users, view)
 	}
@@ -138,7 +143,7 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 	if r.Header.Get("HX-Request") == "true" {
 		err = views.AdminPartial(data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "").Render(ctx, &output)
 	} else {
-		err = views.AdminLayout(uiSettings, data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "").Render(ctx, &output)
+		err = views.ManagementAdminLayout(uiSettings, data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "").Render(ctx, &output)
 	}
 	if err != nil {
 		log.Printf("render administrator users: %v", err)

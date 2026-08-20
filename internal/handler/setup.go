@@ -591,7 +591,7 @@ func (h *Handler) renderSubmittedSetupOwner(w http.ResponseWriter, r *http.Reque
 
 func (h *Handler) renderSetupOwnerPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupOwnerData) {
 	var page bytes.Buffer
-	if err := views.SetupOwnerPage(data).Render(r.Context(), &page); err != nil {
+	if err := views.SeparatedSetupOwnerPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup owner page: %v", err)
 		h.writeSetupServiceFailure(w)
 		return
@@ -744,11 +744,7 @@ func setupOwnerViewData(state *auth.SetupOwnerState, submitted views.SetupOwnerF
 			MailboxCount: candidate.MailboxCount, LegacySessions: candidate.LegacySessions,
 		})
 	}
-	if state.Topology.Kind == auth.SetupOwnerTopologyFresh {
-		data.Form.Target = "create"
-	} else if state.Topology.Kind == auth.SetupOwnerTopologyLegacyDefault {
-		data.Form.Target = "existing:default"
-	}
+	data.Form.Target = "create"
 	if state.Draft != nil {
 		data.DraftSaved = !state.DraftStale
 		data.Form = views.SetupOwnerFormData{

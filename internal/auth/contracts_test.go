@@ -85,13 +85,15 @@ func newDeterministicManager(t *testing.T, clock Clock, tokens TokenGenerator) *
 func insertActiveUser(t *testing.T, manager *Manager, id string, isAdmin bool, now time.Time) {
 	t.Helper()
 	admin := 0
+	userType := UserTypeWebmail
 	if isAdmin {
 		admin = 1
+		userType = UserTypeManagement
 	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		INSERT INTO users (id, email, email_normalized, name, status, is_admin, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, id+"@example.com", id+"@example.com", id, UserStatusActive, admin, now, now,
+		INSERT INTO users (id, email, email_normalized, name, status, user_type, is_admin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, id+"@example.com", id+"@example.com", id, UserStatusActive, userType, admin, now, now,
 	); err != nil {
 		t.Fatalf("insert user %q: %v", id, err)
 	}

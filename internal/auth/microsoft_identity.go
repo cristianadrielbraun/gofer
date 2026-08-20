@@ -22,7 +22,7 @@ func (m *Manager) authenticateMicrosoftIdentity(ctx context.Context, claims *Mic
 		FROM auth_identities identity
 		JOIN users ON users.id = identity.user_id
 		WHERE identity.provider = ? AND identity.issuer = ? AND identity.subject = ?
-		  AND users.status = 'active'`,
+		  AND users.status = 'active' AND users.user_type = 'webmail'`,
 		microsoftIdentityProvider, claims.Issuer, claims.Subject,
 	).Scan(&identityID, &userID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -108,6 +108,9 @@ func (m *Manager) CompleteMicrosoftIdentityLink(
 		}
 		if currentChallenge.SessionID != currentSession.ID || currentChallenge.UserID != currentSession.UserID {
 			return ErrSecuritySessionInvalid
+		}
+		if err := requireWebmailUser(ctx, tx, currentSession.UserID); err != nil {
+			return err
 		}
 
 		inserted, err := tx.ExecContext(ctx, `

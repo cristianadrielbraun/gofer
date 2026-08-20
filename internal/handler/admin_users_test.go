@@ -18,16 +18,16 @@ var administratorInvitationTokenPattern = regexp.MustCompile(`Invitation token: 
 
 func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 	data := adminUsersViewData([]auth.AdministratorUserSummary{
-		{ID: "admin", Username: "owner", Email: "owner@example.com", Status: auth.UserStatusActive, IsAdmin: true},
-		{ID: "pending", Email: "pending@example.com", Status: auth.UserStatusPending},
-		{ID: "disabled", Username: "disabled", Email: "disabled@example.com", Status: auth.UserStatusDisabled, IsAdmin: true},
+		{ID: "admin", Username: "owner", Email: "owner@example.com", Status: auth.UserStatusActive, UserType: auth.UserTypeManagement, IsAdmin: true},
+		{ID: "pending", Email: "pending@example.com", Status: auth.UserStatusPending, UserType: auth.UserTypeWebmail},
+		{ID: "disabled", Username: "disabled", Email: "disabled@example.com", Status: auth.UserStatusDisabled, UserType: auth.UserTypeManagement, IsAdmin: true},
 	}, "admin")
 	if data.Total != 3 || data.Active != 1 || data.Pending != 1 || data.Disabled != 1 || data.Administrators != 2 || len(data.Users) != 3 {
 		t.Fatalf("adminUsersViewData() = %#v", data)
 	}
-	if !data.Users[0].Current || data.Users[0].Status != "Active" || data.Users[0].Role != "Administrator" ||
-		data.Users[1].Current || data.Users[1].Status != "Pending" || data.Users[1].Role != "User" ||
-		data.Users[2].Status != "Disabled" || data.Users[2].Role != "Administrator" {
+	if !data.Users[0].Current || data.Users[0].Status != "Active" || data.Users[0].Role != "Management administrator" ||
+		data.Users[1].Current || data.Users[1].Status != "Pending" || data.Users[1].Role != "Webmail user" ||
+		data.Users[2].Status != "Disabled" || data.Users[2].Role != "Management administrator" {
 		t.Fatalf("admin user rows = %#v", data.Users)
 	}
 }
@@ -46,15 +46,15 @@ func TestAdminUsersPageListsOnlyAuthenticationProfileMetadata(t *testing.T) {
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
 			id, email, email_normalized, username, username_normalized, name, avatar_url,
-			status, auth_version, mfa_required, is_admin, created_at, updated_at
+			status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
 		) VALUES (
 			'pending-user-id', 'pending@example.com', 'pending@example.com',
 			'<script>pending-user</script>', 'pending-user', 'private-profile-name',
-			'private-avatar-url', 'pending', 7, 1, 0, ?, ?
+			'private-avatar-url', 'pending', 7, 1, 'webmail', 0, ?, ?
 		), (
 			'disabled-admin-id', 'disabled@example.com', 'disabled@example.com',
 			'disabled-admin', 'disabled-admin', 'Disabled administrator', '',
-			'disabled', 3, 1, 1, ?, ?
+			'disabled', 3, 1, 'management', 1, ?, ?
 		);
 		INSERT INTO password_credentials (user_id, password_hash)
 		VALUES ('pending-user-id', 'private-password-hash');
@@ -81,7 +81,7 @@ func TestAdminUsersPageListsOnlyAuthenticationProfileMetadata(t *testing.T) {
 		`data-admin-navigation-label="Users"`, `aria-current`, "Loading section", "Application users", "Profile metadata only",
 		currentUser.Email, "You", "pending@example.com", "disabled@example.com",
 		`&lt;script&gt;pending-user&lt;/script&gt;`, "pending-user-id", "disabled-admin-id",
-		"Active", "Pending", "Disabled", "Administrator", "User",
+		"Active", "Pending", "Disabled", "Management administrator", "Webmail user",
 		"3 users", "Mailboxes, messages, contacts, credentials",
 	} {
 		if !strings.Contains(html, want) {

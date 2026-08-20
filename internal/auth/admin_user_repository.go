@@ -14,11 +14,11 @@ func (m *Manager) ListAdministratorUsers(ctx context.Context, actorUserID string
 		return nil, fmt.Errorf("begin administrator user list: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := requireActiveAdministrator(ctx, tx, actorUserID); err != nil {
+	if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, COALESCE(username, ''), email, status, is_admin
+		SELECT id, COALESCE(username, ''), email, status, user_type, is_admin
 		FROM users
 		ORDER BY COALESCE(
 			NULLIF(trim(username_normalized), ''),
@@ -34,7 +34,7 @@ func (m *Manager) ListAdministratorUsers(ctx context.Context, actorUserID string
 	for rows.Next() {
 		var user AdministratorUserSummary
 		var isAdmin int
-		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Status, &isAdmin); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Status, &user.UserType, &isAdmin); err != nil {
 			return nil, fmt.Errorf("scan administrator user: %w", err)
 		}
 		if user.Status != UserStatusPending && user.Status != UserStatusActive && user.Status != UserStatusDisabled {
@@ -42,6 +42,9 @@ func (m *Manager) ListAdministratorUsers(ctx context.Context, actorUserID string
 		}
 		if isAdmin != 0 && isAdmin != 1 {
 			return nil, fmt.Errorf("user %q has invalid administrator state", user.ID)
+		}
+		if !user.UserType.Valid() {
+			return nil, fmt.Errorf("user %q has invalid type %q", user.ID, user.UserType)
 		}
 		user.IsAdmin = isAdmin == 1
 		users = append(users, user)

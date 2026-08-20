@@ -141,9 +141,9 @@ func TestSetupReviewFreshOwnerIsSecretFreeReadOnlyAndExact(t *testing.T) {
 	}
 }
 
-func TestSetupReviewLegacyDefaultExplainsInPlaceClaimAndGlobalSessionRevocation(t *testing.T) {
+func TestSetupReviewLegacyDefaultCreatesSeparateOwnerAndPreservesMail(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
-	insertSetupOwnerUser(t, manager, "default", "local@gofer.local", "", "Local User", UserStatusActive, true)
+	insertSetupOwnerUser(t, manager, "default", "local@gofer.local", "", "Local User", UserStatusActive, false)
 	if _, err := manager.db.Write().Exec(`
 		INSERT INTO accounts (id, user_id, email_address) VALUES
 			('mailbox-a', 'default', 'a@example.com'),
@@ -157,14 +157,14 @@ func TestSetupReviewLegacyDefaultExplainsInPlaceClaimAndGlobalSessionRevocation(
 		t.Fatal(err)
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeExisting, TargetUserID: "default", Name: "Cristian Braun",
+		Mode: SetupOwnerModeCreate, Name: "Cristian Braun",
 		Username: "cristian", Email: "cristian@example.com",
 	})
 	review, err := manager.GetSetupReview(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
-	if err != nil || review == nil || !review.ClaimsLegacyDefault || review.CreatesNewOwner || review.ClaimsExistingUser ||
-		review.TargetUserID != "default" || review.CurrentName != "Local User" || review.CurrentEmail != "local@gofer.local" ||
+	if err != nil || review == nil || review.ClaimsLegacyDefault || !review.CreatesNewOwner || review.ClaimsExistingUser ||
+		review.TargetUserID != "" || review.CurrentName != "" || review.CurrentEmail != "" ||
 		review.OwnerName != "Cristian Braun" || review.OwnerUsername != "cristian" || review.OwnerEmail != "cristian@example.com" ||
-		review.TargetMailboxCount != 2 || review.TotalMailboxCount != 2 || review.TargetLegacySessions != 1 ||
+		review.TargetMailboxCount != 0 || review.TotalMailboxCount != 2 || review.TargetLegacySessions != 0 ||
 		review.UnrevokedSessionCount != 1 || review.ExistingUserCount != 1 || review.BlockedMessage != "" {
 		t.Fatalf("legacy setup review = %#v, %v", review, err)
 	}
@@ -184,7 +184,7 @@ func TestSetupReviewLegacyDefaultExplainsInPlaceClaimAndGlobalSessionRevocation(
 	}
 }
 
-func TestSetupReviewExistingUserShowsCredentialReplacementAndRetention(t *testing.T) {
+func TestSetupReviewExistingUsersCreatesSeparateOwnerWithoutCredentialReplacement(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
 	insertSetupOwnerUser(t, manager, "existing", "existing@example.com", "existing", "Existing Person", UserStatusDisabled, false)
 	insertSetupOwnerUser(t, manager, "other", "other@example.com", "other", "Other Person", UserStatusActive, true)
@@ -202,15 +202,15 @@ func TestSetupReviewExistingUserShowsCredentialReplacementAndRetention(t *testin
 		t.Fatal(err)
 	}
 	prepareSetupReviewDraft(t, manager, clock, SetupOwnerDraftInput{
-		Mode: SetupOwnerModeExisting, TargetUserID: "existing", Name: "New Owner Name",
-		Username: "existing", Email: "existing@example.com",
+		Mode: SetupOwnerModeCreate, Name: "New Owner Name",
+		Username: "new-owner", Email: "new-owner@example.com",
 	})
 	review, err := manager.GetSetupReview(t.Context(), setupOwnerTestToken, setupOwnerTestOrigin)
-	if err != nil || review == nil || !review.ClaimsExistingUser || review.ClaimsLegacyDefault || review.CreatesNewOwner ||
-		review.TargetUserID != "existing" || review.CurrentStatus != UserStatusDisabled || review.CurrentIsAdmin ||
-		review.ExistingUserCount != 2 || review.TargetMailboxCount != 1 || review.TotalMailboxCount != 1 ||
-		review.ExistingPasswordCredentials != 1 || review.RetainedPasskeys != 1 || review.ReplacedTOTPs != 1 ||
-		review.RetainedIdentities != 1 || review.ReplacedRecoveryCodes != 1 {
+	if err != nil || review == nil || review.ClaimsExistingUser || review.ClaimsLegacyDefault || !review.CreatesNewOwner ||
+		review.TargetUserID != "" || review.CurrentStatus != "" || review.CurrentIsAdmin ||
+		review.ExistingUserCount != 2 || review.TargetMailboxCount != 0 || review.TotalMailboxCount != 1 ||
+		review.ExistingPasswordCredentials != 0 || review.RetainedPasskeys != 0 || review.ReplacedTOTPs != 0 ||
+		review.RetainedIdentities != 0 || review.ReplacedRecoveryCodes != 0 {
 		t.Fatalf("existing-user setup review = %#v, %v", review, err)
 	}
 	var status UserStatus

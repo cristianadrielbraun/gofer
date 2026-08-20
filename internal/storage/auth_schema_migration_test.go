@@ -115,8 +115,8 @@ func TestMigrateV77AddsAuthenticationSchemaAndPreservesSessions(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 86 {
-		t.Fatalf("schema version = %d, %v; want 86", version, err)
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, %v; want %d", version, err, CurrentSchemaVersion)
 	}
 	hash := sha256.Sum256([]byte(rawToken))
 	wantHash := hex.EncodeToString(hash[:])
@@ -248,8 +248,8 @@ func TestAuthenticationSchemaConstraints(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, name, status, is_admin)
-		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 1)`); err != nil {
+		INSERT INTO users (id, email, email_normalized, name, status, user_type, is_admin)
+		VALUES ('owner', 'owner@example.com', 'owner@example.com', 'Owner', 'active', 'webmail', 0)`); err != nil {
 		t.Fatalf("insert owner: %v", err)
 	}
 

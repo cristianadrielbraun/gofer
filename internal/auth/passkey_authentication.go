@@ -80,6 +80,7 @@ type passkeyCredentialSnapshot struct {
 
 type passkeyAuthenticationUser struct {
 	UserID      string
+	UserType    UserType
 	AuthVersion int64
 	WebAuthn    passkeyUser
 	Credentials map[string]*passkeyCredentialSnapshot
@@ -300,6 +301,9 @@ func (m *Manager) FinishPasskeyLogin(ctx context.Context, challengeToken, origin
 	}
 	if err != nil || user == nil {
 		return nil, m.rejectPasskeyAssertion(ctx, challenge, draft, challengeToken, "", canonicalOrigin, source, userAgent, user, err)
+	}
+	if user.UserType != UserTypeWebmail {
+		return nil, m.rejectPasskeyAssertion(ctx, challenge, draft, challengeToken, "", canonicalOrigin, source, userAgent, user, ErrPasskeyAuthenticationUnavailable)
 	}
 	snapshot, err := validatePreparedPasskeyAssertion(user, record)
 	if err != nil {
@@ -701,7 +705,7 @@ func (m *Manager) findPasskeyLoginUser(ctx context.Context, identifier, rpID str
 		SELECT u.id
 		FROM users u
 		WHERE (u.email_normalized = ? OR u.username_normalized = ?)
-		  AND u.status = 'active'
+		  AND u.status = 'active' AND u.user_type = 'webmail'
 		  AND EXISTS (
 			SELECT 1 FROM webauthn_users wu
 			WHERE wu.user_id = u.id AND wu.rp_id = ?
@@ -746,7 +750,7 @@ func (m *Manager) loadDiscoverablePasskeyUser(ctx context.Context, rpID string, 
 		WHERE wu.rp_id = ? AND wu.user_handle = ?
 		  AND wc.credential_id = ? AND wc.rp_id = wu.rp_id
 		  AND wc.revoked_at IS NULL AND wc.credential_ciphertext IS NOT NULL
-		  AND wc.key_version IS NOT NULL AND u.status = 'active'`, rpID, userHandle, credentialID,
+		  AND wc.key_version IS NOT NULL AND u.status = 'active' AND u.user_type = 'webmail'`, rpID, userHandle, credentialID,
 	).Scan(&userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPasskeyAuthenticationUnavailable
@@ -793,7 +797,7 @@ func (m *Manager) loadPasskeyAuthenticationUser(ctx context.Context, userID, rpI
 	}
 	defer rows.Close()
 	loaded := &passkeyAuthenticationUser{
-		UserID: user.ID, AuthVersion: user.AuthVersion,
+		UserID: user.ID, UserType: user.UserType, AuthVersion: user.AuthVersion,
 		Credentials: map[string]*passkeyCredentialSnapshot{},
 	}
 	for rows.Next() {

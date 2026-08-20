@@ -28,9 +28,31 @@ type User struct {
 	LastLoginAt        *time.Time
 	DisabledAt         *time.Time
 	DisabledBy         string
+	UserType           UserType
 	IsAdmin            bool
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+}
+
+type UserType string
+
+const (
+	UserTypeWebmail    UserType = "webmail"
+	UserTypeManagement UserType = "management"
+)
+
+func (userType UserType) Valid() bool {
+	return userType == UserTypeWebmail || userType == UserTypeManagement
+}
+
+func (user *User) IsManagement() bool {
+	return user != nil && user.UserType == UserTypeManagement
+}
+
+// RequiresManagementHandoff identifies the one upgrade-only state retained
+// long enough to split an older mailbox-owning administrator into two users.
+func (user *User) RequiresManagementHandoff() bool {
+	return user != nil && user.UserType == UserTypeWebmail && user.IsAdmin
 }
 
 type AdministratorUserSummary struct {
@@ -38,6 +60,7 @@ type AdministratorUserSummary struct {
 	Username string
 	Email    string
 	Status   UserStatus
+	UserType UserType
 	IsAdmin  bool
 }
 
@@ -375,8 +398,8 @@ func (m *Manager) EnsureDefaultUser() error {
 
 	now := m.clock.Now()
 	_, err = m.db.Write().Exec(
-		`INSERT INTO users (id, email, email_normalized, name, status, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"default", "local@gofer.local", "local@gofer.local", "Local User", UserStatusActive, 1, now, now,
+		`INSERT INTO users (id, email, email_normalized, name, status, user_type, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"default", "local@gofer.local", "local@gofer.local", "Local User", UserStatusActive, UserTypeWebmail, 0, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("create default user: %w", err)

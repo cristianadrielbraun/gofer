@@ -262,7 +262,7 @@ func TestSetupTokenVerificationCreatesProtectedContinuationWithoutCompletingSetu
 	request.AddCookie(setupCookie)
 	ownerRecorder := httptest.NewRecorder()
 	stack.ServeHTTP(ownerRecorder, request)
-	if ownerRecorder.Code != http.StatusOK || !strings.Contains(ownerRecorder.Body.String(), "Setup access verified") || !strings.Contains(ownerRecorder.Body.String(), "Create the first owner") || !strings.Contains(ownerRecorder.Body.String(), `action="/setup/owner"`) || strings.Contains(ownerRecorder.Body.String(), setupToken) || strings.Contains(ownerRecorder.Body.String(), setupCookie.Value) {
+	if ownerRecorder.Code != http.StatusOK || !strings.Contains(ownerRecorder.Body.String(), "Setup access verified") || !strings.Contains(ownerRecorder.Body.String(), "Create the management owner") || !strings.Contains(ownerRecorder.Body.String(), `action="/setup/owner"`) || strings.Contains(ownerRecorder.Body.String(), setupToken) || strings.Contains(ownerRecorder.Body.String(), setupCookie.Value) {
 		t.Fatalf("protected setup owner page = %d %q", ownerRecorder.Code, ownerRecorder.Body.String())
 	}
 
@@ -318,7 +318,7 @@ func TestFreshSetupOwnerDraftIsProtectedEncryptedAndNonMutating(t *testing.T) {
 	request.AddCookie(setupCookie)
 	review := httptest.NewRecorder()
 	stack.ServeHTTP(review, request)
-	for _, want := range []string{"Owner profile ready for security enrollment", "Cristian Braun", "Cristian.B", "Cristian@Example.COM", "No user, role, credential, or owned data has been changed yet"} {
+	for _, want := range []string{"Management owner profile ready", "Cristian Braun", "Cristian.B", "Cristian@Example.COM", "No user, role, credential, or mailbox ownership has changed yet"} {
 		if review.Code != http.StatusOK || !strings.Contains(review.Body.String(), want) {
 			t.Fatalf("fresh owner review missing %q: %d %q", want, review.Code, review.Body.String())
 		}
@@ -1169,11 +1169,11 @@ func TestSetupMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	}
 }
 
-func TestLegacyDefaultOwnerDraftClaimsStableUserWithoutMovingData(t *testing.T) {
+func TestLegacyDefaultSetupCreatesSeparateManagementOwnerWithoutMovingData(t *testing.T) {
 	_, db, stack, setupToken := setupEntryStack(t)
 	if _, err := db.Write().Exec(`
 		INSERT INTO users (id, email, email_normalized, name, status, is_admin)
-		VALUES ('default', 'local@gofer.local', 'local@gofer.local', 'Local User', 'active', 1);
+		VALUES ('default', 'local@gofer.local', 'local@gofer.local', 'Local User', 'active', 0);
 		INSERT INTO accounts (id, user_id, email_address) VALUES ('mailbox', 'default', 'mail@example.com');
 		INSERT INTO app_settings (user_id, key, value) VALUES ('default', 'theme', 'dark')`); err != nil {
 		t.Fatal(err)
@@ -1184,14 +1184,14 @@ func TestLegacyDefaultOwnerDraftClaimsStableUserWithoutMovingData(t *testing.T) 
 	request.AddCookie(setupCookie)
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, request)
-	for _, want := range []string{"Claim your existing Gofer data", `value="existing:default"`, "Nothing is copied or reassigned"} {
+	for _, want := range []string{"Create the management owner", "used only for Gofer administration", "Existing webmail users"} {
 		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("legacy owner page missing %q: %d %q", want, page.Code, page.Body.String())
 		}
 	}
 
 	saved := postSetupOwner(stack, setupCookie, url.Values{
-		"owner_target": {"existing:default"}, "name": {"Cristian Braun"},
+		"owner_target": {"create"}, "name": {"Cristian Braun"},
 		"username": {"cristian"}, "email": {"cristian@example.com"},
 	})
 	if saved.Code != http.StatusSeeOther {
@@ -1212,13 +1212,13 @@ func TestLegacyDefaultOwnerDraftClaimsStableUserWithoutMovingData(t *testing.T) 
 	}
 }
 
-func TestExistingSetupOwnerRequiresExplicitValidSelectionAndUniqueIdentifiers(t *testing.T) {
+func TestExistingSetupUsersRemainSeparateFromNewManagementOwner(t *testing.T) {
 	_, db, stack, setupToken := setupEntryStack(t)
 	if _, err := db.Write().Exec(`
-		INSERT INTO users (id, email, email_normalized, username, username_normalized, name, status, is_admin)
+		INSERT INTO users (id, email, email_normalized, username, username_normalized, name, status, user_type, is_admin)
 		VALUES
-			('person-a', 'a@example.com', 'a@example.com', 'person-a', 'person-a', 'Person A', 'active', 0),
-			('person-b', 'b@example.com', 'b@example.com', 'person-b', 'person-b', 'Person B', 'active', 1)`); err != nil {
+			('person-a', 'a@example.com', 'a@example.com', 'person-a', 'person-a', 'Person A', 'active', 'webmail', 0),
+			('person-b', 'b@example.com', 'b@example.com', 'person-b', 'person-b', 'Person B', 'active', 'management', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	entry := postSetup(stack, setupToken)
@@ -1227,17 +1227,10 @@ func TestExistingSetupOwnerRequiresExplicitValidSelectionAndUniqueIdentifiers(t 
 	request.AddCookie(setupCookie)
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, request)
-	for _, want := range []string{"Choose the Gofer owner", `value="existing:person-a"`, `value="existing:person-b"`, "Create a new owner"} {
+	for _, want := range []string{"Create the management owner", "Existing webmail users", `value="create"`} {
 		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("existing owner page missing %q: %d %q", want, page.Code, page.Body.String())
 		}
-	}
-
-	missing := postSetupOwner(stack, setupCookie, url.Values{
-		"name": {"Owner"}, "username": {"owner"}, "email": {"owner@example.com"},
-	})
-	if missing.Code != http.StatusUnprocessableEntity || !strings.Contains(missing.Body.String(), "Choose which Gofer user") {
-		t.Fatalf("missing owner selection = %d %q", missing.Code, missing.Body.String())
 	}
 
 	collision := postSetupOwner(stack, setupCookie, url.Values{
@@ -1248,8 +1241,8 @@ func TestExistingSetupOwnerRequiresExplicitValidSelectionAndUniqueIdentifiers(t 
 	}
 
 	selected := postSetupOwner(stack, setupCookie, url.Values{
-		"owner_target": {"existing:person-a"}, "name": {"Person A Owner"},
-		"username": {"person-a"}, "email": {"a@example.com"},
+		"owner_target": {"create"}, "name": {"New Management Owner"},
+		"username": {"new-owner"}, "email": {"new-owner@example.com"},
 	})
 	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != setupPasswordPath {
 		t.Fatalf("explicit owner selection = %d %q", selected.Code, selected.Body.String())

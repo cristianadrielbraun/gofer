@@ -332,6 +332,20 @@ func (m *Manager) beginMicrosoftAuthorization(ctx context.Context, purpose Chall
 	if purpose != ChallengePurposeFederatedLogin && purpose != ChallengePurposeFederatedLink {
 		return nil, fmt.Errorf("invalid Microsoft authorization purpose %q", purpose)
 	}
+	var linkSession *Session
+	if purpose == ChallengePurposeFederatedLink {
+		session, err := m.GetSessionByToken(ctx, sessionToken)
+		if err != nil {
+			return nil, fmt.Errorf("load Microsoft identity-link session: %w", err)
+		}
+		if err := m.requireWebmailSessionUser(ctx, session); err != nil {
+			return nil, err
+		}
+		if err := m.requireRecentSecurityStepUp(ctx, session, m.clock.Now().UTC()); err != nil {
+			return nil, err
+		}
+		linkSession = session
+	}
 	origin, err := canonicalAuthOrigin(m.config.BaseURL)
 	if err != nil {
 		return nil, err
@@ -355,18 +369,8 @@ func (m *Manager) beginMicrosoftAuthorization(ctx context.Context, purpose Chall
 		MaxAttempts: 1, CreatedAt: now, ExpiresAt: now.Add(defaultPreAuthLifetime),
 	}
 	if purpose == ChallengePurposeFederatedLink {
-		session, err := m.GetSessionByToken(ctx, sessionToken)
-		if err != nil {
-			return nil, fmt.Errorf("load Microsoft identity-link session: %w", err)
-		}
-		if session == nil {
-			return nil, ErrSecuritySessionInvalid
-		}
-		if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
-			return nil, err
-		}
-		challenge.UserID = session.UserID
-		challenge.SessionID = session.ID
+		challenge.UserID = linkSession.UserID
+		challenge.SessionID = linkSession.ID
 	}
 	payload, err := m.encryptMicrosoftLoginDraft(challenge, draft)
 	if err != nil {

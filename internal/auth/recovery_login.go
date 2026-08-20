@@ -62,6 +62,7 @@ type RecoveryRepairDraft struct {
 }
 
 type RecoveryRepairState struct {
+	UserID            string
 	Enrollment        *SetupTOTPEnrollment
 	TOTPConfirmed     bool
 	RecoveryGenerated bool
@@ -746,7 +747,7 @@ func canonicalRecoveryCode(value string) (string, bool) {
 
 func recoveryRepairState(challenge *PreAuthChallenge, draft *RecoveryRepairDraft, enrollment *SetupTOTPEnrollment) *RecoveryRepairState {
 	return &RecoveryRepairState{
-		Enrollment: enrollment, TOTPConfirmed: draft.TOTPConfirmedStep != nil,
+		UserID: challenge.UserID, Enrollment: enrollment, TOTPConfirmed: draft.TOTPConfirmedStep != nil,
 		RecoveryGenerated: draft.RecoveryBatchID != "" && len(draft.RecoveryCodeHashes) == setupRecoveryCodeCount,
 		RecoveryBatchID:   draft.RecoveryBatchID,
 	}
