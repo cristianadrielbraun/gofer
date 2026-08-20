@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
@@ -14,16 +15,30 @@ import (
 
 const adminUserInvitationPath = "/admin/users/invitations"
 
+func adminUserInvitationRevokePath(reference string) string {
+	return adminUserInvitationPath + "/" + reference + "/revoke"
+}
+
+func adminUserInvitationRotatePath(reference string) string {
+	return adminUserInvitationPath + "/" + reference + "/rotate"
+}
+
 func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID string) views.AdminUsersData {
 	data := views.AdminUsersData{Users: make([]views.AdminUserData, 0, len(users)), Total: len(users)}
 	for _, user := range users {
 		view := views.AdminUserData{
-			ID:       user.ID,
-			Username: user.Username,
-			Email:    user.Email,
-			Status:   "Disabled",
-			Role:     "Webmail user",
-			Current:  user.ID == currentUserID,
+			ID:                  user.ID,
+			Username:            user.Username,
+			Email:               user.Email,
+			Status:              "Disabled",
+			Role:                "Webmail user",
+			Current:             user.ID == currentUserID,
+			InvitationState:     string(user.InvitationState),
+			InvitationExpiresAt: user.InvitationExpiresAt,
+		}
+		if user.InvitationActionReference != "" {
+			view.InvitationRevokePath = adminUserInvitationRevokePath(user.InvitationActionReference)
+			view.InvitationRotatePath = adminUserInvitationRotatePath(user.InvitationActionReference)
 		}
 		switch user.Status {
 		case auth.UserStatusActive:
@@ -96,14 +111,92 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 	h.renderAdminUsers(w, r, http.StatusCreated, views.AdminUserInvitationFormData{}, result, "")
 }
 
-func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, pageError string) {
+func (h *Handler) handleRevokeAdminUserInvitation(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	currentUser := auth.GetCurrentUser(ctx)
-	if currentUser == nil || h.auth == nil {
+	currentSession := auth.GetCurrentSession(ctx)
+	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
 		http.Error(w, "admin access required", http.StatusForbidden)
 		return
 	}
-	users, err := h.auth.ListAdministratorUsers(ctx, currentUser.ID)
+	err := h.auth.RevokeAdministratorUserInvitation(
+		ctx, currentUser.ID, currentSession.ID, r.PathValue("reference"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before revoking an invitation.")
+		case errors.Is(err, auth.ErrAdministratorRequired):
+			http.Error(w, "admin access required", http.StatusForbidden)
+		case errors.Is(err, auth.ErrAdministratorUserInvitationTargetInvalid),
+			errors.Is(err, auth.ErrAdministratorUserInvitationNotActive):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This invitation is no longer active. Refresh the page and try again.")
+		default:
+			log.Printf("revoke administrator user invitation: %v", err)
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to revoke the invitation right now.")
+		}
+		return
+	}
+	redirectAdminUsers(w, r, "Invitation revoked.")
+}
+
+func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser := auth.GetCurrentUser(ctx)
+	currentSession := auth.GetCurrentSession(ctx)
+	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return
+	}
+	invitation, err := h.auth.RotateAdministratorUserInvitation(ctx, auth.RotateAdministratorUserInvitationOptions{
+		ActorUserID: currentUser.ID, ActorSessionID: currentSession.ID,
+		ActionReference: r.PathValue("reference"),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before issuing a replacement invitation.")
+		case errors.Is(err, auth.ErrAdministratorRequired):
+			http.Error(w, "admin access required", http.StatusForbidden)
+		case errors.Is(err, auth.ErrAdministratorUserInvitationTargetInvalid):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This invitation target is no longer available. Refresh the page and try again.")
+		default:
+			log.Printf("rotate administrator user invitation: %v", err)
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to issue a replacement invitation right now.")
+		}
+		return
+	}
+	result := &views.AdminUserInvitationData{
+		Name: invitation.Name, Username: invitation.User.Username, Email: invitation.User.Email,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
+		Token:         invitation.Token.Token, ExpiresAt: invitation.Token.ExpiresAt,
+		Rotated: true,
+	}
+	h.renderAdminUsers(w, r, http.StatusCreated, views.AdminUserInvitationFormData{}, result, "")
+}
+
+func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
+	values := url.Values{}
+	if notice != "" {
+		values.Set("notice", notice)
+	}
+	target := "/admin/users"
+	if encoded := values.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, pageError string) {
+	ctx := r.Context()
+	currentUser := auth.GetCurrentUser(ctx)
+	currentSession := auth.GetCurrentSession(ctx)
+	if currentUser == nil || currentSession == nil || h.auth == nil {
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return
+	}
+	users, err := h.auth.ListAdministratorUsersForSession(ctx, currentUser.ID, currentSession.ID)
 	if errors.Is(err, auth.ErrAdministratorRequired) {
 		http.Error(w, "admin access required", http.StatusForbidden)
 		return
@@ -117,6 +210,7 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 	data.InvitationForm = form
 	data.Invitation = invitation
 	data.Error = pageError
+	data.Notice = strings.TrimSpace(r.URL.Query().Get("notice"))
 	if queryError := strings.TrimSpace(r.URL.Query().Get("error")); data.Error == "" && queryError != "" {
 		data.Error = queryError
 	}
@@ -138,6 +232,14 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 		}
 	}
 	data.InvitationCSRFToken = auth.CSRFToken(ctx, http.MethodPost, adminUserInvitationPath)
+	for index := range data.Users {
+		if data.Users[index].InvitationRevokePath != "" {
+			data.Users[index].InvitationRevokeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRevokePath)
+		}
+		if data.Users[index].InvitationRotatePath != "" {
+			data.Users[index].InvitationRotateCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRotatePath)
+		}
+	}
 	uiSettings := h.db.GetUISettings(ctx, currentUser.ID)
 	var output bytes.Buffer
 	if r.Header.Get("HX-Request") == "true" {

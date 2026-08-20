@@ -335,6 +335,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/users", h.handleAdminUsers)
 	adminRoute("GET /admin/users/{$}", h.handleAdminUsers)
 	adminRoute("POST /admin/users/invitations", h.handleCreateAdminUserInvitation)
+	adminRoute("POST /admin/users/invitations/{reference}/revoke", h.handleRevokeAdminUserInvitation)
+	adminRoute("POST /admin/users/invitations/{reference}/rotate", h.handleRotateAdminUserInvitation)
 	adminRoute("GET /admin/labels", h.handleAdminLabels)
 	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)
 	adminRoute("GET /admin/operations", h.handleAdminOperations)

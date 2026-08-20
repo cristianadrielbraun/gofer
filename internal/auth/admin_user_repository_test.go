@@ -43,6 +43,29 @@ func TestListAdministratorUsersRequiresActiveAdministratorAndReturnsOnlySafeMeta
 		users[3].Username != "Zulu" || users[3].Status != UserStatusDisabled || !users[3].IsAdmin {
 		t.Fatalf("administrator user projection = %#v", users)
 	}
+	if users[1].InvitationState != AdministratorUserInvitationNotIssued || users[1].InvitationActionReference != "" {
+		t.Fatalf("non-interactive administrator invitation projection = %#v", users[1])
+	}
+	administratorSessionID := insertEnrollmentStepUpSession(t, manager, "administrator", now, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO user_enrollment_tokens (
+			id, user_id, created_by, token_hash, purpose, created_at, expires_at
+		) VALUES ('pending-token', 'pending', 'administrator', 'pending-token-hash', 'enrollment', ?, ?)`,
+		now, now.Add(time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+	interactive, err := manager.ListAdministratorUsersForSession(t.Context(), "administrator", administratorSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interactive[1].InvitationState != AdministratorUserInvitationActive ||
+		interactive[1].InvitationExpiresAt == nil ||
+		!interactive[1].InvitationExpiresAt.Equal(now.Add(time.Hour)) ||
+		!canonicalAdministratorUserInvitationActionReference(interactive[1].InvitationActionReference) ||
+		interactive[0].InvitationActionReference != "" || interactive[2].InvitationActionReference != "" {
+		t.Fatalf("interactive administrator invitation projection = %#v", interactive)
+	}
 	if result, err := manager.ListAdministratorUsers(t.Context(), "ordinary"); result != nil || !errors.Is(err, ErrAdministratorRequired) {
 		t.Fatalf("ordinary ListAdministratorUsers() = %#v, %v", result, err)
 	}

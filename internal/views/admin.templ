@@ -17,12 +17,18 @@ import (
 )
 
 type AdminUserData struct {
-	ID       string
-	Username string
-	Email    string
-	Status   string
-	Role     string
-	Current  bool
+	ID                        string
+	Username                  string
+	Email                     string
+	Status                    string
+	Role                      string
+	Current                   bool
+	InvitationState           string
+	InvitationExpiresAt       *time.Time
+	InvitationRevokePath      string
+	InvitationRevokeCSRFToken string
+	InvitationRotatePath      string
+	InvitationRotateCSRFToken string
 }
 
 type AdminUsersData struct {
@@ -36,6 +42,7 @@ type AdminUsersData struct {
 	InvitationCSRFToken string
 	InvitationForm      AdminUserInvitationFormData
 	Invitation          *AdminUserInvitationData
+	Notice              string
 	Error               string
 }
 
@@ -53,6 +60,7 @@ type AdminUserInvitationData struct {
 	RedemptionURL string
 	Token         string
 	ExpiresAt     time.Time
+	Rotated       bool
 }
 
 func adminUserUsername(username string) string {
@@ -83,6 +91,27 @@ func adminUserInvitationCopyText(data *AdminUserInvitationData) string {
 		data.Username, data.Email, data.RedemptionURL, data.Token,
 		data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST"),
 	)
+}
+
+func adminUserInvitationStateLabel(state string) string {
+	switch state {
+	case "active":
+		return "Active"
+	case "expired":
+		return "Expired"
+	case "revoked":
+		return "Revoked"
+	default:
+		return "Not issued"
+	}
+}
+
+func adminUserInvitationDialogID(prefix string, user AdminUserData) string {
+	reference := strings.TrimSuffix(
+		strings.TrimPrefix(user.InvitationRotatePath, "/admin/users/invitations/"),
+		"/rotate",
+	)
+	return prefix + "-" + user.InvitationState + "-" + reference
 }
 
 templ AdminSidebar(activeSection string) {
@@ -237,10 +266,13 @@ templ AdminUsersPage(data AdminUsersData) {
 				if data.Error != "" {
 					<div role="alert" class="mt-5 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">{ data.Error }</div>
 				}
+				if data.Notice != "" {
+					<div role="status" class="mt-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
+				}
 				if data.StepUpRequired {
 					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">Recent administrator verification required</p>
-						<p class="mt-1">Verify with a passkey or authenticator in <a href="/settings/security" class="font-semibold underline underline-offset-2">Security settings</a> to create invitations for the next ten minutes.</p>
+						<p class="mt-1">Verify with a passkey or authenticator in <a href="/settings/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations for the next ten minutes.</p>
 					</div>
 				}
 				@AdminUserInvitationDialog(data)
@@ -268,18 +300,20 @@ templ AdminUsersPage(data AdminUsersData) {
 				<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-users-heading">
 					<div class="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
 						<h3 id="admin-users-heading" class="text-sm font-semibold text-foreground">Application users</h3>
-						<span class="text-xs text-muted-foreground">Profile metadata only</span>
+						<span class="text-xs text-muted-foreground">Application identity and invitation state</span>
 					</div>
 					if len(data.Users) == 0 {
 						<div class="px-4 py-10 text-center text-sm text-muted-foreground">No Gofer users are available.</div>
 					} else {
 						<div class="overflow-x-auto">
-							<table class="w-full min-w-[44rem] text-left text-sm">
+							<table class="w-full min-w-[64rem] text-left text-sm">
 								<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
 									<tr>
 										<th scope="col" class="px-4 py-3">User</th>
 										<th scope="col" class="px-4 py-3">Status</th>
 										<th scope="col" class="px-4 py-3">Role</th>
+										<th scope="col" class="px-4 py-3">Invitation</th>
+										<th scope="col" class="px-4 py-3 text-right">Actions</th>
 										<th scope="col" class="px-4 py-3">User ID</th>
 									</tr>
 								</thead>
@@ -314,6 +348,33 @@ templ AdminUsersPage(data AdminUsersData) {
 													}
 												>{ user.Role }</span>
 											</td>
+											<td class="px-4 py-3">
+												if user.InvitationRotatePath == "" {
+													<span class="text-xs text-muted-foreground">—</span>
+												} else {
+													<span
+														class={
+															"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+															templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.InvitationState == "active"),
+															templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.InvitationState == "expired"),
+															templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.InvitationState == "revoked"),
+															templ.KV("border-border bg-muted text-muted-foreground", user.InvitationState == "not_issued"),
+														}
+													>{ adminUserInvitationStateLabel(user.InvitationState) }</span>
+													if user.InvitationExpiresAt != nil {
+														<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+															if user.InvitationState == "active" {
+																Expires { user.InvitationExpiresAt.Local().Format("Jan 2, 15:04") }
+															} else {
+																Expired { user.InvitationExpiresAt.Local().Format("Jan 2, 15:04") }
+															}
+														</p>
+													}
+												}
+											</td>
+											<td class="px-4 py-3 text-right">
+												@AdminUserInvitationActions(user, data.StepUpRequired)
+											</td>
 											<td class="px-4 py-3"><code class="break-all font-mono text-xs text-muted-foreground">{ user.ID }</code></td>
 										</tr>
 									}
@@ -322,10 +383,90 @@ templ AdminUsersPage(data AdminUsersData) {
 						</div>
 					}
 				</section>
-				<p class="mt-4 text-xs leading-relaxed text-muted-foreground">This page loads only Gofer application-login profile metadata. Mailboxes, messages, contacts, credentials, authentication factors, linked-provider subjects, sessions, and tokens are not queried or displayed.</p>
+				<p class="mt-4 text-xs leading-relaxed text-muted-foreground">This page loads Gofer application-login profile metadata and bounded invitation lifecycle state. Mailboxes, messages, contacts, credentials, authentication factors, linked-provider subjects, sessions, raw tokens, and token hashes are not displayed.</p>
 			</div>
 		</div>
 	</div>
+}
+
+templ AdminUserInvitationActions(user AdminUserData, stepUpRequired bool) {
+	if user.InvitationRotatePath == "" {
+		<span class="text-xs text-muted-foreground">—</span>
+	} else {
+		<div class="flex items-center justify-end gap-2">
+			if user.InvitationState == "active" {
+				{{ revokeDialogID := adminUserInvitationDialogID("admin-invitation-revoke", user) }}
+				@dialog.Trigger(dialog.TriggerProps{For: revokeDialogID}) {
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRevokeCSRFToken == ""}) {
+						Revoke
+					}
+				}
+				@dialog.Dialog(dialog.Props{ID: revokeDialogID}) {
+					@dialog.Content() {
+						@dialog.Header() {
+							@dialog.Title() {
+								Revoke invitation?
+							}
+							@dialog.Description() {
+								The current invitation for { adminUserUsername(user.Username) } will stop working immediately. You can issue a new one later.
+							}
+						}
+						<form method="post" action={ user.InvitationRevokePath }>
+							<input type="hidden" name="_csrf" value={ user.InvitationRevokeCSRFToken }/>
+							@dialog.Footer() {
+								@dialog.Close() {
+									@button.Button(button.Props{Variant: button.VariantOutline}) {
+										Cancel
+									}
+								}
+								@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+									Revoke invitation
+								}
+							}
+						</form>
+					}
+				}
+				{{ rotateDialogID := adminUserInvitationDialogID("admin-invitation-rotate", user) }}
+				@dialog.Trigger(dialog.TriggerProps{For: rotateDialogID}) {
+					@button.Button(button.Props{Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRotateCSRFToken == ""}) {
+						Rotate
+					}
+				}
+				@dialog.Dialog(dialog.Props{ID: rotateDialogID}) {
+					@dialog.Content() {
+						@dialog.Header() {
+							@dialog.Title() {
+								Rotate invitation?
+							}
+							@dialog.Description() {
+								The current invitation for { adminUserUsername(user.Username) } will stop working. Gofer will show the replacement token only once.
+							}
+						}
+						<form method="post" action={ user.InvitationRotatePath }>
+							<input type="hidden" name="_csrf" value={ user.InvitationRotateCSRFToken }/>
+							@dialog.Footer() {
+								@dialog.Close() {
+									@button.Button(button.Props{Variant: button.VariantOutline}) {
+										Cancel
+									}
+								}
+								@button.Button(button.Props{Type: button.TypeSubmit}) {
+									Rotate and show token
+								}
+							}
+						</form>
+					}
+				}
+			} else {
+				<form method="post" action={ user.InvitationRotatePath }>
+					<input type="hidden" name="_csrf" value={ user.InvitationRotateCSRFToken }/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRotateCSRFToken == ""}) {
+						Issue invitation
+					}
+				</form>
+			}
+		</div>
+	}
 }
 
 templ AdminUserInvitationDialog(data AdminUsersData) {
@@ -436,14 +577,24 @@ templ AdminUserInvitationResultDialog(data *AdminUserInvitationData) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					Invitation created
+					if data.Rotated {
+						Invitation rotated
+					} else {
+						Invitation created
+					}
 				}
 				@dialog.Description() {
 					Copy these details now. Gofer stores only a hash of the token and cannot display it again.
 				}
 			}
 			<div role="status" class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
-				<p class="font-semibold">{ data.Username } is pending enrollment</p>
+				<p class="font-semibold">
+					if data.Rotated {
+						New invitation ready for { data.Username }
+					} else {
+						{ data.Username } is pending enrollment
+					}
+				</p>
 				<p class="mt-1 text-xs">{ data.Name } · { data.Email } · expires { data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST") }</p>
 			</div>
 			<div class="space-y-2">

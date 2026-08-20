@@ -25,7 +25,7 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 	}
 	html := out.String()
 	for _, want := range []string{
-		`data-admin-users`, "3 users", "Application users", "Profile metadata only",
+		`data-admin-users`, "3 users", "Application users", "Application identity and invitation state",
 		"owner@example.com", "You", "Active", "Pending", "Disabled",
 		"Administrator", "User", "current-id", "pending-id", "disabled-id",
 		`&lt;script&gt;pending&lt;/script&gt;`, `pending+&lt;tag&gt;@example.com`, "No username",
@@ -39,6 +39,38 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("administrator users view exposed forbidden value %q", forbidden)
 		}
+	}
+}
+
+func TestAdminUsersPageRendersProtectedInvitationLifecycleActions(t *testing.T) {
+	expiresAt := time.Date(2026, time.August, 21, 12, 30, 0, 0, time.Local)
+	reference := strings.Repeat("a", 43)
+	rotatePath := "/admin/users/invitations/" + reference + "/rotate"
+	revokePath := "/admin/users/invitations/" + reference + "/revoke"
+	data := AdminUsersData{Users: []AdminUserData{{
+		ID: "pending-internal-id", Username: "pending.user", Email: "pending@example.com",
+		Status: "Pending", Role: "Webmail user", InvitationState: "active",
+		InvitationExpiresAt:  &expiresAt,
+		InvitationRevokePath: revokePath, InvitationRevokeCSRFToken: strings.Repeat("b", 64),
+		InvitationRotatePath: rotatePath, InvitationRotateCSRFToken: strings.Repeat("c", 64),
+	}}}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Invitation", "Active", "Expires Aug 21, 12:30", "Revoke", "Rotate",
+		`action="` + revokePath + `"`, `action="` + rotatePath + `"`,
+		strings.Repeat("b", 64), strings.Repeat("c", 64),
+		"will stop working immediately", "Gofer will show the replacement token only once",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("administrator invitation lifecycle view missing %q: %s", want, html)
+		}
+	}
+	if strings.Contains(html, "private-token-hash") {
+		t.Fatal("administrator invitation lifecycle view exposed a token hash")
 	}
 }
 
@@ -98,7 +130,7 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	html := out.String()
 	for _, want := range []string{
 		"Recent administrator verification required", `href="/settings/security"`,
-		"create invitations for the next ten minutes", " disabled",
+		"manage invitations for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)

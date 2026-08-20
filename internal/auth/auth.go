@@ -56,12 +56,15 @@ func (user *User) RequiresManagementHandoff() bool {
 }
 
 type AdministratorUserSummary struct {
-	ID       string
-	Username string
-	Email    string
-	Status   UserStatus
-	UserType UserType
-	IsAdmin  bool
+	ID                        string
+	Username                  string
+	Email                     string
+	Status                    UserStatus
+	UserType                  UserType
+	IsAdmin                   bool
+	InvitationState           AdministratorUserInvitationState
+	InvitationExpiresAt       *time.Time
+	InvitationActionReference string
 }
 
 type UserStatus string

@@ -15,6 +15,8 @@ import (
 )
 
 var administratorInvitationTokenPattern = regexp.MustCompile(`Invitation token: ([0-9a-f]{64})`)
+var administratorInvitationRotateActionPattern = regexp.MustCompile(`action="(/admin/users/invitations/[A-Za-z0-9_-]{43}/rotate)"`)
+var administratorInvitationRevokeActionPattern = regexp.MustCompile(`action="(/admin/users/invitations/[A-Za-z0-9_-]{43}/revoke)"`)
 
 func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 	data := adminUsersViewData([]auth.AdministratorUserSummary{
@@ -78,7 +80,7 @@ func TestAdminUsersPageListsOnlyAuthenticationProfileMetadata(t *testing.T) {
 	html := recorder.Body.String()
 	for _, want := range []string{
 		`data-admin-users`, `href="/admin/users"`, `data-admin-navigation-link`, `data-admin-navigation-loading`,
-		`data-admin-navigation-label="Users"`, `aria-current`, "Loading section", "Application users", "Profile metadata only",
+		`data-admin-navigation-label="Users"`, `aria-current`, "Loading section", "Application users", "Application identity and invitation state",
 		currentUser.Email, "You", "pending@example.com", "disabled@example.com",
 		`&lt;script&gt;pending-user&lt;/script&gt;`, "pending-user-id", "disabled-admin-id",
 		"Active", "Pending", "Disabled", "Management administrator", "Webmail user",
@@ -245,6 +247,126 @@ func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 		"token": {rawToken}, "new_password": {password}, "confirm_password": {password},
 	}); replay.Code != http.StatusBadRequest {
 		t.Fatalf("replayed invitation = %d %q", replay.Code, replay.Body.String())
+	}
+}
+
+func TestAdministratorCanRotateAndRevokeInvitationWithoutExposingInternalTargets(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest.AddCookie(sessionCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK {
+		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
+	}
+	createForm := url.Values{
+		"name": {"Lifecycle Person"}, "username": {"lifecycle.person"}, "email": {"lifecycle@example.com"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), adminUserInvitationPath)},
+	}
+	created := postSecuritySettings(t, stack, adminUserInvitationPath, createForm, sessionCookie)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create lifecycle invitation = %d %q", created.Code, created.Body.String())
+	}
+	originalMatch := administratorInvitationTokenPattern.FindStringSubmatch(created.Body.String())
+	rotateMatch := administratorInvitationRotateActionPattern.FindStringSubmatch(created.Body.String())
+	revokeMatch := administratorInvitationRevokeActionPattern.FindStringSubmatch(created.Body.String())
+	if len(originalMatch) != 2 || len(rotateMatch) != 2 || len(revokeMatch) != 2 {
+		t.Fatalf("created invitation lifecycle controls missing: %q", created.Body.String())
+	}
+	originalToken := originalMatch[1]
+	rotatePath := rotateMatch[1]
+	var userID, originalTokenID, originalHash string
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT id FROM users WHERE email_normalized = 'lifecycle@example.com'`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT id, token_hash FROM user_enrollment_tokens
+		WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL`, userID,
+	).Scan(&originalTokenID, &originalHash); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{userID, originalTokenID, originalHash, originalToken} {
+		if strings.Contains(rotatePath, forbidden) || strings.Contains(revokeMatch[1], forbidden) {
+			t.Fatalf("invitation action path exposed internal target %q", forbidden)
+		}
+	}
+	withoutCSRF := postSecuritySettings(t, stack, rotatePath, url.Values{}, sessionCookie)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("invitation rotation without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+	rotateForm := url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, created.Body.String(), rotatePath)},
+	}
+	rotated := postSecuritySettings(t, stack, rotatePath, rotateForm, sessionCookie)
+	if rotated.Code != http.StatusCreated {
+		t.Fatalf("rotate invitation = %d %q", rotated.Code, rotated.Body.String())
+	}
+	rotatedHTML := rotated.Body.String()
+	replacementMatch := administratorInvitationTokenPattern.FindStringSubmatch(rotatedHTML)
+	if len(replacementMatch) != 2 || replacementMatch[1] == originalToken ||
+		!strings.Contains(rotatedHTML, "Invitation rotated") ||
+		!strings.Contains(rotatedHTML, "New invitation ready for lifecycle.person") {
+		t.Fatalf("rotated invitation result = %q", rotatedHTML)
+	}
+	replacementToken := replacementMatch[1]
+	var originalRevoked int
+	var activeTokens int
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT revoked_at IS NOT NULL FROM user_enrollment_tokens WHERE id = ?`, originalTokenID,
+	).Scan(&originalRevoked); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM user_enrollment_tokens
+		WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP`, userID,
+	).Scan(&activeTokens); err != nil {
+		t.Fatal(err)
+	}
+	if originalRevoked != 1 || activeTokens != 1 {
+		t.Fatalf("rotated invitation database state = original revoked:%d active:%d", originalRevoked, activeTokens)
+	}
+
+	refreshRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	refreshRequest.AddCookie(sessionCookie)
+	refreshed := httptest.NewRecorder()
+	stack.ServeHTTP(refreshed, refreshRequest)
+	if refreshed.Code != http.StatusOK || strings.Contains(refreshed.Body.String(), replacementToken) {
+		t.Fatalf("refreshed invitation page retained replacement token = %d %q", refreshed.Code, refreshed.Body.String())
+	}
+	revokeMatch = administratorInvitationRevokeActionPattern.FindStringSubmatch(refreshed.Body.String())
+	if len(revokeMatch) != 2 {
+		t.Fatalf("refreshed invitation page omitted revoke action: %q", refreshed.Body.String())
+	}
+	revokePath := revokeMatch[1]
+	revokeForm := url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, refreshed.Body.String(), revokePath)},
+	}
+	revoked := postSecuritySettings(t, stack, revokePath, revokeForm, sessionCookie)
+	if revoked.Code != http.StatusSeeOther || revoked.Header().Get("Location") != "/admin/users?notice=Invitation+revoked." ||
+		revoked.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("revoke invitation = %d location:%q headers:%#v body:%q",
+			revoked.Code, revoked.Header().Get("Location"), revoked.Header(), revoked.Body.String())
+	}
+	resultRequest := httptest.NewRequest(http.MethodGet, revoked.Header().Get("Location"), nil)
+	resultRequest.AddCookie(sessionCookie)
+	result := httptest.NewRecorder()
+	stack.ServeHTTP(result, resultRequest)
+	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "Invitation revoked.") ||
+		!strings.Contains(result.Body.String(), "Revoked") || !strings.Contains(result.Body.String(), "Issue invitation") ||
+		strings.Contains(result.Body.String(), replacementToken) {
+		t.Fatalf("revoked invitation page = %d %q", result.Code, result.Body.String())
+	}
+	password := "a reliable lifecycle account passphrase"
+	for _, token := range []string{originalToken, replacementToken} {
+		redeem := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(url.Values{
+			"token": {token}, "new_password": {password}, "confirm_password": {password},
+		}.Encode()))
+		redeem.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		recorder := httptest.NewRecorder()
+		stack.ServeHTTP(recorder, redeem)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("revoked invitation token %q redemption = %d %q", token, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
