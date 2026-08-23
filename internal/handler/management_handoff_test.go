@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -14,6 +16,8 @@ import (
 )
 
 var managementInvitationTokenPattern = regexp.MustCompile(`<code[^>]*>([^<]+)</code>`)
+var managementInvitationReissuePathPattern = regexp.MustCompile(`action="(/admin/separate/invitations/([^"/]+)/reissue)"`)
+var managementHandoffCancelPathPattern = regexp.MustCompile(`action="(/admin/separate/handoffs/([^"/]+)/cancel)"`)
 
 func legacyManagementHandoffStack(t *testing.T) (*auth.Manager, *storage.DB, http.Handler, *http.Cookie) {
 	t.Helper()
@@ -41,7 +45,9 @@ func legacyManagementHandoffStack(t *testing.T) (*auth.Manager, *storage.DB, htt
 		END`, now, now); err != nil {
 		t.Fatal(err)
 	}
-	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
+	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db, auth.Dependencies{
+		BucketHashKey: []byte("0123456789abcdef0123456789abcdef"),
+	})
 	session, err := manager.CreateAuthenticatedSession(
 		t.Context(), "legacy-admin", "Legacy Browser",
 		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
@@ -112,5 +118,99 @@ func TestManagementHandoffInvitationRouteIsAtomicAndShowsTokenOnce(t *testing.T)
 	if reloaded.Code != http.StatusOK || strings.Contains(reloaded.Body.String(), rawToken) ||
 		!strings.Contains(reloaded.Body.String(), "Management invitation pending") {
 		t.Fatalf("reloaded handoff page = %d %q", reloaded.Code, reloaded.Body.String())
+	}
+}
+
+func TestManagementHandoffInvitationCanBeReissuedAndCanceledSecurely(t *testing.T) {
+	manager, db, stack, sessionCookie := legacyManagementHandoffStack(t)
+	created := postSecuritySettings(t, stack, managementHandoffInvitationPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofForSession(t, manager, sessionCookie.Value, managementHandoffInvitationPath)},
+		"name":                 {"Management Owner"},
+		"username":             {"management-owner"},
+	}, sessionCookie)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create management handoff = %d %q", created.Code, created.Body.String())
+	}
+	initialTokenMatch := managementInvitationTokenPattern.FindStringSubmatch(created.Body.String())
+	reissueMatch := managementInvitationReissuePathPattern.FindStringSubmatch(created.Body.String())
+	cancelMatch := managementHandoffCancelPathPattern.FindStringSubmatch(created.Body.String())
+	if len(initialTokenMatch) != 2 || len(reissueMatch) != 3 || len(cancelMatch) != 3 ||
+		reissueMatch[2] == "" || reissueMatch[2] != cancelMatch[2] ||
+		strings.Contains(created.Body.String(), "management-user") {
+		t.Fatalf("management handoff recovery controls = %q", created.Body.String())
+	}
+
+	withoutReissueCSRF := postSecuritySettings(t, stack, reissueMatch[1], nil, sessionCookie)
+	if withoutReissueCSRF.Code != http.StatusForbidden {
+		t.Fatalf("management invitation reissue without CSRF = %d %q", withoutReissueCSRF.Code, withoutReissueCSRF.Body.String())
+	}
+	reissued := postSecuritySettings(t, stack, reissueMatch[1], url.Values{
+		auth.CSRFFormFieldName: {csrfProofForSession(t, manager, sessionCookie.Value, reissueMatch[1])},
+	}, sessionCookie)
+	if reissued.Code != http.StatusCreated || reissued.Header().Get("Cache-Control") != "no-store" ||
+		reissued.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("reissued management invitation = status:%d headers:%v body:%q", reissued.Code, reissued.Header(), reissued.Body.String())
+	}
+	replacementTokenMatch := managementInvitationTokenPattern.FindStringSubmatch(reissued.Body.String())
+	newCancelMatch := managementHandoffCancelPathPattern.FindStringSubmatch(reissued.Body.String())
+	if len(replacementTokenMatch) != 2 || replacementTokenMatch[1] == initialTokenMatch[1] ||
+		strings.Count(reissued.Body.String(), replacementTokenMatch[1]) != 1 || len(newCancelMatch) != 3 ||
+		newCancelMatch[2] == cancelMatch[2] {
+		t.Fatalf("replacement management invitation response = %q", reissued.Body.String())
+	}
+	if redeemed, err := manager.RedeemEnrollmentToken(t.Context(), auth.RedeemEnrollmentTokenOptions{
+		Token: initialTokenMatch[1], NewPassword: "Correct Horse Battery Staple! 2026",
+	}); redeemed != nil || !errors.Is(err, auth.ErrEnrollmentTokenInvalid) {
+		t.Fatalf("redeem superseded management invitation = %#v, %v", redeemed, err)
+	}
+
+	replayed := postSecuritySettings(t, stack, reissueMatch[1], url.Values{
+		auth.CSRFFormFieldName: {csrfProofForSession(t, manager, sessionCookie.Value, reissueMatch[1])},
+	}, sessionCookie)
+	if replayed.Code != http.StatusConflict || !strings.Contains(replayed.Body.String(), "no longer available") {
+		t.Fatalf("replayed management invitation action = %d %q", replayed.Code, replayed.Body.String())
+	}
+	withoutCancelCSRF := postSecuritySettings(t, stack, newCancelMatch[1], nil, sessionCookie)
+	if withoutCancelCSRF.Code != http.StatusForbidden {
+		t.Fatalf("management handoff cancel without CSRF = %d %q", withoutCancelCSRF.Code, withoutCancelCSRF.Body.String())
+	}
+	canceled := postSecuritySettings(t, stack, newCancelMatch[1], url.Values{
+		auth.CSRFFormFieldName: {csrfProofForSession(t, manager, sessionCookie.Value, newCancelMatch[1])},
+	}, sessionCookie)
+	if canceled.Code != http.StatusSeeOther || !strings.HasPrefix(canceled.Header().Get("Location"), "/admin/separate?notice=") ||
+		canceled.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("canceled management handoff = status:%d headers:%v body:%q", canceled.Code, canceled.Header(), canceled.Body.String())
+	}
+
+	var sourceAdmin, targetAdmin, mailboxes int
+	var targetStatus, handoffStatus string
+	var canceledAt sql.NullTime
+	if err := db.Read().QueryRow(`SELECT is_admin FROM users WHERE id = 'legacy-admin'`).Scan(&sourceAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`
+		SELECT target.status, target.is_admin, handoff.status, handoff.canceled_at
+		FROM management_handoffs handoff
+		JOIN users target ON target.id = handoff.target_user_id
+		WHERE handoff.source_user_id = 'legacy-admin'`).Scan(&targetStatus, &targetAdmin, &handoffStatus, &canceledAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM accounts WHERE user_id = 'legacy-admin'`).Scan(&mailboxes); err != nil {
+		t.Fatal(err)
+	}
+	if sourceAdmin != 1 || targetAdmin != 0 || targetStatus != string(auth.UserStatusDisabled) ||
+		handoffStatus != "canceled" || !canceledAt.Valid || mailboxes != 1 {
+		t.Fatalf("canceled handoff boundaries = source-admin:%d target:%s/%d handoff:%s/%t mailboxes:%d",
+			sourceAdmin, targetStatus, targetAdmin, handoffStatus, canceledAt.Valid, mailboxes)
+	}
+	if redeemed, err := manager.RedeemEnrollmentToken(t.Context(), auth.RedeemEnrollmentTokenOptions{
+		Token: replacementTokenMatch[1], NewPassword: "Correct Horse Battery Staple! 2026",
+	}); redeemed != nil || !errors.Is(err, auth.ErrEnrollmentTokenInvalid) {
+		t.Fatalf("redeem canceled management invitation = %#v, %v", redeemed, err)
+	}
+	page := getSecuritySettingsPath(t, stack, canceled.Header().Get("Location"), sessionCookie)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Management handoff canceled") ||
+		!strings.Contains(page.Body.String(), "Create management invitation") {
+		t.Fatalf("management handoff page after cancellation = %d %q", page.Code, page.Body.String())
 	}
 }

@@ -324,6 +324,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /", h.handleIndex)
 	mux.Handle("GET /admin/separate", h.managementHandoffOnly(http.HandlerFunc(h.handleManagementSeparation)))
 	mux.Handle("POST /admin/separate/invitations", h.managementHandoffOnly(http.HandlerFunc(h.handleCreateManagementHandoff)))
+	mux.Handle("POST /admin/separate/invitations/{reference}/reissue", h.managementHandoffOnly(http.HandlerFunc(h.handleReissueManagementHandoffInvitation)))
+	mux.Handle("POST /admin/separate/handoffs/{reference}/cancel", h.managementHandoffOnly(http.HandlerFunc(h.handleCancelManagementHandoff)))
 	mux.Handle("GET /admin/account/security", h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
 	mux.Handle("POST /admin/management/activate", h.managementAccountOnly(http.HandlerFunc(h.handleActivateManagementHandoff)))
 	adminRoute("GET /admin", h.handleAdminRedirect)

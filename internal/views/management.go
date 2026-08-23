@@ -17,11 +17,18 @@ type ManagementHandoffFormData struct {
 }
 
 type ManagementHandoffInvitationData struct {
-	Name          string
-	Username      string
-	RedemptionURL string
-	Token         string
-	ExpiresAt     time.Time
+	Name             string
+	Username         string
+	RedemptionURL    string
+	Token            string
+	ExpiresAt        time.Time
+	TargetStatus     string
+	InvitationState  string
+	CanReissue       bool
+	ReissuePath      string
+	ReissueCSRFToken string
+	CancelPath       string
+	CancelCSRFToken  string
 }
 
 type ManagementHandoffPageData struct {
@@ -30,6 +37,7 @@ type ManagementHandoffPageData struct {
 	Invitation *ManagementHandoffInvitationData
 	CSRFToken  string
 	Error      string
+	Notice     string
 }
 
 type ManagementActivationData struct {
@@ -252,6 +260,11 @@ func ManagementHandoffPage(data ManagementHandoffPageData) templ.Component {
 				return err
 			}
 		}
+		if data.Notice != "" {
+			if err := writeHTML(w, `<div role="status" class="mt-6 rounded-lg border border-success/25 bg-success/10 px-4 py-3 text-sm text-success">`, escaped(data.Notice), `</div>`); err != nil {
+				return err
+			}
+		}
 		invitation := data.Invitation
 		if invitation == nil {
 			invitation = data.Pending
@@ -264,8 +277,38 @@ func ManagementHandoffPage(data ManagementHandoffPageData) templ.Component {
 				if err := writeHTML(w, `<div class="mt-5 rounded-md border border-amber-500/30 bg-amber-500/10 p-4"><p class="text-sm font-semibold">Copy this token now</p><p class="mt-1 text-xs text-muted-foreground">It is shown only in this response and expires `, escaped(invitation.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST")), `.</p><p class="mt-3 text-xs">Open <span class="font-mono">`, escaped(invitation.RedemptionURL), `</span> in a separate browser session, then paste:</p><code class="mt-3 block break-all rounded bg-background px-3 py-2 text-sm">`, escaped(invitation.Token), `</code></div>`); err != nil {
 					return err
 				}
-			} else if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">The private token was shown only when this invitation was created. Complete it in another browser session, then enroll TOTP and recovery codes from the Admin sign-in flow.</p>`); err != nil {
-				return err
+			} else {
+				switch {
+				case invitation.TargetStatus == string(auth.UserStatusActive):
+					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">This management identity has set its password. Sign in through <span class="font-mono">/admin/login</span> to finish MFA enrollment and complete the handoff.</p>`); err != nil {
+						return err
+					}
+				case invitation.InvitationState == string(auth.AdministratorUserInvitationExpired):
+					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">The previous invitation expired. Reissue it to generate a new one-time token for this same management identity.</p>`); err != nil {
+						return err
+					}
+				case invitation.InvitationState == string(auth.AdministratorUserInvitationRevoked), invitation.InvitationState == string(auth.AdministratorUserInvitationNotIssued):
+					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">There is no active invitation token. Reissue it to generate a new one-time token for this same management identity.</p>`); err != nil {
+						return err
+					}
+				default:
+					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">The private token was shown only when this invitation was created. Complete it in another browser session, then enroll TOTP and recovery codes from the Admin sign-in flow.</p>`); err != nil {
+						return err
+					}
+				}
+			}
+			if data.Pending != nil {
+				if err := writeHTML(w, `<div class="mt-5 border-t border-border pt-5"><p class="text-xs leading-relaxed text-muted-foreground">Reissuing invalidates every previous unused invitation token. Canceling disables the unfinished management identity and signs it out, but does not change either account's role or mailbox ownership.</p><div class="mt-4 flex flex-col gap-3 sm:flex-row">`); err != nil {
+					return err
+				}
+				if data.Pending.CanReissue {
+					if err := writeHTML(w, `<form method="post" action="`, escaped(data.Pending.ReissuePath), `"><input type="hidden" name="_csrf" value="`, escaped(data.Pending.ReissueCSRFToken), `"><button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold hover:bg-accent sm:w-auto">Reissue invitation</button></form>`); err != nil {
+						return err
+					}
+				}
+				if err := writeHTML(w, `<form method="post" action="`, escaped(data.Pending.CancelPath), `" onsubmit="return confirm('Cancel this handoff and disable the unfinished management identity?')"><input type="hidden" name="_csrf" value="`, escaped(data.Pending.CancelCSRFToken), `"><button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md border border-destructive/40 bg-background px-4 text-sm font-semibold text-destructive hover:bg-destructive/10 sm:w-auto">Cancel handoff</button></form></div></div>`); err != nil {
+					return err
+				}
 			}
 			return writeHTML(w, `</section><form method="post" action="/auth/logout" class="mt-6"><input type="hidden" name="_csrf" value="`, escaped(auth.CSRFToken(ctx, "POST", "/auth/logout")), `"><button type="submit" class="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold hover:bg-accent">Sign out</button></form></div></main></div></body></html>`)
 		}

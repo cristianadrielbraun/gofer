@@ -145,6 +145,8 @@ const (
 	AuthEventIdentityLinked               AuthEventType = "identity_linked"
 	AuthEventIdentityUnlinked             AuthEventType = "identity_unlinked"
 	AuthEventManagementHandoffStarted     AuthEventType = "management_handoff_started"
+	AuthEventManagementHandoffReissued    AuthEventType = "management_handoff_reissued"
+	AuthEventManagementHandoffCanceled    AuthEventType = "management_handoff_canceled"
 	AuthEventManagementHandoffCompleted   AuthEventType = "management_handoff_completed"
 )
 

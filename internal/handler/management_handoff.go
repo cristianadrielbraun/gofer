@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
@@ -12,6 +13,14 @@ import (
 )
 
 const managementHandoffInvitationPath = "/admin/separate/invitations"
+
+func managementHandoffInvitationReissuePath(reference string) string {
+	return managementHandoffInvitationPath + "/" + reference + "/reissue"
+}
+
+func managementHandoffCancelPath(reference string) string {
+	return "/admin/separate/handoffs/" + reference + "/cancel"
+}
 
 func (h *Handler) handleManagementSeparation(w http.ResponseWriter, r *http.Request) {
 	h.renderManagementSeparation(w, r, http.StatusOK, views.ManagementHandoffFormData{}, nil, "")
@@ -59,13 +68,76 @@ func (h *Handler) handleCreateManagementHandoff(w http.ResponseWriter, r *http.R
 	h.renderManagementSeparation(w, r, http.StatusCreated, views.ManagementHandoffFormData{}, invitation, "")
 }
 
-func (h *Handler) renderManagementSeparation(w http.ResponseWriter, r *http.Request, status int, form views.ManagementHandoffFormData, invitation *views.ManagementHandoffInvitationData, pageError string) {
+func (h *Handler) handleReissueManagementHandoffInvitation(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetCurrentUser(r.Context())
-	if user == nil {
+	session := auth.GetCurrentSession(r.Context())
+	if user == nil || session == nil {
 		http.Error(w, "management account separation required", http.StatusForbidden)
 		return
 	}
-	pending, err := h.auth.GetPendingManagementHandoff(r.Context(), user.ID)
+	handoff, err := h.auth.ReissueManagementHandoffInvitation(r.Context(), auth.ReissueManagementHandoffInvitationOptions{
+		ActorUserID: user.ID, ActorSessionID: session.ID,
+		ActionReference: r.PathValue("reference"),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderManagementSeparation(w, r, http.StatusForbidden, views.ManagementHandoffFormData{}, nil, "Verify this session from Account security before reissuing the management invitation.")
+		case errors.Is(err, auth.ErrManagementInvitationUnavailable):
+			h.renderManagementSeparation(w, r, http.StatusConflict, views.ManagementHandoffFormData{}, nil, "This management account has already started enrollment. Sign in as that account to continue, or cancel the handoff and start again.")
+		case errors.Is(err, auth.ErrManagementHandoffUnavailable):
+			h.renderManagementSeparation(w, r, http.StatusConflict, views.ManagementHandoffFormData{}, nil, "This handoff action is no longer available. Refresh the page and try again.")
+		default:
+			log.Printf("reissue management handoff invitation: %v", err)
+			h.renderManagementSeparation(w, r, http.StatusInternalServerError, views.ManagementHandoffFormData{}, nil, "Unable to reissue the management invitation right now.")
+		}
+		return
+	}
+	invitation := &views.ManagementHandoffInvitationData{
+		Name: handoff.Name, Username: handoff.Target.Username,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
+		Token:         handoff.Token.Token, ExpiresAt: handoff.Token.ExpiresAt,
+	}
+	h.renderManagementSeparation(w, r, http.StatusCreated, views.ManagementHandoffFormData{}, invitation, "")
+}
+
+func (h *Handler) handleCancelManagementHandoff(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetCurrentUser(r.Context())
+	session := auth.GetCurrentSession(r.Context())
+	if user == nil || session == nil {
+		http.Error(w, "management account separation required", http.StatusForbidden)
+		return
+	}
+	err := h.auth.CancelManagementHandoff(r.Context(), auth.CancelManagementHandoffOptions{
+		ActorUserID: user.ID, ActorSessionID: session.ID,
+		ActionReference: r.PathValue("reference"),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderManagementSeparation(w, r, http.StatusForbidden, views.ManagementHandoffFormData{}, nil, "Verify this session from Account security before canceling the management handoff.")
+		case errors.Is(err, auth.ErrManagementHandoffUnavailable):
+			h.renderManagementSeparation(w, r, http.StatusConflict, views.ManagementHandoffFormData{}, nil, "This handoff action is no longer available. Refresh the page and try again.")
+		default:
+			log.Printf("cancel management handoff: %v", err)
+			h.renderManagementSeparation(w, r, http.StatusInternalServerError, views.ManagementHandoffFormData{}, nil, "Unable to cancel the management handoff right now.")
+		}
+		return
+	}
+	values := url.Values{}
+	values.Set("notice", "Management handoff canceled. You can create a new invitation.")
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, "/admin/separate?"+values.Encode(), http.StatusSeeOther)
+}
+
+func (h *Handler) renderManagementSeparation(w http.ResponseWriter, r *http.Request, status int, form views.ManagementHandoffFormData, invitation *views.ManagementHandoffInvitationData, pageError string) {
+	user := auth.GetCurrentUser(r.Context())
+	session := auth.GetCurrentSession(r.Context())
+	if user == nil || session == nil {
+		http.Error(w, "management account separation required", http.StatusForbidden)
+		return
+	}
+	pending, err := h.auth.GetPendingManagementHandoff(r.Context(), user.ID, session.ID)
 	if err != nil {
 		log.Printf("load pending management handoff: %v", err)
 		http.Error(w, "failed to load management handoff", http.StatusInternalServerError)
@@ -74,10 +146,20 @@ func (h *Handler) renderManagementSeparation(w http.ResponseWriter, r *http.Requ
 	data := views.ManagementHandoffPageData{
 		Form: form, Invitation: invitation, Error: pageError,
 		CSRFToken: auth.CSRFToken(r.Context(), http.MethodPost, managementHandoffInvitationPath),
+		Notice:    strings.TrimSpace(r.URL.Query().Get("notice")),
 	}
 	if pending != nil {
+		reissuePath := managementHandoffInvitationReissuePath(pending.InvitationActionReference)
+		cancelPath := managementHandoffCancelPath(pending.InvitationActionReference)
 		data.Pending = &views.ManagementHandoffInvitationData{
 			Name: pending.Name, Username: pending.Target.Username,
+			TargetStatus: string(pending.Target.Status), InvitationState: string(pending.InvitationState),
+			CanReissue:  pending.Target.Status == auth.UserStatusPending,
+			ReissuePath: reissuePath, ReissueCSRFToken: auth.CSRFToken(r.Context(), http.MethodPost, reissuePath),
+			CancelPath: cancelPath, CancelCSRFToken: auth.CSRFToken(r.Context(), http.MethodPost, cancelPath),
+		}
+		if pending.InvitationExpiresAt != nil {
+			data.Pending.ExpiresAt = *pending.InvitationExpiresAt
 		}
 	}
 	var page bytes.Buffer
