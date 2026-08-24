@@ -103,14 +103,6 @@ func (m *Manager) CompleteSetup(ctx context.Context, options CompleteSetupOption
 			return fmt.Errorf("create setup owner: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE users
-			SET is_admin = 0, mfa_required = 0,
-			    auth_version = auth_version + 1, updated_at = ?
-			WHERE user_type = 'webmail' AND is_admin = 1`, now); err != nil {
-			return fmt.Errorf("demote legacy webmail administrators during setup: %w", err)
-		}
-
-		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO password_credentials (user_id, password_hash, must_change, created_at, changed_at)
 			VALUES (?, ?, 0, ?, ?)
 			ON CONFLICT(user_id) DO UPDATE SET

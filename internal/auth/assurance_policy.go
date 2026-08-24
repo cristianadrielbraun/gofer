@@ -48,18 +48,16 @@ func (policy authenticationPolicy) allowsStepUpMethod(method AuthenticationMetho
 
 func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
 	var authVersion int64
-	var mfaRequired, isAdmin, managementEnrollmentPending int
+	var mfaRequired, isAdmin int
 	var userType UserType
 	var instanceMFAPolicy InstanceMFAPolicy
 	err := queryer.QueryRowContext(ctx, `
 		SELECT u.auth_version, u.mfa_required, u.is_admin, u.user_type,
-		       EXISTS(SELECT 1 FROM management_handoffs handoff
-		              WHERE handoff.target_user_id = u.id AND handoff.status = 'pending'),
 		       COALESCE((SELECT state.mfa_policy FROM auth_system_state state WHERE state.id = 1), 'administrators')
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active'
 		  AND (? = 0 OR u.auth_version = ?)`, userID, expectedAuthVersion, expectedAuthVersion,
-	).Scan(&authVersion, &mfaRequired, &isAdmin, &userType, &managementEnrollmentPending, &instanceMFAPolicy)
+	).Scan(&authVersion, &mfaRequired, &isAdmin, &userType, &instanceMFAPolicy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authenticationPolicy{}, ErrUserNotActive
 	}
@@ -69,8 +67,8 @@ func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicy
 	if !instanceMFAPolicy.Valid() {
 		return authenticationPolicy{}, fmt.Errorf("%w: %q", ErrInstanceMFAPolicyInvalid, instanceMFAPolicy)
 	}
-	if userType == UserTypeManagement && isAdmin == 0 && managementEnrollmentPending == 1 {
-		return resolveAuthenticationPolicy(authVersion, false, false, false), nil
+	if userType == UserTypeManagement && isAdmin != 1 {
+		return authenticationPolicy{}, ErrUserNotActive
 	}
 	return resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers()), nil
 }

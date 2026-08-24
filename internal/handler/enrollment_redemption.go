@@ -94,7 +94,7 @@ func (h *Handler) handleEnrollmentRedemptionSubmit(w http.ResponseWriter, r *htt
 		return
 	}
 
-	result, err := h.auth.RedeemEnrollmentToken(r.Context(), auth.RedeemEnrollmentTokenOptions{
+	_, err := h.auth.RedeemEnrollmentToken(r.Context(), auth.RedeemEnrollmentTokenOptions{
 		Token:       r.PostFormValue("token"),
 		NewPassword: newPassword,
 		UserAgent:   r.UserAgent(),
@@ -121,11 +121,7 @@ func (h *Handler) handleEnrollmentRedemptionSubmit(w http.ResponseWriter, r *htt
 	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	destination := enrollmentRedemptionCompletePath
-	if result != nil && result.UserType == auth.UserTypeManagement {
-		destination += "?management=1"
-	}
-	http.Redirect(w, r, destination, http.StatusSeeOther)
+	http.Redirect(w, r, enrollmentRedemptionCompletePath, http.StatusSeeOther)
 }
 
 func (h *Handler) handleEnrollmentRedemptionComplete(w http.ResponseWriter, r *http.Request) {
@@ -134,11 +130,7 @@ func (h *Handler) handleEnrollmentRedemptionComplete(w http.ResponseWriter, r *h
 		return
 	}
 	var page bytes.Buffer
-	component := views.EnrollmentRedemptionCompletePage()
-	if r.URL.Query().Get("management") == "1" {
-		component = views.ManagementEnrollmentCompletePage()
-	}
-	if err := component.Render(r.Context(), &page); err != nil {
+	if err := views.EnrollmentRedemptionCompletePage().Render(r.Context(), &page); err != nil {
 		log.Printf("render enrollment redemption completion: %v", err)
 		http.Error(w, "failed to render password confirmation", http.StatusInternalServerError)
 		return

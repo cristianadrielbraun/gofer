@@ -185,20 +185,11 @@ func TestCompleteSetupFreshOwnerCommitsCredentialsStateEventAndSession(t *testin
 	}
 }
 
-func TestCompleteSetupCreatesSeparateOwnerAndLeavesLegacyWebmailInPlace(t *testing.T) {
+func TestCompleteSetupCreatesSeparateOwnerAndLeavesExistingWebmailInPlace(t *testing.T) {
 	manager, clock := setupOwnerTestManager(t)
 	insertSetupOwnerUser(t, manager, "default", "local@gofer.local", "", "Local User", UserStatusActive, false)
 	if _, err := manager.db.Write().Exec(`
 		INSERT INTO accounts (id, user_id, email_address) VALUES ('legacy-mailbox', 'default', 'mail@example.com');
-		DROP TRIGGER users_management_type_update;
-		UPDATE users SET is_admin = 1 WHERE id = 'default';
-		CREATE TRIGGER users_management_type_update
-		BEFORE UPDATE OF is_admin, user_type ON users
-		WHEN NEW.is_admin = 1 AND NEW.user_type != 'management'
-		 AND (OLD.is_admin != NEW.is_admin OR OLD.user_type != NEW.user_type)
-		BEGIN
-			SELECT RAISE(ABORT, 'administrator must be a management user');
-		END;
 		INSERT INTO password_credentials (user_id, password_hash) VALUES ('default', 'old-password');
 		INSERT INTO webauthn_credentials (id, user_id, credential_id, public_key, name)
 		VALUES ('legacy-passkey', 'default', x'01', x'02', 'Legacy passkey');
@@ -237,7 +228,7 @@ func TestCompleteSetupCreatesSeparateOwnerAndLeavesLegacyWebmailInPlace(t *testi
 		t.Fatal(err)
 	}
 	if ownerID != "default" || name != "Local User" || username != "local" ||
-		status != string(UserStatusActive) || authVersion != 2 || userType != string(UserTypeWebmail) || legacyAdmin != 0 || accountOwner != "default" {
+		status != string(UserStatusActive) || authVersion != 1 || userType != string(UserTypeWebmail) || legacyAdmin != 0 || accountOwner != "default" {
 		t.Fatalf("separated legacy user = id:%q name:%q username:%q status:%q version:%d mailboxOwner:%q",
 			ownerID, name, username, status, authVersion, accountOwner)
 	}

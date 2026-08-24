@@ -437,7 +437,7 @@ func TestTOTPDisableProtectsRequiredLastFactorAndRevokesRecovery(t *testing.T) {
 		t.Fatalf("recovery codes after protected disable = %d", count)
 	}
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?`,
+		UPDATE users SET is_admin = 0, mfa_required = 0, user_type = 'webmail' WHERE id = ?`,
 		session.UserID,
 	); err != nil {
 		t.Fatal(err)

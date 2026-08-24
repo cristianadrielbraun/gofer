@@ -47,12 +47,6 @@ func (user *User) IsManagement() bool {
 	return user != nil && user.UserType == UserTypeManagement
 }
 
-// RequiresManagementHandoff identifies the one upgrade-only state retained
-// long enough to split an older mailbox-owning administrator into two users.
-func (user *User) RequiresManagementHandoff() bool {
-	return user != nil && user.UserType == UserTypeWebmail && user.IsAdmin
-}
-
 type AdministratorUserSummary struct {
 	ID                        string
 	Username                  string

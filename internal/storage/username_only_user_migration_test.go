@@ -66,7 +66,9 @@ func seedV87Users(t *testing.T, path, users string, dependencies bool) {
 			CREATE TABLE management_handoffs (
 				id TEXT PRIMARY KEY,
 				source_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-				target_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+				target_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				status TEXT NOT NULL DEFAULT 'pending',
+				completed_at DATETIME
 			);
 			CREATE TRIGGER accounts_management_owner_insert
 			BEFORE INSERT ON accounts
@@ -93,8 +95,8 @@ func seedV87Users(t *testing.T, path, users string, dependencies bool) {
 			INSERT INTO password_credentials (user_id, password_hash)
 			VALUES ('mail-user', 'mail-password'), ('admin-user', 'admin-password');
 			INSERT INTO sessions (id, user_id) VALUES ('mail-session', 'mail-user');
-			INSERT INTO management_handoffs (id, source_user_id, target_user_id)
-			VALUES ('handoff', 'mail-user', 'admin-user');
+			INSERT INTO management_handoffs (id, source_user_id, target_user_id, status, completed_at)
+			VALUES ('handoff', 'mail-user', 'admin-user', 'completed', CURRENT_TIMESTAMP);
 		`
 	}
 	if _, err := raw.Exec(statements); err != nil {
@@ -136,12 +138,15 @@ func TestMigrateV87RemovesAccountEmailsAndPreservesUserDependencies(t *testing.T
 	}
 	for table, want := range map[string]int{
 		"accounts": 1, "auth_identities": 1, "password_credentials": 2,
-		"sessions": 1, "management_handoffs": 1,
+		"sessions": 1,
 	} {
 		var count int
 		if err := db.Read().QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil || count != want {
 			t.Fatalf("%s rows = %d, %v; want %d", table, count, err, want)
 		}
+	}
+	if exists, err := tableExists(db.Read(), "management_handoffs"); err != nil || exists {
+		t.Fatalf("management_handoffs exists=%t, %v; want retired", exists, err)
 	}
 	assertNoForeignKeyViolations(t, db.Read())
 	assertExecFails(t, db.Write(), `

@@ -135,7 +135,7 @@ func TestGoogleInvitationEnrollmentRejectsCredentialResetAndFactorlessMFAAccount
 	}
 
 	insertRedemptionUser(t, manager, "pending-admin", UserStatusPending, now)
-	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET user_type = 'management' WHERE id = 'pending-admin'`); err != nil {
+	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET user_type = 'management', is_admin = 1 WHERE id = 'pending-admin'`); err != nil {
 		t.Fatal(err)
 	}
 	insertRedemptionToken(t, manager, "admin-invite-id", "pending-admin", "admin-invite", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour))

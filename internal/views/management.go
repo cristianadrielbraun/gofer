@@ -3,48 +3,11 @@ package views
 import (
 	"context"
 	"io"
-	"time"
 
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
-
-type ManagementHandoffFormData struct {
-	Name        string
-	Username    string
-	FieldErrors map[string]string
-}
-
-type ManagementHandoffInvitationData struct {
-	Name             string
-	Username         string
-	RedemptionURL    string
-	Token            string
-	ExpiresAt        time.Time
-	TargetStatus     string
-	InvitationState  string
-	CanReissue       bool
-	ReissuePath      string
-	ReissueCSRFToken string
-	CancelPath       string
-	CancelCSRFToken  string
-}
-
-type ManagementHandoffPageData struct {
-	Form       ManagementHandoffFormData
-	Pending    *ManagementHandoffInvitationData
-	Invitation *ManagementHandoffInvitationData
-	CSRFToken  string
-	Error      string
-	Notice     string
-}
-
-type ManagementActivationData struct {
-	Pending   bool
-	Ready     bool
-	CSRFToken string
-}
 
 func writeHTML(w io.Writer, values ...string) error {
 	for _, value := range values {
@@ -192,7 +155,7 @@ func ManagementAdminLayout(uiSettings map[string]string, userData AdminUsersData
 	})
 }
 
-func ManagementSecurityLayout(uiSettings map[string]string, content templ.Component, activation ManagementActivationData) templ.Component {
+func ManagementSecurityLayout(uiSettings map[string]string, content templ.Component) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := writeHTML(w, `<!DOCTYPE html><html lang="en" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Account security — Gofer Admin</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
 			return err
@@ -215,126 +178,10 @@ func ManagementSecurityLayout(uiSettings map[string]string, content templ.Compon
 		if err := writeHTML(w, `<main id="main-content" class="flex flex-1 min-w-0 overflow-y-auto"><div class="w-full max-w-3xl px-8 py-10"><div class="mb-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management account</p><h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">Account security</h1><p class="mt-1 text-sm text-muted-foreground">Credentials and active sessions for this management identity.</p></div>`); err != nil {
 			return err
 		}
-		if activation.Pending {
-			if err := writeHTML(w, `<section class="mb-6 rounded-lg border border-primary/30 bg-primary/5 p-5"><h2 class="font-semibold">Finish management-account activation</h2><p class="mt-2 text-sm text-muted-foreground">Enroll an authenticator and generate recovery codes. The administrator handoff remains unchanged until you explicitly activate it.</p>`); err != nil {
-				return err
-			}
-			if activation.Ready {
-				if err := writeHTML(w, `<form method="post" action="/admin/management/activate" class="mt-4"><input type="hidden" name="_csrf" value="`, escaped(activation.CSRFToken), `"><button type="submit" class="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">Activate management account and complete handoff</button></form>`); err != nil {
-					return err
-				}
-			} else if err := writeHTML(w, `<p class="mt-3 text-xs font-medium text-amber-800 dark:text-amber-200">Activation becomes available after both requirements are complete.</p>`); err != nil {
-				return err
-			}
-			if err := writeHTML(w, `</section>`); err != nil {
-				return err
-			}
-		}
 		if err := content.Render(ctx, w); err != nil {
 			return err
 		}
 		return writeHTML(w, `</div></main></div></div><script src="/assets/js/ui-settings.js"></script><script src="/assets/js/passkey-registration.js"></script><script src="/assets/js/passkey-authentication.js"></script><script src="/assets/js/settings.js"></script></body></html>`)
-	})
-}
-
-func handoffFieldError(data ManagementHandoffFormData, field string) string {
-	if data.FieldErrors == nil {
-		return ""
-	}
-	return data.FieldErrors[field]
-}
-
-func ManagementHandoffPage(data ManagementHandoffPageData) templ.Component {
-	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		if err := writeHTML(w, `<!DOCTYPE html><html lang="en" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Separate management account — Gofer</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk"><div class="flex min-h-screen bg-background">`); err != nil {
-			return err
-		}
-		if err := renderManagementSidebar(ctx, w, ""); err != nil {
-			return err
-		}
-		if err := writeHTML(w, `<main class="flex-1"><div class="mx-auto max-w-3xl px-6 py-10"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Required security migration</p><h1 class="mt-2 text-3xl font-bold" style="font-family:var(--font-serif)">Separate administration from webmail</h1><p class="mt-3 text-sm leading-relaxed text-muted-foreground">This account currently combines mailboxes with administrator access. Create a dedicated management identity first. Your current account and all of its mailbox data remain unchanged until the new identity has enrolled MFA and completes the handoff.</p>`); err != nil {
-			return err
-		}
-		if data.Error != "" {
-			if err := writeHTML(w, `<div role="alert" class="mt-6 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">`, escaped(data.Error), `</div>`); err != nil {
-				return err
-			}
-		}
-		if data.Notice != "" {
-			if err := writeHTML(w, `<div role="status" class="mt-6 rounded-lg border border-success/25 bg-success/10 px-4 py-3 text-sm text-success">`, escaped(data.Notice), `</div>`); err != nil {
-				return err
-			}
-		}
-		invitation := data.Invitation
-		if invitation == nil {
-			invitation = data.Pending
-		}
-		if invitation != nil {
-			if err := writeHTML(w, `<section class="mt-6 rounded-lg border bg-card p-6"><h2 class="text-lg font-semibold">Management invitation pending</h2><dl class="mt-4 grid gap-3 sm:grid-cols-2"><div><dt class="text-xs uppercase text-muted-foreground">Name</dt><dd class="mt-1 text-sm font-medium">`, escaped(invitation.Name), `</dd></div><div><dt class="text-xs uppercase text-muted-foreground">Username</dt><dd class="mt-1 text-sm font-medium">`, escaped(invitation.Username), `</dd></div></dl>`); err != nil {
-				return err
-			}
-			if data.Invitation != nil {
-				if err := writeHTML(w, `<div class="mt-5 rounded-md border border-amber-500/30 bg-amber-500/10 p-4"><p class="text-sm font-semibold">Copy this token now</p><p class="mt-1 text-xs text-muted-foreground">It is shown only in this response and expires `, escaped(invitation.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST")), `.</p><p class="mt-3 text-xs">Open <span class="font-mono">`, escaped(invitation.RedemptionURL), `</span> in a separate browser session, then paste:</p><code class="mt-3 block break-all rounded bg-background px-3 py-2 text-sm">`, escaped(invitation.Token), `</code></div>`); err != nil {
-					return err
-				}
-			} else {
-				switch {
-				case invitation.TargetStatus == string(auth.UserStatusActive):
-					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">This management identity has set its password. Sign in through <span class="font-mono">/admin/login</span> to finish MFA enrollment and complete the handoff.</p>`); err != nil {
-						return err
-					}
-				case invitation.InvitationState == string(auth.AdministratorUserInvitationExpired):
-					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">The previous invitation expired. Reissue it to generate a new one-time token for this same management identity.</p>`); err != nil {
-						return err
-					}
-				case invitation.InvitationState == string(auth.AdministratorUserInvitationRevoked), invitation.InvitationState == string(auth.AdministratorUserInvitationNotIssued):
-					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">There is no active invitation token. Reissue it to generate a new one-time token for this same management identity.</p>`); err != nil {
-						return err
-					}
-				default:
-					if err := writeHTML(w, `<p class="mt-5 text-sm text-muted-foreground">The private token was shown only when this invitation was created. Complete it in another browser session, then enroll TOTP and recovery codes from the Admin sign-in flow.</p>`); err != nil {
-						return err
-					}
-				}
-			}
-			if data.Pending != nil {
-				if err := writeHTML(w, `<div class="mt-5 border-t border-border pt-5"><p class="text-xs leading-relaxed text-muted-foreground">Reissuing invalidates every previous unused invitation token. Canceling disables the unfinished management identity and signs it out, but does not change either account's role or mailbox ownership.</p><div class="mt-4 flex flex-col gap-3 sm:flex-row">`); err != nil {
-					return err
-				}
-				if data.Pending.CanReissue {
-					if err := writeHTML(w, `<form method="post" action="`, escaped(data.Pending.ReissuePath), `"><input type="hidden" name="_csrf" value="`, escaped(data.Pending.ReissueCSRFToken), `"><button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold hover:bg-accent sm:w-auto">Reissue invitation</button></form>`); err != nil {
-						return err
-					}
-				}
-				if err := writeHTML(w, `<form method="post" action="`, escaped(data.Pending.CancelPath), `" onsubmit="return confirm('Cancel this handoff and disable the unfinished management identity?')"><input type="hidden" name="_csrf" value="`, escaped(data.Pending.CancelCSRFToken), `"><button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md border border-destructive/40 bg-background px-4 text-sm font-semibold text-destructive hover:bg-destructive/10 sm:w-auto">Cancel handoff</button></form></div></div>`); err != nil {
-					return err
-				}
-			}
-			return writeHTML(w, `</section><form method="post" action="/auth/logout" class="mt-6"><input type="hidden" name="_csrf" value="`, escaped(auth.CSRFToken(ctx, "POST", "/auth/logout")), `"><button type="submit" class="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold hover:bg-accent">Sign out</button></form></div></main></div></body></html>`)
-		}
-		if err := writeHTML(w, `<form method="post" action="/admin/separate/invitations" class="mt-6 space-y-5 rounded-lg border bg-card p-6"><input type="hidden" name="_csrf" value="`, escaped(data.CSRFToken), `"><div><label for="handoff-name" class="text-sm font-medium">Full name</label><input id="handoff-name" name="name" value="`, escaped(data.Form.Name), `" required class="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">`); err != nil {
-			return err
-		}
-		if message := handoffFieldError(data.Form, "name"); message != "" {
-			if err := writeHTML(w, `<p class="mt-1 text-xs text-destructive">`, escaped(message), `</p>`); err != nil {
-				return err
-			}
-		}
-		if err := writeHTML(w, `</div><div><label for="handoff-username" class="text-sm font-medium">Username</label><input id="handoff-username" name="username" value="`, escaped(data.Form.Username), `" required autocapitalize="none" spellcheck="false" class="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">`); err != nil {
-			return err
-		}
-		if message := handoffFieldError(data.Form, "username"); message != "" {
-			if err := writeHTML(w, `<p class="mt-1 text-xs text-destructive">`, escaped(message), `</p>`); err != nil {
-				return err
-			}
-		}
-		return writeHTML(w, `</div><div class="rounded-md border border-border bg-muted/30 p-4 text-xs leading-relaxed text-muted-foreground">The new user starts as a restricted management identity, not as an administrator. No role changes occur until that person signs in through <span class="font-mono">/admin/login</span>, enrolls TOTP and recovery codes, and explicitly completes the handoff.</div><button type="submit" class="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">Create management invitation</button></form></div></main></div></body></html>`)
-	})
-}
-
-func ManagementEnrollmentCompletePage() templ.Component {
-	return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
-		return writeHTML(w, `<!DOCTYPE html><html lang="en" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Gofer Admin — Password Set</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk"><main class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-sm text-center"><img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"><div role="status" class="mt-8 rounded-lg border border-success/25 bg-success/10 px-5 py-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management</p><h1 class="mt-2 text-2xl font-semibold">Password set</h1><p class="mt-3 text-sm text-muted-foreground">Sign in to the dedicated Admin surface, then enroll an authenticator and recovery codes. You do not have administrator access until the handoff is completed.</p></div><div class="mt-8"><a href="/admin/login" class="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">Continue to Admin sign-in</a></div></div></main></body></html>`)
 	})
 }
 

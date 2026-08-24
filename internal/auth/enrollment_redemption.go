@@ -20,7 +20,6 @@ type RedeemEnrollmentTokenOptions struct {
 
 type EnrollmentRedemptionResult struct {
 	UserID          string
-	UserType        UserType
 	Purpose         EnrollmentTokenPurpose
 	RevokedSessions int64
 }
@@ -73,7 +72,7 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 		return nil, fmt.Errorf("generate enrollment redemption event ID: %w", err)
 	}
 	userAgent := boundedUserAgent(options.UserAgent)
-	result := &EnrollmentRedemptionResult{UserID: candidate.userID, UserType: candidate.userType, Purpose: candidate.purpose}
+	result := &EnrollmentRedemptionResult{UserID: candidate.userID, Purpose: candidate.purpose}
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
 		current, err := scanEnrollmentRedemptionCandidate(tx.QueryRowContext(ctx, `
 			SELECT t.id, t.user_id, t.purpose, u.status,
@@ -90,10 +89,11 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 		if err != nil {
 			return fmt.Errorf("recheck enrollment token: %w", err)
 		}
-		if !sameEnrollmentRedemptionCandidate(current, candidate) || !enrollmentRedemptionStatusEligible(current.purpose, current.status) {
+		if !sameEnrollmentRedemptionCandidate(current, candidate) ||
+			!enrollmentRedemptionStatusEligible(current.purpose, current.status, current.userType) {
 			return ErrEnrollmentTokenInvalid
 		}
-		if current.purpose == EnrollmentTokenPurposeEnrollment && current.userType != UserTypeManagement {
+		if current.purpose == EnrollmentTokenPurposeEnrollment {
 			if err := m.requireUserReadyForInstanceMFA(ctx, tx, current.userID); err != nil {
 				return err
 			}
@@ -229,7 +229,8 @@ func (m *Manager) findEnrollmentRedemptionCandidate(ctx context.Context, rawToke
 	if err != nil {
 		return nil, fmt.Errorf("find enrollment token: %w", err)
 	}
-	if !candidate.purpose.Valid() || !enrollmentRedemptionStatusEligible(candidate.purpose, candidate.status) {
+	if !candidate.purpose.Valid() ||
+		!enrollmentRedemptionStatusEligible(candidate.purpose, candidate.status, candidate.userType) {
 		return nil, nil
 	}
 	return candidate, nil
@@ -253,8 +254,8 @@ func sameEnrollmentRedemptionCandidate(left, right *enrollmentRedemptionCandidat
 		left.username == right.username && left.userType == right.userType
 }
 
-func enrollmentRedemptionStatusEligible(purpose EnrollmentTokenPurpose, status UserStatus) bool {
-	return purpose == EnrollmentTokenPurposeEnrollment && status == UserStatusPending ||
+func enrollmentRedemptionStatusEligible(purpose EnrollmentTokenPurpose, status UserStatus, userType UserType) bool {
+	return purpose == EnrollmentTokenPurposeEnrollment && status == UserStatusPending && userType == UserTypeWebmail ||
 		purpose == EnrollmentTokenPurposeCredentialReset && (status == UserStatusActive || status == UserStatusDisabled)
 }
 

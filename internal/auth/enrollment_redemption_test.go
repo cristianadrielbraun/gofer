@@ -113,6 +113,42 @@ func TestRedeemEnrollmentTokenActivatesUserAndConsumesTokenAtomically(t *testing
 	}
 }
 
+func TestRedeemEnrollmentTokenRejectsManagementAccountEnrollment(t *testing.T) {
+	now := time.Date(2026, time.August, 24, 9, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{})
+	insertRedemptionUser(t, manager, "management-invitee", UserStatusPending, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users SET user_type = 'management', is_admin = 1
+		WHERE id = 'management-invitee'`); err != nil {
+		t.Fatal(err)
+	}
+	insertRedemptionToken(
+		t, manager, "management-enrollment-token", "management-invitee",
+		"management-enrollment-secret", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour),
+	)
+
+	result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
+		Token: "management-enrollment-secret", NewPassword: redemptionTestPassword,
+	})
+	if result != nil || !errors.Is(err, ErrEnrollmentTokenInvalid) {
+		t.Fatalf("management enrollment redemption = %#v, %v", result, err)
+	}
+
+	var passwords, consumed int
+	if err := manager.db.Read().QueryRow(`SELECT COUNT(*) FROM password_credentials WHERE user_id = 'management-invitee'`).Scan(&passwords); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRow(`
+		SELECT COUNT(*) FROM user_enrollment_tokens
+		WHERE id = 'management-enrollment-token' AND used_at IS NOT NULL`,
+	).Scan(&consumed); err != nil {
+		t.Fatal(err)
+	}
+	if passwords != 0 || consumed != 0 {
+		t.Fatalf("rejected management enrollment mutated state = passwords:%d consumed:%d", passwords, consumed)
+	}
+}
+
 func TestRedeemEnrollmentTokenRequiresStrongFactorBeforeGlobalMFAActivation(t *testing.T) {
 	now := time.Date(2026, time.August, 6, 9, 30, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{

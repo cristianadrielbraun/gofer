@@ -379,7 +379,7 @@ func TestInstanceMFAPolicyCompletesOrdinaryPasswordLoginWithTOTP(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 22, 45, 0, 0, time.UTC)
 	manager, secret, _ := prepareTOTPLoginManager(t, now, secureTokenGenerator{})
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?`, totpLoginTestUserID,
+		UPDATE users SET is_admin = 0, mfa_required = 0, user_type = 'webmail' WHERE id = ?`, totpLoginTestUserID,
 	); err != nil {
 		t.Fatal(err)
 	}

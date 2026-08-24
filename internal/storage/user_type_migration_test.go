@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestMigrateV86SeparatesManagementUsersAndPreservesLegacyMixedAdministrator(t *testing.T) {
+func TestMigrateV86SeparatesManagementAndWebmailUsers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gofer.db")
 	raw, err := openDB(path)
 	if err != nil {
@@ -43,13 +43,7 @@ func TestMigrateV86SeparatesManagementUsersAndPreservesLegacyMixedAdministrator(
 		);
 		INSERT INTO users (id, email, email_normalized, username, username_normalized, is_admin) VALUES
 			('management-owner', 'owner@example.com', 'owner@example.com', 'management-owner', 'management-owner', 1),
-			('legacy-mixed', 'mixed@example.com', 'mixed@example.com', 'legacy-mixed', 'legacy-mixed', 1),
-			('legacy-federated', 'federated@example.com', 'federated@example.com', 'legacy-federated', 'legacy-federated', 1),
 			('webmail-user', 'mail@example.com', 'mail@example.com', 'webmail-user', 'webmail-user', 0);
-		INSERT INTO accounts (id, user_id, email_address)
-		VALUES ('legacy-mailbox', 'legacy-mixed', 'mixed-mailbox@example.com');
-		INSERT INTO auth_identities (id, user_id)
-		VALUES ('legacy-identity', 'legacy-federated');
 	`); err != nil {
 		_ = raw.Close()
 		t.Fatal(err)
@@ -66,8 +60,6 @@ func TestMigrateV86SeparatesManagementUsersAndPreservesLegacyMixedAdministrator(
 
 	for userID, wantType := range map[string]string{
 		"management-owner": "management",
-		"legacy-mixed":     "webmail",
-		"legacy-federated": "webmail",
 		"webmail-user":     "webmail",
 	} {
 		var gotType string
@@ -109,6 +101,10 @@ func TestSeparatedUserSchemaRejectsNewMixedAccountsAndManagementMailboxes(t *tes
 		INSERT INTO users (id, username, username_normalized, user_type, is_admin)
 		VALUES ('mixed', 'mixed', 'mixed', 'webmail', 1)`)
 	assertExecFails(t, db.Write(), `UPDATE users SET is_admin = 1 WHERE id = 'webmail-user'`)
+	assertExecFails(t, db.Write(), `UPDATE users SET is_admin = 0 WHERE id = 'management-owner'`)
+	assertExecFails(t, db.Write(), `
+		INSERT INTO users (id, username, username_normalized, user_type, is_admin)
+		VALUES ('non-admin-management', 'non-admin-management', 'non-admin-management', 'management', 0)`)
 	assertExecFails(t, db.Write(), `UPDATE users SET user_type = 'management' WHERE id = 'webmail-user'`)
 	assertExecFails(t, db.Write(), `
 		INSERT INTO accounts (id, user_id, email_address)

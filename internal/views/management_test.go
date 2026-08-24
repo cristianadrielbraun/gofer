@@ -67,7 +67,7 @@ func TestManagementAdminLayoutOwnsItsNavigationShell(t *testing.T) {
 
 func TestManagementSecurityLayoutSuppressesExternalSignInSettings(t *testing.T) {
 	var out strings.Builder
-	if err := ManagementSecurityLayout(nil, PasswordSecuritySettings(PasswordSecurityData{}), ManagementActivationData{}).Render(context.Background(), &out); err != nil {
+	if err := ManagementSecurityLayout(nil, PasswordSecuritySettings(PasswordSecurityData{})).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
 	html := out.String()

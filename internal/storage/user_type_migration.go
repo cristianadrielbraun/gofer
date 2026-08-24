@@ -5,19 +5,6 @@ import (
 	"fmt"
 )
 
-const managementHandoffsV87Table = `CREATE TABLE IF NOT EXISTS management_handoffs (
-	id TEXT PRIMARY KEY,
-	source_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	target_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-	status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'canceled')),
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	completed_at DATETIME,
-	canceled_at DATETIME,
-	CHECK (source_user_id != target_user_id),
-	CHECK ((status = 'completed') = (completed_at IS NOT NULL)),
-	CHECK ((status = 'canceled') = (canceled_at IS NOT NULL))
-)`
-
 func migrateV86ToV87(tx *sql.Tx) error {
 	hasUsers, err := tableExistsTx(tx, "users")
 	if err != nil {
@@ -83,12 +70,7 @@ func migrateV86ToV87(tx *sql.Tx) error {
 	} else if _, err := tx.Exec(`UPDATE users SET user_type = 'management' WHERE is_admin = 1`); err != nil {
 		return fmt.Errorf("classify administrators: %w", err)
 	}
-	if _, err := tx.Exec(managementHandoffsV87Table); err != nil {
-		return fmt.Errorf("create management handoff table: %w", err)
-	}
 	statements := []string{
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_management_handoffs_source_pending
-		 ON management_handoffs(source_user_id) WHERE status = 'pending'`,
 		`CREATE TRIGGER IF NOT EXISTS users_management_type_insert
 		 BEFORE INSERT ON users
 		 WHEN NEW.is_admin = 1 AND NEW.user_type != 'management'

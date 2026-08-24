@@ -56,7 +56,7 @@ func TestStartRecoveryCodeRepairConsumesOneCodeWithoutCreatingSessionOrReplacing
 		tokens: []string{"recovery-repair-token", "replacement-totp-material"},
 	})
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		UPDATE users SET is_admin = 0, mfa_required = 0 WHERE id = ?`, totpLoginTestUserID,
+		UPDATE users SET is_admin = 0, mfa_required = 0, user_type = 'webmail' WHERE id = ?`, totpLoginTestUserID,
 	); err != nil {
 		t.Fatal(err)
 	}

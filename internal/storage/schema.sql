@@ -525,6 +525,21 @@ BEGIN
     SELECT RAISE(ABORT, 'administrator must be a management user');
 END;
 
+CREATE TRIGGER IF NOT EXISTS users_management_admin_insert
+BEFORE INSERT ON users
+WHEN NEW.user_type = 'management' AND NEW.is_admin != 1
+BEGIN
+    SELECT RAISE(ABORT, 'management user must be an administrator');
+END;
+
+CREATE TRIGGER IF NOT EXISTS users_management_admin_update
+BEFORE UPDATE OF is_admin, user_type ON users
+WHEN NEW.user_type = 'management' AND NEW.is_admin != 1
+ AND (OLD.is_admin != NEW.is_admin OR OLD.user_type != NEW.user_type)
+BEGIN
+    SELECT RAISE(ABORT, 'management user must be an administrator');
+END;
+
 CREATE TRIGGER IF NOT EXISTS users_management_mailbox_update
 BEFORE UPDATE OF user_type ON users
 WHEN NEW.user_type = 'management'
@@ -548,22 +563,6 @@ WHEN NEW.user_id IS NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'management user cannot own a mailbox');
 END;
-
-CREATE TABLE IF NOT EXISTS management_handoffs (
-    id TEXT PRIMARY KEY,
-    source_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    target_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'canceled')),
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    completed_at DATETIME,
-    canceled_at DATETIME,
-    CHECK (source_user_id != target_user_id),
-    CHECK ((status = 'completed') = (completed_at IS NOT NULL)),
-    CHECK ((status = 'canceled') = (canceled_at IS NOT NULL))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_management_handoffs_source_pending
-ON management_handoffs(source_user_id) WHERE status = 'pending';
 
 -- OAuth credentials for one exact Gmail or Outlook mailbox account. The
 -- plaintext token columns are retained empty for one compatibility release so
@@ -1405,4 +1404,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (88);
+INSERT OR REPLACE INTO schema_version (version) VALUES (89);
