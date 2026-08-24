@@ -129,7 +129,7 @@ func (m *Manager) GetSessionByToken(ctx context.Context, token string) (*Session
 		return nil, err
 	}
 	policy, err := m.loadAuthenticationPolicy(ctx, m.db.Read(), session.UserID, session.AuthVersion)
-	if errors.Is(err, ErrUserNotActive) || (err == nil && !policy.allowsAssurance(session.AssuranceLevel)) {
+	if errors.Is(err, ErrUserNotActive) || (err == nil && !policy.allowsExistingSession(session.AssuranceLevel)) {
 		return nil, nil
 	}
 	if err != nil {
@@ -404,13 +404,15 @@ func (m *Manager) RotateSession(ctx context.Context, currentToken, userAgent str
 		if err != nil {
 			return err
 		}
-		if _, err := m.requireAuthenticationAssurance(
-			ctx, tx, current.UserID, current.AuthVersion, current.AssuranceLevel,
-		); err != nil {
-			if errors.Is(err, ErrAuthenticationPolicyNotSatisfied) || errors.Is(err, ErrUserNotActive) {
+		policy, err := m.loadAuthenticationPolicy(ctx, tx, current.UserID, current.AuthVersion)
+		if err != nil {
+			if errors.Is(err, ErrUserNotActive) {
 				return ErrSessionNotActive
 			}
 			return err
+		}
+		if !policy.allowsExistingSession(current.AssuranceLevel) {
+			return ErrSessionNotActive
 		}
 		result, err := tx.ExecContext(ctx, `
 		UPDATE sessions

@@ -74,6 +74,42 @@ func TestAdminUsersPageRendersProtectedInvitationLifecycleActions(t *testing.T) 
 	}
 }
 
+func TestAdminUsersPageRendersProtectedIndividualMFAPolicyActions(t *testing.T) {
+	csrf := strings.Repeat("d", 64)
+	data := AdminUsersData{Users: []AdminUserData{
+		{
+			ID: "optional-user", Username: "optional.user", Status: "Active", Role: "Webmail user",
+			MFALabel: "Optional", MFADetail: "User choice",
+			MFAPolicyPath: "/admin/users/optional-user/mfa-policy", MFAPolicyCSRFToken: csrf,
+		},
+		{
+			ID: "required-user", Username: "required.user", Status: "Active", Role: "Webmail user",
+			MFALabel: "Required", MFADetail: "Individual policy", MFARequired: true,
+			MFAPolicyPath: "/admin/users/required-user/mfa-policy", MFAPolicyCSRFToken: csrf,
+		},
+	}}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"MFA policy", "Require MFA for optional.user?", "Clear the individual MFA requirement?",
+		`action="/admin/users/optional-user/mfa-policy"`, `action="/admin/users/required-user/mfa-policy"`,
+		`name="required" value="true"`, `name="required" value="false"`, csrf,
+		"Existing sessions and authenticators are unchanged", "require enrollment after their next primary sign-in",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("administrator individual MFA view missing %q: %s", want, html)
+		}
+	}
+	for _, forbidden := range []string{"totp-secret", "passkey-credential", "recovery-code"} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("administrator individual MFA view exposed forbidden value %q", forbidden)
+		}
+	}
+}
+
 func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing.T) {
 	expiresAt := time.Date(2026, time.August, 21, 12, 30, 0, 0, time.Local)
 	data := AdminUsersData{
@@ -130,7 +166,7 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	html := out.String()
 	for _, want := range []string{
 		"Recent administrator verification required", `href="/settings/security"`,
-		"manage invitations for the next ten minutes", " disabled",
+		"manage invitations and individual MFA policies for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)

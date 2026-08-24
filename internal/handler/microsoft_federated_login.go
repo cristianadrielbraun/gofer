@@ -117,7 +117,7 @@ func (h *Handler) handleMicrosoftCallback(w http.ResponseWriter, r *http.Request
 			w, challenge.Token, h.auth.Config().SecureCookies,
 			challenge.ExpiresAt.Sub(challenge.CreatedAt),
 		)
-		http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+		http.Redirect(w, r, primaryAuthenticationContinuationPath(result), http.StatusSeeOther)
 		return
 	}
 	auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)

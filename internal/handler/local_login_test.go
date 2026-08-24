@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/httpguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/oauth2"
 )
 
@@ -213,10 +216,10 @@ func TestLocalLoginThrottleReturnsRetryAfter(t *testing.T) {
 	}
 }
 
-func TestLocalLoginMFAContinuationNeverCreatesSession(t *testing.T) {
+func TestLocalLoginRequiredMFAEnrollmentNeverCreatesSession(t *testing.T) {
 	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
 	recorder := postLocalLogin(t, handler, "person", localLoginPassword)
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login/mfa" {
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login/mfa/enroll" {
 		t.Fatalf("MFA login = %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
 	challengeCookie := responseCookie(recorder, "gofer_pre_auth", true)
@@ -239,16 +242,79 @@ func TestLocalLoginMFAContinuationNeverCreatesSession(t *testing.T) {
 	request.AddCookie(challengeCookie)
 	pageRecorder := httptest.NewRecorder()
 	handler.handleLoginMFA(pageRecorder, request)
-	if pageRecorder.Code != http.StatusOK || !strings.Contains(pageRecorder.Body.String(), "Enter your authenticator code") ||
-		!strings.Contains(pageRecorder.Body.String(), `action="/login/mfa"`) || strings.Contains(pageRecorder.Body.String(), "https://") {
-		t.Fatalf("MFA continuation page = %d %q", pageRecorder.Code, pageRecorder.Body.String())
+	if pageRecorder.Code != http.StatusSeeOther || pageRecorder.Header().Get("Location") != "/login/mfa/enroll" {
+		t.Fatalf("factorless MFA continuation = %d location:%q", pageRecorder.Code, pageRecorder.Header().Get("Location"))
 	}
-	request = httptest.NewRequest(http.MethodGet, "/login/mfa?code=must-not-survive", nil)
+	request = httptest.NewRequest(http.MethodGet, "/login/mfa/enroll", nil)
+	request.AddCookie(challengeCookie)
+	pageRecorder = httptest.NewRecorder()
+	handler.handleMFAEnrollment(pageRecorder, request)
+	if pageRecorder.Code != http.StatusOK || !strings.Contains(pageRecorder.Body.String(), "Set up an authenticator") ||
+		!strings.Contains(pageRecorder.Body.String(), `action="/login/mfa/enroll"`) || strings.Contains(pageRecorder.Body.String(), "mfa-enrollment-material") {
+		t.Fatalf("MFA enrollment page = %d %q", pageRecorder.Code, pageRecorder.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/login/mfa/enroll?code=must-not-survive", nil)
 	request.AddCookie(challengeCookie)
 	queryRecorder := httptest.NewRecorder()
-	handler.handleLoginMFA(queryRecorder, request)
-	if queryRecorder.Code != http.StatusSeeOther || queryRecorder.Header().Get("Location") != "/login/mfa" || strings.Contains(queryRecorder.Body.String(), "must-not-survive") {
+	handler.handleMFAEnrollment(queryRecorder, request)
+	if queryRecorder.Code != http.StatusSeeOther || queryRecorder.Header().Get("Location") != "/login/mfa/enroll" || strings.Contains(queryRecorder.Body.String(), "must-not-survive") {
 		t.Fatalf("MFA query stripping = %d location:%q body:%q", queryRecorder.Code, queryRecorder.Header().Get("Location"), queryRecorder.Body.String())
+	}
+}
+
+func TestLocalLoginCompletesRequiredMFAEnrollmentBeforeCreatingSession(t *testing.T) {
+	handler, manager, _ := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
+	login := postLocalLogin(t, handler, "person", localLoginPassword)
+	challengeCookie := responseCookie(login, "gofer_pre_auth", true)
+	if login.Code != http.StatusSeeOther || login.Header().Get("Location") != "/login/mfa/enroll" || challengeCookie == nil {
+		t.Fatalf("required MFA login = status:%d location:%q cookies:%#v", login.Code, login.Header().Get("Location"), login.Result().Cookies())
+	}
+	state, err := manager.GetMFAEnrollmentState(t.Context(), challengeCookie.Value, "https://gofer.example")
+	if err != nil || state == nil || state.Enrollment == nil {
+		t.Fatalf("GetMFAEnrollmentState() = %#v, %v", state, err)
+	}
+	code, err := totp.GenerateCodeCustom(strings.ReplaceAll(state.Enrollment.ManualKey, " ", ""), time.Now().UTC(), totp.ValidateOpts{
+		Period: 30, Skew: 0, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postEnrollment := func(path string, form url.Values, handle http.HandlerFunc) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("User-Agent", "Gofer Enrollment Test/1.0")
+		request.RemoteAddr = "198.51.100.72:43120"
+		request.AddCookie(challengeCookie)
+		recorder := httptest.NewRecorder()
+		handle(recorder, request)
+		return recorder
+	}
+	confirmed := postEnrollment(
+		"/login/mfa/enroll", url.Values{"action": {"confirm"}, "code": {code}},
+		handler.handleMFAEnrollmentSubmit,
+	)
+	if confirmed.Code != http.StatusSeeOther || confirmed.Header().Get("Location") != "/login/mfa/enroll/codes" {
+		t.Fatalf("confirm required MFA = %d location:%q body:%q", confirmed.Code, confirmed.Header().Get("Location"), confirmed.Body.String())
+	}
+	generated := postEnrollment(
+		"/login/mfa/enroll/codes", url.Values{"action": {"generate"}},
+		handler.handleMFAEnrollmentCodesSubmit,
+	)
+	batchMatch := regexp.MustCompile(`name="batch_id" value="([a-f0-9]{64})"`).FindStringSubmatch(generated.Body.String())
+	if generated.Code != http.StatusOK || len(batchMatch) != 2 || !strings.Contains(generated.Body.String(), "These codes are shown only in this response") {
+		t.Fatalf("generate required MFA recovery codes = %d batch:%#v body:%q", generated.Code, batchMatch, generated.Body.String())
+	}
+	completed := postEnrollment(
+		"/login/mfa/enroll/codes",
+		url.Values{"action": {"complete"}, "batch_id": {batchMatch[1]}, "saved": {"yes"}},
+		handler.handleMFAEnrollmentCodesSubmit,
+	)
+	sessionCookie := responseCookie(completed, "gofer_session", true)
+	if completed.Code != http.StatusSeeOther || completed.Header().Get("Location") != "/" || sessionCookie == nil {
+		t.Fatalf("complete required MFA = %d location:%q cookies:%#v body:%q", completed.Code, completed.Header().Get("Location"), completed.Result().Cookies(), completed.Body.String())
+	}
+	if session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value); err != nil || session == nil || session.AssuranceLevel != auth.AssuranceLevelMultiFactor {
+		t.Fatalf("required MFA session = %#v, %v", session, err)
 	}
 }
 
@@ -287,7 +353,7 @@ func TestLocalLoginMFAContinuationRequiresCookie(t *testing.T) {
 func TestAdminPasswordMFASeedsManagementReturnTarget(t *testing.T) {
 	handler, _, _ := newLocalLoginHandler(t, auth.UserStatusActive, true, true, true, false)
 	recorder := postAdminLogin(t, handler, "person", localLoginPassword)
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login/mfa" ||
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/login/mfa/enroll" ||
 		responseCookie(recorder, "gofer_pre_auth", true) == nil {
 		t.Fatalf("admin MFA start = status:%d location:%q cookies:%#v", recorder.Code, recorder.Header().Get("Location"), recorder.Result().Cookies())
 	}

@@ -205,6 +205,52 @@ func TestGoogleInvitationEnrollmentContinuesToExistingMFA(t *testing.T) {
 	}
 }
 
+func TestGoogleInvitationEnrollmentStartsRequiredMFAEnrollmentForFactorlessWebmailUser(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 11, 10, 0, 0, time.UTC)
+	manager := newGoogleEnrollmentTestManager(t, now, &deterministicTokenGenerator{
+		ids:    []string{"google-challenge", "google-identity", "enrollment-event", "mfa-challenge"},
+		tokens: []string{"state-token", "nonce-token", "mfa-token", "mfa-enrollment-material"},
+	})
+	insertRedemptionUser(t, manager, "invitee", UserStatusPending, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET mfa_required = 1 WHERE id = 'invitee'`); err != nil {
+		t.Fatal(err)
+	}
+	insertRedemptionToken(t, manager, "invite-id", "invitee", "invite-token", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour))
+
+	start, err := manager.BeginGoogleEnrollment(t.Context(), "invite-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyGoogleEnrollmentClaims(manager, start.Challenge, "google-subject", "invitee@example.com")
+	result, err := manager.CompleteGoogleEnrollment(
+		googleOAuthTestContext(t), start.Challenge.Token, "authorization-code", "Enrollment Browser",
+	)
+	if err != nil || result == nil || result.Session != nil || result.PreAuthChallenge == nil || !result.MFAEnrollmentRequired {
+		t.Fatalf("factorless Google enrollment = %#v, %v", result, err)
+	}
+	state, err := manager.GetMFAEnrollmentState(t.Context(), result.PreAuthChallenge.Token, "https://gofer.example")
+	if err != nil || state == nil || state.UserID != "invitee" || state.Enrollment == nil {
+		t.Fatalf("factorless Google MFA enrollment state = %#v, %v", state, err)
+	}
+	var status UserStatus
+	var sessions, identities, invitationUsed int
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT status FROM users WHERE id = 'invitee'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions WHERE user_id = 'invitee'`).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_identities WHERE user_id = 'invitee'`).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = 'invite-id'`).Scan(&invitationUsed); err != nil {
+		t.Fatal(err)
+	}
+	if status != UserStatusActive || sessions != 0 || identities != 1 || invitationUsed != 1 {
+		t.Fatalf("factorless Google activation = status:%q sessions:%d identities:%d invitation:%d", status, sessions, identities, invitationUsed)
+	}
+}
+
 func TestGoogleInvitationEnrollmentRechecksInvitationAtCallback(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 11, 15, 0, 0, time.UTC)
 	manager := newGoogleEnrollmentTestManager(t, now, &deterministicTokenGenerator{

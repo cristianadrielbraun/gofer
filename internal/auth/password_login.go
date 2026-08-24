@@ -33,8 +33,9 @@ type PasswordLoginOptions struct {
 }
 
 type PrimaryAuthenticationResult struct {
-	Session          *Session
-	PreAuthChallenge *PreAuthChallenge
+	Session               *Session
+	PreAuthChallenge      *PreAuthChallenge
+	MFAEnrollmentRequired bool
 }
 
 type PasswordLoginResult = PrimaryAuthenticationResult
@@ -151,10 +152,12 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 
 	var session *Session
 	var challenge *PreAuthChallenge
+	var continuation *mfaContinuationDraft
 	if policy.RequiresMFA {
-		challenge, _, err = m.prepareMFAContinuation(
+		challenge, continuation, err = m.preparePrimaryMFAContinuation(
+			ctx, m.db.Read(),
 			candidate.userID, candidate.authVersion, AuthenticationMethodPassword,
-			m.config.BaseURL, now,
+			policy, m.config.BaseURL, now,
 		)
 		if err != nil {
 			return nil, err
@@ -260,6 +263,9 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		}
 
 		if challenge != nil {
+			if err := m.requireMFAContinuationAuthenticatorState(ctx, tx, challenge.UserID, continuation); err != nil {
+				return errPasswordStateMoved
+			}
 			return m.insertMFAContinuation(ctx, tx, challenge, now)
 		}
 		if !currentPolicy.allowsAssurance(session.AssuranceLevel) {
@@ -286,7 +292,10 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 	if err != nil {
 		return nil, err
 	}
-	return &PasswordLoginResult{Session: session, PreAuthChallenge: challenge}, nil
+	return &PasswordLoginResult{
+		Session: session, PreAuthChallenge: challenge,
+		MFAEnrollmentRequired: continuation != nil && continuation.Enrollment != nil,
+	}, nil
 }
 
 func (m *Manager) rejectPasswordLogin(ctx context.Context, identifier, source string) error {

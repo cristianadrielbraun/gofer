@@ -22,6 +22,9 @@ type RecoveryRepairCodesData struct {
 	ErrorMessage string
 }
 
+type MFAEnrollmentData = RecoveryRepairMFAData
+type MFAEnrollmentCodesData = RecoveryRepairCodesData
+
 templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage string, identifier string) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark" data-theme="classic">
@@ -321,6 +324,132 @@ templ RecoveryRepairMFAPage(data RecoveryRepairMFAData) {
 						}
 					</form>
 					<p class="mt-6 text-center text-xs text-muted-foreground">Your current authenticator and remaining recovery codes stay active until repair completes.</p>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ MFAEnrollmentPage(data MFAEnrollmentData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Set Up MFA</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4 py-10">
+				<div class="w-full max-w-lg">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-warning">MFA required</p>
+						<h1 class="mt-2 text-2xl font-semibold">Set up an authenticator</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Your primary sign-in succeeded, but Gofer has not created a session. Set up MFA before continuing to your mailbox.</p>
+					</div>
+					if data.ErrorMessage != "" {
+						<div id="mfa-enrollment-error" role="alert" aria-live="polite" class="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.ErrorMessage }</div>
+					}
+					<div class="rounded-xl border border-border bg-card p-6">
+						<div class="flex justify-center rounded-lg bg-white p-4">
+							<img src={ data.QRCodeDataURL } alt="QR code for a new Gofer authenticator" class="h-56 w-56"/>
+						</div>
+						<div class="mt-5">
+							<p class="text-sm font-medium">Manual setup key</p>
+							<p class="mt-2 break-all rounded-md border border-border bg-background px-3 py-2 text-center font-mono text-sm tracking-wider">{ data.ManualKey }</p>
+							<p class="mt-2 text-xs text-muted-foreground">{ data.Algorithm } · { fmt.Sprintf("%d digits", data.Digits) } · { fmt.Sprintf("%d-second period", data.Period) }</p>
+						</div>
+					</div>
+					<form method="post" action="/login/mfa/enroll" class="mt-4 space-y-4">
+						<input type="hidden" name="action" value="confirm"/>
+						<div class="space-y-2">
+							<label for="mfa-enrollment-code" class="text-sm font-medium">Code from the new authenticator</label>
+							<input id="mfa-enrollment-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-xl tracking-[0.35em] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"/>
+						</div>
+						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+							Verify authenticator
+						}
+					</form>
+					<form method="post" action="/login/mfa/enroll" class="mt-2">
+						<input type="hidden" name="action" value="restart"/>
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
+							Generate a different setup key
+						}
+					</form>
+					<p class="mt-6 text-center text-xs text-muted-foreground">Existing sessions and authenticators are unchanged. This flow creates only the MFA needed for the current sign-in.</p>
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+templ MFAEnrollmentCodesPage(data MFAEnrollmentCodesData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer — Save Recovery Codes</title>
+			@AppIcon()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4 py-10">
+				<div class="w-full max-w-lg">
+					<div class="text-center mb-8">
+						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Authenticator verified</p>
+						<h1 class="mt-2 text-2xl font-semibold">Save your recovery codes</h1>
+						<p class="mt-2 text-sm text-muted-foreground">Save a recovery batch before Gofer commits the authenticator and creates your signed-in session.</p>
+					</div>
+					if data.ErrorMessage != "" {
+						<div id="mfa-enrollment-codes-error" role="alert" aria-live="polite" class="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.ErrorMessage }</div>
+					}
+					if len(data.Codes) > 0 {
+						<div role="alert" class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+							<p class="text-sm font-medium text-warning">These codes are shown only in this response</p>
+							<p class="mt-1 text-xs text-muted-foreground">Copy them to a password manager or print this page before continuing.</p>
+						</div>
+						<div class="mt-4 grid gap-2 rounded-xl border border-border bg-card p-5 sm:grid-cols-2" aria-label="New recovery codes">
+							for _, code := range data.Codes {
+								<code class="rounded-md border border-border bg-background px-3 py-2 text-center font-mono text-sm">{ code }</code>
+							}
+						</div>
+					} else if data.Generated {
+						<div class="rounded-xl border border-border bg-card p-6">
+							<p class="text-sm font-medium">The recovery codes were already shown</p>
+							<p class="mt-1 text-xs text-muted-foreground">If you did not save them, generate a replacement batch before continuing.</p>
+						</div>
+					}
+					if data.Generated {
+						<form method="post" action="/login/mfa/enroll/codes" class="mt-4 space-y-4">
+							<input type="hidden" name="action" value="complete"/>
+							<input type="hidden" name="batch_id" value={ data.BatchID }/>
+							<label class="flex items-start gap-3 rounded-lg border border-border bg-card p-4 text-sm">
+								<input type="checkbox" name="saved" value="yes" required class="mt-0.5 h-4 w-4 rounded border-input"/>
+								<span>I saved these recovery codes and understand they are the fallback for this authenticator.</span>
+							</label>
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+								Complete MFA setup and sign in
+							}
+						</form>
+						<form method="post" action="/login/mfa/enroll/codes" class="mt-2">
+							<input type="hidden" name="action" value="regenerate"/>
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
+								Replace these recovery codes
+							}
+						</form>
+					} else {
+						<form method="post" action="/login/mfa/enroll/codes" class="mt-4">
+							<input type="hidden" name="action" value="generate"/>
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+								Generate recovery codes
+							}
+						</form>
+					}
+					<p class="mt-6 text-center text-xs text-muted-foreground">No new session or authenticator exists until this enrollment completes successfully.</p>
 				</div>
 			</main>
 		</body>

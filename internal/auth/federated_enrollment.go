@@ -171,11 +171,13 @@ func (m *Manager) CompleteGoogleEnrollment(
 	userAgent = boundedUserAgent(userAgent)
 	var session *Session
 	var mfaChallenge *PreAuthChallenge
+	var mfaContinuation *mfaContinuationDraft
 	conflict := false
 	if policy.RequiresMFA {
-		mfaChallenge, _, err = m.prepareMFAContinuation(
+		mfaChallenge, mfaContinuation, err = m.preparePrimaryMFAContinuation(
+			ctx, m.db.Read(),
 			challenge.UserID, policy.AuthVersion, AuthenticationMethodFederatedGoogle,
-			m.config.BaseURL, now,
+			policy, m.config.BaseURL, now,
 		)
 		if err != nil {
 			_ = m.TerminatePreAuthChallenge(ctx, challengeToken, ChallengePurposeFederatedEnrollment, m.config.BaseURL)
@@ -312,6 +314,9 @@ func (m *Manager) CompleteGoogleEnrollment(
 			// this OIDC attempt and audit the generic conflict, but leave the
 			// invitation and pending target untouched.
 		} else if mfaChallenge != nil {
+			if err := m.requireMFAContinuationAuthenticatorState(ctx, tx, mfaChallenge.UserID, mfaContinuation); err != nil {
+				return err
+			}
 			if err := m.insertMFAContinuation(ctx, tx, mfaChallenge, now); err != nil {
 				return err
 			}
@@ -381,7 +386,10 @@ func (m *Manager) CompleteGoogleEnrollment(
 	if conflict {
 		return nil, ErrFederatedIdentityConflict
 	}
-	return &PrimaryAuthenticationResult{Session: session, PreAuthChallenge: mfaChallenge}, nil
+	return &PrimaryAuthenticationResult{
+		Session: session, PreAuthChallenge: mfaChallenge,
+		MFAEnrollmentRequired: mfaContinuation != nil && mfaContinuation.Enrollment != nil,
+	}, nil
 }
 
 func queryPendingEnrollmentAuthenticationPolicy(
@@ -416,6 +424,9 @@ func (m *Manager) requireUserReadyForAuthenticationPolicy(
 	ctx context.Context, queryer instanceSecurityPolicyQueryer, userID string, policy authenticationPolicy,
 ) error {
 	if !policy.RequiresMFA {
+		return nil
+	}
+	if policy.UserMFARequired && !policy.AdministratorMFARequired && !policy.InstanceMFARequired {
 		return nil
 	}
 	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)

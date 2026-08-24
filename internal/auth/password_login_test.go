@@ -204,7 +204,7 @@ func TestAuthenticatePasswordReturnsPersistentThrottleDecision(t *testing.T) {
 	}
 }
 
-func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
+func TestAuthenticatePasswordCreatesRestrictedEnrollmentForFactorlessMFAPolicy(t *testing.T) {
 	now := time.Date(2026, time.August, 5, 20, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
 		name        string
@@ -220,7 +220,7 @@ func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
 			clock := &fixedClock{now: now}
 			manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{
 				ids:    []string{"mfa-challenge-id"},
-				tokens: []string{"mfa-challenge-token"},
+				tokens: []string{"mfa-challenge-token", "mfa-enrollment-material"},
 			})
 			insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, test.isAdmin, test.mfaRequired, false, currentPasswordLoginHash(t), now)
 			if test.instanceMFA {
@@ -236,7 +236,7 @@ func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
 				Password:   passwordLoginTestPassword,
 				Source:     "198.51.100.42",
 			})
-			if err != nil || result == nil || result.Session != nil || result.PreAuthChallenge == nil {
+			if err != nil || result == nil || result.Session != nil || result.PreAuthChallenge == nil || !result.MFAEnrollmentRequired {
 				t.Fatalf("AuthenticatePassword(MFA) = %#v, %v", result, err)
 			}
 			challenge := result.PreAuthChallenge
@@ -262,12 +262,33 @@ func TestAuthenticatePasswordCreatesMFAContinuationForPolicy(t *testing.T) {
 	}
 }
 
+func TestAuthenticatePasswordUsesExistingAuthenticatorWhenMFAIsRequired(t *testing.T) {
+	now := time.Date(2026, time.August, 5, 20, 15, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids: []string{"mfa-challenge-id"}, tokens: []string{"mfa-challenge-token"},
+	})
+	insertPasswordLoginUser(
+		t, manager, "person", "person", UserStatusActive, false, true, false,
+		currentPasswordLoginHash(t), now,
+	)
+	insertPolicyTestTOTP(t, manager, "person", now)
+	result, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{
+		Identifier: "person", Password: passwordLoginTestPassword,
+	})
+	if err != nil || result == nil || result.Session != nil || result.PreAuthChallenge == nil || result.MFAEnrollmentRequired {
+		t.Fatalf("AuthenticatePassword(existing MFA) = %#v, %v", result, err)
+	}
+	if state, err := manager.GetMFAEnrollmentState(t.Context(), result.PreAuthChallenge.Token, "https://gofer.example"); state != nil || !errors.Is(err, ErrMFAEnrollmentInvalid) {
+		t.Fatalf("GetMFAEnrollmentState(existing MFA) = %#v, %v", state, err)
+	}
+}
+
 func TestAuthenticatePasswordReplacesPriorMFAContinuation(t *testing.T) {
 	now := time.Date(2026, time.August, 5, 20, 30, 0, 0, time.UTC)
 	clock := &fixedClock{now: now}
 	manager := newDeterministicManager(t, clock, &deterministicTokenGenerator{
 		ids:    []string{"first-challenge", "second-challenge"},
-		tokens: []string{"first-token", "second-token"},
+		tokens: []string{"first-token", "first-enrollment-material", "second-token", "second-enrollment-material"},
 	})
 	insertPasswordLoginUser(t, manager, "person", "person", UserStatusActive, true, false, false, currentPasswordLoginHash(t), now)
 	first, err := manager.AuthenticatePassword(t.Context(), PasswordLoginOptions{

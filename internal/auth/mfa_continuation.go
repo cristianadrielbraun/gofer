@@ -28,11 +28,12 @@ type mfaContinuationDraft struct {
 	AuthVersion      int64                `json:"auth_version"`
 	PrimaryMethod    AuthenticationMethod `json:"primary_method"`
 	PrimaryAssurance AssuranceLevel       `json:"primary_assurance"`
+	Enrollment       *mfaEnrollmentDraft  `json:"enrollment,omitempty"`
 }
 
 func validMFAContinuationDraft(draft *mfaContinuationDraft) bool {
 	if draft == nil || draft.Version != mfaContinuationDraftVersion || draft.AuthVersion < 1 ||
-		draft.PrimaryAssurance != AssuranceLevelSingleFactor {
+		draft.PrimaryAssurance != AssuranceLevelSingleFactor || !validMFAEnrollmentDraft(draft.Enrollment) {
 		return false
 	}
 	switch draft.PrimaryMethod {
@@ -49,7 +50,8 @@ func validMFAContinuationDraft(draft *mfaContinuationDraft) bool {
 func sameMFAContinuationDraft(left, right *mfaContinuationDraft) bool {
 	return validMFAContinuationDraft(left) && validMFAContinuationDraft(right) &&
 		left.Version == right.Version && left.AuthVersion == right.AuthVersion &&
-		left.PrimaryMethod == right.PrimaryMethod && left.PrimaryAssurance == right.PrimaryAssurance
+		left.PrimaryMethod == right.PrimaryMethod && left.PrimaryAssurance == right.PrimaryAssurance &&
+		sameMFAEnrollmentDraft(left.Enrollment, right.Enrollment)
 }
 
 func (m *Manager) prepareMFAContinuation(userID string, authVersion int64, primaryMethod AuthenticationMethod, origin string, now time.Time) (*PreAuthChallenge, *mfaContinuationDraft, error) {

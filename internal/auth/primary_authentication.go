@@ -34,8 +34,11 @@ func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
 	userAgent = boundedUserAgent(userAgent)
 	var session *Session
 	var challenge *PreAuthChallenge
+	var continuation *mfaContinuationDraft
 	if policy.RequiresMFA {
-		challenge, _, err = m.prepareMFAContinuation(userID, policy.AuthVersion, method, m.config.BaseURL, now)
+		challenge, continuation, err = m.preparePrimaryMFAContinuation(
+			ctx, m.db.Read(), userID, policy.AuthVersion, method, policy, m.config.BaseURL, now,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -77,6 +80,9 @@ func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
 			}
 		}
 		if challenge != nil {
+			if err := m.requireMFAContinuationAuthenticatorState(ctx, tx, challenge.UserID, continuation); err != nil {
+				return ErrAuthenticationPolicyNotSatisfied
+			}
 			return m.insertMFAContinuation(ctx, tx, challenge, now)
 		}
 		if !currentPolicy.allowsAssurance(session.AssuranceLevel) {
@@ -107,5 +113,8 @@ func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
 	if err != nil {
 		return nil, err
 	}
-	return &PrimaryAuthenticationResult{Session: session, PreAuthChallenge: challenge}, nil
+	return &PrimaryAuthenticationResult{
+		Session: session, PreAuthChallenge: challenge,
+		MFAEnrollmentRequired: continuation != nil && continuation.Enrollment != nil,
+	}, nil
 }

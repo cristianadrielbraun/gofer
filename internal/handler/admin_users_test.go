@@ -23,7 +23,7 @@ func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 		{ID: "admin", Username: "owner", Status: auth.UserStatusActive, UserType: auth.UserTypeManagement, IsAdmin: true},
 		{ID: "pending", Username: "pending", Status: auth.UserStatusPending, UserType: auth.UserTypeWebmail},
 		{ID: "disabled", Username: "disabled", Status: auth.UserStatusDisabled, UserType: auth.UserTypeManagement, IsAdmin: true},
-	}, "admin")
+	}, "admin", auth.InstanceMFAPolicyAdministrators)
 	if data.Total != 3 || data.Active != 1 || data.Pending != 1 || data.Disabled != 1 || data.Administrators != 2 || len(data.Users) != 3 {
 		t.Fatalf("adminUsersViewData() = %#v", data)
 	}
@@ -31,6 +31,24 @@ func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 		data.Users[1].Current || data.Users[1].Status != "Pending" || data.Users[1].Role != "Webmail user" ||
 		data.Users[2].Status != "Disabled" || data.Users[2].Role != "Management administrator" {
 		t.Fatalf("admin user rows = %#v", data.Users)
+	}
+	if data.Users[0].MFALabel != "Required" || data.Users[0].MFADetail != "Management policy" || data.Users[0].MFAPolicyPath != "" ||
+		data.Users[1].MFALabel != "Optional" || data.Users[1].MFAPolicyPath != "/admin/users/pending/mfa-policy" ||
+		data.Users[2].MFALabel != "Required" || data.Users[2].MFAPolicyPath != "" {
+		t.Fatalf("admin user MFA policy rows = %#v", data.Users)
+	}
+}
+
+func TestAdminUsersViewDataReflectsInstanceAndIndividualMFAPolicies(t *testing.T) {
+	users := []auth.AdministratorUserSummary{
+		{ID: "instance-user", Username: "instance", Status: auth.UserStatusActive, UserType: auth.UserTypeWebmail},
+		{ID: "individual-user", Username: "individual", Status: auth.UserStatusActive, UserType: auth.UserTypeWebmail, MFARequired: true},
+	}
+	data := adminUsersViewData(users, "admin", auth.InstanceMFAPolicyAllUsers)
+	if data.Users[0].MFALabel != "Required" || data.Users[0].MFADetail != "Instance policy" || data.Users[0].MFAPolicyPath != "" ||
+		data.Users[1].MFALabel != "Required" || data.Users[1].MFADetail != "Individual policy" ||
+		data.Users[1].MFAPolicyPath != "/admin/users/individual-user/mfa-policy" {
+		t.Fatalf("instance and individual MFA rows = %#v", data.Users)
 	}
 }
 
@@ -111,6 +129,138 @@ func TestAdminUsersPageListsOnlyAuthenticationProfileMetadata(t *testing.T) {
 	if partial.Code != http.StatusOK || !strings.Contains(partial.Body.String(), `id="main-content"`) ||
 		!strings.Contains(partial.Body.String(), `data-admin-users`) || strings.Contains(partial.Body.String(), "<!DOCTYPE html>") {
 		t.Fatalf("administrator users partial = %d %q", partial.Code, partial.Body.String())
+	}
+}
+
+func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, username, username_normalized, name, status, auth_version,
+			mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES ('policy-target', 'policy-target', 'policy-target', 'Policy Target',
+			'active', 1, 0, 'webmail', 0, ?, ?);
+		INSERT INTO totp_credentials (
+			id, user_id, encrypted_seed, key_version, algorithm, digits,
+			period, issuer, enabled, created_at
+		) VALUES ('policy-target-totp', 'policy-target', x'01', 1, 'SHA1', 6, 30, 'Gofer', 1, ?)`,
+		now, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	weak, err := manager.CreateAuthenticatedSession(
+		t.Context(), "policy-target", "Weak policy browser",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := adminUserMFAPolicyPath("policy-target")
+	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest.AddCookie(sessionCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK {
+		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
+	}
+	for _, want := range []string{"MFA policy", "Require MFA", `action="` + path + `"`, `name="required" value="true"`} {
+		if !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("administrator user MFA control missing %q: %q", want, page.Body.String())
+		}
+	}
+	withoutCSRF := postSecuritySettings(t, stack, path, url.Values{"required": {"true"}}, sessionCookie)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("user MFA policy without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+
+	requireForm := url.Values{
+		"required":             {"true"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+	}
+	required := postSecuritySettings(t, stack, path, requireForm, sessionCookie)
+	if required.Code != http.StatusSeeOther || !strings.HasPrefix(required.Header().Get("Location"), "/admin/users?") {
+		t.Fatalf("require individual MFA = %d location:%q body:%q", required.Code, required.Header().Get("Location"), required.Body.String())
+	}
+	var storedRequired int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required FROM users WHERE id = 'policy-target'`).Scan(&storedRequired); err != nil || storedRequired != 1 {
+		t.Fatalf("required individual MFA = %d, %v", storedRequired, err)
+	}
+	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored == nil || stored.ID != weak.ID {
+		t.Fatalf("weak target session after requiring MFA = %#v, %v", stored, err)
+	}
+	var events int
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM auth_events
+		WHERE event_type = ? AND subject_user_id = 'policy-target'`, auth.AuthEventSecurityPolicyChanged,
+	).Scan(&events); err != nil || events != 1 {
+		t.Fatalf("individual MFA policy events = %d, %v", events, err)
+	}
+
+	clearPageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	clearPageRequest.AddCookie(sessionCookie)
+	clearPage := httptest.NewRecorder()
+	stack.ServeHTTP(clearPage, clearPageRequest)
+	if clearPage.Code != http.StatusOK || !strings.Contains(clearPage.Body.String(), "Clear individual policy") ||
+		!strings.Contains(clearPage.Body.String(), `name="required" value="false"`) {
+		t.Fatalf("clear individual MFA control = %d %q", clearPage.Code, clearPage.Body.String())
+	}
+	clearForm := url.Values{
+		"required":             {"false"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, clearPage.Body.String(), path)},
+	}
+	cleared := postSecuritySettings(t, stack, path, clearForm, sessionCookie)
+	if cleared.Code != http.StatusSeeOther {
+		t.Fatalf("clear individual MFA = %d %q", cleared.Code, cleared.Body.String())
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required FROM users WHERE id = 'policy-target'`).Scan(&storedRequired); err != nil || storedRequired != 0 {
+		t.Fatalf("cleared individual MFA = %d, %v", storedRequired, err)
+	}
+	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored == nil || stored.ID != weak.ID {
+		t.Fatalf("preserved session after clearing = %#v, %v", stored, err)
+	}
+}
+
+func TestAdministratorCanRequireMFAForFactorlessUser(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, username, username_normalized, name, status, auth_version,
+			mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES ('factorless-target', 'factorless-target', 'factorless-target', 'Factorless Target',
+			'active', 1, 0, 'webmail', 0, ?, ?)`, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	path := adminUserMFAPolicyPath("factorless-target")
+	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest.AddCookie(sessionCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK {
+		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
+	}
+	form := url.Values{
+		"required":             {"true"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+	}
+	response := postSecuritySettings(t, stack, path, form, sessionCookie)
+	if response.Code != http.StatusSeeOther || !strings.HasPrefix(response.Header().Get("Location"), "/admin/users?") {
+		t.Fatalf("factorless individual MFA = %d %q", response.Code, response.Body.String())
+	}
+	var required, events int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required FROM users WHERE id = 'factorless-target'`).Scan(&required); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM auth_events
+		WHERE event_type = ? AND subject_user_id = 'factorless-target'`, auth.AuthEventSecurityPolicyChanged,
+	).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if required != 1 || events != 1 {
+		t.Fatalf("factorless policy state = required:%d events:%d", required, events)
 	}
 }
 

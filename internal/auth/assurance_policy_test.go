@@ -113,7 +113,7 @@ func TestAuthenticatedSessionIssuanceEnforcesCurrentPolicy(t *testing.T) {
 	}
 }
 
-func TestSessionLookupAppliesPolicyChangesImmediately(t *testing.T) {
+func TestIndividualMFAPolicyPreservesExistingSessionContinuity(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 20, 30, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
 	insertActiveUser(t, manager, "person", false, now)
@@ -126,10 +126,11 @@ func TestSessionLookupAppliesPolicyChangesImmediately(t *testing.T) {
 	if _, err := manager.db.Write().ExecContext(t.Context(), `UPDATE users SET mfa_required = 1 WHERE id = 'person'`); err != nil {
 		t.Fatal(err)
 	}
-	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored != nil {
+	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored == nil || stored.ID != weak.ID {
 		t.Fatalf("weak session after MFA policy change = %#v, %v", stored, err)
 	}
-	if rotated, err := manager.RotateSession(t.Context(), weak.Token, "Rotated Password Browser"); rotated != nil || !errors.Is(err, ErrSessionNotActive) {
+	rotated, err := manager.RotateSession(t.Context(), weak.Token, "Rotated Password Browser")
+	if err != nil || rotated == nil || rotated.AssuranceLevel != AssuranceLevelSingleFactor {
 		t.Fatalf("RotateSession(weak policy) = %#v, %v", rotated, err)
 	}
 	var weakStillActive int
@@ -138,8 +139,11 @@ func TestSessionLookupAppliesPolicyChangesImmediately(t *testing.T) {
 	).Scan(&weakStillActive); err != nil {
 		t.Fatal(err)
 	}
-	if weakStillActive != 1 {
-		t.Fatalf("weak session active rows after rejected rotation = %d, want 1", weakStillActive)
+	if weakStillActive != 0 {
+		t.Fatalf("original weak session active rows after ordinary rotation = %d, want 0", weakStillActive)
+	}
+	if stored, err := manager.GetSessionByToken(t.Context(), rotated.Token); err != nil || stored == nil || stored.ID != rotated.ID {
+		t.Fatalf("rotated weak session under individual policy = %#v, %v", stored, err)
 	}
 	strong, err := manager.CreateAuthenticatedSession(
 		t.Context(), "person", "Passkey Browser", AuthenticationMethodPasskey, AssuranceLevelPhishingResistant,

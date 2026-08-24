@@ -22,6 +22,11 @@ type AdminUserData struct {
 	Status                    string
 	Role                      string
 	Current                   bool
+	MFALabel                  string
+	MFADetail                 string
+	MFARequired               bool
+	MFAPolicyPath             string
+	MFAPolicyCSRFToken        string
 	InvitationState           string
 	InvitationExpiresAt       *time.Time
 	InvitationRevokePath      string
@@ -269,7 +274,7 @@ templ AdminUsersPage(data AdminUsersData) {
 				if data.StepUpRequired {
 					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">Recent administrator verification required</p>
-						<p class="mt-1">Verify with a passkey or authenticator in <a href="/settings/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations for the next ten minutes.</p>
+						<p class="mt-1">Verify with a passkey or authenticator in <a href="/settings/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations and individual MFA policies for the next ten minutes.</p>
 					</div>
 				}
 				@AdminUserInvitationDialog(data)
@@ -303,12 +308,13 @@ templ AdminUsersPage(data AdminUsersData) {
 						<div class="px-4 py-10 text-center text-sm text-muted-foreground">No Gofer users are available.</div>
 					} else {
 						<div class="overflow-x-auto">
-							<table class="w-full min-w-[64rem] text-left text-sm">
+							<table class="w-full min-w-[70rem] text-left text-sm">
 								<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
 									<tr>
 										<th scope="col" class="px-4 py-3">User</th>
 										<th scope="col" class="px-4 py-3">Status</th>
 										<th scope="col" class="px-4 py-3">Role</th>
+										<th scope="col" class="px-4 py-3">MFA policy</th>
 										<th scope="col" class="px-4 py-3">Invitation</th>
 										<th scope="col" class="px-4 py-3 text-right">Actions</th>
 										<th scope="col" class="px-4 py-3">User ID</th>
@@ -343,6 +349,17 @@ templ AdminUsersPage(data AdminUsersData) {
 														templ.KV("border-border bg-muted text-muted-foreground", user.Role == "User"),
 													}
 												>{ user.Role }</span>
+											</td>
+											<td class="px-4 py-3">
+												<span
+													class={
+														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+														templ.KV("border-primary/30 bg-primary/10 text-primary", user.MFALabel == "Required"),
+														templ.KV("border-border bg-muted text-muted-foreground", user.MFALabel != "Required"),
+													}
+												>{ user.MFALabel }</span>
+												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ user.MFADetail }</p>
+												@AdminUserMFAPolicyAction(user, data.StepUpRequired)
 											</td>
 											<td class="px-4 py-3">
 												if user.InvitationRotatePath == "" {
@@ -383,6 +400,72 @@ templ AdminUsersPage(data AdminUsersData) {
 			</div>
 		</div>
 	</div>
+}
+
+func adminUserMFAPolicyDialogID(user AdminUserData) string {
+	return "admin-user-mfa-policy-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+func adminUserMFAPolicyButtonVariant(user AdminUserData) button.Variant {
+	if user.MFARequired {
+		return button.VariantDestructive
+	}
+	return button.VariantDefault
+}
+
+templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
+	if user.MFAPolicyPath != "" {
+		{{ policyDialogID := adminUserMFAPolicyDialogID(user) }}
+		<div class="mt-2">
+			@dialog.Trigger(dialog.TriggerProps{For: policyDialogID}) {
+				@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.MFAPolicyCSRFToken == ""}) {
+					if user.MFARequired {
+						Clear individual policy
+					} else {
+						Require MFA
+					}
+				}
+			}
+			@dialog.Dialog(dialog.Props{ID: policyDialogID}) {
+				@dialog.Content() {
+					@dialog.Header() {
+						@dialog.Title() {
+							if user.MFARequired {
+								Clear the individual MFA requirement?
+							} else {
+								Require MFA for { adminUserUsername(user.Username) }?
+							}
+						}
+						@dialog.Description() {
+							if user.MFARequired {
+								This removes only the individual requirement. Existing sessions and authenticators are unchanged.
+							} else {
+								Existing sessions and authenticators are unchanged. If the user has no MFA yet, Gofer will require enrollment after their next primary sign-in.
+							}
+						}
+					}
+					<form method="post" action={ user.MFAPolicyPath }>
+						<input type="hidden" name="_csrf" value={ user.MFAPolicyCSRFToken }/>
+						<input type="hidden" name="required" value={ fmt.Sprintf("%t", !user.MFARequired) }/>
+						@dialog.Footer() {
+							@dialog.Close() {
+								@button.Button(button.Props{Variant: button.VariantOutline}) {
+									Cancel
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: adminUserMFAPolicyButtonVariant(user)}) {
+								if user.MFARequired {
+									Clear individual policy
+								} else {
+									Require MFA
+								}
+							}
+						}
+					</form>
+				}
+			}
+		</div>
+	}
 }
 
 templ AdminUserInvitationActions(user AdminUserData, stepUpRequired bool) {
@@ -994,12 +1077,12 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "provider"}}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) {
-											All providers
+												All providers
 											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
-											All providers
+												All providers
 											}
 											for _, provider := range status.Cache.ProviderStats {
 												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) {
@@ -1014,24 +1097,24 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "status"}}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "All statuses"}) {
-											All statuses
+												All statuses
 											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
-											All statuses
+												All statuses
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "found"}) {
-											Found
+												Found
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) {
-											Missing
+												Missing
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) {
-											Skipped
+												Skipped
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "error"}) {
-											Error
+												Error
 											}
 										}
 									}
@@ -1041,15 +1124,15 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-filter": "errors"}}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) {
-											No
+												No
 											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) {
-											No
+												No
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "true"}) {
-											Yes
+												Yes
 											}
 										}
 									}
@@ -1120,12 +1203,12 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "provider"}}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "All providers"}) {
-											All providers
+												All providers
 											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
-											All providers
+												All providers
 											}
 											for _, provider := range status.Cache.ProviderStats {
 												@selectbox.Item(selectbox.ItemProps{Value: provider.Provider}) {
@@ -1140,24 +1223,24 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "status"}}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "All outcomes"}) {
-											All outcomes
+												All outcomes
 											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) {
-											All outcomes
+												All outcomes
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "found"}) {
-											Found
+												Found
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "missing"}) {
-											Missing
+												Missing
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "skipped"}) {
-											Skipped
+												Skipped
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "error"}) {
-											Error
+												Error
 											}
 										}
 									}
@@ -1167,15 +1250,15 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									@selectbox.SelectBox() {
 										@selectbox.Trigger(selectbox.TriggerProps{Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-avatar-event-filter": "errors"}}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "No"}) {
-											No
+												No
 											}
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "false", Selected: true}) {
-											No
+												No
 											}
 											@selectbox.Item(selectbox.ItemProps{Value: "true"}) {
-											Yes
+												Yes
 											}
 										}
 									}

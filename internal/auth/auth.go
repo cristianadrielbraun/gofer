@@ -53,6 +53,7 @@ type AdministratorUserSummary struct {
 	Status                    UserStatus
 	UserType                  UserType
 	IsAdmin                   bool
+	MFARequired               bool
 	InvitationState           AdministratorUserInvitationState
 	InvitationExpiresAt       *time.Time
 	InvitationActionReference string

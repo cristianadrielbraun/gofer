@@ -155,3 +155,45 @@ func TestRecoveryLoginAndRepairPagesAreAccessibleLocalAndExplicit(t *testing.T) 
 		t.Fatalf("recovery-repair codes page loads a remote resource: %q", codes.String())
 	}
 }
+
+func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
+	var enrollment bytes.Buffer
+	if err := MFAEnrollmentPage(MFAEnrollmentData{
+		QRCodeDataURL: "data:image/png;base64,cXItZGF0YQ==", ManualKey: "ABCD EFGH",
+		Algorithm: "SHA1", Digits: 6, Period: 30, ErrorMessage: "Try again.",
+	}).Render(t.Context(), &enrollment); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"Set up an authenticator", "Gofer has not created a session",
+		`src="data:image/png;base64,cXItZGF0YQ=="`, "ABCD EFGH",
+		`action="/login/mfa/enroll"`, `value="confirm"`, `value="restart"`,
+		"Existing sessions and authenticators are unchanged",
+	} {
+		if !strings.Contains(enrollment.String(), required) {
+			t.Fatalf("required MFA enrollment page missing %q: %q", required, enrollment.String())
+		}
+	}
+	if strings.Contains(enrollment.String(), "https://") {
+		t.Fatalf("required MFA enrollment page loads a remote resource: %q", enrollment.String())
+	}
+
+	var codes bytes.Buffer
+	if err := MFAEnrollmentCodesPage(MFAEnrollmentCodesData{
+		BatchID: "batch-id", Codes: []string{"AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"}, Generated: true,
+	}).Render(t.Context(), &codes); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"Save your recovery codes", "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",
+		`action="/login/mfa/enroll/codes"`, `name="batch_id" value="batch-id"`,
+		"Complete MFA setup and sign in", "No new session or authenticator exists",
+	} {
+		if !strings.Contains(codes.String(), required) {
+			t.Fatalf("required MFA recovery page missing %q: %q", required, codes.String())
+		}
+	}
+	if strings.Contains(codes.String(), "https://") {
+		t.Fatalf("required MFA recovery page loads a remote resource: %q", codes.String())
+	}
+}

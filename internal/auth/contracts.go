@@ -174,7 +174,6 @@ const (
 	SecurityTransitionSessionRevocation SecurityTransition = "session_revocation"
 	SecurityTransitionSessionRotation   SecurityTransition = "session_rotation"
 	SecurityTransitionUserStatus        SecurityTransition = "user_status"
-	SecurityTransitionRoleChange        SecurityTransition = "role_change"
 	SecurityTransitionPolicyChange      SecurityTransition = "policy_change"
 	SecurityTransitionIdentityChange    SecurityTransition = "identity_change"
 )

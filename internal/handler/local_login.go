@@ -108,7 +108,7 @@ func (h *Handler) handlePasswordLoginSubmit(w http.ResponseWriter, r *http.Reque
 			w, challenge.Token, h.auth.Config().SecureCookies,
 			challenge.ExpiresAt.Sub(challenge.CreatedAt),
 		)
-		http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+		http.Redirect(w, r, primaryAuthenticationContinuationPath(result), http.StatusSeeOther)
 		return
 	}
 
@@ -130,6 +130,15 @@ func (h *Handler) handleLoginMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := auth.GetPreAuthToken(r)
+	if _, enrollmentErr := h.auth.GetMFAEnrollmentState(r.Context(), token, h.auth.Config().BaseURL); enrollmentErr == nil {
+		http.Redirect(w, r, "/login/mfa/enroll", http.StatusSeeOther)
+		return
+	} else if !errors.Is(enrollmentErr, auth.ErrMFAEnrollmentInvalid) {
+		log.Printf("read required MFA enrollment continuation: %v", enrollmentErr)
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		http.Error(w, "failed to load MFA enrollment", http.StatusInternalServerError)
+		return
+	}
 	challenge, err := h.auth.GetActiveMFAChallenge(r.Context(), token, h.auth.Config().BaseURL)
 	if err != nil {
 		log.Printf("read MFA continuation: %v", err)
@@ -295,6 +304,13 @@ func (h *Handler) loginReturnTo(r *http.Request, userType auth.UserType) string 
 		return "/"
 	}
 	return returnTo
+}
+
+func primaryAuthenticationContinuationPath(result *auth.PrimaryAuthenticationResult) string {
+	if result != nil && result.MFAEnrollmentRequired {
+		return "/login/mfa/enroll"
+	}
+	return "/login/mfa"
 }
 
 func isManagementReturnTarget(target string) bool {

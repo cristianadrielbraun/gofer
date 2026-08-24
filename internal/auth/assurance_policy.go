@@ -11,8 +11,11 @@ import (
 var ErrAuthenticationPolicyNotSatisfied = errors.New("authentication assurance does not satisfy policy")
 
 type authenticationPolicy struct {
-	AuthVersion int64
-	RequiresMFA bool
+	AuthVersion              int64
+	RequiresMFA              bool
+	UserMFARequired          bool
+	AdministratorMFARequired bool
+	InstanceMFARequired      bool
 }
 
 type authenticationPolicyQueryer interface {
@@ -21,8 +24,11 @@ type authenticationPolicyQueryer interface {
 
 func resolveAuthenticationPolicy(authVersion int64, mfaRequired, isAdmin, instanceMFARequired bool) authenticationPolicy {
 	return authenticationPolicy{
-		AuthVersion: authVersion,
-		RequiresMFA: mfaRequired || isAdmin || instanceMFARequired,
+		AuthVersion:              authVersion,
+		RequiresMFA:              mfaRequired || isAdmin || instanceMFARequired,
+		UserMFARequired:          mfaRequired,
+		AdministratorMFARequired: isAdmin,
+		InstanceMFARequired:      instanceMFARequired,
 	}
 }
 
@@ -34,6 +40,20 @@ func (policy authenticationPolicy) allowsAssurance(assurance AssuranceLevel) boo
 		return true
 	}
 	return assurance == AssuranceLevelMultiFactor || assurance == AssuranceLevelPhishingResistant
+}
+
+// allowsExistingSession preserves sessions that were valid before an
+// individual user's MFA policy was strengthened. Administrator and
+// instance-wide MFA policy remain immediate session requirements; individual
+// policy is enforced when the user's next authentication creates a session.
+func (policy authenticationPolicy) allowsExistingSession(assurance AssuranceLevel) bool {
+	if !assurance.Valid() {
+		return false
+	}
+	if policy.allowsAssurance(assurance) {
+		return true
+	}
+	return policy.UserMFARequired && !policy.AdministratorMFARequired && !policy.InstanceMFARequired
 }
 
 func (policy authenticationPolicy) allowsStepUpMethod(method AuthenticationMethod) bool {

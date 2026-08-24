@@ -31,7 +31,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	}
 	now := m.clock.Now().UTC()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT u.id, u.username, u.status, u.user_type, u.is_admin,
+		SELECT u.id, u.username, u.status, u.user_type, u.is_admin, u.mfa_required,
 		       invitation.id, invitation.expires_at, invitation.used_at, invitation.revoked_at
 		FROM users u
 		LEFT JOIN user_enrollment_tokens invitation ON invitation.id = (
@@ -52,11 +52,11 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	users := make([]AdministratorUserSummary, 0)
 	for rows.Next() {
 		var user AdministratorUserSummary
-		var isAdmin int
+		var isAdmin, mfaRequired int
 		var tokenID sql.NullString
 		var expiresAt, usedAt, revokedAt sql.NullTime
 		if err := rows.Scan(
-			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin,
+			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired,
 			&tokenID, &expiresAt, &usedAt, &revokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan administrator user: %w", err)
@@ -67,10 +67,14 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		if isAdmin != 0 && isAdmin != 1 {
 			return nil, fmt.Errorf("user %q has invalid administrator state", user.ID)
 		}
+		if mfaRequired != 0 && mfaRequired != 1 {
+			return nil, fmt.Errorf("user %q has invalid MFA requirement", user.ID)
+		}
 		if !user.UserType.Valid() {
 			return nil, fmt.Errorf("user %q has invalid type %q", user.ID, user.UserType)
 		}
 		user.IsAdmin = isAdmin == 1
+		user.MFARequired = mfaRequired == 1
 		if user.Status == UserStatusPending && user.UserType == UserTypeWebmail && !user.IsAdmin {
 			user.InvitationState = AdministratorUserInvitationNotIssued
 			switch {

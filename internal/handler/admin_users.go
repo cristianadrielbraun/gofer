@@ -15,6 +15,10 @@ import (
 
 const adminUserInvitationPath = "/admin/users/invitations"
 
+func adminUserMFAPolicyPath(userID string) string {
+	return "/admin/users/" + url.PathEscape(userID) + "/mfa-policy"
+}
+
 func adminUserInvitationRevokePath(reference string) string {
 	return adminUserInvitationPath + "/" + reference + "/revoke"
 }
@@ -23,7 +27,7 @@ func adminUserInvitationRotatePath(reference string) string {
 	return adminUserInvitationPath + "/" + reference + "/rotate"
 }
 
-func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID string) views.AdminUsersData {
+func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID string, instancePolicy auth.InstanceMFAPolicy) views.AdminUsersData {
 	data := views.AdminUsersData{Users: make([]views.AdminUserData, 0, len(users)), Total: len(users)}
 	for _, user := range users {
 		view := views.AdminUserData{
@@ -34,6 +38,9 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			Current:             user.ID == currentUserID,
 			InvitationState:     string(user.InvitationState),
 			InvitationExpiresAt: user.InvitationExpiresAt,
+			MFALabel:            "Optional",
+			MFADetail:           "User choice",
+			MFARequired:         user.MFARequired,
 		}
 		if user.InvitationActionReference != "" {
 			view.InvitationRevokePath = adminUserInvitationRevokePath(user.InvitationActionReference)
@@ -57,6 +64,20 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		}
 		if user.UserType == auth.UserTypeWebmail && user.IsAdmin {
 			view.Role = "Legacy mixed account"
+		}
+		switch {
+		case user.UserType == auth.UserTypeManagement:
+			view.MFALabel = "Required"
+			view.MFADetail = "Management policy"
+		case user.MFARequired:
+			view.MFALabel = "Required"
+			view.MFADetail = "Individual policy"
+			view.MFAPolicyPath = adminUserMFAPolicyPath(user.ID)
+		case instancePolicy.RequiresAllUsers():
+			view.MFALabel = "Required"
+			view.MFADetail = "Instance policy"
+		default:
+			view.MFAPolicyPath = adminUserMFAPolicyPath(user.ID)
 		}
 		data.Users = append(data.Users, view)
 	}
@@ -174,6 +195,56 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 	h.renderAdminUsers(w, r, http.StatusCreated, views.AdminUserInvitationFormData{}, result, "")
 }
 
+func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser := auth.GetCurrentUser(ctx)
+	currentSession := auth.GetCurrentSession(ctx)
+	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid MFA policy request.")
+		return
+	}
+	var required bool
+	switch r.PostFormValue("required") {
+	case "true":
+		required = true
+	case "false":
+	default:
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid MFA policy request.")
+		return
+	}
+	result, err := h.auth.SetAdministratorUserMFAPolicy(ctx, auth.SetAdministratorUserMFAPolicyOptions{
+		ActorUserID: currentUser.ID, ActorSessionID: currentSession.ID,
+		TargetUserID: r.PathValue("userID"), Required: required,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before changing a user's MFA policy.")
+		case errors.Is(err, auth.ErrAdministratorRequired):
+			http.Error(w, "admin access required", http.StatusForbidden)
+		case errors.Is(err, auth.ErrAdministratorUserMFATargetInvalid):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available. Refresh the page and try again.")
+		default:
+			log.Printf("set administrator user MFA policy: %v", err)
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to change the user's MFA policy right now.")
+		}
+		return
+	}
+	if !result.Changed {
+		redirectAdminUsers(w, r, "The user's MFA policy was already up to date.")
+		return
+	}
+	if result.Required {
+		redirectAdminUsers(w, r, "MFA is now required for this user's next sign-in. Existing sessions and factors were left unchanged.")
+		return
+	}
+	redirectAdminUsers(w, r, "The individual MFA requirement was cleared. Existing sessions and factors were left unchanged.")
+}
+
 func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
 	values := url.Values{}
 	if notice != "" {
@@ -205,7 +276,13 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 		http.Error(w, "failed to load administrator users", http.StatusInternalServerError)
 		return
 	}
-	data := adminUsersViewData(users, currentUser.ID)
+	policy, err := h.auth.InstanceSecurityPolicy(ctx)
+	if err != nil {
+		log.Printf("load administrator user MFA policy: %v", err)
+		http.Error(w, "failed to load administrator users", http.StatusInternalServerError)
+		return
+	}
+	data := adminUsersViewData(users, currentUser.ID, policy.MFA)
 	data.InvitationForm = form
 	data.Invitation = invitation
 	data.Error = pageError
@@ -232,6 +309,9 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 	}
 	data.InvitationCSRFToken = auth.CSRFToken(ctx, http.MethodPost, adminUserInvitationPath)
 	for index := range data.Users {
+		if data.Users[index].MFAPolicyPath != "" {
+			data.Users[index].MFAPolicyCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].MFAPolicyPath)
+		}
 		if data.Users[index].InvitationRevokePath != "" {
 			data.Users[index].InvitationRevokeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRevokePath)
 		}

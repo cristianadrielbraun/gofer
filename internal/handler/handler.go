@@ -277,6 +277,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+loginPasskeyFinishPath, h.handleLoginPasskeyFinish)
 	mux.HandleFunc("GET /login/mfa", h.handleLoginMFA)
 	mux.HandleFunc("POST /login/mfa", h.handleLoginMFASubmit)
+	mux.HandleFunc("GET /login/mfa/enroll", h.handleMFAEnrollment)
+	mux.HandleFunc("POST /login/mfa/enroll", h.handleMFAEnrollmentSubmit)
+	mux.HandleFunc("GET /login/mfa/enroll/codes", h.handleMFAEnrollmentCodes)
+	mux.HandleFunc("POST /login/mfa/enroll/codes", h.handleMFAEnrollmentCodesSubmit)
 	mux.HandleFunc("GET /login/mfa/recovery", h.handleRecoveryCodeLogin)
 	mux.HandleFunc("POST /login/mfa/recovery", h.handleRecoveryCodeLoginSubmit)
 	mux.HandleFunc("GET /login/recovery/mfa", h.handleRecoveryRepairMFA)
@@ -323,6 +327,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/users/invitations", h.handleCreateAdminUserInvitation)
 	adminRoute("POST /admin/users/invitations/{reference}/revoke", h.handleRevokeAdminUserInvitation)
 	adminRoute("POST /admin/users/invitations/{reference}/rotate", h.handleRotateAdminUserInvitation)
+	adminRoute("POST /admin/users/{userID}/mfa-policy", h.handleSetAdminUserMFAPolicy)
 	adminRoute("GET /admin/labels", h.handleAdminLabels)
 	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)
 	adminRoute("GET /admin/operations", h.handleAdminOperations)
@@ -6038,7 +6043,7 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 				w, mfaChallenge.Token, h.auth.Config().SecureCookies,
 				mfaChallenge.ExpiresAt.Sub(mfaChallenge.CreatedAt),
 			)
-			http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+			http.Redirect(w, r, primaryAuthenticationContinuationPath(result), http.StatusSeeOther)
 			return
 		}
 		auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
@@ -6073,7 +6078,7 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 			w, challenge.Token, h.auth.Config().SecureCookies,
 			challenge.ExpiresAt.Sub(challenge.CreatedAt),
 		)
-		http.Redirect(w, r, "/login/mfa", http.StatusSeeOther)
+		http.Redirect(w, r, primaryAuthenticationContinuationPath(result), http.StatusSeeOther)
 		return
 	}
 	auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
