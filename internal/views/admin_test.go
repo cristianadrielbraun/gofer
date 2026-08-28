@@ -110,6 +110,61 @@ func TestAdminUsersPageRendersProtectedIndividualMFAPolicyActions(t *testing.T) 
 	}
 }
 
+func TestAdminUsersPageRendersProtectedUserStatusActions(t *testing.T) {
+	activeCSRF := strings.Repeat("e", 64)
+	disabledCSRF := strings.Repeat("f", 64)
+	data := AdminUsersData{Users: []AdminUserData{
+		{
+			ID: "active-user", Username: "active.user", Status: "Active", Role: "Webmail user",
+			StatusPath: "/admin/users/active-user/status", StatusCSRFToken: activeCSRF,
+		},
+		{
+			ID: "disabled-user", Username: "disabled.user", Status: "Disabled", Role: "Webmail user",
+			StatusPath: "/admin/users/disabled-user/status", StatusCSRFToken: disabledCSRF,
+		},
+	}}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Disable active.user?", "Enable disabled.user?", "Disable user", "Enable user",
+		`action="/admin/users/active-user/status"`, `action="/admin/users/disabled-user/status"`,
+		`name="status" value="disabled"`, `name="status" value="active"`, activeCSRF, disabledCSRF,
+		"signed out everywhere immediately", "mail, accounts, credentials, and settings remain stored",
+		"revoked sessions stay revoked and the user must sign in again",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("administrator user status view missing %q: %s", want, html)
+		}
+	}
+}
+
+func TestAdminUsersPageDisablesUserStatusActionsUntilRecentVerification(t *testing.T) {
+	data := AdminUsersData{StepUpRequired: true, Users: []AdminUserData{{
+		ID: "active-user", Username: "active.user", Status: "Active", Role: "Webmail user",
+		StatusPath: "/admin/users/active-user/status", StatusCSRFToken: strings.Repeat("a", 64),
+	}}}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	trigger := `data-tui-dialog-target="admin-user-status-active-user"`
+	index := strings.Index(html, trigger)
+	if index < 0 {
+		t.Fatalf("administrator user status trigger missing: %s", html)
+	}
+	end := index + 600
+	if end > len(html) {
+		end = len(html)
+	}
+	if !strings.Contains(html[index:end], " disabled") {
+		t.Fatalf("stale administrator status action was enabled: %s", html[index:end])
+	}
+}
+
 func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing.T) {
 	expiresAt := time.Date(2026, time.August, 21, 12, 30, 0, 0, time.Local)
 	data := AdminUsersData{
@@ -165,8 +220,8 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Recent administrator verification required", `href="/settings/security"`,
-		"manage invitations and individual MFA policies for the next ten minutes", " disabled",
+		"Recent administrator verification required", `href="/admin/account/security"`,
+		"manage invitations, user access, and individual MFA policies for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)

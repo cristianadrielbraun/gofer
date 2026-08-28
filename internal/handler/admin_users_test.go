@@ -37,6 +37,10 @@ func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 		data.Users[2].MFALabel != "Required" || data.Users[2].MFAPolicyPath != "" {
 		t.Fatalf("admin user MFA policy rows = %#v", data.Users)
 	}
+	if data.Users[0].StatusPath != "" || data.Users[1].StatusPath != "" ||
+		data.Users[2].StatusPath != "/admin/users/disabled/status" {
+		t.Fatalf("admin user status rows = %#v", data.Users)
+	}
 }
 
 func TestAdminUsersViewDataReflectsInstanceAndIndividualMFAPolicies(t *testing.T) {
@@ -261,6 +265,123 @@ func TestAdministratorCanRequireMFAForFactorlessUser(t *testing.T) {
 	}
 	if required != 1 || events != 1 {
 		t.Fatalf("factorless policy state = required:%d events:%d", required, events)
+	}
+}
+
+func TestAdministratorCanDisableAndEnableUserWithoutChangingCredentials(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, username, username_normalized, name, status, auth_version,
+			mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES ('status-target', 'status-target', 'status-target', 'Status Target',
+			'active', 1, 0, 'webmail', 0, ?, ?);
+		INSERT INTO password_credentials (user_id, password_hash)
+		VALUES ('status-target', 'preserved-password-hash')`, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.CreateAuthenticatedSession(
+		t.Context(), "status-target", "First target browser",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.CreateAuthenticatedSession(
+		t.Context(), "status-target", "Second target browser",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := adminUserStatusPath("status-target")
+	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest.AddCookie(sessionCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK {
+		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
+	}
+	for _, want := range []string{
+		"Disable status-target?", `action="` + path + `"`, `name="status" value="disabled"`,
+		"signed out everywhere immediately", "Their mail, accounts, credentials, and settings remain stored",
+	} {
+		if !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("administrator disable control missing %q: %q", want, page.Body.String())
+		}
+	}
+	withoutCSRF := postSecuritySettings(t, stack, path, url.Values{"status": {"disabled"}}, sessionCookie)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("disable user without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+	disabled := postSecuritySettings(t, stack, path, url.Values{
+		"status":               {"disabled"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+	}, sessionCookie)
+	if disabled.Code != http.StatusSeeOther || !strings.HasPrefix(disabled.Header().Get("Location"), "/admin/users?") {
+		t.Fatalf("disable user = %d location:%q body:%q", disabled.Code, disabled.Header().Get("Location"), disabled.Body.String())
+	}
+	if location := disabled.Header().Get("Location"); !strings.Contains(location, "2+active+sessions+revoked") {
+		t.Fatalf("disable user notice = %q", location)
+	}
+	for _, session := range []*auth.Session{first, second} {
+		if stored, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || stored != nil {
+			t.Fatalf("disabled session %q = %#v, %v", session.ID, stored, err)
+		}
+	}
+	var status string
+	var authVersion, passwords, disabledEvents int
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT status, auth_version FROM users WHERE id = 'status-target'`,
+	).Scan(&status, &authVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM password_credentials WHERE user_id = 'status-target'`).Scan(&passwords); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events WHERE event_type = ? AND subject_user_id = 'status-target'`, auth.AuthEventUserDisabled).Scan(&disabledEvents); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(auth.UserStatusDisabled) || authVersion != 2 || passwords != 1 || disabledEvents != 1 {
+		t.Fatalf("disabled user state = status:%q version:%d passwords:%d events:%d", status, authVersion, passwords, disabledEvents)
+	}
+
+	enablePageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	enablePageRequest.AddCookie(sessionCookie)
+	enablePage := httptest.NewRecorder()
+	stack.ServeHTTP(enablePage, enablePageRequest)
+	if enablePage.Code != http.StatusOK {
+		t.Fatalf("administrator users enable page = %d %q", enablePage.Code, enablePage.Body.String())
+	}
+	for _, want := range []string{
+		"Enable status-target?", `name="status" value="active"`,
+		"revoked sessions stay revoked and the user must sign in again",
+	} {
+		if !strings.Contains(enablePage.Body.String(), want) {
+			t.Fatalf("administrator enable control missing %q: %q", want, enablePage.Body.String())
+		}
+	}
+	enabled := postSecuritySettings(t, stack, path, url.Values{
+		"status":               {"active"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, enablePage.Body.String(), path)},
+	}, sessionCookie)
+	if enabled.Code != http.StatusSeeOther || !strings.HasPrefix(enabled.Header().Get("Location"), "/admin/users?") {
+		t.Fatalf("enable user = %d location:%q body:%q", enabled.Code, enabled.Header().Get("Location"), enabled.Body.String())
+	}
+	var activeSessions, enabledEvents int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT status FROM users WHERE id = 'status-target'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions WHERE user_id = 'status-target' AND revoked_at IS NULL`).Scan(&activeSessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events WHERE event_type = ? AND subject_user_id = 'status-target'`, auth.AuthEventUserEnabled).Scan(&enabledEvents); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(auth.UserStatusActive) || activeSessions != 0 || enabledEvents != 1 {
+		t.Fatalf("enabled user state = status:%q activeSessions:%d events:%d", status, activeSessions, enabledEvents)
 	}
 }
 
@@ -527,13 +648,22 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 		time.Now().UTC().Add(-11*time.Minute), currentSession.ID); err != nil {
 		t.Fatal(err)
 	}
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, username, username_normalized, name, status, user_type, is_admin, created_at, updated_at
+		) VALUES ('stale-status-target', 'stale-status-target', 'stale-status-target',
+			'Stale Status Target', 'active', 'webmail', 0, ?, ?)`, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
 	pageRequest.AddCookie(sessionCookie)
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Recent administrator verification required") ||
-		!strings.Contains(page.Body.String(), `href="/settings/security"`) {
+		!strings.Contains(page.Body.String(), `href="/admin/account/security"`) {
 		t.Fatalf("stale administrator users page = %d %q", page.Code, page.Body.String())
 	}
 	form := url.Values{
@@ -554,6 +684,28 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 	}
 	if users != 0 || tokens != 0 {
 		t.Fatalf("stale administrator invitation mutated state = users:%d tokens:%d", users, tokens)
+	}
+	statusPath := adminUserStatusPath("stale-status-target")
+	statusBlocked := postSecuritySettings(t, stack, statusPath, url.Values{
+		"status":               {"disabled"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), statusPath)},
+	}, sessionCookie)
+	if statusBlocked.Code != http.StatusForbidden || !strings.Contains(statusBlocked.Body.String(), "Verify this administrator session") {
+		t.Fatalf("stale administrator status change = %d %q", statusBlocked.Code, statusBlocked.Body.String())
+	}
+	var status string
+	var statusEvents int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT status FROM users WHERE id = 'stale-status-target'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM auth_events
+		WHERE subject_user_id = 'stale-status-target' AND event_type IN ('user_disabled', 'user_enabled')`,
+	).Scan(&statusEvents); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(auth.UserStatusActive) || statusEvents != 0 {
+		t.Fatalf("stale status mutation = status:%q events:%d", status, statusEvents)
 	}
 }
 

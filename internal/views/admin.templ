@@ -27,6 +27,8 @@ type AdminUserData struct {
 	MFARequired               bool
 	MFAPolicyPath             string
 	MFAPolicyCSRFToken        string
+	StatusPath                string
+	StatusCSRFToken           string
 	InvitationState           string
 	InvitationExpiresAt       *time.Time
 	InvitationRevokePath      string
@@ -274,7 +276,7 @@ templ AdminUsersPage(data AdminUsersData) {
 				if data.StepUpRequired {
 					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">Recent administrator verification required</p>
-						<p class="mt-1">Verify with a passkey or authenticator in <a href="/settings/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations and individual MFA policies for the next ten minutes.</p>
+						<p class="mt-1">Verify with a passkey or authenticator in <a href="/admin/account/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations, user access, and individual MFA policies for the next ten minutes.</p>
 					</div>
 				}
 				@AdminUserInvitationDialog(data)
@@ -386,7 +388,14 @@ templ AdminUsersPage(data AdminUsersData) {
 												}
 											</td>
 											<td class="px-4 py-3 text-right">
-												@AdminUserInvitationActions(user, data.StepUpRequired)
+												if user.InvitationRotatePath == "" && user.StatusPath == "" {
+													<span class="text-xs text-muted-foreground">—</span>
+												} else {
+													<div class="flex items-center justify-end gap-2">
+														@AdminUserInvitationActions(user, data.StepUpRequired)
+														@AdminUserStatusAction(user, data.StepUpRequired)
+													</div>
+												}
 											</td>
 											<td class="px-4 py-3"><code class="break-all font-mono text-xs text-muted-foreground">{ user.ID }</code></td>
 										</tr>
@@ -469,10 +478,8 @@ templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
 }
 
 templ AdminUserInvitationActions(user AdminUserData, stepUpRequired bool) {
-	if user.InvitationRotatePath == "" {
-		<span class="text-xs text-muted-foreground">—</span>
-	} else {
-		<div class="flex items-center justify-end gap-2">
+	if user.InvitationRotatePath != "" {
+		<div class="contents">
 			if user.InvitationState == "active" {
 				{{ revokeDialogID := adminUserInvitationDialogID("admin-invitation-revoke", user) }}
 				@dialog.Trigger(dialog.TriggerProps{For: revokeDialogID}) {
@@ -545,6 +552,69 @@ templ AdminUserInvitationActions(user AdminUserData, stepUpRequired bool) {
 				</form>
 			}
 		</div>
+	}
+}
+
+func adminUserStatusDialogID(user AdminUserData) string {
+	return "admin-user-status-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
+	if user.StatusPath != "" {
+		{{ statusDialogID := adminUserStatusDialogID(user) }}
+		@dialog.Trigger(dialog.TriggerProps{For: statusDialogID}) {
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.StatusCSRFToken == ""}) {
+				if user.Status == "Disabled" {
+					Enable
+				} else {
+					Disable
+				}
+			}
+		}
+		@dialog.Dialog(dialog.Props{ID: statusDialogID}) {
+			@dialog.Content() {
+				@dialog.Header() {
+					@dialog.Title() {
+						if user.Status == "Disabled" {
+							Enable { adminUserUsername(user.Username) }?
+						} else {
+							Disable { adminUserUsername(user.Username) }?
+						}
+					}
+					@dialog.Description() {
+						if user.Status == "Disabled" {
+							This restores sign-in and provider activity. Existing credentials remain unchanged, but revoked sessions stay revoked and the user must sign in again.
+						} else {
+							The user will be signed out everywhere immediately. Gofer will pause mailbox sync, sending, and other provider activity. Their mail, accounts, credentials, and settings remain stored.
+						}
+					}
+				}
+				<form method="post" action={ user.StatusPath }>
+					<input type="hidden" name="_csrf" value={ user.StatusCSRFToken }/>
+					if user.Status == "Disabled" {
+						<input type="hidden" name="status" value="active"/>
+					} else {
+						<input type="hidden" name="status" value="disabled"/>
+					}
+					@dialog.Footer() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								Cancel
+							}
+						}
+						if user.Status == "Disabled" {
+							@button.Button(button.Props{Type: button.TypeSubmit}) {
+								Enable user
+							}
+						} else {
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+								Disable user
+							}
+						}
+					}
+				</form>
+			}
+		}
 	}
 }
 

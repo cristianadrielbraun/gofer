@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -17,6 +18,10 @@ const adminUserInvitationPath = "/admin/users/invitations"
 
 func adminUserMFAPolicyPath(userID string) string {
 	return "/admin/users/" + url.PathEscape(userID) + "/mfa-policy"
+}
+
+func adminUserStatusPath(userID string) string {
+	return "/admin/users/" + url.PathEscape(userID) + "/status"
 }
 
 func adminUserInvitationRevokePath(reference string) string {
@@ -50,11 +55,17 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		case auth.UserStatusActive:
 			view.Status = "Active"
 			data.Active++
+			if !view.Current {
+				view.StatusPath = adminUserStatusPath(user.ID)
+			}
 		case auth.UserStatusPending:
 			view.Status = "Pending"
 			data.Pending++
 		case auth.UserStatusDisabled:
 			data.Disabled++
+			if !view.Current {
+				view.StatusPath = adminUserStatusPath(user.ID)
+			}
 		}
 		if user.IsAdmin {
 			view.Role = "Management administrator"
@@ -245,6 +256,68 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 	redirectAdminUsers(w, r, "The individual MFA requirement was cleared. Existing sessions and factors were left unchanged.")
 }
 
+func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser := auth.GetCurrentUser(ctx)
+	currentSession := auth.GetCurrentSession(ctx)
+	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid user status request.")
+		return
+	}
+	var status auth.UserStatus
+	switch r.PostFormValue("status") {
+	case string(auth.UserStatusActive):
+		status = auth.UserStatusActive
+	case string(auth.UserStatusDisabled):
+		status = auth.UserStatusDisabled
+	default:
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid user status request.")
+		return
+	}
+	result, err := h.auth.SetAdministratorUserStatus(ctx, auth.SetAdministratorUserStatusOptions{
+		ActorUserID: currentUser.ID, ActorSessionID: currentSession.ID,
+		TargetUserID: r.PathValue("userID"), Status: status,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before changing a user's access.")
+		case errors.Is(err, auth.ErrAdministratorRequired):
+			http.Error(w, "admin access required", http.StatusForbidden)
+		case errors.Is(err, auth.ErrLastActiveAdmin):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "The last active management administrator cannot be disabled.")
+		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This user needs an enrolled authenticator before they can be enabled under the current MFA policy.")
+		case errors.Is(err, auth.ErrAdministratorUserStatusInvalid),
+			errors.Is(err, auth.ErrAdministratorUserStatusTargetInvalid):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This user is no longer available for that action. Refresh the page and try again.")
+		default:
+			log.Printf("set administrator user status: %v", err)
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to change the user's access right now.")
+		}
+		return
+	}
+	if !result.Changed {
+		redirectAdminUsers(w, r, "The user's access was already up to date.")
+		return
+	}
+	if result.Status == auth.UserStatusDisabled {
+		notice := "User disabled. Their data and credentials were preserved."
+		if result.RevokedSessions == 1 {
+			notice = "User disabled and 1 active session revoked. Their data and credentials were preserved."
+		} else if result.RevokedSessions > 1 {
+			notice = fmt.Sprintf("User disabled and %d active sessions revoked. Their data and credentials were preserved.", result.RevokedSessions)
+		}
+		redirectAdminUsers(w, r, notice)
+		return
+	}
+	redirectAdminUsers(w, r, "User enabled. Existing credentials were preserved, and previously revoked sessions remain signed out.")
+}
+
 func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
 	values := url.Values{}
 	if notice != "" {
@@ -311,6 +384,9 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 	for index := range data.Users {
 		if data.Users[index].MFAPolicyPath != "" {
 			data.Users[index].MFAPolicyCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].MFAPolicyPath)
+		}
+		if data.Users[index].StatusPath != "" {
+			data.Users[index].StatusCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].StatusPath)
 		}
 		if data.Users[index].InvitationRevokePath != "" {
 			data.Users[index].InvitationRevokeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRevokePath)

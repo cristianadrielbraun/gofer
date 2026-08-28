@@ -132,6 +132,8 @@ func securityEventTitle(eventType auth.AuthEventType, success bool) string {
 		return "Session sign-out failed"
 	case auth.AuthEventUserDisabled:
 		return "Account disabled"
+	case auth.AuthEventUserEnabled:
+		return "Account enabled"
 	case auth.AuthEventCredentialChanged:
 		if success {
 			return "Security credential changed"

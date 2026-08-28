@@ -155,79 +155,106 @@ func (m *Manager) SetUserStatus(ctx context.Context, userID string, status UserS
 		return fmt.Errorf("invalid user status %q", status)
 	}
 	return m.runSecurityTransition(ctx, SecurityTransitionUserStatus, func(tx *sql.Tx) error {
-		var isAdmin int
-		var currentStatus UserStatus
-		if err := tx.QueryRowContext(ctx, `SELECT is_admin, status FROM users WHERE id = ?`, userID).Scan(&isAdmin, &currentStatus); err != nil {
-			return err
-		}
-		if currentStatus == status {
-			return nil
-		}
-		if currentStatus == UserStatusActive && status != UserStatusActive && isAdmin == 1 {
-			var otherActiveAdmins int
-			if err := tx.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM users
-			WHERE id != ? AND is_admin = 1 AND status = 'active'`, userID).Scan(&otherActiveAdmins); err != nil {
-				return err
-			}
-			if otherActiveAdmins == 0 {
-				return ErrLastActiveAdmin
-			}
-		}
-		if status == UserStatusActive {
-			if err := m.requireUserReadyForInstanceMFA(ctx, tx, userID); err != nil {
-				return err
-			}
-		}
-
-		now := m.clock.Now().UTC()
-		if status == UserStatusDisabled {
-			var actor any
-			if actorID := strings.TrimSpace(disabledBy); actorID != "" {
-				actor = actorID
-			}
-			if _, err := tx.ExecContext(ctx, `
-			UPDATE users
-			SET status = ?, disabled_at = ?, disabled_by = ?, auth_version = auth_version + 1, updated_at = ?
-			WHERE id = ?`, status, now, actor, now, userID); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE sessions
-				SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
-				WHERE user_id = ? AND revoked_at IS NULL`,
-				now, actor, SessionRevocationUserDisabled, userID,
-			); err != nil {
-				return err
-			}
-		} else if status == UserStatusPending {
-			if _, err := tx.ExecContext(ctx, `
-			UPDATE users
-			SET status = ?, disabled_at = NULL, disabled_by = NULL,
-				auth_version = auth_version + 1, updated_at = ?
-			WHERE id = ?`, status, now, userID); err != nil {
-				return err
-			}
-			var actor any
-			if actorID := strings.TrimSpace(disabledBy); actorID != "" {
-				actor = actorID
-			}
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE sessions
-				SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
-				WHERE user_id = ? AND revoked_at IS NULL`,
-				now, actor, SessionRevocationUserStatusChanged, userID,
-			); err != nil {
-				return err
-			}
-		} else {
-			if _, err := tx.ExecContext(ctx, `
-			UPDATE users
-			SET status = ?, disabled_at = NULL, disabled_by = NULL, updated_at = ?
-			WHERE id = ?`, status, now, userID); err != nil {
-				return err
-			}
-		}
-		return nil
+		_, err := m.setUserStatusTx(ctx, tx, userID, status, disabledBy, m.clock.Now().UTC())
+		return err
 	})
+}
+
+type userStatusTransitionResult struct {
+	From            UserStatus
+	To              UserStatus
+	Changed         bool
+	RevokedSessions int64
+}
+
+func (m *Manager) setUserStatusTx(
+	ctx context.Context, tx *sql.Tx, userID string, status UserStatus, changedBy string, now time.Time,
+) (userStatusTransitionResult, error) {
+	result := userStatusTransitionResult{To: status}
+	var isAdmin, mfaRequired int
+	var userType UserType
+	var authVersion int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status, user_type, is_admin, mfa_required, auth_version
+		FROM users WHERE id = ?`, userID,
+	).Scan(&result.From, &userType, &isAdmin, &mfaRequired, &authVersion); err != nil {
+		return result, err
+	}
+	if !userType.Valid() || (isAdmin != 0 && isAdmin != 1) || (mfaRequired != 0 && mfaRequired != 1) {
+		return result, fmt.Errorf("user %q has invalid authentication state", userID)
+	}
+	if result.From == status {
+		return result, nil
+	}
+	if result.From == UserStatusActive && status != UserStatusActive && isAdmin == 1 {
+		var otherActiveAdmins int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM users
+			WHERE id != ? AND user_type = 'management' AND is_admin = 1 AND status = 'active'`,
+			userID,
+		).Scan(&otherActiveAdmins); err != nil {
+			return result, fmt.Errorf("count other active administrators: %w", err)
+		}
+		if otherActiveAdmins == 0 {
+			return result, ErrLastActiveAdmin
+		}
+	}
+	if status == UserStatusActive {
+		instancePolicy, err := readInstanceSecurityPolicy(ctx, tx)
+		if err != nil {
+			return result, err
+		}
+		policy := resolveAuthenticationPolicy(
+			authVersion, mfaRequired == 1, isAdmin == 1, instancePolicy.MFA.RequiresAllUsers(),
+		)
+		if err := m.requireUserReadyForAuthenticationPolicy(ctx, tx, userID, policy); err != nil {
+			return result, err
+		}
+	}
+
+	var actor any
+	if actorID := strings.TrimSpace(changedBy); actorID != "" {
+		actor = actorID
+	}
+	updated, err := tx.ExecContext(ctx, `
+		UPDATE users
+		SET status = ?,
+			disabled_at = CASE WHEN ? = 'disabled' THEN ? ELSE NULL END,
+			disabled_by = CASE WHEN ? = 'disabled' THEN ? ELSE NULL END,
+			auth_version = auth_version + CASE WHEN ? IN ('disabled', 'pending') THEN 1 ELSE 0 END,
+			updated_at = ?
+		WHERE id = ? AND status = ?`,
+		status, status, now, status, actor, status, now, userID, result.From,
+	)
+	if err != nil {
+		return result, fmt.Errorf("update user status: %w", err)
+	}
+	changed, err := updated.RowsAffected()
+	if err != nil {
+		return result, fmt.Errorf("count updated user status rows: %w", err)
+	}
+	if changed != 1 {
+		return result, fmt.Errorf("user status changed concurrently")
+	}
+	if status == UserStatusDisabled || status == UserStatusPending {
+		reason := SessionRevocationUserStatusChanged
+		if status == UserStatusDisabled {
+			reason = SessionRevocationUserDisabled
+		}
+		revoked, err := tx.ExecContext(ctx, `
+			UPDATE sessions
+			SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
+			WHERE user_id = ? AND revoked_at IS NULL`,
+			now, actor, reason, userID,
+		)
+		if err != nil {
+			return result, fmt.Errorf("revoke sessions after user status change: %w", err)
+		}
+		result.RevokedSessions, err = revoked.RowsAffected()
+		if err != nil {
+			return result, fmt.Errorf("count revoked sessions after user status change: %w", err)
+		}
+	}
+	result.Changed = true
+	return result, nil
 }

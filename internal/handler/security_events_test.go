@@ -96,6 +96,7 @@ func TestSecurityEventTitleCoversKnownEventTypesWithoutRawEnumLabels(t *testing.
 		auth.AuthEventLoginFailed,
 		auth.AuthEventSessionRevoked,
 		auth.AuthEventUserDisabled,
+		auth.AuthEventUserEnabled,
 		auth.AuthEventCredentialChanged,
 		auth.AuthEventRecoveryUsed,
 		auth.AuthEventEnrollmentIssued,

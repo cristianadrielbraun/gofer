@@ -431,7 +431,7 @@ func (m *Manager) requireUserReadyForAuthenticationPolicy(
 	}
 	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
 	if err != nil {
-		return fmt.Errorf("resolve passkey relying party for Google enrollment: %w", err)
+		return fmt.Errorf("resolve passkey relying party for user activation: %w", err)
 	}
 	ready, err := userHasStrongAuthenticator(ctx, queryer, userID, rpID)
 	if err != nil {
