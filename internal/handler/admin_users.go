@@ -24,6 +24,10 @@ func adminUserStatusPath(userID string) string {
 	return "/admin/users/" + url.PathEscape(userID) + "/status"
 }
 
+func adminUserCredentialResetPath(userID string) string {
+	return "/admin/users/" + url.PathEscape(userID) + "/credential-reset"
+}
+
 func adminUserInvitationRevokePath(reference string) string {
 	return adminUserInvitationPath + "/" + reference + "/revoke"
 }
@@ -66,6 +70,10 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			if !view.Current {
 				view.StatusPath = adminUserStatusPath(user.ID)
 			}
+		}
+		if user.UserType == auth.UserTypeWebmail && !user.IsAdmin &&
+			(user.Status == auth.UserStatusActive || user.Status == auth.UserStatusDisabled) {
+			view.CredentialResetPath = adminUserCredentialResetPath(user.ID)
 		}
 		if user.IsAdmin {
 			view.Role = "Management administrator"
@@ -318,6 +326,51 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 	redirectAdminUsers(w, r, "User enabled. Existing credentials were preserved, and previously revoked sessions remain signed out.")
 }
 
+func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser := auth.GetCurrentUser(ctx)
+	currentSession := auth.GetCurrentSession(ctx)
+	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return
+	}
+	targetUser, err := h.auth.GetUserByID(ctx, r.PathValue("userID"))
+	if err != nil {
+		log.Printf("load administrator credential-reset target: %v", err)
+		h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to generate a reset token right now.")
+		return
+	}
+	if targetUser == nil || targetUser.UserType != auth.UserTypeWebmail || targetUser.IsAdmin ||
+		(targetUser.Status != auth.UserStatusActive && targetUser.Status != auth.UserStatusDisabled) {
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available for password reset. Refresh the page and try again.")
+		return
+	}
+	token, err := h.auth.IssueEnrollmentToken(ctx, auth.IssueEnrollmentTokenOptions{
+		UserID: targetUser.ID, CreatedBy: currentUser.ID, ActorSessionID: currentSession.ID,
+		Purpose: auth.EnrollmentTokenPurposeCredentialReset,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before generating a password-reset token.")
+		case errors.Is(err, auth.ErrAdministratorRequired):
+			http.Error(w, "admin access required", http.StatusForbidden)
+		case errors.Is(err, auth.ErrEnrollmentTokenTargetInvalid):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available for password reset. Refresh the page and try again.")
+		default:
+			log.Printf("issue administrator user credential reset: %v", err)
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to generate a reset token right now.")
+		}
+		return
+	}
+	result := &views.AdminUserCredentialResetData{
+		Username:      targetUser.Username,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
+		Token:         token.Token, ExpiresAt: token.ExpiresAt,
+	}
+	h.renderAdminUsersWithCredentialReset(w, r, http.StatusCreated, result, "")
+}
+
 func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
 	values := url.Values{}
 	if notice != "" {
@@ -332,6 +385,14 @@ func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
 }
 
 func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, pageError string) {
+	h.renderAdminUsersPage(w, r, status, form, invitation, nil, pageError)
+}
+
+func (h *Handler) renderAdminUsersWithCredentialReset(w http.ResponseWriter, r *http.Request, status int, reset *views.AdminUserCredentialResetData, pageError string) {
+	h.renderAdminUsersPage(w, r, status, views.AdminUserInvitationFormData{}, nil, reset, pageError)
+}
+
+func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, reset *views.AdminUserCredentialResetData, pageError string) {
 	ctx := r.Context()
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
@@ -358,6 +419,7 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 	data := adminUsersViewData(users, currentUser.ID, policy.MFA)
 	data.InvitationForm = form
 	data.Invitation = invitation
+	data.CredentialReset = reset
 	data.Error = pageError
 	data.Notice = strings.TrimSpace(r.URL.Query().Get("notice"))
 	if queryError := strings.TrimSpace(r.URL.Query().Get("error")); data.Error == "" && queryError != "" {
@@ -387,6 +449,9 @@ func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, statu
 		}
 		if data.Users[index].StatusPath != "" {
 			data.Users[index].StatusCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].StatusPath)
+		}
+		if data.Users[index].CredentialResetPath != "" {
+			data.Users[index].CredentialResetCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].CredentialResetPath)
 		}
 		if data.Users[index].InvitationRevokePath != "" {
 			data.Users[index].InvitationRevokeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRevokePath)

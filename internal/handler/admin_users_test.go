@@ -15,6 +15,7 @@ import (
 )
 
 var administratorInvitationTokenPattern = regexp.MustCompile(`Invitation token: ([0-9a-f]{64})`)
+var administratorCredentialResetTokenPattern = regexp.MustCompile(`Reset token: ([0-9a-f]{64})`)
 var administratorInvitationRotateActionPattern = regexp.MustCompile(`action="(/admin/users/invitations/[A-Za-z0-9_-]{43}/rotate)"`)
 var administratorInvitationRevokeActionPattern = regexp.MustCompile(`action="(/admin/users/invitations/[A-Za-z0-9_-]{43}/revoke)"`)
 
@@ -41,6 +42,9 @@ func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 		data.Users[2].StatusPath != "/admin/users/disabled/status" {
 		t.Fatalf("admin user status rows = %#v", data.Users)
 	}
+	if data.Users[0].CredentialResetPath != "" || data.Users[1].CredentialResetPath != "" || data.Users[2].CredentialResetPath != "" {
+		t.Fatalf("ineligible credential-reset rows = %#v", data.Users)
+	}
 }
 
 func TestAdminUsersViewDataReflectsInstanceAndIndividualMFAPolicies(t *testing.T) {
@@ -53,6 +57,10 @@ func TestAdminUsersViewDataReflectsInstanceAndIndividualMFAPolicies(t *testing.T
 		data.Users[1].MFALabel != "Required" || data.Users[1].MFADetail != "Individual policy" ||
 		data.Users[1].MFAPolicyPath != "/admin/users/individual-user/mfa-policy" {
 		t.Fatalf("instance and individual MFA rows = %#v", data.Users)
+	}
+	if data.Users[0].CredentialResetPath != "/admin/users/instance-user/credential-reset" ||
+		data.Users[1].CredentialResetPath != "/admin/users/individual-user/credential-reset" {
+		t.Fatalf("webmail credential-reset rows = %#v", data.Users)
 	}
 }
 
@@ -385,6 +393,140 @@ func TestAdministratorCanDisableAndEnableUserWithoutChangingCredentials(t *testi
 	}
 }
 
+func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, username, username_normalized, name, status, auth_version,
+			mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES ('reset-target', 'reset-target', 'reset-target', 'Reset Target',
+			'active', 1, 0, 'webmail', 0, ?, ?);
+		INSERT INTO password_credentials (user_id, password_hash)
+		VALUES ('reset-target', 'preserved-password-hash');
+		INSERT INTO totp_credentials (
+			id, user_id, encrypted_seed, key_version, algorithm, digits,
+			period, issuer, enabled, created_at
+		) VALUES ('reset-target-totp', 'reset-target', x'01', 1, 'SHA1', 6, 30, 'Gofer', 1, ?)`,
+		now, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	targetSession, err := manager.CreateAuthenticatedSession(
+		t.Context(), "reset-target", "Existing target browser",
+		auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := adminUserCredentialResetPath("reset-target")
+	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest.AddCookie(sessionCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK {
+		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
+	}
+	for _, want := range []string{
+		"Reset password", "Generate a password-reset token for reset-target?",
+		`action="` + path + `"`, "Generate reset token",
+		"does not change the password or sign the user out yet",
+	} {
+		if !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("administrator credential-reset control missing %q: %q", want, page.Body.String())
+		}
+	}
+	withoutCSRF := postSecuritySettings(t, stack, path, url.Values{}, sessionCookie)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("credential reset without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+	issued := postSecuritySettings(t, stack, path, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+	}, sessionCookie)
+	if issued.Code != http.StatusCreated {
+		t.Fatalf("issue credential reset = %d %q", issued.Code, issued.Body.String())
+	}
+	match := administratorCredentialResetTokenPattern.FindStringSubmatch(issued.Body.String())
+	if len(match) != 2 {
+		t.Fatalf("credential-reset result omitted one-time token: %q", issued.Body.String())
+	}
+	rawToken := match[1]
+	for _, want := range []string{
+		"Password-reset token created", "Reset token ready for reset-target",
+		"Gofer stores only a hash of the token", "https://gofer.example/account/redeem",
+		"Successful redemption signs the user out everywhere, preserves MFA",
+	} {
+		if !strings.Contains(issued.Body.String(), want) {
+			t.Fatalf("credential-reset result missing %q: %q", want, issued.Body.String())
+		}
+	}
+	if strings.Contains(issued.Body.String(), "/account/redeem?token=") || strings.Contains(issued.Header().Get("Location"), rawToken) {
+		t.Fatalf("credential-reset token leaked into URL or redirect: headers:%#v body:%q", issued.Header(), issued.Body.String())
+	}
+	digest := sha256.Sum256([]byte(rawToken))
+	var storedHash, purpose, createdBy, passwordHash string
+	var activeSessions, totpFactors int
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT token_hash, purpose, COALESCE(created_by, '')
+		FROM user_enrollment_tokens
+		WHERE user_id = 'reset-target' AND used_at IS NULL AND revoked_at IS NULL`,
+	).Scan(&storedHash, &purpose, &createdBy); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT password_hash FROM password_credentials WHERE user_id = 'reset-target'`).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions WHERE user_id = 'reset-target' AND revoked_at IS NULL`).Scan(&activeSessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM totp_credentials WHERE user_id = 'reset-target' AND enabled = 1`).Scan(&totpFactors); err != nil {
+		t.Fatal(err)
+	}
+	if storedHash != hex.EncodeToString(digest[:]) || storedHash == rawToken ||
+		purpose != string(auth.EnrollmentTokenPurposeCredentialReset) || createdBy == "" ||
+		passwordHash != "preserved-password-hash" || activeSessions != 1 || totpFactors != 1 {
+		t.Fatalf("issued credential-reset state = hash:%q purpose:%q createdBy:%q password:%q sessions:%d totp:%d",
+			storedHash, purpose, createdBy, passwordHash, activeSessions, totpFactors)
+	}
+
+	refreshedRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	refreshedRequest.AddCookie(sessionCookie)
+	refreshed := httptest.NewRecorder()
+	stack.ServeHTTP(refreshed, refreshedRequest)
+	if refreshed.Code != http.StatusOK || strings.Contains(refreshed.Body.String(), rawToken) {
+		t.Fatalf("refreshed administrator page retained reset token = %d %q", refreshed.Code, refreshed.Body.String())
+	}
+
+	newPassword := "a private replacement password"
+	redeemed := postEnrollmentRedemption(stack, rawToken, newPassword, newPassword)
+	if redeemed.Code != http.StatusSeeOther || redeemed.Header().Get("Location") != enrollmentRedemptionCompletePath {
+		t.Fatalf("redeem administrator reset token = %d location:%q body:%q", redeemed.Code, redeemed.Header().Get("Location"), redeemed.Body.String())
+	}
+	if stored, err := manager.GetSessionByToken(t.Context(), targetSession.Token); err != nil || stored != nil {
+		t.Fatalf("target session after reset redemption = %#v, %v", stored, err)
+	}
+	var status string
+	var authVersion int64
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT status, auth_version FROM users WHERE id = 'reset-target'`).Scan(&status, &authVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT password_hash FROM password_credentials WHERE user_id = 'reset-target'`).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	matches, _, err := auth.VerifyPassword(passwordHash, newPassword)
+	if err != nil || !matches || status != string(auth.UserStatusActive) || authVersion != 2 {
+		t.Fatalf("redeemed credential-reset state = passwordMatches:%t status:%q version:%d err:%v", matches, status, authVersion, err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM totp_credentials WHERE user_id = 'reset-target' AND enabled = 1`).Scan(&totpFactors); err != nil || totpFactors != 1 {
+		t.Fatalf("preserved reset target TOTP factors = %d, %v", totpFactors, err)
+	}
+	replay := postEnrollmentRedemption(stack, rawToken, newPassword, newPassword)
+	if replay.Code != http.StatusBadRequest {
+		t.Fatalf("credential-reset token replay = %d %q", replay.Code, replay.Body.String())
+	}
+}
+
 func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
 
@@ -706,6 +848,23 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 	}
 	if status != string(auth.UserStatusActive) || statusEvents != 0 {
 		t.Fatalf("stale status mutation = status:%q events:%d", status, statusEvents)
+	}
+	resetPath := adminUserCredentialResetPath("stale-status-target")
+	resetBlocked := postSecuritySettings(t, stack, resetPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), resetPath)},
+	}, sessionCookie)
+	if resetBlocked.Code != http.StatusForbidden || !strings.Contains(resetBlocked.Body.String(), "Verify this administrator session") {
+		t.Fatalf("stale administrator credential reset = %d %q", resetBlocked.Code, resetBlocked.Body.String())
+	}
+	var resetTokens int
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FROM user_enrollment_tokens
+		WHERE user_id = 'stale-status-target' AND purpose = 'credential_reset'`,
+	).Scan(&resetTokens); err != nil {
+		t.Fatal(err)
+	}
+	if resetTokens != 0 {
+		t.Fatalf("stale administrator credential reset created %d tokens", resetTokens)
 	}
 }
 

@@ -29,6 +29,8 @@ type AdminUserData struct {
 	MFAPolicyCSRFToken        string
 	StatusPath                string
 	StatusCSRFToken           string
+	CredentialResetPath       string
+	CredentialResetCSRFToken  string
 	InvitationState           string
 	InvitationExpiresAt       *time.Time
 	InvitationRevokePath      string
@@ -48,6 +50,7 @@ type AdminUsersData struct {
 	InvitationCSRFToken string
 	InvitationForm      AdminUserInvitationFormData
 	Invitation          *AdminUserInvitationData
+	CredentialReset     *AdminUserCredentialResetData
 	Notice              string
 	Error               string
 }
@@ -65,6 +68,13 @@ type AdminUserInvitationData struct {
 	Token         string
 	ExpiresAt     time.Time
 	Rotated       bool
+}
+
+type AdminUserCredentialResetData struct {
+	Username      string
+	RedemptionURL string
+	Token         string
+	ExpiresAt     time.Time
 }
 
 func adminUserUsername(username string) string {
@@ -92,6 +102,17 @@ func adminUserInvitationCopyText(data *AdminUserInvitationData) string {
 	}
 	return fmt.Sprintf(
 		"Gofer invitation for %s\nOpen: %s\nInvitation token: %s\nExpires: %s",
+		data.Username, data.RedemptionURL, data.Token,
+		data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST"),
+	)
+}
+
+func adminUserCredentialResetCopyText(data *AdminUserCredentialResetData) string {
+	if data == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Gofer password reset for %s\nOpen: %s\nReset token: %s\nExpires: %s",
 		data.Username, data.RedemptionURL, data.Token,
 		data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST"),
 	)
@@ -276,12 +297,15 @@ templ AdminUsersPage(data AdminUsersData) {
 				if data.StepUpRequired {
 					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">Recent administrator verification required</p>
-						<p class="mt-1">Verify with a passkey or authenticator in <a href="/admin/account/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations, user access, and individual MFA policies for the next ten minutes.</p>
+						<p class="mt-1">Verify with a passkey or authenticator in <a href="/admin/account/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations, password resets, user access, and individual MFA policies for the next ten minutes.</p>
 					</div>
 				}
 				@AdminUserInvitationDialog(data)
 				if data.Invitation != nil {
 					@AdminUserInvitationResultDialog(data.Invitation)
+				}
+				if data.CredentialReset != nil {
+					@AdminUserCredentialResetResultDialog(data.CredentialReset)
 				}
 				<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="User summary">
 					<div class="rounded-lg border border-border bg-card px-4 py-3">
@@ -388,11 +412,12 @@ templ AdminUsersPage(data AdminUsersData) {
 												}
 											</td>
 											<td class="px-4 py-3 text-right">
-												if user.InvitationRotatePath == "" && user.StatusPath == "" {
+												if user.InvitationRotatePath == "" && user.CredentialResetPath == "" && user.StatusPath == "" {
 													<span class="text-xs text-muted-foreground">—</span>
 												} else {
 													<div class="flex items-center justify-end gap-2">
 														@AdminUserInvitationActions(user, data.StepUpRequired)
+														@AdminUserCredentialResetAction(user, data.StepUpRequired)
 														@AdminUserStatusAction(user, data.StepUpRequired)
 													</div>
 												}
@@ -618,6 +643,46 @@ templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
 	}
 }
 
+func adminUserCredentialResetDialogID(user AdminUserData) string {
+	return "admin-user-credential-reset-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+templ AdminUserCredentialResetAction(user AdminUserData, stepUpRequired bool) {
+	if user.CredentialResetPath != "" {
+		{{ resetDialogID := adminUserCredentialResetDialogID(user) }}
+		@dialog.Trigger(dialog.TriggerProps{For: resetDialogID}) {
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.CredentialResetCSRFToken == ""}) {
+				Reset password
+			}
+		}
+		@dialog.Dialog(dialog.Props{ID: resetDialogID}) {
+			@dialog.Content() {
+				@dialog.Header() {
+					@dialog.Title() {
+						Generate a password-reset token for { adminUserUsername(user.Username) }?
+					}
+					@dialog.Description() {
+						This does not change the password or sign the user out yet. Any previous unused reset token will stop working, and Gofer will show the new token only once.
+					}
+				}
+				<form method="post" action={ user.CredentialResetPath }>
+					<input type="hidden" name="_csrf" value={ user.CredentialResetCSRFToken }/>
+					@dialog.Footer() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								Cancel
+							}
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit}) {
+							Generate reset token
+						}
+					}
+				</form>
+			}
+		}
+	}
+}
+
 templ AdminUserInvitationDialog(data AdminUsersData) {
 	@dialog.Dialog(dialog.Props{ID: "admin-user-invitation-dialog", Open: adminUserInvitationFormOpen(data.InvitationForm)}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
@@ -745,6 +810,48 @@ templ AdminUserInvitationResultDialog(data *AdminUserInvitationData) {
 				@dialog.Close(dialog.CloseProps{For: "admin-user-invitation-result-dialog"}) {
 					@button.Button() {
 						I saved the invitation
+					}
+				}
+			}
+		}
+	}
+}
+
+templ AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) {
+	@dialog.Dialog(dialog.Props{ID: "admin-user-credential-reset-result-dialog", Open: true, DisableClickAway: true, DisableESC: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Password-reset token created
+				}
+				@dialog.Description() {
+					Copy these details now. Gofer stores only a hash of the token and cannot display it again.
+				}
+			}
+			<div role="status" class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+				<p class="font-semibold">Reset token ready for { data.Username }</p>
+				<p class="mt-1 text-xs">Expires { data.ExpiresAt.Local().Format("Jan 2, 2006 15:04 MST") }</p>
+			</div>
+			<div class="space-y-2">
+				<div class="flex items-center justify-between gap-3">
+					<label for="admin-user-credential-reset-details" class="text-sm font-semibold text-foreground">Password-reset details</label>
+					<div class="flex items-center gap-1 text-xs text-muted-foreground">
+						<span data-copy-tooltip-text>Copy details</span>
+						@copybutton.CopyButton(copybutton.Props{
+							TargetID: "admin-user-credential-reset-details",
+							Attrs:    templ.Attributes{"aria-label": "Copy password-reset details"},
+						})
+					</div>
+				</div>
+				<textarea id="admin-user-credential-reset-details" readonly rows="6" class="w-full resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none">{ adminUserCredentialResetCopyText(data) }</textarea>
+			</div>
+			<div class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
+				Send the page address and token through a trusted channel. The current password and sessions remain valid until the user completes the reset. Successful redemption signs the user out everywhere, preserves MFA, and does not enable a disabled account.
+			</div>
+			@dialog.Footer() {
+				@dialog.Close(dialog.CloseProps{For: "admin-user-credential-reset-result-dialog"}) {
+					@button.Button() {
+						I saved the reset token
 					}
 				}
 			}

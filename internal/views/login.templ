@@ -68,7 +68,10 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 							/>
 						</div>
 						<div class="space-y-2">
-							<label for="login-password" class="text-sm font-medium">Password</label>
+							<div class="flex items-center justify-between gap-3">
+								<label for="login-password" class="text-sm font-medium">Password</label>
+								<a href="/account/redeem" class="text-xs font-semibold text-primary hover:underline hover:underline-offset-2">Forgot password?</a>
+							</div>
 							<input
 								id="login-password"
 								name="password"

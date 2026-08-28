@@ -156,12 +156,49 @@ func TestAdminUsersPageDisablesUserStatusActionsUntilRecentVerification(t *testi
 	if index < 0 {
 		t.Fatalf("administrator user status trigger missing: %s", html)
 	}
-	end := index + 600
+	end := index + 1200
 	if end > len(html) {
 		end = len(html)
 	}
 	if !strings.Contains(html[index:end], " disabled") {
 		t.Fatalf("stale administrator status action was enabled: %s", html[index:end])
+	}
+}
+
+func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *testing.T) {
+	csrfToken := strings.Repeat("c", 64)
+	expiresAt := time.Date(2026, time.August, 29, 14, 30, 0, 0, time.Local)
+	data := AdminUsersData{
+		Users: []AdminUserData{{
+			ID: "webmail-user", Username: "webmail.user", Status: "Active", Role: "Webmail user",
+			CredentialResetPath: "/admin/users/webmail-user/credential-reset", CredentialResetCSRFToken: csrfToken,
+		}},
+		CredentialReset: &AdminUserCredentialResetData{
+			Username: "webmail.user", RedemptionURL: "https://gofer.example/account/redeem",
+			Token: "private-reset-token", ExpiresAt: expiresAt,
+		},
+	}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Reset password", "Generate a password-reset token for webmail.user?",
+		`action="/admin/users/webmail-user/credential-reset"`, csrfToken,
+		"does not change the password or sign the user out yet", "Generate reset token",
+		"Password-reset token created", "Reset token ready for webmail.user",
+		"Gofer password reset for webmail.user", "https://gofer.example/account/redeem",
+		"Reset token: private-reset-token", "Gofer stores only a hash of the token",
+		"Successful redemption signs the user out everywhere, preserves MFA, and does not enable a disabled account",
+		"I saved the reset token",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("administrator credential-reset view missing %q: %s", want, html)
+		}
+	}
+	if strings.Contains(html, `https://gofer.example/account/redeem?token=`) {
+		t.Fatalf("administrator credential-reset result put token in URL: %s", html)
 	}
 }
 
@@ -221,7 +258,7 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	html := out.String()
 	for _, want := range []string{
 		"Recent administrator verification required", `href="/admin/account/security"`,
-		"manage invitations, user access, and individual MFA policies for the next ten minutes", " disabled",
+		"manage invitations, password resets, user access, and individual MFA policies for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)

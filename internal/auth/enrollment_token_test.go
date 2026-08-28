@@ -139,15 +139,17 @@ func TestIssueEnrollmentTokenEnforcesAdministratorPurposeAndLifetime(t *testing.
 			"active-enrollment-token", "active-enrollment-event",
 			"pending-reset-token", "pending-reset-event",
 			"disabled-reset-token", "disabled-reset-event",
+			"management-reset-token", "management-reset-event",
 			"stale-step-up-token", "stale-step-up-event",
 		},
-		tokens: []string{"non-admin-raw", "active-enrollment-raw", "pending-reset-raw", "disabled-reset-raw", "stale-step-up-raw"},
+		tokens: []string{"non-admin-raw", "active-enrollment-raw", "pending-reset-raw", "disabled-reset-raw", "management-reset-raw", "stale-step-up-raw"},
 	})
 	insertEnrollmentTokenUser(t, manager, "admin", UserStatusActive, true, now)
 	insertEnrollmentTokenUser(t, manager, "ordinary", UserStatusActive, false, now)
 	insertEnrollmentTokenUser(t, manager, "active", UserStatusActive, false, now)
 	insertEnrollmentTokenUser(t, manager, "pending", UserStatusPending, false, now)
 	insertEnrollmentTokenUser(t, manager, "disabled", UserStatusDisabled, false, now)
+	insertEnrollmentTokenUser(t, manager, "management", UserStatusActive, true, now)
 	adminSessionID := insertEnrollmentStepUpSession(t, manager, "admin", now, now)
 	ordinarySessionID := insertEnrollmentStepUpSession(t, manager, "ordinary", now, now)
 
@@ -171,6 +173,11 @@ func TestIssueEnrollmentTokenEnforcesAdministratorPurposeAndLifetime(t *testing.
 	})
 	if err != nil || disabledReset == nil || disabledReset.ExpiresAt.Sub(disabledReset.CreatedAt) != defaultCredentialResetTokenLifetime {
 		t.Fatalf("disabled reset issuance = %#v, %v", disabledReset, err)
+	}
+	if token, err := manager.IssueEnrollmentToken(t.Context(), IssueEnrollmentTokenOptions{
+		UserID: "management", CreatedBy: "admin", ActorSessionID: adminSessionID, Purpose: EnrollmentTokenPurposeCredentialReset,
+	}); token != nil || !errors.Is(err, ErrEnrollmentTokenTargetInvalid) {
+		t.Fatalf("management reset issuance = %#v, %v", token, err)
 	}
 	if token, err := manager.IssueEnrollmentToken(t.Context(), IssueEnrollmentTokenOptions{
 		UserID: "pending", CreatedBy: "admin", Purpose: EnrollmentTokenPurposeEnrollment,

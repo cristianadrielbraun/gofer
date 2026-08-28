@@ -66,7 +66,11 @@ func TestPrivateTargetExceptionRouteRejectsNonAdminUsers(t *testing.T) {
 	h := &Handler{}
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
-	for _, target := range []string{"/admin/security/private-target", "/admin/users/invitations"} {
+	for _, target := range []string{
+		"/admin/security/private-target",
+		"/admin/users/invitations",
+		"/admin/users/webmail-user/credential-reset",
+	} {
 		req := httptest.NewRequest(http.MethodPost, target, nil)
 		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "user", IsAdmin: false}))
 		rec := httptest.NewRecorder()
