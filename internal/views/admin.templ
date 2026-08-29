@@ -31,6 +31,9 @@ type AdminUserData struct {
 	StatusCSRFToken           string
 	CredentialResetPath       string
 	CredentialResetCSRFToken  string
+	DeletionPending           bool
+	DeletionPath              string
+	DeletionCSRFToken         string
 	PasswordResetRequestedAt  *time.Time
 	InvitationState           string
 	InvitationExpiresAt       *time.Time
@@ -298,7 +301,7 @@ templ AdminUsersPage(data AdminUsersData) {
 				if data.StepUpRequired {
 					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">Recent administrator verification required</p>
-						<p class="mt-1">Verify with a passkey or authenticator in <a href="/admin/account/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations, password resets, user access, and individual MFA policies for the next ten minutes.</p>
+						<p class="mt-1">Verify with a passkey or authenticator in <a href="/admin/account/security" class="font-semibold underline underline-offset-2">Security settings</a> to manage invitations, password resets, user access, deletion, and individual MFA policies for the next ten minutes.</p>
 					</div>
 				}
 				@AdminUserInvitationDialog(data)
@@ -366,7 +369,13 @@ templ AdminUsersPage(data AdminUsersData) {
 														templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.Status == "Pending"),
 														templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.Status == "Disabled"),
 													}
-												>{ user.Status }</span>
+												>
+													if user.DeletionPending {
+														Deleting
+													} else {
+														{ user.Status }
+													}
+												</span>
 											</td>
 											<td class="px-4 py-3">
 												<span
@@ -413,7 +422,7 @@ templ AdminUsersPage(data AdminUsersData) {
 												}
 											</td>
 											<td class="px-4 py-3 text-right">
-												if user.InvitationRotatePath == "" && user.CredentialResetPath == "" && user.StatusPath == "" {
+												if user.InvitationRotatePath == "" && user.CredentialResetPath == "" && user.StatusPath == "" && user.DeletionPath == "" {
 													<span class="text-xs text-muted-foreground">—</span>
 												} else {
 													<div class="flex flex-col items-end gap-2">
@@ -427,6 +436,7 @@ templ AdminUsersPage(data AdminUsersData) {
 															@AdminUserInvitationActions(user, data.StepUpRequired)
 															@AdminUserCredentialResetAction(user, data.StepUpRequired)
 															@AdminUserStatusAction(user, data.StepUpRequired)
+															@AdminUserDeletionAction(user, data.StepUpRequired)
 														</div>
 													</div>
 												}
@@ -643,6 +653,83 @@ templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
 						} else {
 							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
 								Disable user
+							}
+						}
+					}
+				</form>
+			}
+		}
+	}
+}
+
+func adminUserDeletionDialogID(user AdminUserData) string {
+	return "admin-user-delete-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+templ AdminUserDeletionAction(user AdminUserData, stepUpRequired bool) {
+	if user.DeletionPath != "" {
+		{{ deletionDialogID := adminUserDeletionDialogID(user) }}
+		@dialog.Trigger(dialog.TriggerProps{For: deletionDialogID}) {
+			@button.Button(button.Props{Variant: button.VariantDestructive, Size: button.SizeSm, Disabled: stepUpRequired || user.DeletionCSRFToken == ""}) {
+				if user.DeletionPending {
+					Retry deletion
+				} else {
+					Delete permanently
+				}
+			}
+		}
+		@dialog.Dialog(dialog.Props{ID: deletionDialogID}) {
+			@dialog.Content() {
+				@dialog.Header() {
+					@dialog.Title() {
+						Permanently delete { adminUserUsername(user.Username) }?
+					}
+					@dialog.Description() {
+						This removes the user's Gofer account and local data. It cannot be undone.
+					}
+				}
+				<div class="space-y-4 text-sm text-foreground">
+					<div class="rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3">
+						<p class="font-semibold text-destructive">Gofer will permanently remove</p>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+							<li>The local sign-in profile, password, passkeys, authenticator, recovery codes, sessions, and linked sign-in identities.</li>
+							<li>Configured mailboxes and stored mailbox credentials.</li>
+							<li>Locally cached mail and attachments, contacts, signatures, settings, drafts, queued sends, and pending operations.</li>
+						</ul>
+					</div>
+					<div class="rounded-lg border border-border bg-muted/35 px-4 py-3 text-muted-foreground">
+						<p><span class="font-semibold text-foreground">Remote provider data is not changed.</span> Gofer does not delete messages, contacts, calendars, or the account at Gmail, Outlook, or another mail provider.</p>
+						<p class="mt-2">Redacted security-event records are retained for administration and audit history.</p>
+					</div>
+					<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
+						<p class="font-semibold">Back up or export first</p>
+						<p class="mt-1">This screen cannot export another user's private mail. Re-enable the user before deletion if they need to export Gofer-only data, or stop Gofer and take a verified service backup.</p>
+					</div>
+				</div>
+				<form method="post" action={ user.DeletionPath } class="mt-5">
+					<input type="hidden" name="_csrf" value={ user.DeletionCSRFToken }/>
+					<label for={ deletionDialogID + "-confirmation" } class="text-sm font-semibold text-foreground">Type <code class="font-mono">{ user.Username }</code> to confirm</label>
+					<input
+						id={ deletionDialogID + "-confirmation" }
+						name="confirmation"
+						type="text"
+						autocomplete="off"
+						autocapitalize="none"
+						spellcheck="false"
+						required
+						class="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					/>
+					@dialog.Footer() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								Cancel
+							}
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+							if user.DeletionPending {
+								Retry permanent deletion
+							} else {
+								Delete user and local data
 							}
 						}
 					}

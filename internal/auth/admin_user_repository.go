@@ -32,7 +32,8 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	now := m.clock.Now().UTC()
 	rows, err := tx.QueryContext(ctx, `
 		SELECT u.id, u.username, u.status, u.user_type, u.is_admin, u.mfa_required,
-		       u.password_reset_requested_at,
+		       u.password_reset_requested_at, u.deletion_pending,
+		       EXISTS(SELECT 1 FROM auth_system_state state WHERE state.id = 1 AND state.owner_user_id = u.id),
 		       invitation.id, invitation.expires_at, invitation.used_at, invitation.revoked_at
 		FROM users u
 		LEFT JOIN user_enrollment_tokens invitation ON invitation.id = (
@@ -53,12 +54,12 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	users := make([]AdministratorUserSummary, 0)
 	for rows.Next() {
 		var user AdministratorUserSummary
-		var isAdmin, mfaRequired int
+		var isAdmin, mfaRequired, deletionPending, deletionProtected int
 		var tokenID sql.NullString
 		var passwordResetRequestedAt, expiresAt, usedAt, revokedAt sql.NullTime
 		if err := rows.Scan(
 			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired,
-			&passwordResetRequestedAt,
+			&passwordResetRequestedAt, &deletionPending, &deletionProtected,
 			&tokenID, &expiresAt, &usedAt, &revokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan administrator user: %w", err)
@@ -72,11 +73,19 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		if mfaRequired != 0 && mfaRequired != 1 {
 			return nil, fmt.Errorf("user %q has invalid MFA requirement", user.ID)
 		}
+		if deletionPending != 0 && deletionPending != 1 {
+			return nil, fmt.Errorf("user %q has invalid deletion state", user.ID)
+		}
+		if deletionProtected != 0 && deletionProtected != 1 {
+			return nil, fmt.Errorf("user %q has invalid deletion protection state", user.ID)
+		}
 		if !user.UserType.Valid() {
 			return nil, fmt.Errorf("user %q has invalid type %q", user.ID, user.UserType)
 		}
 		user.IsAdmin = isAdmin == 1
 		user.MFARequired = mfaRequired == 1
+		user.DeletionPending = deletionPending == 1
+		user.DeletionProtected = deletionProtected == 1
 		if passwordResetRequestedAt.Valid {
 			requestedAt := passwordResetRequestedAt.Time
 			user.PasswordResetRequestedAt = &requestedAt

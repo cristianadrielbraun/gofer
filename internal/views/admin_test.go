@@ -280,7 +280,7 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	html := out.String()
 	for _, want := range []string{
 		"Recent administrator verification required", `href="/admin/account/security"`,
-		"manage invitations, password resets, user access, and individual MFA policies for the next ten minutes", " disabled",
+		"manage invitations, password resets, user access, deletion, and individual MFA policies for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)

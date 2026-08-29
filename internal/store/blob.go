@@ -152,6 +152,14 @@ func (s *BlobStore) DeleteComposeAttachment(userID, id string) error {
 	return os.Remove(path)
 }
 
+func (s *BlobStore) DeleteComposeAttachments(userID string) error {
+	ownerKey, err := composeOwnerKey(userID)
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(s.basePath, "_compose", ownerKey))
+}
+
 func (s *BlobStore) CleanupComposeAttachments(olderThan time.Duration, keep map[string]bool) (int, error) {
 	if olderThan <= 0 {
 		return 0, nil
@@ -339,6 +347,10 @@ func avatarExtension(contentType string, data []byte) string {
 }
 
 func (s *BlobStore) DeleteAccount(accountID string) error {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" || accountID == "." || accountID == ".." || strings.ContainsAny(accountID, `/\`) {
+		return fmt.Errorf("invalid account blob owner")
+	}
 	return os.RemoveAll(filepath.Join(s.basePath, accountID))
 }
 

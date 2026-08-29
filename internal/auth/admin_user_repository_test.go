@@ -77,3 +77,33 @@ func TestListAdministratorUsersRequiresActiveAdministratorAndReturnsOnlySafeMeta
 		t.Fatalf("missing ListAdministratorUsers() = %#v, %v", result, err)
 	}
 }
+
+func TestListAdministratorUsersProjectsPendingAndProtectedDeletionState(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
+	insertActiveUser(t, manager, "administrator", true, now)
+	insertActiveUser(t, manager, "deleting", false, now)
+	insertActiveUser(t, manager, "protected", false, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users
+		SET status = 'disabled', deletion_pending = 1, deletion_started_at = ?, deletion_started_by = 'administrator'
+		WHERE id = 'deleting';
+		UPDATE users SET status = 'disabled' WHERE id = 'protected';
+		INSERT INTO auth_system_state (id, initialized, owner_user_id, initialized_at)
+		VALUES (1, 1, 'protected', ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	users, err := manager.ListAdministratorUsers(t.Context(), "administrator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := make(map[string]AdministratorUserSummary, len(users))
+	for _, user := range users {
+		states[user.ID] = user
+	}
+	if !states["deleting"].DeletionPending || states["deleting"].DeletionProtected ||
+		states["protected"].DeletionPending || !states["protected"].DeletionProtected {
+		t.Fatalf("administrator deletion projections = %#v", states)
+	}
+}

@@ -1,17 +1,22 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
 var administratorInvitationTokenPattern = regexp.MustCompile(`Invitation token: ([0-9a-f]{64})`)
@@ -47,6 +52,173 @@ func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 	}
 }
 
+func TestAdministratorCanPermanentlyDeleteDisabledWebmailUserAndLocalData(t *testing.T) {
+	manager, db, _, sessionCookie, _ := completedSecuritySettingsStack(t)
+	accountStore, err := config.NewAccountStore(db, bytes.Repeat([]byte{0x42}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobBase := filepath.Join(t.TempDir(), "blobs")
+	blobStore := store.NewBlobStore(blobBase)
+	h := &Handler{
+		db: db, accountStore: accountStore, blobStore: blobStore, auth: manager,
+	}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	stack := manager.Middleware(mux)
+
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, username, username_normalized, name, status, auth_version,
+			mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES ('delete-target', 'Delete.Target', 'delete.target', 'Delete Target',
+			'disabled', 2, 0, 'webmail', 0, ?, ?);
+		INSERT INTO password_credentials (user_id, password_hash)
+		VALUES ('delete-target', 'private-password-hash');
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('delete-mailbox', 'delete-target', 'imap', 'private@example.com')`, now, now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	rawPath, err := blobStore.StoreRaw(t.Context(), "delete-mailbox", 7, []byte("private mail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, composePath, err := blobStore.StoreComposeAttachment(t.Context(), "delete-target", "private.txt", bytes.NewBufferString("private draft"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := adminUserDeletionPath("delete-target")
+	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest.AddCookie(sessionCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK {
+		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
+	}
+	for _, want := range []string{
+		"Delete permanently", "Permanently delete Delete.Target?", `action="` + path + `"`,
+		"Gofer will permanently remove", "Remote provider data is not changed",
+		"This screen cannot export another user's private mail", "Redacted security-event records are retained",
+		`name="confirmation"`, "Delete user and local data",
+	} {
+		if !strings.Contains(page.Body.String(), want) {
+			t.Fatalf("administrator deletion control missing %q: %q", want, page.Body.String())
+		}
+	}
+	withoutCSRF := postSecuritySettings(t, stack, path, url.Values{"confirmation": {"Delete.Target"}}, sessionCookie)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("user deletion without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+	wrongConfirmation := postSecuritySettings(t, stack, path, url.Values{
+		"confirmation":         {"delete.target"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+	}, sessionCookie)
+	if wrongConfirmation.Code != http.StatusBadRequest || !strings.Contains(wrongConfirmation.Body.String(), "exact username") {
+		t.Fatalf("user deletion with wrong confirmation = %d %q", wrongConfirmation.Code, wrongConfirmation.Body.String())
+	}
+	var users int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'delete-target'`).Scan(&users); err != nil || users != 1 {
+		t.Fatalf("target after rejected deletion = %d, %v", users, err)
+	}
+
+	accepted := postSecuritySettings(t, stack, path, url.Values{
+		"confirmation":         {"Delete.Target"},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+	}, sessionCookie)
+	if accepted.Code != http.StatusSeeOther || !strings.HasPrefix(accepted.Header().Get("Location"), "/admin/users?") ||
+		!strings.Contains(accepted.Header().Get("Location"), "deletion+started") {
+		t.Fatalf("start user deletion = %d location:%q body:%q", accepted.Code, accepted.Header().Get("Location"), accepted.Body.String())
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := db.Read().QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'delete-target'`).Scan(&users); err == nil && users == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if users != 0 {
+		var pending int
+		_ = db.Read().QueryRow(`SELECT deletion_pending FROM users WHERE id = 'delete-target'`).Scan(&pending)
+		t.Fatalf("target deletion did not complete; users=%d pending=%d", users, pending)
+	}
+	for label, path := range map[string]string{"mailbox blob": rawPath, "compose blob": composePath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s remains at %s: %v", label, path, err)
+		}
+	}
+	var accounts, passwords, completedEvents int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM accounts WHERE id = 'delete-mailbox'`).Scan(&accounts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM password_credentials WHERE user_id = 'delete-target'`).Scan(&passwords); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM auth_events WHERE event_type = ?`, auth.AuthEventUserDeleted).Scan(&completedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if accounts != 0 || passwords != 0 || completedEvents != 1 {
+		t.Fatalf("completed deletion state accounts=%d passwords=%d events=%d", accounts, passwords, completedEvents)
+	}
+}
+
+func TestUserDeletionRemainsPendingAndCanResumeAfterBlobCleanupFailure(t *testing.T) {
+	manager, db, _, sessionCookie, _ := completedSecuritySettingsStack(t)
+	currentSession, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || currentSession == nil {
+		t.Fatalf("load administrator session = %#v, %v", currentSession, err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (
+			id, username, username_normalized, status, auth_version,
+			mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES ('retry-target', 'retry-target', 'retry-target', 'disabled', 2, 0, 'webmail', 0, ?, ?);
+		INSERT INTO accounts (id, user_id, email_address)
+		VALUES ('retry-mailbox', 'retry-target', 'private@example.com')`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := manager.PrepareAdministratorUserDeletion(t.Context(), auth.PrepareAdministratorUserDeletionOptions{
+		ActorUserID: currentSession.UserID, ActorSessionID: currentSession.ID,
+		TargetUserID: "retry-target", Confirmation: "retry-target",
+	})
+	if err != nil || prepared == nil {
+		t.Fatalf("prepare retry deletion = %#v, %v", prepared, err)
+	}
+	accountStore, err := config.NewAccountStore(db, bytes.Repeat([]byte{0x42}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockedBase := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blockedBase, []byte("block"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{db: db, accountStore: accountStore, blobStore: store.NewBlobStore(blockedBase), auth: manager}
+	if err := h.cleanupDeletingUser(t.Context(), "retry-target", currentSession.ID); err == nil {
+		t.Fatal("user deletion succeeded despite account blob cleanup failure")
+	}
+	var users, accounts, pending int
+	if err := db.Read().QueryRow(`SELECT COUNT(*), deletion_pending FROM users WHERE id = 'retry-target'`).Scan(&users, &pending); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM accounts WHERE id = 'retry-mailbox'`).Scan(&accounts); err != nil {
+		t.Fatal(err)
+	}
+	if users != 1 || accounts != 1 || pending != 1 {
+		t.Fatalf("failed cleanup state users=%d accounts=%d pending=%d", users, accounts, pending)
+	}
+
+	h.blobStore = store.NewBlobStore(filepath.Join(t.TempDir(), "blobs"))
+	if err := h.cleanupDeletingUser(t.Context(), "retry-target", ""); err != nil {
+		t.Fatalf("resume user deletion: %v", err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'retry-target'`).Scan(&users); err != nil || users != 0 {
+		t.Fatalf("resumed deletion target count = %d, %v", users, err)
+	}
+}
+
 func TestAdminUsersViewDataReflectsInstanceAndIndividualMFAPolicies(t *testing.T) {
 	users := []auth.AdministratorUserSummary{
 		{ID: "instance-user", Username: "instance", Status: auth.UserStatusActive, UserType: auth.UserTypeWebmail},
@@ -61,6 +233,25 @@ func TestAdminUsersViewDataReflectsInstanceAndIndividualMFAPolicies(t *testing.T
 	if data.Users[0].CredentialResetPath != "/admin/users/instance-user/credential-reset" ||
 		data.Users[1].CredentialResetPath != "/admin/users/individual-user/credential-reset" {
 		t.Fatalf("webmail credential-reset rows = %#v", data.Users)
+	}
+}
+
+func TestAdminUsersViewDataOffersDeletionOnlyForDisabledOrdinaryWebmailUsers(t *testing.T) {
+	users := []auth.AdministratorUserSummary{
+		{ID: "active", Username: "active", Status: auth.UserStatusActive, UserType: auth.UserTypeWebmail},
+		{ID: "disabled", Username: "disabled", Status: auth.UserStatusDisabled, UserType: auth.UserTypeWebmail},
+		{ID: "deleting", Username: "deleting", Status: auth.UserStatusDisabled, UserType: auth.UserTypeWebmail, DeletionPending: true},
+		{ID: "protected", Username: "protected", Status: auth.UserStatusDisabled, UserType: auth.UserTypeWebmail, DeletionProtected: true},
+		{ID: "management", Username: "management", Status: auth.UserStatusDisabled, UserType: auth.UserTypeManagement, IsAdmin: true},
+	}
+	data := adminUsersViewData(users, "administrator", auth.InstanceMFAPolicyAdministrators)
+	if data.Users[0].DeletionPath != "" || data.Users[1].DeletionPath != "/admin/users/disabled/delete" ||
+		data.Users[2].DeletionPath != "/admin/users/deleting/delete" || data.Users[3].DeletionPath != "" ||
+		data.Users[4].DeletionPath != "" {
+		t.Fatalf("administrator deletion paths = %#v", data.Users)
+	}
+	if data.Users[2].StatusPath != "" || data.Users[2].CredentialResetPath != "" || data.Users[2].MFAPolicyPath != "" {
+		t.Fatalf("pending deletion exposed incompatible actions = %#v", data.Users[2])
 	}
 }
 

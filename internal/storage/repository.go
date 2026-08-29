@@ -3734,6 +3734,36 @@ func (db *DB) GetAccountIDs(ctx context.Context, userID string) ([]string, error
 	return ids, nil
 }
 
+func (db *DB) GetAccountIDsIncludingDeleting(ctx context.Context, userID string) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE user_id = ? ORDER BY id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (db *DB) IsAccountOwnedByPendingUserDeletion(ctx context.Context, accountID string) (bool, error) {
+	var pending int
+	err := db.Read().QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM accounts a
+			JOIN users u ON u.id = a.user_id
+			WHERE a.id = ? AND u.deletion_pending = 1
+		)`, accountID,
+	).Scan(&pending)
+	return pending == 1, err
+}
+
 func (db *DB) GetEmailSyncAccountIDs(ctx context.Context, userID string) ([]string, error) {
 	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 AND COALESCE(email_sync_enabled, 1) = 1 ORDER BY id`, userID)
 	if err != nil {

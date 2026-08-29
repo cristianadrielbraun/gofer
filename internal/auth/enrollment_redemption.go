@@ -87,7 +87,8 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 			FROM user_enrollment_tokens t
 			JOIN users u ON u.id = t.user_id
 			WHERE t.id = ? AND t.token_hash = ?
-			  AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > ?`,
+			  AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > ?
+			  AND u.deletion_pending = 0`,
 			candidate.tokenID, hashToken(rawToken), now,
 		))
 		if errors.Is(err, sql.ErrNoRows) {
@@ -230,7 +231,8 @@ func (m *Manager) findEnrollmentRedemptionCandidate(ctx context.Context, rawToke
 		FROM user_enrollment_tokens t
 		JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?
-		  AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > ?`,
+		  AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > ?
+		  AND u.deletion_pending = 0`,
 		hashToken(rawToken), now,
 	))
 	if errors.Is(err, sql.ErrNoRows) {

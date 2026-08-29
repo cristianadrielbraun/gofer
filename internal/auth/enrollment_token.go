@@ -410,17 +410,17 @@ func (m *Manager) requireActiveManagementAdministrator(ctx context.Context, user
 func requireEnrollmentTokenTarget(ctx context.Context, tx *sql.Tx, userID string, purpose EnrollmentTokenPurpose) error {
 	var status UserStatus
 	var userType UserType
-	var isAdmin int
+	var isAdmin, deletionPending int
 	if err := tx.QueryRowContext(ctx, `
-		SELECT status, user_type, is_admin
+		SELECT status, user_type, is_admin, deletion_pending
 		FROM users WHERE id = ?`, userID,
-	).Scan(&status, &userType, &isAdmin); err != nil {
+	).Scan(&status, &userType, &isAdmin, &deletionPending); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrEnrollmentTokenTargetInvalid
 		}
 		return fmt.Errorf("read enrollment token target: %w", err)
 	}
-	eligibleWebmailUser := userType == UserTypeWebmail && isAdmin == 0
+	eligibleWebmailUser := userType == UserTypeWebmail && isAdmin == 0 && deletionPending == 0
 	eligible := eligibleWebmailUser && (purpose == EnrollmentTokenPurposeEnrollment && status == UserStatusPending ||
 		purpose == EnrollmentTokenPurposeCredentialReset && (status == UserStatusActive || status == UserStatusDisabled))
 	if !eligible {

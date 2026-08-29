@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -52,5 +53,22 @@ func TestCleanupComposeAttachmentsVisitsUserDirectories(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("old compose attachment still exists: %v", err)
+	}
+}
+
+func TestDeleteAccountRejectsPathsOutsideAnAccountDirectory(t *testing.T) {
+	base := t.TempDir()
+	store := NewBlobStore(base)
+	marker := filepath.Join(base, "keep.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, accountID := range []string{"", ".", "..", "../outside", "nested/account", `nested\account`} {
+		if err := store.DeleteAccount(accountID); err == nil {
+			t.Fatalf("DeleteAccount(%q) error = nil", accountID)
+		}
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("account path rejection removed base marker: %v", err)
 	}
 }

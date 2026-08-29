@@ -494,6 +494,9 @@ CREATE TABLE IF NOT EXISTS users (
     disabled_at DATETIME,
     disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
     password_reset_requested_at DATETIME,
+    deletion_pending INTEGER NOT NULL DEFAULT 0 CHECK (deletion_pending IN (0, 1)),
+    deletion_started_at DATETIME,
+    deletion_started_by TEXT REFERENCES users(id) ON DELETE SET NULL,
     user_type TEXT NOT NULL DEFAULT 'webmail' CHECK (user_type IN ('webmail', 'management')),
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -547,6 +550,14 @@ WHEN NEW.user_type = 'management'
  AND EXISTS (SELECT 1 FROM accounts WHERE user_id = NEW.id)
 BEGIN
     SELECT RAISE(ABORT, 'management user cannot own a mailbox');
+END;
+
+CREATE TRIGGER IF NOT EXISTS users_deletion_state_update
+BEFORE UPDATE OF status, user_type, is_admin, deletion_pending ON users
+WHEN NEW.deletion_pending = 1
+ AND (NEW.status != 'disabled' OR NEW.user_type != 'webmail' OR NEW.is_admin != 0)
+BEGIN
+    SELECT RAISE(ABORT, 'pending deletion requires a disabled webmail user');
 END;
 
 CREATE TRIGGER IF NOT EXISTS accounts_management_owner_insert
@@ -1405,4 +1416,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (90);
+INSERT OR REPLACE INTO schema_version (version) VALUES (91);

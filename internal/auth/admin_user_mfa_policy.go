@@ -56,20 +56,20 @@ func (m *Manager) SetAdministratorUserMFAPolicy(
 			return err
 		}
 
-		var currentRequired, isAdmin int
+		var currentRequired, isAdmin, deletionPending int
 		var status UserStatus
 		var userType UserType
 		err := tx.QueryRowContext(ctx, `
-			SELECT status, user_type, is_admin, mfa_required
+			SELECT status, user_type, is_admin, mfa_required, deletion_pending
 			FROM users WHERE id = ?`, targetUserID,
-		).Scan(&status, &userType, &isAdmin, &currentRequired)
+		).Scan(&status, &userType, &isAdmin, &currentRequired, &deletionPending)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrAdministratorUserMFATargetInvalid
 		}
 		if err != nil {
 			return fmt.Errorf("load administrator user MFA target: %w", err)
 		}
-		if userType != UserTypeWebmail || isAdmin != 0 ||
+		if userType != UserTypeWebmail || isAdmin != 0 || deletionPending != 0 ||
 			(status != UserStatusPending && status != UserStatusActive && status != UserStatusDisabled) {
 			return ErrAdministratorUserMFATargetInvalid
 		}

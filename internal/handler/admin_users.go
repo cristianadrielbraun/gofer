@@ -2,12 +2,14 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -26,6 +28,10 @@ func adminUserStatusPath(userID string) string {
 
 func adminUserCredentialResetPath(userID string) string {
 	return "/admin/users/" + url.PathEscape(userID) + "/credential-reset"
+}
+
+func adminUserDeletionPath(userID string) string {
+	return "/admin/users/" + url.PathEscape(userID) + "/delete"
 }
 
 func adminUserInvitationRevokePath(reference string) string {
@@ -51,6 +57,7 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			MFADetail:                "User choice",
 			MFARequired:              user.MFARequired,
 			PasswordResetRequestedAt: user.PasswordResetRequestedAt,
+			DeletionPending:          user.DeletionPending,
 		}
 		if user.InvitationActionReference != "" {
 			view.InvitationRevokePath = adminUserInvitationRevokePath(user.InvitationActionReference)
@@ -60,7 +67,7 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		case auth.UserStatusActive:
 			view.Status = "Active"
 			data.Active++
-			if !view.Current {
+			if !view.Current && !user.DeletionPending {
 				view.StatusPath = adminUserStatusPath(user.ID)
 			}
 		case auth.UserStatusPending:
@@ -68,13 +75,17 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			data.Pending++
 		case auth.UserStatusDisabled:
 			data.Disabled++
-			if !view.Current {
+			if !view.Current && !user.DeletionPending {
 				view.StatusPath = adminUserStatusPath(user.ID)
 			}
 		}
 		if user.UserType == auth.UserTypeWebmail && !user.IsAdmin &&
-			(user.Status == auth.UserStatusActive || user.Status == auth.UserStatusDisabled) {
+			!user.DeletionPending && (user.Status == auth.UserStatusActive || user.Status == auth.UserStatusDisabled) {
 			view.CredentialResetPath = adminUserCredentialResetPath(user.ID)
+		}
+		if user.UserType == auth.UserTypeWebmail && !user.IsAdmin && !view.Current &&
+			!user.DeletionProtected && user.Status == auth.UserStatusDisabled {
+			view.DeletionPath = adminUserDeletionPath(user.ID)
 		}
 		if user.IsAdmin {
 			view.Role = "Management administrator"
@@ -98,6 +109,9 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			view.MFADetail = "Instance policy"
 		default:
 			view.MFAPolicyPath = adminUserMFAPolicyPath(user.ID)
+		}
+		if user.DeletionPending {
+			view.MFAPolicyPath = ""
 		}
 		data.Users = append(data.Users, view)
 	}
@@ -372,6 +386,60 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 	h.renderAdminUsersWithCredentialReset(w, r, http.StatusCreated, result, "")
 }
 
+func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser := auth.GetCurrentUser(ctx)
+	currentSession := auth.GetCurrentSession(ctx)
+	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid user deletion request.")
+		return
+	}
+	result, err := h.auth.PrepareAdministratorUserDeletion(ctx, auth.PrepareAdministratorUserDeletionOptions{
+		ActorUserID: currentUser.ID, ActorSessionID: currentSession.ID,
+		TargetUserID: r.PathValue("userID"), Confirmation: r.PostFormValue("confirmation"),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before deleting a user.")
+		case errors.Is(err, auth.ErrAdministratorRequired):
+			http.Error(w, "admin access required", http.StatusForbidden)
+		case errors.Is(err, auth.ErrAdministratorUserDeletionConfirmationInvalid):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Type the exact username to confirm permanent deletion.")
+		case errors.Is(err, auth.ErrAdministratorUserDeletionTargetInvalid):
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Only a disabled standard webmail user can be deleted. Refresh the page and try again.")
+		default:
+			log.Printf("prepare administrator user deletion: %v", err)
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to start user deletion right now.")
+		}
+		return
+	}
+	for _, accountID := range result.AccountIDs {
+		h.closeBodyClient(accountID)
+		if h.syncer != nil {
+			h.syncer.StopAccount(accountID)
+		}
+	}
+
+	go func(userID, actorSessionID string) {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if err := h.cleanupDeletingUser(cleanupCtx, userID, actorSessionID); err != nil {
+			log.Printf("delete user cleanup %s failed: %v", userID, err)
+		}
+	}(result.TargetUserID, currentSession.ID)
+
+	if result.Resumed {
+		redirectAdminUsers(w, r, "User deletion resumed. Gofer is retrying the local data cleanup.")
+		return
+	}
+	redirectAdminUsers(w, r, "User deletion started. Gofer is permanently removing the user's local data.")
+}
+
 func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
 	values := url.Values{}
 	if notice != "" {
@@ -453,6 +521,9 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 		}
 		if data.Users[index].CredentialResetPath != "" {
 			data.Users[index].CredentialResetCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].CredentialResetPath)
+		}
+		if data.Users[index].DeletionPath != "" {
+			data.Users[index].DeletionCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].DeletionPath)
 		}
 		if data.Users[index].InvitationRevokePath != "" {
 			data.Users[index].InvitationRevokeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRevokePath)

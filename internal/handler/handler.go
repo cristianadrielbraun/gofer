@@ -52,6 +52,7 @@ type Handler struct {
 	bodyFetchMu                sync.Mutex
 	bodyFetches                map[int64]chan struct{}
 	accountDeleteMu            sync.Mutex
+	userDeleteMu               sync.Mutex
 	avatarWarmupQueue          chan storage.SenderAvatarCandidate
 	avatarWarmupMu             sync.Mutex
 	avatarWarmupQueued         map[string]struct{}
@@ -163,7 +164,10 @@ func (h *Handler) mailCredentials() *mailauth.Service {
 }
 
 func (h *Handler) StartAccountDeletionCleanup(ctx context.Context) {
-	go h.CleanupPendingAccountDeletions(ctx)
+	go func() {
+		h.CleanupPendingAccountDeletions(ctx)
+		h.CleanupPendingUserDeletions(ctx)
+	}()
 }
 
 func (h *Handler) CleanupPendingAccountDeletions(ctx context.Context) {
@@ -186,13 +190,48 @@ func (h *Handler) CleanupPendingAccountDeletions(ctx context.Context) {
 			h.syncer.StopAccount(accountID)
 		}
 		cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-		err := h.cleanupDeletingAccount(cleanupCtx, accountID)
+		requireBlobRemoval, policyErr := h.db.IsAccountOwnedByPendingUserDeletion(cleanupCtx, accountID)
+		if policyErr != nil {
+			cancel()
+			log.Printf("delete account cleanup %s: load deletion policy failed: %v", accountID, policyErr)
+			continue
+		}
+		err := h.cleanupDeletingAccountWithPolicy(cleanupCtx, accountID, requireBlobRemoval)
 		cancel()
 		if err != nil {
 			log.Printf("delete account cleanup %s failed: %v", accountID, err)
 			continue
 		}
 		log.Printf("delete account cleanup %s complete", accountID)
+	}
+}
+
+func (h *Handler) CleanupPendingUserDeletions(ctx context.Context) {
+	if h.auth == nil || !h.auth.IsEnabled() {
+		return
+	}
+	ids, err := h.auth.ListPendingUserDeletionIDs(ctx)
+	if err != nil {
+		log.Printf("delete user cleanup: list pending users failed: %v", err)
+		return
+	}
+	if len(ids) == 0 {
+		log.Printf("delete user cleanup: no pending users")
+		return
+	}
+	log.Printf("delete user cleanup: found %d pending user(s)", len(ids))
+	for _, userID := range ids {
+		if ctx.Err() != nil {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		err := h.cleanupDeletingUser(cleanupCtx, userID, "")
+		cancel()
+		if err != nil {
+			log.Printf("delete user cleanup %s failed: %v", userID, err)
+			continue
+		}
+		log.Printf("delete user cleanup %s complete", userID)
 	}
 }
 
@@ -335,6 +374,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/users/{userID}/mfa-policy", h.handleSetAdminUserMFAPolicy)
 	adminRoute("POST /admin/users/{userID}/status", h.handleSetAdminUserStatus)
 	adminRoute("POST /admin/users/{userID}/credential-reset", h.handleIssueAdminUserCredentialReset)
+	adminRoute("POST /admin/users/{userID}/delete", h.handleDeleteAdminUser)
 	adminRoute("GET /admin/labels", h.handleAdminLabels)
 	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)
 	adminRoute("GET /admin/operations", h.handleAdminOperations)
@@ -6445,6 +6485,10 @@ func (h *Handler) cleanupDeletingAccountForCreate(ctx context.Context, userID, e
 }
 
 func (h *Handler) cleanupDeletingAccount(ctx context.Context, accountID string) error {
+	return h.cleanupDeletingAccountWithPolicy(ctx, accountID, false)
+}
+
+func (h *Handler) cleanupDeletingAccountWithPolicy(ctx context.Context, accountID string, requireBlobRemoval bool) error {
 	h.accountDeleteMu.Lock()
 	defer h.accountDeleteMu.Unlock()
 
@@ -6459,8 +6503,13 @@ func (h *Handler) cleanupDeletingAccount(ctx context.Context, accountID string) 
 	if h.blobStore != nil {
 		log.Printf("delete account cleanup %s: deleting blobs", accountID)
 		if err := h.blobStore.DeleteAccount(accountID); err != nil {
+			if requireBlobRemoval {
+				return fmt.Errorf("delete account blobs: %w", err)
+			}
 			log.Printf("warning: failed to clean up blob storage for account %s: %v", accountID, err)
 		}
+	} else if requireBlobRemoval {
+		return fmt.Errorf("delete account blobs: blob store is unavailable")
 	}
 
 	log.Printf("delete account cleanup %s: deleting database rows", accountID)
@@ -6468,6 +6517,41 @@ func (h *Handler) cleanupDeletingAccount(ctx context.Context, accountID string) 
 		log.Printf("delete account cleanup %s: %s deleted=%d total=%d", accountID, progress.Step, progress.RowsAffected, progress.TotalStepRowsAffected)
 	}); err != nil {
 		return fmt.Errorf("delete account row: %w", err)
+	}
+	return nil
+}
+
+func (h *Handler) cleanupDeletingUser(ctx context.Context, userID, actorSessionID string) error {
+	h.userDeleteMu.Lock()
+	defer h.userDeleteMu.Unlock()
+	if h.auth == nil || !h.auth.IsEnabled() {
+		return fmt.Errorf("authentication manager is unavailable")
+	}
+	if h.blobStore == nil {
+		return fmt.Errorf("blob store is unavailable")
+	}
+	if h.accountStore == nil {
+		return fmt.Errorf("account store is unavailable")
+	}
+
+	accountIDs, err := h.db.GetAccountIDsIncludingDeleting(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("list user mailboxes: %w", err)
+	}
+	for _, accountID := range accountIDs {
+		h.closeBodyClient(accountID)
+		if h.syncer != nil {
+			h.syncer.StopAccount(accountID)
+		}
+		if err := h.cleanupDeletingAccountWithPolicy(ctx, accountID, true); err != nil {
+			return fmt.Errorf("clean mailbox %s: %w", accountID, err)
+		}
+	}
+	if err := h.blobStore.DeleteComposeAttachments(userID); err != nil {
+		return fmt.Errorf("delete compose attachments: %w", err)
+	}
+	if _, err := h.auth.CompleteAdministratorUserDeletion(ctx, userID, actorSessionID); err != nil {
+		return fmt.Errorf("complete user deletion: %w", err)
 	}
 	return nil
 }

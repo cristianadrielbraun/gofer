@@ -60,6 +60,7 @@ func (m *Manager) RequestPasswordReset(ctx context.Context, options PasswordRese
 			  AND status IN ('active', 'disabled')
 			  AND user_type = 'webmail'
 			  AND is_admin = 0
+			  AND deletion_pending = 0
 			  AND password_reset_requested_at IS NULL
 			RETURNING id`, now, now, identifier,
 		).Scan(&userID)

@@ -128,6 +128,8 @@ const (
 	AuthEventSessionRevoked               AuthEventType = "session_revoked"
 	AuthEventUserDisabled                 AuthEventType = "user_disabled"
 	AuthEventUserEnabled                  AuthEventType = "user_enabled"
+	AuthEventUserDeletionStarted          AuthEventType = "user_deletion_started"
+	AuthEventUserDeleted                  AuthEventType = "user_deleted"
 	AuthEventCredentialChanged            AuthEventType = "credential_changed"
 	AuthEventRecoveryUsed                 AuthEventType = "recovery_used"
 	AuthEventEnrollmentIssued             AuthEventType = "enrollment_token_issued"
@@ -176,6 +178,7 @@ const (
 	SecurityTransitionSessionRevocation SecurityTransition = "session_revocation"
 	SecurityTransitionSessionRotation   SecurityTransition = "session_rotation"
 	SecurityTransitionUserStatus        SecurityTransition = "user_status"
+	SecurityTransitionUserDeletion      SecurityTransition = "user_deletion"
 	SecurityTransitionPolicyChange      SecurityTransition = "policy_change"
 	SecurityTransitionIdentityChange    SecurityTransition = "identity_change"
 )

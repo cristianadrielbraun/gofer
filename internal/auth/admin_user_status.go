@@ -63,13 +63,17 @@ func (m *Manager) SetAdministratorUserStatus(
 		}
 
 		var currentStatus UserStatus
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM users WHERE id = ?`, targetUserID).Scan(&currentStatus); err != nil {
+		var deletionPending int
+		if err := tx.QueryRowContext(ctx, `SELECT status, deletion_pending FROM users WHERE id = ?`, targetUserID).Scan(&currentStatus, &deletionPending); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrAdministratorUserStatusTargetInvalid
 			}
 			return fmt.Errorf("load administrator user status target: %w", err)
 		}
 		if currentStatus != UserStatusActive && currentStatus != UserStatusDisabled {
+			return ErrAdministratorUserStatusTargetInvalid
+		}
+		if deletionPending != 0 {
 			return ErrAdministratorUserStatusTargetInvalid
 		}
 		if currentStatus == options.Status {

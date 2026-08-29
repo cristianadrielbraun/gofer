@@ -45,13 +45,14 @@ func (m *Manager) RecoverUserLocally(ctx context.Context, userID string) (*Local
 	}}
 	err = m.runSecurityTransition(ctx, SecurityTransitionRecovery, func(tx *sql.Tx) error {
 		var status UserStatus
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM users WHERE id = ?`, userID).Scan(&status); err != nil {
+		var deletionPending int
+		if err := tx.QueryRowContext(ctx, `SELECT status, deletion_pending FROM users WHERE id = ?`, userID).Scan(&status, &deletionPending); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrLocalRecoveryTargetInvalid
 			}
 			return fmt.Errorf("read local recovery target: %w", err)
 		}
-		if status != UserStatusActive && status != UserStatusDisabled {
+		if (status != UserStatusActive && status != UserStatusDisabled) || deletionPending != 0 {
 			return ErrLocalRecoveryTargetInvalid
 		}
 
