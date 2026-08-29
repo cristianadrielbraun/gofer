@@ -16,6 +16,7 @@ type RedeemEnrollmentTokenOptions struct {
 	Token       string
 	NewPassword string
 	UserAgent   string
+	Purpose     EnrollmentTokenPurpose
 }
 
 type EnrollmentRedemptionResult struct {
@@ -39,6 +40,9 @@ type enrollmentRedemptionCandidate struct {
 // version and revokes every existing session. It intentionally does not create
 // a new session: the user must authenticate with the newly established secret.
 func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrollmentTokenOptions) (*EnrollmentRedemptionResult, error) {
+	if !options.Purpose.Valid() {
+		return nil, fmt.Errorf("invalid enrollment token purpose %q", options.Purpose)
+	}
 	rawToken := strings.TrimSpace(options.Token)
 	preparedPassword, err := PrepareNewPassword(options.NewPassword, PasswordPolicyContext{})
 	if err != nil {
@@ -49,6 +53,9 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 	candidate, err := m.findEnrollmentRedemptionCandidate(ctx, rawToken, now)
 	if err != nil {
 		return nil, err
+	}
+	if candidate != nil && candidate.purpose != options.Purpose {
+		candidate = nil
 	}
 	if candidate != nil {
 		preparedPassword, err = PrepareNewPassword(options.NewPassword, PasswordPolicyContext{
@@ -90,6 +97,7 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 			return fmt.Errorf("recheck enrollment token: %w", err)
 		}
 		if !sameEnrollmentRedemptionCandidate(current, candidate) ||
+			current.purpose != options.Purpose ||
 			!enrollmentRedemptionStatusEligible(current.purpose, current.status, current.userType) {
 			return ErrEnrollmentTokenInvalid
 		}
@@ -135,7 +143,9 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 		} else {
 			changed, err := tx.ExecContext(ctx, `
 				UPDATE users
-				SET auth_version = auth_version + 1, updated_at = ?
+				SET auth_version = auth_version + 1,
+				    password_reset_requested_at = NULL,
+				    updated_at = ?
 				WHERE id = ? AND status IN ('active', 'disabled')`, now, current.userID)
 			if err != nil {
 				return fmt.Errorf("invalidate reset user authentication version: %w", err)

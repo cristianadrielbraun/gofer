@@ -40,16 +40,17 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 	data := views.AdminUsersData{Users: make([]views.AdminUserData, 0, len(users)), Total: len(users)}
 	for _, user := range users {
 		view := views.AdminUserData{
-			ID:                  user.ID,
-			Username:            user.Username,
-			Status:              "Disabled",
-			Role:                "Webmail user",
-			Current:             user.ID == currentUserID,
-			InvitationState:     string(user.InvitationState),
-			InvitationExpiresAt: user.InvitationExpiresAt,
-			MFALabel:            "Optional",
-			MFADetail:           "User choice",
-			MFARequired:         user.MFARequired,
+			ID:                       user.ID,
+			Username:                 user.Username,
+			Status:                   "Disabled",
+			Role:                     "Webmail user",
+			Current:                  user.ID == currentUserID,
+			InvitationState:          string(user.InvitationState),
+			InvitationExpiresAt:      user.InvitationExpiresAt,
+			MFALabel:                 "Optional",
+			MFADetail:                "User choice",
+			MFARequired:              user.MFARequired,
+			PasswordResetRequestedAt: user.PasswordResetRequestedAt,
 		}
 		if user.InvitationActionReference != "" {
 			view.InvitationRevokePath = adminUserInvitationRevokePath(user.InvitationActionReference)
@@ -144,7 +145,7 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 	}
 	result := &views.AdminUserInvitationData{
 		Name: invitation.Name, Username: invitation.User.Username,
-		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + invitationEnrollmentPath,
 		Token:         invitation.Token.Token, ExpiresAt: invitation.Token.ExpiresAt,
 	}
 	h.renderAdminUsers(w, r, http.StatusCreated, views.AdminUserInvitationFormData{}, result, "")
@@ -207,7 +208,7 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 	}
 	result := &views.AdminUserInvitationData{
 		Name: invitation.Name, Username: invitation.User.Username,
-		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + invitationEnrollmentPath,
 		Token:         invitation.Token.Token, ExpiresAt: invitation.Token.ExpiresAt,
 		Rotated: true,
 	}
@@ -365,7 +366,7 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 	}
 	result := &views.AdminUserCredentialResetData{
 		Username:      targetUser.Username,
-		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + enrollmentRedemptionPath,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + credentialRedemptionPath,
 		Token:         token.Token, ExpiresAt: token.ExpiresAt,
 	}
 	h.renderAdminUsersWithCredentialReset(w, r, http.StatusCreated, result, "")

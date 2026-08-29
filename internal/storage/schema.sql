@@ -493,6 +493,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at DATETIME,
     disabled_at DATETIME,
     disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    password_reset_requested_at DATETIME,
     user_type TEXT NOT NULL DEFAULT 'webmail' CHECK (user_type IN ('webmail', 'management')),
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1404,4 +1405,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (89);
+INSERT OR REPLACE INTO schema_version (version) VALUES (90);

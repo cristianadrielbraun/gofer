@@ -133,6 +133,7 @@ const (
 	AuthEventEnrollmentIssued             AuthEventType = "enrollment_token_issued"
 	AuthEventEnrollmentRevoked            AuthEventType = "enrollment_token_revoked"
 	AuthEventEnrollmentCompleted          AuthEventType = "enrollment_completed"
+	AuthEventCredentialResetRequested     AuthEventType = "credential_reset_requested"
 	AuthEventCredentialResetCompleted     AuthEventType = "credential_reset_completed"
 	AuthEventLocalRecoveryStarted         AuthEventType = "local_recovery_started"
 	AuthEventSetupTokenIssued             AuthEventType = "setup_token_issued"

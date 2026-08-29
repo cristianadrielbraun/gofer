@@ -58,7 +58,7 @@ func TestRedeemEnrollmentTokenActivatesUserAndConsumesTokenAtomically(t *testing
 	insertRedemptionToken(t, manager, "enrollment-token", "invitee", "raw-enrollment-secret", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour))
 
 	result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
-		Token: " raw-enrollment-secret ", NewPassword: redemptionTestPassword, UserAgent: " Enrollment Browser/1.0 ",
+		Token: " raw-enrollment-secret ", NewPassword: redemptionTestPassword, UserAgent: " Enrollment Browser/1.0 ", Purpose: EnrollmentTokenPurposeEnrollment,
 	})
 	if err != nil {
 		t.Fatalf("RedeemEnrollmentToken() error = %v", err)
@@ -103,7 +103,7 @@ func TestRedeemEnrollmentTokenActivatesUserAndConsumesTokenAtomically(t *testing
 	}
 
 	if replay, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
-		Token: "raw-enrollment-secret", NewPassword: "another excellent redeemed passphrase",
+		Token: "raw-enrollment-secret", NewPassword: "another excellent redeemed passphrase", Purpose: EnrollmentTokenPurposeEnrollment,
 	}); replay != nil || !errors.Is(err, ErrEnrollmentTokenInvalid) {
 		t.Fatalf("replayed enrollment token = %#v, %v", replay, err)
 	}
@@ -128,7 +128,7 @@ func TestRedeemEnrollmentTokenRejectsManagementAccountEnrollment(t *testing.T) {
 	)
 
 	result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
-		Token: "management-enrollment-secret", NewPassword: redemptionTestPassword,
+		Token: "management-enrollment-secret", NewPassword: redemptionTestPassword, Purpose: EnrollmentTokenPurposeEnrollment,
 	})
 	if result != nil || !errors.Is(err, ErrEnrollmentTokenInvalid) {
 		t.Fatalf("management enrollment redemption = %#v, %v", result, err)
@@ -163,7 +163,7 @@ func TestRedeemEnrollmentTokenRequiresStrongFactorBeforeGlobalMFAActivation(t *t
 	}
 
 	result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
-		Token: "global-mfa-secret", NewPassword: redemptionTestPassword,
+		Token: "global-mfa-secret", NewPassword: redemptionTestPassword, Purpose: EnrollmentTokenPurposeEnrollment,
 	})
 	if result != nil || !errors.Is(err, ErrInstanceMFAEnrollmentNeeded) {
 		t.Fatalf("factorless redemption = %#v, %v", result, err)
@@ -189,7 +189,7 @@ func TestRedeemEnrollmentTokenRequiresStrongFactorBeforeGlobalMFAActivation(t *t
 
 	insertPolicyTestTOTP(t, manager, "invitee", now)
 	result, err = manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
-		Token: "global-mfa-secret", NewPassword: redemptionTestPassword,
+		Token: "global-mfa-secret", NewPassword: redemptionTestPassword, Purpose: EnrollmentTokenPurposeEnrollment,
 	})
 	if err != nil || result == nil || result.UserID != "invitee" {
 		t.Fatalf("factor-ready redemption = %#v, %v", result, err)
@@ -220,8 +220,13 @@ func TestRedeemCredentialResetReplacesPasswordInvalidatesAuthAndPreservesDisable
 		insertRedemptionSession(t, manager, user.id+"-session-one", user.id, now)
 		insertRedemptionSession(t, manager, user.id+"-session-two", user.id, now)
 		insertRedemptionToken(t, manager, user.id+"-reset-token", user.id, user.token, EnrollmentTokenPurposeCredentialReset, now.Add(time.Hour))
+		if _, err := manager.db.Write().ExecContext(t.Context(), `
+			UPDATE users SET password_reset_requested_at = ? WHERE id = ?`, now.Add(-time.Minute), user.id,
+		); err != nil {
+			t.Fatal(err)
+		}
 
-		result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: user.token, NewPassword: redemptionTestPassword})
+		result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: user.token, NewPassword: redemptionTestPassword, Purpose: EnrollmentTokenPurposeCredentialReset})
 		if err != nil || result == nil || result.RevokedSessions != 2 {
 			t.Fatalf("reset %q = %#v, %v", user.id, result, err)
 		}
@@ -230,7 +235,10 @@ func TestRedeemCredentialResetReplacesPasswordInvalidatesAuthAndPreservesDisable
 		var passwordHash string
 		var mustChange int
 		var resetAt time.Time
-		if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT status, auth_version FROM users WHERE id = ?`, user.id).Scan(&status, &authVersion); err != nil {
+		var requestedAt sql.NullTime
+		if err := manager.db.Read().QueryRowContext(t.Context(), `
+			SELECT status, auth_version, password_reset_requested_at FROM users WHERE id = ?`, user.id,
+		).Scan(&status, &authVersion, &requestedAt); err != nil {
 			t.Fatal(err)
 		}
 		if err := manager.db.Read().QueryRowContext(t.Context(), `
@@ -243,9 +251,47 @@ func TestRedeemCredentialResetReplacesPasswordInvalidatesAuthAndPreservesDisable
 		if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions WHERE user_id = ? AND revoked_at IS NULL`, user.id).Scan(&activeSessions); err != nil {
 			t.Fatal(err)
 		}
-		if status != user.status || authVersion != 2 || !matches || verifyErr != nil || mustChange != 0 || !resetAt.Equal(now) || activeSessions != 0 {
-			t.Fatalf("reset state %q = status:%q version:%d matches:%t mustChange:%d reset:%v sessions:%d error:%v", user.id, status, authVersion, matches, mustChange, resetAt, activeSessions, verifyErr)
+		if status != user.status || authVersion != 2 || requestedAt.Valid || !matches || verifyErr != nil || mustChange != 0 || !resetAt.Equal(now) || activeSessions != 0 {
+			t.Fatalf("reset state %q = status:%q version:%d requested:%v matches:%t mustChange:%d reset:%v sessions:%d error:%v", user.id, status, authVersion, requestedAt, matches, mustChange, resetAt, activeSessions, verifyErr)
 		}
+	}
+}
+
+func TestRedeemEnrollmentTokenRejectsTokenPresentedToWrongPurpose(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 9, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name            string
+		status          UserStatus
+		tokenPurpose    EnrollmentTokenPurpose
+		expectedPurpose EnrollmentTokenPurpose
+	}{
+		{name: "invitation through reset flow", status: UserStatusPending, tokenPurpose: EnrollmentTokenPurposeEnrollment, expectedPurpose: EnrollmentTokenPurposeCredentialReset},
+		{name: "reset through invitation flow", status: UserStatusActive, tokenPurpose: EnrollmentTokenPurposeCredentialReset, expectedPurpose: EnrollmentTokenPurposeEnrollment},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{})
+			insertRedemptionUser(t, manager, "person", test.status, now)
+			insertRedemptionToken(t, manager, "token", "person", "purpose-bound-secret", test.tokenPurpose, now.Add(time.Hour))
+
+			result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
+				Token: "purpose-bound-secret", NewPassword: redemptionTestPassword, Purpose: test.expectedPurpose,
+			})
+			if result != nil || !errors.Is(err, ErrEnrollmentTokenInvalid) {
+				t.Fatalf("wrong-purpose redemption = %#v, %v", result, err)
+			}
+
+			var used, credentials int
+			if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = 'token'`).Scan(&used); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM password_credentials WHERE user_id = 'person'`).Scan(&credentials); err != nil {
+				t.Fatal(err)
+			}
+			if used != 0 || credentials != 0 {
+				t.Fatalf("wrong-purpose mutation = used:%d credentials:%d", used, credentials)
+			}
+		})
 	}
 }
 
@@ -278,7 +324,7 @@ func TestRedeemEnrollmentTokenRejectsInactiveTokenAndPolicyFailuresWithoutMutati
 			if test.revoked {
 				_, _ = manager.db.Write().ExecContext(t.Context(), `UPDATE user_enrollment_tokens SET revoked_at = ? WHERE id = 'token'`, now.Add(-time.Minute))
 			}
-			result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: test.supplied, NewPassword: redemptionTestPassword})
+			result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: test.supplied, NewPassword: redemptionTestPassword, Purpose: test.purpose})
 			if result != nil || !errors.Is(err, ErrEnrollmentTokenInvalid) {
 				t.Fatalf("inactive redemption = %#v, %v", result, err)
 			}
@@ -292,7 +338,7 @@ func TestRedeemEnrollmentTokenRejectsInactiveTokenAndPolicyFailuresWithoutMutati
 	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{})
 	insertRedemptionUser(t, manager, "person", UserStatusPending, now)
 	insertRedemptionToken(t, manager, "token", "person", "valid", EnrollmentTokenPurposeEnrollment, now.Add(time.Hour))
-	if result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: "valid", NewPassword: "short"}); result != nil || !errors.Is(err, ErrPasswordTooShort) {
+	if result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: "valid", NewPassword: "short", Purpose: EnrollmentTokenPurposeEnrollment}); result != nil || !errors.Is(err, ErrPasswordTooShort) {
 		t.Fatalf("policy rejection = %#v, %v", result, err)
 	}
 	var usedAt sql.NullTime
@@ -314,7 +360,7 @@ func TestRedeemEnrollmentTokenRollsBackWhenSecurityEventFails(t *testing.T) {
 		END`); err != nil {
 		t.Fatal(err)
 	}
-	result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: "rollback-secret", NewPassword: redemptionTestPassword})
+	result, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{Token: "rollback-secret", NewPassword: redemptionTestPassword, Purpose: EnrollmentTokenPurposeEnrollment})
 	if result != nil || err == nil {
 		t.Fatalf("event failure = %#v, %v", result, err)
 	}
@@ -350,7 +396,7 @@ func TestRedeemEnrollmentTokenConcurrentUseHasOneWinner(t *testing.T) {
 			defer wait.Done()
 			<-start
 			_, err := manager.RedeemEnrollmentToken(t.Context(), RedeemEnrollmentTokenOptions{
-				Token: "concurrent-secret", NewPassword: fmt.Sprintf("a concurrent redeemed passphrase %d", index),
+				Token: "concurrent-secret", NewPassword: fmt.Sprintf("a concurrent redeemed passphrase %d", index), Purpose: EnrollmentTokenPurposeEnrollment,
 			})
 			errorsFound <- err
 		}(index)

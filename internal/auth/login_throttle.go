@@ -14,14 +14,15 @@ import (
 )
 
 const (
-	loginThrottleAction           = "local_password_login"
-	passkeyLoginThrottleAction    = "local_passkey_login"
-	passkeyStepUpThrottleAction   = "local_passkey_step_up"
-	totpLoginThrottleAction       = "local_totp_login"
-	totpManagementThrottleAction  = "local_totp_management"
-	recoveryCodeThrottleAction    = "local_recovery_code_login"
-	loginThrottleCleanupBatchSize = 500
-	minimumBucketHashKeyBytes     = 32
+	loginThrottleAction                = "local_password_login"
+	passkeyLoginThrottleAction         = "local_passkey_login"
+	passkeyStepUpThrottleAction        = "local_passkey_step_up"
+	totpLoginThrottleAction            = "local_totp_login"
+	totpManagementThrottleAction       = "local_totp_management"
+	recoveryCodeThrottleAction         = "local_recovery_code_login"
+	passwordResetRequestThrottleAction = "password_reset_request"
+	loginThrottleCleanupBatchSize      = 500
+	minimumBucketHashKeyBytes          = 32
 )
 
 type loginThrottleBucketKind string
@@ -92,27 +93,9 @@ func (m *Manager) checkLoginThrottleBuckets(ctx context.Context, buckets []login
 	}
 	defer tx.Rollback()
 
-	retryAt := time.Time{}
-	for _, bucket := range buckets {
-		var blockedUntil sql.NullTime
-		var expiresAt time.Time
-		err := tx.QueryRowContext(ctx, `
-			SELECT blocked_until, expires_at
-			FROM auth_throttle
-			WHERE bucket_hash = ? AND action = ?`, bucket.hash, bucket.action,
-		).Scan(&blockedUntil, &expiresAt)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return LoginThrottleDecision{}, fmt.Errorf("read login throttle bucket: %w", err)
-		}
-		if !expiresAt.After(now) || !blockedUntil.Valid || !blockedUntil.Time.After(now) {
-			continue
-		}
-		if blockedUntil.Time.After(retryAt) {
-			retryAt = blockedUntil.Time
-		}
+	retryAt, err := loginThrottleRetryAtTx(ctx, tx, buckets, now)
+	if err != nil {
+		return LoginThrottleDecision{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return LoginThrottleDecision{}, fmt.Errorf("commit login throttle check: %w", err)
@@ -326,6 +309,32 @@ func recordLoginThrottleFailure(ctx context.Context, tx *sql.Tx, bucket loginThr
 		return time.Time{}, fmt.Errorf("write login throttle failure bucket: %w", err)
 	}
 	return nextBlockedUntil, nil
+}
+
+func loginThrottleRetryAtTx(ctx context.Context, tx *sql.Tx, buckets []loginThrottleBucket, now time.Time) (time.Time, error) {
+	retryAt := time.Time{}
+	for _, bucket := range buckets {
+		var blockedUntil sql.NullTime
+		var expiresAt time.Time
+		err := tx.QueryRowContext(ctx, `
+			SELECT blocked_until, expires_at
+			FROM auth_throttle
+			WHERE bucket_hash = ? AND action = ?`, bucket.hash, bucket.action,
+		).Scan(&blockedUntil, &expiresAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return time.Time{}, fmt.Errorf("read login throttle bucket: %w", err)
+		}
+		if !expiresAt.After(now) || !blockedUntil.Valid || !blockedUntil.Time.After(now) {
+			continue
+		}
+		if blockedUntil.Time.After(retryAt) {
+			retryAt = blockedUntil.Time
+		}
+	}
+	return retryAt, nil
 }
 
 func loginThrottleDelay(policy loginThrottlePolicy, failureCount int64) time.Duration {

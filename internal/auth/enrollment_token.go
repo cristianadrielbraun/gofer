@@ -134,6 +134,15 @@ func (m *Manager) IssueEnrollmentToken(ctx context.Context, options IssueEnrollm
 		if err := requireEnrollmentTokenTarget(ctx, tx, userID, options.Purpose); err != nil {
 			return err
 		}
+		if options.Purpose == EnrollmentTokenPurposeCredentialReset {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE users
+				SET password_reset_requested_at = NULL, updated_at = ?
+				WHERE id = ?`, now, userID,
+			); err != nil {
+				return fmt.Errorf("resolve password reset request: %w", err)
+			}
+		}
 
 		replaced, err := tx.ExecContext(ctx, `
 			UPDATE user_enrollment_tokens

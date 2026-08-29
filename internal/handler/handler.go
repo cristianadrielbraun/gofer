@@ -299,10 +299,15 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /setup/recovery", h.handleSetupRecoverySubmit)
 	mux.HandleFunc("GET /setup/review", h.handleSetupReview)
 	mux.HandleFunc("POST /setup/review", h.handleSetupReviewSubmit)
-	mux.HandleFunc("GET /account/redeem", h.handleEnrollmentRedemption)
-	mux.HandleFunc("POST /account/redeem", h.handleEnrollmentRedemptionSubmit)
-	mux.HandleFunc("POST /account/redeem/google", h.handleEnrollmentGoogleRedemption)
-	mux.HandleFunc("GET /account/redeem/complete", h.handleEnrollmentRedemptionComplete)
+	mux.HandleFunc("GET /account/enroll", h.handleInvitationEnrollment)
+	mux.HandleFunc("POST /account/enroll", h.handleInvitationEnrollmentSubmit)
+	mux.HandleFunc("POST /account/enroll/google", h.handleInvitationGoogleEnrollment)
+	mux.HandleFunc("GET /account/enroll/complete", h.handleInvitationEnrollmentComplete)
+	mux.HandleFunc("GET /account/redeem", h.handleCredentialRedemption)
+	mux.HandleFunc("POST /account/redeem", h.handleCredentialRedemptionSubmit)
+	mux.HandleFunc("GET /account/redeem/complete", h.handleCredentialRedemptionComplete)
+	mux.HandleFunc("GET /account/recover", h.handlePasswordResetRequest)
+	mux.HandleFunc("POST /account/recover", h.handlePasswordResetRequestSubmit)
 	mux.HandleFunc("GET /auth/google", h.handleGoogleRedirect)
 	mux.HandleFunc("GET /auth/google/callback", h.handleGoogleCallback)
 	mux.HandleFunc("GET /auth/microsoft", h.handleMicrosoftRedirect)
@@ -6030,11 +6035,11 @@ func (h *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 				reason = auth.FederatedLoginFailureIdentityConflict
 			}
 			log.Printf("Google invitation enrollment rejected: reason=%s", reason)
-			http.Redirect(w, r, enrollmentRedemptionPath+"?google_failed=1", http.StatusSeeOther)
+			http.Redirect(w, r, invitationEnrollmentPath+"?google_failed=1", http.StatusSeeOther)
 			return
 		}
 		if result == nil || (result.Session == nil) == (result.PreAuthChallenge == nil) {
-			http.Redirect(w, r, enrollmentRedemptionPath+"?google_failed=1", http.StatusSeeOther)
+			http.Redirect(w, r, invitationEnrollmentPath+"?google_failed=1", http.StatusSeeOther)
 			return
 		}
 		if result.PreAuthChallenge != nil {
@@ -6113,7 +6118,7 @@ func (h *Handler) rejectGoogleCallback(
 	}
 	if purpose == auth.ChallengePurposeFederatedEnrollment {
 		log.Printf("Google invitation enrollment rejected: reason=%s", reason)
-		http.Redirect(w, r, enrollmentRedemptionPath+"?google_failed=1", http.StatusSeeOther)
+		http.Redirect(w, r, invitationEnrollmentPath+"?google_failed=1", http.StatusSeeOther)
 		return
 	}
 	log.Printf("Google application login rejected: reason=%s", reason)

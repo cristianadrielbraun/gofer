@@ -175,7 +175,8 @@ func isPublicPath(path string) bool {
 	public := []string{
 		"/login", "/admin/login", "/login/passkey/start", "/login/passkey/finish", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
-		"/account/redeem", "/account/redeem/google", "/account/redeem/complete",
+		"/account/enroll", "/account/enroll/google", "/account/enroll/complete",
+		"/account/redeem", "/account/redeem/complete", "/account/recover",
 		"/auth/google", "/auth/google/callback", "/auth/microsoft", "/auth/microsoft/callback", "/auth/oidc", "/auth/oidc/callback", "/sw.js",
 	}
 	for _, p := range public {

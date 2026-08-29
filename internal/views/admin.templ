@@ -31,6 +31,7 @@ type AdminUserData struct {
 	StatusCSRFToken           string
 	CredentialResetPath       string
 	CredentialResetCSRFToken  string
+	PasswordResetRequestedAt  *time.Time
 	InvitationState           string
 	InvitationExpiresAt       *time.Time
 	InvitationRevokePath      string
@@ -415,10 +416,18 @@ templ AdminUsersPage(data AdminUsersData) {
 												if user.InvitationRotatePath == "" && user.CredentialResetPath == "" && user.StatusPath == "" {
 													<span class="text-xs text-muted-foreground">—</span>
 												} else {
-													<div class="flex items-center justify-end gap-2">
-														@AdminUserInvitationActions(user, data.StepUpRequired)
-														@AdminUserCredentialResetAction(user, data.StepUpRequired)
-														@AdminUserStatusAction(user, data.StepUpRequired)
+													<div class="flex flex-col items-end gap-2">
+														if user.PasswordResetRequestedAt != nil {
+															<div>
+																<span class="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">Password reset requested</span>
+																<p class="mt-1 text-xs text-muted-foreground">Requested { user.PasswordResetRequestedAt.Local().Format("Jan 2, 15:04") }</p>
+															</div>
+														}
+														<div class="flex items-center justify-end gap-2">
+															@AdminUserInvitationActions(user, data.StepUpRequired)
+															@AdminUserCredentialResetAction(user, data.StepUpRequired)
+															@AdminUserStatusAction(user, data.StepUpRequired)
+														</div>
 													</div>
 												}
 											</td>
@@ -652,14 +661,22 @@ templ AdminUserCredentialResetAction(user AdminUserData, stepUpRequired bool) {
 		{{ resetDialogID := adminUserCredentialResetDialogID(user) }}
 		@dialog.Trigger(dialog.TriggerProps{For: resetDialogID}) {
 			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.CredentialResetCSRFToken == ""}) {
-				Reset password
+				if user.PasswordResetRequestedAt != nil {
+					Issue reset token
+				} else {
+					Reset password
+				}
 			}
 		}
 		@dialog.Dialog(dialog.Props{ID: resetDialogID}) {
 			@dialog.Content() {
 				@dialog.Header() {
 					@dialog.Title() {
-						Generate a password-reset token for { adminUserUsername(user.Username) }?
+						if user.PasswordResetRequestedAt != nil {
+							Issue a password-reset token for { adminUserUsername(user.Username) }?
+						} else {
+							Generate a password-reset token for { adminUserUsername(user.Username) }?
+						}
 					}
 					@dialog.Description() {
 						This does not change the password or sign the user out yet. Any previous unused reset token will stop working, and Gofer will show the new token only once.

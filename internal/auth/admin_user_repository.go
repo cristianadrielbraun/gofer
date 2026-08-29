@@ -32,6 +32,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	now := m.clock.Now().UTC()
 	rows, err := tx.QueryContext(ctx, `
 		SELECT u.id, u.username, u.status, u.user_type, u.is_admin, u.mfa_required,
+		       u.password_reset_requested_at,
 		       invitation.id, invitation.expires_at, invitation.used_at, invitation.revoked_at
 		FROM users u
 		LEFT JOIN user_enrollment_tokens invitation ON invitation.id = (
@@ -54,9 +55,10 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		var user AdministratorUserSummary
 		var isAdmin, mfaRequired int
 		var tokenID sql.NullString
-		var expiresAt, usedAt, revokedAt sql.NullTime
+		var passwordResetRequestedAt, expiresAt, usedAt, revokedAt sql.NullTime
 		if err := rows.Scan(
 			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired,
+			&passwordResetRequestedAt,
 			&tokenID, &expiresAt, &usedAt, &revokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan administrator user: %w", err)
@@ -75,6 +77,10 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		}
 		user.IsAdmin = isAdmin == 1
 		user.MFARequired = mfaRequired == 1
+		if passwordResetRequestedAt.Valid {
+			requestedAt := passwordResetRequestedAt.Time
+			user.PasswordResetRequestedAt = &requestedAt
+		}
 		if user.Status == UserStatusPending && user.UserType == UserTypeWebmail && !user.IsAdmin {
 			user.InvitationState = AdministratorUserInvitationNotIssued
 			switch {

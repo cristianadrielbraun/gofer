@@ -399,16 +399,16 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
 			id, username, username_normalized, name, status, auth_version,
-			mfa_required, user_type, is_admin, created_at, updated_at
+			mfa_required, password_reset_requested_at, user_type, is_admin, created_at, updated_at
 		) VALUES ('reset-target', 'reset-target', 'reset-target', 'Reset Target',
-			'active', 1, 0, 'webmail', 0, ?, ?);
+			'active', 1, 0, ?, 'webmail', 0, ?, ?);
 		INSERT INTO password_credentials (user_id, password_hash)
 		VALUES ('reset-target', 'preserved-password-hash');
 		INSERT INTO totp_credentials (
 			id, user_id, encrypted_seed, key_version, algorithm, digits,
 			period, issuer, enabled, created_at
 		) VALUES ('reset-target-totp', 'reset-target', x'01', 1, 'SHA1', 6, 30, 'Gofer', 1, ?)`,
-		now, now, now,
+		now, now, now, now,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
 	}
 	for _, want := range []string{
-		"Reset password", "Generate a password-reset token for reset-target?",
+		"Password reset requested", "Issue reset token", "Issue a password-reset token for reset-target?",
 		`action="` + path + `"`, "Generate reset token",
 		"does not change the password or sign the user out yet",
 	} {
@@ -440,6 +440,12 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	withoutCSRF := postSecuritySettings(t, stack, path, url.Values{}, sessionCookie)
 	if withoutCSRF.Code != http.StatusForbidden {
 		t.Fatalf("credential reset without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+	var stillRequested int
+	if err := db.Read().QueryRowContext(t.Context(), `
+		SELECT password_reset_requested_at IS NOT NULL FROM users WHERE id = 'reset-target'`,
+	).Scan(&stillRequested); err != nil || stillRequested != 1 {
+		t.Fatalf("credential reset request after rejected issuance = %d, %v", stillRequested, err)
 	}
 	issued := postSecuritySettings(t, stack, path, url.Values{
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
@@ -466,7 +472,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	}
 	digest := sha256.Sum256([]byte(rawToken))
 	var storedHash, purpose, createdBy, passwordHash string
-	var activeSessions, totpFactors int
+	var activeSessions, totpFactors, requestCleared int
 	if err := db.Read().QueryRowContext(t.Context(), `
 		SELECT token_hash, purpose, COALESCE(created_by, '')
 		FROM user_enrollment_tokens
@@ -482,6 +488,12 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	}
 	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM totp_credentials WHERE user_id = 'reset-target' AND enabled = 1`).Scan(&totpFactors); err != nil {
 		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT password_reset_requested_at IS NULL FROM users WHERE id = 'reset-target'`).Scan(&requestCleared); err != nil {
+		t.Fatal(err)
+	}
+	if requestCleared != 1 {
+		t.Fatal("credential reset issuance did not clear the pending request")
 	}
 	if storedHash != hex.EncodeToString(digest[:]) || storedHash == rawToken ||
 		purpose != string(auth.EnrollmentTokenPurposeCredentialReset) || createdBy == "" ||
@@ -499,8 +511,8 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	}
 
 	newPassword := "a private replacement password"
-	redeemed := postEnrollmentRedemption(stack, rawToken, newPassword, newPassword)
-	if redeemed.Code != http.StatusSeeOther || redeemed.Header().Get("Location") != enrollmentRedemptionCompletePath {
+	redeemed := postPasswordToken(stack, credentialRedemptionPath, rawToken, newPassword, newPassword)
+	if redeemed.Code != http.StatusSeeOther || redeemed.Header().Get("Location") != credentialRedemptionCompletePath {
 		t.Fatalf("redeem administrator reset token = %d location:%q body:%q", redeemed.Code, redeemed.Header().Get("Location"), redeemed.Body.String())
 	}
 	if stored, err := manager.GetSessionByToken(t.Context(), targetSession.Token); err != nil || stored != nil {
@@ -521,7 +533,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM totp_credentials WHERE user_id = 'reset-target' AND enabled = 1`).Scan(&totpFactors); err != nil || totpFactors != 1 {
 		t.Fatalf("preserved reset target TOTP factors = %d, %v", totpFactors, err)
 	}
-	replay := postEnrollmentRedemption(stack, rawToken, newPassword, newPassword)
+	replay := postPasswordToken(stack, credentialRedemptionPath, rawToken, newPassword, newPassword)
 	if replay.Code != http.StatusBadRequest {
 		t.Fatalf("credential-reset token replay = %d %q", replay.Code, replay.Body.String())
 	}
@@ -576,14 +588,14 @@ func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 	rawToken := match[1]
 	for _, want := range []string{
 		"Invitation created", "invited.person is pending enrollment",
-		"https://gofer.example/account/redeem", "Copy invitation details",
+		"https://gofer.example/account/enroll", "Copy invitation details",
 		"token is deliberately not placed in the URL", "2 users",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("created invitation missing %q: %q", want, html)
 		}
 	}
-	if strings.Contains(html, "/account/redeem?token=") || strings.Contains(html, sessionCookie.Value) {
+	if strings.Contains(html, "/account/enroll?token=") || strings.Contains(html, sessionCookie.Value) {
 		t.Fatal("created invitation exposed its token in a URL or exposed the session bearer")
 	}
 
@@ -630,13 +642,13 @@ func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 	}
 
 	password := "a reliable invited account passphrase"
-	redeem := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(url.Values{
+	redeem := httptest.NewRequest(http.MethodPost, invitationEnrollmentPath, strings.NewReader(url.Values{
 		"token": {rawToken}, "new_password": {password}, "confirm_password": {password},
 	}.Encode()))
 	redeem.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	redeemed := httptest.NewRecorder()
 	stack.ServeHTTP(redeemed, redeem)
-	if redeemed.Code != http.StatusSeeOther || redeemed.Header().Get("Location") != enrollmentRedemptionCompletePath {
+	if redeemed.Code != http.StatusSeeOther || redeemed.Header().Get("Location") != invitationEnrollmentCompletePath {
 		t.Fatalf("redeem created invitation = %d %q body=%q", redeemed.Code, redeemed.Header().Get("Location"), redeemed.Body.String())
 	}
 	var activeStatus string
@@ -653,7 +665,7 @@ func TestAdministratorCanCreateAndRedeemSingleUseUserInvitation(t *testing.T) {
 	if activeStatus != string(auth.UserStatusActive) || passwords != 1 || usedTokens != 1 {
 		t.Fatalf("redeemed invited user = status:%q passwords:%d usedTokens:%d", activeStatus, passwords, usedTokens)
 	}
-	if replay := postSecuritySettings(t, stack, enrollmentRedemptionPath, url.Values{
+	if replay := postSecuritySettings(t, stack, invitationEnrollmentPath, url.Values{
 		"token": {rawToken}, "new_password": {password}, "confirm_password": {password},
 	}); replay.Code != http.StatusBadRequest {
 		t.Fatalf("replayed invitation = %d %q", replay.Code, replay.Body.String())
@@ -768,7 +780,7 @@ func TestAdministratorCanRotateAndRevokeInvitationWithoutExposingInternalTargets
 	}
 	password := "a reliable lifecycle account passphrase"
 	for _, token := range []string{originalToken, replacementToken} {
-		redeem := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(url.Values{
+		redeem := httptest.NewRequest(http.MethodPost, invitationEnrollmentPath, strings.NewReader(url.Values{
 			"token": {token}, "new_password": {password}, "confirm_password": {password},
 		}.Encode()))
 		redeem.Header.Set("Content-Type", "application/x-www-form-urlencoded")

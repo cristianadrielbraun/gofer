@@ -57,7 +57,9 @@ func (m *Manager) RecoverUserLocally(ctx context.Context, userID string) (*Local
 
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE users
-			SET auth_version = auth_version + 1, updated_at = ?
+			SET auth_version = auth_version + 1,
+			    password_reset_requested_at = NULL,
+			    updated_at = ?
 			WHERE id = ?`, now, userID); err != nil {
 			return fmt.Errorf("invalidate local recovery target: %w", err)
 		}

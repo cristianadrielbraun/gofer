@@ -69,7 +69,7 @@ func TestMigrateV88RetiresCompletedManagementHandoffWithoutChangingUsers(t *test
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if webmailType != "webmail" || webmailAdmin != 0 || managementType != "management" || managementAdmin != 1 || version != 89 {
+	if webmailType != "webmail" || webmailAdmin != 0 || managementType != "management" || managementAdmin != 1 || version != CurrentSchemaVersion {
 		t.Fatalf("retired roles = webmail:%s/%d management:%s/%d version:%d", webmailType, webmailAdmin, managementType, managementAdmin, version)
 	}
 	assertExecFails(t, db.Write(), `UPDATE users SET is_admin = 0 WHERE id = 'management-owner'`)

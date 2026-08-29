@@ -54,6 +54,7 @@ type AdministratorUserSummary struct {
 	UserType                  UserType
 	IsAdmin                   bool
 	MFARequired               bool
+	PasswordResetRequestedAt  *time.Time
 	InvitationState           AdministratorUserInvitationState
 	InvitationExpiresAt       *time.Time
 	InvitationActionReference string

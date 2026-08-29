@@ -202,6 +202,28 @@ func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *
 	}
 }
 
+func TestAdminUsersPageHighlightsRequestedPasswordReset(t *testing.T) {
+	requestedAt := time.Date(2026, time.August, 29, 14, 15, 0, 0, time.Local)
+	data := AdminUsersData{Users: []AdminUserData{{
+		ID: "requested-user", Username: "requested.user", Status: "Disabled", Role: "Webmail user",
+		CredentialResetPath:      "/admin/users/requested-user/credential-reset",
+		CredentialResetCSRFToken: strings.Repeat("r", 64), PasswordResetRequestedAt: &requestedAt,
+	}}}
+	var out bytes.Buffer
+	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Password reset requested", "Requested Aug 29, 14:15", "Issue reset token",
+		"Issue a password-reset token for requested.user?",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("requested password reset view missing %q: %s", want, html)
+		}
+	}
+}
+
 func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing.T) {
 	expiresAt := time.Date(2026, time.August, 21, 12, 30, 0, 0, time.Local)
 	data := AdminUsersData{
@@ -214,7 +236,7 @@ func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing
 		},
 		Invitation: &AdminUserInvitationData{
 			Name: "Invited Person", Username: "invited.person",
-			RedemptionURL: "https://gofer.example/account/redeem",
+			RedemptionURL: "https://gofer.example/account/enroll",
 			Token:         `private-token</textarea><script>alert("token")</script>`,
 			ExpiresAt:     expiresAt,
 		},
@@ -231,7 +253,7 @@ func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing
 		`&lt;Admin &amp; helper&gt;`, `Username &lt;already&gt; exists`,
 		"does not create, connect, or authorize a mailbox", "Invitation created",
 		`data-tui-dialog-disable-click-away="true"`, `data-tui-dialog-disable-esc="true"`,
-		"Gofer stores only a hash of the token", "https://gofer.example/account/redeem",
+		"Gofer stores only a hash of the token", "https://gofer.example/account/enroll",
 		"Copy invitation details", "deliberately not placed in the URL",
 		`private-token&lt;/textarea&gt;&lt;script&gt;alert(&#34;token&#34;)&lt;/script&gt;`,
 	} {
@@ -241,7 +263,7 @@ func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing
 	}
 	for _, forbidden := range []string{
 		`<script>alert("token")</script>`,
-		`https://gofer.example/account/redeem?token=`,
+		`https://gofer.example/account/enroll?token=`,
 	} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("administrator invitation view exposed forbidden value %q", forbidden)

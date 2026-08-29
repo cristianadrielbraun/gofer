@@ -6,21 +6,26 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 const (
-	enrollmentRedemptionPath               = "/account/redeem"
-	enrollmentGoogleRedemptionPath         = "/account/redeem/google"
-	enrollmentRedemptionCompletePath       = "/account/redeem/complete"
-	enrollmentRedemptionFormMaximumBytes   = 12 << 10
-	enrollmentRedemptionFailureMessage     = "That invitation or reset token is invalid or no longer active."
+	invitationEnrollmentPath             = "/account/enroll"
+	invitationGoogleEnrollmentPath       = "/account/enroll/google"
+	invitationEnrollmentCompletePath     = "/account/enroll/complete"
+	credentialRedemptionPath             = "/account/redeem"
+	credentialRedemptionCompletePath     = "/account/redeem/complete"
+	enrollmentRedemptionFormMaximumBytes = 12 << 10
+
+	invitationEnrollmentFailureMessage     = "That invitation token is invalid or no longer active."
+	credentialRedemptionFailureMessage     = "That reset token is invalid or no longer active."
 	enrollmentRedemptionServiceMessage     = "Unable to set the password right now. Please try again."
 	enrollmentRedemptionMFARequiredMessage = "This account must enroll a strong authenticator before it can be activated. Contact an administrator to complete MFA enrollment."
 )
 
-func (h *Handler) handleEnrollmentRedemption(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleInvitationEnrollment(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -29,17 +34,17 @@ func (h *Handler) handleEnrollmentRedemption(w http.ResponseWriter, r *http.Requ
 	if r.URL.Query().Get("google_failed") == "1" {
 		message = "Unable to complete Google sign-in with that invitation. The invitation was not consumed; please try again."
 	}
-	h.renderEnrollmentRedemptionPage(w, r, http.StatusOK, message)
+	h.renderInvitationEnrollmentPage(w, r, http.StatusOK, message)
 }
 
-func (h *Handler) handleEnrollmentGoogleRedemption(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleInvitationGoogleEnrollment(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() || !h.auth.HasGoogleLogin() {
 		http.NotFound(w, r)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, enrollmentRedemptionFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, enrollmentRedemptionFailureMessage)
+		h.renderInvitationEnrollmentPage(w, r, http.StatusBadRequest, invitationEnrollmentFailureMessage)
 		return
 	}
 	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
@@ -48,7 +53,7 @@ func (h *Handler) handleEnrollmentGoogleRedemption(w http.ResponseWriter, r *htt
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 		if err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
 			log.Printf("replace Google enrollment challenge: %v", err)
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
 			return
 		}
 	}
@@ -57,18 +62,18 @@ func (h *Handler) handleEnrollmentGoogleRedemption(w http.ResponseWriter, r *htt
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrEnrollmentTokenInvalid):
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, enrollmentRedemptionFailureMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusBadRequest, invitationEnrollmentFailureMessage)
 		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
 		default:
 			log.Printf("start Google invitation enrollment: %v", err)
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
 		}
 		return
 	}
 	if start == nil || start.Challenge == nil || start.Challenge.Token == "" {
 		log.Printf("start Google invitation enrollment returned incomplete authorization")
-		h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+		h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
 		return
 	}
 	auth.SetPreAuthCookie(
@@ -78,19 +83,56 @@ func (h *Handler) handleEnrollmentGoogleRedemption(w http.ResponseWriter, r *htt
 	http.Redirect(w, r, start.AuthorizationURL, http.StatusTemporaryRedirect)
 }
 
-func (h *Handler) handleEnrollmentRedemptionSubmit(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleInvitationEnrollmentSubmit(w http.ResponseWriter, r *http.Request) {
+	h.handlePasswordTokenSubmit(
+		w, r,
+		auth.EnrollmentTokenPurposeEnrollment,
+		invitationEnrollmentCompletePath,
+		invitationEnrollmentFailureMessage,
+		h.renderInvitationEnrollmentPage,
+	)
+}
+
+func (h *Handler) handleCredentialRedemption(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsEnabled() {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	h.renderCredentialRedemptionPage(w, r, http.StatusOK, "")
+}
+
+func (h *Handler) handleCredentialRedemptionSubmit(w http.ResponseWriter, r *http.Request) {
+	h.handlePasswordTokenSubmit(
+		w, r,
+		auth.EnrollmentTokenPurposeCredentialReset,
+		credentialRedemptionCompletePath,
+		credentialRedemptionFailureMessage,
+		h.renderCredentialRedemptionPage,
+	)
+}
+
+type passwordTokenPageRenderer func(http.ResponseWriter, *http.Request, int, string)
+
+func (h *Handler) handlePasswordTokenSubmit(
+	w http.ResponseWriter,
+	r *http.Request,
+	purpose auth.EnrollmentTokenPurpose,
+	completePath string,
+	failureMessage string,
+	render passwordTokenPageRenderer,
+) {
 	if !h.auth.IsEnabled() {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, enrollmentRedemptionFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, enrollmentRedemptionFailureMessage)
+		render(w, r, http.StatusBadRequest, failureMessage)
 		return
 	}
 	newPassword := r.PostFormValue("new_password")
 	if newPassword != r.PostFormValue("confirm_password") {
-		h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, "The new password fields do not match.")
+		render(w, r, http.StatusBadRequest, "The new password fields do not match.")
 		return
 	}
 
@@ -98,21 +140,22 @@ func (h *Handler) handleEnrollmentRedemptionSubmit(w http.ResponseWriter, r *htt
 		Token:       r.PostFormValue("token"),
 		NewPassword: newPassword,
 		UserAgent:   r.UserAgent(),
+		Purpose:     purpose,
 	})
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrEnrollmentTokenInvalid):
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, enrollmentRedemptionFailureMessage)
+			render(w, r, http.StatusBadRequest, failureMessage)
 		case errors.Is(err, auth.ErrPasswordInvalid),
 			errors.Is(err, auth.ErrPasswordTooShort),
 			errors.Is(err, auth.ErrPasswordTooLong),
 			errors.Is(err, auth.ErrPasswordCommon):
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusBadRequest, err.Error())
+			render(w, r, http.StatusBadRequest, err.Error())
 		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
+			render(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
 		default:
-			log.Printf("redeem enrollment token: %v", err)
-			h.renderEnrollmentRedemptionPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+			log.Printf("redeem %s token: %v", purpose, err)
+			render(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
 		}
 		return
 	}
@@ -121,30 +164,48 @@ func (h *Handler) handleEnrollmentRedemptionSubmit(w http.ResponseWriter, r *htt
 	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, enrollmentRedemptionCompletePath, http.StatusSeeOther)
+	http.Redirect(w, r, completePath, http.StatusSeeOther)
 }
 
-func (h *Handler) handleEnrollmentRedemptionComplete(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleInvitationEnrollmentComplete(w http.ResponseWriter, r *http.Request) {
+	h.renderPasswordTokenCompletion(w, r, views.InvitationEnrollmentCompletePage())
+}
+
+func (h *Handler) handleCredentialRedemptionComplete(w http.ResponseWriter, r *http.Request) {
+	h.renderPasswordTokenCompletion(w, r, views.CredentialRedemptionCompletePage())
+}
+
+func (h *Handler) renderPasswordTokenCompletion(w http.ResponseWriter, r *http.Request, component templ.Component) {
 	if !h.auth.IsEnabled() {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	var page bytes.Buffer
-	if err := views.EnrollmentRedemptionCompletePage().Render(r.Context(), &page); err != nil {
-		log.Printf("render enrollment redemption completion: %v", err)
+	if err := component.Render(r.Context(), &page); err != nil {
+		log.Printf("render password token completion: %v", err)
 		http.Error(w, "failed to render password confirmation", http.StatusInternalServerError)
 		return
 	}
 	writeEnrollmentRedemptionPage(w, http.StatusOK, &page)
 }
 
-func (h *Handler) renderEnrollmentRedemptionPage(w http.ResponseWriter, r *http.Request, status int, message string) {
+func (h *Handler) renderInvitationEnrollmentPage(w http.ResponseWriter, r *http.Request, status int, message string) {
 	var page bytes.Buffer
-	if err := views.EnrollmentRedemptionPage(views.EnrollmentRedemptionData{
+	if err := views.InvitationEnrollmentPage(views.InvitationEnrollmentData{
 		Message: message, GoogleLoginAvailable: h.auth.HasGoogleLogin(),
 	}).Render(r.Context(), &page); err != nil {
-		log.Printf("render enrollment redemption page: %v", err)
-		http.Error(w, "failed to render password form", http.StatusInternalServerError)
+		log.Printf("render invitation enrollment page: %v", err)
+		http.Error(w, "failed to render invitation form", http.StatusInternalServerError)
+		return
+	}
+	writeEnrollmentRedemptionPage(w, status, &page)
+}
+
+func (h *Handler) renderCredentialRedemptionPage(w http.ResponseWriter, r *http.Request, status int, message string) {
+	var page bytes.Buffer
+	if err := views.CredentialRedemptionPage(views.CredentialRedemptionData{Message: message}).Render(r.Context(), &page); err != nil {
+		log.Printf("render credential redemption page: %v", err)
+		http.Error(w, "failed to render password reset form", http.StatusInternalServerError)
 		return
 	}
 	writeEnrollmentRedemptionPage(w, status, &page)

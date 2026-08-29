@@ -152,7 +152,8 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 	publicPaths := []string{
 		"/login", "/admin/login", "/login/mfa", "/login/mfa/recovery", "/login/recovery/mfa", "/login/recovery/codes",
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
-		"/account/redeem", "/account/redeem/google", "/account/redeem/complete",
+		"/account/enroll", "/account/enroll/google", "/account/enroll/complete",
+		"/account/redeem", "/account/redeem/complete", "/account/recover",
 		"/auth/google", "/auth/google/callback", "/auth/microsoft", "/auth/microsoft/callback", "/assets/app.js", "/sw.js",
 	}
 	for _, path := range publicPaths {
@@ -164,7 +165,7 @@ func TestMiddlewareKeepsPublicRoutesUnauthenticated(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{"/login", "/setup", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review", "/account/redeem", "/account/redeem/google"} {
+	for _, path := range []string{"/login", "/setup", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review", "/account/enroll", "/account/enroll/google", "/account/redeem", "/account/recover"} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
 		if called[path] != 2 || recorder.Code != http.StatusNoContent {

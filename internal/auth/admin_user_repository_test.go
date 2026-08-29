@@ -22,7 +22,7 @@ func TestListAdministratorUsersRequiresActiveAdministratorAndReturnsOnlySafeMeta
 		WHERE id = 'pending';
 		UPDATE users SET username = 'Bravo', username_normalized = 'bravo'
 		WHERE id = 'ordinary';
-		UPDATE users SET mfa_required = 1 WHERE id = 'ordinary'`); err != nil {
+		UPDATE users SET mfa_required = 1, password_reset_requested_at = ? WHERE id = 'ordinary'`, now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -40,7 +40,7 @@ func TestListAdministratorUsersRequiresActiveAdministratorAndReturnsOnlySafeMeta
 	}
 	if users[0].Status != UserStatusActive || !users[0].IsAdmin ||
 		users[1].Username != "Alpha" || users[1].Status != UserStatusPending || users[1].IsAdmin ||
-		users[2].Username != "Bravo" || users[2].IsAdmin || !users[2].MFARequired ||
+		users[2].Username != "Bravo" || users[2].IsAdmin || !users[2].MFARequired || users[2].PasswordResetRequestedAt == nil || !users[2].PasswordResetRequestedAt.Equal(now) ||
 		users[3].Username != "Zulu" || users[3].Status != UserStatusDisabled || !users[3].IsAdmin || !users[3].MFARequired {
 		t.Fatalf("administrator user projection = %#v", users)
 	}

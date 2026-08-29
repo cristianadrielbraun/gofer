@@ -71,13 +71,13 @@ func enrollmentRedemptionStack(t *testing.T, status auth.UserStatus, purpose aut
 	return manager, db, manager.Middleware(mux), token
 }
 
-func postEnrollmentRedemption(stack http.Handler, token, password, confirmation string) *httptest.ResponseRecorder {
+func postPasswordToken(stack http.Handler, path, token, password, confirmation string) *httptest.ResponseRecorder {
 	form := url.Values{
 		"token":            {token},
 		"new_password":     {password},
 		"confirm_password": {confirmation},
 	}
-	request := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(form.Encode()))
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", "https://gofer.example")
 	request.Header.Set("User-Agent", "Redemption Handler Test/1.0")
@@ -86,9 +86,9 @@ func postEnrollmentRedemption(stack http.Handler, token, password, confirmation 
 	return recorder
 }
 
-func TestEnrollmentRedemptionRoutesArePublicLocalAndNoStore(t *testing.T) {
+func TestInvitationEnrollmentRouteIsPublicLocalAndNoStore(t *testing.T) {
 	_, _, stack, token := enrollmentRedemptionStack(t, auth.UserStatusPending, auth.EnrollmentTokenPurposeEnrollment)
-	request := httptest.NewRequest(http.MethodGet, enrollmentRedemptionPath, nil)
+	request := httptest.NewRequest(http.MethodGet, invitationEnrollmentPath, nil)
 	recorder := httptest.NewRecorder()
 	stack.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -96,7 +96,7 @@ func TestEnrollmentRedemptionRoutesArePublicLocalAndNoStore(t *testing.T) {
 	}
 	body := recorder.Body.String()
 	for _, required := range []string{
-		`action="/account/redeem"`, `name="token"`, `type="password"`,
+		`action="/account/enroll"`, `name="token"`, `type="password"`, "Invitation token",
 		`autocomplete="one-time-code"`, `name="new_password"`,
 		`name="confirm_password"`, `autocomplete="new-password"`,
 		`minlength="15"`, "never included in the page URL",
@@ -106,11 +106,70 @@ func TestEnrollmentRedemptionRoutesArePublicLocalAndNoStore(t *testing.T) {
 		}
 	}
 	if strings.Contains(body, token.Token) || strings.Contains(body, "fonts.googleapis.com") || strings.Contains(body, "fonts.gstatic.com") ||
-		strings.Contains(body, enrollmentGoogleRedemptionPath) || strings.Contains(body, "Gmail mailbox") {
-		t.Fatal("redemption page exposed a token or requested a remote font")
+		strings.Contains(body, invitationGoogleEnrollmentPath) || strings.Contains(body, "Gmail mailbox") {
+		t.Fatal("invitation page exposed a token or requested remote or unavailable federated content")
 	}
 	if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Referrer-Policy") != "no-referrer" || recorder.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
 		t.Fatalf("redemption security headers = cache:%q referrer:%q robots:%q", recorder.Header().Get("Cache-Control"), recorder.Header().Get("Referrer-Policy"), recorder.Header().Get("X-Robots-Tag"))
+	}
+}
+
+func TestCredentialRedemptionRouteContainsOnlyPasswordResetContent(t *testing.T) {
+	_, _, stack, token := enrollmentRedemptionStack(t, auth.UserStatusActive, auth.EnrollmentTokenPurposeCredentialReset)
+	request := httptest.NewRequest(http.MethodGet, credentialRedemptionPath, nil)
+	recorder := httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("credential redemption page = %d %q", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, required := range []string{
+		`action="/account/redeem"`, "Reset your Gofer password", "Reset token",
+		`name="new_password"`, `name="confirm_password"`, "Reset password",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("credential redemption page missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{token.Token, "/account/enroll", "Invitation", "Google", "Gmail"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("credential redemption page contains %q", forbidden)
+		}
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Referrer-Policy") != "no-referrer" || recorder.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
+		t.Fatalf("credential redemption security headers = cache:%q referrer:%q robots:%q", recorder.Header().Get("Cache-Control"), recorder.Header().Get("Referrer-Policy"), recorder.Header().Get("X-Robots-Tag"))
+	}
+}
+
+func TestPasswordTokenRoutesRejectTheOtherPurposeWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       auth.UserStatus
+		tokenPurpose auth.EnrollmentTokenPurpose
+		path         string
+		message      string
+	}{
+		{name: "invitation on reset route", status: auth.UserStatusPending, tokenPurpose: auth.EnrollmentTokenPurposeEnrollment, path: credentialRedemptionPath, message: credentialRedemptionFailureMessage},
+		{name: "reset on invitation route", status: auth.UserStatusActive, tokenPurpose: auth.EnrollmentTokenPurposeCredentialReset, path: invitationEnrollmentPath, message: invitationEnrollmentFailureMessage},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, db, stack, token := enrollmentRedemptionStack(t, test.status, test.tokenPurpose)
+			recorder := postPasswordToken(stack, test.path, token.Token, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), test.message) {
+				t.Fatalf("wrong-purpose response = %d %q", recorder.Code, recorder.Body.String())
+			}
+			var used, credentials int
+			if err := db.Read().QueryRowContext(t.Context(), `SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = ?`, token.ID).Scan(&used); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM password_credentials WHERE user_id = 'person'`).Scan(&credentials); err != nil {
+				t.Fatal(err)
+			}
+			if used != 0 || credentials != 0 {
+				t.Fatalf("wrong-purpose mutation = used:%d credentials:%d", used, credentials)
+			}
+		})
 	}
 }
 
@@ -171,7 +230,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 	handler.RegisterRoutes(mux)
 	stack := manager.Middleware(mux)
 
-	pageRequest := httptest.NewRequest(http.MethodGet, enrollmentRedemptionPath, nil)
+	pageRequest := httptest.NewRequest(http.MethodGet, invitationEnrollmentPath, nil)
 	pageRecorder := httptest.NewRecorder()
 	stack.ServeHTTP(pageRecorder, pageRequest)
 	if pageRecorder.Code != http.StatusOK || !strings.Contains(pageRecorder.Body.String(), "does not connect your Gmail mailbox") {
@@ -179,7 +238,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 	}
 
 	form := url.Values{"token": {invitation.Token}}
-	startRequest := httptest.NewRequest(http.MethodPost, enrollmentGoogleRedemptionPath, strings.NewReader(form.Encode()))
+	startRequest := httptest.NewRequest(http.MethodPost, invitationGoogleEnrollmentPath, strings.NewReader(form.Encode()))
 	startRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	startRequest.Header.Set("Origin", "https://gofer.example")
 	startRecorder := httptest.NewRecorder()
@@ -212,7 +271,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 	deniedRequest.AddCookie(preAuthCookie)
 	deniedRecorder := httptest.NewRecorder()
 	stack.ServeHTTP(deniedRecorder, deniedRequest)
-	if deniedRecorder.Code != http.StatusSeeOther || deniedRecorder.Header().Get("Location") != enrollmentRedemptionPath+"?google_failed=1" ||
+	if deniedRecorder.Code != http.StatusSeeOther || deniedRecorder.Header().Get("Location") != invitationEnrollmentPath+"?google_failed=1" ||
 		strings.Contains(deniedRecorder.Header().Get("Location"), "private") || strings.Contains(deniedRecorder.Body.String(), "private provider detail") {
 		t.Fatalf("denied Google invitation callback = %d %q body=%q", deniedRecorder.Code, deniedRecorder.Header().Get("Location"), deniedRecorder.Body.String())
 	}
@@ -223,7 +282,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 		t.Fatalf("invitation after provider denial = used:%d error:%v", invitationUsed, err)
 	}
 
-	startRequest = httptest.NewRequest(http.MethodPost, enrollmentGoogleRedemptionPath, strings.NewReader(form.Encode()))
+	startRequest = httptest.NewRequest(http.MethodPost, invitationGoogleEnrollmentPath, strings.NewReader(form.Encode()))
 	startRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	startRequest.Header.Set("Origin", "https://gofer.example")
 	startRecorder = httptest.NewRecorder()
@@ -284,8 +343,8 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 
 func TestEnrollmentRedemptionCompletesThroughPublicStackAndClearsAuthCookies(t *testing.T) {
 	_, db, stack, token := enrollmentRedemptionStack(t, auth.UserStatusPending, auth.EnrollmentTokenPurposeEnrollment)
-	recorder := postEnrollmentRedemption(stack, token.Token, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != enrollmentRedemptionCompletePath {
+	recorder := postPasswordToken(stack, invitationEnrollmentPath, token.Token, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != invitationEnrollmentCompletePath {
 		t.Fatalf("successful redemption = %d %q body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
 	}
 	for _, cookieName := range []string{"gofer_session", "gofer_pre_auth"} {
@@ -311,11 +370,44 @@ func TestEnrollmentRedemptionCompletesThroughPublicStackAndClearsAuthCookies(t *
 		t.Fatalf("redeemed state = status:%q matches:%t used:%d error:%v", status, matches, used, err)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, enrollmentRedemptionCompletePath, nil)
+	request := httptest.NewRequest(http.MethodGet, invitationEnrollmentCompletePath, nil)
 	recorder = httptest.NewRecorder()
 	stack.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `role="status"`) || !strings.Contains(recorder.Body.String(), `href="/login"`) || strings.Contains(recorder.Body.String(), token.Token) {
 		t.Fatalf("completion page = %d %q", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestCredentialRedemptionCompletesThroughResetRoute(t *testing.T) {
+	_, db, stack, token := enrollmentRedemptionStack(t, auth.UserStatusActive, auth.EnrollmentTokenPurposeCredentialReset)
+	recorder := postPasswordToken(stack, credentialRedemptionPath, token.Token, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != credentialRedemptionCompletePath {
+		t.Fatalf("successful credential redemption = %d %q body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	}
+
+	var status auth.UserStatus
+	var authVersion int64
+	var passwordHash string
+	var used int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT status, auth_version FROM users WHERE id = 'person'`).Scan(&status, &authVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT password_hash FROM password_credentials WHERE user_id = 'person'`).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT used_at IS NOT NULL FROM user_enrollment_tokens WHERE id = ?`, token.ID).Scan(&used); err != nil {
+		t.Fatal(err)
+	}
+	matches, _, err := auth.VerifyPassword(passwordHash, enrollmentRedemptionTestPassword)
+	if err != nil || !matches || status != auth.UserStatusActive || authVersion != 2 || used != 1 {
+		t.Fatalf("credential redemption state = status:%q version:%d matches:%t used:%d error:%v", status, authVersion, matches, used, err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, credentialRedemptionCompletePath, nil)
+	recorder = httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "Password reset") || strings.Contains(recorder.Body.String(), "Invitation accepted") {
+		t.Fatalf("credential redemption completion = %d %q", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -327,7 +419,7 @@ func TestEnrollmentRedemptionKeepsFactorlessUserPendingUnderGlobalMFA(t *testing
 		t.Fatal(err)
 	}
 
-	recorder := postEnrollmentRedemption(stack, token.Token, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
+	recorder := postPasswordToken(stack, invitationEnrollmentPath, token.Token, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
 	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), enrollmentRedemptionMFARequiredMessage) {
 		t.Fatalf("factorless global-MFA redemption = %d %q", recorder.Code, recorder.Body.String())
 	}
@@ -375,8 +467,8 @@ func TestEnrollmentRedemptionFailuresDoNotRevealTokenStateOrEchoSecrets(t *testi
 			if test.name == "unknown" {
 				supplied = "unknown-private-token"
 			}
-			recorder := postEnrollmentRedemption(stack, supplied, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
-			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), enrollmentRedemptionFailureMessage) {
+			recorder := postPasswordToken(stack, invitationEnrollmentPath, supplied, enrollmentRedemptionTestPassword, enrollmentRedemptionTestPassword)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), invitationEnrollmentFailureMessage) {
 				t.Fatalf("generic redemption failure = %d %q", recorder.Code, recorder.Body.String())
 			}
 			if strings.Contains(recorder.Body.String(), supplied) || strings.Contains(recorder.Body.String(), enrollmentRedemptionTestPassword) {
@@ -402,17 +494,17 @@ func TestEnrollmentRedemptionValidatesConfirmationPolicyAndFormSizeBeforeMutatio
 		{name: "mismatch", password: enrollmentRedemptionTestPassword, confirmation: "a different confirmation passphrase", message: "fields do not match"},
 		{name: "policy", password: "short", confirmation: "short", message: auth.ErrPasswordTooShort.Error()},
 	} {
-		recorder := postEnrollmentRedemption(stack, token.Token, test.password, test.confirmation)
+		recorder := postPasswordToken(stack, invitationEnrollmentPath, token.Token, test.password, test.confirmation)
 		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), test.message) || strings.Contains(recorder.Body.String(), token.Token) || strings.Contains(recorder.Body.String(), test.password) {
 			t.Fatalf("%s response = %d %q", test.name, recorder.Code, recorder.Body.String())
 		}
 	}
 
-	request := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(strings.Repeat("x", enrollmentRedemptionFormMaximumBytes+1)))
+	request := httptest.NewRequest(http.MethodPost, invitationEnrollmentPath, strings.NewReader(strings.Repeat("x", enrollmentRedemptionFormMaximumBytes+1)))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	recorder := httptest.NewRecorder()
 	stack.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), enrollmentRedemptionFailureMessage) {
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), invitationEnrollmentFailureMessage) {
 		t.Fatalf("oversized redemption form = %d %q", recorder.Code, recorder.Body.String())
 	}
 
@@ -442,7 +534,7 @@ func TestEnrollmentRedemptionPostRemainsProtectedByCanonicalOriginGuard(t *testi
 		"new_password":     {enrollmentRedemptionTestPassword},
 		"confirm_password": {enrollmentRedemptionTestPassword},
 	}
-	request := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(form.Encode()))
+	request := httptest.NewRequest(http.MethodPost, invitationEnrollmentPath, strings.NewReader(form.Encode()))
 	request.Host = "gofer.example"
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", "https://attacker.example")
@@ -477,14 +569,14 @@ func TestEnrollmentRedemptionAcceptsPrivacyBrowserNullOriginWithSameOriginMetada
 		"new_password":     {enrollmentRedemptionTestPassword},
 		"confirm_password": {enrollmentRedemptionTestPassword},
 	}
-	request := httptest.NewRequest(http.MethodPost, enrollmentRedemptionPath, strings.NewReader(form.Encode()))
+	request := httptest.NewRequest(http.MethodPost, invitationEnrollmentPath, strings.NewReader(form.Encode()))
 	request.Host = "gofer.example"
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", "null")
 	request.Header.Set("Sec-Fetch-Site", "same-origin")
 	recorder := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != enrollmentRedemptionCompletePath {
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != invitationEnrollmentCompletePath {
 		t.Fatalf("null-origin same-origin redemption = %d %q body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
 	}
 	var used int

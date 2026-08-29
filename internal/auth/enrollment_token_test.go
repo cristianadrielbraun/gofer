@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -206,6 +207,45 @@ func TestIssueEnrollmentTokenEnforcesAdministratorPurposeAndLifetime(t *testing.
 	}
 	if tokens, err := manager.ListEnrollmentTokens(t.Context(), "ordinary", "pending"); tokens != nil || !errors.Is(err, ErrAdministratorRequired) {
 		t.Fatalf("non-admin token listing = %#v, %v", tokens, err)
+	}
+}
+
+func TestCredentialResetIssuancePreservesPendingRequestWhenAuditFails(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 15, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, &deterministicTokenGenerator{
+		ids: []string{"reset-token", "reset-event"}, tokens: []string{"reset-secret"},
+	})
+	insertEnrollmentTokenUser(t, manager, "admin", UserStatusActive, true, now)
+	insertEnrollmentTokenUser(t, manager, "target", UserStatusActive, false, now)
+	adminSessionID := insertEnrollmentStepUpSession(t, manager, "admin", now, now)
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		UPDATE users SET password_reset_requested_at = ? WHERE id = 'target'`, now.Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		CREATE TRIGGER reject_reset_issuance_event
+		BEFORE INSERT ON auth_events
+		WHEN NEW.event_type = 'enrollment_token_issued'
+		BEGIN SELECT RAISE(ABORT, 'forced reset issuance audit failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if token, err := manager.IssueEnrollmentToken(t.Context(), IssueEnrollmentTokenOptions{
+		UserID: "target", CreatedBy: "admin", ActorSessionID: adminSessionID,
+		Purpose: EnrollmentTokenPurposeCredentialReset,
+	}); token != nil || err == nil {
+		t.Fatalf("IssueEnrollmentToken(audit failure) = %#v, %v", token, err)
+	}
+	var requestedAt sql.NullTime
+	var tokenCount int
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT password_reset_requested_at FROM users WHERE id = 'target'`).Scan(&requestedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM user_enrollment_tokens WHERE user_id = 'target'`).Scan(&tokenCount); err != nil {
+		t.Fatal(err)
+	}
+	if !requestedAt.Valid || tokenCount != 0 {
+		t.Fatalf("rolled-back reset issuance = requested:%v tokens:%d", requestedAt, tokenCount)
 	}
 }
 

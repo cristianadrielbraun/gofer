@@ -150,6 +150,8 @@ func securityEventTitle(eventType auth.AuthEventType, success bool) string {
 			return "Account enrollment completed"
 		}
 		return "Account enrollment failed"
+	case auth.AuthEventCredentialResetRequested:
+		return "Password reset requested"
 	case auth.AuthEventCredentialResetCompleted:
 		return "Credential reset completed"
 	case auth.AuthEventLocalRecoveryStarted:
