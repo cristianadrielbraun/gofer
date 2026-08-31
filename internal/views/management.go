@@ -59,6 +59,7 @@ func managementNavClass(active, item string) string {
 func renderManagementSidebar(ctx context.Context, w io.Writer, active string) error {
 	items := []struct{ path, key, label string }{
 		{"/admin/users", "users", "Users"},
+		{"/admin/activity", "activity", "Security activity"},
 		{"/admin/avatars/", "avatars", "Avatar checks"},
 		{"/admin/contacts", "contacts", "Contacts"},
 		{"/admin/labels", "labels", "Labels"},
@@ -85,6 +86,7 @@ func renderManagementSidebar(ctx context.Context, w io.Writer, active string) er
 func renderManagementMobileNav(w io.Writer, active string) error {
 	items := []struct{ path, key, label string }{
 		{"/admin/users", "users", "Users"},
+		{"/admin/activity", "activity", "Activity"},
 		{"/admin/avatars/", "avatars", "Avatars"},
 		{"/admin/contacts", "contacts", "Contacts"},
 		{"/admin/labels", "labels", "Labels"},
@@ -108,6 +110,29 @@ func renderManagementMobileNav(w io.Writer, active string) error {
 }
 
 func ManagementAdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection, activeTab string) templ.Component {
+	var content templ.Component
+	switch activeSection {
+	case "users":
+		content = AdminUsersPage(userData)
+	case "contacts":
+		content = AdminContactsPage(contactStatus)
+	case "labels":
+		content = AdminLabelsPage(labelStatus)
+	case "security":
+		content = AdminSecurityPage(securityData)
+	case "operations":
+		content = AdminMailOperationsPage(operationStatus)
+	default:
+		content = AdminPage(avatarStatus, activeTab)
+	}
+	return managementAdminLayout(uiSettings, activeSection, content)
+}
+
+func ManagementAdminActivityLayout(uiSettings map[string]string, data AdminSecurityActivityData) templ.Component {
+	return managementAdminLayout(uiSettings, "activity", AdminSecurityActivityPage(data))
+}
+
+func managementAdminLayout(uiSettings map[string]string, activeSection string, content templ.Component) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := writeHTML(w, `<!DOCTYPE html><html lang="en" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Admin — Gofer</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
 			return err
@@ -132,21 +157,6 @@ func ManagementAdminLayout(uiSettings map[string]string, userData AdminUsersData
 		}
 		if err := AdminNavigationLoading().Render(ctx, w); err != nil {
 			return err
-		}
-		var content templ.Component
-		switch activeSection {
-		case "users":
-			content = AdminUsersPage(userData)
-		case "contacts":
-			content = AdminContactsPage(contactStatus)
-		case "labels":
-			content = AdminLabelsPage(labelStatus)
-		case "security":
-			content = AdminSecurityPage(securityData)
-		case "operations":
-			content = AdminMailOperationsPage(operationStatus)
-		default:
-			content = AdminPage(avatarStatus, activeTab)
 		}
 		if err := content.Render(ctx, w); err != nil {
 			return err

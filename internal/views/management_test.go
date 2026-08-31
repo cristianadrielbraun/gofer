@@ -52,6 +52,7 @@ func TestManagementAdminLayoutOwnsItsNavigationShell(t *testing.T) {
 		"Dedicated management workspace.",
 		"Sign out of Admin",
 		`href="/admin/users"`,
+		`href="/admin/activity"`,
 		`href="/admin/account/security"`,
 		`aria-current="page"`,
 		`data-management-shell`,

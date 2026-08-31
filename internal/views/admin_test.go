@@ -10,6 +10,45 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
+func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *testing.T) {
+	var out strings.Builder
+	data := AdminSecurityActivityData{
+		ManagedMode: true,
+		Events: []AdminSecurityActivityEventData{{
+			Title: "Sign-in attempt failed", Detail: "The submitted verification was not accepted.",
+			OccurredAt: "Aug 31, 2026 at 4:00 PM", Client: "<unsafe-client>", Status: "Failed",
+			Actor: "System", Subject: "target-user", Successful: false,
+		}},
+		TotalEvents: 51, Page: 1, TotalPages: 2, FirstEvent: 1, LastEvent: 50,
+		NextPage: 2, HasNext: true,
+	}
+	if err := AdminSecurityActivityPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`aria-label="Instance security activity events"`, "Sign-in attempt failed",
+		"System", "target-user", `&lt;unsafe-client&gt;`, `href="/admin/activity?page=2"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("administrator security activity view omitted %q", want)
+		}
+	}
+	if strings.Contains(html, "<unsafe-client>") {
+		t.Fatal("administrator security activity rendered an unescaped client label")
+	}
+
+	out.Reset()
+	if err := AdminSecurityActivityPage(AdminSecurityActivityData{
+		ManagedMode: true, StepUpRequired: true,
+	}).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if html := out.String(); !strings.Contains(html, `data-admin-security-activity-locked`) || strings.Contains(html, "Instance events") {
+		t.Fatalf("locked administrator security activity view = %q", html)
+	}
+}
+
 func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T) {
 	data := AdminUsersData{
 		Total: 3, Active: 1, Pending: 1, Disabled: 1, Administrators: 2,

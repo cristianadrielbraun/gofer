@@ -17,6 +17,7 @@ func TestAdminRoutesRejectNonAdminUsers(t *testing.T) {
 
 	for _, target := range []string{
 		"/admin/users",
+		"/admin/activity",
 		"/admin/security",
 		"/api/admin/contacts/status",
 		"/api/admin/labels/status",

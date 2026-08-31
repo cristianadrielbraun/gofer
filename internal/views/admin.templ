@@ -81,6 +81,33 @@ type AdminUserCredentialResetData struct {
 	ExpiresAt     time.Time
 }
 
+type AdminSecurityActivityEventData struct {
+	Title          string
+	Detail         string
+	OccurredAt     string
+	Client         string
+	Status         string
+	Actor          string
+	Subject        string
+	SubjectDeleted bool
+	Successful     bool
+}
+
+type AdminSecurityActivityData struct {
+	Events         []AdminSecurityActivityEventData
+	TotalEvents    int64
+	Page           int64
+	TotalPages     int64
+	FirstEvent     int64
+	LastEvent      int64
+	PreviousPage   int64
+	NextPage       int64
+	HasPrevious    bool
+	HasNext        bool
+	StepUpRequired bool
+	ManagedMode    bool
+}
+
 func adminUserUsername(username string) string {
 	if strings.TrimSpace(username) == "" {
 		return "No username"
@@ -143,6 +170,10 @@ func adminUserInvitationDialogID(prefix string, user AdminUserData) string {
 	return prefix + "-" + user.InvitationState + "-" + reference
 }
 
+func adminSecurityActivityPagePath(page int64) templ.SafeURL {
+	return templ.URL(fmt.Sprintf("/admin/activity?page=%d", page))
+}
+
 templ AdminSidebar(activeSection string) {
 	<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm">
 		<div class="px-5 py-5 border-b border-border">
@@ -166,6 +197,20 @@ templ AdminSidebar(activeSection string) {
 			>
 				@icon.Users(icon.Props{Class: "size-4 text-primary"})
 				Users
+			</a>
+			<a
+				href="/admin/activity"
+				data-admin-navigation-link
+				data-admin-navigation-label="Security activity"
+				aria-current?={ activeSection == "activity" }
+				class={
+					"flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+					templ.KV("bg-accent font-semibold text-foreground", activeSection == "activity"),
+					templ.KV("text-muted-foreground hover:bg-accent hover:text-foreground", activeSection != "activity"),
+				}
+			>
+				@icon.History(icon.Props{Class: "size-4 text-primary"})
+				Security activity
 			</a>
 			<a
 				href="/admin/avatars/"
@@ -256,6 +301,107 @@ templ AdminSidebar(activeSection string) {
 			<p class="px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Management workspace</p>
 		</div>
 	</aside>
+}
+
+templ AdminSecurityActivityPage(data AdminSecurityActivityData) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden" data-admin-security-activity>
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-7xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Security activity</h2>
+						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">Review sanitized authentication and account-security events across this Gofer instance.</p>
+					</div>
+					<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{ fmt.Sprintf("%d events", data.TotalEvents) }</span>
+				</div>
+				if !data.ManagedMode {
+					<div role="status" class="mt-6 rounded-lg border border-border bg-card px-5 py-8 text-center">
+						<p class="text-sm font-semibold text-foreground">Managed authentication is not enabled</p>
+						<p class="mt-1 text-sm text-muted-foreground">Instance-wide authentication activity is available when Gofer is running with user management enabled.</p>
+					</div>
+				} else if data.StepUpRequired {
+					<div role="alert" class="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-5 py-5 text-amber-900 dark:text-amber-100" data-admin-security-activity-locked>
+						<p class="font-semibold">Recent administrator verification required</p>
+						<p class="mt-1 text-sm">Verify with a passkey or authenticator before Gofer requests any instance security events.</p>
+						<a href="/admin/account/security" data-admin-navigation-link data-admin-navigation-label="Account security" class="mt-4 inline-flex h-9 items-center justify-center rounded-md border border-amber-500/40 bg-background px-3 text-sm font-semibold text-foreground hover:bg-accent">Verify in account security</a>
+					</div>
+				} else {
+					<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-security-events-heading">
+						<div class="flex flex-col gap-1 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+							<h3 id="admin-security-events-heading" class="text-sm font-semibold text-foreground">Instance events</h3>
+							if len(data.Events) > 0 {
+								<span class="text-xs text-muted-foreground">Showing { fmt.Sprintf("%d–%d of %d", data.FirstEvent, data.LastEvent, data.TotalEvents) }</span>
+							}
+						</div>
+						if len(data.Events) == 0 {
+							<div class="px-4 py-10 text-center text-sm text-muted-foreground">No security activity is available yet.</div>
+						} else {
+							<div class="overflow-x-auto">
+								<table class="w-full min-w-[72rem] text-left text-sm" aria-label="Instance security activity events">
+									<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+										<tr>
+											<th scope="col" class="px-4 py-3">Time</th>
+											<th scope="col" class="px-4 py-3">Event</th>
+											<th scope="col" class="px-4 py-3">Status</th>
+											<th scope="col" class="px-4 py-3">Actor</th>
+											<th scope="col" class="px-4 py-3">Affected account</th>
+											<th scope="col" class="px-4 py-3">Client</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-border">
+										for _, event := range data.Events {
+											<tr class="bg-background/35 align-top hover:bg-accent/35">
+												<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ event.OccurredAt }</td>
+												<td class="px-4 py-3">
+													<p class="font-semibold text-foreground">{ event.Title }</p>
+													<p class="mt-1 text-xs text-muted-foreground">{ event.Detail }</p>
+												</td>
+												<td class="px-4 py-3">
+													<span
+														class={
+															"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+															templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", event.Successful),
+															templ.KV("border-destructive/30 bg-destructive/10 text-destructive", !event.Successful),
+														}
+													>{ event.Status }</span>
+												</td>
+												<td class="px-4 py-3 font-medium text-foreground">{ event.Actor }</td>
+												<td class="px-4 py-3">
+													<span class="font-medium text-foreground">{ event.Subject }</span>
+													if event.SubjectDeleted {
+														<span class="ml-1.5 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Deleted</span>
+													}
+												</td>
+												<td class="max-w-xs break-words px-4 py-3 text-xs text-muted-foreground">{ event.Client }</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+						}
+					</section>
+					if data.TotalPages > 1 {
+						<nav class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Security activity pagination">
+							<p class="text-xs text-muted-foreground">Page { fmt.Sprintf("%d of %d", data.Page, data.TotalPages) }</p>
+							<div class="flex items-center gap-2">
+								if data.HasPrevious {
+									<a href={ adminSecurityActivityPagePath(data.PreviousPage) } data-admin-navigation-link data-admin-navigation-label="previous security activity page" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground hover:bg-accent">Previous</a>
+								} else {
+									<span class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-muted px-3 text-xs font-semibold text-muted-foreground opacity-60" aria-disabled="true">Previous</span>
+								}
+								if data.HasNext {
+									<a href={ adminSecurityActivityPagePath(data.NextPage) } data-admin-navigation-link data-admin-navigation-label="next security activity page" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground hover:bg-accent">Next</a>
+								} else {
+									<span class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-muted px-3 text-xs font-semibold text-muted-foreground opacity-60" aria-disabled="true">Next</span>
+								}
+							</div>
+						</nav>
+					}
+					<p class="mt-5 text-xs text-muted-foreground">Raw audit metadata, source hashes, request identifiers, session identifiers, and private mailbox content are never displayed.</p>
+				}
+			</div>
+		</div>
+	</div>
 }
 
 templ AdminNavigationLoading() {
