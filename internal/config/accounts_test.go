@@ -494,10 +494,6 @@ func TestDeleteAccountCleansAccountDataExplicitly(t *testing.T) {
 		 VALUES ('acc_delete', 'default', 'gmail')`,
 		`INSERT INTO account_contact_address_books (account_id, user_id, id, url)
 		 VALUES ('acc_delete', 'default', 'book-delete', 'https://contacts.example/book')`,
-		`INSERT INTO contacts (id, user_id, display_name)
-		 VALUES ('contact-delete', 'default', 'Delete Contact')`,
-		`INSERT INTO contact_sources (id, user_id, contact_id, provider, account_id, remote_id)
-		 VALUES ('source-delete', 'default', 'contact-delete', 'gmail', 'acc_delete', 'remote-contact')`,
 		`INSERT INTO contact_profiles (id, user_id, display_name)
 		 VALUES ('profile-delete', 'default', 'Delete Profile')`,
 		`INSERT INTO contact_cards (id, user_id, profile_id, kind, provider, account_id, remote_id)
@@ -508,8 +504,8 @@ func TestDeleteAccountCleansAccountDataExplicitly(t *testing.T) {
 		 VALUES ('group-delete', 'default', 'gmail', 'acc_delete', 'remote-group', 'Group')`,
 		`INSERT INTO contact_card_groups (card_id, group_id, user_id)
 		 VALUES ('card-delete', 'group-delete', 'default')`,
-		`INSERT INTO contact_save_targets (contact_id, user_id, target)
-		 VALUES ('contact-delete', 'default', 'account:acc_delete')`,
+		`INSERT INTO contact_sync_memberships (id, user_id, profile_id, account_id)
+		 VALUES ('membership-delete', 'default', 'profile-delete', 'acc_delete')`,
 		`INSERT INTO contact_conflicts (id, user_id, profile_id, account_id)
 		 VALUES ('conflict-delete', 'default', 'profile-delete', 'acc_delete')`,
 	}
@@ -546,7 +542,7 @@ func TestDeleteAccountCleansAccountDataExplicitly(t *testing.T) {
 		{"message_search_docs", `SELECT COUNT(*) FROM message_search_docs WHERE account_id = 'acc_delete'`},
 		{"account_contact_sync_configs", `SELECT COUNT(*) FROM account_contact_sync_configs WHERE account_id = 'acc_delete'`},
 		{"account_contact_address_books", `SELECT COUNT(*) FROM account_contact_address_books WHERE account_id = 'acc_delete'`},
-		{"contact_sources", `SELECT COUNT(*) FROM contact_sources WHERE account_id = 'acc_delete'`},
+		{"contact_sync_memberships", `SELECT COUNT(*) FROM contact_sync_memberships WHERE account_id = 'acc_delete'`},
 		{"contact_cards", `SELECT COUNT(*) FROM contact_cards WHERE account_id = 'acc_delete'`},
 		{"contact_groups", `SELECT COUNT(*) FROM contact_groups WHERE account_id = 'acc_delete'`},
 		{"contact_conflicts", `SELECT COUNT(*) FROM contact_conflicts WHERE account_id = 'acc_delete'`},

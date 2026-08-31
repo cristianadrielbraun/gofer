@@ -25,7 +25,7 @@ func TestAdministratorUserDeletionIsConfirmedResumableAndLocalOnly(t *testing.T)
 		VALUES ('person-mailbox', 'person', 'imap', 'private@example.com', x'01');
 		INSERT INTO signatures (id, user_id, name, html_body)
 		VALUES ('person-signature', 'person', 'Private', '<p>private signature</p>');
-		INSERT INTO contacts (id, user_id, display_name)
+		INSERT INTO contact_profiles (id, user_id, display_name)
 		VALUES ('person-contact', 'person', 'Private Contact')`, now,
 	); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestAdministratorUserDeletionIsConfirmedResumableAndLocalOnly(t *testing.T)
 		"password credentials": `SELECT COUNT(*) FROM password_credentials WHERE user_id = 'person'`,
 		"identities":           `SELECT COUNT(*) FROM auth_identities WHERE user_id = 'person'`,
 		"signatures":           `SELECT COUNT(*) FROM signatures WHERE user_id = 'person'`,
-		"contacts":             `SELECT COUNT(*) FROM contacts WHERE user_id = 'person'`,
+		"contacts":             `SELECT COUNT(*) FROM contact_profiles WHERE user_id = 'person'`,
 	} {
 		var count int
 		if err := manager.db.Read().QueryRow(query).Scan(&count); err != nil || count != 0 {

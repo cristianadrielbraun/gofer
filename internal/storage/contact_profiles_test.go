@@ -219,7 +219,7 @@ func TestInitializeContactCanonicalFieldsUsesBootstrapChoiceWithoutDeletingSourc
 	}
 }
 
-func TestMigrateV39ToV40WipesLegacyContacts(t *testing.T) {
+func TestMigrateV39ToCurrentPreservesCanonicalContactsAndRetiresLegacyTables(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "gofer.db")
 	db, err := New(dbPath)
@@ -245,15 +245,22 @@ func TestMigrateV39ToV40WipesLegacyContacts(t *testing.T) {
 	}
 	defer db.Close()
 
-	var legacyCount int
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contacts`).Scan(&legacyCount); err != nil {
-		t.Fatalf("count legacy contacts: %v", err)
+	var legacyTables int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'contacts'`).Scan(&legacyTables); err != nil {
+		t.Fatalf("count legacy contact tables: %v", err)
 	}
-	if legacyCount != 0 {
-		t.Fatalf("legacy contacts after v40 migration = %d, want 0", legacyCount)
+	if legacyTables != 0 {
+		t.Fatalf("legacy contact tables after current migration = %d, want 0", legacyTables)
 	}
 	var profileTable string
 	if err := db.Read().QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'contact_profiles'`).Scan(&profileTable); err != nil {
 		t.Fatalf("contact_profiles table missing: %v", err)
+	}
+	var profileCount int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_profiles WHERE user_id = 'default' AND primary_email = 'legacy@example.com'`).Scan(&profileCount); err != nil {
+		t.Fatalf("count canonical contacts: %v", err)
+	}
+	if profileCount != 1 {
+		t.Fatalf("canonical contacts after current migration = %d, want 1", profileCount)
 	}
 }

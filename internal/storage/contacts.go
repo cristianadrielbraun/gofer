@@ -128,20 +128,40 @@ func (db *DB) logContactActivity(ctx context.Context, event ContactActivityNotif
 }
 
 func (db *DB) GetContactAdminStatus(ctx context.Context, userID string) (models.ContactAdminStatus, error) {
+	return db.getContactAdminStatus(ctx, "user_id = ?", "event.user_id = ?", []any{userID}, false)
+}
+
+// GetInstanceContactAdminStatus returns diagnostics across every webmail
+// user's contacts. User-scoped contact APIs continue to use
+// GetContactAdminStatus instead.
+func (db *DB) GetInstanceContactAdminStatus(ctx context.Context) (models.ContactAdminStatus, error) {
+	return db.getContactAdminStatus(
+		ctx,
+		"user_id IN (SELECT id FROM users WHERE user_type = 'webmail')",
+		"event.user_id IN (SELECT id FROM users WHERE user_type = 'webmail')",
+		nil,
+		true,
+	)
+}
+
+func (db *DB) getContactAdminStatus(
+	ctx context.Context, profileScope, eventScope string, scopeArgs []any, instanceWide bool,
+) (models.ContactAdminStatus, error) {
 	var status models.ContactAdminStatus
 	counts := []struct {
 		dest  *int
 		query string
 	}{
-		{&status.Total, `SELECT COUNT(*) FROM contacts WHERE user_id = ? AND is_deleted = 0`},
-		{&status.Manual, `SELECT COUNT(*) FROM contacts WHERE user_id = ? AND is_deleted = 0 AND is_manual = 1`},
-		{&status.Observed, `SELECT COUNT(*) FROM contacts WHERE user_id = ? AND is_deleted = 0 AND is_manual = 0`},
-		{&status.Suppressed, `SELECT COUNT(*) FROM contacts WHERE user_id = ? AND is_deleted = 1 AND suppress_auto_create = 1`},
-		{&status.AddedToday, `SELECT COUNT(*) FROM contact_activity_events WHERE user_id = ? AND event_type IN ('manual_contact_added', 'observed_contact_added') AND created_at >= datetime('now', '-1 day')`},
-		{&status.DeletedToday, `SELECT COALESCE(SUM(CASE WHEN event_count > 0 THEN event_count ELSE 1 END), 0) FROM contact_activity_events WHERE user_id = ? AND event_type IN ('contact_deleted', 'observed_contacts_deleted') AND created_at >= datetime('now', '-1 day')`},
+		{&status.Total, `SELECT COUNT(*) FROM contact_profiles WHERE ` + profileScope + ` AND is_deleted = 0`},
+		{&status.Manual, `SELECT COUNT(*) FROM contact_profiles WHERE ` + profileScope + ` AND is_deleted = 0 AND origin = 'manual'`},
+		{&status.Observed, `SELECT COUNT(*) FROM contact_profiles WHERE ` + profileScope + ` AND is_deleted = 0 AND origin = 'observed'`},
+		{&status.Synced, `SELECT COUNT(*) FROM contact_profiles WHERE ` + profileScope + ` AND is_deleted = 0 AND origin LIKE 'synced:%'`},
+		{&status.Suppressed, `SELECT COUNT(*) FROM contact_observations WHERE ` + profileScope + ` AND is_suppressed = 1 AND suppress_auto_create = 1`},
+		{&status.AddedToday, `SELECT COUNT(*) FROM contact_activity_events event WHERE ` + eventScope + ` AND event.event_type IN ('manual_contact_added', 'observed_contact_added') AND event.created_at >= datetime('now', '-1 day')`},
+		{&status.DeletedToday, `SELECT COALESCE(SUM(CASE WHEN event.event_count > 0 THEN event.event_count ELSE 1 END), 0) FROM contact_activity_events event WHERE ` + eventScope + ` AND event.event_type IN ('contact_deleted', 'observed_contacts_deleted') AND event.created_at >= datetime('now', '-1 day')`},
 	}
 	for _, item := range counts {
-		if err := db.Read().QueryRowContext(ctx, item.query, userID).Scan(item.dest); err != nil {
+		if err := db.Read().QueryRowContext(ctx, item.query, scopeArgs...).Scan(item.dest); err != nil {
 			return status, err
 		}
 	}
@@ -149,8 +169,8 @@ func (db *DB) GetContactAdminStatus(ctx context.Context, userID string) (models.
 	var lastBackfillRaw sql.NullString
 	if err := db.Read().QueryRowContext(ctx, `
 		SELECT MAX(created_at)
-		FROM contact_activity_events
-		WHERE user_id = ? AND event_type = 'backfill_completed'`, userID).Scan(&lastBackfillRaw); err != nil {
+		FROM contact_activity_events event
+		WHERE `+eventScope+` AND event.event_type = 'backfill_completed'`, scopeArgs...).Scan(&lastBackfillRaw); err != nil {
 		return status, err
 	}
 	if lastBackfillRaw.Valid {
@@ -160,11 +180,13 @@ func (db *DB) GetContactAdminStatus(ctx context.Context, userID string) (models.
 	}
 
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT event_type, email, message, event_count, created_at
-		FROM contact_activity_events
-		WHERE user_id = ?
-		ORDER BY created_at DESC
-		LIMIT 50`, userID)
+		SELECT event.event_type, COALESCE(owner.username, ''), event.email,
+		       event.message, event.event_count, event.created_at
+		FROM contact_activity_events event
+		LEFT JOIN users owner ON owner.id = event.user_id
+		WHERE `+eventScope+`
+		ORDER BY event.created_at DESC
+		LIMIT 50`, scopeArgs...)
 	if err != nil {
 		return status, err
 	}
@@ -172,7 +194,7 @@ func (db *DB) GetContactAdminStatus(ctx context.Context, userID string) (models.
 	for rows.Next() {
 		var event models.ContactActivityEvent
 		var createdAt string
-		if err := rows.Scan(&event.Type, &event.Email, &event.Message, &event.Count, &createdAt); err != nil {
+		if err := rows.Scan(&event.Type, &event.Username, &event.Email, &event.Message, &event.Count, &createdAt); err != nil {
 			return status, err
 		}
 		if t, ok := parseSQLiteDateTime(createdAt); ok {
@@ -184,7 +206,12 @@ func (db *DB) GetContactAdminStatus(ctx context.Context, userID string) (models.
 		return status, err
 	}
 
-	accountSync, err := db.ListContactSyncStatuses(ctx, userID)
+	var accountSync []models.ContactSyncStatus
+	if instanceWide {
+		accountSync, err = db.ListInstanceContactSyncStatuses(ctx)
+	} else {
+		accountSync, err = db.listContactSyncStatuses(ctx, "a.user_id = ?", scopeArgs)
+	}
 	if err != nil {
 		return status, err
 	}
@@ -193,8 +220,21 @@ func (db *DB) GetContactAdminStatus(ctx context.Context, userID string) (models.
 }
 
 func (db *DB) ListContactSyncStatuses(ctx context.Context, userID string) ([]models.ContactSyncStatus, error) {
+	return db.listContactSyncStatuses(ctx, "a.user_id = ?", []any{userID})
+}
+
+// ListInstanceContactSyncStatuses returns contact-sync diagnostics for every
+// non-deleting mailbox account without changing mailbox ownership rules.
+func (db *DB) ListInstanceContactSyncStatuses(ctx context.Context) ([]models.ContactSyncStatus, error) {
+	return db.listContactSyncStatuses(ctx, "owner.user_type = 'webmail'", nil)
+}
+
+func (db *DB) listContactSyncStatuses(
+	ctx context.Context, scope string, scopeArgs []any,
+) ([]models.ContactSyncStatus, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT a.id,
+		       COALESCE(owner.username, ''),
 		       COALESCE(NULLIF(a.display_name, ''), a.email_address) AS account_name,
 		       a.email_address,
 		       CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_provider,
@@ -205,11 +245,12 @@ func (db *DB) ListContactSyncStatuses(ctx context.Context, userID string) ([]mod
 		       COALESCE(acc.last_import_count, 0),
 		       COALESCE(acc.last_error, '')
 		FROM accounts a
+		LEFT JOIN users owner ON owner.id = a.user_id
 		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
-		WHERE a.user_id = ?
+		WHERE `+scope+`
 		  AND COALESCE(a.is_deleting, 0) = 0
 		  AND (a.provider IN ('gmail', 'outlook') OR acc.account_id IS NOT NULL)
-		ORDER BY a.email_address COLLATE NOCASE`, userID)
+		ORDER BY owner.username COLLATE NOCASE, a.email_address COLLATE NOCASE`, scopeArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +261,7 @@ func (db *DB) ListContactSyncStatuses(ctx context.Context, userID string) ([]mod
 		var status models.ContactSyncStatus
 		var enabled, capable int
 		var lastStarted, lastSuccess sql.NullString
-		if err := rows.Scan(&status.AccountID, &status.AccountName, &status.AccountEmail, &status.Provider, &enabled, &capable, &lastStarted, &lastSuccess, &status.LastImportCount, &status.LastError); err != nil {
+		if err := rows.Scan(&status.AccountID, &status.OwnerUsername, &status.AccountName, &status.AccountEmail, &status.Provider, &enabled, &capable, &lastStarted, &lastSuccess, &status.LastImportCount, &status.LastError); err != nil {
 			return nil, err
 		}
 		status.Enabled = enabled == 1
@@ -345,15 +386,10 @@ func (db *DB) ListContacts(ctx context.Context, userID string, filters models.Co
 		offset = 0
 	}
 	windowLimit := offset + limit
-	profileContacts, err := db.listProfileContacts(ctx, userID, filters, windowLimit)
+	contacts, err := db.listProfileContacts(ctx, userID, filters, windowLimit)
 	if err != nil {
 		return nil, err
 	}
-	legacyContacts, err := db.listLegacyContacts(ctx, userID, filters, windowLimit)
-	if err != nil {
-		return nil, err
-	}
-	contacts := append(profileContacts, legacyContacts...)
 	sortContactsForList(contacts, filters)
 	if offset >= len(contacts) {
 		return nil, nil
@@ -367,124 +403,17 @@ func (db *DB) ListContacts(ctx context.Context, userID string, filters models.Co
 	return contacts, nil
 }
 
-func (db *DB) listLegacyContacts(ctx context.Context, userID string, filters models.ContactFilters, limit int) ([]models.Contact, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	where, args := contactLegacyFilterSQL(userID, filters)
-	args = append(args, limit)
-
-	rows, err := db.Read().QueryContext(ctx, `
-		SELECT c.id, c.display_name, ce.email, c.source, c.is_manual, c.is_deleted,
-		       ce.message_count, ce.last_seen_at, c.created_at, c.updated_at
-		FROM contacts c
-		JOIN contact_emails ce ON ce.contact_id = c.id AND ce.is_primary = 1
-		WHERE `+where+`
-		ORDER BY `+contactListOrderSQL(filters, false)+`
-		LIMIT ?`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query contacts: %w", err)
-	}
-	defer rows.Close()
-
-	var contacts []models.Contact
-	loc := timezoneLocationFromContext(ctx)
-	for rows.Next() {
-		c, err := scanContactRow(rows, loc)
-		if err != nil {
-			return nil, err
-		}
-		contacts = append(contacts, c)
-	}
-	return contacts, rows.Err()
-}
-
 func (db *DB) CountContacts(ctx context.Context, userID string, filters models.ContactFilters) (int, error) {
-	profileCount, err := db.countProfileContacts(ctx, userID, filters)
-	if err != nil {
-		return 0, err
-	}
-	where, args := contactLegacyFilterSQL(userID, filters)
-	var legacyCount int
-	err = db.Read().QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT c.id)
-		FROM contacts c
-		JOIN contact_emails ce ON ce.contact_id = c.id
-		WHERE `+where, args...).Scan(&legacyCount)
-	return profileCount + legacyCount, err
+	return db.countProfileContacts(ctx, userID, filters)
 }
 
 func (db *DB) ListContactsForExport(ctx context.Context, userID string) ([]models.Contact, error) {
-	profiles, err := db.listProfileContacts(ctx, userID, models.ContactFilters{}, 1000000)
+	contacts, err := db.listProfileContacts(ctx, userID, models.ContactFilters{}, 1000000)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Read().QueryContext(ctx, `
-		SELECT c.id, c.display_name, ce.email, c.source, c.is_manual, c.is_deleted,
-		       ce.message_count, ce.last_seen_at, c.created_at, c.updated_at
-		FROM contacts c
-		JOIN contact_emails ce ON ce.contact_id = c.id AND ce.is_primary = 1
-		WHERE c.user_id = ? AND c.is_deleted = 0
-		ORDER BY c.display_name COLLATE NOCASE, ce.email COLLATE NOCASE`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("query export contacts: %w", err)
-	}
-	defer rows.Close()
-
-	contacts := profiles
-	loc := timezoneLocationFromContext(ctx)
-	for rows.Next() {
-		c, err := scanContactRow(rows, loc)
-		if err != nil {
-			return nil, err
-		}
-		contacts = append(contacts, c)
-	}
-	return contacts, rows.Err()
-}
-
-func contactLegacyFilterSQL(userID string, filters models.ContactFilters) (string, []any) {
-	query := strings.TrimSpace(filters.Query)
-	where := `c.user_id = ? AND c.is_deleted = 0
-		AND NOT EXISTS (
-			SELECT 1
-			FROM contact_identities ci
-			JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
-			WHERE ci.user_id = c.user_id AND ci.kind = 'email' AND ci.normalized_value = ce.normalized_email AND cp.is_deleted = 0
-		)`
-	args := []any{userID}
-	if query != "" {
-		where += ` AND (c.display_name LIKE ? OR ce.email LIKE ? OR ce.normalized_email LIKE ?)`
-		like := "%" + query + "%"
-		args = append(args, like, like, strings.ToLower(like))
-	}
-	switch filters.Source {
-	case "manual":
-		where += ` AND c.is_manual = 1`
-	case "observed":
-		where += ` AND c.is_manual = 0`
-	case "synced":
-		where += ` AND c.is_manual = 0 AND c.source LIKE 'synced:%'`
-	default:
-		if strings.HasPrefix(filters.Source, "synced:") {
-			where += ` AND c.source = ?`
-			args = append(args, filters.Source)
-		}
-	}
-	switch filters.Activity {
-	case "seen":
-		where += ` AND ce.message_count > 0`
-	case "none":
-		where += ` AND ce.message_count = 0`
-	}
-	saveTarget := strings.TrimSpace(filters.SaveTarget)
-	if saveTarget == "local" {
-		where += ` AND (NOT EXISTS (SELECT 1 FROM contact_save_targets cst WHERE cst.contact_id = c.id AND cst.user_id = c.user_id) OR EXISTS (SELECT 1 FROM contact_save_targets cst WHERE cst.contact_id = c.id AND cst.user_id = c.user_id AND cst.target = 'local'))`
-	} else if saveTarget != "" {
-		where += ` AND EXISTS (SELECT 1 FROM contact_save_targets cst WHERE cst.contact_id = c.id AND cst.user_id = c.user_id AND cst.target = ?)`
-		args = append(args, saveTarget)
-	}
-	return where, args
+	db.hydrateContactListRows(ctx, userID, contacts)
+	return contacts, nil
 }
 
 func (db *DB) listProfileContacts(ctx context.Context, userID string, filters models.ContactFilters, limit int) ([]models.Contact, error) {
@@ -688,38 +617,8 @@ func (db *DB) SearchContacts(ctx context.Context, userID, query string, limit in
 	if query == "" {
 		return nil, nil
 	}
-	profileContacts, err := db.listProfileContacts(ctx, userID, models.ContactFilters{Query: query}, limit)
+	contacts, err := db.listProfileContacts(ctx, userID, models.ContactFilters{Query: query}, limit)
 	if err != nil {
-		return nil, err
-	}
-	like := "%" + query + "%"
-	rows, err := db.Read().QueryContext(ctx, `
-		SELECT c.id, c.display_name, ce.email, c.source, c.is_manual, c.is_deleted,
-		       ce.message_count, ce.last_seen_at, c.created_at, c.updated_at
-		FROM contacts c
-		JOIN contact_emails ce ON ce.contact_id = c.id
-		WHERE `+contactLegacySearchSQL()+`
-		  AND (c.display_name LIKE ? OR ce.email LIKE ? OR ce.normalized_email LIKE ?)
-		ORDER BY CASE WHEN ce.normalized_email = ? THEN 0 WHEN ce.normalized_email LIKE ? THEN 1 ELSE 2 END,
-		         COALESCE(ce.last_seen_at, c.updated_at) DESC,
-		         c.display_name COLLATE NOCASE
-		LIMIT ?`, userID, like, like, strings.ToLower(like), normalizeContactEmail(query), strings.ToLower(query)+"%", limit)
-	if err != nil {
-		return nil, fmt.Errorf("search contacts: %w", err)
-	}
-	defer rows.Close()
-
-	contacts := profileContacts
-	loc := timezoneLocationFromContext(ctx)
-	for rows.Next() {
-		c, err := scanContactRow(rows, loc)
-		if err != nil {
-			return nil, err
-		}
-		db.hydrateContactAvatar(ctx, &c)
-		contacts = append(contacts, c)
-	}
-	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	sortContactsForList(contacts, models.ContactFilters{SortBy: "updated", SortOrder: "desc"})
@@ -815,15 +714,15 @@ func (db *DB) hydrateContactAddressBooksForList(ctx context.Context, userID stri
 	}
 	args := append([]any{userID}, stringsToAny(ids)...)
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT DISTINCT cs.contact_id, ab.id, ab.account_id, COALESCE(NULLIF(a.display_name, ''), a.email_address), ab.name, ab.url, ab.is_default
-		FROM contact_sources cs
-		JOIN account_contact_address_books ab ON ab.account_id = cs.account_id
+		SELECT DISTINCT cc.profile_id, ab.id, ab.account_id, COALESCE(NULLIF(a.display_name, ''), a.email_address), ab.name, ab.url, ab.is_default
+		FROM contact_cards cc
+		JOIN account_contact_address_books ab ON ab.account_id = cc.account_id
 		JOIN accounts a ON a.id = ab.account_id
-		WHERE cs.user_id = ?
-		  AND cs.contact_id IN (`+sqlPlaceholders(len(ids))+`)
-		  AND cs.provider = 'carddav'
-		  AND (cs.address_book_id = ab.id OR (cs.address_book_id = '' AND cs.remote_id LIKE ab.url || '%'))
-		ORDER BY cs.contact_id, a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, args...)
+		WHERE cc.user_id = ?
+		  AND cc.profile_id IN (`+sqlPlaceholders(len(ids))+`)
+		  AND cc.kind = 'provider' AND cc.provider = 'carddav' AND cc.is_deleted = 0
+		  AND (cc.address_book_id = ab.id OR (cc.address_book_id = '' AND cc.remote_id LIKE ab.url || '%'))
+		ORDER BY cc.profile_id, a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, args...)
 	if err != nil {
 		return err
 	}
@@ -853,46 +752,22 @@ func (db *DB) GetContactWithProfile(ctx context.Context, userID, contactID strin
 	if contactID == "" {
 		return nil, nil, nil
 	}
-	if profile, err := db.GetContactProfile(ctx, userID, contactID); err != nil {
-		return nil, nil, err
-	} else if profile != nil && !profile.IsDeleted {
-		contact, err := db.contactFromProfile(ctx, userID, *profile)
-		if err != nil {
-			return nil, nil, err
-		}
-		db.hydrateContactAvatar(ctx, &contact)
-		contact.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
-		_ = db.hydrateContactSyncState(ctx, userID, &contact)
-		return &contact, profile, nil
-	}
-	row := db.Read().QueryRowContext(ctx, `
-		SELECT c.id, c.display_name, ce.email, c.source, c.is_manual, c.is_deleted,
-		       ce.message_count, ce.last_seen_at, c.created_at, c.updated_at
-		FROM contacts c
-		JOIN contact_emails ce ON ce.contact_id = c.id AND ce.is_primary = 1
-		WHERE c.user_id = ? AND c.id = ? AND c.is_deleted = 0`, userID, contactID)
-	c, err := scanContactRow(row, timezoneLocationFromContext(ctx))
-	if err == sql.ErrNoRows {
-		return nil, nil, nil
-	}
+	profile, err := db.GetContactProfile(ctx, userID, contactID)
 	if err != nil {
 		return nil, nil, err
 	}
-	db.hydrateContactAvatar(ctx, &c)
-	c.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
-	_ = db.hydrateContactAddressBooks(ctx, userID, &c)
-	_ = db.hydrateContactSyncState(ctx, userID, &c)
-	return &c, nil, nil
-}
-
-func contactLegacySearchSQL() string {
-	return `c.user_id = ? AND c.is_deleted = 0
-		AND NOT EXISTS (
-			SELECT 1
-			FROM contact_identities ci
-			JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
-			WHERE ci.user_id = c.user_id AND ci.kind = 'email' AND ci.normalized_value = ce.normalized_email AND cp.is_deleted = 0
-		)`
+	if profile == nil || profile.IsDeleted {
+		return nil, nil, nil
+	}
+	contact, err := db.contactFromProfile(ctx, userID, *profile)
+	if err != nil {
+		return nil, nil, err
+	}
+	db.hydrateContactAvatar(ctx, &contact)
+	contact.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
+	_ = db.hydrateContactAddressBooks(ctx, userID, &contact)
+	_ = db.hydrateContactSyncState(ctx, userID, &contact)
+	return &contact, profile, nil
 }
 
 func (db *DB) contactFromProfile(ctx context.Context, userID string, profile models.ContactProfile) (models.Contact, error) {
@@ -1059,13 +934,13 @@ func (db *DB) hydrateContactAddressBooks(ctx context.Context, userID string, con
 	}
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT DISTINCT ab.id, ab.account_id, COALESCE(NULLIF(a.display_name, ''), a.email_address), ab.name, ab.url, ab.is_default
-		FROM contact_sources cs
-		JOIN account_contact_address_books ab ON ab.account_id = cs.account_id
+		FROM contact_cards cc
+		JOIN account_contact_address_books ab ON ab.account_id = cc.account_id
 		JOIN accounts a ON a.id = ab.account_id
-		WHERE cs.user_id = ?
-		  AND cs.contact_id = ?
-		  AND cs.provider = 'carddav'
-		  AND (cs.address_book_id = ab.id OR (cs.address_book_id = '' AND cs.remote_id LIKE ab.url || '%'))
+		WHERE cc.user_id = ?
+		  AND cc.profile_id = ?
+		  AND cc.kind = 'provider' AND cc.provider = 'carddav' AND cc.is_deleted = 0
+		  AND (cc.address_book_id = ab.id OR (cc.address_book_id = '' AND cc.remote_id LIKE ab.url || '%'))
 		ORDER BY a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, userID, contact.ID)
 	if err != nil {
 		return err
@@ -1179,32 +1054,7 @@ func (db *DB) GetContactSaveTargets(ctx context.Context, userID, contactID strin
 	} else if ok {
 		return targets, nil
 	}
-	rows, err := db.Read().QueryContext(ctx, `
-		SELECT target
-		FROM contact_save_targets
-		WHERE user_id = ? AND contact_id = ?
-		ORDER BY CASE WHEN target = 'local' THEN 0 ELSE 1 END, target`, userID, contactID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var targets []string
-	for rows.Next() {
-		var target string
-		if err := rows.Scan(&target); err != nil {
-			return nil, err
-		}
-		if target != "" {
-			targets = append(targets, target)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(targets) == 0 {
-		targets = []string{"local"}
-	}
-	return targets, nil
+	return nil, nil
 }
 
 func (db *DB) getProfileContactSaveTargets(ctx context.Context, userID, profileID string) ([]string, bool, error) {
@@ -1262,37 +1112,24 @@ func (db *DB) AddContactSaveTarget(ctx context.Context, userID, contactID, targe
 	if userID == "" || contactID == "" || target == "" {
 		return nil
 	}
-	if profile, err := db.GetContactProfile(ctx, userID, contactID); err != nil {
+	profile, err := db.GetContactProfile(ctx, userID, contactID)
+	if err != nil {
 		return err
-	} else if profile != nil {
-		card := models.ContactCard{UserID: userID, ProfileID: contactID}
-		switch {
-		case target == "local":
-			card.Kind = "local"
-		case strings.HasPrefix(target, "account:"):
-			current, err := db.GetContactSaveTargets(ctx, userID, contactID)
-			if err != nil {
-				return err
-			}
-			return db.ReplaceContactSyncMemberships(ctx, userID, contactID, append(current, target))
-		case strings.HasPrefix(target, "book:"):
-			current, err := db.GetContactSaveTargets(ctx, userID, contactID)
-			if err != nil {
-				return err
-			}
-			return db.ReplaceContactSyncMemberships(ctx, userID, contactID, append(current, target))
-		default:
-			return nil
-		}
-		if card.Kind == "" {
-			return nil
-		}
-		return db.upsertContactCard(ctx, card)
 	}
-	_, err := db.Write().ExecContext(ctx, `
-		INSERT OR IGNORE INTO contact_save_targets (contact_id, user_id, target)
-		VALUES (?, ?, ?)`, contactID, userID, target)
-	return err
+	if profile == nil {
+		return sql.ErrNoRows
+	}
+	if target == "local" {
+		return db.upsertContactCard(ctx, models.ContactCard{UserID: userID, ProfileID: contactID, Kind: "local"})
+	}
+	if !strings.HasPrefix(target, "account:") && !strings.HasPrefix(target, "book:") {
+		return nil
+	}
+	current, err := db.GetContactSaveTargets(ctx, userID, contactID)
+	if err != nil {
+		return err
+	}
+	return db.ReplaceContactSyncMemberships(ctx, userID, contactID, append(current, target))
 }
 
 func normalizeContactSaveTargets(targets []string) []string {
@@ -1312,49 +1149,27 @@ func normalizeContactSaveTargets(targets []string) []string {
 	return out
 }
 
-func (db *DB) replaceContactSaveTargetsTx(ctx context.Context, tx *sql.Tx, userID, contactID string, targets []string) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM contact_save_targets WHERE user_id = ? AND contact_id = ?`, userID, contactID); err != nil {
-		return err
-	}
-	for _, target := range normalizeContactSaveTargets(targets) {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contact_save_targets (contact_id, user_id, target)
-			VALUES (?, ?, ?)`, contactID, userID, target); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (db *DB) UpsertContactSource(ctx context.Context, source ContactSource) error {
 	if strings.TrimSpace(source.UserID) == "" || strings.TrimSpace(source.ContactID) == "" || strings.TrimSpace(source.Provider) == "" || strings.TrimSpace(source.AccountID) == "" {
 		return nil
 	}
-	if profile, err := db.GetContactProfile(ctx, source.UserID, source.ContactID); err != nil {
+	profile, err := db.GetContactProfile(ctx, source.UserID, source.ContactID)
+	if err != nil {
 		return err
-	} else if profile != nil {
-		return db.upsertContactCard(ctx, models.ContactCard{
-			UserID:        strings.TrimSpace(source.UserID),
-			ProfileID:     strings.TrimSpace(source.ContactID),
-			Kind:          "provider",
-			Provider:      strings.TrimSpace(source.Provider),
-			AccountID:     strings.TrimSpace(source.AccountID),
-			AddressBookID: strings.TrimSpace(source.AddressBookID),
-			RemoteID:      strings.TrimSpace(source.RemoteID),
-			Etag:          strings.TrimSpace(source.Etag),
-		})
 	}
-	_, err := db.Write().ExecContext(ctx, `
-		INSERT INTO contact_sources (id, user_id, contact_id, provider, account_id, address_book_id, remote_id, etag, sync_token)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(user_id, contact_id, provider, account_id, remote_id) DO UPDATE SET
-			address_book_id = excluded.address_book_id,
-			remote_id = excluded.remote_id,
-			etag = excluded.etag,
-			sync_token = excluded.sync_token,
-			updated_at = CURRENT_TIMESTAMP`,
-		uuid.NewString(), strings.TrimSpace(source.UserID), strings.TrimSpace(source.ContactID), strings.TrimSpace(source.Provider), strings.TrimSpace(source.AccountID), strings.TrimSpace(source.AddressBookID), strings.TrimSpace(source.RemoteID), strings.TrimSpace(source.Etag), strings.TrimSpace(source.SyncToken))
-	return err
+	if profile == nil {
+		return sql.ErrNoRows
+	}
+	return db.upsertContactCard(ctx, models.ContactCard{
+		UserID:        strings.TrimSpace(source.UserID),
+		ProfileID:     strings.TrimSpace(source.ContactID),
+		Kind:          "provider",
+		Provider:      strings.TrimSpace(source.Provider),
+		AccountID:     strings.TrimSpace(source.AccountID),
+		AddressBookID: strings.TrimSpace(source.AddressBookID),
+		RemoteID:      strings.TrimSpace(source.RemoteID),
+		Etag:          strings.TrimSpace(source.Etag),
+	})
 }
 
 func (db *DB) upsertContactCard(ctx context.Context, card models.ContactCard) error {
@@ -1436,15 +1251,6 @@ func (db *DB) GetContactSource(ctx context.Context, userID, contactID, provider,
 	if err == nil {
 		return &source, nil
 	}
-	if err != sql.ErrNoRows {
-		return nil, err
-	}
-	err = db.Read().QueryRowContext(ctx, `
-		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
-		FROM contact_sources
-		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?
-		ORDER BY updated_at DESC
-		LIMIT 1`, userID, contactID, provider, accountID).Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.AddressBookID, &source.RemoteID, &source.Etag, &source.SyncToken)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1463,18 +1269,6 @@ func (db *DB) GetContactSources(ctx context.Context, userID, contactID, provider
 	if err != nil {
 		return nil, err
 	}
-	sources, err := scanContactSourceRows(rows)
-	if err != nil || len(sources) > 0 {
-		return sources, err
-	}
-	rows, err = db.Read().QueryContext(ctx, `
-		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
-		FROM contact_sources
-		WHERE user_id = ? AND contact_id = ? AND provider = ?
-		ORDER BY account_id`, userID, contactID, provider)
-	if err != nil {
-		return nil, err
-	}
 	return scanContactSourceRows(rows)
 }
 
@@ -1487,13 +1281,6 @@ func (db *DB) GetContactSourceByRemoteID(ctx context.Context, userID, provider, 
 	if err == nil {
 		return &source, nil
 	}
-	if err != sql.ErrNoRows {
-		return nil, err
-	}
-	err = db.Read().QueryRowContext(ctx, `
-		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
-		FROM contact_sources
-		WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ?`, userID, provider, accountID, remoteID).Scan(&source.ContactID, &source.UserID, &source.Provider, &source.AccountID, &source.AddressBookID, &source.RemoteID, &source.Etag, &source.SyncToken)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1508,18 +1295,6 @@ func (db *DB) ListContactSourcesForAccount(ctx context.Context, userID, provider
 		SELECT profile_id, user_id, provider, account_id, address_book_id, remote_id, etag, '' AS sync_token
 		FROM contact_cards
 		WHERE user_id = ? AND provider = ? AND account_id = ? AND kind = 'provider' AND is_deleted = 0
-		ORDER BY remote_id`, userID, provider, accountID)
-	if err != nil {
-		return nil, err
-	}
-	sources, err := scanContactSourceRows(rows)
-	if err != nil || len(sources) > 0 {
-		return sources, err
-	}
-	rows, err = db.Read().QueryContext(ctx, `
-		SELECT contact_id, user_id, provider, account_id, address_book_id, remote_id, etag, sync_token
-		FROM contact_sources
-		WHERE user_id = ? AND provider = ? AND account_id = ?
 		ORDER BY remote_id`, userID, provider, accountID)
 	if err != nil {
 		return nil, err
@@ -1539,19 +1314,6 @@ func (db *DB) ListContactSourcesForEmail(ctx context.Context, userID, provider, 
 		JOIN contact_profiles cp ON cp.id = cc.profile_id AND cp.user_id = cc.user_id
 		WHERE cc.user_id = ? AND cc.provider = ? AND cc.account_id = ? AND cf.kind = 'email' AND cf.normalized_value = ? AND cc.kind = 'provider' AND cc.is_deleted = 0 AND cp.is_deleted = 0
 		ORDER BY cc.remote_id`, userID, provider, accountID, normalized)
-	if err != nil {
-		return nil, err
-	}
-	sources, err := scanContactSourceRows(rows)
-	if err != nil || len(sources) > 0 {
-		return sources, err
-	}
-	rows, err = db.Read().QueryContext(ctx, `
-		SELECT cs.contact_id, cs.user_id, cs.provider, cs.account_id, cs.address_book_id, cs.remote_id, cs.etag, cs.sync_token
-		FROM contact_sources cs
-		JOIN contact_emails ce ON ce.contact_id = cs.contact_id AND ce.user_id = cs.user_id
-		WHERE cs.user_id = ? AND cs.provider = ? AND cs.account_id = ? AND ce.normalized_email = ?
-		ORDER BY cs.remote_id`, userID, provider, accountID, normalized)
 	if err != nil {
 		return nil, err
 	}
@@ -1763,11 +1525,6 @@ func (db *DB) DeleteContactSourceByRemoteID(ctx context.Context, userID, provide
 		WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ? AND kind = 'provider'`, userID, provider, accountID, remoteID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM contact_sources
-		WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ?`, userID, provider, accountID, remoteID); err != nil {
-		return err
-	}
 	var remaining int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*)
@@ -1775,26 +1532,8 @@ func (db *DB) DeleteContactSourceByRemoteID(ctx context.Context, userID, provide
 		WHERE user_id = ? AND profile_id = ? AND provider = ? AND account_id = ? AND kind = 'provider' AND is_deleted = 0`, userID, source.ContactID, provider, accountID).Scan(&remaining); err != nil {
 		return err
 	}
-	if remaining == 0 {
-		if err := tx.QueryRowContext(ctx, `
-			SELECT COUNT(*)
-			FROM contact_sources
-			WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, source.ContactID, provider, accountID).Scan(&remaining); err != nil {
-			return err
-		}
-	}
 	if remaining > 0 {
 		return tx.Commit()
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM contact_cards
-		WHERE user_id = ? AND profile_id = ? AND kind = 'target' AND account_id = ?`, userID, source.ContactID, accountID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM contact_save_targets
-		WHERE user_id = ? AND contact_id = ? AND target = ?`, userID, source.ContactID, "account:"+accountID); err != nil {
-		return err
 	}
 	return tx.Commit()
 }
@@ -1808,21 +1547,6 @@ func (db *DB) DeleteContactSource(ctx context.Context, userID, contactID, provid
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM contact_cards
 		WHERE user_id = ? AND profile_id = ? AND provider = ? AND account_id = ? AND kind = 'provider'`, userID, contactID, provider, accountID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM contact_cards
-		WHERE user_id = ? AND profile_id = ? AND kind = 'target' AND account_id = ?`, userID, contactID, accountID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM contact_sources
-		WHERE user_id = ? AND contact_id = ? AND provider = ? AND account_id = ?`, userID, contactID, provider, accountID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM contact_save_targets
-		WHERE user_id = ? AND contact_id = ? AND target = ?`, userID, contactID, "account:"+accountID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -2068,17 +1792,6 @@ func (db *DB) upsertSyncedContactFromContactWithChange(ctx context.Context, user
 			return "", false, false, err
 		}
 	}
-	if contactID == "" {
-		err = tx.QueryRowContext(ctx, `
-			SELECT c.id, c.display_name
-			FROM contact_emails ce
-			JOIN contacts c ON ce.contact_id = c.id
-			WHERE ce.user_id = ? AND ce.normalized_email = ?`, userID, normalized).Scan(&contactID, &currentDisplay)
-		if err != nil && err != sql.ErrNoRows {
-			return "", false, false, err
-		}
-	}
-
 	created := false
 	if contactID == "" {
 		contactID = uuid.NewString()
@@ -2566,68 +2279,44 @@ func (db *DB) DeleteContact(ctx context.Context, userID, contactID string, preve
 	if contactID == "" {
 		return nil
 	}
-	if profile, err := db.GetContactProfile(ctx, userID, contactID); err != nil {
-		return err
-	} else if profile != nil {
-		tx, err := db.Write().BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
-		var manualCount int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_fields WHERE user_id = ? AND profile_id = ? AND source = 'manual'`, userID, contactID).Scan(&manualCount); err != nil {
-			return err
-		}
-		res, err := tx.ExecContext(ctx, `
-			UPDATE contact_profiles
-			SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ? AND user_id = ?`, contactID, userID)
-		if err != nil {
-			return err
-		}
-		if manualCount == 0 && preventRecreate {
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE contact_observations
-				SET is_suppressed = 1, suppress_auto_create = 1, updated_at = CURRENT_TIMESTAMP
-				WHERE user_id = ? AND profile_id = ?`, userID, contactID); err != nil {
-				return err
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-		if err == nil {
-			if affected, _ := res.RowsAffected(); affected > 0 {
-				_ = db.LogContactActivity(ctx, userID, "contact_deleted", profile.PrimaryEmail, "Contact deleted", 1)
-			}
-		}
+	profile, err := db.GetContactProfile(ctx, userID, contactID)
+	if err != nil {
 		return err
 	}
-	var email string
-	_ = db.Read().QueryRowContext(ctx, `
-		SELECT ce.email
-		FROM contacts c
-		LEFT JOIN contact_emails ce ON ce.contact_id = c.id AND ce.is_primary = 1
-		WHERE c.id = ? AND c.user_id = ?`, contactID, userID).Scan(&email)
-	if preventRecreate {
-		res, err := db.Write().ExecContext(ctx, `
-			UPDATE contacts
-			SET is_deleted = 1, suppress_auto_create = 1, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ? AND user_id = ?`, contactID, userID)
-		if err == nil {
-			if affected, _ := res.RowsAffected(); affected > 0 {
-				_ = db.LogContactActivity(ctx, userID, "contact_deleted", email, "Contact deleted and suppressed", 1)
-			}
-		}
+	if profile == nil {
+		return nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	res, err := db.Write().ExecContext(ctx, `DELETE FROM contacts WHERE id = ? AND user_id = ?`, contactID, userID)
-	if err == nil {
-		if affected, _ := res.RowsAffected(); affected > 0 {
-			_ = db.LogContactActivity(ctx, userID, "contact_deleted", email, "Contact deleted", 1)
+	defer tx.Rollback()
+	var manualCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_fields WHERE user_id = ? AND profile_id = ? AND source = 'manual'`, userID, contactID).Scan(&manualCount); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE contact_profiles
+		SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND user_id = ?`, contactID, userID)
+	if err != nil {
+		return err
+	}
+	if manualCount == 0 && preventRecreate {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE contact_observations
+			SET is_suppressed = 1, suppress_auto_create = 1, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = ? AND profile_id = ?`, userID, contactID); err != nil {
+			return err
 		}
 	}
-	return err
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if affected, _ := res.RowsAffected(); affected > 0 {
+		_ = db.LogContactActivity(ctx, userID, "contact_deleted", profile.PrimaryEmail, "Contact deleted", 1)
+	}
+	return nil
 }
 
 func (db *DB) DeleteObservedContacts(ctx context.Context, userID string, preventRecreate bool) (int64, error) {
@@ -2709,32 +2398,6 @@ func stringsToAny(values []string) []any {
 		out = append(out, value)
 	}
 	return out
-}
-
-func (db *DB) deleteObservedContactsLegacy(ctx context.Context, userID string, preventRecreate bool) (int64, error) {
-	if preventRecreate {
-		res, err := db.Write().ExecContext(ctx, `
-			UPDATE contacts
-			SET is_deleted = 1, suppress_auto_create = 1, updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = ? AND is_manual = 0 AND is_deleted = 0`, userID)
-		if err != nil {
-			return 0, err
-		}
-		deleted, _ := res.RowsAffected()
-		if deleted > 0 {
-			_ = db.LogContactActivity(ctx, userID, "observed_contacts_deleted", "", "Discovered contacts deleted and suppressed", int(deleted))
-		}
-		return deleted, nil
-	}
-	res, err := db.Write().ExecContext(ctx, `DELETE FROM contacts WHERE user_id = ? AND is_manual = 0`, userID)
-	if err != nil {
-		return 0, err
-	}
-	deleted, _ := res.RowsAffected()
-	if deleted > 0 {
-		_ = db.LogContactActivity(ctx, userID, "observed_contacts_deleted", "", "Discovered contacts deleted", int(deleted))
-	}
-	return deleted, nil
 }
 
 func (db *DB) ListSuppressedContacts(ctx context.Context, userID string, limit int) ([]models.Contact, error) {
@@ -3012,6 +2675,33 @@ func (db *DB) CountObservedContactBackfillCandidates(ctx context.Context, userID
 	var total int
 	err := db.Read().QueryRowContext(ctx, `SELECT COUNT(DISTINCT normalized_email) FROM (`+strings.Join(parts, " UNION ALL ")+`)`, args...).Scan(&total)
 	return total, err
+}
+
+// ListContactBackfillUserIDs returns the webmail users that own at least one
+// non-deleting mailbox. It is used by the instance administration backfill;
+// ordinary contact operations remain scoped to one user.
+func (db *DB) ListContactBackfillUserIDs(ctx context.Context) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT DISTINCT accounts.user_id
+		FROM accounts
+		JOIN users ON users.id = accounts.user_id
+		WHERE users.user_type = 'webmail'
+		  AND COALESCE(accounts.is_deleting, 0) = 0
+		ORDER BY accounts.user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, userID)
+	}
+	return userIDs, rows.Err()
 }
 
 func (db *DB) UpsertObservedContactsForMessage(ctx context.Context, accountID, fromName, fromEmail string, to, cc, bcc []Recipient, seenAt time.Time) {

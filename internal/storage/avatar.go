@@ -221,11 +221,6 @@ func (db *DB) IsSenderAvatarEmailVisibleToUser(ctx context.Context, email, userI
 				  AND lower(trim(m.from_email)) = ?
 			) OR EXISTS (
 				SELECT 1
-				FROM contact_emails ce
-				JOIN contacts c ON c.id = ce.contact_id AND c.user_id = ce.user_id
-				WHERE ce.user_id = ? AND c.is_deleted = 0 AND ce.normalized_email = ?
-			) OR EXISTS (
-				SELECT 1
 				FROM contact_fields cf
 				JOIN contact_profiles cp ON cp.id = cf.profile_id AND cp.user_id = cf.user_id
 				WHERE cf.user_id = ? AND cp.is_deleted = 0
@@ -234,7 +229,7 @@ func (db *DB) IsSenderAvatarEmailVisibleToUser(ctx context.Context, email, userI
 				SELECT 1 FROM contact_profiles cp
 				WHERE cp.user_id = ? AND cp.is_deleted = 0 AND lower(trim(cp.primary_email)) = ?
 			)
-		THEN 1 ELSE 0 END`, userID, email, userID, email, userID, email, userID, email).Scan(&visible)
+		THEN 1 ELSE 0 END`, userID, email, userID, email, userID, email).Scan(&visible)
 	return visible != 0, err
 }
 

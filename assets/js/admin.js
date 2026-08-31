@@ -198,9 +198,9 @@
   }
 
   function contactRunDescription(backfill) {
-    if (backfill && backfill.in_progress) return "Manual observed-contact backfill is scanning stored messages and creating missing discovered contacts."
+    if (backfill && backfill.in_progress) return "The instance backfill is scanning stored messages for every webmail user and creating missing discovered contacts."
     if (backfill && backfill.last_error) return "Last backfill failed. Review the event log and server logs before retrying."
-    return "Backfill scans stored messages for senders and recipients that are not already represented as contacts."
+    return "Backfill scans stored messages across the instance for senders and recipients not already represented as contacts."
   }
 
   function contactRunLabel(backfill) {
@@ -233,7 +233,7 @@
     event = event || {}
     return '<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_12rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border/70 bg-background/55 px-4 py-3 text-sm odd:bg-background/70 hover:bg-accent/35">' +
       '<div class="text-xs font-medium text-muted-foreground">' + escapeHTML(fmtTime(event.created_at)) + '</div>' +
-      '<div class="min-w-0 truncate font-medium text-foreground">' + escapeHTML(event.email || "System") + '</div>' +
+      '<div class="min-w-0"><div class="truncate font-medium text-foreground">' + escapeHTML(event.username || "Unknown user") + '</div><div class="truncate text-xs text-muted-foreground">' + escapeHTML(event.email || "System event") + '</div></div>' +
       '<div><span class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ' + contactEventClass(event.type) + '">' + escapeHTML(contactEventLabel(event.type)) + '</span></div>' +
       '<div class="text-sm font-semibold tabular-nums text-foreground">' + escapeHTML(fmtNumber(event.count)) + '</div>' +
       '<div class="min-w-0 truncate text-sm text-muted-foreground">' + escapeHTML(event.message || "") + '</div>' +

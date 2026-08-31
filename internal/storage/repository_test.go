@@ -1290,6 +1290,55 @@ func TestGetLabelAdminStatusAggregatesCoverageAndLastRun(t *testing.T) {
 	}
 }
 
+func TestInstanceLabelAdminStatusAggregatesAccountsWithoutBroadeningUserScope(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, username, username_normalized, name)
+		VALUES ('other-user', 'other', 'other', 'Other User');
+		INSERT INTO accounts (id, user_id, provider, email_address, display_name)
+		VALUES ('default-account', 'default', 'imap', 'default@example.com', 'Default Mail'),
+		       ('other-account', 'other-user', 'imap', 'other@example.com', 'Other Mail')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "default-inbox", AccountID: "default-account", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: "other-inbox", AccountID: "other-account", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := db.UpsertSyncMessages(ctx, []SyncMessage{
+		{AccountID: "default-account", FolderID: "default-inbox", RemoteUID: 1, MessageID: "<default@example.com>", Subject: "Default", DateSent: now},
+		{AccountID: "other-account", FolderID: "other-inbox", RemoteUID: 1, MessageID: "<other@example.com>", Subject: "Other", DateSent: now},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	owned, err := db.GetLabelAdminStatus(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owned.Accounts) != 1 || owned.Totals.TotalMessages != 1 || owned.Accounts[0].OwnerUsername != "default" {
+		t.Fatalf("owned label diagnostics = %#v", owned)
+	}
+
+	instance, err := db.GetInstanceLabelAdminStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instance.Accounts) != 2 || instance.Totals.TotalMessages != 2 {
+		t.Fatalf("instance label diagnostics = %#v", instance)
+	}
+	owners := map[string]bool{}
+	for _, account := range instance.Accounts {
+		owners[account.OwnerUsername] = true
+	}
+	if !owners["default"] || !owners["other"] {
+		t.Fatalf("instance label owners = %#v", owners)
+	}
+}
+
 func TestMarkLabelSyncRunDoesNotAdvanceCursorOnError(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

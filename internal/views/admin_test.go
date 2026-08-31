@@ -344,6 +344,7 @@ func TestAdminLabelsPageRendersOutlookGraphDiagnostics(t *testing.T) {
 	status := models.LabelAdminStatus{
 		Accounts: []models.LabelAccountSyncStatus{{
 			AccountID:       "acc_outlook",
+			OwnerUsername:   "mail-user",
 			AccountName:     "Outlook",
 			AccountEmail:    "user@example.com",
 			AccountProvider: "outlook",
@@ -369,9 +370,34 @@ func TestAdminLabelsPageRendersOutlookGraphDiagnostics(t *testing.T) {
 		t.Fatalf("AdminLabelsPage.Render() error = %v", err)
 	}
 	html := out.String()
-	for _, want := range []string{"Outlook Graph parity", "Graph IDs", "IMAP rows", "Parity delta", "Needs repair", "Backfillable", "No Graph folder"} {
+	for _, want := range []string{"across all webmail users", "Owned by mail-user", "Outlook Graph parity", "Graph IDs", "IMAP rows", "Parity delta", "Needs repair", "Backfillable", "No Graph folder"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered admin labels page missing %q: %s", want, html)
+		}
+	}
+}
+
+func TestAdminContactsPageExplainsInstanceScopeAndOwners(t *testing.T) {
+	status := models.ContactAdminStatus{
+		Synced: 7,
+		AccountSync: []models.ContactSyncStatus{{
+			AccountID: "mail-account", OwnerUsername: "mail-user", AccountName: "Mail", AccountEmail: "mail@example.com", Provider: "gmail",
+		}},
+		RecentEvents: []models.ContactActivityEvent{{
+			Type: "observed_contact_added", Username: "mail-user", Email: "sender@example.com", Message: "Observed contact added",
+		}},
+	}
+
+	var out bytes.Buffer
+	if err := AdminContactsPage(status).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminContactsPage.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"across all webmail users", "Provider-synced contacts", "Force instance backfill", "Owned by mail-user", "User / contact", "sender@example.com",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered admin contacts page missing %q: %s", want, html)
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -67,6 +68,44 @@ func TestManagementAdminLayoutOwnsItsNavigationShell(t *testing.T) {
 	}
 	if strings.Contains(html, "Back to mail") {
 		t.Fatal("management shell exposed the legacy Back to mail action")
+	}
+}
+
+func TestLocalAdminLayoutShowsOnlyOperationalNavigation(t *testing.T) {
+	ctx := auth.ContextWithUser(context.Background(), &auth.User{
+		ID: "default", UserType: auth.UserTypeWebmail, IsAdmin: true,
+	})
+	var out strings.Builder
+	if err := ManagementAdminLayout(
+		nil,
+		AdminUsersData{},
+		models.AvatarStatus{},
+		models.ContactAdminStatus{},
+		models.LabelAdminStatus{},
+		models.MailSecurityAdminData{},
+		models.MailOperationsAdminStatus{},
+		"avatars",
+		"",
+	).Render(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`href="/admin/avatars/"`, `href="/admin/contacts"`, `href="/admin/labels"`,
+		`href="/admin/operations"`, `href="/admin/security"`, "Back to webmail",
+		"Local administration workspace.", ">Local</span>",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("local admin shell omitted %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account/security"`,
+		`action="/auth/logout"`, "Sign out of Admin",
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("local admin shell exposed managed-only control %q", forbidden)
+		}
 	}
 }
 

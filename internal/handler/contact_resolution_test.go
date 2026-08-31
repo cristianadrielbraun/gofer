@@ -86,6 +86,17 @@ func TestSyncContactNowQueuesOperationAndPublishesLiveStatus(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for contact sync SSE event")
 	}
+	select {
+	case event := <-events:
+		if event.Type != mailpkg.EventContactActivity || !event.AdminOnly || event.UserID != "" {
+			t.Fatalf("admin refresh event = %#v, want unowned admin-only contact activity", event)
+		}
+		if event.Payload["event_type"] != "contact_sync_queued" || event.Payload["email"] != nil || event.Payload["user_id"] != nil {
+			t.Fatalf("admin refresh payload = %#v, want sanitized event type only", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for admin contact refresh SSE event")
+	}
 }
 
 func TestInboundProviderChangeQueuesMultiMasterFanout(t *testing.T) {

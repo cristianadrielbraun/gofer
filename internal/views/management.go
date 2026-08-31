@@ -56,18 +56,50 @@ func managementNavClass(active, item string) string {
 	return base + "text-muted-foreground hover:bg-accent hover:text-foreground"
 }
 
-func renderManagementSidebar(ctx context.Context, w io.Writer, active string) error {
-	items := []struct{ path, key, label string }{
-		{"/admin/users", "users", "Users"},
-		{"/admin/activity", "activity", "Admin security activity"},
-		{"/admin/avatars/", "avatars", "Avatar checks"},
-		{"/admin/contacts", "contacts", "Contacts"},
-		{"/admin/labels", "labels", "Labels"},
-		{"/admin/operations", "operations", "Mail operations"},
-		{"/admin/security", "security", "Mail security"},
-		{"/admin/account/security", "account-security", "Account security"},
+type managementNavigationItem struct {
+	path        string
+	key         string
+	label       string
+	mobileLabel string
+}
+
+func managedAuthenticationNavigation(ctx context.Context) bool {
+	user := auth.GetCurrentUser(ctx)
+	return user == nil || user.IsManagement()
+}
+
+func managementNavigationItems(managedAuthentication bool) []managementNavigationItem {
+	items := make([]managementNavigationItem, 0, 8)
+	if managedAuthentication {
+		items = append(items,
+			managementNavigationItem{path: "/admin/users", key: "users", label: "Users", mobileLabel: "Users"},
+			managementNavigationItem{path: "/admin/activity", key: "activity", label: "Admin security activity", mobileLabel: "Activity"},
+		)
 	}
-	if err := writeHTML(w, `<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm"><div class="border-b border-border px-5 py-5"><a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary"><img src="/assets/logo.svg" alt="Gofer" class="h-8 w-8 shrink-0 p-1"><span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span></a><p class="mt-2 text-xs leading-relaxed text-muted-foreground">Dedicated management workspace.</p></div><nav class="flex-1 space-y-1 px-3 py-4">`); err != nil {
+	items = append(items,
+		managementNavigationItem{path: "/admin/avatars/", key: "avatars", label: "Avatar checks", mobileLabel: "Avatars"},
+		managementNavigationItem{path: "/admin/contacts", key: "contacts", label: "Contacts", mobileLabel: "Contacts"},
+		managementNavigationItem{path: "/admin/labels", key: "labels", label: "Labels", mobileLabel: "Labels"},
+		managementNavigationItem{path: "/admin/operations", key: "operations", label: "Mail operations", mobileLabel: "Operations"},
+		managementNavigationItem{path: "/admin/security", key: "security", label: "Mail security", mobileLabel: "Mail security"},
+	)
+	if managedAuthentication {
+		items = append(items, managementNavigationItem{
+			path: "/admin/account/security", key: "account-security",
+			label: "Account security", mobileLabel: "Account security",
+		})
+	}
+	return items
+}
+
+func renderManagementSidebar(ctx context.Context, w io.Writer, active string) error {
+	managedAuthentication := managedAuthenticationNavigation(ctx)
+	items := managementNavigationItems(managedAuthentication)
+	workspaceDescription := "Dedicated management workspace."
+	if !managedAuthentication {
+		workspaceDescription = "Local administration workspace."
+	}
+	if err := writeHTML(w, `<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm"><div class="border-b border-border px-5 py-5"><a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary"><img src="/assets/logo.svg" alt="Gofer" class="h-8 w-8 shrink-0 p-1"><span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span></a><p class="mt-2 text-xs leading-relaxed text-muted-foreground">`, escaped(workspaceDescription), `</p></div><nav class="flex-1 space-y-1 px-3 py-4">`); err != nil {
 		return err
 	}
 	for _, item := range items {
@@ -79,22 +111,21 @@ func renderManagementSidebar(ctx context.Context, w io.Writer, active string) er
 			return err
 		}
 	}
+	if !managedAuthentication {
+		return writeHTML(w, `</nav><div class="border-t border-border px-5 py-4"><a href="/" class="inline-flex h-9 w-full items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Back to webmail</a></div></aside>`)
+	}
 	csrf := auth.CSRFToken(ctx, "POST", "/auth/logout")
 	return writeHTML(w, `</nav><div class="border-t border-border px-5 py-4"><form method="post" action="/auth/logout"><input type="hidden" name="_csrf" value="`, escaped(csrf), `"><button type="submit" class="inline-flex h-9 w-full items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Sign out of Admin</button></form></div></aside>`)
 }
 
-func renderManagementMobileNav(w io.Writer, active string) error {
-	items := []struct{ path, key, label string }{
-		{"/admin/users", "users", "Users"},
-		{"/admin/activity", "activity", "Activity"},
-		{"/admin/avatars/", "avatars", "Avatars"},
-		{"/admin/contacts", "contacts", "Contacts"},
-		{"/admin/labels", "labels", "Labels"},
-		{"/admin/operations", "operations", "Operations"},
-		{"/admin/security", "security", "Mail security"},
-		{"/admin/account/security", "account-security", "Account security"},
+func renderManagementMobileNav(ctx context.Context, w io.Writer, active string) error {
+	managedAuthentication := managedAuthenticationNavigation(ctx)
+	items := managementNavigationItems(managedAuthentication)
+	modeLabel := "Management"
+	if !managedAuthentication {
+		modeLabel = "Local"
 	}
-	if err := writeHTML(w, `<header class="lg:hidden shrink-0 border-b border-border bg-card"><div class="flex items-center justify-between px-4 py-3"><a href="/admin" class="font-bold text-foreground" style="font-family:var(--font-serif)">Gofer Admin</a><span class="text-xs font-semibold uppercase tracking-wider text-primary">Management</span></div><nav class="flex gap-1 overflow-x-auto px-3 pb-3" aria-label="Admin sections">`); err != nil {
+	if err := writeHTML(w, `<header class="lg:hidden shrink-0 border-b border-border bg-card"><div class="flex items-center justify-between px-4 py-3"><a href="/admin" class="font-bold text-foreground" style="font-family:var(--font-serif)">Gofer Admin</a><span class="text-xs font-semibold uppercase tracking-wider text-primary">`, escaped(modeLabel), `</span></div><nav class="flex gap-1 overflow-x-auto px-3 pb-3" aria-label="Admin sections">`); err != nil {
 		return err
 	}
 	for _, item := range items {
@@ -102,7 +133,7 @@ func renderManagementMobileNav(w io.Writer, active string) error {
 		if active == item.key {
 			current = ` aria-current="page"`
 		}
-		if err := writeHTML(w, `<a href="`, item.path, `" data-admin-navigation-link data-admin-navigation-label="`, escaped(item.label), `" class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold `, managementNavClass(active, item.key), `"`, current, `>`, escaped(item.label), `</a>`); err != nil {
+		if err := writeHTML(w, `<a href="`, item.path, `" data-admin-navigation-link data-admin-navigation-label="`, escaped(item.mobileLabel), `" class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold `, managementNavClass(active, item.key), `"`, current, `>`, escaped(item.mobileLabel), `</a>`); err != nil {
 			return err
 		}
 	}
@@ -149,7 +180,7 @@ func managementAdminLayout(uiSettings map[string]string, activeSection string, c
 		if err := writeHTML(w, `<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
 			return err
 		}
-		if err := renderManagementMobileNav(w, activeSection); err != nil {
+		if err := renderManagementMobileNav(ctx, w, activeSection); err != nil {
 			return err
 		}
 		if err := writeHTML(w, `<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">`); err != nil {
@@ -182,7 +213,7 @@ func ManagementSecurityLayout(uiSettings map[string]string, content templ.Compon
 		if err := writeHTML(w, `<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
 			return err
 		}
-		if err := renderManagementMobileNav(w, "account-security"); err != nil {
+		if err := renderManagementMobileNav(ctx, w, "account-security"); err != nil {
 			return err
 		}
 		if err := writeHTML(w, `<main id="main-content" class="flex min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"><div class="w-full max-w-3xl px-8 py-10"><div class="mb-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management account</p><h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">Account security</h1><p class="mt-1 text-sm text-muted-foreground">Credentials and active sessions for this management identity.</p></div>`); err != nil {

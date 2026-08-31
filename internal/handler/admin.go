@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/netip"
@@ -19,9 +20,10 @@ import (
 )
 
 func (h *Handler) handleAdminRedirect(w http.ResponseWriter, r *http.Request) {
-	target := "/admin/users"
-	if strings.HasPrefix(r.URL.Path, "/admin/avatars") {
-		target = "/admin/avatars/"
+	target := "/admin/avatars/"
+	if user := auth.GetCurrentUser(r.Context()); user != nil && user.IsManagement() &&
+		!strings.HasPrefix(r.URL.Path, "/admin/avatars") {
+		target = "/admin/users"
 	}
 	http.Redirect(w, r, target, http.StatusFound)
 }
@@ -388,11 +390,11 @@ func (h *Handler) handleLabelAdminStatus(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) labelAdminStatus(ctx context.Context) (models.LabelAdminStatus, error) {
-	return h.db.GetLabelAdminStatus(ctx, h.userID(ctx))
+	return h.db.GetInstanceLabelAdminStatus(ctx)
 }
 
 func (h *Handler) contactAdminStatus(ctx context.Context) (models.ContactAdminStatus, error) {
-	status, err := h.db.GetContactAdminStatus(ctx, h.userID(ctx))
+	status, err := h.db.GetInstanceContactAdminStatus(ctx)
 	if err != nil {
 		return status, err
 	}
@@ -405,7 +407,7 @@ func (h *Handler) contactAdminStatus(ctx context.Context) (models.ContactAdminSt
 }
 
 func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Request) {
-	started := h.startContactBackfill(context.WithoutCancel(r.Context()), h.userID(r.Context()))
+	started := h.startInstanceContactBackfill(context.WithoutCancel(r.Context()))
 	if r.Header.Get("Accept") == "application/json" {
 		w.Header().Set("Content-Type", "application/json")
 		if !started {
@@ -417,45 +419,68 @@ func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, "/admin/contacts", http.StatusSeeOther)
 }
 
-func (h *Handler) startContactBackfill(ctx context.Context, userID string) bool {
+func (h *Handler) startInstanceContactBackfill(ctx context.Context) bool {
 	h.contactBackfillMu.Lock()
 	if h.contactBackfillState.InProgress {
 		h.contactBackfillMu.Unlock()
 		return false
 	}
-	total, err := h.db.CountObservedContactBackfillCandidates(ctx, userID)
-	if err != nil {
-		total = 0
+	userIDs, listErr := h.db.ListContactBackfillUserIDs(ctx)
+	if listErr != nil {
+		userIDs = nil
+		log.Printf("contacts: list users for manual instance backfill: %v", listErr)
+	}
+	total := 0
+	for _, userID := range userIDs {
+		userTotal, countErr := h.db.CountObservedContactBackfillCandidates(ctx, userID)
+		if countErr != nil {
+			log.Printf("contacts: count manual backfill candidates for user %s: %v", userID, countErr)
+			continue
+		}
+		total += userTotal
 	}
 	state := models.ContactBackfillState{InProgress: true, Total: total, StartedAt: time.Now().UTC()}
 	h.contactBackfillState = state
 	h.contactBackfillMu.Unlock()
-	h.publishContactBackfill(userID, state)
+	h.publishInstanceContactBackfill(state)
 
-	_ = h.db.LogContactActivity(ctx, userID, "backfill_forced", "", "Manual contact backfill requested", 0)
+	for _, userID := range userIDs {
+		_ = h.db.LogContactActivity(ctx, userID, "backfill_forced", "", "Instance contact backfill requested", 0)
+	}
 	go func() {
 		backfillCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		err := h.db.BackfillObservedContactsWithProgress(backfillCtx, userID, func(processed int) {
-			h.contactBackfillMu.Lock()
-			h.contactBackfillState.Processed = processed
-			state := h.contactBackfillState
-			h.contactBackfillMu.Unlock()
-			h.publishContactBackfill(userID, state)
-		})
+		processedBeforeUser := 0
+		backfillErr := listErr
+		for _, userID := range userIDs {
+			processedForUser := 0
+			backfillErr = h.db.BackfillObservedContactsWithProgress(backfillCtx, userID, func(processed int) {
+				processedForUser = processed
+				h.contactBackfillMu.Lock()
+				h.contactBackfillState.Processed = processedBeforeUser + processed
+				state := h.contactBackfillState
+				h.contactBackfillMu.Unlock()
+				h.publishInstanceContactBackfill(state)
+			})
+			processedBeforeUser += processedForUser
+			if backfillErr != nil {
+				backfillErr = fmt.Errorf("backfill user %s: %w", userID, backfillErr)
+				break
+			}
+		}
 		h.contactBackfillMu.Lock()
 		h.contactBackfillState.InProgress = false
 		h.contactBackfillState.FinishedAt = time.Now().UTC()
-		if err != nil {
-			h.contactBackfillState.LastError = err.Error()
-			log.Printf("contacts: manual backfill failed: %v", err)
+		if backfillErr != nil {
+			h.contactBackfillState.LastError = backfillErr.Error()
+			log.Printf("contacts: manual instance backfill failed: %v", backfillErr)
 		} else {
 			h.contactBackfillState.LastError = ""
 			h.contactBackfillState.Processed = h.contactBackfillState.Total
 		}
 		state := h.contactBackfillState
 		h.contactBackfillMu.Unlock()
-		h.publishContactBackfill(userID, state)
+		h.publishInstanceContactBackfill(state)
 	}()
 	return true
 }
@@ -471,6 +496,17 @@ func (h *Handler) publishContactBackfill(userID string, state models.ContactBack
 		return
 	}
 	h.syncer.Events().Publish(mail.Event{Type: mail.EventContactBackfill, UserID: userID, Payload: map[string]any{"user_id": userID, "backfill": state}})
+}
+
+func (h *Handler) publishInstanceContactBackfill(state models.ContactBackfillState) {
+	if h.syncer == nil {
+		return
+	}
+	h.syncer.Events().Publish(mail.Event{
+		Type:      mail.EventContactBackfill,
+		AdminOnly: true,
+		Payload:   map[string]any{"backfill": state},
+	})
 }
 
 func adminAvatarTab(r *http.Request) (string, bool) {

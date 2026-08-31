@@ -148,6 +148,11 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 			"event_count": event.Count,
 			"created_at":  event.CreatedAt,
 		}})
+		h.syncer.Events().Publish(mail.Event{
+			Type:      mail.EventContactActivity,
+			AdminOnly: true,
+			Payload:   map[string]any{"event_type": event.EventType},
+		})
 	})
 	h.startAvatarWarmupWorkers()
 	return h
@@ -280,6 +285,10 @@ func (h *Handler) adminOnly(next http.Handler) http.Handler {
 func (h *Handler) managementAccountOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := auth.GetCurrentUser(r.Context())
+		if h.auth != nil && !h.auth.IsEnabled() && user != nil && user.ID == "default" {
+			http.Redirect(w, r, "/admin/avatars/", http.StatusFound)
+			return
+		}
 		if user == nil || !user.IsManagement() || !user.IsAdmin {
 			http.Error(w, "management account required", http.StatusForbidden)
 			return
@@ -4115,6 +4124,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(r.Context())
 	currentUser := auth.GetCurrentUser(r.Context())
 	isAdmin := currentUser != nil && currentUser.IsAdmin
+	if h.auth != nil && !h.auth.IsEnabled() && currentUser != nil && currentUser.ID == "default" {
+		isAdmin = true
+	}
 	if h.syncer != nil {
 		endActiveSession := h.syncer.BeginActiveUserSession(userID)
 		defer endActiveSession()

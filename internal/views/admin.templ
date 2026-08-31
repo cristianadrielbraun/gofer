@@ -2023,12 +2023,12 @@ func adminContactEventClass(eventType string) string {
 
 func adminContactRunDescription(state models.ContactBackfillState) string {
 	if state.InProgress {
-		return "Manual observed-contact backfill is scanning stored messages and creating missing discovered contacts."
+		return "The instance backfill is scanning stored messages for every webmail user and creating missing discovered contacts."
 	}
 	if state.LastError != "" {
 		return "Last backfill failed. Review the event log and server logs before retrying."
 	}
-	return "Backfill scans stored messages for senders and recipients that are not already represented as contacts."
+	return "Backfill scans stored messages across the instance for senders and recipients not already represented as contacts."
 }
 
 func adminContactRunLabel(state models.ContactBackfillState) string {
@@ -2150,7 +2150,7 @@ templ AdminLabelsPage(status models.LabelAdminStatus) {
 				<div class="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
 					<div>
 						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Labels</h2>
-						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">Inspect provider label coverage, unresolved message identities, and queued label mutations.</p>
+						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">Inspect provider label coverage, unresolved message identities, and queued label mutations across all webmail users.</p>
 					</div>
 					<a href="/api/admin/labels/status" class="w-fit rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Raw JSON</a>
 				</div>
@@ -2196,12 +2196,12 @@ templ AdminLabelsPage(status models.LabelAdminStatus) {
 					<div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
 						<div>
 							<div class={ adminPanelTitleClass() }>Accounts</div>
-							<p class="mt-1 text-sm text-muted-foreground">Per-account label/catalog state and the latest provider sync snapshot.</p>
+							<p class="mt-1 text-sm text-muted-foreground">Per-account label and catalog state for every user mailbox on this instance.</p>
 						</div>
 						<div class="text-xs font-semibold text-muted-foreground tabular-nums">{ fmt.Sprintf("%d account(s)", len(status.Accounts)) }</div>
 					</div>
 					if len(status.Accounts) == 0 {
-						<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">No accounts are configured yet.</div>
+						<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">No mailbox accounts are configured on this instance.</div>
 					} else {
 						<div class="grid gap-4 xl:grid-cols-2">
 							for _, account := range status.Accounts {
@@ -2221,6 +2221,9 @@ templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
 			<div class="min-w-0">
 				<div class="truncate text-sm font-bold text-foreground">{ account.AccountName }</div>
 				<div class="mt-0.5 truncate text-xs font-medium text-muted-foreground">{ account.AccountEmail }</div>
+				if account.OwnerUsername != "" {
+					<div class="mt-1 truncate text-[11px] font-medium text-muted-foreground">Owned by { account.OwnerUsername }</div>
+				}
 				<div class="mt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ adminLabelProviderLabel(account.LabelProvider) }</div>
 			</div>
 			<span class={ "inline-flex shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold", adminLabelSyncClass(account) }>{ adminLabelSyncLabel(account) }</span>
@@ -2331,12 +2334,12 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 				<div class="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
 					<div>
 						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Contacts</h2>
-						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">Track contact discovery activity, deleted contacts, and manual backfill runs.</p>
+						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">Track contact discovery, deletion, sync, and backfill activity across all webmail users.</p>
 					</div>
 					<div class="flex shrink-0 flex-wrap items-center gap-2">
 						<form method="post" action="/admin/contacts/backfill">
 							<button type="submit" class="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-200" disabled?={ status.Backfill.InProgress }>
-								Force backfill
+								Force instance backfill
 							</button>
 						</form>
 					</div>
@@ -2384,6 +2387,7 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 									@AdminCompactMetric("contacts_total", "Active contacts", status.Total)
 									@AdminCompactMetric("contacts_observed", "Observed contacts", status.Observed)
 									@AdminCompactMetric("contacts_manual", "Manual contacts", status.Manual)
+									@AdminCompactMetric("contacts_synced", "Provider-synced contacts", status.Synced)
 									@AdminCompactMetric("contacts_suppressed", "Suppressed contacts", status.Suppressed)
 								</div>
 							</div>
@@ -2403,12 +2407,12 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 							<div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
 								<div>
 									<div class={ adminPanelTitleClass() }>Account sync</div>
-									<p class="mt-1 text-sm text-muted-foreground">Accounts that can sync contacts, including Gmail and configured CardDAV address books.</p>
+									<p class="mt-1 text-sm text-muted-foreground">Contact-sync status for user mailboxes across the instance, including Gmail and configured CardDAV address books.</p>
 								</div>
 								<a href="/api/admin/contacts/status" class="w-fit rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Raw JSON</a>
 							</div>
 							if len(status.AccountSync) == 0 {
-								<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">No contact-sync accounts are configured yet.</div>
+								<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">No contact-sync accounts are configured on this instance.</div>
 							} else {
 								<div class="grid gap-3 xl:grid-cols-2">
 									for _, sync := range status.AccountSync {
@@ -2431,7 +2435,7 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 								<div class="min-w-[58rem]">
 									<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_12rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
 										<div>Time</div>
-										<div>Contact</div>
+										<div>User / contact</div>
 										<div>Event</div>
 										<div>Count</div>
 										<div>Details</div>
@@ -2461,6 +2465,9 @@ templ AdminContactSyncCard(sync models.ContactSyncStatus) {
 			<div class="min-w-0">
 				<div class="truncate text-sm font-bold text-foreground">{ sync.AccountName }</div>
 				<div class="mt-0.5 truncate text-xs font-medium text-muted-foreground">{ sync.AccountEmail }</div>
+				if sync.OwnerUsername != "" {
+					<div class="mt-1 truncate text-[11px] font-medium text-muted-foreground">Owned by { sync.OwnerUsername }</div>
+				}
 			</div>
 			<span class={ "inline-flex shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold", adminContactSyncClass(sync) }>{ adminContactSyncLabel(sync) }</span>
 		</div>
@@ -2479,12 +2486,21 @@ templ AdminContactSyncCard(sync models.ContactSyncStatus) {
 templ AdminContactEventRow(event models.ContactActivityEvent) {
 	<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_12rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border/70 bg-background/55 px-4 py-3 text-sm odd:bg-background/70 hover:bg-accent/35">
 		<div class="text-xs font-medium text-muted-foreground">{ adminTime(event.CreatedAt) }</div>
-		<div class="min-w-0 truncate font-medium text-foreground">
-			if event.Email != "" {
-				{ event.Email }
-			} else {
-				System
-			}
+		<div class="min-w-0">
+			<div class="truncate font-medium text-foreground">
+				if event.Username != "" {
+					{ event.Username }
+				} else {
+					Unknown user
+				}
+			</div>
+			<div class="truncate text-xs text-muted-foreground">
+				if event.Email != "" {
+					{ event.Email }
+				} else {
+					System event
+				}
+			</div>
 		</div>
 		<div><span class={ "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", adminContactEventClass(event.Type) }>{ adminContactEventLabel(event.Type) }</span></div>
 		<div class="text-sm font-semibold tabular-nums text-foreground">{ fmt.Sprintf("%d", event.Count) }</div>

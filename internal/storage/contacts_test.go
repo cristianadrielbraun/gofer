@@ -199,14 +199,6 @@ func TestObservedContactManualNameWins(t *testing.T) {
 	if contacts[0].IsManual {
 		t.Fatalf("observed contact IsManual = true, want false")
 	}
-	var legacyCount int
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contacts WHERE id = ?`, contacts[0].ID).Scan(&legacyCount); err != nil {
-		t.Fatalf("legacy contact count query error = %v", err)
-	}
-	if legacyCount != 0 {
-		t.Fatalf("legacy contacts row count = %d, want observed contact stored as profile", legacyCount)
-	}
-
 	manual, err := db.SaveContact(ctx, "default", models.Contact{ID: contacts[0].ID, Name: "Janet Manual", Email: "jane@example.com"})
 	if err != nil {
 		t.Fatalf("SaveContact() error = %v", err)
@@ -381,13 +373,6 @@ func TestSaveContactPersistsSaveTargets(t *testing.T) {
 	}
 	if !reflect.DeepEqual(saved.SaveTargets, []string{"local"}) {
 		t.Fatalf("default SaveTargets = %#v, want local", saved.SaveTargets)
-	}
-	var legacyCount int
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contacts WHERE id = ?`, saved.ID).Scan(&legacyCount); err != nil {
-		t.Fatalf("legacy contact count query error = %v", err)
-	}
-	if legacyCount != 0 {
-		t.Fatalf("legacy contacts row count = %d, want manual contact stored only as profile", legacyCount)
 	}
 	profile, err := db.GetContactProfile(ctx, "default", saved.ID)
 	if err != nil {
@@ -571,13 +556,6 @@ func TestUpsertSyncedContactPersistsProfileSourceCard(t *testing.T) {
 	if contactID == "" || !created {
 		t.Fatalf("UpsertSyncedContact() = %q, %v; want created profile", contactID, created)
 	}
-	var legacyCount int
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contacts WHERE id = ?`, contactID).Scan(&legacyCount); err != nil {
-		t.Fatalf("legacy contact count query error = %v", err)
-	}
-	if legacyCount != 0 {
-		t.Fatalf("legacy contacts row count = %d, want synced contact stored only as profile", legacyCount)
-	}
 	profile, err := db.GetContactProfile(ctx, "default", contactID)
 	if err != nil {
 		t.Fatalf("GetContactProfile() error = %v", err)
@@ -622,12 +600,6 @@ func TestUpsertSyncedContactPersistsProfileSourceCard(t *testing.T) {
 	if cardCount != 1 {
 		t.Fatalf("provider card count = %d, want 1", cardCount)
 	}
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM contact_sources WHERE contact_id = ?`, contactID).Scan(&legacyCount); err != nil {
-		t.Fatalf("legacy source count query error = %v", err)
-	}
-	if legacyCount != 0 {
-		t.Fatalf("legacy contact_sources row count = %d, want provider source stored only as card", legacyCount)
-	}
 }
 
 func TestListContactSyncStatusesIncludesOutlookOAuthAccounts(t *testing.T) {
@@ -649,6 +621,61 @@ func TestListContactSyncStatusesIncludesOutlookOAuthAccounts(t *testing.T) {
 	}
 	if !statuses[0].Enabled || !statuses[0].Capable || statuses[0].Provider != "outlook" {
 		t.Fatalf("status = %#v, want enabled Outlook contact sync", statuses[0])
+	}
+}
+
+func TestInstanceContactAdminStatusAggregatesUsersWithoutBroadeningUserScope(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, username, username_normalized, name)
+		VALUES ('other-user', 'other', 'other', 'Other User');
+		INSERT INTO contact_profiles (id, user_id, display_name, origin)
+		VALUES ('default-contact', 'default', 'Default Contact', 'manual'),
+		       ('other-contact', 'other-user', 'Other Contact', 'observed'),
+		       ('synced-contact', 'other-user', 'Synced Contact', 'synced:other-account');
+		INSERT INTO accounts (id, user_id, provider, email_address, display_name)
+		VALUES ('default-account', 'default', 'gmail', 'default@example.com', 'Default Mail'),
+		       ('other-account', 'other-user', 'outlook', 'other@example.com', 'Other Mail')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.LogContactActivity(ctx, "default", "manual_contact_added", "one@example.com", "Manual contact added", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.LogContactActivity(ctx, "other-user", "observed_contact_added", "two@example.com", "Observed contact added", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	owned, err := db.GetContactAdminStatus(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owned.Total != 1 || owned.Manual != 1 || owned.Observed != 0 || owned.Synced != 0 || len(owned.AccountSync) != 1 ||
+		len(owned.RecentEvents) != 1 || owned.AccountSync[0].OwnerUsername != "default" {
+		t.Fatalf("owned contact diagnostics = %#v", owned)
+	}
+
+	instance, err := db.GetInstanceContactAdminStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.Total != 3 || instance.Manual != 1 || instance.Observed != 1 || instance.Synced != 1 ||
+		len(instance.AccountSync) != 2 || len(instance.RecentEvents) != 2 {
+		t.Fatalf("instance contact diagnostics = %#v", instance)
+	}
+	owners := map[string]bool{}
+	for _, account := range instance.AccountSync {
+		owners[account.OwnerUsername] = true
+	}
+	if !owners["default"] || !owners["other"] || instance.RecentEvents[0].Username == "" || instance.RecentEvents[1].Username == "" {
+		t.Fatalf("instance contact owners = %#v events=%#v", owners, instance.RecentEvents)
+	}
+	backfillUsers, err := db.ListContactBackfillUserIDs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backfillUsers) != 2 || backfillUsers[0] != "default" || backfillUsers[1] != "other-user" {
+		t.Fatalf("instance contact backfill users = %#v", backfillUsers)
 	}
 }
 

@@ -3016,12 +3016,27 @@ func (db *DB) GetGmailEmailSyncAccountIDs(ctx context.Context, userID string) ([
 }
 
 func (db *DB) GetLabelAdminStatus(ctx context.Context, userID string) (models.LabelAdminStatus, error) {
+	return db.getLabelAdminStatus(ctx, "accounts.user_id = ?", []any{strings.TrimSpace(userID)})
+}
+
+// GetInstanceLabelAdminStatus returns label diagnostics for every non-deleting
+// mailbox account. User-scoped label operations continue to use
+// GetLabelAdminStatus instead.
+func (db *DB) GetInstanceLabelAdminStatus(ctx context.Context) (models.LabelAdminStatus, error) {
+	return db.getLabelAdminStatus(ctx, "owner.user_type = 'webmail'", nil)
+}
+
+func (db *DB) getLabelAdminStatus(
+	ctx context.Context, scope string, scopeArgs []any,
+) (models.LabelAdminStatus, error) {
 	var status models.LabelAdminStatus
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT id, provider, COALESCE(email_address, ''), COALESCE(display_name, '')
+		SELECT accounts.id, accounts.provider, COALESCE(accounts.email_address, ''),
+		       COALESCE(accounts.display_name, ''), COALESCE(owner.username, '')
 		FROM accounts
-		WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0
-		ORDER BY id`, strings.TrimSpace(userID))
+		LEFT JOIN users owner ON owner.id = accounts.user_id
+		WHERE `+scope+` AND COALESCE(accounts.is_deleting, 0) = 0
+		ORDER BY owner.username COLLATE NOCASE, accounts.id`, scopeArgs...)
 	if err != nil {
 		return status, err
 	}
@@ -3029,7 +3044,7 @@ func (db *DB) GetLabelAdminStatus(ctx context.Context, userID string) (models.La
 
 	for rows.Next() {
 		var account models.LabelAccountSyncStatus
-		if err := rows.Scan(&account.AccountID, &account.AccountProvider, &account.AccountEmail, &account.AccountName); err != nil {
+		if err := rows.Scan(&account.AccountID, &account.AccountProvider, &account.AccountEmail, &account.AccountName, &account.OwnerUsername); err != nil {
 			return status, err
 		}
 		account.AccountName = labelAdminAccountName(account)

@@ -102,6 +102,7 @@ type ContactAdminStatus struct {
 	Total        int                    `json:"total"`
 	Manual       int                    `json:"manual"`
 	Observed     int                    `json:"observed"`
+	Synced       int                    `json:"synced"`
 	Suppressed   int                    `json:"suppressed"`
 	AddedToday   int                    `json:"added_today"`
 	DeletedToday int                    `json:"deleted_today"`
@@ -112,6 +113,7 @@ type ContactAdminStatus struct {
 
 type ContactSyncStatus struct {
 	AccountID       string    `json:"account_id"`
+	OwnerUsername   string    `json:"owner_username,omitempty"`
 	AccountName     string    `json:"account_name"`
 	AccountEmail    string    `json:"account_email"`
 	Provider        string    `json:"provider"`
@@ -136,6 +138,7 @@ type ContactBackfillState struct {
 
 type ContactActivityEvent struct {
 	Type      string    `json:"type"`
+	Username  string    `json:"username,omitempty"`
 	Email     string    `json:"email,omitempty"`
 	Message   string    `json:"message,omitempty"`
 	Count     int       `json:"count,omitempty"`
@@ -166,6 +169,7 @@ type LabelAdminTotals struct {
 
 type LabelAccountSyncStatus struct {
 	AccountID               string                   `json:"account_id"`
+	OwnerUsername           string                   `json:"owner_username,omitempty"`
 	AccountName             string                   `json:"account_name"`
 	AccountEmail            string                   `json:"account_email"`
 	AccountProvider         string                   `json:"account_provider"`

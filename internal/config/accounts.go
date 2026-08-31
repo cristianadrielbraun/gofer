@@ -1070,12 +1070,6 @@ func (s *AccountStore) DeleteAccountWithProgress(ctx context.Context, accountID 
 			      WHERE rowid IN (SELECT rowid FROM contact_conflicts WHERE account_id = ? LIMIT ?)`,
 		},
 		{
-			step:  "delete contact save targets",
-			table: "contact_save_targets",
-			sql: `DELETE FROM contact_save_targets
-			      WHERE rowid IN (SELECT rowid FROM contact_save_targets WHERE target = 'account:' || ? LIMIT ?)`,
-		},
-		{
 			step:  "delete contact sync memberships",
 			table: "contact_sync_memberships",
 			sql: `DELETE FROM contact_sync_memberships
@@ -1086,12 +1080,6 @@ func (s *AccountStore) DeleteAccountWithProgress(ctx context.Context, accountID 
 			table: "contact_cards",
 			sql: `DELETE FROM contact_cards
 			      WHERE rowid IN (SELECT rowid FROM contact_cards WHERE account_id = ? LIMIT ?)`,
-		},
-		{
-			step:  "delete contact sources",
-			table: "contact_sources",
-			sql: `DELETE FROM contact_sources
-			      WHERE rowid IN (SELECT rowid FROM contact_sources WHERE account_id = ? LIMIT ?)`,
 		},
 		{
 			step:  "delete contact groups",
