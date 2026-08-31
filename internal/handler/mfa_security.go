@@ -26,6 +26,7 @@ const (
 )
 
 func (h *Handler) handleSecurityStepUp(w http.ResponseWriter, r *http.Request) {
+	jsonResponse := securityVerificationJSONRequested(r)
 	if !h.parseSecurityManagementForm(w, r, "Unable to read the verification form. Please try again.") {
 		return
 	}
@@ -43,19 +44,43 @@ func (h *Handler) handleSecurityStepUp(w http.ResponseWriter, r *http.Request) {
 				retrySeconds = 1
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(retrySeconds, 10))
-			h.renderSecurityManagementError(w, r, http.StatusTooManyRequests, securityTOTPFailureMessage)
+			if jsonResponse {
+				writeSecurityVerificationJSONError(w, http.StatusTooManyRequests, securityTOTPFailureMessage)
+			} else {
+				h.renderSecurityManagementError(w, r, http.StatusTooManyRequests, securityTOTPFailureMessage)
+			}
 		case errors.As(err, &validationError):
-			h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, securityTOTPFailureMessage)
+			if jsonResponse {
+				writeSecurityVerificationJSONError(w, http.StatusUnprocessableEntity, securityTOTPFailureMessage)
+			} else {
+				h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, securityTOTPFailureMessage)
+			}
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			if jsonResponse {
+				writeSecurityVerificationJSONError(w, http.StatusUnauthorized, "Your session expired. Sign in again.")
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
 		default:
 			log.Printf("verify security settings step-up: %v", err)
-			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to verify this session right now. Please try again.")
+			if jsonResponse {
+				writeSecurityVerificationJSONError(w, http.StatusInternalServerError, "Unable to verify this session right now. Please try again.")
+			} else {
+				h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to verify this session right now. Please try again.")
+			}
 		}
 		return
 	}
-	http.Redirect(w, r, "/settings/security?verified=1", http.StatusSeeOther)
+	redirect := "/settings/security?verified=1"
+	if returnTo := adminSecurityVerificationReturnTo(r.PostFormValue("return_to")); returnTo != "" {
+		redirect = returnTo
+	}
+	if jsonResponse {
+		writeSecurityVerificationJSON(w, http.StatusOK, map[string]string{"redirect": redirect})
+		return
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
 
 func (h *Handler) handleSecurityTOTPStart(w http.ResponseWriter, r *http.Request) {

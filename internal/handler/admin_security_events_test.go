@@ -99,7 +99,7 @@ func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t 
 	}
 	html := page.Body.String()
 	for _, want := range []string{
-		`data-admin-security-activity`, "Security activity", fmt.Sprintf("%d events", totalEvents),
+		`data-admin-security-activity`, "Admin security activity", fmt.Sprintf("%d events", totalEvents),
 		`href="/admin/activity"`, `aria-current="page"`, "Instance events",
 		"User deleted", "removed-user", "Deleted", administratorUsername,
 		"Sign-in attempt failed", "target-user", "System", "Instance",
@@ -179,7 +179,8 @@ func TestAdministratorSecurityActivityRejectsMalformedPageAndLocksBeforeQuerying
 	html := locked.Body.String()
 	for _, want := range []string{
 		`data-admin-security-activity-locked`, "Recent administrator verification required",
-		"before Gofer requests any instance security events", `href="/admin/account/security"`,
+		"before Gofer requests any instance security events", `data-admin-security-verification`,
+		`action="/settings/security/step-up"`, `name="return_to" value="/admin/activity"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("locked administrator activity omitted %q: %q", want, html)

@@ -380,7 +380,7 @@ templ AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarS
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
 			<div class="flex h-screen overflow-hidden bg-background">
 				@AdminSidebar(activeSection)
-				<div id="main-content" class="relative flex flex-1 min-w-0">
+				<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
 					@AdminNavigationLoading()
 					if activeSection == "users" {
 						@AdminUsersPage(userData)
@@ -492,17 +492,17 @@ templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSetting
 	<div id="edit-account-container"></div>
 }
 
-templ AdminPartial(userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
-	<div id="main-content" class="relative flex flex-1 min-w-0">
+templ AdminPartial(userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string, verification ...AdminSecurityVerificationData) {
+	<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
 		@AdminNavigationLoading()
 		if activeSection == "users" {
-			@AdminUsersPage(userData)
+			@AdminUsersPage(userData, adminSecurityVerificationValue(verification))
 		} else if activeSection == "contacts" {
 			@AdminContactsPage(contactStatus)
 		} else if activeSection == "labels" {
 			@AdminLabelsPage(labelStatus)
 		} else if activeSection == "security" {
-			@AdminSecurityPage(securityData)
+			@AdminSecurityPage(securityData, adminSecurityVerificationValue(verification))
 		} else if activeSection == "operations" {
 			@AdminMailOperationsPage(operationStatus)
 		} else {
@@ -511,9 +511,9 @@ templ AdminPartial(userData AdminUsersData, avatarStatus models.AvatarStatus, co
 	</div>
 }
 
-templ AdminSecurityActivityPartial(data AdminSecurityActivityData) {
-	<div id="main-content" class="relative flex flex-1 min-w-0">
+templ AdminSecurityActivityPartial(data AdminSecurityActivityData, verification ...AdminSecurityVerificationData) {
+	<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
 		@AdminNavigationLoading()
-		@AdminSecurityActivityPage(data)
+		@AdminSecurityActivityPage(data, adminSecurityVerificationValue(verification))
 	</div>
 }

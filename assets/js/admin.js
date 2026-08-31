@@ -1,6 +1,55 @@
 (function () {
   "use strict"
 
+  function bindTOTPVerification(form) {
+    if (form.dataset.adminSecurityTotpBound === "true") return
+    form.dataset.adminSecurityTotpBound = "true"
+
+    var status = form.querySelector("[data-admin-security-totp-status]")
+    var submit = form.querySelector("button[type='submit']")
+    form.addEventListener("submit", function (event) {
+      event.preventDefault()
+      if (submit) submit.disabled = true
+      if (status) {
+        status.classList.remove("text-destructive")
+        status.textContent = "Verifying…"
+      }
+
+      fetch(form.action, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+        body: new URLSearchParams(new FormData(form)),
+      }).then(function (response) {
+        return response.json().catch(function () { return {} }).then(function (result) {
+          if (!response.ok) throw new Error(result.error || "Unable to verify this session right now.")
+          window.location.assign(result.redirect || form.dataset.successRedirect || window.location.href)
+        })
+      }).catch(function (error) {
+        if (status) {
+          status.classList.add("text-destructive")
+          status.textContent = error && error.message ? error.message : "Unable to verify this session right now."
+        }
+        if (submit) submit.disabled = false
+      })
+    })
+  }
+
+  function bind(root) {
+    ;(root || document).querySelectorAll("[data-admin-security-totp]").forEach(bindTOTPVerification)
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () { bind(document) })
+  } else {
+    bind(document)
+  }
+  document.addEventListener("htmx:afterSwap", function (event) { bind(event.target) })
+})();
+
+(function () {
+  "use strict"
+
   function clearNavigationLoading() {
     var main = document.getElementById("main-content")
     if (main) main.removeAttribute("aria-busy")

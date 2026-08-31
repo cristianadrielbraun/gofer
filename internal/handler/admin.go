@@ -89,18 +89,24 @@ func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	stepUpRequired := false
+	verification := views.AdminSecurityVerificationData{}
 	if h.auth != nil && h.auth.Config().Enabled {
-		err := h.auth.RequireRecentSecurityStepUp(ctx, auth.GetSessionToken(r))
+		access, accessErr := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
 		switch {
-		case err == nil:
-		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			stepUpRequired = true
-		case errors.Is(err, auth.ErrSecuritySessionInvalid):
+		case accessErr == nil:
+			stepUpRequired = !access.StepUpFresh
+			if stepUpRequired {
+				verification = adminSecurityVerificationViewData(
+					ctx, access, "/admin/security",
+					strings.TrimSpace(r.URL.Query().Get("error")) != "" || r.URL.Query().Get("verification_required") == "1",
+				)
+			}
+		case errors.Is(accessErr, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 			return
 		default:
-			log.Printf("admin mail security: verify session: %v", err)
+			log.Printf("admin mail security: verify session: %v", accessErr)
 			http.Error(w, "failed to verify admin session", http.StatusInternalServerError)
 			return
 		}
@@ -131,10 +137,10 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "").Render(ctx, w)
+		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "", verification).Render(ctx, w)
 		return
 	}
-	views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "").Render(ctx, w)
+	views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "", verification).Render(ctx, w)
 }
 
 func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http.Request) {
@@ -272,10 +278,10 @@ func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *htt
 	case err == nil:
 		return true
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
-		redirectAdminSecurity(w, r, "", "Verify this session in Settings > Security before changing mail security exceptions.")
+		redirectAdminSecurity(w, r, "", "Verify this administrator session before changing mail security exceptions.")
 	case errors.Is(err, auth.ErrSecuritySessionInvalid):
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 	default:
 		log.Printf("admin mail security: verify sensitive action: %v", err)
 		http.Error(w, "failed to verify admin session", http.StatusInternalServerError)

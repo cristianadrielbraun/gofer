@@ -117,7 +117,7 @@
           throw new Error(await readError(finish, "Unable to verify this passkey."));
         }
         const result = await finish.json();
-        window.location.assign(result.redirect || "/");
+        window.location.assign(form.dataset.successRedirect || result.redirect || "/");
       } catch (error) {
         if (error?.name === "NotAllowedError") {
           status.textContent = `Passkey verification was cancelled or timed out. ${form.dataset.fallback || ""}`.trim();

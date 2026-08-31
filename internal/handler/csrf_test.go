@@ -57,7 +57,7 @@ func TestAdminSecurityFormsRequireRenderedSessionCSRFProof(t *testing.T) {
 			'Management Admin', 'active', 1, 'management', 1, ?, ?)`, now, now); err != nil {
 		t.Fatalf("insert management administrator: %v", err)
 	}
-	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
 	handler.auth = manager
 	session, err := manager.CreateAuthenticatedSession(
 		t.Context(), "management-admin", "test-agent",
@@ -153,7 +153,7 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 			'Management Admin', 'active', 1, 'management', 1, ?, ?)`, now, now); err != nil {
 		t.Fatal(err)
 	}
-	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
 	handler.auth = manager
 	session, err := manager.CreateAuthenticatedSession(
 		t.Context(), "management-admin", "admin browser",
@@ -179,7 +179,9 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Recent administrator verification required") ||
-		!strings.Contains(page.Body.String(), `href="/admin/account/security"`) || !strings.Contains(page.Body.String(), " disabled") {
+		!strings.Contains(page.Body.String(), `data-admin-security-verification`) ||
+		!strings.Contains(page.Body.String(), `href="/admin/login"`) ||
+		!strings.Contains(page.Body.String(), " disabled") {
 		t.Fatalf("stale admin security page = %d %q", page.Code, page.Body.String())
 	}
 
@@ -205,11 +207,23 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 		stack.ServeHTTP(recorder, request)
 		return recorder
 	}
-	for _, test := range tests {
+	staleRedirect := ""
+	for index, test := range tests {
 		recorder := post(test)
 		if recorder.Code != http.StatusSeeOther || !strings.HasPrefix(recorder.Header().Get("Location"), "/admin/security?error=") {
 			t.Fatalf("stale mutation %q = %d %q", test.path, recorder.Code, recorder.Header().Get("Location"))
 		}
+		if index == 0 {
+			staleRedirect = recorder.Header().Get("Location")
+		}
+	}
+	stalePageRequest := httptest.NewRequest(http.MethodGet, staleRedirect, nil)
+	stalePageRequest.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
+	stalePage := httptest.NewRecorder()
+	stack.ServeHTTP(stalePage, stalePageRequest)
+	if stalePage.Code != http.StatusOK ||
+		!strings.Contains(stalePage.Body.String(), `id="admin-security-verification-dialog" data-tui-dialog data-tui-dialog-open="true"`) {
+		t.Fatalf("stale mail-security redirect did not open verification dialog = %d %q", stalePage.Code, stalePage.Body.String())
 	}
 	assertOnlySeeded := func(t *testing.T) {
 		t.Helper()

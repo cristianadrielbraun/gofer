@@ -494,19 +494,24 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	if queryError := strings.TrimSpace(r.URL.Query().Get("error")); data.Error == "" && queryError != "" {
 		data.Error = queryError
 	}
-	data.StepUpRequired = true
+	verification := views.AdminSecurityVerificationData{}
 	if h.auth.IsEnabled() {
-		err := h.auth.RequireRecentSecurityStepUp(ctx, auth.GetSessionToken(r))
+		access, accessErr := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
 		switch {
-		case err == nil:
-			data.StepUpRequired = false
-		case errors.Is(err, auth.ErrRecentStepUpRequired):
-		case errors.Is(err, auth.ErrSecuritySessionInvalid):
+		case accessErr == nil:
+			data.StepUpRequired = !access.StepUpFresh
+			if data.StepUpRequired {
+				verification = adminSecurityVerificationViewData(
+					ctx, access, "/admin/users",
+					data.Error != "" || r.URL.Query().Get("verification_required") == "1",
+				)
+			}
+		case errors.Is(accessErr, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 			return
 		default:
-			log.Printf("load administrator invitation verification state: %v", err)
+			log.Printf("load administrator invitation verification state: %v", accessErr)
 			http.Error(w, "failed to verify administrator session", http.StatusInternalServerError)
 			return
 		}
@@ -535,9 +540,9 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	uiSettings := h.db.GetUISettings(ctx, currentUser.ID)
 	var output bytes.Buffer
 	if r.Header.Get("HX-Request") == "true" {
-		err = views.AdminPartial(data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "").Render(ctx, &output)
+		err = views.AdminPartial(data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "", verification).Render(ctx, &output)
 	} else {
-		err = views.ManagementAdminLayout(uiSettings, data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "").Render(ctx, &output)
+		err = views.ManagementAdminLayout(uiSettings, data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "", verification).Render(ctx, &output)
 	}
 	if err != nil {
 		log.Printf("render administrator users: %v", err)

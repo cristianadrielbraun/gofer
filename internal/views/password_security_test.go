@@ -177,7 +177,7 @@ func TestPasswordSecuritySettingsRendersCompactLazySecurityActivityCard(t *testi
 	}
 	html := output.String()
 	for _, want := range []string{
-		`data-security-events`, "Security activity", "42 events", "View activity",
+		`data-security-events`, "Your security activity", "42 events", "View activity",
 		`data-tui-dialog-target="security-activity-dialog"`,
 		`hx-get="/settings/security/activity?page=1"`,
 		`hx-target="#security-activity-dialog-body"`, `hx-swap="innerHTML"`,

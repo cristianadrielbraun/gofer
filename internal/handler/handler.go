@@ -361,6 +361,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /", h.handleIndex)
 	mux.Handle("GET /admin/account/security", h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
 	adminRoute("GET /admin", h.handleAdminRedirect)
+	adminRoute("GET /admin/{$}", h.handleAdminRedirect)
 	adminRoute("GET /admin/avatars", h.handleAdminRedirect)
 	adminRoute("GET /admin/avatars/{$}", h.handleAdmin)
 	adminRoute("GET /admin/avatars/{tab}", h.handleAdmin)

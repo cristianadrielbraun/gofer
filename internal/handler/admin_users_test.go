@@ -1008,7 +1008,8 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Recent administrator verification required") ||
-		!strings.Contains(page.Body.String(), `href="/admin/account/security"`) {
+		!strings.Contains(page.Body.String(), `data-admin-security-verification`) ||
+		!strings.Contains(page.Body.String(), `action="/settings/security/step-up"`) {
 		t.Fatalf("stale administrator users page = %d %q", page.Code, page.Body.String())
 	}
 	form := url.Values{
@@ -1017,7 +1018,8 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 	}
 	blocked := postSecuritySettings(t, stack, adminUserInvitationPath, form, sessionCookie)
 	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), "Verify this administrator session") ||
-		!strings.Contains(blocked.Body.String(), "Recent administrator verification required") {
+		!strings.Contains(blocked.Body.String(), "Recent administrator verification required") ||
+		!strings.Contains(blocked.Body.String(), `id="admin-security-verification-dialog" data-tui-dialog data-tui-dialog-open="true"`) {
 		t.Fatalf("stale administrator invitation = %d %q", blocked.Code, blocked.Body.String())
 	}
 	var users, tokens int

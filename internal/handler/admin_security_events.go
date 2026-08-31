@@ -73,7 +73,27 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 	}
 
 	data := views.AdminSecurityActivityData{ManagedMode: h.auth != nil && h.auth.IsEnabled()}
+	verification := views.AdminSecurityVerificationData{}
 	if data.ManagedMode {
+		access, accessErr := h.auth.GetSecuritySettingsAccess(r.Context(), auth.GetSessionToken(r))
+		if errors.Is(accessErr, auth.ErrSecuritySessionInvalid) {
+			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			return
+		}
+		if accessErr != nil {
+			log.Printf("authorize administrator security activity: %v", accessErr)
+			http.Error(w, "failed to authorize administrator security activity", http.StatusInternalServerError)
+			return
+		}
+		if !access.StepUpFresh {
+			data.StepUpRequired = true
+			verification = adminSecurityVerificationViewData(
+				r.Context(), access, adminSecurityActivityReturnTo(requestedPage),
+				r.URL.Query().Get("verification_required") == "1",
+			)
+		}
+
 		currentUser := auth.GetCurrentUser(r.Context())
 		currentSession := auth.GetCurrentSession(r.Context())
 		actorUserID := ""
@@ -84,21 +104,27 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 		if currentSession != nil {
 			actorSessionID = currentSession.ID
 		}
-		page, loadErr := h.auth.ListAdministratorSecurityEventPage(
-			r.Context(), actorUserID, actorSessionID, requestedPage,
-		)
-		switch {
-		case loadErr == nil:
-			data = adminSecurityActivityViewData(page)
-		case errors.Is(loadErr, auth.ErrRecentStepUpRequired):
-			data.StepUpRequired = true
-		case errors.Is(loadErr, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
-			return
-		default:
-			log.Printf("load administrator security activity: %v", loadErr)
-			http.Error(w, "failed to load administrator security activity", http.StatusInternalServerError)
-			return
+		if !data.StepUpRequired {
+			page, loadErr := h.auth.ListAdministratorSecurityEventPage(
+				r.Context(), actorUserID, actorSessionID, requestedPage,
+			)
+			switch {
+			case loadErr == nil:
+				data = adminSecurityActivityViewData(page)
+			case errors.Is(loadErr, auth.ErrRecentStepUpRequired):
+				data.StepUpRequired = true
+				access.StepUpFresh = false
+				verification = adminSecurityVerificationViewData(
+					r.Context(), access, adminSecurityActivityReturnTo(requestedPage), true,
+				)
+			case errors.Is(loadErr, auth.ErrAdministratorRequired):
+				http.Error(w, "admin access required", http.StatusForbidden)
+				return
+			default:
+				log.Printf("load administrator security activity: %v", loadErr)
+				http.Error(w, "failed to load administrator security activity", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
@@ -110,9 +136,9 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 	}
 	var output bytes.Buffer
 	if r.Header.Get("HX-Request") == "true" {
-		err = views.AdminSecurityActivityPartial(data).Render(r.Context(), &output)
+		err = views.AdminSecurityActivityPartial(data, verification).Render(r.Context(), &output)
 	} else {
-		err = views.ManagementAdminActivityLayout(uiSettings, data).Render(r.Context(), &output)
+		err = views.ManagementAdminActivityLayout(uiSettings, data, verification).Render(r.Context(), &output)
 	}
 	if err != nil {
 		log.Printf("render administrator security activity: %v", err)

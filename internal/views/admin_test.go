@@ -29,6 +29,7 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 	for _, want := range []string{
 		`aria-label="Instance security activity events"`, "Sign-in attempt failed",
 		"System", "target-user", `&lt;unsafe-client&gt;`, `href="/admin/activity?page=2"`,
+		`data-admin-security-activity-scroll`, `class="min-h-0 flex-1 overflow-y-auto"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("administrator security activity view omitted %q", want)
@@ -312,18 +313,30 @@ func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing
 
 func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	data := AdminUsersData{StepUpRequired: true, InvitationCSRFToken: strings.Repeat("b", 64)}
+	verification := AdminSecurityVerificationData{
+		Required:      true,
+		HasTOTP:       true,
+		ReturnTo:      "/admin/users",
+		TOTPPath:      "/settings/security/step-up",
+		TOTPCSRFToken: strings.Repeat("c", 64),
+	}
 	var out bytes.Buffer
-	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
+	if err := AdminUsersPage(data, verification).Render(context.Background(), &out); err != nil {
 		t.Fatalf("AdminUsersPage.Render() error = %v", err)
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Recent administrator verification required", `href="/admin/account/security"`,
+		"Recent administrator verification required", `data-admin-security-verification`,
+		`data-tui-dialog-target="admin-security-verification-dialog"`,
+		`action="/settings/security/step-up"`, `name="return_to" value="/admin/users"`,
 		"manage invitations, password resets, user access, deletion, and individual MFA policies for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)
 		}
+	}
+	if strings.Contains(html, `href="/admin/account/security"`) {
+		t.Fatal("stale administrator invitation view still sends verification to account security")
 	}
 }
 
@@ -390,16 +403,27 @@ func TestAdminSecurityPageRequiresRecentVerificationForMutations(t *testing.T) {
 			Protocol: "http", Host: "127.0.0.1", Port: 8080,
 		}},
 	}
+	verification := AdminSecurityVerificationData{
+		Required:               true,
+		HasPasskey:             true,
+		ReturnTo:               "/admin/security",
+		PasskeyStartPath:       "/settings/security/passkeys/step-up/start",
+		PasskeyFinishPath:      "/settings/security/passkeys/step-up/finish",
+		PasskeyStartCSRFToken:  strings.Repeat("d", 64),
+		PasskeyFinishCSRFToken: strings.Repeat("e", 64),
+	}
 
 	var out bytes.Buffer
-	if err := AdminSecurityPage(data).Render(context.Background(), &out); err != nil {
+	if err := AdminSecurityPage(data, verification).Render(context.Background(), &out); err != nil {
 		t.Fatalf("AdminSecurityPage.Render() error = %v", err)
 	}
 	html := out.String()
 	for _, want := range []string{
 		`role="alert"`,
 		"Recent administrator verification required",
-		`href="/settings/security"`,
+		`data-passkey-authentication`,
+		`data-success-redirect="/admin/security"`,
+		`data-start-csrf="` + strings.Repeat("d", 64) + `"`,
 		"unlock these changes for ten minutes",
 	} {
 		if !strings.Contains(html, want) {
@@ -408,6 +432,9 @@ func TestAdminSecurityPageRequiresRecentVerificationForMutations(t *testing.T) {
 	}
 	if got := strings.Count(html, ` disabled>`); got != 4 {
 		t.Fatalf("admin security disabled submit button count = %d, want 4", got)
+	}
+	if strings.Contains(html, `href="/settings/security"`) {
+		t.Fatal("stale mail-security view still sends verification to webmail settings")
 	}
 }
 

@@ -56,6 +56,10 @@ func TestManagementAdminLayoutOwnsItsNavigationShell(t *testing.T) {
 		`href="/admin/account/security"`,
 		`aria-current="page"`,
 		`data-management-shell`,
+		`src="/assets/js/passkey-authentication.js"`,
+		`id="main-content" class="relative flex min-h-0 min-w-0 flex-1"`,
+		`body class="h-screen overflow-hidden`,
+		`class="flex h-full min-h-0 overflow-hidden bg-background"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("management shell omitted %q", want)
@@ -74,6 +78,15 @@ func TestManagementSecurityLayoutSuppressesExternalSignInSettings(t *testing.T) 
 	html := out.String()
 	if !strings.Contains(html, `[data-management-shell] [data-federated\-identity-settings]{display:none!important}`) {
 		t.Fatal("management security layout did not suppress the webmail identity settings card")
+	}
+	for _, want := range []string{
+		`body class="h-screen overflow-hidden`,
+		`class="flex h-full min-h-0 overflow-hidden bg-background"`,
+		`id="main-content" class="flex min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("management security layout omitted bounded scroll contract %q", want)
+		}
 	}
 	for _, forbidden := range []string{"/settings/security/identities/google/link", "/settings/security/identities/microsoft/link", "/settings/security/identities/oidc/link"} {
 		if strings.Contains(html, forbidden) {

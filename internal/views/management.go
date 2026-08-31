@@ -59,7 +59,7 @@ func managementNavClass(active, item string) string {
 func renderManagementSidebar(ctx context.Context, w io.Writer, active string) error {
 	items := []struct{ path, key, label string }{
 		{"/admin/users", "users", "Users"},
-		{"/admin/activity", "activity", "Security activity"},
+		{"/admin/activity", "activity", "Admin security activity"},
 		{"/admin/avatars/", "avatars", "Avatar checks"},
 		{"/admin/contacts", "contacts", "Contacts"},
 		{"/admin/labels", "labels", "Labels"},
@@ -109,17 +109,17 @@ func renderManagementMobileNav(w io.Writer, active string) error {
 	return writeHTML(w, `</nav></header>`)
 }
 
-func ManagementAdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection, activeTab string) templ.Component {
+func ManagementAdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection, activeTab string, verification ...AdminSecurityVerificationData) templ.Component {
 	var content templ.Component
 	switch activeSection {
 	case "users":
-		content = AdminUsersPage(userData)
+		content = AdminUsersPage(userData, adminSecurityVerificationValue(verification))
 	case "contacts":
 		content = AdminContactsPage(contactStatus)
 	case "labels":
 		content = AdminLabelsPage(labelStatus)
 	case "security":
-		content = AdminSecurityPage(securityData)
+		content = AdminSecurityPage(securityData, adminSecurityVerificationValue(verification))
 	case "operations":
 		content = AdminMailOperationsPage(operationStatus)
 	default:
@@ -128,8 +128,8 @@ func ManagementAdminLayout(uiSettings map[string]string, userData AdminUsersData
 	return managementAdminLayout(uiSettings, activeSection, content)
 }
 
-func ManagementAdminActivityLayout(uiSettings map[string]string, data AdminSecurityActivityData) templ.Component {
-	return managementAdminLayout(uiSettings, "activity", AdminSecurityActivityPage(data))
+func ManagementAdminActivityLayout(uiSettings map[string]string, data AdminSecurityActivityData, verification ...AdminSecurityVerificationData) templ.Component {
+	return managementAdminLayout(uiSettings, "activity", AdminSecurityActivityPage(data, adminSecurityVerificationValue(verification)))
 }
 
 func managementAdminLayout(uiSettings map[string]string, activeSection string, content templ.Component) templ.Component {
@@ -140,19 +140,19 @@ func managementAdminLayout(uiSettings map[string]string, activeSection string, c
 		if err := SettingsComponentScripts().Render(ctx, w); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<style>[data-management-shell] #main-content > [class*="flex-1"] > [class*="overflow-y-auto"] > .lg\:hidden.border-b{display:none!important}</style></head><body class="bg-background text-foreground antialiased surface-desk" data-management-shell><div class="flex h-screen overflow-hidden bg-background">`); err != nil {
+		if err := writeHTML(w, `<style>[data-management-shell] #main-content > [class*="flex-1"] > [class*="overflow-y-auto"] > .lg\:hidden.border-b{display:none!important}</style></head><body class="h-screen overflow-hidden bg-background text-foreground antialiased surface-desk" data-management-shell><div class="flex h-full min-h-0 overflow-hidden bg-background">`); err != nil {
 			return err
 		}
 		if err := renderManagementSidebar(ctx, w, activeSection); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<div class="flex min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
+		if err := writeHTML(w, `<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
 			return err
 		}
 		if err := renderManagementMobileNav(w, activeSection); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<div id="main-content" class="relative flex flex-1 min-w-0">`); err != nil {
+		if err := writeHTML(w, `<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">`); err != nil {
 			return err
 		}
 		if err := AdminNavigationLoading().Render(ctx, w); err != nil {
@@ -161,7 +161,7 @@ func managementAdminLayout(uiSettings map[string]string, activeSection string, c
 		if err := content.Render(ctx, w); err != nil {
 			return err
 		}
-		return writeHTML(w, `</div></div></div><script src="/assets/js/ui-settings.js"></script><script src="/assets/js/admin.js"></script></body></html>`)
+		return writeHTML(w, `</div></div></div><script src="/assets/js/ui-settings.js"></script><script src="/assets/js/passkey-authentication.js"></script><script src="/assets/js/admin.js"></script></body></html>`)
 	})
 }
 
@@ -173,19 +173,19 @@ func ManagementSecurityLayout(uiSettings map[string]string, content templ.Compon
 		if err := SettingsComponentScripts().Render(ctx, w); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<style>[data-management-shell] [data-federated\-identity-settings]{display:none!important}</style></head><body class="bg-background text-foreground antialiased surface-desk" data-management-shell><div class="flex h-screen overflow-hidden bg-background">`); err != nil {
+		if err := writeHTML(w, `<style>[data-management-shell] [data-federated\-identity-settings]{display:none!important}</style></head><body class="h-screen overflow-hidden bg-background text-foreground antialiased surface-desk" data-management-shell><div class="flex h-full min-h-0 overflow-hidden bg-background">`); err != nil {
 			return err
 		}
 		if err := renderManagementSidebar(ctx, w, "account-security"); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<div class="flex min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
+		if err := writeHTML(w, `<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
 			return err
 		}
 		if err := renderManagementMobileNav(w, "account-security"); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<main id="main-content" class="flex flex-1 min-w-0 overflow-y-auto"><div class="w-full max-w-3xl px-8 py-10"><div class="mb-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management account</p><h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">Account security</h1><p class="mt-1 text-sm text-muted-foreground">Credentials and active sessions for this management identity.</p></div>`); err != nil {
+		if err := writeHTML(w, `<main id="main-content" class="flex min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"><div class="w-full max-w-3xl px-8 py-10"><div class="mb-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management account</p><h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">Account security</h1><p class="mt-1 text-sm text-muted-foreground">Credentials and active sessions for this management identity.</p></div>`); err != nil {
 			return err
 		}
 		if err := content.Render(ctx, w); err != nil {

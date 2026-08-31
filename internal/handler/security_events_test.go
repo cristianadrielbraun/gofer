@@ -211,7 +211,7 @@ func TestSecurityActivityDialogPaginatesOnlyCurrentUsersEventsWithoutAuditIntern
 	}
 	html := page.Body.String()
 	for _, want := range []string{
-		`data-security-events`, "Security activity", fmt.Sprintf("%d events", totalEvents),
+		`data-security-events`, "Your security activity", fmt.Sprintf("%d events", totalEvents),
 		"View activity", `hx-get="/settings/security/activity?page=1"`,
 		`hx-target="#security-activity-dialog-body"`, `id="security-activity-dialog"`,
 		"Loading security activity…",

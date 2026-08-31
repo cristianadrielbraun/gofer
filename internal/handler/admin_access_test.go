@@ -47,6 +47,7 @@ func TestAdminRootRedirectsToFirstSidebarSection(t *testing.T) {
 		location string
 	}{
 		{path: "/admin", location: "/admin/users"},
+		{path: "/admin/", location: "/admin/users"},
 		{path: "/admin/avatars", location: "/admin/avatars/"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
