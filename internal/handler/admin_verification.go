@@ -61,25 +61,57 @@ func adminSecurityVerificationReturnTo(value string) string {
 		if len(values) == 0 {
 			return parsed.Path
 		}
-		pages, ok := values["page"]
-		if !ok || len(values) != 1 || len(pages) != 1 {
+		if len(values) > 2 {
 			return ""
 		}
-		page, err := strconv.ParseInt(pages[0], 10, 64)
-		if err != nil || page < 1 {
-			return ""
+		for key := range values {
+			if key != "page" && key != "filter" {
+				return ""
+			}
 		}
-		return adminSecurityActivityPath + "?page=" + strconv.FormatInt(page, 10)
+		page := int64(1)
+		if pages, ok := values["page"]; ok {
+			if len(pages) != 1 {
+				return ""
+			}
+			page, err = strconv.ParseInt(pages[0], 10, 64)
+			if err != nil || page < 1 {
+				return ""
+			}
+		}
+		filter := auth.AdministratorSecurityEventFilterAll
+		if filters, ok := values["filter"]; ok {
+			if len(filters) != 1 || filters[0] == "" {
+				return ""
+			}
+			filter = auth.AdministratorSecurityEventFilter(filters[0])
+			if !filter.Valid() || filter == auth.AdministratorSecurityEventFilterAll {
+				return ""
+			}
+		}
+		if _, hasPage := values["page"]; !hasPage {
+			if _, hasFilter := values["filter"]; !hasFilter {
+				return ""
+			}
+		}
+		return adminSecurityActivityReturnTo(page, filter)
 	default:
 		return ""
 	}
 }
 
-func adminSecurityActivityReturnTo(page int64) string {
-	if page <= 1 {
+func adminSecurityActivityReturnTo(page int64, filter auth.AdministratorSecurityEventFilter) string {
+	values := url.Values{}
+	if filter != auth.AdministratorSecurityEventFilterAll {
+		values.Set("filter", string(filter))
+	}
+	if page > 1 {
+		values.Set("page", strconv.FormatInt(page, 10))
+	}
+	if len(values) == 0 {
 		return adminSecurityActivityPath
 	}
-	return adminSecurityActivityPath + "?page=" + strconv.FormatInt(page, 10)
+	return adminSecurityActivityPath + "?" + values.Encode()
 }
 
 func securityVerificationJSONRequested(r *http.Request) bool {

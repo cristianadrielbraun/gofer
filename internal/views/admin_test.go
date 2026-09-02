@@ -40,6 +40,35 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 	}
 
 	out.Reset()
+	data.Filter = "sessions"
+	if err := AdminSecurityActivityPage(data).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	filteredHTML := out.String()
+	for _, want := range []string{
+		"51 matching events", `href="/admin/activity?filter=sessions"`,
+		`href="/admin/activity?filter=sessions&amp;page=2"`,
+	} {
+		if !strings.Contains(filteredHTML, want) {
+			t.Fatalf("filtered administrator security activity view omitted %q", want)
+		}
+	}
+	if !strings.Contains(filteredHTML, `href="/admin/activity?filter=sessions" data-admin-navigation-link`) ||
+		!strings.Contains(filteredHTML, `aria-current="page"`) {
+		t.Fatalf("filtered administrator security activity did not mark the selected filter: %q", filteredHTML)
+	}
+
+	out.Reset()
+	if err := AdminSecurityActivityPage(AdminSecurityActivityData{
+		ManagedMode: true, Filter: "recovery",
+	}).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No security activity matches this filter.") {
+		t.Fatalf("empty filtered administrator security activity view = %q", out.String())
+	}
+
+	out.Reset()
 	if err := AdminSecurityActivityPage(AdminSecurityActivityData{
 		ManagedMode: true, StepUpRequired: true,
 	}).Render(context.Background(), &out); err != nil {

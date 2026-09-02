@@ -101,6 +101,10 @@ func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t 
 	for _, want := range []string{
 		`data-admin-security-activity`, "Admin security activity", fmt.Sprintf("%d events", totalEvents),
 		`href="/admin/activity"`, `aria-current="page"`, "Instance events",
+		`aria-label="Filter administrator security activity"`,
+		`href="/admin/activity?filter=failures"`, `href="/admin/activity?filter=recovery"`,
+		`href="/admin/activity?filter=policy"`, `href="/admin/activity?filter=identities"`,
+		`href="/admin/activity?filter=sessions"`,
 		"User deleted", "removed-user", "Deleted", administratorUsername,
 		"Sign-in attempt failed", "target-user", "System", "Instance",
 		`&lt;script&gt;event-client&lt;/script&gt;`, fmt.Sprintf("Page 1 of %d", totalPages),
@@ -136,6 +140,27 @@ func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t 
 		strings.Contains(partial.Body.String(), "<!DOCTYPE html>") || !strings.Contains(partial.Body.String(), "History Browser") {
 		t.Fatalf("administrator security activity partial = %d %q", partial.Code, partial.Body.String())
 	}
+
+	filteredRequest := httptest.NewRequest(http.MethodGet, adminSecurityActivityPath+"?filter=failures", nil)
+	filteredRequest.AddCookie(sessionCookie)
+	filtered := httptest.NewRecorder()
+	stack.ServeHTTP(filtered, filteredRequest)
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("filtered administrator security activity = %d %q", filtered.Code, filtered.Body.String())
+	}
+	filteredHTML := filtered.Body.String()
+	for _, want := range []string{
+		"matching events", "Failures", "Sign-in attempt failed", "target-user",
+	} {
+		if !strings.Contains(filteredHTML, want) {
+			t.Fatalf("filtered administrator activity omitted %q: %q", want, filteredHTML)
+		}
+	}
+	for _, forbidden := range []string{"removed-user", "Setup access issued", "History Browser"} {
+		if strings.Contains(filteredHTML, forbidden) {
+			t.Fatalf("filtered administrator activity included %q: %q", forbidden, filteredHTML)
+		}
+	}
 }
 
 func TestAdministratorSecurityActivityRejectsMalformedPageAndLocksBeforeQueryingEvents(t *testing.T) {
@@ -150,6 +175,15 @@ func TestAdministratorSecurityActivityRejectsMalformedPageAndLocksBeforeQuerying
 	stack.ServeHTTP(malformed, malformedRequest)
 	if malformed.Code != http.StatusBadRequest {
 		t.Fatalf("malformed administrator activity page = %d %q", malformed.Code, malformed.Body.String())
+	}
+	for _, query := range []string{"?filter=", "?filter=unsupported", "?filter=failures&filter=sessions"} {
+		request := httptest.NewRequest(http.MethodGet, adminSecurityActivityPath+query, nil)
+		request.AddCookie(sessionCookie)
+		response := httptest.NewRecorder()
+		stack.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("malformed administrator activity filter %q = %d %q", query, response.Code, response.Body.String())
+		}
 	}
 
 	if _, err := db.Write().ExecContext(t.Context(), `
@@ -169,7 +203,7 @@ func TestAdministratorSecurityActivityRejectsMalformedPageAndLocksBeforeQuerying
 		t.Fatal(err)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, adminSecurityActivityPath, nil)
+	request := httptest.NewRequest(http.MethodGet, adminSecurityActivityPath+"?filter=sessions&page=2", nil)
 	request.AddCookie(sessionCookie)
 	locked := httptest.NewRecorder()
 	stack.ServeHTTP(locked, request)
@@ -180,7 +214,8 @@ func TestAdministratorSecurityActivityRejectsMalformedPageAndLocksBeforeQuerying
 	for _, want := range []string{
 		`data-admin-security-activity-locked`, "Recent administrator verification required",
 		"before Gofer requests any instance security events", `data-admin-security-verification`,
-		`action="/settings/security/step-up"`, `name="return_to" value="/admin/activity"`,
+		`action="/settings/security/step-up"`,
+		`name="return_to" value="/admin/activity?filter=sessions&amp;page=2"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("locked administrator activity omitted %q: %q", want, html)

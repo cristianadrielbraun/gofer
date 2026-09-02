@@ -11,6 +11,31 @@ import (
 
 const administratorSecurityEventPageSize int64 = 50
 
+type AdministratorSecurityEventFilter string
+
+const (
+	AdministratorSecurityEventFilterAll        AdministratorSecurityEventFilter = ""
+	AdministratorSecurityEventFilterFailures   AdministratorSecurityEventFilter = "failures"
+	AdministratorSecurityEventFilterRecovery   AdministratorSecurityEventFilter = "recovery"
+	AdministratorSecurityEventFilterPolicy     AdministratorSecurityEventFilter = "policy"
+	AdministratorSecurityEventFilterIdentities AdministratorSecurityEventFilter = "identities"
+	AdministratorSecurityEventFilterSessions   AdministratorSecurityEventFilter = "sessions"
+)
+
+func (filter AdministratorSecurityEventFilter) Valid() bool {
+	switch filter {
+	case AdministratorSecurityEventFilterAll,
+		AdministratorSecurityEventFilterFailures,
+		AdministratorSecurityEventFilterRecovery,
+		AdministratorSecurityEventFilterPolicy,
+		AdministratorSecurityEventFilterIdentities,
+		AdministratorSecurityEventFilterSessions:
+		return true
+	default:
+		return false
+	}
+}
+
 // AdministratorSecurityEventSummary is the complete event projection allowed
 // outside the authentication domain. Event IDs, user IDs, session IDs, source
 // hashes, request IDs, and raw metadata are deliberately omitted.
@@ -42,6 +67,7 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 	ctx context.Context,
 	actorUserID string,
 	actorSessionID string,
+	filter AdministratorSecurityEventFilter,
 	requestedPage int64,
 ) (*AdministratorSecurityEventPage, error) {
 	actorUserID = strings.TrimSpace(actorUserID)
@@ -51,6 +77,9 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 	}
 	if actorSessionID == "" {
 		return nil, ErrRecentStepUpRequired
+	}
+	if !filter.Valid() {
+		return nil, fmt.Errorf("invalid administrator security event filter %q", filter)
 	}
 
 	tx, err := m.db.Read().BeginTx(ctx, nil)
@@ -67,8 +96,11 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 		return nil, err
 	}
 
+	filterClause, filterArguments := administratorSecurityEventFilterQuery(filter)
 	var totalEvents int64
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_events`).Scan(&totalEvents); err != nil {
+	if err := tx.QueryRowContext(
+		ctx, `SELECT COUNT(*) FROM auth_events event`+filterClause, filterArguments...,
+	).Scan(&totalEvents); err != nil {
 		return nil, fmt.Errorf("count administrator security events: %w", err)
 	}
 	totalPages := int64(1)
@@ -83,14 +115,16 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 		page = totalPages
 	}
 	offset := (page - 1) * administratorSecurityEventPageSize
+	queryArguments := append(append([]any{}, filterArguments...), administratorSecurityEventPageSize, offset)
 	rows, err := tx.QueryContext(ctx, `
 		SELECT event.occurred_at, event.event_type, event.success, event.reason,
 		       event.user_agent, actor.username, subject.username, event.metadata_json
 		FROM auth_events event
 		LEFT JOIN users actor ON actor.id = event.actor_user_id
 		LEFT JOIN users subject ON subject.id = event.subject_user_id
+		`+filterClause+`
 		ORDER BY event.occurred_at DESC, event.id DESC
-		LIMIT ? OFFSET ?`, administratorSecurityEventPageSize, offset,
+		LIMIT ? OFFSET ?`, queryArguments...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list administrator security events: %w", err)
@@ -136,6 +170,37 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 		return nil, fmt.Errorf("commit administrator security event page: %w", err)
 	}
 	return result, nil
+}
+
+func administratorSecurityEventFilterQuery(filter AdministratorSecurityEventFilter) (string, []any) {
+	switch filter {
+	case AdministratorSecurityEventFilterFailures:
+		return " WHERE event.success = 0", nil
+	case AdministratorSecurityEventFilterRecovery:
+		return " WHERE event.event_type IN (?, ?, ?, ?)", []any{
+			AuthEventRecoveryUsed,
+			AuthEventCredentialResetRequested,
+			AuthEventCredentialResetCompleted,
+			AuthEventLocalRecoveryStarted,
+		}
+	case AdministratorSecurityEventFilterPolicy:
+		return " WHERE event.event_type = ?", []any{AuthEventSecurityPolicyChanged}
+	case AdministratorSecurityEventFilterIdentities:
+		return " WHERE event.event_type IN (?, ?)", []any{
+			AuthEventIdentityLinked,
+			AuthEventIdentityUnlinked,
+		}
+	case AdministratorSecurityEventFilterSessions:
+		return " WHERE event.event_type IN (?, ?, ?, ?, ?)", []any{
+			AuthEventLoginSucceeded,
+			AuthEventLoginFailed,
+			AuthEventSessionRevoked,
+			AuthEventStepUpSucceeded,
+			AuthEventStepUpFailed,
+		}
+	default:
+		return "", nil
+	}
 }
 
 func deletedSecurityEventUsername(eventType AuthEventType, metadata string) string {

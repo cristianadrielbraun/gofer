@@ -17,17 +17,17 @@ func TestAdministratorSecurityEventPageRequiresExactVerifiedManagementAdministra
 	ordinarySessionID := insertEnrollmentStepUpSession(t, manager, "ordinary", now, now)
 
 	if page, err := manager.ListAdministratorSecurityEventPage(
-		t.Context(), "ordinary", ordinarySessionID, 1,
+		t.Context(), "ordinary", ordinarySessionID, AdministratorSecurityEventFilterAll, 1,
 	); page != nil || !errors.Is(err, ErrAdministratorRequired) {
 		t.Fatalf("ordinary administrator event page = %#v, %v", page, err)
 	}
 	if page, err := manager.ListAdministratorSecurityEventPage(
-		t.Context(), "administrator", ordinarySessionID, 1,
+		t.Context(), "administrator", ordinarySessionID, AdministratorSecurityEventFilterAll, 1,
 	); page != nil || !errors.Is(err, ErrRecentStepUpRequired) {
 		t.Fatalf("cross-user administrator event session = %#v, %v", page, err)
 	}
 	if page, err := manager.ListAdministratorSecurityEventPage(
-		t.Context(), "administrator", "", 1,
+		t.Context(), "administrator", "", AdministratorSecurityEventFilterAll, 1,
 	); page != nil || !errors.Is(err, ErrRecentStepUpRequired) {
 		t.Fatalf("missing administrator event session = %#v, %v", page, err)
 	}
@@ -38,7 +38,7 @@ func TestAdministratorSecurityEventPageRequiresExactVerifiedManagementAdministra
 		t.Fatal(err)
 	}
 	if page, err := manager.ListAdministratorSecurityEventPage(
-		t.Context(), "administrator", adminSessionID, 1,
+		t.Context(), "administrator", adminSessionID, AdministratorSecurityEventFilterAll, 1,
 	); page != nil || !errors.Is(err, ErrRecentStepUpRequired) {
 		t.Fatalf("stale administrator event page = %#v, %v", page, err)
 	}
@@ -52,7 +52,7 @@ func TestAdministratorSecurityEventPageRequiresExactVerifiedManagementAdministra
 		t.Fatal(err)
 	}
 	if page, err := manager.ListAdministratorSecurityEventPage(
-		t.Context(), "administrator", adminSessionID, 1,
+		t.Context(), "administrator", adminSessionID, AdministratorSecurityEventFilterAll, 1,
 	); page != nil || !errors.Is(err, ErrAdministratorRequired) {
 		t.Fatalf("disabled administrator event page = %#v, %v", page, err)
 	}
@@ -117,7 +117,7 @@ func TestAdministratorSecurityEventPagePaginatesSanitizedInstanceHistory(t *test
 	}
 
 	page, err := manager.ListAdministratorSecurityEventPage(
-		t.Context(), "administrator", adminSessionID, 1,
+		t.Context(), "administrator", adminSessionID, AdministratorSecurityEventFilterAll, 1,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -141,13 +141,118 @@ func TestAdministratorSecurityEventPagePaginatesSanitizedInstanceHistory(t *test
 	}
 
 	last, err := manager.ListAdministratorSecurityEventPage(
-		t.Context(), "administrator", adminSessionID, 999,
+		t.Context(), "administrator", adminSessionID, AdministratorSecurityEventFilterAll, 999,
 	)
 	if err != nil || last == nil || last.Page != 2 || last.TotalPages != 2 || len(last.Events) != 5 {
 		t.Fatalf("clamped administrator security event page = %#v, %v", last, err)
 	}
 	if last.Events[len(last.Events)-1].UserAgent != "History Browser 51" {
 		t.Fatalf("last administrator security event = %#v", last.Events[len(last.Events)-1])
+	}
+}
+
+func TestAdministratorSecurityEventPageFiltersServerSideBySupportedCategory(t *testing.T) {
+	now := time.Date(2026, time.September, 2, 3, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
+	insertActiveUser(t, manager, "administrator", true, now)
+	insertActiveUser(t, manager, "person", false, now)
+	adminSessionID := insertEnrollmentStepUpSession(t, manager, "administrator", now, now)
+
+	events := []struct {
+		eventType AuthEventType
+		success   int
+	}{
+		{AuthEventLoginSucceeded, 1},
+		{AuthEventLoginFailed, 0},
+		{AuthEventSessionRevoked, 1},
+		{AuthEventStepUpFailed, 0},
+		{AuthEventRecoveryUsed, 1},
+		{AuthEventCredentialResetRequested, 1},
+		{AuthEventCredentialResetCompleted, 1},
+		{AuthEventLocalRecoveryStarted, 1},
+		{AuthEventSecurityPolicyChanged, 1},
+		{AuthEventIdentityLinked, 1},
+		{AuthEventIdentityUnlinked, 1},
+		{AuthEventCredentialChanged, 0},
+	}
+	for index, event := range events {
+		if _, err := manager.db.Write().ExecContext(t.Context(), `
+			INSERT INTO auth_events (
+				id, occurred_at, actor_user_id, subject_user_id, event_type,
+				success, reason, user_agent, metadata_json
+			) VALUES (?, ?, 'administrator', 'person', ?, ?, ?, 'Filter Browser', '{}')`,
+			fmt.Sprintf("filter-event-%02d", index), now.Add(time.Duration(index)*time.Second),
+			event.eventType, event.success, AuthEventReasonUserAction,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		filter AdministratorSecurityEventFilter
+		want   map[AuthEventType]bool
+	}{
+		{
+			filter: AdministratorSecurityEventFilterFailures,
+			want: map[AuthEventType]bool{
+				AuthEventLoginFailed:       true,
+				AuthEventStepUpFailed:      true,
+				AuthEventCredentialChanged: true,
+			},
+		},
+		{
+			filter: AdministratorSecurityEventFilterRecovery,
+			want: map[AuthEventType]bool{
+				AuthEventRecoveryUsed:             true,
+				AuthEventCredentialResetRequested: true,
+				AuthEventCredentialResetCompleted: true,
+				AuthEventLocalRecoveryStarted:     true,
+			},
+		},
+		{
+			filter: AdministratorSecurityEventFilterPolicy,
+			want:   map[AuthEventType]bool{AuthEventSecurityPolicyChanged: true},
+		},
+		{
+			filter: AdministratorSecurityEventFilterIdentities,
+			want: map[AuthEventType]bool{
+				AuthEventIdentityLinked:   true,
+				AuthEventIdentityUnlinked: true,
+			},
+		},
+		{
+			filter: AdministratorSecurityEventFilterSessions,
+			want: map[AuthEventType]bool{
+				AuthEventLoginSucceeded: true,
+				AuthEventLoginFailed:    true,
+				AuthEventSessionRevoked: true,
+				AuthEventStepUpFailed:   true,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(string(test.filter), func(t *testing.T) {
+			page, err := manager.ListAdministratorSecurityEventPage(
+				t.Context(), "administrator", adminSessionID, test.filter, 1,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.TotalEvents != int64(len(test.want)) || len(page.Events) != len(test.want) {
+				t.Fatalf("filtered administrator event page = %#v", page)
+			}
+			for _, event := range page.Events {
+				if !test.want[event.EventType] {
+					t.Fatalf("filter %q returned event %q", test.filter, event.EventType)
+				}
+			}
+		})
+	}
+
+	if page, err := manager.ListAdministratorSecurityEventPage(
+		t.Context(), "administrator", adminSessionID, "not-supported", 1,
+	); page != nil || err == nil {
+		t.Fatalf("invalid administrator event filter = %#v, %v", page, err)
 	}
 }
 

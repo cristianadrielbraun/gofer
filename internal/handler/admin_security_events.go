@@ -58,6 +58,21 @@ func adminSecurityActivityViewData(page *auth.AdministratorSecurityEventPage) vi
 	return data
 }
 
+func parseAdminSecurityActivityFilter(r *http.Request) (auth.AdministratorSecurityEventFilter, error) {
+	values, present := r.URL.Query()["filter"]
+	if !present {
+		return auth.AdministratorSecurityEventFilterAll, nil
+	}
+	if len(values) != 1 || values[0] == "" {
+		return "", errors.New("filter must be one supported activity category")
+	}
+	filter := auth.AdministratorSecurityEventFilter(values[0])
+	if !filter.Valid() || filter == auth.AdministratorSecurityEventFilterAll {
+		return "", errors.New("filter must be one supported activity category")
+	}
+	return filter, nil
+}
+
 func setAdminSecurityActivityHeaders(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -71,8 +86,16 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	filter, err := parseAdminSecurityActivityFilter(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
-	data := views.AdminSecurityActivityData{ManagedMode: h.auth != nil && h.auth.IsEnabled()}
+	data := views.AdminSecurityActivityData{
+		ManagedMode: h.auth != nil && h.auth.IsEnabled(),
+		Filter:      string(filter),
+	}
 	verification := views.AdminSecurityVerificationData{}
 	if data.ManagedMode {
 		access, accessErr := h.auth.GetSecuritySettingsAccess(r.Context(), auth.GetSessionToken(r))
@@ -89,7 +112,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 		if !access.StepUpFresh {
 			data.StepUpRequired = true
 			verification = adminSecurityVerificationViewData(
-				r.Context(), access, adminSecurityActivityReturnTo(requestedPage),
+				r.Context(), access, adminSecurityActivityReturnTo(requestedPage, filter),
 				r.URL.Query().Get("verification_required") == "1",
 			)
 		}
@@ -106,16 +129,18 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 		}
 		if !data.StepUpRequired {
 			page, loadErr := h.auth.ListAdministratorSecurityEventPage(
-				r.Context(), actorUserID, actorSessionID, requestedPage,
+				r.Context(), actorUserID, actorSessionID, filter, requestedPage,
 			)
 			switch {
 			case loadErr == nil:
 				data = adminSecurityActivityViewData(page)
+				data.Filter = string(filter)
 			case errors.Is(loadErr, auth.ErrRecentStepUpRequired):
 				data.StepUpRequired = true
+				data.Filter = string(filter)
 				access.StepUpFresh = false
 				verification = adminSecurityVerificationViewData(
-					r.Context(), access, adminSecurityActivityReturnTo(requestedPage), true,
+					r.Context(), access, adminSecurityActivityReturnTo(requestedPage, filter), true,
 				)
 			case errors.Is(loadErr, auth.ErrAdministratorRequired):
 				http.Error(w, "admin access required", http.StatusForbidden)
