@@ -159,7 +159,16 @@ func (h *Handler) handleRetryMailOperation(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) handleAdminMailOperationsStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.mailOperationsAdminStatus(r.Context())
+	scope, err := h.adminWebmailScope(r.Context(), r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	status, err := h.mailOperationsAdminStatus(r.Context(), scope)
 	if err != nil {
 		http.Error(w, "failed to get mail operation status", http.StatusInternalServerError)
 		return
@@ -168,7 +177,16 @@ func (h *Handler) handleAdminMailOperationsStatus(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) {
-	status, err := h.mailOperationsAdminStatus(r.Context())
+	scope, err := h.adminWebmailScope(r.Context(), r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	status, err := h.mailOperationsAdminStatus(r.Context(), scope)
 	if err != nil {
 		http.Error(w, "failed to get mail operation status", http.StatusInternalServerError)
 		return
@@ -182,21 +200,36 @@ func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) 
 	_ = views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
 }
 
-func (h *Handler) mailOperationsAdminStatus(ctx context.Context) (models.MailOperationsAdminStatus, error) {
-	status, err := h.db.ListMailOperationsAdminStatus(ctx)
+func (h *Handler) mailOperationsAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.MailOperationsAdminStatus, error) {
+	var status models.MailOperationsAdminStatus
+	var err error
+	if scope.SelectedUserID == "" {
+		status, err = h.db.ListMailOperationsAdminStatus(ctx)
+	} else {
+		status, err = h.db.ListMailOperationsAdminStatusForUser(ctx, scope.SelectedUserID)
+	}
 	if err != nil {
 		return models.MailOperationsAdminStatus{}, err
 	}
-	if err := h.mergeIDLEAdminHealth(ctx, &status.Health); err != nil {
+	status.Scope = scope
+	if err := h.mergeIDLEAdminHealth(ctx, &status.Health, scope.SelectedUserID); err != nil {
 		return models.MailOperationsAdminStatus{}, err
 	}
-	status.Health.SMTPProfile = h.smtpDeliveryProfile()
-	status.Retention = h.mailRetentionDiagnostics()
+	if scope.SelectedUserID == "" {
+		status.Health.SMTPProfile = h.smtpDeliveryProfile()
+		status.Retention = h.mailRetentionDiagnostics()
+	}
 	return status, nil
 }
 
-func (h *Handler) mergeIDLEAdminHealth(ctx context.Context, health *models.MailOperationAdminHealth) error {
-	configured, err := h.db.ListConfiguredIdleFolders(ctx)
+func (h *Handler) mergeIDLEAdminHealth(ctx context.Context, health *models.MailOperationAdminHealth, userID string) error {
+	var configured []storage.ConfiguredIdleFolder
+	var err error
+	if userID == "" {
+		configured, err = h.db.ListConfiguredIdleFolders(ctx)
+	} else {
+		configured, err = h.db.ListConfiguredIdleFoldersForUser(ctx, userID)
+	}
 	if err != nil {
 		return err
 	}

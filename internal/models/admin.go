@@ -2,6 +2,18 @@ package models
 
 import "time"
 
+type AdminWebmailUserOption struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Status   string `json:"status"`
+}
+
+type AdminWebmailScope struct {
+	SelectedUserID   string                   `json:"selected_user_id,omitempty"`
+	SelectedUsername string                   `json:"selected_username,omitempty"`
+	Users            []AdminWebmailUserOption `json:"users"`
+}
+
 type AvatarBackfillState struct {
 	InProgress      bool                  `json:"in_progress"`
 	CancelRequested bool                  `json:"cancel_requested"`
@@ -49,6 +61,7 @@ type AvatarProviderStats struct {
 }
 
 type AvatarStatus struct {
+	Scope          AdminWebmailScope   `json:"scope"`
 	Backfill       AvatarBackfillState `json:"backfill"`
 	Cache          AvatarCacheStats    `json:"cache"`
 	RecentAttempts []AvatarAttemptLog  `json:"recent_attempts"`
@@ -98,6 +111,7 @@ type AvatarInUse struct {
 }
 
 type ContactAdminStatus struct {
+	Scope        AdminWebmailScope      `json:"scope"`
 	Backfill     ContactBackfillState   `json:"backfill"`
 	Total        int                    `json:"total"`
 	Manual       int                    `json:"manual"`
@@ -146,6 +160,7 @@ type ContactActivityEvent struct {
 }
 
 type LabelAdminStatus struct {
+	Scope    AdminWebmailScope        `json:"scope"`
 	Totals   LabelAdminTotals         `json:"totals"`
 	Accounts []LabelAccountSyncStatus `json:"accounts"`
 }

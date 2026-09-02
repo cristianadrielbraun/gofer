@@ -96,6 +96,33 @@
 (function () {
   "use strict"
 
+  function bindWebmailScope(root) {
+    ;(root || document).querySelectorAll("[data-admin-webmail-scope-form]").forEach(function (form) {
+      if (form.dataset.adminWebmailScopeBound === "true") return
+      form.dataset.adminWebmailScopeBound = "true"
+      var input = form.querySelector("[data-admin-webmail-scope]")
+      if (!input) return
+      input.addEventListener("change", function () {
+        var destination = new URL(form.action, window.location.href)
+        var userID = String(input.value || "").trim()
+        if (userID) destination.searchParams.set("user_id", userID)
+        else destination.searchParams.delete("user_id")
+        window.location.assign(destination.toString())
+      })
+    })
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () { bindWebmailScope(document) })
+  } else {
+    bindWebmailScope(document)
+  }
+  document.addEventListener("htmx:afterSwap", function (event) { bindWebmailScope(event.target) })
+})();
+
+(function () {
+  "use strict"
+
 	var avatarRoot = document.querySelector("[data-avatar-admin]")
 	var contactRoot = document.querySelector("[data-contact-admin]")
 	if (!avatarRoot && !contactRoot) return
@@ -108,6 +135,13 @@
 
   function qs(selector, base) {
     return (base || document).querySelector(selector)
+  }
+
+  function adminDataURL(path) {
+    var destination = new URL(path, window.location.href)
+    var userID = new URL(window.location.href).searchParams.get("user_id")
+    if (userID) destination.searchParams.set("user_id", userID)
+    return destination.pathname + destination.search
   }
 
   function percent(part, total) {
@@ -283,14 +317,14 @@
   }
 
   function refreshContactStatus() {
-    return fetch("/api/admin/contacts/status", { headers: { "Accept": "application/json" } })
+    return fetch(adminDataURL("/api/admin/contacts/status"), { headers: { "Accept": "application/json" } })
       .then(function (res) { if (!res.ok) throw new Error("status " + res.status); return res.json() })
       .then(renderContactStatus)
       .catch(function () {})
   }
 
   function bindForceContactBackfill() {
-    var form = document.querySelector('form[action="/admin/contacts/backfill"]')
+    var form = document.querySelector("[data-contact-backfill-form]")
     if (!form) return
     form.addEventListener("submit", function (event) {
       event.preventDefault()
@@ -304,7 +338,7 @@
 
   function setupContactSSE() {
     if (!window.EventSource) return
-    var source = new EventSource("/api/events")
+    var source = new EventSource("/api/admin/events")
     source.addEventListener("contact-backfill", function (event) {
       var data = parseEventData(event)
       if (data.backfill) renderContactBackfill(data.backfill)
@@ -437,7 +471,7 @@
   }
 
 	function refreshStatus() {
-		return fetch("/api/avatars/status", { headers: { "Accept": "application/json" } })
+		return fetch(adminDataURL("/api/admin/avatars/status"), { headers: { "Accept": "application/json" } })
 			.then(function (res) { if (!res.ok) throw new Error("status " + res.status); return res.json() })
 			.then(renderStatus)
 			.catch(function () {})
@@ -709,7 +743,7 @@
       if (this.filters.status && this.filters.status !== "all") params.set("status", this.filters.status)
       if (this.filters.errors) params.set("errors", "true")
       var self = this
-      fetch("/api/avatars/senders?" + params.toString(), { headers: { "Accept": "application/json" } })
+      fetch(adminDataURL("/api/admin/avatars/senders?" + params.toString()), { headers: { "Accept": "application/json" } })
         .then(function (res) { if (!res.ok) throw new Error("status " + res.status); return res.json() })
         .then(function (data) {
           self.totalCount = data.total_count || 0
@@ -862,7 +896,7 @@
       if (this.filters.status && this.filters.status !== "all") params.set("status", this.filters.status)
       if (this.filters.errors) params.set("kind", "errors")
       var self = this
-      fetch("/api/avatars/attempts?" + params.toString(), { headers: { "Accept": "application/json" } })
+      fetch(adminDataURL("/api/admin/avatars/attempts?" + params.toString()), { headers: { "Accept": "application/json" } })
         .then(function (res) { if (!res.ok) throw new Error("status " + res.status); return res.json() })
         .then(function (data) {
           self.totalCount = data.total_count || 0
@@ -987,7 +1021,7 @@
 
   function setupSSE() {
     if (!window.EventSource) return
-    var source = new EventSource("/api/events")
+    var source = new EventSource("/api/admin/events")
     source.addEventListener("avatar-backfill", function (event) {
       var transition = renderBackfillEvent(event) || {}
       if (transition.wasRunning !== transition.running || transition.status === "canceling") {

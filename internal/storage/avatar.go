@@ -71,6 +71,7 @@ type SenderAvatarAttemptLog struct {
 }
 
 type SenderAvatarAttemptLogFilter struct {
+	UserID     string
 	ErrorsOnly bool
 	Query      string
 	Provider   string
@@ -107,6 +108,7 @@ type SenderAvatarRow struct {
 }
 
 type SenderAvatarRowFilter struct {
+	UserID     string
 	Query      string
 	Status     string
 	Source     string
@@ -231,6 +233,30 @@ func (db *DB) IsSenderAvatarEmailVisibleToUser(ctx context.Context, email, userI
 			)
 		THEN 1 ELSE 0 END`, userID, email, userID, email, userID, email).Scan(&visible)
 	return visible != 0, err
+}
+
+func senderAvatarVisibleToUserClause(emailExpression string) string {
+	return `(EXISTS (
+		SELECT 1 FROM messages visible_message
+		JOIN accounts visible_account ON visible_account.id = visible_message.account_id
+		WHERE visible_account.user_id = ?
+		  AND COALESCE(visible_account.is_deleting, 0) = 0
+		  AND lower(trim(visible_message.from_email)) = lower(trim(` + emailExpression + `))
+	) OR EXISTS (
+		SELECT 1 FROM contact_identities visible_identity
+		JOIN contact_profiles visible_profile
+		  ON visible_profile.id = visible_identity.profile_id
+		 AND visible_profile.user_id = visible_identity.user_id
+		WHERE visible_identity.user_id = ?
+		  AND visible_identity.kind = 'email'
+		  AND visible_profile.is_deleted = 0
+		  AND visible_identity.normalized_value = lower(trim(` + emailExpression + `))
+	) OR EXISTS (
+		SELECT 1 FROM contact_profiles visible_primary
+		WHERE visible_primary.user_id = ?
+		  AND visible_primary.is_deleted = 0
+		  AND lower(trim(visible_primary.primary_email)) = lower(trim(` + emailExpression + `))
+	))`
 }
 
 func (db *DB) IsProviderAvatarURLVisibleToUser(ctx context.Context, rawURL, userID string) (bool, error) {
@@ -613,19 +639,23 @@ func (db *DB) GetSenderAvatarAttemptLogs(ctx context.Context, filter SenderAvata
 
 	clauses := []string{}
 	args := []any{}
+	if filter.UserID = strings.TrimSpace(filter.UserID); filter.UserID != "" {
+		clauses = append(clauses, senderAvatarVisibleToUserClause("log.email"))
+		args = append(args, filter.UserID, filter.UserID, filter.UserID)
+	}
 	if filter.ErrorsOnly {
-		clauses = append(clauses, "status = 'error'")
+		clauses = append(clauses, "log.status = 'error'")
 	}
 	if filter.Query = strings.ToLower(strings.TrimSpace(filter.Query)); filter.Query != "" {
-		clauses = append(clauses, "lower(email) LIKE ?")
+		clauses = append(clauses, "lower(log.email) LIKE ?")
 		args = append(args, "%"+filter.Query+"%")
 	}
 	if filter.Provider = strings.ToLower(strings.TrimSpace(filter.Provider)); filter.Provider != "" && filter.Provider != "all" {
-		clauses = append(clauses, "provider = ?")
+		clauses = append(clauses, "log.provider = ?")
 		args = append(args, filter.Provider)
 	}
 	if filter.Status = strings.ToLower(strings.TrimSpace(filter.Status)); filter.Status != "" && filter.Status != "all" {
-		clauses = append(clauses, "status = ?")
+		clauses = append(clauses, "log.status = ?")
 		args = append(args, filter.Status)
 	}
 
@@ -635,13 +665,13 @@ func (db *DB) GetSenderAvatarAttemptLogs(ctx context.Context, filter SenderAvata
 	}
 
 	var total int
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM avatar_attempt_logs`+where, args...).Scan(&total); err != nil {
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM avatar_attempt_logs log`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	query := `SELECT email, provider, status, message, created_at
-		 FROM avatar_attempt_logs` + where + `
-		 ORDER BY created_at DESC, id DESC
+	query := `SELECT log.email, log.provider, log.status, log.message, log.created_at
+		 FROM avatar_attempt_logs log` + where + `
+		 ORDER BY log.created_at DESC, log.id DESC
 		 LIMIT ? OFFSET ?`
 	queryArgs := append(append([]any{}, args...), filter.Limit, filter.Offset)
 	rows, err := db.Read().QueryContext(ctx, query, queryArgs...)
@@ -674,6 +704,10 @@ func (db *DB) GetSenderAvatarRows(ctx context.Context, filter SenderAvatarRowFil
 
 	clauses := []string{}
 	args := []any{}
+	if filter.UserID = strings.TrimSpace(filter.UserID); filter.UserID != "" {
+		clauses = append(clauses, senderAvatarVisibleToUserClause("sa.email"))
+		args = append(args, filter.UserID, filter.UserID, filter.UserID)
+	}
 	if filter.Query = strings.ToLower(strings.TrimSpace(filter.Query)); filter.Query != "" {
 		clauses = append(clauses, "lower(sa.email) LIKE ?")
 		args = append(args, "%"+filter.Query+"%")
@@ -793,6 +827,17 @@ func (db *DB) GetAvatarProviderNames(ctx context.Context) ([]string, error) {
 }
 
 func (db *DB) GetProviderContactAvatarsByEmail(ctx context.Context, userID string, emails []string) (map[string]string, error) {
+	if userID == "" {
+		return map[string]string{}, nil
+	}
+	return db.getProviderContactAvatarsByEmail(ctx, userID, false, emails)
+}
+
+func (db *DB) GetInstanceProviderContactAvatarsByEmail(ctx context.Context, emails []string) (map[string]string, error) {
+	return db.getProviderContactAvatarsByEmail(ctx, "", true, emails)
+}
+
+func (db *DB) getProviderContactAvatarsByEmail(ctx context.Context, userID string, instanceWide bool, emails []string) (map[string]string, error) {
 	out := map[string]string{}
 	normalized := make([]string, 0, len(emails))
 	seen := map[string]bool{}
@@ -804,16 +849,24 @@ func (db *DB) GetProviderContactAvatarsByEmail(ctx context.Context, userID strin
 		seen[email] = true
 		normalized = append(normalized, email)
 	}
-	if userID == "" || len(normalized) == 0 {
+	if len(normalized) == 0 {
 		return out, nil
 	}
+	directOwnerJoin := ""
+	directOwnerFilter := "ci.user_id = ?"
 	args := []any{userID}
+	if instanceWide {
+		directOwnerJoin = "JOIN users contact_owner ON contact_owner.id = ci.user_id"
+		directOwnerFilter = "contact_owner.user_type = 'webmail'"
+		args = nil
+	}
 	args = append(args, stringsToAny(normalized)...)
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT ci.normalized_value, cp.avatar_url
 		FROM contact_identities ci
 		JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
-		WHERE ci.user_id = ?
+		`+directOwnerJoin+`
+		WHERE `+directOwnerFilter+`
 		  AND ci.kind = 'email'
 		  AND ci.normalized_value IN (`+sqlPlaceholders(len(normalized))+`)
 		  AND cp.is_deleted = 0
@@ -848,7 +901,15 @@ func (db *DB) GetProviderContactAvatarsByEmail(ctx context.Context, userID strin
 		return out, nil
 	}
 
+	fallbackOwnerJoins := ""
+	fallbackOwnerFilter := "current_identity.user_id = ?"
 	args = []any{userID}
+	if instanceWide {
+		fallbackOwnerJoins = `JOIN users current_owner ON current_owner.id = current_identity.user_id
+		JOIN users source_owner ON source_owner.id = source_profile.user_id`
+		fallbackOwnerFilter = "current_owner.user_type = 'webmail' AND source_owner.user_type = 'webmail'"
+		args = nil
+	}
 	args = append(args, stringsToAny(missing)...)
 	fallbackRows, err := db.Read().QueryContext(ctx, `
 		SELECT current_identity.normalized_value, source_profile.avatar_url
@@ -871,7 +932,8 @@ func (db *DB) GetProviderContactAvatarsByEmail(ctx context.Context, userID strin
 		  AND source_account.provider_account_id = current_account.provider_account_id
 		JOIN contact_profiles source_profile ON source_profile.id = source_card.profile_id
 		  AND source_profile.user_id = source_card.user_id
-		WHERE current_identity.user_id = ?
+		`+fallbackOwnerJoins+`
+		WHERE `+fallbackOwnerFilter+`
 		  AND current_identity.kind = 'email'
 		  AND current_identity.normalized_value IN (`+sqlPlaceholders(len(missing))+`)
 		  AND current_profile.is_deleted = 0
@@ -897,7 +959,29 @@ func (db *DB) GetProviderContactAvatarsByEmail(ctx context.Context, userID strin
 }
 
 func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, error) {
+	return db.getSenderAvatarStats(ctx, "")
+}
+
+func (db *DB) GetSenderAvatarStatsForUser(ctx context.Context, userID string) (SenderAvatarStats, error) {
+	return db.getSenderAvatarStats(ctx, strings.TrimSpace(userID))
+}
+
+func (db *DB) getSenderAvatarStats(ctx context.Context, userID string) (SenderAvatarStats, error) {
 	var stats SenderAvatarStats
+	avatarWhere := ""
+	avatarAnd := " WHERE "
+	avatarArgs := []any{}
+	providerJoin := ""
+	providerWhere := ""
+	providerArgs := []any{}
+	if userID != "" {
+		avatarWhere = " WHERE " + senderAvatarVisibleToUserClause("sa.email")
+		avatarAnd = avatarWhere + " AND "
+		avatarArgs = []any{userID, userID, userID}
+		providerJoin = " JOIN sender_avatars sa ON sa.email_hash = aps.email_hash"
+		providerWhere = " WHERE " + senderAvatarVisibleToUserClause("sa.email")
+		providerArgs = []any{userID, userID, userID}
+	}
 	providerStats := map[string]*SenderAvatarProviderStats{}
 	providerStat := func(provider string) *SenderAvatarProviderStats {
 		provider = strings.ToLower(strings.TrimSpace(provider))
@@ -911,7 +995,7 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		providerStats[provider] = entry
 		return entry
 	}
-	rows, err := db.Read().QueryContext(ctx, `SELECT status, COUNT(*) FROM sender_avatars GROUP BY status`)
+	rows, err := db.Read().QueryContext(ctx, `SELECT sa.status, COUNT(*) FROM sender_avatars sa`+avatarWhere+` GROUP BY sa.status`, avatarArgs...)
 	if err != nil {
 		return stats, err
 	}
@@ -939,7 +1023,7 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		return stats, err
 	}
 
-	rows, err = db.Read().QueryContext(ctx, `SELECT source, COUNT(*) FROM sender_avatars WHERE status = 'found' GROUP BY source`)
+	rows, err = db.Read().QueryContext(ctx, `SELECT sa.source, COUNT(*) FROM sender_avatars sa`+avatarAnd+`sa.status = 'found' GROUP BY sa.source`, avatarArgs...)
 	if err != nil {
 		return stats, err
 	}
@@ -967,7 +1051,7 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		return stats, err
 	}
 
-	rows, err = db.Read().QueryContext(ctx, `SELECT provider, status, COUNT(*) FROM avatar_provider_states GROUP BY provider, status`)
+	rows, err = db.Read().QueryContext(ctx, `SELECT aps.provider, aps.status, COUNT(*) FROM avatar_provider_states aps`+providerJoin+providerWhere+` GROUP BY aps.provider, aps.status`, providerArgs...)
 	if err != nil {
 		return stats, err
 	}
@@ -998,7 +1082,7 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		return stats, err
 	}
 
-	rows, err = db.Read().QueryContext(ctx, `SELECT gravatar_status, COUNT(*) FROM sender_avatars GROUP BY gravatar_status`)
+	rows, err = db.Read().QueryContext(ctx, `SELECT sa.gravatar_status, COUNT(*) FROM sender_avatars sa`+avatarWhere+` GROUP BY sa.gravatar_status`, avatarArgs...)
 	if err != nil {
 		return stats, err
 	}
@@ -1026,7 +1110,7 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 		return stats, err
 	}
 
-	rows, err = db.Read().QueryContext(ctx, `SELECT bimi_status, COUNT(*) FROM sender_avatars GROUP BY bimi_status`)
+	rows, err = db.Read().QueryContext(ctx, `SELECT sa.bimi_status, COUNT(*) FROM sender_avatars sa`+avatarWhere+` GROUP BY sa.bimi_status`, avatarArgs...)
 	if err != nil {
 		return stats, err
 	}
@@ -1058,10 +1142,9 @@ func (db *DB) GetSenderAvatarStats(ctx context.Context) (SenderAvatarStats, erro
 
 	err = db.Read().QueryRowContext(ctx,
 		`SELECT COUNT(*)
-		 FROM sender_avatars
-		 WHERE status = 'pending'
-		 	OR (status = 'error' AND (next_retry_at IS NULL OR next_retry_at <= CURRENT_TIMESTAMP))
-		 	OR (status IN ('found', 'missing') AND (expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP))`).Scan(&stats.Due)
+		 FROM sender_avatars sa`+avatarAnd+`(sa.status = 'pending'
+			OR (sa.status = 'error' AND (sa.next_retry_at IS NULL OR sa.next_retry_at <= CURRENT_TIMESTAMP))
+			OR (sa.status IN ('found', 'missing') AND (sa.expires_at IS NULL OR sa.expires_at <= CURRENT_TIMESTAMP)))`, avatarArgs...).Scan(&stats.Due)
 	if err != nil {
 		return stats, err
 	}

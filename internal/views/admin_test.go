@@ -370,7 +370,7 @@ func TestAdminLabelsPageRendersOutlookGraphDiagnostics(t *testing.T) {
 		t.Fatalf("AdminLabelsPage.Render() error = %v", err)
 	}
 	html := out.String()
-	for _, want := range []string{"across all webmail users", "Owned by mail-user", "Outlook Graph parity", "Graph IDs", "IMAP rows", "Parity delta", "Needs repair", "Backfillable", "No Graph folder"} {
+	for _, want := range []string{"selected webmail scope", "Owned by mail-user", "Outlook Graph parity", "Graph IDs", "IMAP rows", "Parity delta", "Needs repair", "Backfillable", "No Graph folder"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered admin labels page missing %q: %s", want, html)
 		}
@@ -394,7 +394,7 @@ func TestAdminContactsPageExplainsInstanceScopeAndOwners(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		"across all webmail users", "Provider-synced contacts", "Force instance backfill", "Owned by mail-user", "User / contact", "sender@example.com",
+		"selected webmail scope", "Provider-synced contacts", "Force instance backfill", "Owned by mail-user", "User / contact", "sender@example.com",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered admin contacts page missing %q: %s", want, html)
@@ -480,5 +480,56 @@ func TestAdminMailOperationsPageRendersSMTPBaseline(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered admin operations page missing %q: %s", want, html)
 		}
+	}
+}
+
+func TestAdminOperationalPagesRenderSelectedWebmailScope(t *testing.T) {
+	scope := models.AdminWebmailScope{
+		SelectedUserID:   "mail-user",
+		SelectedUsername: "mail.user",
+		Users: []models.AdminWebmailUserOption{
+			{ID: "mail-user", Username: "mail.user", Status: "active"},
+			{ID: "disabled-user", Username: "disabled.user", Status: "disabled"},
+		},
+	}
+
+	pages := []struct {
+		name   string
+		render func(*bytes.Buffer) error
+	}{
+		{name: "avatars", render: func(out *bytes.Buffer) error {
+			return AdminPage(models.AvatarStatus{Scope: scope}, "senders").Render(context.Background(), out)
+		}},
+		{name: "contacts", render: func(out *bytes.Buffer) error {
+			return AdminContactsPage(models.ContactAdminStatus{Scope: scope}).Render(context.Background(), out)
+		}},
+		{name: "labels", render: func(out *bytes.Buffer) error {
+			return AdminLabelsPage(models.LabelAdminStatus{Scope: scope}).Render(context.Background(), out)
+		}},
+		{name: "operations", render: func(out *bytes.Buffer) error {
+			return AdminMailOperationsPage(models.MailOperationsAdminStatus{Scope: scope}).Render(context.Background(), out)
+		}},
+	}
+	for _, page := range pages {
+		t.Run(page.name, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := page.render(&out); err != nil {
+				t.Fatalf("render error = %v", err)
+			}
+			html := out.String()
+			for _, want := range []string{`name="user_id"`, `data-admin-webmail-scope`, "mail.user", "disabled.user", "Metrics include every mailbox account owned by mail.user."} {
+				if !strings.Contains(html, want) {
+					t.Fatalf("rendered page missing %q: %s", want, html)
+				}
+			}
+		})
+	}
+
+	var operations bytes.Buffer
+	if err := AdminMailOperationsPage(models.MailOperationsAdminStatus{Scope: scope}).Render(context.Background(), &operations); err != nil {
+		t.Fatalf("render selected operations: %v", err)
+	}
+	if strings.Contains(operations.String(), "Retention cleanup") || strings.Contains(operations.String(), "SMTP baseline") {
+		t.Fatalf("selected-user operations page rendered process-wide metrics: %s", operations.String())
 	}
 }

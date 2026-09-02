@@ -64,8 +64,11 @@ func TestMiddlewareSeparatesWebmailAndManagementSurfaces(t *testing.T) {
 		insertSurfaceSession(t, manager, "management-session", "management-admin", "management-token", now)
 
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/admin/users", http.StatusNoContent, "", "")
+		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/admin/avatars/status", http.StatusNoContent, "", "")
+		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/admin/events", http.StatusNoContent, "", "")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/", http.StatusSeeOther, "/admin", "<a href=\"/admin\">See Other</a>.\n\n")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/folders/unread", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
+		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/avatars/status", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
 	})
 
 	t.Run("non-administrator management identity cannot authenticate", func(t *testing.T) {

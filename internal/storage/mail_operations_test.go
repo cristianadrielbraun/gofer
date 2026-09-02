@@ -208,6 +208,39 @@ func TestMailOperationsAdminStatusIsAggregatedAndMasked(t *testing.T) {
 	}
 }
 
+func TestMailOperationsAdminStatusCanBeScopedToWebmailOwner(t *testing.T) {
+	ctx := context.Background()
+	db, _, _ := seedMailOperationsTest(t)
+
+	defaultStatus, err := db.ListMailOperationsAdminStatusForUser(ctx, "default")
+	if err != nil {
+		t.Fatalf("ListMailOperationsAdminStatusForUser(default) error = %v", err)
+	}
+	if defaultStatus.Total != 4 || defaultStatus.ActionRequired != 4 || len(defaultStatus.ByAccount) != 1 {
+		t.Fatalf("default scoped status = %#v, want four operations for one account", defaultStatus)
+	}
+	if got := mailOperationKindStateCount(defaultStatus.Health.MessageMutations, "starred", "failed"); got != 0 {
+		t.Fatalf("default status included other user's mutation: %d", got)
+	}
+	if defaultStatus.Health.SentCopy.Failed != 1 || mailOperationStateCount(defaultStatus.Health.LabelMutations, "failed") != 1 {
+		t.Fatalf("default scoped health = %#v, want its sent-copy and label failures", defaultStatus.Health)
+	}
+
+	otherStatus, err := db.ListMailOperationsAdminStatusForUser(ctx, "other")
+	if err != nil {
+		t.Fatalf("ListMailOperationsAdminStatusForUser(other) error = %v", err)
+	}
+	if otherStatus.Total != 1 || otherStatus.ActionRequired != 1 || len(otherStatus.ByAccount) != 1 {
+		t.Fatalf("other scoped status = %#v, want one operation for one account", otherStatus)
+	}
+	if got := mailOperationKindStateCount(otherStatus.Health.MessageMutations, "starred", "failed"); got != 1 {
+		t.Fatalf("other starred mutation health = %d, want 1", got)
+	}
+	if otherStatus.Health.SentCopy.Failed != 0 || len(otherStatus.Health.LabelMutations) != 0 || len(otherStatus.Health.IMAPDraftOperations) != 0 {
+		t.Fatalf("other scoped health leaked default user's queues: %#v", otherStatus.Health)
+	}
+}
+
 func mailOperationKindStateCount(items []models.MailOperationAdminKindStateCount, kind, state string) int {
 	for _, item := range items {
 		if item.Kind == kind && item.State == state {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -24,7 +26,8 @@ func TestAdminRoutesRejectNonAdminUsers(t *testing.T) {
 		"/admin/security",
 		"/api/admin/contacts/status",
 		"/api/admin/labels/status",
-		"/api/avatars/status",
+		"/api/admin/avatars/status",
+		"/api/admin/events",
 	} {
 		t.Run(target, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, target, nil)
@@ -151,19 +154,38 @@ func TestAdminContactAndLabelStatusAggregateWebmailUsers(t *testing.T) {
 	adminCtx := auth.ContextWithUser(ctx, &auth.User{
 		ID: "admin-user", UserType: auth.UserTypeManagement, IsAdmin: true,
 	})
-	contacts, err := h.contactAdminStatus(adminCtx)
+	contacts, err := h.contactAdminStatus(adminCtx, models.AdminWebmailScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if contacts.Total != 1 || len(contacts.AccountSync) != 1 || contacts.AccountSync[0].OwnerUsername != "mail-user" {
 		t.Fatalf("admin contact status = %#v", contacts)
 	}
-	labels, err := h.labelAdminStatus(adminCtx)
+	labels, err := h.labelAdminStatus(adminCtx, models.AdminWebmailScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(labels.Accounts) != 1 || labels.Accounts[0].OwnerUsername != "mail-user" {
 		t.Fatalf("admin label status = %#v", labels)
+	}
+
+	scope, err := h.adminWebmailScope(adminCtx, "mail-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope.SelectedUsername != "mail-user" || len(scope.Users) != 1 {
+		t.Fatalf("selected webmail scope = %#v", scope)
+	}
+	contacts, err = h.contactAdminStatus(adminCtx, scope)
+	if err != nil || contacts.Scope.SelectedUserID != "mail-user" || contacts.Total != 1 {
+		t.Fatalf("scoped admin contact status = %#v, %v", contacts, err)
+	}
+	labels, err = h.labelAdminStatus(adminCtx, scope)
+	if err != nil || labels.Scope.SelectedUserID != "mail-user" || len(labels.Accounts) != 1 {
+		t.Fatalf("scoped admin label status = %#v, %v", labels, err)
+	}
+	if _, err := h.adminWebmailScope(adminCtx, "admin-user"); !errors.Is(err, errAdminWebmailScopeNotFound) {
+		t.Fatalf("management identity scope error = %v, want not found", err)
 	}
 }
 

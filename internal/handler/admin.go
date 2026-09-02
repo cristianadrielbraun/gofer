@@ -37,7 +37,16 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
-	avatarStatus, err := h.avatarStatus(ctx)
+	scope, err := h.adminWebmailScope(ctx, r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	avatarStatus, err := h.avatarStatus(ctx, scope)
 	if err != nil {
 		http.Error(w, "failed to get admin status", http.StatusInternalServerError)
 		return
@@ -55,7 +64,16 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
-	contactStatus, err := h.contactAdminStatus(ctx)
+	scope, err := h.adminWebmailScope(ctx, r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	contactStatus, err := h.contactAdminStatus(ctx, scope)
 	if err != nil {
 		http.Error(w, "failed to get contact admin status", http.StatusInternalServerError)
 		return
@@ -73,7 +91,16 @@ func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
-	labelStatus, err := h.labelAdminStatus(ctx)
+	scope, err := h.adminWebmailScope(ctx, r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	labelStatus, err := h.labelAdminStatus(ctx, scope)
 	if err != nil {
 		http.Error(w, "failed to get label admin status", http.StatusInternalServerError)
 		return
@@ -370,7 +397,16 @@ func validPrivateTargetHost(host string) bool {
 }
 
 func (h *Handler) handleContactAdminStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.contactAdminStatus(r.Context())
+	scope, err := h.adminWebmailScope(r.Context(), r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	status, err := h.contactAdminStatus(r.Context(), scope)
 	if err != nil {
 		http.Error(w, "failed to get contact admin status", http.StatusInternalServerError)
 		return
@@ -380,7 +416,16 @@ func (h *Handler) handleContactAdminStatus(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) handleLabelAdminStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.labelAdminStatus(r.Context())
+	scope, err := h.adminWebmailScope(r.Context(), r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	status, err := h.labelAdminStatus(r.Context(), scope)
 	if err != nil {
 		http.Error(w, "failed to get label admin status", http.StatusInternalServerError)
 		return
@@ -389,15 +434,52 @@ func (h *Handler) handleLabelAdminStatus(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(status)
 }
 
-func (h *Handler) labelAdminStatus(ctx context.Context) (models.LabelAdminStatus, error) {
-	return h.db.GetInstanceLabelAdminStatus(ctx)
+var errAdminWebmailScopeNotFound = errors.New("webmail account is not available")
+
+func (h *Handler) adminWebmailScope(ctx context.Context, selectedUserID string) (models.AdminWebmailScope, error) {
+	users, err := h.db.ListAdminWebmailUsers(ctx)
+	if err != nil {
+		return models.AdminWebmailScope{}, err
+	}
+	scope := models.AdminWebmailScope{Users: users}
+	selectedUserID = strings.TrimSpace(selectedUserID)
+	if selectedUserID == "" {
+		return scope, nil
+	}
+	for _, user := range users {
+		if user.ID == selectedUserID {
+			scope.SelectedUserID = user.ID
+			scope.SelectedUsername = user.Username
+			return scope, nil
+		}
+	}
+	return models.AdminWebmailScope{}, errAdminWebmailScopeNotFound
 }
 
-func (h *Handler) contactAdminStatus(ctx context.Context) (models.ContactAdminStatus, error) {
-	status, err := h.db.GetInstanceContactAdminStatus(ctx)
+func (h *Handler) labelAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.LabelAdminStatus, error) {
+	var status models.LabelAdminStatus
+	var err error
+	if scope.SelectedUserID == "" {
+		status, err = h.db.GetInstanceLabelAdminStatus(ctx)
+	} else {
+		status, err = h.db.GetLabelAdminStatus(ctx, scope.SelectedUserID)
+	}
+	status.Scope = scope
+	return status, err
+}
+
+func (h *Handler) contactAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.ContactAdminStatus, error) {
+	var status models.ContactAdminStatus
+	var err error
+	if scope.SelectedUserID == "" {
+		status, err = h.db.GetInstanceContactAdminStatus(ctx)
+	} else {
+		status, err = h.db.GetContactAdminStatus(ctx, scope.SelectedUserID)
+	}
 	if err != nil {
 		return status, err
 	}
+	status.Scope = scope
 	status.Backfill = h.getContactBackfillState()
 	running := h.contactSyncRunningAccounts()
 	for i := range status.AccountSync {
@@ -407,7 +489,16 @@ func (h *Handler) contactAdminStatus(ctx context.Context) (models.ContactAdminSt
 }
 
 func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Request) {
-	started := h.startInstanceContactBackfill(context.WithoutCancel(r.Context()))
+	scope, err := h.adminWebmailScope(r.Context(), r.URL.Query().Get("user_id"))
+	if errors.Is(err, errAdminWebmailScopeNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		return
+	}
+	started := h.startContactBackfill(context.WithoutCancel(r.Context()), scope.SelectedUserID)
 	if r.Header.Get("Accept") == "application/json" {
 		w.Header().Set("Content-Type", "application/json")
 		if !started {
@@ -416,19 +507,33 @@ func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Requ
 		_ = json.NewEncoder(w).Encode(map[string]bool{"started": started})
 		return
 	}
-	http.Redirect(w, r, "/admin/contacts", http.StatusSeeOther)
+	target := "/admin/contacts"
+	if scope.SelectedUserID != "" {
+		target += "?user_id=" + url.QueryEscape(scope.SelectedUserID)
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (h *Handler) startInstanceContactBackfill(ctx context.Context) bool {
+	return h.startContactBackfill(ctx, "")
+}
+
+func (h *Handler) startContactBackfill(ctx context.Context, selectedUserID string) bool {
 	h.contactBackfillMu.Lock()
 	if h.contactBackfillState.InProgress {
 		h.contactBackfillMu.Unlock()
 		return false
 	}
-	userIDs, listErr := h.db.ListContactBackfillUserIDs(ctx)
+	var userIDs []string
+	var listErr error
+	if selectedUserID == "" {
+		userIDs, listErr = h.db.ListContactBackfillUserIDs(ctx)
+	} else {
+		userIDs = []string{selectedUserID}
+	}
 	if listErr != nil {
 		userIDs = nil
-		log.Printf("contacts: list users for manual instance backfill: %v", listErr)
+		log.Printf("contacts: list users for manual backfill: %v", listErr)
 	}
 	total := 0
 	for _, userID := range userIDs {
@@ -445,7 +550,11 @@ func (h *Handler) startInstanceContactBackfill(ctx context.Context) bool {
 	h.publishInstanceContactBackfill(state)
 
 	for _, userID := range userIDs {
-		_ = h.db.LogContactActivity(ctx, userID, "backfill_forced", "", "Instance contact backfill requested", 0)
+		message := "Instance contact backfill requested"
+		if selectedUserID != "" {
+			message = "Webmail account contact backfill requested"
+		}
+		_ = h.db.LogContactActivity(ctx, userID, "backfill_forced", "", message, 0)
 	}
 	go func() {
 		backfillCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -473,7 +582,7 @@ func (h *Handler) startInstanceContactBackfill(ctx context.Context) bool {
 		h.contactBackfillState.FinishedAt = time.Now().UTC()
 		if backfillErr != nil {
 			h.contactBackfillState.LastError = backfillErr.Error()
-			log.Printf("contacts: manual instance backfill failed: %v", backfillErr)
+			log.Printf("contacts: manual backfill failed: %v", backfillErr)
 		} else {
 			h.contactBackfillState.LastError = ""
 			h.contactBackfillState.Processed = h.contactBackfillState.Total

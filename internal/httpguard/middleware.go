@@ -23,7 +23,7 @@ func (c *Config) Middleware(next http.Handler) http.Handler {
 }
 
 func requiresSameOrigin(r *http.Request) bool {
-	if r.URL.Path == "/api/events" {
+	if r.URL.Path == "/api/events" || r.URL.Path == "/api/admin/events" {
 		return true
 	}
 	switch r.Method {

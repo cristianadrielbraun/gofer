@@ -109,6 +109,37 @@ func TestLocalAdminLayoutShowsOnlyOperationalNavigation(t *testing.T) {
 	}
 }
 
+func TestManagementAdminLayoutCarriesWebmailScopeAcrossOperationalNavigation(t *testing.T) {
+	var out strings.Builder
+	if err := ManagementAdminLayout(
+		nil,
+		AdminUsersData{},
+		models.AvatarStatus{Scope: models.AdminWebmailScope{SelectedUserID: "mail user"}},
+		models.ContactAdminStatus{},
+		models.LabelAdminStatus{},
+		models.MailSecurityAdminData{},
+		models.MailOperationsAdminStatus{},
+		"avatars",
+		"overview",
+	).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`href="/admin/avatars/?user_id=mail+user"`,
+		`href="/admin/contacts?user_id=mail+user"`,
+		`href="/admin/labels?user_id=mail+user"`,
+		`href="/admin/operations?user_id=mail+user"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("scoped management navigation omitted %q", want)
+		}
+	}
+	if strings.Contains(html, `/admin/security?user_id=`) || strings.Contains(html, `/admin/users?user_id=`) {
+		t.Fatal("webmail scope leaked into non-operational administration routes")
+	}
+}
+
 func TestManagementSecurityLayoutSuppressesExternalSignInSettings(t *testing.T) {
 	var out strings.Builder
 	if err := ManagementSecurityLayout(nil, PasswordSecuritySettings(PasswordSecurityData{})).Render(context.Background(), &out); err != nil {

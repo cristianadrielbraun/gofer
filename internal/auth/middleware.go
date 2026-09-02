@@ -151,7 +151,7 @@ func (m *Manager) rejectUnauthenticated(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
-	if r.URL.Path == "/api/events" {
+	if r.URL.Path == "/api/events" || r.URL.Path == "/api/admin/events" {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}

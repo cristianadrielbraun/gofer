@@ -51,6 +51,10 @@ func TestMiddlewareUsesDistinctUnauthenticatedResponseModes(t *testing.T) {
 			headers: map[string]string{"Accept": "text/event-stream"}, status: http.StatusUnauthorized,
 		},
 		{
+			name: "admin SSE", method: http.MethodGet, target: "/api/admin/events",
+			headers: map[string]string{"Accept": "text/event-stream"}, status: http.StatusUnauthorized,
+		},
+		{
 			name: "browser form", method: http.MethodPost, target: "/admin/security/private-target",
 			status: http.StatusSeeOther, location: "/admin/login",
 		},
@@ -70,10 +74,10 @@ func TestMiddlewareUsesDistinctUnauthenticatedResponseModes(t *testing.T) {
 			if got := response.Header.Get("Content-Type"); test.contentType != "" && got != test.contentType {
 				t.Fatalf("Content-Type = %q, want %q", got, test.contentType)
 			}
-			if test.name == "SSE" && strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
+			if strings.Contains(test.name, "SSE") && strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
 				t.Fatalf("unauthenticated SSE response retained stream content type %q", response.Header.Get("Content-Type"))
 			}
-			if test.name == "SSE" && recorder.Body.Len() != 0 {
+			if strings.Contains(test.name, "SSE") && recorder.Body.Len() != 0 {
 				t.Fatalf("unauthenticated SSE body = %q, want empty", recorder.Body.String())
 			}
 			if test.body != "" && recorder.Body.String() != test.body {
@@ -110,6 +114,7 @@ func TestMiddlewareClearsInvalidSessionForEveryResponseMode(t *testing.T) {
 		{name: "HTMX", target: "/contacts", headers: map[string]string{"HX-Request": "true"}, status: http.StatusUnauthorized},
 		{name: "API", target: "/api/folders/unread", status: http.StatusUnauthorized},
 		{name: "SSE", target: "/api/events", status: http.StatusUnauthorized},
+		{name: "admin SSE", target: "/api/admin/events", status: http.StatusUnauthorized},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

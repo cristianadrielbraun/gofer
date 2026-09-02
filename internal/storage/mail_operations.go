@@ -227,10 +227,25 @@ WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND operation_id
 }
 
 func (db *DB) ListMailOperationsAdminStatus(ctx context.Context) (models.MailOperationsAdminStatus, error) {
-	rows, err := db.Read().QueryContext(ctx, mailOperationProjection+`
-ORDER BY updated_at DESC`,
+	return db.listMailOperationsAdminStatus(ctx, "")
+}
+
+func (db *DB) ListMailOperationsAdminStatusForUser(ctx context.Context, userID string) (models.MailOperationsAdminStatus, error) {
+	return db.listMailOperationsAdminStatus(ctx, strings.TrimSpace(userID))
+}
+
+func (db *DB) listMailOperationsAdminStatus(ctx context.Context, userID string) (models.MailOperationsAdminStatus, error) {
+	where := ""
+	args := []any{
 		models.MailOperationMessageMutation, models.MailOperationLabelMutation,
-		models.MailOperationIMAPDraft, models.MailOperationSentCopy)
+		models.MailOperationIMAPDraft, models.MailOperationSentCopy,
+	}
+	if userID != "" {
+		where = "\nWHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?)"
+		args = append(args, userID)
+	}
+	rows, err := db.Read().QueryContext(ctx, mailOperationProjection+where+`
+ORDER BY updated_at DESC`, args...)
 	if err != nil {
 		return models.MailOperationsAdminStatus{}, err
 	}
@@ -296,7 +311,12 @@ ORDER BY updated_at DESC`,
 		}
 		return status.ByAccount[i].AccountLabel < status.ByAccount[j].AccountLabel
 	})
-	health, err := db.ListMailOperationsAdminHealth(ctx)
+	var health models.MailOperationAdminHealth
+	if userID == "" {
+		health, err = db.ListMailOperationsAdminHealth(ctx)
+	} else {
+		health, err = db.ListMailOperationsAdminHealthForUser(ctx, userID)
+	}
 	if err != nil {
 		return models.MailOperationsAdminStatus{}, err
 	}

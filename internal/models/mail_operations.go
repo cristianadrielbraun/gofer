@@ -143,6 +143,7 @@ type MailOperationAdminHealth struct {
 }
 
 type MailOperationsAdminStatus struct {
+	Scope          AdminWebmailScope                `json:"scope"`
 	Total          int                              `json:"total"`
 	ActionRequired int                              `json:"action_required"`
 	ByType         []MailOperationAdminTypeCount    `json:"by_type"`

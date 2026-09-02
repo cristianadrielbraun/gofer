@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"io"
+	"net/url"
 
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
@@ -92,9 +93,22 @@ func managementNavigationItems(managedAuthentication bool) []managementNavigatio
 	return items
 }
 
-func renderManagementSidebar(ctx context.Context, w io.Writer, active string) error {
+func scopeManagementNavigation(items []managementNavigationItem, scope models.AdminWebmailScope) []managementNavigationItem {
+	if scope.SelectedUserID == "" {
+		return items
+	}
+	for i := range items {
+		switch items[i].key {
+		case "avatars", "contacts", "labels", "operations":
+			items[i].path += "?user_id=" + url.QueryEscape(scope.SelectedUserID)
+		}
+	}
+	return items
+}
+
+func renderManagementSidebar(ctx context.Context, w io.Writer, active string, scope models.AdminWebmailScope) error {
 	managedAuthentication := managedAuthenticationNavigation(ctx)
-	items := managementNavigationItems(managedAuthentication)
+	items := scopeManagementNavigation(managementNavigationItems(managedAuthentication), scope)
 	workspaceDescription := "Dedicated management workspace."
 	if !managedAuthentication {
 		workspaceDescription = "Local administration workspace."
@@ -118,9 +132,9 @@ func renderManagementSidebar(ctx context.Context, w io.Writer, active string) er
 	return writeHTML(w, `</nav><div class="border-t border-border px-5 py-4"><form method="post" action="/auth/logout"><input type="hidden" name="_csrf" value="`, escaped(csrf), `"><button type="submit" class="inline-flex h-9 w-full items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Sign out of Admin</button></form></div></aside>`)
 }
 
-func renderManagementMobileNav(ctx context.Context, w io.Writer, active string) error {
+func renderManagementMobileNav(ctx context.Context, w io.Writer, active string, scope models.AdminWebmailScope) error {
 	managedAuthentication := managedAuthenticationNavigation(ctx)
-	items := managementNavigationItems(managedAuthentication)
+	items := scopeManagementNavigation(managementNavigationItems(managedAuthentication), scope)
 	modeLabel := "Management"
 	if !managedAuthentication {
 		modeLabel = "Local"
@@ -142,28 +156,33 @@ func renderManagementMobileNav(ctx context.Context, w io.Writer, active string) 
 
 func ManagementAdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection, activeTab string, verification ...AdminSecurityVerificationData) templ.Component {
 	var content templ.Component
+	var scope models.AdminWebmailScope
 	switch activeSection {
 	case "users":
 		content = AdminUsersPage(userData, adminSecurityVerificationValue(verification))
 	case "contacts":
+		scope = contactStatus.Scope
 		content = AdminContactsPage(contactStatus)
 	case "labels":
+		scope = labelStatus.Scope
 		content = AdminLabelsPage(labelStatus)
 	case "security":
 		content = AdminSecurityPage(securityData, adminSecurityVerificationValue(verification))
 	case "operations":
+		scope = operationStatus.Scope
 		content = AdminMailOperationsPage(operationStatus)
 	default:
+		scope = avatarStatus.Scope
 		content = AdminPage(avatarStatus, activeTab)
 	}
-	return managementAdminLayout(uiSettings, activeSection, content)
+	return managementAdminLayout(uiSettings, activeSection, scope, content)
 }
 
 func ManagementAdminActivityLayout(uiSettings map[string]string, data AdminSecurityActivityData, verification ...AdminSecurityVerificationData) templ.Component {
-	return managementAdminLayout(uiSettings, "activity", AdminSecurityActivityPage(data, adminSecurityVerificationValue(verification)))
+	return managementAdminLayout(uiSettings, "activity", models.AdminWebmailScope{}, AdminSecurityActivityPage(data, adminSecurityVerificationValue(verification)))
 }
 
-func managementAdminLayout(uiSettings map[string]string, activeSection string, content templ.Component) templ.Component {
+func managementAdminLayout(uiSettings map[string]string, activeSection string, scope models.AdminWebmailScope, content templ.Component) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := writeHTML(w, `<!DOCTYPE html><html lang="en" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Admin — Gofer</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
 			return err
@@ -174,13 +193,13 @@ func managementAdminLayout(uiSettings map[string]string, activeSection string, c
 		if err := writeHTML(w, `<style>[data-management-shell] #main-content > [class*="flex-1"] > [class*="overflow-y-auto"] > .lg\:hidden.border-b{display:none!important}</style></head><body class="h-screen overflow-hidden bg-background text-foreground antialiased surface-desk" data-management-shell><div class="flex h-full min-h-0 overflow-hidden bg-background">`); err != nil {
 			return err
 		}
-		if err := renderManagementSidebar(ctx, w, activeSection); err != nil {
+		if err := renderManagementSidebar(ctx, w, activeSection, scope); err != nil {
 			return err
 		}
 		if err := writeHTML(w, `<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
 			return err
 		}
-		if err := renderManagementMobileNav(ctx, w, activeSection); err != nil {
+		if err := renderManagementMobileNav(ctx, w, activeSection, scope); err != nil {
 			return err
 		}
 		if err := writeHTML(w, `<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">`); err != nil {
@@ -207,13 +226,13 @@ func ManagementSecurityLayout(uiSettings map[string]string, content templ.Compon
 		if err := writeHTML(w, `<style>[data-management-shell] [data-federated\-identity-settings]{display:none!important}</style></head><body class="h-screen overflow-hidden bg-background text-foreground antialiased surface-desk" data-management-shell><div class="flex h-full min-h-0 overflow-hidden bg-background">`); err != nil {
 			return err
 		}
-		if err := renderManagementSidebar(ctx, w, "account-security"); err != nil {
+		if err := renderManagementSidebar(ctx, w, "account-security", models.AdminWebmailScope{}); err != nil {
 			return err
 		}
 		if err := writeHTML(w, `<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">`); err != nil {
 			return err
 		}
-		if err := renderManagementMobileNav(ctx, w, "account-security"); err != nil {
+		if err := renderManagementMobileNav(ctx, w, "account-security", models.AdminWebmailScope{}); err != nil {
 			return err
 		}
 		if err := writeHTML(w, `<main id="main-content" class="flex min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"><div class="w-full max-w-3xl px-8 py-10"><div class="mb-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management account</p><h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">Account security</h1><p class="mt-1 text-sm text-muted-foreground">Credentials and active sessions for this management identity.</p></div>`); err != nil {

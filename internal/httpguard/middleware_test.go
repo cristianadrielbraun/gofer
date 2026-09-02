@@ -200,6 +200,30 @@ func TestMiddlewareRequestBoundary(t *testing.T) {
 			host:       "local.localhost:8090",
 			wantStatus: http.StatusForbidden,
 		},
+		{
+			name:       "same-origin admin SSE",
+			method:     http.MethodGet,
+			path:       "/api/admin/events",
+			host:       "local.localhost:8090",
+			headers:    map[string]string{"Referer": "http://local.localhost:8090/admin/avatars/"},
+			wantStatus: http.StatusNoContent,
+			wantCalled: true,
+		},
+		{
+			name:       "foreign-origin admin SSE",
+			method:     http.MethodGet,
+			path:       "/api/admin/events",
+			host:       "local.localhost:8090",
+			headers:    map[string]string{"Origin": "https://attacker.example"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "headerless admin SSE",
+			method:     http.MethodGet,
+			path:       "/api/admin/events",
+			host:       "local.localhost:8090",
+			wantStatus: http.StatusForbidden,
+		},
 	}
 
 	for _, tt := range tests {
