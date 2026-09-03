@@ -78,6 +78,7 @@ type Handler struct {
 	providerAvatarHTTPClient   *http.Client
 	retentionMu                sync.RWMutex
 	retentionState             models.MailRetentionDiagnostics
+	authEventRetentionWake     chan struct{}
 	smtpProfileMu              sync.RWMutex
 	smtpProfile                smtpDeliveryProfileState
 }
@@ -104,26 +105,27 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		credentials = mailboxCredentials[0]
 	}
 	h := &Handler{
-		db:                  db,
-		accountStore:        accountStore,
-		syncer:              syncer,
-		blobStore:           blobStore,
-		auth:                authManager,
-		mailboxAuth:         credentials,
-		avatar:              avatarresolver.NewResolver(),
-		bodyClients:         make(map[string]*imap.Client),
-		bodyFetches:         make(map[int64]chan struct{}),
-		avatarWarmupQueue:   make(chan storage.SenderAvatarCandidate, avatarWarmupQueueSize),
-		avatarWarmupQueued:  make(map[string]struct{}),
-		avatarWarmupForced:  make(map[string]time.Time),
-		contactSyncRunning:  make(map[string]struct{}),
-		contactSyncQueue:    make(chan struct{}, 1),
-		googleTranslator:    translation.NewGoogleWebConnector(nil),
-		vapidPublicKey:      vapidPublicKey,
-		outgoingWake:        make(chan struct{}, 1),
-		outgoingNow:         time.Now,
-		outgoingRandom:      rand.Float64,
-		messageMutationWake: make(chan struct{}, 1),
+		db:                     db,
+		accountStore:           accountStore,
+		syncer:                 syncer,
+		blobStore:              blobStore,
+		auth:                   authManager,
+		mailboxAuth:            credentials,
+		avatar:                 avatarresolver.NewResolver(),
+		bodyClients:            make(map[string]*imap.Client),
+		bodyFetches:            make(map[int64]chan struct{}),
+		avatarWarmupQueue:      make(chan storage.SenderAvatarCandidate, avatarWarmupQueueSize),
+		avatarWarmupQueued:     make(map[string]struct{}),
+		avatarWarmupForced:     make(map[string]time.Time),
+		contactSyncRunning:     make(map[string]struct{}),
+		contactSyncQueue:       make(chan struct{}, 1),
+		googleTranslator:       translation.NewGoogleWebConnector(nil),
+		vapidPublicKey:         vapidPublicKey,
+		outgoingWake:           make(chan struct{}, 1),
+		outgoingNow:            time.Now,
+		outgoingRandom:         rand.Float64,
+		messageMutationWake:    make(chan struct{}, 1),
+		authEventRetentionWake: make(chan struct{}, 1),
 		sentCopyIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)
 		},
@@ -379,6 +381,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/users", h.handleAdminUsers)
 	adminRoute("GET /admin/users/{$}", h.handleAdminUsers)
 	adminRoute("GET /admin/activity", h.handleAdminSecurityActivity)
+	adminRoute("POST /admin/activity/retention", h.handleSetAuthenticationEventRetention)
 	adminRoute("POST /admin/users/invitations", h.handleCreateAdminUserInvitation)
 	adminRoute("POST /admin/users/invitations/{reference}/revoke", h.handleRevokeAdminUserInvitation)
 	adminRoute("POST /admin/users/invitations/{reference}/rotate", h.handleRotateAdminUserInvitation)

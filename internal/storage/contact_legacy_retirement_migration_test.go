@@ -108,8 +108,8 @@ func TestMigrateV91ToV92RetiresLegacyContactsAndPreservesCanonicalData(t *testin
 	if err := db.Read().QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 92 {
-		t.Fatalf("schema version = %d, want 92", version)
+	if version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
 	}
 	for _, table := range []string{"contacts", "contact_emails", "contact_sources", "contact_save_targets"} {
 		var count int

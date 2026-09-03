@@ -95,19 +95,25 @@ type AdminSecurityActivityEventData struct {
 }
 
 type AdminSecurityActivityData struct {
-	Events         []AdminSecurityActivityEventData
-	Filter         string
-	TotalEvents    int64
-	Page           int64
-	TotalPages     int64
-	FirstEvent     int64
-	LastEvent      int64
-	PreviousPage   int64
-	NextPage       int64
-	HasPrevious    bool
-	HasNext        bool
-	StepUpRequired bool
-	ManagedMode    bool
+	Events               []AdminSecurityActivityEventData
+	Filter               string
+	TotalEvents          int64
+	Page                 int64
+	TotalPages           int64
+	FirstEvent           int64
+	LastEvent            int64
+	PreviousPage         int64
+	NextPage             int64
+	HasPrevious          bool
+	HasNext              bool
+	StepUpRequired       bool
+	ManagedMode          bool
+	RetentionDays        int
+	RetentionMinimumDays int
+	RetentionMaximumDays int
+	RetentionCSRFToken   string
+	Notice               string
+	Error                string
 }
 
 type AdminSecurityVerificationData struct {
@@ -473,6 +479,12 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 						}
 					</span>
 				</div>
+				if data.Notice != "" {
+					<div class="mt-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
+				}
+				if data.Error != "" {
+					<div class="mt-5 rounded-lg border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-800 dark:text-red-200">{ data.Error }</div>
+				}
 				if !data.ManagedMode {
 					<div role="status" class="mt-6 rounded-lg border border-border bg-card px-5 py-8 text-center">
 						<p class="text-sm font-semibold text-foreground">Managed authentication is not enabled</p>
@@ -487,6 +499,35 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 						</div>
 					</div>
 				} else {
+					<section class="mt-6 rounded-lg border border-border bg-card p-5" aria-labelledby="admin-security-retention-heading" data-admin-security-retention>
+						<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+							<div>
+								<h3 id="admin-security-retention-heading" class="text-sm font-semibold text-foreground">Security activity retention</h3>
+								<p class="mt-1 max-w-3xl text-sm text-muted-foreground">Events older than this period are removed automatically in bounded background batches.</p>
+							</div>
+							<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{ fmt.Sprintf("%d days", data.RetentionDays) }</span>
+						</div>
+						<form method="post" action="/admin/activity/retention" class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end" onsubmit="return confirm('Save this retention period? Events outside the new window will become eligible for permanent deletion.')">
+							if data.RetentionCSRFToken != "" {
+								<input type="hidden" name="_csrf" value={ data.RetentionCSRFToken }/>
+							}
+							<div class="w-full sm:max-w-48">
+								<label for="admin-security-retention-days" class="mb-1.5 block text-xs font-semibold text-muted-foreground">Retention period (days)</label>
+								<input
+									id="admin-security-retention-days"
+									name="days"
+									type="number"
+									min={ fmt.Sprintf("%d", data.RetentionMinimumDays) }
+									max={ fmt.Sprintf("%d", data.RetentionMaximumDays) }
+									value={ fmt.Sprintf("%d", data.RetentionDays) }
+									required
+									class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm tabular-nums text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+								/>
+							</div>
+							<button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground transition-colors hover:bg-accent">Save retention</button>
+						</form>
+						<p class="mt-3 text-xs text-muted-foreground">Choose between { fmt.Sprintf("%d and %d days", data.RetentionMinimumDays, data.RetentionMaximumDays) }. The maximum is one year. Reducing the period permanently removes older audit history during the next cleanup.</p>
+					</section>
 					<nav class="mt-6 flex flex-wrap gap-2" aria-label="Filter administrator security activity">
 						@adminSecurityActivityFilterLink(data, "", "All activity")
 						@adminSecurityActivityFilterLink(data, "failures", "Failures")

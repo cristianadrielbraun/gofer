@@ -405,6 +405,8 @@ func authenticationTableSignature(t *testing.T, db *sql.DB, table string) []stri
 	}
 	normalizedSQL := strings.Join(strings.Fields(createSQL), " ")
 	normalizedSQL = strings.Replace(normalizedSQL, "CREATE TABLE IF NOT EXISTS", "CREATE TABLE", 1)
+	normalizedSQL = strings.ReplaceAll(normalizedSQL, " ,", ",")
+	normalizedSQL = strings.ReplaceAll(normalizedSQL, " )", ")")
 	signature = append(signature, "sql:"+normalizedSQL)
 
 	columnRows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%q)`, table))

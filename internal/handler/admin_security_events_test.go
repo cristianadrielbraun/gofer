@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,8 @@ func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t 
 	for _, want := range []string{
 		`data-admin-security-activity`, "Admin security activity", fmt.Sprintf("%d events", totalEvents),
 		`href="/admin/activity"`, `aria-current="page"`, "Instance events",
+		`data-admin-security-retention`, "Security activity retention", "180 days",
+		`action="/admin/activity/retention"`, `name="days"`, `min="1"`, `max="365"`,
 		`aria-label="Filter administrator security activity"`,
 		`href="/admin/activity?filter=failures"`, `href="/admin/activity?filter=recovery"`,
 		`href="/admin/activity?filter=policy"`, `href="/admin/activity?filter=identities"`,
@@ -222,12 +225,88 @@ func TestAdministratorSecurityActivityRejectsMalformedPageAndLocksBeforeQuerying
 		}
 	}
 	for _, forbidden := range []string{
-		"Instance events", "Security policy changed", "Locked private browser",
+		"Instance events", "Security activity retention", "Security policy changed", "Locked private browser",
 		"locked-private-event-id", "locked-private-metadata",
 	} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("locked administrator activity exposed %q", forbidden)
 		}
+	}
+}
+
+func TestAdministratorSecurityActivityRetentionSettingRequiresCSRFAndRecentVerification(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	pageRequest := httptest.NewRequest(http.MethodGet, adminSecurityActivityPath, nil)
+	pageRequest.AddCookie(sessionCookie)
+	page := httptest.NewRecorder()
+	stack.ServeHTTP(page, pageRequest)
+	if page.Code != http.StatusOK {
+		t.Fatalf("administrator activity page = %d %q", page.Code, page.Body.String())
+	}
+	proof := csrfProofFromForm(t, page.Body.String(), adminSecurityActivityRetentionPath)
+	post := func(days string, includeCSRF bool) *httptest.ResponseRecorder {
+		values := url.Values{"days": {days}}
+		if includeCSRF {
+			values.Set(auth.CSRFFormFieldName, proof)
+		}
+		request := httptest.NewRequest(
+			http.MethodPost, adminSecurityActivityRetentionPath, strings.NewReader(values.Encode()),
+		)
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.AddCookie(sessionCookie)
+		response := httptest.NewRecorder()
+		stack.ServeHTTP(response, request)
+		return response
+	}
+
+	if response := post("365", false); response.Code != http.StatusForbidden {
+		t.Fatalf("retention change without CSRF = %d %q", response.Code, response.Body.String())
+	}
+	if response := post("366", true); response.Code != http.StatusSeeOther ||
+		!strings.Contains(response.Header().Get("Location"), "error=Enter+a+retention+period+between+1+and+365+days") {
+		t.Fatalf("invalid retention change = %d %q", response.Code, response.Header().Get("Location"))
+	}
+	policy, err := manager.AuthenticationEventRetention(t.Context())
+	if err != nil || policy.Days != auth.DefaultAuthenticationEventRetentionDays {
+		t.Fatalf("retention after rejected changes = %#v, %v", policy, err)
+	}
+
+	changed := post("365", true)
+	if changed.Code != http.StatusSeeOther ||
+		changed.Header().Get("Location") != "/admin/activity?notice=Security+activity+will+now+be+retained+for+365+days." {
+		t.Fatalf("valid retention change = %d %q", changed.Code, changed.Header().Get("Location"))
+	}
+	policy, err = manager.AuthenticationEventRetention(t.Context())
+	if err != nil || policy.Days != 365 {
+		t.Fatalf("stored retention = %#v, %v", policy, err)
+	}
+
+	current, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || current == nil {
+		t.Fatalf("load administrator session = %#v, %v", current, err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `
+		UPDATE sessions SET step_up_at = ? WHERE id = ?`, time.Now().UTC().Add(-11*time.Minute), current.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stale := post("90", true)
+	if stale.Code != http.StatusSeeOther || stale.Header().Get("Location") != "/admin/activity?verification_required=1" {
+		t.Fatalf("stale retention change = %d %q", stale.Code, stale.Header().Get("Location"))
+	}
+	policy, err = manager.AuthenticationEventRetention(t.Context())
+	if err != nil || policy.Days != 365 {
+		t.Fatalf("retention after stale change = %#v, %v", policy, err)
+	}
+	lockedRequest := httptest.NewRequest(http.MethodGet, stale.Header().Get("Location"), nil)
+	lockedRequest.AddCookie(sessionCookie)
+	locked := httptest.NewRecorder()
+	stack.ServeHTTP(locked, lockedRequest)
+	if locked.Code != http.StatusOK ||
+		!strings.Contains(locked.Body.String(), `data-admin-security-activity-locked`) ||
+		!strings.Contains(locked.Body.String(), `data-tui-dialog-open="true"`) ||
+		strings.Contains(locked.Body.String(), `data-admin-security-retention`) {
+		t.Fatalf("locked retention page = %d %q", locked.Code, locked.Body.String())
 	}
 }
 

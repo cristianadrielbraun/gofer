@@ -166,6 +166,7 @@ func runServer() {
 	h.StartOutgoingSendWorker(ctx)
 	h.StartMessageMutationWorker(ctx)
 	h.StartMailRetentionWorker(ctx)
+	h.StartAuthenticationEventRetentionWorker(ctx)
 	h.RegisterRoutes(mux)
 	log.Printf("boot: HTTP routes registered")
 	h.StartAccountDeletionCleanup(ctx)

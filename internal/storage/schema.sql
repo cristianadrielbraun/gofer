@@ -836,6 +836,9 @@ CREATE INDEX IF NOT EXISTS idx_auth_events_actor
 CREATE INDEX IF NOT EXISTS idx_auth_events_type
     ON auth_events(event_type, occurred_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_auth_events_occurred
+    ON auth_events(occurred_at DESC, id DESC);
+
 CREATE TABLE IF NOT EXISTS user_enrollment_tokens (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -865,7 +868,10 @@ CREATE TABLE IF NOT EXISTS auth_system_state (
     cutover_version INTEGER NOT NULL DEFAULT 0 CHECK (cutover_version >= 0),
     mfa_policy TEXT NOT NULL DEFAULT 'administrators' CHECK (mfa_policy IN ('administrators', 'all_users')),
     security_policy_updated_at DATETIME,
-    security_policy_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
+    security_policy_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    auth_event_retention_days INTEGER NOT NULL DEFAULT 180 CHECK (auth_event_retention_days BETWEEN 1 AND 365),
+    auth_event_retention_updated_at DATETIME,
+    auth_event_retention_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS oauth_account_flows (
@@ -1343,4 +1349,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (92);
+INSERT OR REPLACE INTO schema_version (version) VALUES (93);

@@ -20,7 +20,9 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 			Actor: "System", Subject: "target-user", Successful: false,
 		}},
 		TotalEvents: 51, Page: 1, TotalPages: 2, FirstEvent: 1, LastEvent: 50,
-		NextPage: 2, HasNext: true,
+		NextPage: 2, HasNext: true, RetentionDays: 180,
+		RetentionMinimumDays: 1, RetentionMaximumDays: 365, RetentionCSRFToken: "csrf-proof",
+		Notice: "Retention saved.", Error: "Example error.",
 	}
 	if err := AdminSecurityActivityPage(data).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
@@ -30,6 +32,10 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 		`aria-label="Instance security activity events"`, "Sign-in attempt failed",
 		"System", "target-user", `&lt;unsafe-client&gt;`, `href="/admin/activity?page=2"`,
 		`data-admin-security-activity-scroll`, `class="min-h-0 flex-1 overflow-y-auto"`,
+		`data-admin-security-retention`, "Security activity retention", "180 days",
+		`action="/admin/activity/retention"`, `name="_csrf" value="csrf-proof"`,
+		`min="1"`, `max="365"`, `value="180"`, "The maximum is one year.",
+		"Retention saved.", "Example error.",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("administrator security activity view omitted %q", want)
@@ -74,7 +80,8 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 	}).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if html := out.String(); !strings.Contains(html, `data-admin-security-activity-locked`) || strings.Contains(html, "Instance events") {
+	if html := out.String(); !strings.Contains(html, `data-admin-security-activity-locked`) ||
+		strings.Contains(html, "Instance events") || strings.Contains(html, `data-admin-security-retention`) {
 		t.Fatalf("locked administrator security activity view = %q", html)
 	}
 }

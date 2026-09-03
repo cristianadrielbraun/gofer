@@ -41,6 +41,14 @@ func TestAdminRoutesRejectNonAdminUsers(t *testing.T) {
 			}
 		})
 	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/activity/retention", nil)
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "user", IsAdmin: false}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("POST /admin/activity/retention status = %d, want 403", rec.Code)
+	}
 }
 
 func TestAdminRootRedirectsToFirstSidebarSection(t *testing.T) {
