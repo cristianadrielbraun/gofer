@@ -92,6 +92,7 @@ func TestParseSecurityActivityPageRejectsInvalidValues(t *testing.T) {
 
 func TestSecurityEventTitleCoversKnownEventTypesWithoutRawEnumLabels(t *testing.T) {
 	for _, eventType := range []auth.AuthEventType{
+		auth.AuthEventPrimaryVerified,
 		auth.AuthEventLoginSucceeded,
 		auth.AuthEventLoginFailed,
 		auth.AuthEventSessionRevoked,

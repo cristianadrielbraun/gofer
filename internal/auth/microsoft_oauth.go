@@ -459,10 +459,15 @@ func (m *Manager) HandleMicrosoftCallback(ctx context.Context, challengeToken, c
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := m.ConsumePreAuthChallenge(ctx, challengeToken, claims.Nonce, ChallengePurposeFederatedLogin, m.config.BaseURL); err != nil {
-		return nil, nil, federatedLoginError(FederatedLoginFailureChallengeInvalid)
+	user, result, err := m.authenticateMicrosoftIdentity(ctx, claims, userAgent, m.consumeFederatedLoginForEvent(ctx, challengeToken, claims.Nonce))
+	if err != nil {
+		var failure *FederatedLoginError
+		if errors.As(err, &failure) && failure.Reason == FederatedLoginFailureIdentityUnknown {
+			return nil, nil, m.rejectMicrosoftAuthorization(ctx, challengeToken, ChallengePurposeFederatedLogin, failure.Reason)
+		}
+		return nil, nil, err
 	}
-	return m.authenticateMicrosoftIdentity(ctx, claims, userAgent)
+	return user, result, nil
 }
 
 type microsoftChallengeQueryer interface {
@@ -532,7 +537,7 @@ func (m *Manager) TerminateMicrosoftAuthorizationChallenge(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	return m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL)
+	return m.endFederatedAuthorization(ctx, token, purpose, AuthenticationMethodFederatedMicrosoft)
 }
 
 func (m *Manager) verifyMicrosoftCallback(ctx context.Context, challengeToken string, purpose ChallengePurpose, code string) (*PreAuthChallenge, *microsoftLoginDraft, *MicrosoftIDTokenClaims, error) {
@@ -569,10 +574,7 @@ func (m *Manager) verifyMicrosoftCallback(ctx context.Context, challengeToken st
 }
 
 func (m *Manager) rejectMicrosoftAuthorization(ctx context.Context, token string, purpose ChallengePurpose, reason FederatedLoginFailureReason) error {
-	if err := m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL); err != nil && !errors.Is(err, ErrPreAuthChallengeInvalid) {
-		return federatedLoginError(FederatedLoginFailureInternal)
-	}
-	return federatedLoginError(reason)
+	return m.rejectFederatedAuthorization(ctx, token, purpose, AuthenticationMethodFederatedMicrosoft, reason)
 }
 
 func validMicrosoftLoginDraft(draft *microsoftLoginDraft) bool {

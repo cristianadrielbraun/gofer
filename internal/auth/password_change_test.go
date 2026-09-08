@@ -257,8 +257,12 @@ func TestChangePasswordRejectsInvalidCurrentAndNewPasswordsWithoutSideEffects(t 
 					t.Fatalf("session %q after rejection = %#v, %v", session.ID, found, err)
 				}
 			}
+			wantEvents := 0
+			if errors.Is(test.wantError, ErrCurrentPasswordInvalid) {
+				wantEvents = 1
+			}
 			var eventCount int
-			if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events`).Scan(&eventCount); err != nil || eventCount != 0 {
+			if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events`).Scan(&eventCount); err != nil || eventCount != wantEvents {
 				t.Fatalf("auth events after rejection = %d, %v", eventCount, err)
 			}
 		})

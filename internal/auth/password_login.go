@@ -59,7 +59,7 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 		return nil, fmt.Errorf("check password login throttle: %w", err)
 	}
 	if decision.Throttled {
-		return nil, m.loginThrottleError(decision)
+		return nil, m.rejectThrottledAuthentication(ctx, decision, "", "", "", AuthEventLoginFailed, AuthenticationMethodPassword)
 	}
 
 	candidate, err := m.findPasswordLoginCandidate(ctx, options.Identifier)
@@ -266,7 +266,10 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 			if err := m.requireMFAContinuationAuthenticatorState(ctx, tx, challenge.UserID, continuation); err != nil {
 				return errPasswordStateMoved
 			}
-			return m.insertMFAContinuation(ctx, tx, challenge, now)
+			if err := m.insertMFAContinuation(ctx, tx, challenge, now); err != nil {
+				return err
+			}
+			return m.appendPrimaryAuthenticationEvent(ctx, tx, candidate.userID, nil, AuthenticationMethodPassword)
 		}
 		if !currentPolicy.allowsAssurance(session.AssuranceLevel) {
 			return ErrAuthenticationPolicyNotSatisfied
@@ -287,7 +290,7 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		if err != nil {
 			return fmt.Errorf("insert password session: %w", err)
 		}
-		return nil
+		return m.appendPrimaryAuthenticationEvent(ctx, tx, candidate.userID, session, AuthenticationMethodPassword)
 	})
 	if err != nil {
 		return nil, err
@@ -299,7 +302,7 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 }
 
 func (m *Manager) rejectPasswordLogin(ctx context.Context, identifier, source string) error {
-	decision, err := m.RecordLoginFailure(ctx, identifier, source)
+	decision, err := m.recordUnauthenticatedLoginFailure(ctx, identifier, source, AuthenticationMethodPassword)
 	if err != nil {
 		return fmt.Errorf("record rejected password login: %w", err)
 	}

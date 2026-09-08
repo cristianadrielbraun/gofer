@@ -47,6 +47,18 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 
 	matches, _, err := VerifyPassword(candidate.passwordHash, options.CurrentPassword)
 	if err != nil || !matches {
+		if eventErr := m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
+			current, err := currentSecuritySession(ctx, tx, options.SessionToken, m.clock.Now().UTC(), false)
+			if err != nil {
+				return err
+			}
+			if current.ID != candidate.session.ID || current.UserID != candidate.session.UserID {
+				return ErrSessionNotActive
+			}
+			return m.appendTransitionEvent(ctx, tx, current.UserID, current.UserID, current.ID, AuthEventCredentialChanged, false, AuthEventReasonInvalidCredentials, transitionEventMetadata{Method: AuthenticationMethodPassword})
+		}); eventErr != nil {
+			return nil, eventErr
+		}
 		return nil, ErrCurrentPasswordInvalid
 	}
 	preparedPassword, err := PrepareNewPassword(options.NewPassword, PasswordPolicyContext{
@@ -211,9 +223,9 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 			INSERT INTO auth_events (
 				id, occurred_at, actor_user_id, subject_user_id, session_id,
 				event_type, success, reason, user_agent, metadata_json
-			) VALUES (?, ?, ?, ?, ?, ?, 1, '', ?, '{}')`,
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, '{}')`,
 			eventID, now, current.UserID, current.UserID, sessionID,
-			AuthEventCredentialChanged, userAgent,
+			AuthEventCredentialChanged, AuthEventReasonChallengeVerified, userAgent,
 		); err != nil {
 			return fmt.Errorf("record password-change event: %w", err)
 		}

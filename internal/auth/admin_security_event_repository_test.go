@@ -162,6 +162,7 @@ func TestAdministratorSecurityEventPageFiltersServerSideBySupportedCategory(t *t
 		eventType AuthEventType
 		success   int
 	}{
+		{AuthEventPrimaryVerified, 1},
 		{AuthEventLoginSucceeded, 1},
 		{AuthEventLoginFailed, 0},
 		{AuthEventSessionRevoked, 1},
@@ -223,10 +224,11 @@ func TestAdministratorSecurityEventPageFiltersServerSideBySupportedCategory(t *t
 		{
 			filter: AdministratorSecurityEventFilterSessions,
 			want: map[AuthEventType]bool{
-				AuthEventLoginSucceeded: true,
-				AuthEventLoginFailed:    true,
-				AuthEventSessionRevoked: true,
-				AuthEventStepUpFailed:   true,
+				AuthEventPrimaryVerified: true,
+				AuthEventLoginSucceeded:  true,
+				AuthEventLoginFailed:     true,
+				AuthEventSessionRevoked:  true,
+				AuthEventStepUpFailed:    true,
 			},
 		},
 	}

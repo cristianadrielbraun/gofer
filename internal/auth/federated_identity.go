@@ -245,7 +245,7 @@ func (m *Manager) UnlinkGoogleIdentity(
 	return rotated, nil
 }
 
-func (m *Manager) authenticateGoogleIdentity(ctx context.Context, claims *GoogleIDTokenClaims, userAgent string) (*User, *PrimaryAuthenticationResult, error) {
+func (m *Manager) authenticateGoogleIdentity(ctx context.Context, claims *GoogleIDTokenClaims, userAgent string, consume ...func(*sql.Tx, time.Time) error) (*User, *PrimaryAuthenticationResult, error) {
 	if !validVerifiedGoogleIdentity(claims) {
 		return nil, nil, federatedLoginError(FederatedLoginFailureIDTokenInvalid)
 	}
@@ -274,6 +274,11 @@ func (m *Manager) authenticateGoogleIdentity(ctx context.Context, claims *Google
 	result, err := m.completeFederatedPrimaryAuthenticationWithTransition(
 		ctx, user.ID, userAgent, AuthenticationMethodFederatedGoogle,
 		func(tx *sql.Tx, now time.Time) error {
+			for _, action := range consume {
+				if err := action(tx, now); err != nil {
+					return err
+				}
+			}
 			updated, err := tx.ExecContext(ctx, `
 				UPDATE auth_identities
 				SET email = ?, email_verified = 1, last_used_at = ?

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func (m *Manager) authenticateOIDCIdentity(ctx context.Context, claims *OIDCIDTokenClaims, userAgent string) (*User, *PrimaryAuthenticationResult, error) {
+func (m *Manager) authenticateOIDCIdentity(ctx context.Context, claims *OIDCIDTokenClaims, userAgent string, consume ...func(*sql.Tx, time.Time) error) (*User, *PrimaryAuthenticationResult, error) {
 	if !m.validOIDCIdentity(claims) {
 		return nil, nil, federatedLoginError(FederatedLoginFailureIDTokenInvalid)
 	}
@@ -39,6 +39,11 @@ func (m *Manager) authenticateOIDCIdentity(ctx context.Context, claims *OIDCIDTo
 	result, err := m.completeFederatedPrimaryAuthenticationWithTransition(
 		ctx, user.ID, userAgent, AuthenticationMethodFederatedOIDC,
 		func(tx *sql.Tx, now time.Time) error {
+			for _, action := range consume {
+				if err := action(tx, now); err != nil {
+					return err
+				}
+			}
 			updated, err := tx.ExecContext(ctx, `
 				UPDATE auth_identities
 				SET email = ?, email_verified = ?, last_used_at = ?

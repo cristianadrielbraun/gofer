@@ -310,10 +310,15 @@ func (m *Manager) HandleGoogleCallback(ctx context.Context, challengeToken, code
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := m.ConsumePreAuthChallenge(ctx, challengeToken, claims.Nonce, ChallengePurposeFederatedLogin, m.config.BaseURL); err != nil {
-		return nil, nil, federatedLoginError(FederatedLoginFailureChallengeInvalid)
+	user, result, err := m.authenticateGoogleIdentity(ctx, claims, userAgent, m.consumeFederatedLoginForEvent(ctx, challengeToken, claims.Nonce))
+	if err != nil {
+		var failure *FederatedLoginError
+		if errors.As(err, &failure) && failure.Reason == FederatedLoginFailureIdentityUnknown {
+			return nil, nil, m.rejectGoogleAuthorization(ctx, challengeToken, ChallengePurposeFederatedLogin, failure.Reason)
+		}
+		return nil, nil, err
 	}
-	return m.authenticateGoogleIdentity(ctx, claims, userAgent)
+	return user, result, nil
 }
 
 func (m *Manager) currentGoogleLoginChallenge(ctx context.Context, token string) (*PreAuthChallenge, *googleLoginDraft, string, error) {
@@ -392,7 +397,7 @@ func (m *Manager) TerminateGoogleAuthorizationChallenge(ctx context.Context, tok
 	if err != nil {
 		return err
 	}
-	return m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL)
+	return m.endFederatedAuthorization(ctx, token, purpose, AuthenticationMethodFederatedGoogle)
 }
 
 func (m *Manager) verifyGoogleCallback(ctx context.Context, challengeToken string, purpose ChallengePurpose, code string) (*PreAuthChallenge, *googleLoginDraft, *GoogleIDTokenClaims, error) {
@@ -432,10 +437,7 @@ func (m *Manager) verifyGoogleCallback(ctx context.Context, challengeToken strin
 }
 
 func (m *Manager) rejectGoogleAuthorization(ctx context.Context, token string, purpose ChallengePurpose, reason FederatedLoginFailureReason) error {
-	if err := m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL); err != nil && !errors.Is(err, ErrPreAuthChallengeInvalid) {
-		return federatedLoginError(FederatedLoginFailureInternal)
-	}
-	return federatedLoginError(reason)
+	return m.rejectFederatedAuthorization(ctx, token, purpose, AuthenticationMethodFederatedGoogle, reason)
 }
 
 func validGoogleLoginDraft(draft *googleLoginDraft) bool {

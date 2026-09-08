@@ -83,7 +83,10 @@ func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
 			if err := m.requireMFAContinuationAuthenticatorState(ctx, tx, challenge.UserID, continuation); err != nil {
 				return ErrAuthenticationPolicyNotSatisfied
 			}
-			return m.insertMFAContinuation(ctx, tx, challenge, now)
+			if err := m.insertMFAContinuation(ctx, tx, challenge, now); err != nil {
+				return err
+			}
+			return m.appendPrimaryAuthenticationEvent(ctx, tx, userID, nil, method)
 		}
 		if !currentPolicy.allowsAssurance(session.AssuranceLevel) {
 			return ErrAuthenticationPolicyNotSatisfied
@@ -108,7 +111,7 @@ func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
 		); err != nil {
 			return fmt.Errorf("update federated login timestamp: %w", err)
 		}
-		return nil
+		return m.appendPrimaryAuthenticationEvent(ctx, tx, userID, session, method)
 	})
 	if err != nil {
 		return nil, err

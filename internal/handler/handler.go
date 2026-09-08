@@ -6203,7 +6203,10 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		if user := auth.GetCurrentUser(r.Context()); user != nil {
 			actorID = user.ID
 		}
-		_, _ = h.auth.RevokeSessionByToken(r.Context(), token, actorID, auth.SessionRevocationLogout)
+		if _, err := h.auth.RevokeSessionByToken(r.Context(), token, actorID, auth.SessionRevocationLogout); err != nil {
+			http.Error(w, "Unable to sign out. Please try again.", http.StatusInternalServerError)
+			return
+		}
 	}
 	auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)

@@ -57,3 +57,41 @@ func TestLogoutRevokesSessionWithTypedMetadata(t *testing.T) {
 		t.Fatalf("logout cookies = %#v, want cleared session cookie", cookies)
 	}
 }
+
+func TestLogoutAuditFailurePreservesSessionAndCookieForRetry(t *testing.T) {
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO users (id,username,username_normalized,name,status,auth_version,created_at,updated_at) VALUES ('person','person','person','Person','active',1,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	session, err := manager.CreateSession(t.Context(), "person", "browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `CREATE TRIGGER reject_logout_audit BEFORE INSERT ON auth_events BEGIN SELECT RAISE(ABORT,'private-storage-error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	handler := &Handler{auth: manager}
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
+	recorder := httptest.NewRecorder()
+	handler.handleLogout(recorder, req)
+	if recorder.Code != http.StatusInternalServerError || len(recorder.Result().Cookies()) != 0 || recorder.Header().Get("Location") != "" {
+		t.Fatalf("response=%d cookies=%v", recorder.Code, recorder.Result().Cookies())
+	}
+	if recorder.Body.String() != "Unable to sign out. Please try again.\n" {
+		t.Fatalf("unexpected error response %q", recorder.Body.String())
+	}
+	if active, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || active == nil {
+		t.Fatalf("session=%v err=%v", active, err)
+	}
+	var count int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("events=%d err=%v", count, err)
+	}
+}

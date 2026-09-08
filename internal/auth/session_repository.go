@@ -363,16 +363,54 @@ func (m *Manager) revokeSessionRows(ctx context.Context, predicate string, args 
 	if value := strings.TrimSpace(actorID); value != "" {
 		actor = value
 	}
-	queryArgs := []any{m.clock.Now().UTC(), actor, reason}
-	queryArgs = append(queryArgs, args...)
-	result, err := m.db.Write().ExecContext(ctx, `
-		UPDATE sessions
-		SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
-		WHERE revoked_at IS NULL AND `+predicate, queryArgs...)
+	var changed int64
+	err := m.runSecurityTransition(ctx, SecurityTransitionSessionRevocation, func(tx *sql.Tx) error {
+		queryArgs := []any{m.clock.Now().UTC(), actor, reason}
+		queryArgs = append(queryArgs, args...)
+		rows, err := tx.QueryContext(ctx, `
+			UPDATE sessions
+			SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
+			WHERE revoked_at IS NULL AND `+predicate+`
+			RETURNING id, user_id`, queryArgs...)
+		if err != nil {
+			return err
+		}
+		type target struct{ session, user string }
+		var targets []target
+		for rows.Next() {
+			var value target
+			if err := rows.Scan(&value.session, &value.user); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			targets = append(targets, value)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		for _, target := range targets {
+			eventActor := strings.TrimSpace(actorID)
+			eventReason := AuthEventReasonAdministratorAction
+			if reason == SessionRevocationLogout {
+				// Possession of this exact bearer identifies the session being signed out.
+				eventActor = target.user
+				eventReason = AuthEventReasonUserAction
+			}
+			if err := m.appendTransitionEvent(ctx, tx, eventActor, target.user, target.session, AuthEventSessionRevoked, true, eventReason, transitionEventMetadata{Revocation: reason}); err != nil {
+				return err
+			}
+		}
+		changed = int64(len(targets))
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return changed, nil
 }
 
 func (m *Manager) RotateSession(ctx context.Context, currentToken, userAgent string) (*Session, error) {

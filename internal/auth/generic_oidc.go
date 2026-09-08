@@ -424,10 +424,15 @@ func (m *Manager) HandleOIDCCallback(ctx context.Context, challengeToken, code, 
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := m.ConsumePreAuthChallenge(ctx, challengeToken, claims.Nonce, ChallengePurposeFederatedLogin, m.config.BaseURL); err != nil {
-		return nil, nil, federatedLoginError(FederatedLoginFailureChallengeInvalid)
+	user, result, err := m.authenticateOIDCIdentity(ctx, claims, userAgent, m.consumeFederatedLoginForEvent(ctx, challengeToken, claims.Nonce))
+	if err != nil {
+		var failure *FederatedLoginError
+		if errors.As(err, &failure) && failure.Reason == FederatedLoginFailureIdentityUnknown {
+			return nil, nil, m.rejectOIDCAuthorization(ctx, challengeToken, ChallengePurposeFederatedLogin, failure.Reason)
+		}
+		return nil, nil, err
 	}
-	return m.authenticateOIDCIdentity(ctx, claims, userAgent)
+	return user, result, nil
 }
 
 type oidcChallengeQueryer interface {
@@ -497,7 +502,7 @@ func (m *Manager) TerminateOIDCAuthorizationChallenge(ctx context.Context, token
 	if err != nil {
 		return err
 	}
-	return m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL)
+	return m.endFederatedAuthorization(ctx, token, purpose, AuthenticationMethodFederatedOIDC)
 }
 
 func (m *Manager) verifyOIDCCallback(ctx context.Context, challengeToken string, purpose ChallengePurpose, code string) (*PreAuthChallenge, *oidcLoginDraft, *OIDCIDTokenClaims, error) {
@@ -539,10 +544,7 @@ func (m *Manager) verifyOIDCCallback(ctx context.Context, challengeToken string,
 }
 
 func (m *Manager) rejectOIDCAuthorization(ctx context.Context, token string, purpose ChallengePurpose, reason FederatedLoginFailureReason) error {
-	if err := m.TerminatePreAuthChallenge(ctx, token, purpose, m.config.BaseURL); err != nil && !errors.Is(err, ErrPreAuthChallengeInvalid) {
-		return federatedLoginError(FederatedLoginFailureInternal)
-	}
-	return federatedLoginError(reason)
+	return m.rejectFederatedAuthorization(ctx, token, purpose, AuthenticationMethodFederatedOIDC, reason)
 }
 
 func validOIDCLoginDraft(draft *oidcLoginDraft) bool {

@@ -191,7 +191,8 @@ func administratorSecurityEventFilterQuery(filter AdministratorSecurityEventFilt
 			AuthEventIdentityUnlinked,
 		}
 	case AdministratorSecurityEventFilterSessions:
-		return " WHERE event.event_type IN (?, ?, ?, ?, ?)", []any{
+		return " WHERE event.event_type IN (?, ?, ?, ?, ?, ?)", []any{
+			AuthEventPrimaryVerified,
 			AuthEventLoginSucceeded,
 			AuthEventLoginFailed,
 			AuthEventSessionRevoked,

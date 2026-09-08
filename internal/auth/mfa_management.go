@@ -246,7 +246,7 @@ func (m *Manager) VerifySecurityTOTPStepUp(ctx context.Context, sessionToken, co
 		return fmt.Errorf("check TOTP management throttle: %w", err)
 	}
 	if decision.Throttled {
-		return m.loginThrottleError(decision)
+		return m.rejectThrottledAuthentication(ctx, decision, preflight.UserID, preflight.UserID, preflight.ID, AuthEventStepUpFailed, AuthenticationMethodTOTP)
 	}
 	eventID, err := m.tokens.ID()
 	if err != nil {
@@ -509,7 +509,7 @@ func (m *Manager) ConfirmTOTPManagement(ctx context.Context, challengeToken, ses
 		return nil, err
 	}
 	if decision.Throttled {
-		return nil, m.loginThrottleError(decision)
+		return nil, m.rejectThrottledAuthentication(ctx, decision, current.UserID, current.UserID, current.ID, AuthEventCredentialChanged, AuthenticationMethodTOTP)
 	}
 	now := m.clock.Now().UTC()
 	matchedStep, valid, err := matchTOTPCode(draft.TOTPSecret, code, now)

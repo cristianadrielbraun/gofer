@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (m *Manager) authenticateMicrosoftIdentity(ctx context.Context, claims *MicrosoftIDTokenClaims, userAgent string) (*User, *PrimaryAuthenticationResult, error) {
+func (m *Manager) authenticateMicrosoftIdentity(ctx context.Context, claims *MicrosoftIDTokenClaims, userAgent string, consume ...func(*sql.Tx, time.Time) error) (*User, *PrimaryAuthenticationResult, error) {
 	if !validMicrosoftIdentity(claims) {
 		return nil, nil, federatedLoginError(FederatedLoginFailureIDTokenInvalid)
 	}
@@ -41,6 +41,11 @@ func (m *Manager) authenticateMicrosoftIdentity(ctx context.Context, claims *Mic
 	result, err := m.completeFederatedPrimaryAuthenticationWithTransition(
 		ctx, user.ID, userAgent, AuthenticationMethodFederatedMicrosoft,
 		func(tx *sql.Tx, now time.Time) error {
+			for _, action := range consume {
+				if err := action(tx, now); err != nil {
+					return err
+				}
+			}
 			updated, err := tx.ExecContext(ctx, `
 				UPDATE auth_identities
 				SET email = ?, email_verified = 0, last_used_at = ?

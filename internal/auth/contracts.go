@@ -123,6 +123,7 @@ func (reason SessionRevocationReason) Valid() bool {
 type AuthEventType string
 
 const (
+	AuthEventPrimaryVerified              AuthEventType = "primary_verified"
 	AuthEventLoginSucceeded               AuthEventType = "login_succeeded"
 	AuthEventLoginFailed                  AuthEventType = "login_failed"
 	AuthEventSessionRevoked               AuthEventType = "session_revoked"

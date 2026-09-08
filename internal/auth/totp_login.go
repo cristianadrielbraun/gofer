@@ -51,7 +51,7 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 		return nil, fmt.Errorf("check TOTP login throttle: %w", err)
 	}
 	if decision.Throttled {
-		return nil, m.loginThrottleError(decision)
+		return nil, m.rejectThrottledAuthentication(ctx, decision, "", preflight.UserID, "", AuthEventLoginFailed, AuthenticationMethodTOTP)
 	}
 
 	eventID, err := m.tokens.ID()

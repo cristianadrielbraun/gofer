@@ -115,7 +115,7 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 		return nil, fmt.Errorf("check recovery-code login throttle: %w", err)
 	}
 	if decision.Throttled {
-		return nil, m.loginThrottleError(decision)
+		return nil, m.rejectThrottledAuthentication(ctx, decision, "", preflight.UserID, "", AuthEventLoginFailed, AuthenticationMethodRecoveryCode)
 	}
 
 	canonicalCode, validShape := canonicalRecoveryCode(options.Code)

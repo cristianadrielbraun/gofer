@@ -367,3 +367,41 @@ func nullableThrottleTime(value time.Time) any {
 	}
 	return value
 }
+
+// Credential failures and their throttle counters must persist together. The
+// submitted identifier is never accepted as an authenticated actor or subject.
+func (m *Manager) recordUnauthenticatedLoginFailure(ctx context.Context, identifier, source string, method AuthenticationMethod) (LoginThrottleDecision, error) {
+	var buckets []loginThrottleBucket
+	var err error
+	if method == AuthenticationMethodPasskey {
+		buckets, err = m.passkeyLoginThrottleBuckets(identifier, source)
+	} else {
+		buckets, err = m.loginThrottleBuckets(identifier, source)
+	}
+	if err != nil {
+		return LoginThrottleDecision{}, err
+	}
+	return m.recordUnauthenticatedFailureBuckets(ctx, buckets, method)
+}
+
+func (m *Manager) recordUnauthenticatedFailureBuckets(ctx context.Context, buckets []loginThrottleBucket, method AuthenticationMethod) (LoginThrottleDecision, error) {
+	now := m.clock.Now().UTC()
+	retryAt := time.Time{}
+	err := m.runSecurityTransition(ctx, SecurityTransitionLoginThrottle, func(tx *sql.Tx) error {
+		for _, bucket := range buckets {
+			until, err := recordLoginThrottleFailure(ctx, tx, bucket, now)
+			if err != nil {
+				return err
+			}
+			if until.After(retryAt) {
+				retryAt = until
+			}
+		}
+		reason := AuthEventReasonInvalidCredentials
+		if retryAt.After(now) {
+			reason = AuthEventReasonThrottled
+		}
+		return m.appendTransitionEvent(ctx, tx, "", "", "", AuthEventLoginFailed, false, reason, transitionEventMetadata{Method: method})
+	})
+	return newLoginThrottleDecision(now, retryAt), err
+}

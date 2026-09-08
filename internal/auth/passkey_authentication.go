@@ -101,7 +101,7 @@ func (m *Manager) StartPasskeyLogin(ctx context.Context, identifier, origin, sou
 		return nil, fmt.Errorf("check passkey login throttle: %w", err)
 	}
 	if decision.Throttled {
-		return nil, m.loginThrottleError(decision)
+		return nil, m.rejectThrottledAuthentication(ctx, decision, "", "", "", AuthEventLoginFailed, AuthenticationMethodPasskey)
 	}
 
 	assertion, err := m.passkeyAssertionFactory(canonicalOrigin)
@@ -165,7 +165,7 @@ func (m *Manager) StartPasskeyStepUp(ctx context.Context, sessionToken, origin, 
 		return nil, fmt.Errorf("check passkey step-up throttle: %w", err)
 	}
 	if decision.Throttled {
-		return nil, m.loginThrottleError(decision)
+		return nil, m.rejectThrottledAuthentication(ctx, decision, session.UserID, session.UserID, session.ID, AuthEventStepUpFailed, AuthenticationMethodPasskey)
 	}
 	canonicalOrigin, rpID, err := canonicalWebAuthnRelyingParty(origin)
 	if err != nil {
@@ -610,7 +610,7 @@ func (m *Manager) completePasskeyStepUp(ctx context.Context, challenge *PreAuthC
 }
 
 func (m *Manager) rejectPasskeyLoginStart(ctx context.Context, buckets []loginThrottleBucket) error {
-	decision, err := m.recordLoginThrottleBuckets(ctx, buckets)
+	decision, err := m.recordUnauthenticatedFailureBuckets(ctx, buckets, AuthenticationMethodPasskey)
 	if err != nil {
 		return fmt.Errorf("record unavailable passkey login: %w", err)
 	}
