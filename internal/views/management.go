@@ -241,7 +241,7 @@ func ManagementSecurityLayout(uiSettings map[string]string, content templ.Compon
 		if err := content.Render(ctx, w); err != nil {
 			return err
 		}
-		return writeHTML(w, `</div></main></div></div><script src="/assets/js/ui-settings.js"></script><script src="/assets/js/passkey-registration.js"></script><script src="/assets/js/passkey-authentication.js"></script><script src="/assets/js/settings.js"></script></body></html>`)
+		return writeHTML(w, `</div></main></div></div><script src="/assets/js/htmx.min.js"></script><script src="/assets/js/ui-settings.js"></script><script src="/assets/js/passkey-registration.js"></script><script src="/assets/js/passkey-authentication.js"></script><script src="/assets/js/settings.js"></script></body></html>`)
 	})
 }
 
