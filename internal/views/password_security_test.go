@@ -145,6 +145,10 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 	html := output.String()
 	for _, want := range []string{
 		`data-security-sessions`, `aria-label="Current and recent sessions"`,
+		`data-tui-dialog-target="security-sessions-revoke-others"`,
+		`id="security-sessions-revoke-others"`,
+		`data-tui-dialog-target="security-session-revoke-1"`,
+		`id="security-session-revoke-1"`,
 		"Firefox on Linux", "Password · Multi-factor", "Current",
 		"Chrome on macOS", "Passkey · Phishing-resistant", "Active",
 		`action="` + revokePath + `"`, ">Sign out</button>",
@@ -161,6 +165,8 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 	}
 	for _, forbidden := range []string{
 		`<script>signed-out</script>`, "session-token", "session-id", "target-session-id",
+		`id="security-session-revoke-0"`, `id="security-session-revoke-2"`,
+		`onsubmit="return confirm(&#39;Sign out`,
 	} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("security session view exposed forbidden value %q", forbidden)
@@ -642,5 +648,32 @@ func TestPasswordSecuritySettingsRendersConfiguredOIDCIdentityWithoutMailboxConf
 	}
 	if strings.Contains(html, "offline_access") || strings.Contains(html, "Mail.Read") {
 		t.Fatal("OIDC application sign-in UI exposed provider resource authorization")
+	}
+}
+
+func TestSecuritySessionSignOutDialogKeepsSubmissionInsideConfirmation(t *testing.T) {
+	var output bytes.Buffer
+	if err := securitySessionSignOutDialog("session-confirmation", "/settings/security/sessions/reference/revoke", "csrf-value", "Sign out", "Sign out <private-client>?").Render(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	start := strings.Index(html, "<dialog")
+	end := strings.Index(html, "</dialog>")
+	if start < 0 || end <= start {
+		t.Fatal("missing templui confirmation dialog")
+	}
+	confirmation := html[start:end]
+	for _, want := range []string{
+		`method="post" action="/settings/security/sessions/reference/revoke"`,
+		`name="_csrf" value="csrf-value"`,
+		`type="submit"`, `data-tui-dialog-close`, `>Cancel</button>`,
+		`Sign out &lt;private-client&gt;?`,
+	} {
+		if !strings.Contains(confirmation, want) {
+			t.Errorf("confirmation missing %q", want)
+		}
+	}
+	if strings.Contains(html[:start], `type="submit"`) || strings.Contains(html, "confirm(") || strings.Contains(html, "<private-client>") {
+		t.Fatal("dialog allows unconfirmed submission, uses native confirmation, or exposes unescaped client text")
 	}
 }
