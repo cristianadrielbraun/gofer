@@ -102,7 +102,7 @@ func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t 
 	for _, want := range []string{
 		`data-admin-security-activity`, "Admin security activity", fmt.Sprintf("%d events", totalEvents),
 		`href="/admin/activity"`, `aria-current="page"`, "Instance events",
-		`data-admin-security-retention`, "Security activity retention", "180 days",
+		`data-admin-security-retention`, "Security activity settings", "180 days",
 		`action="/admin/activity/retention"`, `name="days"`, `min="1"`, `max="365"`,
 		`aria-label="Filter administrator security activity"`,
 		`href="/admin/activity?filter=failures"`, `href="/admin/activity?filter=recovery"`,
@@ -225,7 +225,7 @@ func TestAdministratorSecurityActivityRejectsMalformedPageAndLocksBeforeQuerying
 		}
 	}
 	for _, forbidden := range []string{
-		"Instance events", "Security activity retention", "Security policy changed", "Locked private browser",
+		"Instance events", "Security activity settings", "Security policy changed", "Locked private browser",
 		"locked-private-event-id", "locked-private-metadata",
 	} {
 		if strings.Contains(html, forbidden) {

@@ -6197,6 +6197,10 @@ func clearLegacyOAuthStateCookie(w http.ResponseWriter, secure bool) {
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	loginPath := "/login"
+	if auth.GetCurrentUser(r.Context()).IsManagement() {
+		loginPath = "/admin/login"
+	}
 	token := auth.GetSessionToken(r)
 	if token != "" {
 		actorID := ""
@@ -6210,7 +6214,7 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, loginPath, http.StatusSeeOther)
 }
 
 func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Request) {

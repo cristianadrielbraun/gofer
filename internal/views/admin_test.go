@@ -32,9 +32,9 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 		`aria-label="Instance security activity events"`, "Sign-in attempt failed",
 		"System", "target-user", `&lt;unsafe-client&gt;`, `href="/admin/activity?page=2"`,
 		`data-admin-security-activity-scroll`, `class="min-h-0 flex-1 overflow-y-auto"`,
-		`data-admin-security-retention`, "Security activity retention", "180 days",
+		`data-admin-security-retention`, "Security activity settings", "180 days",
 		`action="/admin/activity/retention"`, `name="_csrf" value="csrf-proof"`,
-		`min="1"`, `max="365"`, `value="180"`, "The maximum is one year.",
+		`min="1"`, `max="365"`, `value="180"`, "Reducing this period permanently removes audit history",
 		"Retention saved.", "Example error.",
 	} {
 		if !strings.Contains(html, want) {
@@ -567,5 +567,49 @@ func TestAdminOperationalPagesRenderSelectedWebmailScope(t *testing.T) {
 	}
 	if strings.Contains(operations.String(), "Retention cleanup") || strings.Contains(operations.String(), "SMTP baseline") {
 		t.Fatalf("selected-user operations page rendered process-wide metrics: %s", operations.String())
+	}
+}
+
+func TestAdminSecurityRetentionDialogVisibilityAndFeedback(t *testing.T) {
+	for _, test := range []struct {
+		name, notice, message string
+		open                  bool
+	}{
+		{name: "closed by default"},
+		{name: "saved", notice: "Retention saved.", open: true},
+		{name: "invalid", message: "Enter a valid retention period.", open: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var out strings.Builder
+			data := AdminSecurityActivityData{ManagedMode: true, RetentionDays: 180, RetentionMinimumDays: 1, RetentionMaximumDays: 365, Notice: test.notice, Error: test.message}
+			if err := AdminSecurityActivityPage(data).Render(context.Background(), &out); err != nil {
+				t.Fatal(err)
+			}
+			html := out.String()
+			if !strings.Contains(html, `data-tui-dialog-target="admin-security-retention-dialog"`) {
+				t.Fatal("settings trigger is missing")
+			}
+			wantOpen := `data-tui-dialog-initial-open="false"`
+			if test.open {
+				wantOpen = `data-tui-dialog-initial-open="true"`
+			}
+			if !strings.Contains(html, wantOpen) {
+				t.Fatalf("missing dialog state %s", wantOpen)
+			}
+			start := strings.Index(html, "<dialog")
+			end := strings.Index(html, "</dialog>")
+			if start < 0 || end < start {
+				t.Fatal("retention dialog is missing")
+			}
+			body := html[start:end]
+			for _, value := range []string{`action="/admin/activity/retention"`, test.notice, test.message} {
+				if value != "" && !strings.Contains(body, value) {
+					t.Fatalf("dialog omitted %q", value)
+				}
+			}
+			if strings.Contains(html[:start]+html[end:], `action="/admin/activity/retention"`) || strings.Contains(html, `onsubmit="return confirm`) {
+				t.Fatal("retention form is not confined to the dialog")
+			}
+		})
 	}
 }

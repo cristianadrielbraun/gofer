@@ -3,7 +3,9 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,5 +95,21 @@ func TestLogoutAuditFailurePreservesSessionAndCookieForRetry(t *testing.T) {
 	var count int
 	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM auth_events`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("events=%d err=%v", count, err)
+	}
+}
+
+func TestAdministratorLogoutReturnsToAdministratorLogin(t *testing.T) {
+	manager, _, stack, cookie, _ := completedSecuritySettingsStack(t)
+	proof := csrfProofForSession(t, manager, cookie.Value, "/auth/logout")
+	request := httptest.NewRequest(http.MethodPost, "/auth/logout", strings.NewReader(url.Values{auth.CSRFFormFieldName: {proof}}.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+	stack.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("administrator logout = %d %q, body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	}
+	if session, err := manager.GetSessionByToken(t.Context(), cookie.Value); err != nil || session != nil {
+		t.Fatalf("administrator session after logout = %v, %v", session, err)
 	}
 }
