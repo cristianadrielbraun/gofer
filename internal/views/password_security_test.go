@@ -651,9 +651,9 @@ func TestPasswordSecuritySettingsRendersConfiguredOIDCIdentityWithoutMailboxConf
 	}
 }
 
-func TestSecuritySessionSignOutDialogKeepsSubmissionInsideConfirmation(t *testing.T) {
+func TestSecurityActionConfirmationDialogKeepsSubmissionInsideConfirmation(t *testing.T) {
 	var output bytes.Buffer
-	if err := securitySessionSignOutDialog("session-confirmation", "/settings/security/sessions/reference/revoke", "csrf-value", "Sign out", "Sign out <private-client>?").Render(context.Background(), &output); err != nil {
+	if err := securityActionConfirmationDialog("session-confirmation", "/settings/security/sessions/reference/revoke", "csrf-value", "Sign out", "Sign out <private-client>?").Render(context.Background(), &output); err != nil {
 		t.Fatal(err)
 	}
 	html := output.String()
