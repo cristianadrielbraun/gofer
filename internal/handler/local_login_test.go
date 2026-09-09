@@ -263,11 +263,42 @@ func TestLocalLoginRequiredMFAEnrollmentNeverCreatesSession(t *testing.T) {
 }
 
 func TestLocalLoginCompletesRequiredMFAEnrollmentBeforeCreatingSession(t *testing.T) {
-	handler, manager, _ := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
+	handler, manager, db := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login/mfa/enroll", handler.handleMFAEnrollment)
+	mux.HandleFunc("POST /login/mfa/enroll", handler.handleMFAEnrollmentSubmit)
+	mux.HandleFunc("GET /login/mfa/enroll/codes", handler.handleMFAEnrollmentCodes)
+	mux.HandleFunc("POST /login/mfa/enroll/codes", handler.handleMFAEnrollmentCodesSubmit)
+	stack := manager.Middleware(mux)
 	login := postLocalLogin(t, handler, "person", localLoginPassword)
 	challengeCookie := responseCookie(login, "gofer_pre_auth", true)
 	if login.Code != http.StatusSeeOther || login.Header().Get("Location") != "/login/mfa/enroll" || challengeCookie == nil {
 		t.Fatalf("required MFA login = status:%d location:%q cookies:%#v", login.Code, login.Header().Get("Location"), login.Result().Cookies())
+	}
+	get := func(path string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		stack.ServeHTTP(w, r)
+		return w
+	}
+	for _, path := range []string{"/login/mfa/enroll", "/login/mfa/enroll/codes"} {
+		for _, cookie := range []*http.Cookie{nil, {Name: "gofer_pre_auth", Value: "invalid-challenge"}} {
+			if w := get(path, cookie); w.Code != http.StatusSeeOther || !strings.HasPrefix(w.Header().Get("Location"), "/login") {
+				t.Fatalf("unexpected missing/invalid challenge response: %d", w.Code)
+			}
+		}
+	}
+	page := get("/login/mfa/enroll", challengeCookie)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Set up an authenticator") {
+		t.Fatalf("middleware blocked enrollment: %d location=%q", page.Code, page.Header().Get("Location"))
+	}
+	for _, path := range []string{"/", "/login/mfa/enroll/private", "/api/accounts"} {
+		if w := get(path, challengeCookie); w.Code != http.StatusSeeOther && w.Code != http.StatusUnauthorized {
+			t.Fatalf("challenge granted ordinary access: %s %d", path, w.Code)
+		}
 	}
 	state, err := manager.GetMFAEnrollmentState(t.Context(), challengeCookie.Value, "https://gofer.example")
 	if err != nil || state == nil || state.Enrollment == nil {
@@ -279,26 +310,32 @@ func TestLocalLoginCompletesRequiredMFAEnrollmentBeforeCreatingSession(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	postEnrollment := func(path string, form url.Values, handle http.HandlerFunc) *httptest.ResponseRecorder {
+	postEnrollment := func(path string, form url.Values) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		request.Header.Set("User-Agent", "Gofer Enrollment Test/1.0")
 		request.RemoteAddr = "198.51.100.72:43120"
 		request.AddCookie(challengeCookie)
 		recorder := httptest.NewRecorder()
-		handle(recorder, request)
+		stack.ServeHTTP(recorder, request)
 		return recorder
 	}
 	confirmed := postEnrollment(
 		"/login/mfa/enroll", url.Values{"action": {"confirm"}, "code": {code}},
-		handler.handleMFAEnrollmentSubmit,
 	)
 	if confirmed.Code != http.StatusSeeOther || confirmed.Header().Get("Location") != "/login/mfa/enroll/codes" {
 		t.Fatalf("confirm required MFA = %d location:%q body:%q", confirmed.Code, confirmed.Header().Get("Location"), confirmed.Body.String())
 	}
+	codesPage := get("/login/mfa/enroll/codes", challengeCookie)
+	if codesPage.Code != http.StatusOK {
+		t.Fatalf("middleware blocked recovery-code page: %d", codesPage.Code)
+	}
+	var sessions int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil || sessions != 0 {
+		t.Fatal("session issued before recovery acknowledgement")
+	}
 	generated := postEnrollment(
 		"/login/mfa/enroll/codes", url.Values{"action": {"generate"}},
-		handler.handleMFAEnrollmentCodesSubmit,
 	)
 	batchMatch := regexp.MustCompile(`name="batch_id" value="([a-f0-9]{64})"`).FindStringSubmatch(generated.Body.String())
 	if generated.Code != http.StatusOK || len(batchMatch) != 2 || !strings.Contains(generated.Body.String(), "These codes are shown only in this response") {
@@ -307,7 +344,6 @@ func TestLocalLoginCompletesRequiredMFAEnrollmentBeforeCreatingSession(t *testin
 	completed := postEnrollment(
 		"/login/mfa/enroll/codes",
 		url.Values{"action": {"complete"}, "batch_id": {batchMatch[1]}, "saved": {"yes"}},
-		handler.handleMFAEnrollmentCodesSubmit,
 	)
 	sessionCookie := responseCookie(completed, "gofer_session", true)
 	if completed.Code != http.StatusSeeOther || completed.Header().Get("Location") != "/" || sessionCookie == nil {
