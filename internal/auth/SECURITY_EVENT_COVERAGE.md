@@ -102,3 +102,28 @@ suites cover the other rows' ownership, exact-session checks, fixed metadata,
 secret exclusion, concurrency and injected audit-write failures. The handler
 suite additionally verifies event titles/category filtering and logout failure
 response/cookie behavior. See the local tracker for commands and final results.
+
+## Required password changes (2026-09-09)
+
+Administrators have two separate operations. Ordinary reset-token issuance
+retains its previous optional-redemption behavior. Requiring a password change
+creates no token and records `password_change_required` with the verified
+administrator as actor, target user as subject, exact acting session, and the
+bounded `administrator_action` reason. It appears under policy events. The
+existing credential's `must_change` flag, authentication-version increment,
+session revocations, and event commit together; an audit failure rolls them all
+back. Repeated requests are idempotent and do not append duplicate events.
+
+Successful authentication may establish a password-change-restricted session;
+`login_succeeded` establishes the authenticated identity, not unrestricted mail
+access. Session reads project the persisted requirement across all authentication
+methods, and middleware allows only password change and logout until it clears.
+Required MFA remains enforced before this session can be used. Password change
+records the existing `credential_changed` event and atomically clears the flag,
+revokes reset links and other sessions, invalidates pending login continuations,
+and rotates the current session. Token redemption retains its existing reset
+transaction and also clears the requirement.
+
+Focused required-password-change tests cover restriction, eligibility, MFA,
+audit rollback, concurrency, CSRF, and secret non-disclosure. Browser acceptance
+of this optional workflow remains separate.

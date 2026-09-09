@@ -83,7 +83,7 @@ func (m *Manager) AuthenticatePassword(ctx context.Context, options PasswordLogi
 		}
 		return nil, m.rejectPasswordLogin(ctx, options.Identifier, options.Source)
 	}
-	if !matches || candidate == nil || !candidate.status.AllowsAuthentication() || candidate.mustChange {
+	if !matches || candidate == nil || !candidate.status.AllowsAuthentication() || (candidate.mustChange && candidate.userType != UserTypeWebmail) {
 		return nil, m.rejectPasswordLogin(ctx, options.Identifier, options.Source)
 	}
 
@@ -220,7 +220,7 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 			}
 			return err
 		}
-		if passwordHash != candidate.passwordHash || !status.AllowsAuthentication() || mustChange == 1 || userType != candidate.userType ||
+		if passwordHash != candidate.passwordHash || !status.AllowsAuthentication() || (mustChange == 1) != candidate.mustChange || userType != candidate.userType ||
 			currentPolicy != policy {
 			return errPasswordStateMoved
 		}

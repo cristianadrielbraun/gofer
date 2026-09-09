@@ -184,7 +184,7 @@ func administratorSecurityEventFilterQuery(filter AdministratorSecurityEventFilt
 			AuthEventLocalRecoveryStarted,
 		}
 	case AdministratorSecurityEventFilterPolicy:
-		return " WHERE event.event_type = ?", []any{AuthEventSecurityPolicyChanged}
+		return " WHERE event.event_type IN (?, ?)", []any{AuthEventSecurityPolicyChanged, AuthEventPasswordChangeRequired}
 	case AdministratorSecurityEventFilterIdentities:
 		return " WHERE event.event_type IN (?, ?)", []any{
 			AuthEventIdentityLinked,

@@ -131,6 +131,7 @@ const (
 	AuthEventUserEnabled                  AuthEventType = "user_enabled"
 	AuthEventUserDeletionStarted          AuthEventType = "user_deletion_started"
 	AuthEventUserDeleted                  AuthEventType = "user_deleted"
+	AuthEventPasswordChangeRequired       AuthEventType = "password_change_required"
 	AuthEventCredentialChanged            AuthEventType = "credential_changed"
 	AuthEventRecoveryUsed                 AuthEventType = "recovery_used"
 	AuthEventEnrollmentIssued             AuthEventType = "enrollment_token_issued"

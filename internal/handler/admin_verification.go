@@ -51,7 +51,26 @@ func adminSecurityVerificationReturnTo(value string) string {
 		return ""
 	}
 	switch parsed.Path {
-	case "/admin/users", "/admin/security":
+	case "/admin/users":
+		if parsed.RawQuery == "" {
+			return parsed.Path
+		}
+		values, err := url.ParseQuery(parsed.RawQuery)
+		key := "reset_user"
+		if _, exists := values["change_user"]; exists {
+			key = "change_user"
+		}
+		if err != nil || len(values) != 1 || len(values[key]) != 1 {
+			return ""
+		}
+		target := values.Get(key)
+		if target == "" || len(target) > 128 || strings.IndexFunc(target, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+		}) >= 0 {
+			return ""
+		}
+		return "/admin/users?" + url.Values{key: {target}}.Encode()
+	case "/admin/security":
 		if parsed.RawQuery != "" {
 			return ""
 		}

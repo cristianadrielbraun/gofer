@@ -367,6 +367,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/google/account/callback", h.handleGoogleAccountCallback)
 	mux.HandleFunc("GET /auth/microsoft/account/callback", h.handleMicrosoftAccountCallback)
 	mux.HandleFunc("POST /auth/logout", h.handleLogout)
+	mux.HandleFunc("GET "+auth.RequiredPasswordChangePath, h.handleRequiredPasswordChange)
+	mux.HandleFunc("POST "+auth.RequiredPasswordChangePath, h.handleRequiredPasswordChangeSubmit)
 	mux.HandleFunc("POST /api/accounts/oauth2/authorize", h.handleAccountOAuthAuthorize)
 
 	mux.HandleFunc("GET /", h.handleIndex)
@@ -388,6 +390,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/users/{userID}/mfa-policy", h.handleSetAdminUserMFAPolicy)
 	adminRoute("POST /admin/users/{userID}/status", h.handleSetAdminUserStatus)
 	adminRoute("POST /admin/users/{userID}/credential-reset", h.handleIssueAdminUserCredentialReset)
+	adminRoute("POST /admin/users/{userID}/require-password-change", h.handleRequireUserPasswordChange)
 	adminRoute("POST /admin/users/{userID}/delete", h.handleDeleteAdminUser)
 	adminRoute("GET /admin/labels", h.handleAdminLabels)
 	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)

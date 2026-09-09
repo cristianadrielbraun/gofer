@@ -81,6 +81,18 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 		if m.enforceUserSurface(w, r, user) {
 			return
 		}
+		if session.PasswordChangeRequired && path != RequiredPasswordChangePath && path != "/auth/logout" {
+			w.Header().Set("Cache-Control", "no-store")
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", RequiredPasswordChangePath)
+				w.WriteHeader(http.StatusForbidden)
+			} else if r.Method != http.MethodGet || strings.HasPrefix(path, "/api/") || strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+				http.Error(w, "password change required", http.StatusForbidden)
+			} else {
+				http.Redirect(w, r, RequiredPasswordChangePath, http.StatusSeeOther)
+			}
+			return
+		}
 		if requiresSessionCSRF(r) {
 			r.Body = http.MaxBytesReader(w, r.Body, sessionCSRFFormMaximumBytes)
 			if !validSessionCSRF(r) {

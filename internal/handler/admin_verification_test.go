@@ -17,6 +17,11 @@ func TestAdminSecurityVerificationReturnToAllowsOnlyKnownAdminPages(t *testing.T
 		want  string
 	}{
 		{value: "/admin/users", want: "/admin/users"},
+		{value: "/admin/users?reset_user=reset-target", want: "/admin/users?reset_user=reset-target"},
+		{value: "/admin/users?reset_user="},
+		{value: "/admin/users?reset_user=a&reset_user=b"},
+		{value: "/admin/users?reset_user=a&next=/admin"},
+		{value: "/admin/users?reset_user=%3Cscript%3E"},
 		{value: "/admin/security", want: "/admin/security"},
 		{value: "/admin/activity", want: "/admin/activity"},
 		{value: "/admin/activity?page=2", want: "/admin/activity?page=2"},
@@ -123,5 +128,88 @@ func TestAdminUsersDialogVerifiesTOTPWithoutLeavingAdmin(t *testing.T) {
 	if unlocked.Code != http.StatusOK || strings.Contains(unlocked.Body.String(), `data-admin-security-verification`) ||
 		strings.Contains(unlocked.Body.String(), "Recent administrator verification required") {
 		t.Fatalf("verified administrator users page remained locked = %d %q", unlocked.Code, unlocked.Body.String())
+	}
+}
+
+func TestAdminPasswordResetResumesConfirmationAfterVerification(t *testing.T) {
+	for _, action := range []struct{ key, path, dialog string }{
+		{"reset_user", "/admin/users/resume-target/credential-reset", "admin-user-credential-reset-"},
+		{"change_user", "/admin/users/resume-target/require-password-change", "admin-user-required-change-"},
+	} {
+		t.Run(action.key, func(t *testing.T) {
+			manager, db, stack, cookie, secret := completedSecuritySettingsStack(t)
+			now := time.Now().UTC()
+			_, err := db.Write().ExecContext(t.Context(), `INSERT INTO users
+		(id, username, username_normalized, name, status, auth_version, user_type, is_admin, created_at, updated_at)
+		VALUES ('resume-target', 'resume-target', 'resume-target', 'Resume Target', 'active', 1, 'webmail', 0, ?, ?)`, now, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO password_credentials (user_id, password_hash) VALUES ('resume-target', 'fixture-password-hash')`); err != nil {
+				t.Fatal(err)
+			}
+			session, err := manager.GetSessionByToken(t.Context(), cookie.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, now.Add(-11*time.Minute), session.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Write().ExecContext(t.Context(), `UPDATE totp_credentials SET last_accepted_step = ? WHERE user_id = ?`, now.Unix()/30-1, session.UserID); err != nil {
+				t.Fatal(err)
+			}
+			get := func(path string) *httptest.ResponseRecorder {
+				r := httptest.NewRequest(http.MethodGet, path, nil)
+				r.AddCookie(cookie)
+				w := httptest.NewRecorder()
+				stack.ServeHTTP(w, r)
+				return w
+			}
+			continuation := "/admin/users?" + action.key + "=resume-target"
+			page := get(continuation)
+			if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `name="return_to" value="`+continuation+`"`) {
+				t.Fatalf("missing reset continuation: %d %s", page.Code, page.Body.String())
+			}
+			stalePost := postSecuritySettings(t, stack, action.path, url.Values{
+				auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), action.path)},
+			}, cookie)
+			if stalePost.Code != http.StatusForbidden || !strings.Contains(stalePost.Body.String(), `name="return_to" value="`+continuation+`"`) {
+				t.Fatal("expired reset submission lost its target during verification")
+			}
+			values := url.Values{"code": {setupHandlerTOTPCodeAt(t, secret, now)}, "return_to": {continuation}, auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), securityStepUpPath)}}
+			r := httptest.NewRequest(http.MethodPost, securityStepUpPath, strings.NewReader(values.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.Header.Set("Accept", "application/json")
+			r.AddCookie(cookie)
+			verified := httptest.NewRecorder()
+			stack.ServeHTTP(verified, r)
+			if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), `"redirect":"`+continuation+`"`) {
+				t.Fatalf("verification lost continuation: %d %s", verified.Code, verified.Body.String())
+			}
+			resumed := get(continuation)
+			html := resumed.Body.String()
+			start := strings.Index(html, `id="`+action.dialog+`resume-target"`)
+			if resumed.Code != http.StatusOK || start < 0 {
+				t.Fatal("reset dialog missing after verification")
+			}
+			end := strings.Index(html[start:], ">")
+			if !strings.Contains(html[start:start+end], `data-tui-dialog-open="true"`) {
+				t.Fatal("reset confirmation did not reopen")
+			}
+			var tokens int
+			if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM user_enrollment_tokens WHERE user_id = 'resume-target'`).Scan(&tokens); err != nil || tokens != 0 {
+				t.Fatalf("verification issued a token: %d %v", tokens, err)
+			}
+			var required bool
+			if err := db.Read().QueryRowContext(t.Context(), `SELECT must_change FROM password_credentials WHERE user_id = 'resume-target'`).Scan(&required); err != nil || required {
+				t.Fatal("verification required a password change before confirmation")
+			}
+			for _, target := range []string{"missing-target", session.UserID} {
+				unavailable := get("/admin/users?" + action.key + "=" + target)
+				if strings.Contains(unavailable.Body.String(), `id="`+action.dialog+target+`"`) {
+					t.Fatal("unavailable target received a reset dialog")
+				}
+			}
+		})
 	}
 }

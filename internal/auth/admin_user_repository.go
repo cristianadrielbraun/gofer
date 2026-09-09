@@ -34,7 +34,9 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		SELECT u.id, u.username, u.status, u.user_type, u.is_admin, u.mfa_required,
 		       u.password_reset_requested_at, u.deletion_pending,
 		       EXISTS(SELECT 1 FROM auth_system_state state WHERE state.id = 1 AND state.owner_user_id = u.id),
-		       invitation.id, invitation.expires_at, invitation.used_at, invitation.revoked_at
+		       invitation.id, invitation.expires_at, invitation.used_at, invitation.revoked_at,
+		       EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
+		       EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id AND p.must_change = 1)
 		FROM users u
 		LEFT JOIN user_enrollment_tokens invitation ON invitation.id = (
 			SELECT candidate.id
@@ -60,7 +62,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		if err := rows.Scan(
 			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired,
 			&passwordResetRequestedAt, &deletionPending, &deletionProtected,
-			&tokenID, &expiresAt, &usedAt, &revokedAt,
+			&tokenID, &expiresAt, &usedAt, &revokedAt, &user.HasPassword, &user.PasswordChangeRequired,
 		); err != nil {
 			return nil, fmt.Errorf("scan administrator user: %w", err)
 		}

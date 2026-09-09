@@ -260,7 +260,7 @@ func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Reset password", "Generate a password-reset token for webmail.user?",
+		"Generate password-reset token", "Generate a password-reset token for webmail.user?",
 		`action="/admin/users/webmail-user/credential-reset"`, csrfToken,
 		"does not change the password or sign the user out yet", "Generate reset token",
 		"Password-reset token created", "Reset token ready for webmail.user",
@@ -291,7 +291,7 @@ func TestAdminUsersPageHighlightsRequestedPasswordReset(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Password reset requested", "Requested Aug 29, 14:15", "Issue reset token",
+		"Password reset requested", "Requested Aug 29, 14:15", "Generate password-reset token",
 		"Issue a password-reset token for requested.user?",
 	} {
 		if !strings.Contains(html, want) {

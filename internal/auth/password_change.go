@@ -48,7 +48,7 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 	matches, _, err := VerifyPassword(candidate.passwordHash, options.CurrentPassword)
 	if err != nil || !matches {
 		if eventErr := m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-			current, err := currentSecuritySession(ctx, tx, options.SessionToken, m.clock.Now().UTC(), false)
+			current, err := currentSecuritySession(ctx, tx, options.SessionToken, m.clock.Now().UTC(), false, true)
 			if err != nil {
 				return err
 			}
@@ -143,6 +143,17 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 		}
 		if currentHash != candidate.passwordHash || username != candidate.username {
 			return ErrCurrentPasswordInvalid
+		}
+
+		if current.PasswordChangeRequired {
+			// Retire outstanding reset links and login continuations with the forced change.
+			if _, err := tx.ExecContext(ctx, `UPDATE user_enrollment_tokens SET revoked_at = ? WHERE user_id = ? AND purpose = 'credential_reset' AND used_at IS NULL AND revoked_at IS NULL`, now, current.UserID); err != nil {
+				return fmt.Errorf("revoke forced-change reset tokens: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET auth_version = auth_version + 1 WHERE id = ?`, current.UserID); err != nil {
+				return fmt.Errorf("invalidate forced-change continuations: %w", err)
+			}
+			current.AuthVersion++
 		}
 
 		result, err := tx.ExecContext(ctx, `

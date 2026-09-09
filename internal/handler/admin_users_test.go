@@ -620,7 +620,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
 	}
 	for _, want := range []string{
-		"Password reset requested", "Issue reset token", "Issue a password-reset token for reset-target?",
+		"Password reset requested", "Generate password-reset token", "Issue a password-reset token for reset-target?",
 		`action="` + path + `"`, "Generate reset token",
 		"does not change the password or sign the user out yet",
 	} {

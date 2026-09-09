@@ -46,6 +46,8 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 	data := views.AdminUsersData{Users: make([]views.AdminUserData, 0, len(users)), Total: len(users)}
 	for _, user := range users {
 		view := views.AdminUserData{
+			HasPassword:              user.HasPassword,
+			PasswordChangeRequired:   user.PasswordChangeRequired,
 			ID:                       user.ID,
 			Username:                 user.Username,
 			Status:                   "Disabled",
@@ -364,6 +366,14 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available for password reset. Refresh the page and try again.")
 		return
 	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid reset form.", http.StatusBadRequest)
+		return
+	}
+	if _, present := r.PostForm["require_password_change"]; present {
+		http.Error(w, "Use the separate password-change action.", http.StatusBadRequest)
+		return
+	}
 	token, err := h.auth.IssueEnrollmentToken(ctx, auth.IssueEnrollmentTokenOptions{
 		UserID: targetUser.ID, CreatedBy: currentUser.ID, ActorSessionID: currentSession.ID,
 		Purpose: auth.EnrollmentTokenPurposeCredentialReset,
@@ -498,6 +508,26 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	if queryError := strings.TrimSpace(r.URL.Query().Get("error")); data.Error == "" && queryError != "" {
 		data.Error = queryError
 	}
+	// A continuation only opens a confirmation; issuance still requires its POST.
+	continuationKey := "reset_user"
+	if r.URL.Query().Get("change_user") != "" || strings.HasSuffix(r.URL.Path, "/require-password-change") {
+		continuationKey = "change_user"
+	}
+	resetUserID := r.URL.Query().Get(continuationKey)
+	if r.Method == http.MethodPost && (strings.HasSuffix(r.URL.Path, "/credential-reset") || strings.HasSuffix(r.URL.Path, "/require-password-change")) && pageError != "" {
+		resetUserID = r.PathValue("userID")
+	}
+	resetReturnTo := adminSecurityVerificationReturnTo("/admin/users?" + url.Values{continuationKey: {resetUserID}}.Encode())
+	if resetReturnTo == "" {
+		resetUserID = ""
+	}
+	returnTo := "/admin/users"
+	for _, user := range data.Users {
+		if user.ID == resetUserID && user.CredentialResetPath != "" && (continuationKey == "reset_user" || user.HasPassword) {
+			returnTo = resetReturnTo
+			break
+		}
+	}
 	verification := views.AdminSecurityVerificationData{}
 	if h.auth.IsEnabled() {
 		access, accessErr := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
@@ -506,8 +536,8 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 			data.StepUpRequired = !access.StepUpFresh
 			if data.StepUpRequired {
 				verification = adminSecurityVerificationViewData(
-					ctx, access, "/admin/users",
-					data.Error != "" || r.URL.Query().Get("verification_required") == "1",
+					ctx, access, returnTo,
+					data.Error != "" || r.URL.Query().Get("verification_required") == "1" || returnTo != "/admin/users",
 				)
 			}
 		case errors.Is(accessErr, auth.ErrSecuritySessionInvalid):
@@ -530,6 +560,12 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 		}
 		if data.Users[index].CredentialResetPath != "" {
 			data.Users[index].CredentialResetCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].CredentialResetPath)
+			data.Users[index].CredentialResetOpen = continuationKey == "reset_user" && !data.StepUpRequired && reset == nil && data.Users[index].ID == resetUserID
+			if data.Users[index].HasPassword {
+				data.Users[index].RequiredChangePath = "/admin/users/" + url.PathEscape(data.Users[index].ID) + "/require-password-change"
+				data.Users[index].RequiredChangeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].RequiredChangePath)
+				data.Users[index].RequiredChangeOpen = continuationKey == "change_user" && !data.StepUpRequired && data.Users[index].ID == resetUserID
+			}
 		}
 		if data.Users[index].DeletionPath != "" {
 			data.Users[index].DeletionCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].DeletionPath)

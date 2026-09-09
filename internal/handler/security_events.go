@@ -140,6 +140,8 @@ func securityEventTitle(eventType auth.AuthEventType, success bool) string {
 		return "User deletion started"
 	case auth.AuthEventUserDeleted:
 		return "User deleted"
+	case auth.AuthEventPasswordChangeRequired:
+		return "Password change required"
 	case auth.AuthEventCredentialChanged:
 		if success {
 			return "Security credential changed"

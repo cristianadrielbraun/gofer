@@ -127,7 +127,6 @@ func TestAuthenticatePasswordReturnsGenericFailures(t *testing.T) {
 		{name: "unknown identifier", password: "incorrect passphrase"},
 		{name: "disabled user", insertUser: true, status: UserStatusDisabled, password: passwordLoginTestPassword},
 		{name: "pending user", insertUser: true, status: UserStatusPending, password: passwordLoginTestPassword},
-		{name: "must change", insertUser: true, status: UserStatusActive, mustChange: true, password: passwordLoginTestPassword},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -1073,7 +1073,7 @@ func GetSecurityChallengeToken(r *http.Request) string {
 	return cookie.Value
 }
 
-func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string, now time.Time, requireStepUp bool) (*Session, error) {
+func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string, now time.Time, requireStepUp bool, allowPasswordChange ...bool) (*Session, error) {
 	session, err := scanSession(tx.QueryRowContext(ctx, sessionSelect+`
 		WHERE token_hash = ? AND revoked_at IS NULL
 		  AND idle_expires_at > ? AND absolute_expires_at > ?
@@ -1087,6 +1087,9 @@ func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load current security session: %w", err)
+	}
+	if session.PasswordChangeRequired && (len(allowPasswordChange) == 0 || !allowPasswordChange[0]) {
+		return nil, ErrSecuritySessionInvalid
 	}
 	policy, err := queryAuthenticationPolicy(ctx, tx, session.UserID, session.AuthVersion)
 	if errors.Is(err, ErrUserNotActive) {

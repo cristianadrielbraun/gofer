@@ -23,7 +23,8 @@ const (
 const sessionSelect = `SELECT id, user_id, auth_version, authentication_method,
 	assurance_level, user_agent, authenticated_at, last_used_at,
 	idle_expires_at, absolute_expires_at, step_up_at, step_up_method,
-	revoked_at, COALESCE(revoked_by, ''), revocation_reason, created_at
+	revoked_at, COALESCE(revoked_by, ''), revocation_reason, created_at,
+	EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = sessions.user_id AND p.must_change = 1)
 	FROM sessions`
 
 func scanSession(row rowScanner) (*Session, error) {
@@ -34,7 +35,7 @@ func scanSession(row rowScanner) (*Session, error) {
 		&session.AuthenticationMethod, &session.AssuranceLevel, &session.UserAgent,
 		&session.AuthenticatedAt, &session.LastUsedAt, &session.IdleExpiresAt,
 		&session.AbsoluteExpiresAt, &stepUpAt, &session.StepUpMethod,
-		&revokedAt, &session.RevokedBy, &session.RevocationReason, &session.CreatedAt,
+		&revokedAt, &session.RevokedBy, &session.RevocationReason, &session.CreatedAt, &session.PasswordChangeRequired,
 	); err != nil {
 		return nil, err
 	}

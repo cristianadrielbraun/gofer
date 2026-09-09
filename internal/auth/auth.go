@@ -48,6 +48,8 @@ func (user *User) IsManagement() bool {
 }
 
 type AdministratorUserSummary struct {
+	HasPassword               bool
+	PasswordChangeRequired    bool
 	ID                        string
 	Username                  string
 	Status                    UserStatus
@@ -75,23 +77,24 @@ func (status UserStatus) AllowsAuthentication() bool {
 }
 
 type Session struct {
-	ID                   string
-	UserID               string
-	Token                string
-	AuthVersion          int64
-	AuthenticationMethod AuthenticationMethod
-	AssuranceLevel       AssuranceLevel
-	UserAgent            string
-	AuthenticatedAt      time.Time
-	LastUsedAt           time.Time
-	IdleExpiresAt        time.Time
-	AbsoluteExpiresAt    time.Time
-	StepUpAt             *time.Time
-	StepUpMethod         AuthenticationMethod
-	RevokedAt            *time.Time
-	RevokedBy            string
-	RevocationReason     SessionRevocationReason
-	CreatedAt            time.Time
+	PasswordChangeRequired bool
+	ID                     string
+	UserID                 string
+	Token                  string
+	AuthVersion            int64
+	AuthenticationMethod   AuthenticationMethod
+	AssuranceLevel         AssuranceLevel
+	UserAgent              string
+	AuthenticatedAt        time.Time
+	LastUsedAt             time.Time
+	IdleExpiresAt          time.Time
+	AbsoluteExpiresAt      time.Time
+	StepUpAt               *time.Time
+	StepUpMethod           AuthenticationMethod
+	RevokedAt              *time.Time
+	RevokedBy              string
+	RevocationReason       SessionRevocationReason
+	CreatedAt              time.Time
 }
 
 type SecuritySessionSummary struct {
