@@ -597,7 +597,15 @@ func (m *Manager) listPasskeysForUser(ctx context.Context, userID string) ([]Pas
 		}
 		passkeys[index].CanRemove = canRemove
 		if !canRemove {
-			passkeys[index].RemoveReason = "Add another sign-in method or strong authenticator before removing this passkey."
+			policy, err := queryAuthenticationPolicy(ctx, m.db.Read(), userID, 0)
+			if err != nil {
+				return nil, err
+			}
+			if policy.MFAEnrollmentRequired {
+				passkeys[index].RemoveReason = "Your administrator policy requires at least one MFA method to remain enabled. Add another TOTP authenticator app or passkey before removing this one."
+			} else {
+				passkeys[index].RemoveReason = "Keep at least one sign-in method available. Add another sign-in method before removing this passkey."
+			}
 		}
 	}
 	return passkeys, nil

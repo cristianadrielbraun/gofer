@@ -218,7 +218,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		summary.CanDisableTOTP = hasPrimary && (!policy.MFAEnrollmentRequired || hasOtherStrongFactor)
 		if !summary.CanDisableTOTP {
 			if policy.MFAEnrollmentRequired {
-				summary.DisableTOTPReason = "Add another strong authenticator before disabling this one."
+				summary.DisableTOTPReason = "Your administrator policy requires at least one MFA method to remain enabled. Add another TOTP authenticator app or passkey before removing this one."
 			} else {
 				summary.DisableTOTPReason = "Add another sign-in method before disabling this authenticator."
 			}

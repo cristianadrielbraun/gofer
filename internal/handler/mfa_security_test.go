@@ -86,7 +86,9 @@ func TestSecuritySettingsRendersManagedFactorsAndProtectsActionsWithCSRF(t *test
 		`src="/assets/js/passkey-registration.js"`,
 		`action="/settings/security/totp/start"`,
 		`action="/settings/security/recovery/start"`,
-		"Add another strong authenticator before disabling this one.",
+		"Your administrator policy requires at least one MFA method to remain enabled.",
+		`aria-disabled="true"`, `aria-describedby="security-totp-blocked-reason"`,
+		"Disable TOTP authenticator app",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("security settings missing %q", want)
