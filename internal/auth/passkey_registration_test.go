@@ -305,7 +305,7 @@ func TestPasskeyRemovalRotatesSessionsAndProtectsLastAuthenticator(t *testing.T)
 			t.Fatal(err)
 		}
 		rotated, err := fixture.manager.RemovePasskey(t.Context(), fixture.session.Token, created.ID, "Removal Browser")
-		if err != nil || rotated == nil || rotated.Token != "rotated-session-token" || rotated.AuthVersion != 2 {
+		if err != nil || rotated == nil || rotated.Token != "rotated-session-token" || rotated.AuthVersion != 3 {
 			t.Fatalf("RemovePasskey() = %#v, %v", rotated, err)
 		}
 		if old, err := fixture.manager.GetSessionByToken(t.Context(), fixture.session.Token); err != nil || old != nil {

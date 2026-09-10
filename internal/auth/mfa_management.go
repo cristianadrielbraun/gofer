@@ -215,9 +215,9 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 			(m.HasMicrosoftLogin() && microsoftIdentityCount > 0) ||
 			(m.HasOIDCLogin() && oidcIdentityCount > 0)
 		hasOtherStrongFactor := passkeyCount > 0
-		summary.CanDisableTOTP = hasPrimary && (!policy.RequiresMFA || hasOtherStrongFactor)
+		summary.CanDisableTOTP = hasPrimary && (!policy.MFAEnrollmentRequired || hasOtherStrongFactor)
 		if !summary.CanDisableTOTP {
-			if policy.RequiresMFA {
+			if policy.MFAEnrollmentRequired {
 				summary.DisableTOTPReason = "Add another strong authenticator before disabling this one."
 			} else {
 				summary.DisableTOTPReason = "Add another sign-in method before disabling this authenticator."
@@ -263,7 +263,7 @@ func (m *Manager) VerifySecurityTOTPStepUp(ctx context.Context, sessionToken, co
 	retryAt := time.Time{}
 	userAgent = boundedUserAgent(userAgent)
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		session, err := currentSecuritySession(ctx, tx, sessionToken, now, false)
+		session, err := m.currentSecuritySession(ctx, tx, sessionToken, now, false)
 		if err != nil {
 			return err
 		}
@@ -323,7 +323,8 @@ func (m *Manager) VerifySecurityTOTPStepUp(ctx context.Context, sessionToken, co
 			return ErrSecuritySessionInvalid
 		}
 		result, err = tx.ExecContext(ctx, `
-			UPDATE sessions SET step_up_at = ?, step_up_method = ?
+			UPDATE sessions SET step_up_at = ?, step_up_method = ?,
+                assurance_level = CASE WHEN assurance_level IN ('single_factor', 'legacy') THEN 'multi_factor' ELSE assurance_level END
 			WHERE id = ? AND user_id = ? AND token_hash = ? AND revoked_at IS NULL`,
 			now, AuthenticationMethodTOTP, session.ID, session.UserID, hashToken(sessionToken),
 		)
@@ -428,7 +429,7 @@ func (m *Manager) StartTOTPManagement(ctx context.Context, sessionToken, origin 
 		OriginalTOTP: originalTOTP.String, NewTOTP: newTOTP, TOTPSecret: key.Secret(),
 	}
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID || current.AuthVersion != draft.AuthVersion {
 			return ErrSecuritySessionInvalid
 		}
@@ -701,7 +702,7 @@ func (m *Manager) DisableTOTP(ctx context.Context, sessionToken, userAgent strin
 	userAgent = boundedUserAgent(userAgent)
 	var rotated *Session
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID {
 			return ErrSecuritySessionInvalid
 		}
@@ -827,7 +828,7 @@ func (m *Manager) StartRecoveryCodeReplacement(ctx context.Context, sessionToken
 		RecoveryBatchID: batch.BatchID, RecoveryCodeIDs: codeIDs, RecoveryCodeHashes: hashes,
 	}
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID || current.AuthVersion != draft.AuthVersion {
 			return ErrSecuritySessionInvalid
 		}
@@ -977,7 +978,7 @@ func (m *Manager) RevokeRecoveryCodes(ctx context.Context, sessionToken, userAge
 	userAgent = boundedUserAgent(userAgent)
 	var revoked int64
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID {
 			return ErrSecuritySessionInvalid
 		}
@@ -1073,7 +1074,7 @@ func GetSecurityChallengeToken(r *http.Request) string {
 	return cookie.Value
 }
 
-func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string, now time.Time, requireStepUp bool, allowPasswordChange ...bool) (*Session, error) {
+func (m *Manager) currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string, now time.Time, requireStepUp bool, allowPasswordChange ...bool) (*Session, error) {
 	session, err := scanSession(tx.QueryRowContext(ctx, sessionSelect+`
 		WHERE token_hash = ? AND revoked_at IS NULL
 		  AND idle_expires_at > ? AND absolute_expires_at > ?
@@ -1091,14 +1092,14 @@ func currentSecuritySession(ctx context.Context, tx *sql.Tx, sessionToken string
 	if session.PasswordChangeRequired && (len(allowPasswordChange) == 0 || !allowPasswordChange[0]) {
 		return nil, ErrSecuritySessionInvalid
 	}
-	policy, err := queryAuthenticationPolicy(ctx, tx, session.UserID, session.AuthVersion)
+	policy, err := m.loadAuthenticationPolicy(ctx, tx, session.UserID, session.AuthVersion)
 	if errors.Is(err, ErrUserNotActive) {
 		return nil, ErrSecuritySessionInvalid
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load current security policy: %w", err)
 	}
-	if !policy.allowsAssurance(session.AssuranceLevel) {
+	if !policy.allowsExistingSession(session.AssuranceLevel) {
 		return nil, ErrSecuritySessionInvalid
 	}
 	if requireStepUp && !hasRecentSecurityStepUp(session, policy, now) {
@@ -1167,7 +1168,7 @@ func (m *Manager) readSecurityManagementDraft(ctx context.Context, challengeToke
 }
 
 func (m *Manager) currentSecurityManagementDraft(ctx context.Context, tx *sql.Tx, challengeToken, sessionToken, origin string, purpose ChallengePurpose, kind string, now time.Time, requireStepUp bool) (*PreAuthChallenge, *securityManagementDraft, string, *Session, error) {
-	session, err := currentSecuritySession(ctx, tx, sessionToken, now, requireStepUp)
+	session, err := m.currentSecuritySession(ctx, tx, sessionToken, now, requireStepUp)
 	if err != nil {
 		return nil, nil, "", nil, err
 	}
@@ -1367,6 +1368,13 @@ func revokeSecuritySessions(ctx context.Context, tx *sql.Tx, userID string, now 
 }
 
 func insertRotatedSecuritySession(ctx context.Context, tx *sql.Tx, current *Session, authVersion int64, sessionID, sessionToken, userAgent string, stepUpMethod AuthenticationMethod, now time.Time) (*Session, error) {
+	// Verifying a newly enrolled TOTP strengthens the retained session as well.
+	if stepUpMethod == AuthenticationMethodTOTP && current.AssuranceLevel == AssuranceLevelSingleFactor {
+		copy := *current
+		copy.AssuranceLevel = AssuranceLevelMultiFactor
+		current = &copy
+	}
+
 	idleExpiresAt := now.Add(sessionIdleLifetime)
 	absoluteExpiresAt := current.AbsoluteExpiresAt
 	if idleExpiresAt.After(absoluteExpiresAt) {

@@ -6,6 +6,15 @@ or real-provider acceptance. No schema migration is needed.
 
 ## Event and attribution rules
 
+- Enrolled TOTP or a complete same-RP passkey requires verification after every
+  password or federated primary sign-in, independently of mandatory enrollment.
+  These sign-ins remain `primary_verified` until MFA succeeds. Google, Microsoft,
+  and OIDC identities do not themselves satisfy Gofer's MFA requirement.
+- Successful passkey enrollment strengthens the current session, advances the
+  authentication version, and revokes other sessions in the same transaction as
+  its existing `credential_changed` event. Completed first-time TOTP enrollment
+  also revokes prior sessions. Failures roll back all these changes; no duplicate
+  session-revocation event is added for the credential transition.
 - Completed authentication records the authenticated user as actor and subject,
   with the new session ID. A verified primary factor awaiting MFA records
   `primary_verified`, the subject, no actor/session, and `policy_required`; it

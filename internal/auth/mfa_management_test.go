@@ -513,7 +513,7 @@ func TestTOTPDisableCountsConfiguredGoogleIdentityAsPrimarySignIn(t *testing.T) 
 		"remaining-subject", "remaining@example.com", now,
 	)
 	summary, err := manager.GetSecurityFactorSummary(t.Context(), session.Token)
-	if err != nil || !summary.HasTOTP || !summary.CanDisableTOTP || summary.RequiresMFA {
+	if err != nil || !summary.HasTOTP || !summary.CanDisableTOTP || !summary.RequiresMFA {
 		t.Fatalf("Google-primary factor summary = %#v, %v", summary, err)
 	}
 	rotated, err := manager.DisableTOTP(t.Context(), session.Token, "Browser")

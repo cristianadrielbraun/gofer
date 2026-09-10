@@ -266,7 +266,17 @@ func (h *Handler) renderAdminLoginPage(w http.ResponseWriter, r *http.Request, s
 
 func (h *Handler) renderLoginMFAContinuationPage(w http.ResponseWriter, r *http.Request, status int, message string, management bool) {
 	var page bytes.Buffer
-	component := views.LoginMFAContinuationPage(message)
+	factors, err := h.auth.GetMFAContinuationFactors(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
+	if err != nil {
+		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
+		loginPath := "/login"
+		if management {
+			loginPath = "/admin/login"
+		}
+		http.Redirect(w, r, loginPath, http.StatusSeeOther)
+		return
+	}
+	component := views.LoginMFAContinuationPage(message, views.LoginMFAFactors{Username: factors.Username, HasTOTP: factors.HasTOTP, HasPasskey: factors.HasPasskey})
 	if management {
 		component = views.ManagementMFAContinuationPage(message)
 	}

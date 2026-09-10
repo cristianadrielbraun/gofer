@@ -81,7 +81,7 @@ func TestSecuritySettingsRendersManagedFactorsAndProtectsActionsWithCSRF(t *test
 	}
 	html := page.Body.String()
 	for _, want := range []string{
-		"Authenticator app", "Enrolled", "Recovery codes", "10 remaining",
+		"TOTP authenticator app", "Enrolled", "Recovery codes", "10 remaining",
 		"Passkeys", "Add passkey", `data-passkey-registration`,
 		`src="/assets/js/passkey-registration.js"`,
 		`action="/settings/security/totp/start"`,
@@ -268,7 +268,7 @@ func TestSecuritySettingsRevokeOtherSessionsRequiresFreshVerificationAndPreserve
 func TestSecuritySettingsStartsAndRejectsPasskeyRegistrationThroughBoundJSONEndpoints(t *testing.T) {
 	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
 	page := getSecuritySettings(t, stack, sessionCookie)
-	startProof := csrfProofForSession(t, auth.NewManager(&auth.Config{Enabled: true}, db), sessionCookie.Value, securityPasskeyStartPath)
+	startProof := csrfProofForSession(t, auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db), sessionCookie.Value, securityPasskeyStartPath)
 	started := postSecuritySettings(t, stack, securityPasskeyStartPath, url.Values{
 		auth.CSRFFormFieldName: {startProof},
 		"name":                 {"Work laptop"},
@@ -292,7 +292,7 @@ func TestSecuritySettingsStartsAndRejectsPasskeyRegistrationThroughBoundJSONEndp
 	}
 	finishRequest := httptest.NewRequest(http.MethodPost, securityPasskeyFinishPath, strings.NewReader(`{}`))
 	finishRequest.Header.Set("Content-Type", "application/json")
-	finishRequest.Header.Set(auth.CSRFHeaderName, csrfProofForSession(t, auth.NewManager(&auth.Config{Enabled: true}, db), sessionCookie.Value, securityPasskeyFinishPath))
+	finishRequest.Header.Set(auth.CSRFHeaderName, csrfProofForSession(t, auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db), sessionCookie.Value, securityPasskeyFinishPath))
 	finishRequest.AddCookie(sessionCookie)
 	finishRequest.AddCookie(challengeCookie)
 	finishRecorder := httptest.NewRecorder()
@@ -403,7 +403,7 @@ func TestSecuritySettingsReplacesTOTPThroughSessionBoundChallenge(t *testing.T) 
 		t.Fatalf("old session after TOTP replacement = %#v, %v", stored, err)
 	}
 	confirmationPage := getSecuritySettings(t, stack, rotatedCookie)
-	if confirmationPage.Code != http.StatusOK || !strings.Contains(confirmationPage.Body.String(), "Authenticator app") {
+	if confirmationPage.Code != http.StatusOK || !strings.Contains(confirmationPage.Body.String(), "TOTP authenticator app") {
 		t.Fatalf("security page with rotated session = %d %q", confirmationPage.Code, confirmationPage.Body.String())
 	}
 	if strings.Contains(confirmationPage.Body.String(), oldSecret) || strings.Contains(confirmationPage.Body.String(), newSecret) {
@@ -433,7 +433,7 @@ func TestSecuritySettingsEnrollsFirstAuthenticatorThroughSessionBoundChallenge(t
 			t.Fatalf("unenrolled security page missing %q: %d %q", want, page.Code, page.Body.String())
 		}
 	}
-	if strings.Contains(page.Body.String(), "Replace authenticator") {
+	if strings.Contains(page.Body.String(), "Replace TOTP authenticator app") {
 		t.Fatal("unenrolled security page rendered replacement action")
 	}
 	start := postSecuritySettings(t, stack, securityTOTPStartPath, url.Values{
@@ -565,7 +565,7 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 		`data-passkey-security-settings`,
 		`data-security-sessions`,
 		`data-security-events`,
-		"Authenticator app",
+		"TOTP authenticator app",
 		"Recovery codes",
 		`action="/settings/security/password"`,
 		`action="/settings/security/totp/start"`,

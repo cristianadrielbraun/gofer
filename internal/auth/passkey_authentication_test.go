@@ -156,7 +156,7 @@ func passkeyAuthenticationCredential(credentialID []byte, signCount uint32, clon
 func TestSecurityFactorSummaryOnlyOffersCompletePasskeys(t *testing.T) {
 	fixture := newPasskeyAuthenticationFixture(t, 7)
 	session, err := fixture.manager.CreateAuthenticatedSession(
-		t.Context(), fixture.userID, "Security Browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
+		t.Context(), fixture.userID, "Security Browser", AuthenticationMethodPasskey, AssuranceLevelPhishingResistant,
 	)
 	if err != nil {
 		t.Fatal(err)

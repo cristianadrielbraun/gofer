@@ -215,7 +215,7 @@ func (m *Manager) createPasskeyAssertionChallenge(ctx context.Context, origin st
 	}
 	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
 		if session != nil {
-			current, err := currentSecuritySession(ctx, tx, session.Token, now, false)
+			current, err := m.currentSecuritySession(ctx, tx, session.Token, now, false)
 			if err != nil || current.ID != session.ID || current.UserID != draft.UserID || current.AuthVersion != draft.AuthVersion {
 				return ErrSecuritySessionInvalid
 			}
@@ -405,7 +405,7 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 		if err := tx.QueryRowContext(ctx, `SELECT status, auth_version FROM users WHERE id = ?`, user.UserID).Scan(&status, &authVersion); err != nil || !status.AllowsAuthentication() || authVersion != user.AuthVersion {
 			return ErrPasskeyAuthenticationInvalid
 		}
-		policy, err := queryAuthenticationPolicy(ctx, tx, user.UserID, authVersion)
+		policy, err := m.loadAuthenticationPolicy(ctx, tx, user.UserID, authVersion)
 		if err != nil {
 			return ErrPasskeyAuthenticationInvalid
 		}
@@ -524,7 +524,7 @@ func (m *Manager) completePasskeyStepUp(ctx context.Context, challenge *PreAuthC
 		if err != nil || currentChallenge.ID != challenge.ID || !samePasskeyAssertionDraft(currentDraft, draft) {
 			return ErrPasskeyAuthenticationInvalid
 		}
-		currentSession, err := currentSecuritySession(ctx, tx, sessionToken, now, false)
+		currentSession, err := m.currentSecuritySession(ctx, tx, sessionToken, now, false)
 		if err != nil || currentSession.ID != draft.SessionID || currentSession.UserID != user.UserID || currentSession.AuthVersion != user.AuthVersion {
 			return ErrSecuritySessionInvalid
 		}
@@ -567,7 +567,7 @@ func (m *Manager) completePasskeyStepUp(ctx context.Context, challenge *PreAuthC
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `
-			UPDATE sessions SET step_up_at = ?, step_up_method = ?
+			UPDATE sessions SET step_up_at = ?, step_up_method = ?, assurance_level = 'phishing_resistant'
 			WHERE id = ? AND user_id = ? AND token_hash = ? AND revoked_at IS NULL`,
 			now, AuthenticationMethodPasskey, currentSession.ID, currentSession.UserID, hashToken(sessionToken),
 		)
@@ -1021,7 +1021,7 @@ func (m *Manager) currentPasskeyAssertionDraft(ctx context.Context, tx *sql.Tx, 
 		if strings.TrimSpace(sessionToken) == "" || draft.SessionID == "" || draft.UserID == "" {
 			return nil, nil, ErrPasskeyAuthenticationInvalid
 		}
-		session, err := currentSecuritySession(ctx, tx, sessionToken, now, false)
+		session, err := m.currentSecuritySession(ctx, tx, sessionToken, now, false)
 		if err != nil {
 			return nil, nil, err
 		}

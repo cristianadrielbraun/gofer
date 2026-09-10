@@ -17,7 +17,7 @@ func (m *Manager) GetSecurityEventOverview(ctx context.Context, sessionToken str
 		return nil, fmt.Errorf("begin security event overview: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+	current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (m *Manager) ListSecurityEventPage(
 		return nil, fmt.Errorf("begin security event page: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+	current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 	if err != nil {
 		return nil, err
 	}

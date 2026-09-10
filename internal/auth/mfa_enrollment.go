@@ -434,6 +434,9 @@ func (m *Manager) CompleteMFAEnrollment(ctx context.Context, options CompleteMFA
 		if changed, err := consumed.RowsAffected(); err != nil || changed != 1 {
 			return ErrMFAEnrollmentInvalid
 		}
+		if err := revokeSecuritySessions(ctx, tx, currentChallenge.UserID, now); err != nil {
+			return err
+		}
 		idleExpiresAt := now.Add(sessionIdleLifetime)
 		absoluteExpiresAt := now.Add(sessionAbsoluteLifetime)
 		if idleExpiresAt.After(absoluteExpiresAt) {
@@ -518,7 +521,7 @@ func (m *Manager) currentMFAEnrollmentDraft(
 	if err != nil || draft.Enrollment == nil {
 		return nil, nil, "", ErrMFAEnrollmentInvalid
 	}
-	policy, err := queryAuthenticationPolicy(ctx, tx, challenge.UserID, draft.AuthVersion)
+	policy, err := m.loadAuthenticationPolicy(ctx, tx, challenge.UserID, draft.AuthVersion)
 	if err != nil || !policy.RequiresMFA {
 		return nil, nil, "", ErrMFAEnrollmentInvalid
 	}

@@ -48,7 +48,7 @@ func (m *Manager) ChangePassword(ctx context.Context, options PasswordChangeOpti
 	matches, _, err := VerifyPassword(candidate.passwordHash, options.CurrentPassword)
 	if err != nil || !matches {
 		if eventErr := m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-			current, err := currentSecuritySession(ctx, tx, options.SessionToken, m.clock.Now().UTC(), false, true)
+			current, err := m.currentSecuritySession(ctx, tx, options.SessionToken, m.clock.Now().UTC(), false, true)
 			if err != nil {
 				return err
 			}

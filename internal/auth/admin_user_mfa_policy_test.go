@@ -18,7 +18,7 @@ func TestSetAdministratorUserMFAPolicyPreservesSessionsAndAuthenticators(t *test
 	insertPolicyTestTOTP(t, manager, "administrator", now)
 	insertPolicyTestTOTP(t, manager, "person", now)
 	adminSession := createPolicyAdministratorSession(t, manager)
-	weak, err := manager.CreateAuthenticatedSession(
+	weak, err := createLegacyPolicySession(t, manager,
 		t.Context(), "person", "Weak browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
 	)
 	if err != nil {
@@ -105,7 +105,7 @@ func TestSetAdministratorUserMFAPolicyPreservesSessionsAndAuthenticators(t *test
 	newWeak, err := manager.CreateAuthenticatedSession(
 		t.Context(), "person", "New weak browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
 	)
-	if err != nil || newWeak == nil {
+	if !errors.Is(err, ErrAuthenticationPolicyNotSatisfied) || newWeak != nil {
 		t.Fatalf("new weak session after clearing = %#v, %v", newWeak, err)
 	}
 }
@@ -172,7 +172,7 @@ func TestSetAdministratorUserMFAPolicyRollsBackPolicyAndSessionsWhenAuditFails(t
 	insertPolicyTestTOTP(t, manager, "administrator", now)
 	insertPolicyTestTOTP(t, manager, "person", now)
 	adminSession := createPolicyAdministratorSession(t, manager)
-	weak, err := manager.CreateAuthenticatedSession(
+	weak, err := createLegacyPolicySession(t, manager,
 		t.Context(), "person", "Weak browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
 	)
 	if err != nil {

@@ -173,7 +173,7 @@ func TestAdminUsersPageRendersProtectedIndividualMFAPolicyActions(t *testing.T) 
 		"MFA policy", "Require MFA for optional.user?", "Clear the individual MFA requirement?",
 		`action="/admin/users/optional-user/mfa-policy"`, `action="/admin/users/required-user/mfa-policy"`,
 		`name="required" value="true"`, `name="required" value="false"`, csrf,
-		"Existing sessions and authenticators are unchanged", "require enrollment after their next primary sign-in",
+		"Existing sessions and authenticators are unchanged", "setup is required at the next sign-in",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("administrator individual MFA view missing %q: %s", want, html)

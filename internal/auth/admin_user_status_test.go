@@ -28,7 +28,7 @@ func TestSetAdministratorUserStatusDisablesAndEnablesWithoutChangingCredentials(
 		t.Fatal(err)
 	}
 	adminSession := createPolicyAdministratorSession(t, manager)
-	first, err := manager.CreateAuthenticatedSession(
+	first, err := createLegacyPolicySession(t, manager,
 		t.Context(), "person", "First browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor,
 	)
 	if err != nil {

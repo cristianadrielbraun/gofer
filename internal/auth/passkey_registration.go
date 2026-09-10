@@ -132,7 +132,7 @@ func (m *Manager) StartPasskeyRegistration(ctx context.Context, sessionToken, or
 		SessionJSON: append(json.RawMessage(nil), sessionJSON...),
 	}
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID || current.AuthVersion != session.AuthVersion {
 			return ErrSecuritySessionInvalid
 		}
@@ -312,6 +312,27 @@ func (m *Manager) FinishPasskeyRegistration(ctx context.Context, challengeToken,
 		if err != nil || changed != 1 {
 			return ErrPasskeyRegistrationInvalid
 		}
+
+		newAuthVersion, err := advanceSecurityAuthVersion(ctx, tx, current.UserID, current.AuthVersion, now)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+            UPDATE sessions SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
+            WHERE user_id = ? AND id != ? AND revoked_at IS NULL`,
+			now, current.UserID, SessionRevocationCredentialReset, current.UserID, current.ID,
+		); err != nil {
+			return fmt.Errorf("revoke other sessions after passkey enrollment: %w", err)
+		}
+		// Registration verifies possession and user verification for the new key.
+		// Preserve the current bearer while invalidating older login challenges.
+		if _, err := tx.ExecContext(ctx, `
+            UPDATE sessions SET auth_version = ?, assurance_level = ?, step_up_at = ?, step_up_method = ?
+            WHERE id = ? AND revoked_at IS NULL`,
+			newAuthVersion, AssuranceLevelPhishingResistant, now, AuthenticationMethodPasskey, current.ID,
+		); err != nil {
+			return fmt.Errorf("strengthen session after passkey enrollment: %w", err)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO auth_events (
 				id, occurred_at, actor_user_id, subject_user_id, session_id,
@@ -365,7 +386,7 @@ func (m *Manager) RemovePasskey(ctx context.Context, sessionToken, passkeyID, us
 	userAgent = boundedUserAgent(userAgent)
 	var rotated *Session
 	err = m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID {
 			return ErrSecuritySessionInvalid
 		}
@@ -626,7 +647,7 @@ func (m *Manager) currentPasskeyRegistrationDraft(ctx context.Context, tx *sql.T
 	if strings.TrimSpace(challengeToken) == "" || strings.TrimSpace(sessionToken) == "" {
 		return nil, nil, nil, ErrPasskeyRegistrationInvalid
 	}
-	session, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+	session, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 	if err != nil {
 		return nil, nil, nil, err
 	}

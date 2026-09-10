@@ -213,7 +213,7 @@ func (m *Manager) completePasswordLogin(ctx context.Context, candidate *password
 		if err != nil {
 			return fmt.Errorf("recheck password login state: %w", err)
 		}
-		currentPolicy, err := queryAuthenticationPolicy(ctx, tx, candidate.userID, authVersion)
+		currentPolicy, err := m.loadAuthenticationPolicy(ctx, tx, candidate.userID, authVersion)
 		if err != nil {
 			if errors.Is(err, ErrUserNotActive) {
 				return errPasswordStateMoved

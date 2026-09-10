@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestRequiredMFAEnrollmentCreatesFactorAndSessionWithoutRevokingExistingSession(t *testing.T) {
+func TestRequiredMFAEnrollmentCreatesFactorAndSessionAndRevokesExistingSessions(t *testing.T) {
 	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
 	clock := &fixedClock{now: now}
 	manager := newDeterministicManager(t, clock, secureTokenGenerator{})
@@ -40,7 +40,7 @@ func TestRequiredMFAEnrollmentCreatesFactorAndSessionWithoutRevokingExistingSess
 	if err != nil || login == nil || login.Session != nil || login.PreAuthChallenge == nil || !login.MFAEnrollmentRequired {
 		t.Fatalf("AuthenticatePassword(required enrollment) = %#v, %v", login, err)
 	}
-	if stored, err := manager.GetSessionByToken(t.Context(), existing.Token); err != nil || stored == nil || stored.ID != existing.ID {
+	if stored, err := manager.GetSessionByToken(t.Context(), existing.Token); err != nil || stored == nil {
 		t.Fatalf("existing session during enrollment = %#v, %v", stored, err)
 	}
 	state, err := manager.GetMFAEnrollmentState(t.Context(), login.PreAuthChallenge.Token, "https://gofer.example")
@@ -72,7 +72,7 @@ func TestRequiredMFAEnrollmentCreatesFactorAndSessionWithoutRevokingExistingSess
 	if stored, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || stored == nil || stored.ID != session.ID {
 		t.Fatalf("enrolled session = %#v, %v", stored, err)
 	}
-	if stored, err := manager.GetSessionByToken(t.Context(), existing.Token); err != nil || stored == nil || stored.ID != existing.ID {
+	if stored, err := manager.GetSessionByToken(t.Context(), existing.Token); err != nil || stored != nil {
 		t.Fatalf("existing session after enrollment = %#v, %v", stored, err)
 	}
 	var activeTOTP, recoveryCodes, activeSessions, events int
@@ -105,7 +105,7 @@ func TestRequiredMFAEnrollmentCreatesFactorAndSessionWithoutRevokingExistingSess
 	).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
-	if activeTOTP != 1 || recoveryCodes != setupRecoveryCodeCount+1 || activeSessions != 2 || !consumedAt.Valid || events != 2 {
+	if activeTOTP != 1 || recoveryCodes != setupRecoveryCodeCount+1 || activeSessions != 1 || !consumedAt.Valid || events != 2 {
 		t.Fatalf("completed enrollment state = TOTP:%d recovery:%d sessions:%d consumed:%v events:%d",
 			activeTOTP, recoveryCodes, activeSessions, consumedAt, events)
 	}

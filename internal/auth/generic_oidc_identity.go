@@ -105,7 +105,7 @@ func (m *Manager) CompleteOIDCIdentityLink(
 			subtle.ConstantTimeCompare([]byte(hashToken(claims.Nonce)), []byte(nonceHash)) != 1 {
 			return ErrPreAuthChallengeInvalid
 		}
-		currentSession, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		currentSession, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil {
 			return err
 		}
@@ -236,7 +236,7 @@ func (m *Manager) UnlinkOIDCIdentity(
 	userAgent = boundedUserAgent(userAgent)
 	var rotated *Session
 	err = m.runSecurityTransition(ctx, SecurityTransitionIdentityChange, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil || current.ID != session.ID {
 			return ErrSecuritySessionInvalid
 		}

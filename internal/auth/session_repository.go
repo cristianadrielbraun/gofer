@@ -199,7 +199,7 @@ func (m *Manager) ListSecuritySessions(ctx context.Context, sessionToken string)
 		return nil, fmt.Errorf("begin security session list: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	current, err := currentSecuritySession(ctx, tx, sessionToken, now, false)
+	current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, false)
 	if err != nil {
 		return nil, err
 	}

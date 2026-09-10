@@ -164,7 +164,13 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 	</html>
 }
 
-templ LoginMFAContinuationPage(errorMessage string) {
+type LoginMFAFactors struct {
+	Username   string
+	HasTOTP    bool
+	HasPasskey bool
+}
+
+templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark" data-theme="classic">
 		<head>
@@ -179,39 +185,56 @@ templ LoginMFAContinuationPage(errorMessage string) {
 				<div class="w-full max-w-sm">
 					<div class="text-center">
 						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<h1 class="mt-8 text-2xl font-semibold">Enter your authenticator code</h1>
-						<p class="mt-3 text-sm text-muted-foreground">Your primary sign-in was accepted. Enter the six-digit code from your authenticator app to finish signing in.</p>
+						if factors.HasPasskey && !factors.HasTOTP {
+							<h1 class="mt-8 text-2xl font-semibold">Verify with your passkey</h1>
+							<p class="mt-3 text-sm text-muted-foreground">Your passkey is your only registered MFA method. Your password was accepted, but you must verify with your passkey before you can access webmail.</p>
+						} else {
+							<h1 class="mt-8 text-2xl font-semibold">Complete additional verification</h1>
+							<p class="mt-3 text-sm text-muted-foreground">Your primary sign-in was accepted. Use a registered verification method to finish signing in.</p>
+						}
 					</div>
 					if errorMessage != "" {
 						<div id="login-mfa-error" role="alert" aria-live="polite" class="mt-6 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
 							{ errorMessage }
 						</div>
 					}
-					<form method="post" action="/login/mfa" class="mt-6 space-y-4">
-						<div class="space-y-2">
-							<label for="login-mfa-code" class="text-sm font-medium">Authenticator code</label>
-							<input
-								id="login-mfa-code"
-								name="code"
-								type="text"
-								inputmode="numeric"
-								autocomplete="one-time-code"
-								pattern="[0-9]{6}"
-								minlength="6"
-								maxlength="6"
-								required
-								autofocus
-								if errorMessage != "" {
-									aria-invalid="true"
-									aria-describedby="login-mfa-error"
-								}
-								class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-xl tracking-[0.35em] outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
-							/>
-						</div>
-						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-							Verify and sign in
-						}
-					</form>
+					if factors.HasTOTP {
+						<form method="post" action="/login/mfa" class="mt-6 space-y-4">
+							<div class="space-y-2">
+								<label for="login-mfa-code" class="text-sm font-medium">TOTP authenticator app code</label>
+								<input
+									id="login-mfa-code"
+									name="code"
+									type="text"
+									inputmode="numeric"
+									autocomplete="one-time-code"
+									pattern="[0-9]{6}"
+									minlength="6"
+									maxlength="6"
+									required
+									autofocus
+									if errorMessage != "" {
+										aria-invalid="true"
+										aria-describedby="login-mfa-error"
+									}
+									class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-xl tracking-[0.35em] outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+								/>
+							</div>
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
+								Verify and sign in
+							}
+						</form>
+					}
+					if factors.HasPasskey {
+						<form data-passkey-authentication data-start-path="/login/passkey/start" data-finish-path="/login/passkey/finish" data-identifier-source="#mfa-passkey-identifier" data-fallback="Try another registered passkey or restart sign-in." class="mt-6 space-y-3">
+							<input id="mfa-passkey-identifier" type="hidden" value={ factors.Username }/>
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
+								Verify with a passkey
+							}
+							<p data-passkey-authentication-status role="status" aria-live="polite" class="text-sm text-muted-foreground">Your passkey satisfies MFA when you verify with your device PIN, fingerprint, or face.</p>
+							<noscript><p>JavaScript is required for passkey sign-in.</p></noscript>
+						</form>
+					}
 					<div class="mt-4">
 						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login"}) {
 							Restart sign-in
@@ -222,6 +245,7 @@ templ LoginMFAContinuationPage(errorMessage string) {
 					</div>
 				</div>
 			</main>
+			<script src="/assets/js/passkey-authentication.js"></script>
 		</body>
 	</html>
 }
@@ -385,7 +409,7 @@ templ MFAEnrollmentPage(data MFAEnrollmentData) {
 							Generate a different setup key
 						}
 					</form>
-					<p class="mt-6 text-center text-xs text-muted-foreground">Existing sessions and authenticators are unchanged. This flow creates only the MFA needed for the current sign-in.</p>
+					<p class="mt-6 text-center text-xs text-muted-foreground">Completing MFA enrollment signs out other sessions. Future password or provider sign-ins will require verification with your enrolled MFA.</p>
 				</div>
 			</main>
 		</body>

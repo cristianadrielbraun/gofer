@@ -91,5 +91,5 @@ func canRemoveAuthenticatorInTransaction(
 	}
 	hasPrimary := hasPassword == 1 || passkeyCount > 0 || googleIdentityCount > 0 || microsoftIdentityCount > 0 || oidcIdentityCount > 0
 	hasStrong := hasTOTP == 1 || passkeyCount > 0
-	return hasPrimary && (!policy.RequiresMFA || hasStrong), nil
+	return hasPrimary && (!policy.MFAEnrollmentRequired || hasStrong), nil
 }

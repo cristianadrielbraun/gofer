@@ -13,6 +13,8 @@ var ErrAuthenticationPolicyNotSatisfied = errors.New("authentication assurance d
 type authenticationPolicy struct {
 	AuthVersion              int64
 	RequiresMFA              bool
+	MFAEnrollmentRequired    bool
+	HasEnrolledMFA           bool
 	UserMFARequired          bool
 	AdministratorMFARequired bool
 	InstanceMFARequired      bool
@@ -26,6 +28,7 @@ func resolveAuthenticationPolicy(authVersion int64, mfaRequired, isAdmin, instan
 	return authenticationPolicy{
 		AuthVersion:              authVersion,
 		RequiresMFA:              mfaRequired || isAdmin || instanceMFARequired,
+		MFAEnrollmentRequired:    mfaRequired || isAdmin || instanceMFARequired,
 		UserMFARequired:          mfaRequired,
 		AdministratorMFARequired: isAdmin,
 		InstanceMFARequired:      instanceMFARequired,
@@ -43,8 +46,9 @@ func (policy authenticationPolicy) allowsAssurance(assurance AssuranceLevel) boo
 }
 
 // allowsExistingSession preserves sessions that were valid before an
-// individual user's MFA policy was strengthened. Administrator and
-// instance-wide MFA policy remain immediate session requirements; individual
+// individual user's MFA policy was strengthened or enrolled MFA began being
+// enforced at sign-in. Enrollment mutations explicitly revoke other sessions.
+// Administrator and instance-wide MFA policy remain immediate session requirements; individual
 // policy is enforced when the user's next authentication creates a session.
 func (policy authenticationPolicy) allowsExistingSession(assurance AssuranceLevel) bool {
 	if !assurance.Valid() {
@@ -53,7 +57,7 @@ func (policy authenticationPolicy) allowsExistingSession(assurance AssuranceLeve
 	if policy.allowsAssurance(assurance) {
 		return true
 	}
-	return policy.UserMFARequired && !policy.AdministratorMFARequired && !policy.InstanceMFARequired
+	return !policy.AdministratorMFARequired && !policy.InstanceMFARequired
 }
 
 func (policy authenticationPolicy) allowsStepUpMethod(method AuthenticationMethod) bool {
@@ -94,7 +98,25 @@ func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicy
 }
 
 func (m *Manager) loadAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
-	return queryAuthenticationPolicy(ctx, queryer, userID, expectedAuthVersion)
+	policy, err := queryAuthenticationPolicy(ctx, queryer, userID, expectedAuthVersion)
+	if err != nil {
+		return authenticationPolicy{}, err
+	}
+	return m.withEnrolledMFAPolicy(ctx, queryer, userID, policy)
+}
+
+func (m *Manager) withEnrolledMFAPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, policy authenticationPolicy) (authenticationPolicy, error) {
+	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	if err != nil {
+		return authenticationPolicy{}, err
+	}
+	enrolled, err := userHasStrongAuthenticator(ctx, queryer, userID, rpID)
+	if err != nil {
+		return authenticationPolicy{}, err
+	}
+	policy.HasEnrolledMFA = enrolled
+	policy.RequiresMFA = policy.MFAEnrollmentRequired || enrolled
+	return policy, nil
 }
 
 func (m *Manager) requireAuthenticationAssurance(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64, assurance AssuranceLevel) (authenticationPolicy, error) {

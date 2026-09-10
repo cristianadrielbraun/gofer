@@ -379,7 +379,7 @@ func (m *Manager) beginMicrosoftAuthorization(ctx context.Context, purpose Chall
 	challenge.PayloadCiphertext = payload
 	if purpose == ChallengePurposeFederatedLink {
 		err = m.runSecurityTransition(ctx, SecurityTransitionIdentityChange, func(tx *sql.Tx) error {
-			current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+			current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 			if err != nil {
 				return err
 			}

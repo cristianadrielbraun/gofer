@@ -60,7 +60,7 @@ func (m *Manager) RevokeSecuritySession(
 	now := m.clock.Now().UTC()
 	result := &SecuritySessionRevocationResult{}
 	err = m.runSecurityTransition(ctx, SecurityTransitionSessionRevocation, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func (m *Manager) RevokeOtherSecuritySessions(
 	now := m.clock.Now().UTC()
 	result := &SecuritySessionRevocationResult{}
 	err = m.runSecurityTransition(ctx, SecurityTransitionSessionRevocation, func(tx *sql.Tx) error {
-		current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+		current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 		if err != nil {
 			return err
 		}

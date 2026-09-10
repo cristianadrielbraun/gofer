@@ -181,7 +181,7 @@ func totpManagementCodeLabel(isReplacement bool) string {
 
 func totpManagementSubmitLabel(isReplacement bool) string {
 	if isReplacement {
-		return "Replace authenticator"
+		return "Replace TOTP authenticator app"
 	}
 	return "Enable authenticator"
 }
@@ -1289,7 +1289,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</div></div><div class=\"rounded-lg border bg-card p-6\" data-passkey-security-settings><div class=\"mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Passkeys</h3><p class=\"mt-1 text-sm text-muted-foreground\">Use your device, security key, fingerprint, or screen lock for phishing-resistant authentication.</p></div><span class=\"rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</div></div><div class=\"rounded-lg border bg-card p-6\" data-passkey-security-settings><div class=\"mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Passkeys</h3><p class=\"mt-1 text-sm text-muted-foreground\">Use your device, security key, fingerprint, or screen lock for phishing-resistant authentication. An enrolled passkey enables MFA for password and provider sign-ins. Adding one signs out other devices.</p></div><span class=\"rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1379,7 +1379,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				if data.StepUpFresh && passkey.CanRemove {
-					templ_7745c5c3_Err = securityActionConfirmationDialog(fmt.Sprintf("security-passkey-remove-%d", index), "/settings/security/passkeys/"+passkey.ID+"/remove", data.CSRFTokens["/settings/security/passkeys/"+passkey.ID+"/remove"], "Remove passkey", fmt.Sprintf("Remove %s? It will stop working for this account.", passkey.Name)).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = securityActionConfirmationDialog(fmt.Sprintf("security-passkey-remove-%d", index), "/settings/security/passkeys/"+passkey.ID+"/remove", data.CSRFTokens["/settings/security/passkeys/"+passkey.ID+"/remove"], "Remove passkey", fmt.Sprintf("Remove %s? It will stop working for this account. If this is your last MFA method and enrollment is optional, password or provider sign-in will no longer require MFA.", passkey.Name)).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1449,7 +1449,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "</div><div class=\"rounded-lg border bg-card p-6\" data-totp-security-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">Authenticator app</h3><p class=\"mt-1 text-sm text-muted-foreground\">Use a standards-compatible authenticator as the strong factor for sign-in and recovery.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "</div><div class=\"rounded-lg border bg-card p-6\" data-totp-security-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">TOTP authenticator app</h3><p class=\"mt-1 text-sm text-muted-foreground\">An enrolled TOTP authenticator app enables MFA for password and provider sign-ins. Enrolling or replacing it signs out other devices.</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1699,12 +1699,12 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "<button type=\"submit\" class=\"inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90\">Replace authenticator</button></form>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "<button type=\"submit\" class=\"inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90\">Replace TOTP authenticator app</button></form>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if data.CanDisableTOTP {
-					templ_7745c5c3_Err = securityActionConfirmationDialog("security-totp-disable", "/settings/security/totp/disable", data.CSRFTokens["/settings/security/totp/disable"], "Disable authenticator", "Unused recovery codes will also be revoked and other signed-in devices will be signed out.").Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = securityActionConfirmationDialog("security-totp-disable", "/settings/security/totp/disable", data.CSRFTokens["/settings/security/totp/disable"], "Disable TOTP authenticator app", "Unused recovery codes will also be revoked and other signed-in devices will be signed out. If this is your last MFA method and enrollment is optional, password or provider sign-in will no longer require MFA.").Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

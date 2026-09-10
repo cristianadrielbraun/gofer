@@ -897,9 +897,9 @@ templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
 						}
 						@dialog.Description() {
 							if user.MFARequired {
-								This removes only the individual requirement. Existing sessions and authenticators are unchanged.
+								This removes only the mandatory enrollment requirement. Existing sessions and authenticators are unchanged. Enrolled TOTP or passkeys will still be required during sign-in.
 							} else {
-								Existing sessions and authenticators are unchanged. If the user has no MFA yet, Gofer will require enrollment after their next primary sign-in.
+								The user must enroll and retain a TOTP authenticator app or passkey. If neither is enrolled, setup is required at the next sign-in. Existing sessions are unchanged; enrolled MFA is always verified, even without this requirement.
 							}
 						}
 					}

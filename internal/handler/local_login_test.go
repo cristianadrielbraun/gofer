@@ -537,6 +537,11 @@ func TestLocalLoginMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 
 func TestLocalLoginMFARejectsMissingCookieAndOversizedForm(t *testing.T) {
 	handler, _, db := newLocalLoginHandler(t, auth.UserStatusActive, false, true, true, false)
+	// This exercises the enrolled-factor challenge, not first-time enrollment.
+	if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO totp_credentials (id,user_id,encrypted_seed,key_version,algorithm,digits,period,issuer,enabled) VALUES ('totp','person',x'01',1,'SHA1',6,30,'Gofer',1)`); err != nil {
+		t.Fatal(err)
+	}
+
 	request := httptest.NewRequest(http.MethodPost, "/login/mfa", strings.NewReader(url.Values{"code": {"123456"}}.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	recorder := httptest.NewRecorder()
@@ -589,5 +594,96 @@ func TestLocalLoginRejectsOversizedForm(t *testing.T) {
 	handler.handleLoginSubmit(recorder, request)
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), loginFailureMessage) {
 		t.Fatalf("oversized login form = %d %q", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLocalLoginMFAOffersOnlyRegisteredFactors(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		totp, passkey bool
+		rp            string
+	}{
+		{name: "passkey only", passkey: true, rp: "gofer.example"},
+		{name: "TOTP only", totp: true},
+		{name: "both", totp: true, passkey: true, rp: "gofer.example"},
+		{name: "foreign RP requires enrollment", passkey: true, rp: "foreign.example"},
+		{name: "no factors requires enrollment"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, manager, db := newLocalLoginHandler(t, auth.UserStatusActive, false, !tc.totp && (!tc.passkey || tc.rp != "gofer.example"), true, false)
+			if tc.totp {
+				if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO totp_credentials (id,user_id,encrypted_seed,key_version,algorithm,digits,period,issuer,enabled) VALUES ('totp','person',x'01',1,'SHA1',6,30,'Gofer',1)`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.passkey {
+				if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO webauthn_credentials (id,user_id,credential_id,public_key,name,credential_ciphertext,key_version,rp_id) VALUES ('passkey','person',x'01',x'02','Test key',x'03',1,?)`, tc.rp); err != nil {
+					t.Fatal(err)
+				}
+			}
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /login", handler.handleLoginSubmit)
+			mux.HandleFunc("GET /login/mfa", handler.handleLoginMFA)
+			mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) { t.Error("unverified login reached private handler") })
+			stack := manager.Middleware(mux)
+			passwordRequest := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(url.Values{"identifier": {"person"}, "password": {localLoginPassword}}.Encode()))
+			passwordRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			login := httptest.NewRecorder()
+			stack.ServeHTTP(login, passwordRequest)
+			if responseCookie(login, "gofer_session", true) != nil {
+				t.Fatal("password-only login issued a session cookie")
+			}
+			cookie := responseCookie(login, "gofer_pre_auth", true)
+			if cookie == nil {
+				t.Fatal("missing primary authentication challenge")
+			}
+			usablePasskey := tc.passkey && tc.rp == "gofer.example"
+			if !tc.totp && !usablePasskey {
+				if login.Header().Get("Location") != "/login/mfa/enroll" {
+					t.Fatal("factorless account did not require enrollment")
+				}
+				return
+			}
+			req := httptest.NewRequest(http.MethodGet, "/login/mfa", nil)
+			req.AddCookie(cookie)
+			page := httptest.NewRecorder()
+			stack.ServeHTTP(page, req)
+			if page.Code != http.StatusOK {
+				t.Fatalf("MFA page: %d", page.Code)
+			}
+			html := page.Body.String()
+			if usablePasskey && !tc.totp && !strings.Contains(html, "Your passkey is your only registered MFA method") {
+				t.Fatal("missing explicit passkey verification requirement")
+			}
+			for _, path := range []string{"/", "/api/accounts"} {
+				privateRequest := httptest.NewRequest(http.MethodGet, path, nil)
+				privateRequest.AddCookie(cookie)
+				privateResponse := httptest.NewRecorder()
+				stack.ServeHTTP(privateResponse, privateRequest)
+				if privateResponse.Code != http.StatusSeeOther && privateResponse.Code != http.StatusUnauthorized {
+					t.Fatalf("pre-authentication cookie allowed private access: %s %d", path, privateResponse.Code)
+				}
+			}
+
+			if strings.Contains(html, `name="code"`) != tc.totp || strings.Contains(html, `data-passkey-authentication`) != usablePasskey {
+				t.Fatal("offered factors do not match registered factors")
+			}
+			if usablePasskey && (!strings.Contains(html, `id="mfa-passkey-identifier" type="hidden" value="person"`) || !strings.Contains(html, `/assets/js/passkey-authentication.js`)) {
+				t.Fatal("passkey sign-in missing target or script")
+			}
+			var sessions int
+			if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil || sessions != 0 {
+				t.Fatal("primary verification created a session")
+			}
+			if _, err := manager.GetMFAContinuationFactors(t.Context(), "invalid", "https://gofer.example"); err == nil {
+				t.Fatal("exposed factor inventory without a valid challenge")
+			}
+			if _, err := db.Write().ExecContext(t.Context(), `UPDATE users SET auth_version=auth_version+1 WHERE id='person'`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := manager.GetMFAContinuationFactors(t.Context(), cookie.Value, "https://gofer.example"); err == nil {
+				t.Fatal("exposed factor inventory for stale challenge")
+			}
+		})
 	}
 }

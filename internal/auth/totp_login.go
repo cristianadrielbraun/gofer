@@ -104,7 +104,7 @@ func (m *Manager) CompleteTOTPLogin(ctx context.Context, options TOTPLoginOption
 			return fmt.Errorf("read TOTP login state: %w", err)
 		}
 		userID := currentChallenge.UserID
-		policy, err := queryAuthenticationPolicy(ctx, tx, userID, authVersion)
+		policy, err := m.loadAuthenticationPolicy(ctx, tx, userID, authVersion)
 		if err != nil {
 			return ErrTOTPLoginChallengeInvalid
 		}

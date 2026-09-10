@@ -264,7 +264,7 @@ func TestLogoutRequiresSessionCSRFBeforeRevocation(t *testing.T) {
 		t.Fatalf("new auth session test database: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (id, username, username_normalized, name, status, auth_version, created_at, updated_at)

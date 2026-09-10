@@ -352,9 +352,9 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	weak, err := manager.CreateAuthenticatedSession(
-		t.Context(), "policy-target", "Weak policy browser",
-		auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor,
+	targetSession, err := manager.CreateAuthenticatedSession(
+		t.Context(), "policy-target", "Verified policy browser",
+		auth.AuthenticationMethodTOTP, auth.AssuranceLevelMultiFactor,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -389,8 +389,8 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required FROM users WHERE id = 'policy-target'`).Scan(&storedRequired); err != nil || storedRequired != 1 {
 		t.Fatalf("required individual MFA = %d, %v", storedRequired, err)
 	}
-	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored == nil || stored.ID != weak.ID {
-		t.Fatalf("weak target session after requiring MFA = %#v, %v", stored, err)
+	if stored, err := manager.GetSessionByToken(t.Context(), targetSession.Token); err != nil || stored == nil || stored.ID != targetSession.ID {
+		t.Fatalf("target session after requiring MFA = %#v, %v", stored, err)
 	}
 	var events int
 	if err := db.Read().QueryRowContext(t.Context(), `
@@ -419,7 +419,7 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required FROM users WHERE id = 'policy-target'`).Scan(&storedRequired); err != nil || storedRequired != 0 {
 		t.Fatalf("cleared individual MFA = %d, %v", storedRequired, err)
 	}
-	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored == nil || stored.ID != weak.ID {
+	if stored, err := manager.GetSessionByToken(t.Context(), targetSession.Token); err != nil || stored == nil || stored.ID != targetSession.ID {
 		t.Fatalf("preserved session after clearing = %#v, %v", stored, err)
 	}
 }

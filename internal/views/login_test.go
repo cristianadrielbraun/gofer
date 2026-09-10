@@ -80,12 +80,12 @@ func TestLoginPageShowsConfiguredOIDCProviderWithoutMailboxAccess(t *testing.T) 
 
 func TestLoginMFAContinuationPageUsesOnlyLocalResources(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginMFAContinuationPage("That code is invalid.").Render(t.Context(), &output); err != nil {
+	if err := LoginMFAContinuationPage("That code is invalid.", LoginMFAFactors{HasTOTP: true}).Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginMFAContinuationPage().Render() error = %v", err)
 	}
 	html := output.String()
 	for _, required := range []string{
-		"Enter your authenticator code", `method="post"`, `action="/login/mfa"`,
+		"Complete additional verification", `method="post"`, `action="/login/mfa"`,
 		`name="code"`, `inputmode="numeric"`, `autocomplete="one-time-code"`,
 		`pattern="[0-9]{6}"`, `maxlength="6"`, `role="alert"`,
 		`aria-describedby="login-mfa-error"`, "Verify and sign in", "/login/mfa/recovery",
@@ -170,7 +170,7 @@ func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
 		"Set up an authenticator", "Gofer has not created a session",
 		`src="data:image/png;base64,cXItZGF0YQ=="`, "ABCD EFGH",
 		`action="/login/mfa/enroll"`, `value="confirm"`, `value="restart"`,
-		"Existing sessions and authenticators are unchanged",
+		"Completing MFA enrollment signs out other sessions",
 	} {
 		if !strings.Contains(enrollment.String(), required) {
 			t.Fatalf("required MFA enrollment page missing %q: %q", required, enrollment.String())

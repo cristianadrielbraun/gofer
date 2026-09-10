@@ -314,7 +314,7 @@ func TestPasswordSecuritySettingsRendersFirstTimeTOTPEnrollmentWithoutReplacemen
 			t.Fatalf("first-time TOTP setup action missing %q: %q", want, output.String())
 		}
 	}
-	if strings.Contains(output.String(), "Replace authenticator") {
+	if strings.Contains(output.String(), "Replace TOTP authenticator app") {
 		t.Fatal("first-time TOTP setup action rendered replacement copy")
 	}
 

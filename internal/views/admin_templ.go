@@ -2643,12 +2643,12 @@ func AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) templ.Com
 							}
 							ctx = templ.InitializeContext(ctx)
 							if user.MFARequired {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 198, "This removes only the individual requirement. Existing sessions and authenticators are unchanged.")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 198, "This removes only the mandatory enrollment requirement. Existing sessions and authenticators are unchanged. Enrolled TOTP or passkeys will still be required during sign-in.")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
 							} else {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 199, "Existing sessions and authenticators are unchanged. If the user has no MFA yet, Gofer will require enrollment after their next primary sign-in.")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 199, "The user must enroll and retain a TOTP authenticator app or passkey. If neither is enrolled, setup is required at the next sign-in. Existing sessions are unchanged; enrolled MFA is always verified, even without this requirement.")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}

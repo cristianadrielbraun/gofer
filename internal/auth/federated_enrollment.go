@@ -31,7 +31,7 @@ func (m *Manager) BeginGoogleEnrollment(ctx context.Context, invitationToken str
 		candidate.status != UserStatusPending || candidate.userType != UserTypeWebmail {
 		return nil, ErrEnrollmentTokenInvalid
 	}
-	policy, err := queryPendingEnrollmentAuthenticationPolicy(ctx, m.db.Read(), candidate.userID, 0)
+	policy, err := m.queryPendingEnrollmentAuthenticationPolicy(ctx, m.db.Read(), candidate.userID, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (m *Manager) BeginGoogleEnrollment(ctx context.Context, invitationToken str
 			current.userType != UserTypeWebmail {
 			return ErrEnrollmentTokenInvalid
 		}
-		currentPolicy, err := queryPendingEnrollmentAuthenticationPolicy(ctx, tx, current.userID, policy.AuthVersion)
+		currentPolicy, err := m.queryPendingEnrollmentAuthenticationPolicy(ctx, tx, current.userID, policy.AuthVersion)
 		if err != nil || currentPolicy != policy {
 			if err != nil {
 				return err
@@ -147,7 +147,7 @@ func (m *Manager) CompleteGoogleEnrollment(
 		return nil, err
 	}
 	now := m.clock.Now().UTC()
-	policy, err := queryPendingEnrollmentAuthenticationPolicy(ctx, m.db.Read(), challenge.UserID, 0)
+	policy, err := m.queryPendingEnrollmentAuthenticationPolicy(ctx, m.db.Read(), challenge.UserID, 0)
 	if err != nil {
 		_ = m.TerminatePreAuthChallenge(ctx, challengeToken, ChallengePurposeFederatedEnrollment, m.config.BaseURL)
 		return nil, federatedLoginError(FederatedLoginFailurePolicyCompletion)
@@ -233,7 +233,7 @@ func (m *Manager) CompleteGoogleEnrollment(
 		if tokenUserID != currentChallenge.UserID || tokenPurpose != EnrollmentTokenPurposeEnrollment {
 			return ErrEnrollmentTokenInvalid
 		}
-		currentPolicy, err := queryPendingEnrollmentAuthenticationPolicy(
+		currentPolicy, err := m.queryPendingEnrollmentAuthenticationPolicy(
 			ctx, tx, currentChallenge.UserID, policy.AuthVersion,
 		)
 		if err != nil || currentPolicy != policy {
@@ -392,7 +392,7 @@ func (m *Manager) CompleteGoogleEnrollment(
 	}, nil
 }
 
-func queryPendingEnrollmentAuthenticationPolicy(
+func (m *Manager) queryPendingEnrollmentAuthenticationPolicy(
 	ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64,
 ) (authenticationPolicy, error) {
 	var authVersion int64
@@ -415,9 +415,9 @@ func queryPendingEnrollmentAuthenticationPolicy(
 	if !instanceMFAPolicy.Valid() {
 		return authenticationPolicy{}, fmt.Errorf("%w: %q", ErrInstanceMFAPolicyInvalid, instanceMFAPolicy)
 	}
-	return resolveAuthenticationPolicy(
+	return m.withEnrolledMFAPolicy(ctx, queryer, userID, resolveAuthenticationPolicy(
 		authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers(),
-	), nil
+	))
 }
 
 func (m *Manager) requireUserReadyForAuthenticationPolicy(

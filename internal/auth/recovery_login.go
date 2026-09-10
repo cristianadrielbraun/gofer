@@ -168,7 +168,7 @@ func (m *Manager) StartRecoveryCodeRepair(ctx context.Context, options RecoveryC
 			return fmt.Errorf("read recovery-code login state: %w", err)
 		}
 		userID := currentChallenge.UserID
-		policy, err := queryAuthenticationPolicy(ctx, tx, userID, authVersion)
+		policy, err := m.loadAuthenticationPolicy(ctx, tx, userID, authVersion)
 		if err != nil {
 			return ErrRecoveryCodeLoginChallengeInvalid
 		}

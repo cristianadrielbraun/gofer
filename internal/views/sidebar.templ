@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/dialog"
@@ -273,6 +274,9 @@ templ SettingsSidebar(activeTab string, width string) {
 			@SettingsSidebarItem(activeTab, "security", "Security")
 			@SettingsSidebarItem(activeTab, "advanced", "Advanced")
 		</nav>
+		<div class="shrink-0 px-4 pb-3">
+			@WebmailSidebarLogout()
+		</div>
 	</aside>
 }
 
@@ -892,6 +896,7 @@ templ SidebarFooter() {
 				}
 			}
 		</div>
+		@WebmailSidebarLogout()
 	</div>
 }
 
@@ -900,4 +905,16 @@ templ SidebarShortcutHint(label string, keys string) {
 		<span class="min-w-0 truncate text-sidebar-foreground/72">{ label }</span>
 		<kbd class="shrink-0 rounded-md border border-sidebar-border bg-sidebar px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sidebar-accent-foreground shadow-[0_1px_0_rgba(0,0,0,0.18)]">{ keys }</kbd>
 	</div>
+}
+
+templ WebmailSidebarLogout() {
+	if user := auth.GetCurrentUser(ctx); user != nil && user.UserType == auth.UserTypeWebmail && auth.GetCurrentSession(ctx) != nil {
+		<form method="post" action="/auth/logout" class="mt-2">
+			<input type="hidden" name="_csrf" value={ auth.CSRFToken(ctx, "POST", "/auth/logout") }/>
+			<button type="submit" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
+				@icon.LogOut(icon.Props{Class: "size-4 shrink-0"})
+				Log out
+			</button>
+		</form>
+	}
 }

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -207,7 +208,7 @@ func TestSetInstanceMFAPolicyRevokesWeakSessionsAndDoesNotReviveThem(t *testing.
 	insertPolicyTestTOTP(t, manager, "totp-user", now)
 	insertPolicyTestPasskey(t, manager, "passkey-user", now)
 	adminSession := createPolicyAdministratorSession(t, manager)
-	weak, err := manager.CreateAuthenticatedSession(
+	weak, err := createLegacyPolicySession(t, manager,
 		t.Context(), "totp-user", "Weak browser",
 		AuthenticationMethodPassword, AssuranceLevelSingleFactor,
 	)
@@ -292,7 +293,7 @@ func TestSetInstanceMFAPolicyRevokesWeakSessionsAndDoesNotReviveThem(t *testing.
 		t.Context(), "totp-user", "New weak browser",
 		AuthenticationMethodPassword, AssuranceLevelSingleFactor,
 	)
-	if err != nil || newWeak == nil {
+	if !errors.Is(err, ErrAuthenticationPolicyNotSatisfied) || newWeak != nil {
 		t.Fatalf("new weak session after relaxation = %#v, %v", newWeak, err)
 	}
 }
@@ -342,7 +343,7 @@ func TestSetInstanceMFAPolicyRollsBackStateAndRevocationWhenAuditFails(t *testin
 	insertPolicyTestTOTP(t, manager, "administrator", now)
 	insertPolicyTestTOTP(t, manager, "person", now)
 	adminSession := createPolicyAdministratorSession(t, manager)
-	weak, err := manager.CreateAuthenticatedSession(
+	weak, err := createLegacyPolicySession(t, manager,
 		t.Context(), "person", "Weak browser",
 		AuthenticationMethodPassword, AssuranceLevelSingleFactor,
 	)
@@ -429,4 +430,18 @@ func TestInstanceMFAPolicyActivationCannotRaceAWeakSessionIntoPersistence(t *tes
 	).Scan(&activeWeak); err != nil || activeWeak != 0 {
 		t.Fatalf("active weak sessions after policy race = %d, %v", activeWeak, err)
 	}
+}
+
+// Seed sessions created before enrolled MFA was enforced. Normal issuance must
+// now reject these, but policy-transition tests still exercise legacy rows.
+func createLegacyPolicySession(t *testing.T, m *Manager, ctx context.Context, userID, agent string, method AuthenticationMethod, assurance AssuranceLevel) (*Session, error) {
+	t.Helper()
+	session, err := m.CreateAuthenticatedSession(ctx, userID, agent, AuthenticationMethodTOTP, AssuranceLevelMultiFactor)
+	if err != nil {
+		return nil, err
+	}
+	_, err = m.db.Write().ExecContext(ctx, `UPDATE sessions SET authentication_method=?, assurance_level=? WHERE id=?`, method, assurance, session.ID)
+	session.AuthenticationMethod = method
+	session.AssuranceLevel = assurance
+	return session, err
 }

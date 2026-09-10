@@ -349,7 +349,7 @@ func (m *Manager) beginOIDCAuthorization(ctx context.Context, purpose ChallengeP
 	challenge.PayloadCiphertext = payload
 	if purpose == ChallengePurposeFederatedLink {
 		err = m.runSecurityTransition(ctx, SecurityTransitionIdentityChange, func(tx *sql.Tx) error {
-			current, err := currentSecuritySession(ctx, tx, sessionToken, now, true)
+			current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, true)
 			if err != nil {
 				return err
 			}
