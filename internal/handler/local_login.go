@@ -276,7 +276,19 @@ func (h *Handler) renderLoginMFAContinuationPage(w http.ResponseWriter, r *http.
 		http.Redirect(w, r, loginPath, http.StatusSeeOther)
 		return
 	}
-	component := views.LoginMFAContinuationPage(message, views.LoginMFAFactors{Username: factors.Username, HasTOTP: factors.HasTOTP, HasPasskey: factors.HasPasskey})
+	primarySignIn := "Password verified."
+	switch factors.PrimaryMethod {
+	case auth.AuthenticationMethodFederatedGoogle:
+		primarySignIn = "Google sign-in successful."
+		if factors.VerifiedEmail != "" {
+			primarySignIn = "Google verified you as " + factors.VerifiedEmail + "."
+		}
+	case auth.AuthenticationMethodFederatedMicrosoft:
+		primarySignIn = "Microsoft sign-in successful."
+	case auth.AuthenticationMethodFederatedOIDC:
+		primarySignIn = h.auth.OIDCLoginName() + " sign-in successful."
+	}
+	component := views.LoginMFAContinuationPage(message, views.LoginMFAFactors{Username: factors.Username, HasTOTP: factors.HasTOTP, HasPasskey: factors.HasPasskey, PrimarySignIn: primarySignIn})
 	if management {
 		component = views.ManagementMFAContinuationPage(message)
 	}

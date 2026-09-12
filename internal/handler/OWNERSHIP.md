@@ -12,7 +12,7 @@ handler layer through an application session.
 - Application login: `GET`/`POST /login`, password-MFA continuation under
   `/login/mfa`, recovery-code entry at `/login/mfa/recovery`, restricted factor
   repair under `/login/recovery/*`, plus `GET /auth/google` and
-  `GET /auth/google/callback`.
+  `GET /auth/google/login/callback`.
 - First-run setup: `GET`/`POST routes under `/setup`; each continuation is
   available only while setup is uninitialized and requires the matching
   origin-bound pre-authentication challenge.
@@ -58,7 +58,7 @@ constrain every private lookup or mutation to that user:
 - Accounts: account discovery/creation/edit/service/color/test/deletion,
   account contact settings, signatures, and `/api/mail/sync*`.
 - Account OAuth: `/api/accounts/oauth2/authorize`,
-  `/auth/google/account/callback`, and `/auth/microsoft/account/callback` use a
+  `/auth/google/mailbox/callback`, and `/auth/microsoft/mailbox/callback` use a
   single-use flow bound to the current user, session, and provider.
 - Settings, signatures, UI preferences, and Web Push subscriptions.
 - Compose, staged compose attachments, drafts, outgoing sends, and mail

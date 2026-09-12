@@ -298,6 +298,7 @@ func (m *Manager) authenticateGoogleIdentity(ctx context.Context, claims *Google
 			}
 			return nil
 		},
+		strings.TrimSpace(claims.Email),
 	)
 	if errors.Is(err, ErrFederatedIdentityUnknown) || errors.Is(err, ErrUserNotActive) {
 		return nil, nil, federatedLoginError(FederatedLoginFailureIdentityUnknown)

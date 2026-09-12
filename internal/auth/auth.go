@@ -239,7 +239,7 @@ func LoadConfig(baseURL string) *Config {
 		cfg.GoogleLoginClient = &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
-			RedirectURL:  baseURL + "/auth/google/callback",
+			RedirectURL:  baseURL + "/auth/google/login/callback",
 			Scopes: []string{
 				googleApplicationOpenIDScope,
 				googleApplicationEmailScope,

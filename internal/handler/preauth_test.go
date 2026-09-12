@@ -29,7 +29,7 @@ func newPreAuthHandler(t *testing.T, tokenURL string) (*Handler, *storage.DB) {
 		GoogleLoginClient: &oauth2.Config{
 			ClientID:     "client-id",
 			ClientSecret: "client-secret",
-			RedirectURL:  "https://gofer.example/auth/google/callback",
+			RedirectURL:  "https://gofer.example/auth/google/login/callback",
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  "https://accounts.example/authorize",
 				TokenURL: tokenURL,
@@ -88,7 +88,7 @@ func TestGoogleLoginRouteIsUnavailableWithoutApplicationLoginClient(t *testing.T
 		Enabled: true, BaseURL: "https://gofer.example", SecureCookies: true,
 	}, db)}
 
-	for _, path := range []string{"/auth/google", "/auth/google/callback?state=unused&code=unused"} {
+	for _, path := range []string{"/auth/google", "/auth/google/login/callback?state=unused&code=unused"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		if strings.Contains(path, "callback") {
 			request.Host = "gofer.example"
@@ -197,7 +197,7 @@ func TestGoogleRedirectCreatesHashedStateNonceAndEncryptedPKCEChallenge(t *testi
 func TestGoogleCallbackTerminatesMismatchedStateAndClearsCookie(t *testing.T) {
 	handler, db := newPreAuthHandler(t, "https://accounts.example/token")
 	cookie, _ := beginGooglePreAuth(t, handler)
-	request := googleCallbackRequest("/auth/google/callback?state=wrong-state&code=unused")
+	request := googleCallbackRequest("/auth/google/login/callback?state=wrong-state&code=unused")
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
@@ -225,7 +225,7 @@ func TestGoogleCallbackTerminatesStateAfterFailedCodeExchange(t *testing.T) {
 	handler, db := newPreAuthHandler(t, provider.URL)
 	cookie, state := beginGooglePreAuth(t, handler)
 
-	request := googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
+	request := googleCallbackRequest("/auth/google/login/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
@@ -235,7 +235,7 @@ func TestGoogleCallbackTerminatesStateAfterFailedCodeExchange(t *testing.T) {
 	assertPreAuthCookieCleared(t, recorder)
 	firstExchanges := exchanges
 
-	request = googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
+	request = googleCallbackRequest("/auth/google/login/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
 	request.AddCookie(cookie)
 	recorder = httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
@@ -266,7 +266,7 @@ func TestGoogleCallbackRejectsExpiredChallengeBeforeCodeExchange(t *testing.T) {
 		t.Fatalf("expire challenge: %v", err)
 	}
 
-	request := googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
+	request := googleCallbackRequest("/auth/google/login/callback?state=" + url.QueryEscape(state) + "&code=provider-code")
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)
@@ -286,7 +286,7 @@ func TestGoogleCallbackRejectsNonCanonicalHostBeforeCodeExchange(t *testing.T) {
 	handler, db := newPreAuthHandler(t, provider.URL)
 	cookie, state := beginGooglePreAuth(t, handler)
 
-	request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&code=provider-code", nil)
+	request := httptest.NewRequest(http.MethodGet, "/auth/google/login/callback?state="+url.QueryEscape(state)+"&code=provider-code", nil)
 	request.Host = "localhost"
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
@@ -308,7 +308,7 @@ func TestGoogleCallbackRejectsNonCanonicalHostBeforeCodeExchange(t *testing.T) {
 func TestGoogleCallbackDoesNotReflectProviderError(t *testing.T) {
 	handler, _ := newPreAuthHandler(t, "https://accounts.example/token")
 	cookie, state := beginGooglePreAuth(t, handler)
-	request := googleCallbackRequest("/auth/google/callback?state=" + url.QueryEscape(state) + "&error=" + url.QueryEscape("private provider detail"))
+	request := googleCallbackRequest("/auth/google/login/callback?state=" + url.QueryEscape(state) + "&error=" + url.QueryEscape("private provider detail"))
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	handler.handleGoogleCallback(recorder, request)

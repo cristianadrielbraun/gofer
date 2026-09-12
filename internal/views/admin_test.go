@@ -364,6 +364,8 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	for _, want := range []string{
 		"Recent administrator verification required", `data-admin-security-verification`,
 		`data-tui-dialog-target="admin-security-verification-dialog"`,
+		`data-tui-dialog-show-modal="false"`, `id="admin-security-totp-code"`,
+		`autocomplete="one-time-code"`, `aria-label="TOTP verification code"`,
 		`action="/settings/security/step-up"`, `name="return_to" value="/admin/users"`,
 		"manage invitations, password resets, user access, deletion, and individual MFA policies for the next ten minutes", " disabled",
 	} {

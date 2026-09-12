@@ -57,7 +57,7 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 		BaseURL: "https://gofer.example",
 		MicrosoftClient: &oauth2.Config{
 			ClientID:    "client-id",
-			RedirectURL: "https://gofer.example/auth/microsoft/account/callback",
+			RedirectURL: "https://gofer.example/auth/microsoft/mailbox/callback",
 			Scopes:      microsoftAccountTokenScopes(),
 			Endpoint:    oauth2.Endpoint{AuthURL: "https://login.example/authorize"},
 		},
@@ -106,7 +106,7 @@ func TestExchangeMicrosoftAccountCodeRequestsGraphMailScopes(t *testing.T) {
 		MicrosoftClient: &oauth2.Config{
 			ClientID:     "client-id",
 			ClientSecret: "client-secret",
-			RedirectURL:  "https://gofer.example/auth/microsoft/account/callback",
+			RedirectURL:  "https://gofer.example/auth/microsoft/mailbox/callback",
 			Endpoint:     oauth2.Endpoint{TokenURL: server.URL},
 		},
 	}, nil, testMailboxCredentialKey)

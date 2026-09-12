@@ -170,7 +170,7 @@ func TestMiddlewareRequestBoundary(t *testing.T) {
 		{
 			name:       "OAuth callback remains a safe navigation",
 			method:     http.MethodGet,
-			path:       "/auth/google/callback",
+			path:       "/auth/google/login/callback",
 			host:       "local.localhost:8090",
 			headers:    map[string]string{"Sec-Fetch-Site": "cross-site"},
 			wantStatus: http.StatusNoContent,

@@ -165,6 +165,7 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 }
 
 type LoginMFAFactors struct {
+	PrimarySignIn string
 	Username   string
 	HasTOTP    bool
 	HasPasskey bool
@@ -187,12 +188,15 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 						<img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"/>
 						if factors.HasPasskey && !factors.HasTOTP {
 							<h1 class="mt-8 text-2xl font-semibold">Verify with your passkey</h1>
-							<p class="mt-3 text-sm text-muted-foreground">Your passkey is your only registered MFA method. Your password was accepted, but you must verify with your passkey before you can access webmail.</p>
+							<p class="mt-3 text-sm text-muted-foreground">Your passkey is your only registered MFA method. Verify with your passkey to finish signing in.</p>
 						} else {
 							<h1 class="mt-8 text-2xl font-semibold">Complete additional verification</h1>
-							<p class="mt-3 text-sm text-muted-foreground">Your primary sign-in was accepted. Use a registered verification method to finish signing in.</p>
+							<p class="mt-3 text-sm text-muted-foreground">Use a registered verification method to finish signing in.</p>
 						}
 					</div>
+					if factors.PrimarySignIn != "" {
+						<p role="status" class="mt-6 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-center text-sm font-medium text-emerald-800 dark:text-emerald-200">{ factors.PrimarySignIn } <span class="block mt-1 font-normal">Complete MFA to finish signing in.</span></p>
+					}
 					if errorMessage != "" {
 						<div id="login-mfa-error" role="alert" aria-live="polite" class="mt-6 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
 							{ errorMessage }
@@ -201,7 +205,7 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 					if factors.HasTOTP {
 						<form method="post" action="/login/mfa" class="mt-6 space-y-4">
 							<div class="space-y-2">
-								<label for="login-mfa-code" class="text-sm font-medium">TOTP authenticator app code</label>
+								<label for="login-mfa-code" class="block text-center text-sm font-medium">TOTP authenticator app code</label>
 								<input
 									id="login-mfa-code"
 									name="code"

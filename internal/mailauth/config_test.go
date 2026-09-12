@@ -19,13 +19,13 @@ func TestLoadConfigUsesMailboxCredentialsAndScopes(t *testing.T) {
 	if !cfg.Enabled || cfg.GoogleClient == nil || cfg.MicrosoftClient == nil {
 		t.Fatalf("mailbox OAuth config = %#v", cfg)
 	}
-	if cfg.GoogleClient.ClientID != "google-mailbox-client" || cfg.GoogleClient.RedirectURL != "https://gofer.example/auth/google/account/callback" {
+	if cfg.GoogleClient.ClientID != "google-mailbox-client" || cfg.GoogleClient.RedirectURL != "https://gofer.example/auth/google/mailbox/callback" {
 		t.Fatalf("Google mailbox client = %#v", cfg.GoogleClient)
 	}
 	if !slices.Equal(cfg.GoogleClient.Scopes, googleAccountScopes()) {
 		t.Fatalf("Google mailbox scopes = %#v", cfg.GoogleClient.Scopes)
 	}
-	if cfg.MicrosoftClient.ClientID != "microsoft-mailbox-client" || cfg.MicrosoftClient.RedirectURL != "https://gofer.example/auth/microsoft/account/callback" {
+	if cfg.MicrosoftClient.ClientID != "microsoft-mailbox-client" || cfg.MicrosoftClient.RedirectURL != "https://gofer.example/auth/microsoft/mailbox/callback" {
 		t.Fatalf("Microsoft mailbox client = %#v", cfg.MicrosoftClient)
 	}
 	if !slices.Equal(cfg.MicrosoftClient.Scopes, microsoftAccountTokenScopes()) {

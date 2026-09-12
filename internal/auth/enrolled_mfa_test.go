@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -49,6 +50,12 @@ func TestEnrolledMFAAppliesToPasswordAndEveryFederatedPrimary(t *testing.T) {
 					if required || enrolled {
 						if session != nil || challenge == nil || enrollment != (required && !enrolled) {
 							t.Fatal("primary login bypassed verification or selected wrong enrollment flow")
+						}
+						if enrolled {
+							factors, err := m.GetMFAContinuationFactors(t.Context(), challenge.Token, m.config.BaseURL)
+							if err != nil || factors.PrimaryMethod != method {
+								t.Fatalf("verified primary method not preserved: %v %v", factors, err)
+							}
 						}
 						var sessions int
 						if err := m.db.Read().QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil || sessions != 0 {
@@ -233,5 +240,43 @@ func TestLegacySessionNeedsStrongStepUpBeforeRemovingOptionalMFA(t *testing.T) {
 	policy, err := m.loadAuthenticationPolicy(t.Context(), m.db.Read(), session.UserID, 0)
 	if err != nil || policy.RequiresMFA {
 		t.Fatal("removing last optional factor did not restore primary-only login policy")
+	}
+}
+
+func TestGoogleMFAConfirmationUsesVerifiedEmailWithoutAuditDisclosure(t *testing.T) {
+	now := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+	m, _, _ := prepareTOTPLoginManager(t, now, secureTokenGenerator{})
+	if _, err := m.db.Write().Exec(`UPDATE users SET user_type='webmail',is_admin=0 WHERE id=?`, totpLoginTestUserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.db.Write().Exec(`INSERT INTO auth_identities (id,user_id,provider,issuer,subject,email,email_verified,created_at,linked_at) VALUES ('google-confirmation',?,?,?,'selected-subject','stale@example.com',1,?,?)`, totpLoginTestUserID, googleIdentityProvider, googleLoginIssuer, now, now); err != nil {
+		t.Fatal(err)
+	}
+	claims := &GoogleIDTokenClaims{Subject: "selected-subject", Email: "selected@example.com", EmailVerified: true}
+	_, result, err := m.authenticateGoogleIdentity(t.Context(), claims, "Browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Session != nil || result.PreAuthChallenge == nil {
+		t.Fatal("MFA was bypassed")
+	}
+	factors, err := m.GetMFAContinuationFactors(t.Context(), result.PreAuthChallenge.Token, m.config.BaseURL)
+	if err != nil || factors.VerifiedEmail != claims.Email {
+		t.Fatalf("selected verified email missing: %v", err)
+	}
+	var payload []byte
+	if err := m.db.Read().QueryRow(`SELECT payload_ciphertext FROM auth_challenges WHERE id=?`, result.PreAuthChallenge.ID).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), claims.Email) {
+		t.Fatal("email persisted as plaintext in continuation")
+	}
+	var disclosures int
+	if err := m.db.Read().QueryRow(`SELECT COUNT(*) FROM auth_events WHERE metadata_json LIKE ?`, "%"+claims.Email+"%").Scan(&disclosures); err != nil || disclosures != 0 {
+		t.Fatal("email disclosed in audit metadata")
+	}
+	claims.EmailVerified = false
+	if _, _, err := m.authenticateGoogleIdentity(t.Context(), claims, "Browser"); err == nil {
+		t.Fatal("unverified email accepted")
 	}
 }

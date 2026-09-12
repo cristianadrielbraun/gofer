@@ -65,7 +65,7 @@ func TestLoadConfigSeparatesMicrosoftLoginFromOutlookMailboxOAuth(t *testing.T) 
 	if cfg.MicrosoftLoginClient.ClientID != "application-login-client" || cfg.MicrosoftLoginClient.ClientSecret != "application-login-secret" {
 		t.Fatalf("Microsoft application-login client = %#v", cfg.MicrosoftLoginClient)
 	}
-	if cfg.MicrosoftLoginClient.RedirectURL != "https://gofer.example/auth/microsoft/callback" {
+	if cfg.MicrosoftLoginClient.RedirectURL != "https://gofer.example/auth/microsoft/login/callback" {
 		t.Fatalf("Microsoft application-login redirect = %q", cfg.MicrosoftLoginClient.RedirectURL)
 	}
 	wantScopes := []string{"openid", "profile", "email"}

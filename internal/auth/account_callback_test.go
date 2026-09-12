@@ -10,15 +10,15 @@ import (
 )
 
 func TestAccountOAuthCallbacksRequireAuthentication(t *testing.T) {
-	for _, path := range []string{"/auth/google/account/callback", "/auth/microsoft/account/callback"} {
+	for _, path := range []string{"/auth/google/mailbox/callback", "/auth/microsoft/mailbox/callback"} {
 		if isPublicPath(path) {
 			t.Fatalf("account callback %q is still public", path)
 		}
 	}
-	if !isPublicPath("/auth/google/callback") {
+	if !isPublicPath("/auth/google/login/callback") {
 		t.Fatal("login callback must remain public")
 	}
-	if !isPublicPath("/auth/microsoft/callback") {
+	if !isPublicPath("/auth/microsoft/login/callback") {
 		t.Fatal("Microsoft login callback must remain public")
 	}
 }
@@ -52,7 +52,7 @@ func TestSingleUserMiddlewareStillProvidesDefaultUserToAccountCallback(t *testin
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	req := httptest.NewRequest(http.MethodGet, "/auth/google/account/callback", nil)
+	req := httptest.NewRequest(http.MethodGet, "/auth/google/mailbox/callback", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if !called || rec.Code != http.StatusNoContent {

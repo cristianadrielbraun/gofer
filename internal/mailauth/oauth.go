@@ -50,10 +50,10 @@ func microsoftAccountTokenExchangeScopes() []string {
 
 func (m *Service) accountOAuthConfig() *oauth2.Config {
 	cfg := m.config.GoogleClient
-	return &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RedirectURL: m.config.BaseURL + "/auth/google/account/callback", Scopes: cfg.Scopes, Endpoint: cfg.Endpoint}
+	return &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RedirectURL: m.config.BaseURL + "/auth/google/mailbox/callback", Scopes: cfg.Scopes, Endpoint: cfg.Endpoint}
 }
 
 func (m *Service) microsoftAccountOAuthConfig() *oauth2.Config {
 	cfg := m.config.MicrosoftClient
-	return &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RedirectURL: m.config.BaseURL + "/auth/microsoft/account/callback", Scopes: cfg.Scopes, Endpoint: cfg.Endpoint}
+	return &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RedirectURL: m.config.BaseURL + "/auth/microsoft/mailbox/callback", Scopes: cfg.Scopes, Endpoint: cfg.Endpoint}
 }

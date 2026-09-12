@@ -199,3 +199,23 @@ func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
 		t.Fatalf("required MFA recovery page loads a remote resource: %q", codes.String())
 	}
 }
+
+func TestLoginMFAConfirmationEscapesProviderAndKeepsVerificationRequired(t *testing.T) {
+	for _, passkeyOnly := range []bool{false, true} {
+		var output bytes.Buffer
+		err := LoginMFAContinuationPage("", LoginMFAFactors{
+			PrimarySignIn: "<script>provider</script> sign-in successful.",
+			HasTOTP:       !passkeyOnly, HasPasskey: passkeyOnly,
+		}).Render(t.Context(), &output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		html := output.String()
+		if strings.Contains(html, "<script>provider</script>") || !strings.Contains(html, "&lt;script&gt;provider&lt;/script&gt;") {
+			t.Fatal("provider confirmation was not escaped")
+		}
+		if !strings.Contains(html, "Complete MFA to finish signing in.") || strings.Contains(html, "Your password was accepted") {
+			t.Fatal("confirmation misrepresents completed authentication")
+		}
+	}
+}

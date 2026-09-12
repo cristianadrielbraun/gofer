@@ -190,7 +190,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 		Enabled: true, BaseURL: "https://gofer.example", SecureCookies: true,
 		GoogleLoginClient: &oauth2.Config{
 			ClientID: "application-login-client", ClientSecret: "application-login-secret",
-			RedirectURL: "https://gofer.example/auth/google/callback",
+			RedirectURL: "https://gofer.example/auth/google/login/callback",
 			Scopes:      []string{"openid", "email", "profile"},
 			Endpoint: oauth2.Endpoint{
 				AuthURL: "https://accounts.example/authorize", TokenURL: provider.URL,
@@ -243,7 +243,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 	startRequest.Header.Set("Origin", "https://gofer.example")
 	startRecorder := httptest.NewRecorder()
 	stack.ServeHTTP(startRecorder, startRequest)
-	if startRecorder.Code != http.StatusTemporaryRedirect {
+	if startRecorder.Code != http.StatusSeeOther {
 		t.Fatalf("Google invitation start = %d %q", startRecorder.Code, startRecorder.Body.String())
 	}
 	authorizationURL, err := url.Parse(startRecorder.Header().Get("Location"))
@@ -265,7 +265,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 		t.Fatalf("Google invitation pre-auth cookie = %#v", preAuthCookie)
 	}
 	deniedRequest := httptest.NewRequest(
-		http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&error="+url.QueryEscape("private provider detail"), nil,
+		http.MethodGet, "/auth/google/login/callback?state="+url.QueryEscape(state)+"&error="+url.QueryEscape("private provider detail"), nil,
 	)
 	deniedRequest.Host = "gofer.example"
 	deniedRequest.AddCookie(preAuthCookie)
@@ -287,7 +287,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 	startRequest.Header.Set("Origin", "https://gofer.example")
 	startRecorder = httptest.NewRecorder()
 	stack.ServeHTTP(startRecorder, startRequest)
-	if startRecorder.Code != http.StatusTemporaryRedirect {
+	if startRecorder.Code != http.StatusSeeOther {
 		t.Fatalf("restarted Google invitation = %d %q", startRecorder.Code, startRecorder.Body.String())
 	}
 	authorizationURL, err = url.Parse(startRecorder.Header().Get("Location"))
@@ -307,7 +307,7 @@ func TestGoogleInvitationEnrollmentCompletesThroughPublicHandlerWithoutCreatingM
 	}
 
 	callbackRequest := httptest.NewRequest(
-		http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil,
+		http.MethodGet, "/auth/google/login/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil,
 	)
 	callbackRequest.Host = "gofer.example"
 	callbackRequest.Header.Set("User-Agent", "Invitation Browser/1.0")

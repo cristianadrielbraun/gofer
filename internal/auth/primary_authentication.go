@@ -22,6 +22,7 @@ func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
 	userID, userAgent string,
 	method AuthenticationMethod,
 	transition func(*sql.Tx, time.Time) error,
+	verifiedGoogleEmail ...string,
 ) (*PrimaryAuthenticationResult, error) {
 	if !isFederatedAuthenticationMethod(method) {
 		return nil, fmt.Errorf("invalid federated authentication method %q", method)
@@ -41,6 +42,13 @@ func (m *Manager) completeFederatedPrimaryAuthenticationWithTransition(
 		)
 		if err != nil {
 			return nil, err
+		}
+		if method == AuthenticationMethodFederatedGoogle && len(verifiedGoogleEmail) > 0 {
+			continuation.VerifiedEmail = verifiedGoogleEmail[0]
+			challenge.PayloadCiphertext, err = m.encryptMFAContinuationDraft(challenge, continuation)
+			if err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		id, err := m.tokens.ID()

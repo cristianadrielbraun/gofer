@@ -371,6 +371,7 @@ func TestPasswordSecurityVerificationRendersOnlyAvailableStepUpMethods(t *testin
 	for _, want := range []string{
 		`data-security-step-up`, `action="/settings/security/step-up"`,
 		`inputmode="numeric"`, `autocomplete="one-time-code"`,
+		`id="security-totp-code"`, `aria-label="TOTP verification code"`,
 		"has not loaded your security details yet",
 		`data-passkey-authentication`, `data-start-path="/settings/security/passkeys/step-up/start"`,
 		`data-finish-path="/settings/security/passkeys/step-up/finish"`, "Verify with a passkey",

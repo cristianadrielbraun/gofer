@@ -35,6 +35,18 @@
     })
   }
 
+  // Non-modal verification lets password-manager menus outside the dialog receive clicks.
+  // Native non-modal dialogs do not handle Escape, so retain the expected dismissal here.
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape" || event.defaultPrevented) return
+    var root = document.getElementById("admin-security-verification-dialog")
+    var panel = root && root.querySelector("dialog[open]")
+    if (!panel) return
+    window.tui.dialog.close(root)
+    var trigger = document.querySelector('[data-tui-dialog-target="admin-security-verification-dialog"] button')
+    if (trigger) trigger.focus()
+  })
+
   function bind(root) {
     ;(root || document).querySelectorAll("[data-admin-security-totp]").forEach(bindTOTPVerification)
   }

@@ -38,7 +38,7 @@ func LoadConfig(baseURL string, authenticationEnabled bool) *Config {
 		cfg.GoogleClient = &oauth2.Config{
 			ClientID:     googleClientID,
 			ClientSecret: googleClientSecret,
-			RedirectURL:  baseURL + "/auth/google/account/callback",
+			RedirectURL:  baseURL + "/auth/google/mailbox/callback",
 			Scopes:       googleAccountScopes(),
 			Endpoint:     google.Endpoint,
 		}
@@ -50,7 +50,7 @@ func LoadConfig(baseURL string, authenticationEnabled bool) *Config {
 		cfg.MicrosoftClient = &oauth2.Config{
 			ClientID:     microsoftClientID,
 			ClientSecret: microsoftClientSecret,
-			RedirectURL:  baseURL + "/auth/microsoft/account/callback",
+			RedirectURL:  baseURL + "/auth/microsoft/mailbox/callback",
 			Scopes:       microsoftAccountTokenScopes(),
 			Endpoint:     microsoftEndpoint(os.Getenv("MICROSOFT_OAUTH_TENANT")),
 		}

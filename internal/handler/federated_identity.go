@@ -70,7 +70,7 @@ func (h *Handler) handleSecurityGoogleIdentityLink(w http.ResponseWriter, r *htt
 		w, start.Challenge.Token, h.auth.Config().SecureCookies,
 		start.Challenge.ExpiresAt.Sub(start.Challenge.CreatedAt),
 	)
-	http.Redirect(w, r, start.AuthorizationURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, start.AuthorizationURL, http.StatusSeeOther)
 }
 
 func (h *Handler) handleSecurityGoogleIdentityUnlink(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +151,7 @@ func (h *Handler) handleSecurityMicrosoftIdentityLink(w http.ResponseWriter, r *
 		w, start.Challenge.Token, h.auth.Config().SecureCookies,
 		start.Challenge.ExpiresAt.Sub(start.Challenge.CreatedAt),
 	)
-	http.Redirect(w, r, start.AuthorizationURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, start.AuthorizationURL, http.StatusSeeOther)
 }
 
 func (h *Handler) handleSecurityMicrosoftIdentityUnlink(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +232,7 @@ func (h *Handler) handleSecurityOIDCIdentityLink(w http.ResponseWriter, r *http.
 		w, start.Challenge.Token, h.auth.Config().SecureCookies,
 		start.Challenge.ExpiresAt.Sub(start.Challenge.CreatedAt),
 	)
-	http.Redirect(w, r, start.AuthorizationURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, start.AuthorizationURL, http.StatusSeeOther)
 }
 
 func (h *Handler) handleSecurityOIDCIdentityUnlink(w http.ResponseWriter, r *http.Request) {

@@ -19,7 +19,7 @@ func TestLoadConfigSeparatesGoogleLoginFromMailboxOAuth(t *testing.T) {
 	if cfg.GoogleLoginClient.ClientID != "login-client" || cfg.GoogleLoginClient.ClientSecret != "login-secret" {
 		t.Fatalf("Google login client = %#v", cfg.GoogleLoginClient)
 	}
-	if cfg.GoogleLoginClient.RedirectURL != "https://gofer.example/auth/google/callback" {
+	if cfg.GoogleLoginClient.RedirectURL != "https://gofer.example/auth/google/login/callback" {
 		t.Fatalf("Google login redirect = %q", cfg.GoogleLoginClient.RedirectURL)
 	}
 	wantScopes := []string{"openid", "email", "profile"}

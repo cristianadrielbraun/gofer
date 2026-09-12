@@ -49,7 +49,7 @@ func TestGoogleApplicationLoginUsesVerifiedIDTokenWithoutCreatingMailboxAccess(t
 	manager.config.GoogleLoginClient = &oauth2.Config{
 		ClientID:     "login-client",
 		ClientSecret: "login-secret",
-		RedirectURL:  "https://gofer.example/auth/google/callback",
+		RedirectURL:  "https://gofer.example/auth/google/login/callback",
 		Scopes:       []string{"openid", "email", "profile"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://accounts.example/authorize",
@@ -267,8 +267,8 @@ func TestGoogleApplicationLoginAuthorizationUsesPKCEStateNonceAndIdentityOnlySco
 	if query.Get("code_challenge") == "" || query.Get("code_challenge_method") != "S256" {
 		t.Fatalf("authorization omitted S256 PKCE: %q", query.Encode())
 	}
-	if query.Get("access_type") != "" || query.Get("prompt") != "" {
-		t.Fatalf("application login requested offline or forced consent access: %q", query.Encode())
+	if query.Get("access_type") != "" || query.Get("prompt") != "select_account" {
+		t.Fatalf("application login must request account selection without offline access: %q", query.Encode())
 	}
 
 	challenge, draft, _, err := manager.currentGoogleLoginChallenge(t.Context(), start.Challenge.Token)

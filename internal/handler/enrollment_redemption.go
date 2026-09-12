@@ -80,7 +80,7 @@ func (h *Handler) handleInvitationGoogleEnrollment(w http.ResponseWriter, r *htt
 		w, start.Challenge.Token, h.auth.Config().SecureCookies,
 		start.Challenge.ExpiresAt.Sub(start.Challenge.CreatedAt),
 	)
-	http.Redirect(w, r, start.AuthorizationURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, start.AuthorizationURL, http.StatusSeeOther)
 }
 
 func (h *Handler) handleInvitationEnrollmentSubmit(w http.ResponseWriter, r *http.Request) {

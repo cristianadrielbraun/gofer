@@ -144,17 +144,19 @@ Official provider docs:
 - [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
 - [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 
+Callback URLs use `GOFER_BASE_URL` followed by the provider-specific path. Google and Microsoft use `login/callback` for Gofer sign-in and `mailbox/callback` for mailbox connections. Register each URL with the OAuth client used for that purpose.
+
 Default local callback URLs:
 
 ```text
-http://local.localhost:8090/auth/google/account/callback
-http://local.localhost:8090/auth/google/callback
-http://local.localhost:8090/auth/microsoft/account/callback
-http://local.localhost:8090/auth/microsoft/callback
+http://local.localhost:8090/auth/google/mailbox/callback
+http://local.localhost:8090/auth/google/login/callback
+http://local.localhost:8090/auth/microsoft/mailbox/callback
+http://local.localhost:8090/auth/microsoft/login/callback
 http://local.localhost:8090/auth/oidc/callback
 ```
 
-The Google, Microsoft, and generic OpenID Connect login callbacks are needed only for their optional application-login clients. Gmail and Outlook mailbox setup use only the provider-specific `account/callback` URLs. Register the generic callback only with the identity provider configured by `GOFER_OIDC_LOGIN_ISSUER`.
+The Google, Microsoft, and generic OpenID Connect login callbacks are needed only for their optional application-login clients. Gmail and Outlook mailbox setup use only the provider-specific `mailbox/callback` URLs. Register the generic callback only with the identity provider configured by `GOFER_OIDC_LOGIN_ISSUER`.
 
 ## configuration
 

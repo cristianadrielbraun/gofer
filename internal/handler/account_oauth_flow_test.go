@@ -112,7 +112,7 @@ func TestReadAccountOAuthCallbackUsesBoundFlowUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAccountOAuthFlow() error = %v", err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/auth/google/account/callback?state="+url.QueryEscape(state)+"&code=auth-code", nil)
+	req := httptest.NewRequest(http.MethodGet, "/auth/google/mailbox/callback?state="+url.QueryEscape(state)+"&code=auth-code", nil)
 	req = accountOAuthUserRequest(req, "user", "session-token")
 	rec := httptest.NewRecorder()
 

@@ -24,6 +24,7 @@ const (
 var ErrMFAContinuationInvalid = errors.New("multi-factor continuation is invalid")
 
 type mfaContinuationDraft struct {
+	VerifiedEmail    string               `json:"verified_email,omitempty"`
 	Version          int                  `json:"version"`
 	AuthVersion      int64                `json:"auth_version"`
 	PrimaryMethod    AuthenticationMethod `json:"primary_method"`
@@ -34,6 +35,9 @@ type mfaContinuationDraft struct {
 func validMFAContinuationDraft(draft *mfaContinuationDraft) bool {
 	if draft == nil || draft.Version != mfaContinuationDraftVersion || draft.AuthVersion < 1 ||
 		draft.PrimaryAssurance != AssuranceLevelSingleFactor || !validMFAEnrollmentDraft(draft.Enrollment) {
+		return false
+	}
+	if len(draft.VerifiedEmail) > maximumGoogleIdentityFieldSize || (draft.VerifiedEmail != "" && draft.PrimaryMethod != AuthenticationMethodFederatedGoogle) {
 		return false
 	}
 	switch draft.PrimaryMethod {
@@ -50,7 +54,7 @@ func validMFAContinuationDraft(draft *mfaContinuationDraft) bool {
 func sameMFAContinuationDraft(left, right *mfaContinuationDraft) bool {
 	return validMFAContinuationDraft(left) && validMFAContinuationDraft(right) &&
 		left.Version == right.Version && left.AuthVersion == right.AuthVersion &&
-		left.PrimaryMethod == right.PrimaryMethod && left.PrimaryAssurance == right.PrimaryAssurance &&
+		left.VerifiedEmail == right.VerifiedEmail && left.PrimaryMethod == right.PrimaryMethod && left.PrimaryAssurance == right.PrimaryAssurance &&
 		sameMFAEnrollmentDraft(left.Enrollment, right.Enrollment)
 }
 
@@ -248,9 +252,11 @@ func mfaFactorEventMetadata(factor string, primary AuthenticationMethod, repairR
 // MFAContinuationFactors exposes only the sign-in options for a verified primary
 // authentication challenge, never credential material.
 type MFAContinuationFactors struct {
-	Username   string
-	HasTOTP    bool
-	HasPasskey bool
+	VerifiedEmail string
+	PrimaryMethod AuthenticationMethod
+	Username      string
+	HasTOTP       bool
+	HasPasskey    bool
 }
 
 func (m *Manager) GetMFAContinuationFactors(ctx context.Context, token, origin string) (*MFAContinuationFactors, error) {
@@ -269,7 +275,7 @@ func (m *Manager) GetMFAContinuationFactors(ctx context.Context, token, origin s
 	if err != nil {
 		return nil, err
 	}
-	var result MFAContinuationFactors
+	result := MFAContinuationFactors{PrimaryMethod: draft.PrimaryMethod, VerifiedEmail: draft.VerifiedEmail}
 	err = m.db.Read().QueryRowContext(ctx, `
 		SELECT u.username_normalized,
 			EXISTS(SELECT 1 FROM totp_credentials t

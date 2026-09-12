@@ -15,7 +15,7 @@ func newGoogleEnrollmentTestManager(t *testing.T, now time.Time, tokens *determi
 	t.Helper()
 	manager := newDeterministicManager(t, &fixedClock{now: now}, tokens)
 	configureGoogleOAuthTest(manager)
-	manager.config.GoogleLoginClient.RedirectURL = "https://gofer.example/auth/google/callback"
+	manager.config.GoogleLoginClient.RedirectURL = "https://gofer.example/auth/google/login/callback"
 	manager.config.GoogleLoginClient.Scopes = []string{"openid", "email", "profile", "https://mail.google.com/"}
 	return manager
 }

@@ -26,7 +26,7 @@ const (
 	googleLoginIssuer              = "https://accounts.google.com"
 	googleLoginDraftVersion        = 1
 	googleLoginDraftKey            = "gofer/auth/google-login-draft/v1"
-	googleLoginCallbackPath        = "/auth/google/callback"
+	googleLoginCallbackPath        = "/auth/google/login/callback"
 	maximumGoogleIDTokenLength     = 64 * 1024
 	maximumGoogleIdentityFieldSize = 8 * 1024
 	googleApplicationOpenIDScope   = "openid"
@@ -288,6 +288,7 @@ func googleApplicationAuthorizationURL(client *oauth2.Config, state string, opti
 		googleApplicationEmailScope,
 		googleApplicationProfileScope,
 	}
+	options = append(options, oauth2.SetAuthURLParam("prompt", "select_account"))
 	return config.AuthCodeURL(state, options...)
 }
 

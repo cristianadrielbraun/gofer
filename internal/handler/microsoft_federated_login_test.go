@@ -47,7 +47,7 @@ func microsoftLoginHandlerStack(
 		MicrosoftLoginTenant: "common",
 		MicrosoftLoginClient: &oauth2.Config{
 			ClientID: "microsoft-login-client", ClientSecret: "microsoft-login-secret",
-			RedirectURL: "https://gofer.example/auth/microsoft/callback",
+			RedirectURL: "https://gofer.example/auth/microsoft/login/callback",
 			Endpoint: oauth2.Endpoint{
 				AuthURL: "https://login.example/authorize", TokenURL: tokenURL,
 			},
@@ -123,7 +123,7 @@ func TestMicrosoftApplicationLoginHandlerCreatesOnlyGoferSession(t *testing.T) {
 	verifier.claims.Nonce = nonce
 
 	callback := httptest.NewRequest(
-		http.MethodGet, "/auth/microsoft/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil,
+		http.MethodGet, "/auth/microsoft/login/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil,
 	)
 	callback.Host = "gofer.example"
 	callback.AddCookie(preAuthCookie)
@@ -163,7 +163,7 @@ func TestMicrosoftCallbackRejectsNonCanonicalHostBeforeCodeExchange(t *testing.T
 	_, _, stack, _ := microsoftLoginHandlerStack(t, provider.URL)
 	preAuthCookie, state, _ := beginMicrosoftHandlerLogin(t, stack)
 	callback := httptest.NewRequest(
-		http.MethodGet, "/auth/microsoft/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil,
+		http.MethodGet, "/auth/microsoft/login/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil,
 	)
 	callback.Host = "localhost"
 	callback.AddCookie(preAuthCookie)
@@ -180,7 +180,7 @@ func TestMicrosoftCallbackDoesNotReflectProviderError(t *testing.T) {
 	preAuthCookie, state, _ := beginMicrosoftHandlerLogin(t, stack)
 	callback := httptest.NewRequest(
 		http.MethodGet,
-		"/auth/microsoft/callback?state="+url.QueryEscape(state)+"&error="+url.QueryEscape("private provider detail"), nil,
+		"/auth/microsoft/login/callback?state="+url.QueryEscape(state)+"&error="+url.QueryEscape("private provider detail"), nil,
 	)
 	callback.Host = "gofer.example"
 	callback.AddCookie(preAuthCookie)
@@ -205,7 +205,7 @@ func TestMicrosoftLoginRoutesAreUnavailableWithoutApplicationLoginClient(t *test
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	stack := manager.Middleware(mux)
-	for _, target := range []string{"/auth/microsoft", "/auth/microsoft/callback?state=unused&code=unused"} {
+	for _, target := range []string{"/auth/microsoft", "/auth/microsoft/login/callback?state=unused&code=unused"} {
 		req := httptest.NewRequest(http.MethodGet, target, nil)
 		req.Host = "gofer.example"
 		recorder := httptest.NewRecorder()

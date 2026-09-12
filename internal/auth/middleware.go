@@ -190,7 +190,7 @@ func isPublicPath(path string) bool {
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/enroll", "/account/enroll/google", "/account/enroll/complete",
 		"/account/redeem", "/account/redeem/complete", "/account/recover",
-		"/auth/google", "/auth/google/callback", "/auth/microsoft", "/auth/microsoft/callback", "/auth/oidc", "/auth/oidc/callback", "/sw.js",
+		"/auth/google", "/auth/google/login/callback", "/auth/microsoft", "/auth/microsoft/login/callback", "/auth/oidc", "/auth/oidc/callback", "/sw.js",
 	}
 	for _, p := range public {
 		if path == p {

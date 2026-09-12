@@ -249,7 +249,7 @@ templ AdminSecurityVerificationTrigger(data AdminSecurityVerificationData, label
 templ AdminSecurityVerificationDialog(data AdminSecurityVerificationData) {
 	if data.Required {
 		@dialog.Dialog(dialog.Props{ID: "admin-security-verification-dialog", Open: data.Open}) {
-			@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
+			@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl max-h-[calc(100vh-2rem)] overflow-y-auto", DisableModal: true, Attributes: templ.Attributes{"style": "box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.5)"}}) {
 				@dialog.Header() {
 					@dialog.Title() {
 						{ "Verify administrator session" }
@@ -296,6 +296,7 @@ templ AdminSecurityVerificationDialog(data AdminSecurityVerificationData) {
 							method="post"
 							action={ templ.SafeURL(data.TOTPPath) }
 							data-admin-security-totp
+							autocomplete="on"
 							data-success-redirect={ data.ReturnTo }
 							class="space-y-4 rounded-lg border border-border bg-background/60 p-4"
 						>
@@ -306,12 +307,14 @@ templ AdminSecurityVerificationDialog(data AdminSecurityVerificationData) {
 									@icon.Smartphone(icon.Props{Class: "size-5"})
 								</div>
 								<div class="min-w-0 flex-1">
-									<label for="admin-security-verification-code" class="text-sm font-semibold text-foreground">Authenticator code</label>
+									<label for="admin-security-totp-code" class="text-sm font-semibold text-foreground">TOTP authenticator app code</label>
 									<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Enter the current six-digit code from your authenticator app.</p>
 								</div>
 							</div>
 							<input
-								id="admin-security-verification-code"
+								id="admin-security-totp-code"
+								autofocus
+								aria-label="TOTP verification code"
 								name="code"
 								type="text"
 								inputmode="numeric"
