@@ -156,7 +156,7 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 		`name="_csrf" value="` + csrf + `"`,
 		`&lt;script&gt;signed-out&lt;/script&gt;`, "Google · Single factor", "Signed out",
 		"Signed in Aug 19, 2026 at 10:00 AM", "Last active Aug 19, 2026 at 10:05 AM",
-		"Signed out Aug 18, 2026 at 9:31 AM", "Showing the 50 most relevant sessions",
+		"Signed out Aug 18, 2026 at 9:31 AM", "Show older",
 		"Session tokens and internal identifiers are never shown.",
 	} {
 		if !strings.Contains(html, want) {
@@ -478,8 +478,8 @@ func TestPasswordSecuritySettingsRendersConnectedGoogleIdentityWithoutMailboxCon
 	}
 	html := output.String()
 	for _, want := range []string{
-		`data-federated-identity-settings`, "1 connected", "Google · connected Aug 15, 2026",
-		"last used Aug 16, 2026", `action="` + linkPath + `"`,
+		`data-federated-identity-settings`, "Google · connected Aug 15, 2026",
+		"last used Aug 16, 2026",
 		`action="` + unlinkPath + `"`, "Disconnect", "removes only this identity",
 		`name="_csrf" value="` + csrf + `"`, `&lt;person&amp;family@gmail.example&gt;`,
 		"For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox", "mail, contacts, calendars",
@@ -556,7 +556,7 @@ func TestPasswordSecuritySettingsUsesOneGenericVerificationNoticeForApplicationS
 	}
 }
 
-func TestPasswordSecuritySettingsRendersGoogleAndMicrosoftActionsSideBySideWithIcons(t *testing.T) {
+func TestPasswordSecuritySettingsRendersFixedProviderRowsWithIcons(t *testing.T) {
 	const googlePath = "/settings/security/identities/google/link"
 	const microsoftPath = "/settings/security/identities/microsoft/link"
 	csrf := strings.Repeat("p", 64)
@@ -575,7 +575,7 @@ func TestPasswordSecuritySettingsRendersGoogleAndMicrosoftActionsSideBySideWithI
 
 	html := output.String()
 	for _, want := range []string{
-		`data-application-sign-in-actions`, `class="grid gap-3 sm:grid-cols-2"`,
+		`data-sign-in-provider="google"`, `data-sign-in-provider="microsoft"`, "Not connected",
 		`action="` + googlePath + `"`, "Connect Google sign-in", `<title>Gmail</title>`,
 		`action="` + microsoftPath + `"`, "Connect Microsoft sign-in", `viewBox="0 0 14 14"`,
 		`class="size-4 shrink-0"`, `name="_csrf" value="` + csrf + `"`,
@@ -605,7 +605,7 @@ func TestPasswordSecuritySettingsRendersMicrosoftIdentityWithoutOutlookMailboxCo
 	html := output.String()
 	for _, want := range []string{
 		"Microsoft · connected Aug 18, 2026", "person@microsoft.example",
-		`action="` + linkPath + `"`, `action="` + unlinkPath + `"`,
+		`action="` + unlinkPath + `"`,
 		"For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox",
 		"grant Gofer access to mail, contacts, calendars",
 		`name="_csrf" value="` + csrf + `"`,
@@ -676,5 +676,39 @@ func TestSecurityActionConfirmationDialogKeepsSubmissionInsideConfirmation(t *te
 	}
 	if strings.Contains(html[:start], `type="submit"`) || strings.Contains(html, "confirm(") || strings.Contains(html, "<private-client>") {
 		t.Fatal("dialog allows unconfirmed submission, uses native confirmation, or exposes unescaped client text")
+	}
+}
+
+func TestSignInProviderRowsKeepStableIdentityAndHideOccupiedConnectAction(t *testing.T) {
+	for _, connected := range []bool{false, true} {
+		for _, configured := range []bool{false, true} {
+			data := PasswordSecurityData{GoogleLoginAvailable: configured, MicrosoftLoginAvailable: configured, StepUpFresh: true}
+			if connected {
+				data.FederatedIdentities = []FederatedIdentityData{
+					{Provider: "google", Email: "google@example.com", CanUnlink: true, UnlinkPath: "/google/unlink"},
+					{Provider: "microsoft", Email: "microsoft@example.com", CanUnlink: true, UnlinkPath: "/microsoft/unlink"},
+				}
+			}
+			var out bytes.Buffer
+			if err := PasswordSecuritySettings(data).Render(t.Context(), &out); err != nil {
+				t.Fatal(err)
+			}
+			html := out.String()
+			for _, provider := range []string{"google", "microsoft"} {
+				if strings.Count(html, `data-sign-in-provider="`+provider+`"`) != 1 {
+					t.Fatal("provider row missing or duplicated")
+				}
+				link := `action="/settings/security/identities/` + provider + `/link"`
+				if strings.Contains(html, link) != (configured && !connected) {
+					t.Fatal("Connect eligibility incorrect")
+				}
+			}
+			if !configured && strings.Count(html, "Not configured") != 2 {
+				t.Fatal("missing unconfigured provider statuses")
+			}
+			if connected && strings.Contains(html, "return confirm(") {
+				t.Fatal("provider disconnect uses native confirmation")
+			}
+		}
 	}
 }

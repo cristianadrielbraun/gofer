@@ -155,7 +155,7 @@ func TestManagementSecurityLayoutSuppressesExternalSignInSettings(t *testing.T) 
 		`hx-get="/settings/security/activity?page=1"`,
 		`id="security-activity-dialog-body"`,
 		`class="flex h-full min-h-0 overflow-hidden bg-background"`,
-		`id="main-content" class="flex min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"`,
+		`id="main-content" class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("management security layout omitted bounded scroll contract %q", want)

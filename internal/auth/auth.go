@@ -111,8 +111,10 @@ type SecuritySessionSummary struct {
 }
 
 type SecuritySessionList struct {
-	Sessions  []SecuritySessionSummary
-	Truncated bool
+	Page       int64
+	TotalPages int64
+	Sessions   []SecuritySessionSummary
+	Truncated  bool
 }
 
 type SecurityEventSummary struct {

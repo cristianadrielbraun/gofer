@@ -193,44 +193,54 @@ func (m *Manager) ListSessions(ctx context.Context, userID string) ([]Session, e
 // recently revoked history retained by the session cleanup policy. The exact
 // active session token establishes ownership; no raw session token is returned.
 func (m *Manager) ListSecuritySessions(ctx context.Context, sessionToken string) (*SecuritySessionList, error) {
+	return m.listSecuritySessions(ctx, sessionToken, securitySessionListLimit, 1, false)
+}
+
+// ListSecuritySessionPage exposes five sessions at a time only after fresh verification.
+func (m *Manager) ListSecuritySessionPage(ctx context.Context, sessionToken string, page int64) (*SecuritySessionList, error) {
+	return m.listSecuritySessions(ctx, sessionToken, 5, page, true)
+}
+
+func (m *Manager) listSecuritySessions(ctx context.Context, sessionToken string, limit int64, page int64, requireRecent bool) (*SecuritySessionList, error) {
 	now := m.clock.Now().UTC()
 	tx, err := m.db.Read().BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin security session list: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, false)
+	current, err := m.currentSecuritySession(ctx, tx, sessionToken, now, requireRecent)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, sessionSelect+`
-		WHERE user_id = ? AND (
-			id = ?
-			OR (
-				revoked_at IS NULL AND auth_version = ?
-				AND idle_expires_at > ? AND absolute_expires_at > ?
-			)
-			OR (revoked_at IS NOT NULL AND revoked_at > ?)
-		)
+	const filter = ` WHERE user_id = ? AND (
+		id = ? OR (revoked_at IS NULL AND auth_version = ? AND idle_expires_at > ? AND absolute_expires_at > ?)
+		OR (revoked_at IS NOT NULL AND revoked_at > ?))`
+	args := []any{current.UserID, current.ID, current.AuthVersion, now, now, now.Add(-sessionRevokedRetention)}
+	var count int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions `+filter, args...).Scan(&count); err != nil {
+		return nil, fmt.Errorf("count security sessions: %w", err)
+	}
+	totalPages := max(int64(1), (count+limit-1)/limit)
+	page = max(int64(1), min(page, totalPages))
+	args = append(args, current.ID, limit+1, (page-1)*limit)
+	rows, err := tx.QueryContext(ctx, sessionSelect+filter+`
 		ORDER BY CASE WHEN id = ? THEN 0 WHEN revoked_at IS NULL THEN 1 ELSE 2 END,
 		         COALESCE(revoked_at, last_used_at, created_at) DESC, id DESC
-		LIMIT ?`,
-		current.UserID, current.ID, current.AuthVersion, now, now,
-		now.Add(-sessionRevokedRetention), current.ID, securitySessionListLimit+1,
-	)
+		LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list security sessions: %w", err)
 	}
 	defer rows.Close()
 	result := &SecuritySessionList{
-		Sessions: make([]SecuritySessionSummary, 0, securitySessionListLimit),
+		Sessions: make([]SecuritySessionSummary, 0, limit),
+		Page:     page, TotalPages: totalPages,
 	}
 	for rows.Next() {
 		session, err := scanSession(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan security session: %w", err)
 		}
-		if len(result.Sessions) == securitySessionListLimit {
+		if int64(len(result.Sessions)) == limit {
 			result.Truncated = true
 			break
 		}

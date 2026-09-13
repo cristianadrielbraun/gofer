@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"fmt"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -83,5 +87,95 @@ func TestSecuritySessionClientLabelRecognizesCommonBrowsersAndBoundsFallback(t *
 	}
 	if got := securitySessionClientLabel(strings.Repeat("界", 120)); len([]rune(got)) != 96 || !strings.HasSuffix(got, "…") {
 		t.Fatalf("bounded fallback = %q (%d runes)", got, len([]rune(got)))
+	}
+}
+
+func TestSecuritySessionHistoryBoundsPagesAndRequiresFreshVerification(t *testing.T) {
+	manager, db, stack, cookie, _ := completedSecuritySettingsStack(t)
+	current, err := manager.GetSessionByToken(t.Context(), cookie.Value)
+	if err != nil || current == nil {
+		t.Fatalf("current session: %v", err)
+	}
+	for i := 0; i < 11; i++ {
+		_, err := manager.CreateAuthenticatedSession(t.Context(), current.UserID, fmt.Sprintf("History browser %02d", i), auth.AuthenticationMethodPassword, current.AssuranceLevel)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO users (id, username, username_normalized, name, status, auth_version, created_at, updated_at) VALUES ('foreign-history-user', 'foreign-history', 'foreign-history', 'Foreign', 'active', 1, ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := manager.CreateAuthenticatedSession(t.Context(), "foreign-history-user", "Foreign private browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.ListSecuritySessionPage(t.Context(), cookie.Value, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.ListSecuritySessionPage(t.Context(), cookie.Value, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := manager.ListSecuritySessionPage(t.Context(), cookie.Value, math.MaxInt64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Sessions) != 5 || !first.Sessions[0].Current || !first.Truncated || len(second.Sessions) != 5 || last.Page != last.TotalPages || len(last.Sessions) > 5 || last.Truncated {
+		t.Fatalf("unexpected pages: %#v %#v %#v", first, second, last)
+	}
+	for _, list := range []*auth.SecuritySessionList{first, second, last} {
+		for _, session := range list.Sessions {
+			if session.ID == foreign.ID {
+				t.Fatal("foreign session disclosed")
+			}
+		}
+	}
+	for _, a := range first.Sessions {
+		for _, b := range second.Sessions {
+			if a.ID == b.ID {
+				t.Fatal("overlapping pages")
+			}
+		}
+	}
+	request := func(path string, hx bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.AddCookie(cookie)
+		if hx {
+			r.Header.Set("HX-Request", "true")
+		}
+		w := httptest.NewRecorder()
+		stack.ServeHTTP(w, r)
+		return w
+	}
+	path := "/settings/security/sessions/history"
+	page := request(path+"?page=2", true)
+	if page.Code != http.StatusOK || page.Header().Get("Cache-Control") != "no-store" || !strings.Contains(page.Body.String(), "history-session-revoke-0") {
+		t.Fatalf("history: %d %s", page.Code, page.Body.String())
+	}
+	for _, session := range second.Sessions {
+		if strings.Contains(page.Body.String(), session.ID) || strings.Contains(page.Body.String(), cookie.Value) {
+			t.Fatal("history disclosed session secrets")
+		}
+		if !strings.Contains(page.Body.String(), session.ActionReference) {
+			t.Fatal("missing revocation action")
+		}
+	}
+	settings := request("/admin/account/security", false)
+	if settings.Code != http.StatusOK || !strings.Contains(settings.Body.String(), "Show older") || strings.Count(settings.Body.String(), "<dd>Signed in ") != 5 {
+		t.Fatalf("main sessions not bounded: %d", settings.Code)
+	}
+	if got := request(path, false); got.Code != http.StatusSeeOther {
+		t.Fatalf("direct request: %d", got.Code)
+	}
+	if got := request(path+"?page=0", true); got.Code != http.StatusBadRequest {
+		t.Fatalf("invalid page: %d", got.Code)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, time.Now().UTC().Add(-11*time.Minute), current.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(path+"?page=2", true); got.Code != http.StatusNoContent || got.Header().Get("HX-Redirect") != "/settings/security?verification_required=1" || got.Body.Len() != 0 {
+		t.Fatalf("stale verification: %d %s", got.Code, got.Body.String())
 	}
 }

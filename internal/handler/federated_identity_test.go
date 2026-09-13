@@ -151,11 +151,13 @@ func TestGoogleIdentityLinkRouteRequiresCSRFAndRendersConnectedIdentity(t *testi
 	for _, want := range []string{
 		"Google sign-in connected.", "person@gmail.example", "Connected",
 		"For Gofer sign-in only", "does not connect a Gmail or Outlook mailbox",
-		`action="` + securityGoogleIdentityLinkPath + `"`,
 	} {
 		if confirmation.Code != http.StatusOK || !strings.Contains(confirmation.Body.String(), want) {
 			t.Fatalf("connected identity page missing %q: %d %q", want, confirmation.Code, confirmation.Body.String())
 		}
+	}
+	if strings.Contains(confirmation.Body.String(), `action="`+securityGoogleIdentityLinkPath+`"`) {
+		t.Fatal("connected provider still offers another link")
 	}
 	var userID, subject string
 	if err := db.Read().QueryRowContext(t.Context(), `
@@ -322,7 +324,7 @@ func TestGoogleIdentityLinkConflictReturnsGenericSettingsFailure(t *testing.T) {
 		t.Fatal("Google identity conflict exposed owning-account details")
 	}
 	failed := getSecuritySettingsPath(t, stack, completed.Header().Get("Location"), sessionCookie)
-	if failed.Code != http.StatusOK || !strings.Contains(failed.Body.String(), "may already belong to another Gofer account") ||
+	if failed.Code != http.StatusOK || !strings.Contains(failed.Body.String(), "must not belong to another Gofer account") ||
 		strings.Contains(failed.Body.String(), "owner@example.com") {
 		t.Fatalf("generic Google identity conflict page = %d %q", failed.Code, failed.Body.String())
 	}

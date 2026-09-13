@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"errors"
 	"log"
 	"net/http"
@@ -201,4 +202,52 @@ func securitySessionClientLabel(userAgent string) string {
 
 func formatSecuritySessionTime(value time.Time) string {
 	return value.Local().Format("Jan 2, 2006 at 3:04 PM")
+}
+
+func (h *Handler) handleSecuritySessionHistory(w http.ResponseWriter, r *http.Request) {
+	setSecurityActivityHeaders(w)
+	if r.Header.Get("HX-Request") != "true" {
+		http.Redirect(w, r, "/settings/security", http.StatusSeeOther)
+		return
+	}
+	page, err := parseSecurityActivityPage(r)
+	if err != nil {
+		http.Error(w, "Invalid page", http.StatusBadRequest)
+		return
+	}
+	list, err := h.auth.ListSecuritySessionPage(r.Context(), auth.GetSessionToken(r), max(int64(2), page))
+	if errors.Is(err, auth.ErrRecentStepUpRequired) {
+		w.Header().Set("HX-Redirect", "/settings/security?verification_required=1")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if errors.Is(err, auth.ErrSecuritySessionInvalid) {
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		w.Header().Set("HX-Redirect", "/login")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		log.Printf("load session history: %v", err)
+		http.Error(w, "Unable to load session history", http.StatusInternalServerError)
+		return
+	}
+	sessions, _ := securitySessionViewData(list, h.auth.OIDCLoginName())
+	// If history disappeared while the dialog was open, do not repeat the main card.
+	if list.Page == 1 {
+		sessions = nil
+	}
+	csrf := make(map[string]string)
+	for _, session := range sessions {
+		if session.RevokePath != "" {
+			csrf[session.RevokePath] = auth.CSRFToken(r.Context(), http.MethodPost, session.RevokePath)
+		}
+	}
+	var output bytes.Buffer
+	if err := views.SecuritySessionHistoryPage(sessions, csrf, list.Page, list.TotalPages).Render(r.Context(), &output); err != nil {
+		http.Error(w, "Unable to render session history", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = output.WriteTo(w)
 }

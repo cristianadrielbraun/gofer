@@ -444,6 +444,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
 	mux.HandleFunc("GET "+securityActivityPath, h.handleSecurityActivityPage)
+	mux.HandleFunc("GET /settings/security/sessions/history", h.handleSecuritySessionHistory)
 	mux.HandleFunc("POST /settings/security/password", h.handleChangePassword)
 	mux.HandleFunc("POST "+securityStepUpPath, h.handleSecurityStepUp)
 	mux.HandleFunc("POST "+securityTOTPStartPath, h.handleSecurityTOTPStart)
@@ -3149,7 +3150,16 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	sessions, err := h.auth.ListSecuritySessions(ctx, auth.GetSessionToken(r))
+	sessions, err := h.auth.ListSecuritySessionPage(ctx, auth.GetSessionToken(r), 1)
+	if errors.Is(err, auth.ErrRecentStepUpRequired) {
+		http.Redirect(w, r, "/settings/security?verification_required=1", http.StatusSeeOther)
+		return
+	}
+	if errors.Is(err, auth.ErrSecuritySessionInvalid) {
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		http.Redirect(w, r, loginPath, http.StatusSeeOther)
+		return
+	}
 	if err != nil {
 		log.Printf("load security session history: %v", err)
 		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
@@ -3283,14 +3293,14 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		case r.URL.Query().Get("google_unlinked") == "1":
 			data.Message = "Google sign-in disconnected. That identity can no longer sign in to this Gofer account."
 		case r.URL.Query().Get("google_link_failed") == "1":
-			data.Message = "Google sign-in could not be connected. It may already belong to another Gofer account, or the request may have expired."
+			data.Message = "Google sign-in could not be connected. Disconnect your current Google identity before choosing another. The selected identity must not belong to another Gofer account, and the request must still be valid."
 			data.MessageIsError = true
 		case r.URL.Query().Get("microsoft_linked") == "1":
 			data.Message = "Microsoft sign-in connected. You can now use that Microsoft identity to sign in to this Gofer account."
 		case r.URL.Query().Get("microsoft_unlinked") == "1":
 			data.Message = "Microsoft sign-in disconnected. That identity can no longer sign in to this Gofer account."
 		case r.URL.Query().Get("microsoft_link_failed") == "1":
-			data.Message = "Microsoft sign-in could not be connected. It may already belong to another Gofer account, or the request may have expired."
+			data.Message = "Microsoft sign-in could not be connected. Disconnect your current Microsoft identity before choosing another. The selected identity must not belong to another Gofer account, and the request must still be valid."
 			data.MessageIsError = true
 		case r.URL.Query().Get("oidc_linked") == "1":
 			data.Message = data.OIDCLoginName + " sign-in connected. You can now use that identity to sign in to this Gofer account."

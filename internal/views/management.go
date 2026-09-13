@@ -235,7 +235,7 @@ func ManagementSecurityLayout(uiSettings map[string]string, content templ.Compon
 		if err := renderManagementMobileNav(ctx, w, "account-security", models.AdminWebmailScope{}); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<main id="main-content" class="flex min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"><div class="w-full max-w-3xl px-8 py-10"><div class="mb-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management account</p><h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">Account security</h1><p class="mt-1 text-sm text-muted-foreground">Credentials and active sessions for this management identity.</p></div>`); err != nil {
+		if err := writeHTML(w, `<main id="main-content" class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"><div class="w-full max-w-3xl px-8 pt-10 pb-6"><div class="mb-6"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Management account</p><h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">Account security</h1><p class="mt-1 text-sm text-muted-foreground">Credentials and active sessions for this management identity.</p></div>`); err != nil {
 			return err
 		}
 		if err := content.Render(ctx, w); err != nil {

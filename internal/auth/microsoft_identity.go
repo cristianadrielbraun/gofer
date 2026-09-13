@@ -118,46 +118,57 @@ func (m *Manager) CompleteMicrosoftIdentityLink(
 			return err
 		}
 
-		inserted, err := tx.ExecContext(ctx, `
-			INSERT INTO auth_identities (
-				id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
-			) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-			ON CONFLICT(issuer, subject) DO NOTHING`,
-			identityID, currentSession.UserID, microsoftIdentityProvider, claims.Issuer,
-			claims.Subject, claims.DisplayEmail(), now, now,
-		)
+		providerOccupied, err := hasDifferentProviderIdentity(ctx, tx, currentSession.UserID, microsoftIdentityProvider, claims.Issuer, claims.Subject)
 		if err != nil {
-			return fmt.Errorf("insert Microsoft identity: %w", err)
-		}
-		insertedCount, err := inserted.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("count Microsoft identity insert: %w", err)
+			return err
 		}
 		result := "linked"
 		success := 1
 		reason := AuthEventReasonChallengeVerified
-		if insertedCount == 0 {
-			var existingUserID string
-			if err := tx.QueryRowContext(ctx, `
+		if providerOccupied {
+			conflict = true
+			result = "conflict"
+			success = 0
+			reason = AuthEventReasonInvalidCredentials
+		} else {
+			inserted, err := tx.ExecContext(ctx, `
+			INSERT INTO auth_identities (
+				id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
+			) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+			ON CONFLICT(issuer, subject) DO NOTHING`,
+				identityID, currentSession.UserID, microsoftIdentityProvider, claims.Issuer,
+				claims.Subject, claims.DisplayEmail(), now, now,
+			)
+			if err != nil {
+				return fmt.Errorf("insert Microsoft identity: %w", err)
+			}
+			insertedCount, err := inserted.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count Microsoft identity insert: %w", err)
+			}
+			if insertedCount == 0 {
+				var existingUserID string
+				if err := tx.QueryRowContext(ctx, `
 				SELECT id, user_id FROM auth_identities
 				WHERE provider = ? AND issuer = ? AND subject = ?`,
-				microsoftIdentityProvider, claims.Issuer, claims.Subject,
-			).Scan(&storedIdentityID, &existingUserID); err != nil {
-				return fmt.Errorf("load conflicting Microsoft identity: %w", err)
-			}
-			if existingUserID != currentSession.UserID {
-				conflict = true
-				result = "conflict"
-				success = 0
-				reason = AuthEventReasonInvalidCredentials
-			} else if _, err := tx.ExecContext(ctx, `
+					microsoftIdentityProvider, claims.Issuer, claims.Subject,
+				).Scan(&storedIdentityID, &existingUserID); err != nil {
+					return fmt.Errorf("load conflicting Microsoft identity: %w", err)
+				}
+				if existingUserID != currentSession.UserID {
+					conflict = true
+					result = "conflict"
+					success = 0
+					reason = AuthEventReasonInvalidCredentials
+				} else if _, err := tx.ExecContext(ctx, `
 				UPDATE auth_identities SET email = ?, email_verified = 0
 				WHERE id = ? AND user_id = ?`,
-				claims.DisplayEmail(), storedIdentityID, currentSession.UserID,
-			); err != nil {
-				return fmt.Errorf("refresh linked Microsoft identity: %w", err)
-			} else {
-				result = "already_linked"
+					claims.DisplayEmail(), storedIdentityID, currentSession.UserID,
+				); err != nil {
+					return fmt.Errorf("refresh linked Microsoft identity: %w", err)
+				} else {
+					result = "already_linked"
+				}
 			}
 		}
 

@@ -352,46 +352,57 @@ func (m *Manager) CompleteGoogleIdentityLink(
 			return err
 		}
 
-		inserted, err := tx.ExecContext(ctx, `
-			INSERT INTO auth_identities (
-				id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
-			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-			ON CONFLICT(issuer, subject) DO NOTHING`,
-			identityID, currentSession.UserID, googleIdentityProvider, googleLoginIssuer,
-			claims.Subject, strings.TrimSpace(claims.Email), now, now,
-		)
+		providerOccupied, err := hasDifferentProviderIdentity(ctx, tx, currentSession.UserID, googleIdentityProvider, googleLoginIssuer, claims.Subject)
 		if err != nil {
-			return fmt.Errorf("insert Google identity: %w", err)
-		}
-		insertedCount, err := inserted.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("count Google identity insert: %w", err)
+			return err
 		}
 		result := "linked"
 		success := 1
 		reason := AuthEventReasonChallengeVerified
-		if insertedCount == 0 {
-			var existingUserID string
-			if err := tx.QueryRowContext(ctx, `
+		if providerOccupied {
+			conflict = true
+			result = "conflict"
+			success = 0
+			reason = AuthEventReasonInvalidCredentials
+		} else {
+			inserted, err := tx.ExecContext(ctx, `
+			INSERT INTO auth_identities (
+				id, user_id, provider, issuer, subject, email, email_verified, created_at, linked_at
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+			ON CONFLICT(issuer, subject) DO NOTHING`,
+				identityID, currentSession.UserID, googleIdentityProvider, googleLoginIssuer,
+				claims.Subject, strings.TrimSpace(claims.Email), now, now,
+			)
+			if err != nil {
+				return fmt.Errorf("insert Google identity: %w", err)
+			}
+			insertedCount, err := inserted.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count Google identity insert: %w", err)
+			}
+			if insertedCount == 0 {
+				var existingUserID string
+				if err := tx.QueryRowContext(ctx, `
 				SELECT id, user_id FROM auth_identities
 				WHERE provider = ? AND issuer = ? AND subject = ?`,
-				googleIdentityProvider, googleLoginIssuer, claims.Subject,
-			).Scan(&storedIdentityID, &existingUserID); err != nil {
-				return fmt.Errorf("load conflicting Google identity: %w", err)
-			}
-			if existingUserID != currentSession.UserID {
-				conflict = true
-				result = "conflict"
-				success = 0
-				reason = AuthEventReasonInvalidCredentials
-			} else if _, err := tx.ExecContext(ctx, `
+					googleIdentityProvider, googleLoginIssuer, claims.Subject,
+				).Scan(&storedIdentityID, &existingUserID); err != nil {
+					return fmt.Errorf("load conflicting Google identity: %w", err)
+				}
+				if existingUserID != currentSession.UserID {
+					conflict = true
+					result = "conflict"
+					success = 0
+					reason = AuthEventReasonInvalidCredentials
+				} else if _, err := tx.ExecContext(ctx, `
 				UPDATE auth_identities SET email = ?, email_verified = 1
 				WHERE id = ? AND user_id = ?`,
-				strings.TrimSpace(claims.Email), storedIdentityID, currentSession.UserID,
-			); err != nil {
-				return fmt.Errorf("refresh linked Google identity: %w", err)
-			} else {
-				result = "already_linked"
+					strings.TrimSpace(claims.Email), storedIdentityID, currentSession.UserID,
+				); err != nil {
+					return fmt.Errorf("refresh linked Google identity: %w", err)
+				} else {
+					result = "already_linked"
+				}
 			}
 		}
 
@@ -450,4 +461,18 @@ func sameGoogleLoginDraft(left, right *googleLoginDraft) bool {
 	return validGoogleLoginDraft(left) && validGoogleLoginDraft(right) &&
 		left.Version == right.Version && left.CodeVerifier == right.CodeVerifier &&
 		left.EnrollmentTokenID == right.EnrollmentTokenID
+}
+
+// Check inside the serialized identity-change transaction so concurrent callbacks
+// cannot attach two different identities for the same provider. Existing links
+// are never replaced; re-linking the exact identity remains idempotent.
+func hasDifferentProviderIdentity(ctx context.Context, tx *sql.Tx, userID, provider, issuer, subject string) (bool, error) {
+	var occupied bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM auth_identities WHERE user_id = ? AND provider = ?
+		AND (issuer != ? OR subject != ?))`, userID, provider, issuer, subject).Scan(&occupied)
+	if err != nil {
+		return false, fmt.Errorf("check linked sign-in provider: %w", err)
+	}
+	return occupied, nil
 }

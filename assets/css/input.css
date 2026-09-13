@@ -131,6 +131,18 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  /* Security scrolls inside its content pane, including after an HTMX swap.
+     Keep wheel/touch scrolling from moving the document and sidebar. */
+  body:has([data-password-security-settings]),
+  body:has([data-password-security-verification]) {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  body:has([data-password-security-settings]) #app-shell,
+  body:has([data-password-security-verification]) #app-shell {
+    height: 100dvh;
+    min-height: 0;
+  }
   #settings-content {
     transition: opacity 45ms ease;
   }
