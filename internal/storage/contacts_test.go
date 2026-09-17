@@ -938,6 +938,40 @@ func TestListContactsFilters(t *testing.T) {
 	}
 }
 
+func TestListContactsReturnsOneRowWhenProfileHasMultiplePrimaryEmails(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO contact_profiles (id, user_id, display_name, primary_email, origin)
+		VALUES ('multi-primary', 'default', 'Multiple Primary', 'fallback@example.com', 'manual');
+		INSERT INTO contact_fields (id, user_id, profile_id, kind, value, normalized_value, is_primary, ordinal, source)
+		VALUES
+			('multi-primary-a', 'default', 'multi-primary', 'email', 'first@example.com', 'first@example.com', 1, 1, 'synced:one'),
+			('multi-primary-b', 'default', 'multi-primary', 'email', 'second@example.com', 'second@example.com', 1, 2, 'synced:two')`); err != nil {
+		t.Fatalf("insert contact with multiple primary emails: %v", err)
+	}
+
+	contacts, err := db.ListContacts(ctx, "default", models.ContactFilters{}, 10, 0)
+	if err != nil {
+		t.Fatalf("ListContacts() error = %v", err)
+	}
+	if len(contacts) != 1 {
+		t.Fatalf("ListContacts() returned %d rows, want 1: %#v", len(contacts), contacts)
+	}
+	if contacts[0].ID != "multi-primary" || contacts[0].Email != "first@example.com" {
+		t.Fatalf("contact = %#v, want the profile once with the first primary email", contacts[0])
+	}
+
+	count, err := db.CountContacts(ctx, "default", models.ContactFilters{Query: "second@example.com"})
+	if err != nil {
+		t.Fatalf("CountContacts() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountContacts() = %d, want 1", count)
+	}
+}
+
 func TestListContactsSortsByNameInBothDirections(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

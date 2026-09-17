@@ -426,14 +426,22 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 	where, args := contactProfileFilterSQL(userID, filters)
 	args = append(args, limit)
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT p.id, p.display_name, COALESCE(email.value, p.primary_email), p.avatar_url, p.is_deleted,
+		SELECT p.id, p.display_name,
+		       COALESCE((SELECT email.value
+		                   FROM contact_fields email
+		                  WHERE email.profile_id = p.id
+		                    AND email.user_id = p.user_id
+		                    AND email.kind = 'email'
+		                    AND email.is_primary = 1
+		                  ORDER BY email.ordinal, email.id
+		                  LIMIT 1), p.primary_email),
+		       p.avatar_url, p.is_deleted,
 		       p.origin AS source,
 		       CASE WHEN p.origin = 'manual' THEN 1 ELSE 0 END AS is_manual,
 		       COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0), 0) AS message_count,
 		       (SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0) AS last_seen_at,
 		       p.created_at, p.updated_at
 		FROM contact_profiles p
-		LEFT JOIN contact_fields email ON email.profile_id = p.id AND email.user_id = p.user_id AND email.kind = 'email' AND email.is_primary = 1
 		WHERE `+where+`
 		ORDER BY `+contactListOrderSQL(filters, true)+`
 		LIMIT ?`, args...)
@@ -466,9 +474,8 @@ func (db *DB) countProfileContacts(ctx context.Context, userID string, filters m
 		WHERE ` + where
 	if strings.TrimSpace(filters.Query) != "" {
 		query = `
-			SELECT COUNT(DISTINCT p.id)
+			SELECT COUNT(*)
 			FROM contact_profiles p
-			LEFT JOIN contact_fields email ON email.profile_id = p.id AND email.user_id = p.user_id AND email.kind = 'email' AND email.is_primary = 1
 			WHERE ` + where
 	}
 	err := db.Read().QueryRowContext(ctx, query, args...).Scan(&count)
@@ -491,7 +498,14 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 	where := `p.user_id = ? AND p.is_deleted = 0`
 	args := []any{userID}
 	if query != "" {
-		where += ` AND (p.display_name LIKE ? OR p.primary_email LIKE ? OR email.value LIKE ? OR email.normalized_value LIKE ?)`
+		where += ` AND (p.display_name LIKE ? OR p.primary_email LIKE ? OR EXISTS (
+			SELECT 1
+			FROM contact_fields email
+			WHERE email.profile_id = p.id
+			  AND email.user_id = p.user_id
+			  AND email.kind = 'email'
+			  AND (email.value LIKE ? OR email.normalized_value LIKE ?)
+		))`
 		like := "%" + query + "%"
 		args = append(args, like, like, like, strings.ToLower(like))
 	}
