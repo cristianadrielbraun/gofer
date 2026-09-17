@@ -1829,6 +1829,7 @@ templ SettingsAccountCard(account models.Account) {
 					<div class="flex flex-wrap gap-2">
 						@AccountServiceIndicator(account, "email", "Email", "Fetches mail and keeps folders up to date.", account.EmailSyncEnabled)
 						@AccountServiceIndicator(account, "contacts", "Contacts", accountContactSyncStatusDescription(account), account.ContactSyncEnabled)
+						@AccountServiceIndicator(account, "calendar", "Calendar", accountCalendarSyncStatusDescription(account), account.CalendarSyncEnabled)
 					</div>
 					<span class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
 						@AccountProviderIcon(account.Provider, "size-3.5 shrink-0")
@@ -2155,9 +2156,11 @@ templ SettingsAccountActionsMenu(account models.Account) {
 		>
 			if service == "email" {
 				@icon.Mail(icon.Props{Class: "size-3"})
-			} else {
+			} else if service == "contacts" {
 				@icon.Users(icon.Props{Class: "size-3"})
-		}
+			} else {
+				@icon.CalendarDays(icon.Props{Class: "size-3"})
+			}
 		<span>{ label }</span>
 		<span class="text-[10px] font-semibold uppercase tracking-wide opacity-75">{ serviceStateLabel(enabled) }</span>
 		</div>
@@ -2183,6 +2186,13 @@ func accountContactSyncStatusDescription(account models.Account) string {
 		return "Not used for contacts."
 	}
 	return "Contacts not configured."
+}
+
+func accountCalendarSyncStatusDescription(account models.Account) string {
+	if account.CalendarSyncEnabled {
+		return "Shows events from the selected provider calendars."
+	}
+	return "Calendar not configured."
 }
 
 func accountProviderName(provider string) string {
@@ -2735,7 +2745,7 @@ templ AddAccountDialog() {
 					Add Account
 				}
 				@dialog.Description() {
-					Connect mail first, then optionally add contact sync.
+					Connect mail first, then optionally configure contacts and calendar.
 				}
 			}
 			@selectbox.Script()
@@ -3663,7 +3673,7 @@ templ AddAccountDialog() {
 
 						<div class="w-1/5 shrink-0 px-1" data-wizard-step="3">
 							<div class="account-wizard-panel">
-								<div id="add-step-3-content" data-wizard-service-content="contacts" hx-on::after-swap="syncAddContactStep(); maybeGoAddContacts()"></div>
+								<div id="add-step-3-content" hx-on::after-swap="syncAddContactStep(); maybeGoAddContacts()"></div>
 							</div>
 						</div>
 						<div class="w-1/5 shrink-0 px-1" data-wizard-step="4">
@@ -3689,7 +3699,8 @@ templ AccountWizardAddSidebar() {
 		</div>
 		@AccountWizardEmailSection("wizardGo", "", true, true, false)
 		@AccountWizardTopStep("wizardGo", 3, "2", "Contacts", "Optional sync", true, true, "", "contacts", true, false, templ.Attributes{"data-add-contact-sync-switch": ""})
-		@AccountWizardTopStep("wizardGo", 4, "3", "Finish", "Test results", true, false, "", "", false, false, nil)
+		@AccountWizardTopStep("wizardGo", 3, "3", "Calendar", "Provider access", false, true, "", "calendar", false, true, nil)
+		@AccountWizardTopStep("wizardGo", 4, "4", "Finish", "Test results", true, false, "", "", false, false, nil)
 	</aside>
 }
 
@@ -3705,7 +3716,8 @@ templ AccountWizardEditSidebar(data models.EditAccountData) {
 			@AccountWizardEmailSection("editWizardGo", data.AccountID, data.EmailSyncEnabled, false, true)
 		}
 		@AccountWizardTopStep("editWizardGo", 3, "2", "Contacts", "Optional sync", false, true, data.AccountID, "contacts", data.ContactSync.Enabled, false, nil)
-		@AccountWizardTopStep("editWizardGo", 4, "3", "Finish", "Test results", false, false, "", "", false, false, nil)
+		@AccountWizardTopStep("editWizardGo", 3, "3", "Calendar", "Provider access", false, true, data.AccountID, "calendar", data.CalendarSync.Enabled, data.CalendarSync.SourceCount == 0, nil)
+		@AccountWizardTopStep("editWizardGo", 4, "4", "Finish", "Test results", false, false, "", "", false, false, nil)
 	</aside>
 }
 
@@ -3906,7 +3918,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 					Edit Account
 				}
 				@dialog.Description() {
-					Update mail settings and optional contact sync.
+					Update mail settings and optional contacts and calendar services.
 				}
 			}
 			<script>
@@ -4170,8 +4182,13 @@ templ EditAccountDialog(data models.EditAccountData) {
 
 						<div class="w-1/5 shrink-0 px-1" data-wizard-step="3">
 							<div class="account-wizard-panel">
-							<div class="account-wizard-scroll" data-wizard-service-content="contacts">
-								@ContactSyncSettings(data)
+							<div class="account-wizard-scroll space-y-5">
+								<div data-wizard-service-content="contacts">
+									@ContactSyncSettings(data)
+								</div>
+								<div data-wizard-service-content="calendar">
+									@CalendarSyncSettings(data)
+								</div>
 							</div>
 						<div class="account-wizard-controls flex justify-between gap-2">
 								<button type="button" onclick="editWizardGo(2)" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-md border border-border hover:bg-accent">
@@ -4355,6 +4372,71 @@ templ ContactSyncSettings(data models.EditAccountData) {
 	</div>
 }
 
+templ CalendarSyncSettings(data models.EditAccountData) {
+	<div class="space-y-3">
+		<div class="account-wizard-sticky-header flex items-start justify-between gap-4">
+			<div class="min-w-0">
+				<h4 class="flex items-center gap-2 text-sm font-semibold text-foreground">
+					@icon.CalendarDays(icon.Props{Class: "size-4 text-muted-foreground"})
+					Calendar sync
+				</h4>
+				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Choose whether this account contributes calendars to Gofer.</p>
+			</div>
+			if data.CalendarSync.Enabled {
+				<span class="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Enabled</span>
+			} else if data.CalendarSync.SourceCount > 0 {
+				<span class="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Not selected</span>
+			} else {
+				<span class="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Not configured</span>
+			}
+		</div>
+		if data.CalendarSync.SourceCount > 0 {
+			<div class="rounded-lg border border-border bg-background/50 p-4">
+				<div class="flex items-start gap-3">
+					<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
+						@icon.CalendarDays(icon.Props{Class: "size-4"})
+					</div>
+					<div class="min-w-0">
+						<p class="text-xs font-semibold text-foreground">{ fmt.Sprintf("%d calendar sources discovered", data.CalendarSync.SourceCount) }</p>
+						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Use the Calendar switch in the setup sections to include or exclude this account from the Calendar view.</p>
+					</div>
+				</div>
+			</div>
+		} else {
+			<div class="rounded-lg border border-border bg-background/50 p-4">
+				<div class="flex items-start gap-3">
+					<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
+						@icon.LockKeyhole(icon.Props{Class: "size-4"})
+					</div>
+					<div class="min-w-0">
+						<p class="text-xs font-semibold text-foreground">Calendar access is not configured</p>
+						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Connect provider calendar access and discover at least one calendar before this account can appear in the Calendar view.</p>
+					</div>
+					<span class="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Next</span>
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ CalendarSetupNotice() {
+	<div data-wizard-service-content="calendar" class="rounded-lg border border-border bg-background/45 p-4">
+		<div class="flex items-start justify-between gap-4">
+			<div class="flex min-w-0 items-start gap-3">
+				<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
+					@icon.CalendarDays(icon.Props{Class: "size-4"})
+				</div>
+				<div class="min-w-0">
+					<h4 class="text-sm font-semibold text-foreground">Calendar sync</h4>
+					<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Calendar access and source discovery will be configured here for Google and Microsoft accounts.</p>
+				</div>
+			</div>
+			<span class="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Next</span>
+		</div>
+		<p class="mt-3 border-t border-border/60 pt-3 text-[11px] leading-relaxed text-muted-foreground">This account will not appear in Calendar until a calendar source has been connected and selected.</p>
+	</div>
+}
+
 func contactSyncPasswordPlaceholder(cfg models.ContactSyncConfig) string {
 	if cfg.HasPassword {
 		return "Leave blank to keep current"
@@ -4468,6 +4550,7 @@ templ AddAccountPostCreateStep(accountID string) {
 	</div>
 	<div class="flex h-full flex-col pt-1">
 		<div class="account-wizard-scroll space-y-5">
+		<div data-wizard-service-content="contacts" class="space-y-5">
 		<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
 			@icon.BookUser(icon.Props{Class: "size-4 text-muted-foreground"})
 			Contact sync
@@ -4523,6 +4606,8 @@ templ AddAccountPostCreateStep(accountID string) {
 				@CardDAVManualAddressBookButton(fmt.Sprintf("add-contact-sync-fields-%s", accountID), "")
 			</div>
 		</form>
+		</div>
+		@CalendarSetupNotice()
 		</div>
 		<div class="account-wizard-controls flex flex-wrap justify-between gap-2">
 			<button type="button" onclick="wizardGo(2)" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">

@@ -311,6 +311,38 @@ func TestGetAccountByIDIgnoresDeletingAccount(t *testing.T) {
 	}
 }
 
+func TestCalendarSyncConfigTracksSelectedSources(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('calendar-account', 'default', 'gmail', 'calendar@example.com');
+		INSERT INTO calendar_sources (id, user_id, account_id, provider, remote_id, name)
+		VALUES ('calendar-source', 'default', 'calendar-account', 'gmail', 'primary', 'Primary')`); err != nil {
+		t.Fatalf("insert calendar source: %v", err)
+	}
+
+	cfg, err := store.GetCalendarSyncConfig(ctx, "default", "calendar-account")
+	if err != nil {
+		t.Fatalf("GetCalendarSyncConfig() error = %v", err)
+	}
+	if !cfg.Enabled || cfg.SourceCount != 1 || cfg.SelectedSourceCount != 1 {
+		t.Fatalf("calendar config = %#v, want one selected source", cfg)
+	}
+
+	if err := store.SetCalendarSyncEnabled(ctx, "default", "calendar-account", false); err != nil {
+		t.Fatalf("SetCalendarSyncEnabled(false) error = %v", err)
+	}
+	cfg, err = store.GetCalendarSyncConfig(ctx, "default", "calendar-account")
+	if err != nil {
+		t.Fatalf("GetCalendarSyncConfig() after disable error = %v", err)
+	}
+	if cfg.Enabled || cfg.SourceCount != 1 || cfg.SelectedSourceCount != 0 {
+		t.Fatalf("calendar config after disable = %#v, want no selected sources", cfg)
+	}
+}
+
 func TestGetAccountByIDForUserScopesByUserAndDeletingState(t *testing.T) {
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)

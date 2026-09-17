@@ -44,6 +44,7 @@ type EditAccountData struct {
 	Signatures        []Signature
 	SignatureSettings AccountSignatureSettings
 	ContactSync       ContactSyncConfig
+	CalendarSync      CalendarSyncConfig
 }
 
 type CreateAccountRequest struct {

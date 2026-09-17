@@ -415,6 +415,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /mail/thread/{threadId}/subitems", h.handleThreadSubItems)
 	mux.HandleFunc("GET /contacts", h.handleContacts)
 	mux.HandleFunc("GET /contacts/items", h.handleContactItems)
+	mux.HandleFunc("GET /calendar", h.handleCalendar)
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("GET /api/contacts/export", h.handleExportContacts)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)
@@ -2620,6 +2621,11 @@ func (h *Handler) handleUpdateAccountService(w http.ResponseWriter, r *http.Requ
 					log.Printf("contacts sync %s after service enable: %v", accountID, err)
 				}
 			}()
+		}
+	case "calendar":
+		if err := h.accountStore.SetCalendarSyncEnabled(ctx, userID, accountID, enabled); err != nil {
+			http.Error(w, "could not update calendar sync", http.StatusInternalServerError)
+			return
 		}
 	default:
 		http.Error(w, "unknown service", http.StatusBadRequest)

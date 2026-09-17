@@ -4376,7 +4376,12 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
-		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
+		        CASE WHEN EXISTS (
+		            SELECT 1 FROM calendar_sources cs
+		            WHERE cs.account_id = a.id AND cs.user_id = a.user_id
+		              AND cs.is_deleted = 0 AND cs.is_selected = 1
+		        ) THEN 1 ELSE 0 END AS calendar_sync_enabled
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
@@ -4389,13 +4394,14 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		var isDeleting, emailSyncEnabled, contactSyncEnabled int
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider); err != nil {
+		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.IsDeleting = isDeleting == 1
 		a.EmailSyncEnabled = emailSyncEnabled == 1
 		a.ContactSyncEnabled = contactSyncEnabled == 1
+		a.CalendarSyncEnabled = calendarSyncEnabled == 1
 		accounts = append(accounts, a)
 	}
 
@@ -4419,7 +4425,12 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
-		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider
+		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
+		        CASE WHEN EXISTS (
+		            SELECT 1 FROM calendar_sources cs
+		            WHERE cs.account_id = a.id AND cs.user_id = a.user_id
+		              AND cs.is_deleted = 0 AND cs.is_selected = 1
+		        ) THEN 1 ELSE 0 END AS calendar_sync_enabled
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ?
@@ -4432,13 +4443,14 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		var isDeleting, emailSyncEnabled, contactSyncEnabled int
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider); err != nil {
+		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.IsDeleting = isDeleting == 1
 		a.EmailSyncEnabled = emailSyncEnabled == 1
 		a.ContactSyncEnabled = contactSyncEnabled == 1
+		a.CalendarSyncEnabled = calendarSyncEnabled == 1
 		accounts = append(accounts, a)
 	}
 

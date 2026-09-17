@@ -567,6 +567,32 @@ func TestAccountDialogsOfferOnlyExplicitMailTransportModes(t *testing.T) {
 	}
 }
 
+func TestAccountDialogsIncludeCalendarServiceSection(t *testing.T) {
+	var addOut bytes.Buffer
+	if err := AddAccountDialog().Render(context.Background(), &addOut); err != nil {
+		t.Fatalf("AddAccountDialog.Render() error = %v", err)
+	}
+	for _, want := range []string{"Calendar", "Provider access", `data-wizard-service-switch="calendar"`} {
+		if !strings.Contains(addOut.String(), want) {
+			t.Fatalf("add account dialog missing Calendar service marker %q: %s", want, addOut.String())
+		}
+	}
+
+	var editOut bytes.Buffer
+	if err := EditAccountDialog(models.EditAccountData{
+		AccountID:    "calendar-account",
+		Provider:     "outlook",
+		EmailAddress: "calendar@outlook.com",
+	}).Render(context.Background(), &editOut); err != nil {
+		t.Fatalf("EditAccountDialog.Render() error = %v", err)
+	}
+	for _, want := range []string{"Calendar sync", "Calendar access is not configured", `data-wizard-service-switch="calendar"`} {
+		if !strings.Contains(editOut.String(), want) {
+			t.Fatalf("edit account dialog missing Calendar marker %q: %s", want, editOut.String())
+		}
+	}
+}
+
 func TestAccountDiscoveryRequiresExplicitCandidateSelection(t *testing.T) {
 	var out bytes.Buffer
 	if err := AddAccountDialog().Render(context.Background(), &out); err != nil {

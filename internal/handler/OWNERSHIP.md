@@ -55,6 +55,8 @@ constrain every private lookup or mutation to that user:
   `/api/remote-assets/*`.
 - Contacts: `/contacts*`, `/api/contacts*`, contact import/export, contact sync
   setup/confirmation, provider sync, suppression, and observed-contact cleanup.
+- Calendar: `/calendar*` is rendered from the authenticated user's settings and
+  account list; future event/source lookups must remain user-scoped.
 - Accounts: account discovery/creation/edit/service/color/test/deletion,
   account contact settings, signatures, and `/api/mail/sync*`.
 - Account OAuth: `/api/accounts/oauth2/authorize`,

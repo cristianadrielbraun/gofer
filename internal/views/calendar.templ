@@ -1,0 +1,253 @@
+package views
+
+import (
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/toast"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
+	<!DOCTYPE html>
+	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Calendar — Gofer</title>
+			@AppIcon()
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+			<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+			@SavedPanelSizeStyle()
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+			@dialog.Script()
+			@dropdown.Script()
+			@popover.Script()
+			@toast.Script()
+			@AppSidebarResponsiveStyle()
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
+			@CalendarShell(accounts, month, uiSettings)
+			<div id="app-pane-dialogs"></div>
+			@ComposeDialog(accounts)
+			@ChooseAccountTypeDialog()
+			@GmailAccountDialog()
+			@OutlookAccountDialog()
+			@AddAccountDialog()
+			<div id="edit-account-container"></div>
+			<script src="/assets/js/htmx.min.js"></script>
+			<script src="/assets/js/app.js"></script>
+			<script src="/assets/js/settings.js"></script>
+			<script src="/assets/js/ui-settings.js"></script>
+			<script src="/assets/js/resize.js"></script>
+		</body>
+	</html>
+}
+
+templ CalendarShell(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
+	<div id="app-shell" class="flex h-screen overflow-hidden">
+		@CalendarSidebar(accounts, uiSettingGet(uiSettings, "sidebar_width", "256px"))
+		@ResizeHandle("sidebar")
+		@CalendarPage(month, uiSettings)
+	</div>
+}
+
+templ CalendarSidebar(accounts []models.Account, width string) {
+	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
+		@SidebarHeader(accounts, "calendar")
+		@CalendarSidebarBody(accounts)
+		@SidebarFooter()
+	</aside>
+}
+
+templ CalendarSidebarBody(accounts []models.Account) {
+	{{ configuredAccounts := calendarConfiguredAccounts(accounts) }}
+	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="calendar">
+		<div class="px-4 pb-4">
+			<button type="button" disabled class="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sm font-semibold text-sidebar-foreground/45 shadow-sm disabled:cursor-not-allowed" title="Event creation will be added after calendar sync">
+				@icon.CalendarPlus(icon.Props{Class: "size-4"})
+				<span>New event</span>
+				<span class="rounded-full border border-sidebar-border/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-sidebar-foreground/45">Soon</span>
+			</button>
+		</div>
+		<hr class="divider-etched mx-4"/>
+		<nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-3 pb-3">
+			<div class="px-2.5 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-sidebar-foreground/45">My calendars</div>
+			<a
+				href="/calendar"
+				hx-get="/calendar"
+				hx-target="#calendar-main"
+				hx-select="#calendar-main"
+				hx-swap="outerHTML"
+				hx-push-url="/calendar"
+				class="flex w-full items-center gap-2.5 rounded-md bg-sidebar-accent px-2.5 py-2 text-[13px] font-medium text-sidebar-primary transition-colors"
+				aria-current="page"
+			>
+				<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-primary">
+					@icon.CalendarDays(icon.Props{Class: "size-4"})
+				</span>
+				<span class="min-w-0 flex-1 truncate">All calendars</span>
+			</a>
+			<div class="mt-5 px-2.5 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-sidebar-foreground/45">Connected accounts</div>
+			if len(configuredAccounts) == 0 {
+				<div class="rounded-md border border-sidebar-border/60 bg-sidebar-accent/20 px-2.5 py-3 text-[11px] leading-relaxed text-sidebar-foreground/55">
+					<p>No calendar accounts configured yet.</p>
+					<a href="/settings/accounts" class="mt-2 inline-flex items-center gap-1.5 font-semibold text-sidebar-primary hover:text-sidebar-accent-foreground">
+						Open account setup
+						@icon.ChevronRight(icon.Props{Class: "size-3"})
+					</a>
+				</div>
+			} else {
+				for _, account := range configuredAccounts {
+					<div class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-sidebar-foreground/70">
+						<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
+						<div class="min-w-0 flex-1">
+							<div class="truncate font-medium">{ calendarAccountDisplayName(account) }</div>
+							<div class="truncate text-[11px] text-sidebar-foreground/50">{ calendarAccountProviderLabel(account) } account</div>
+						</div>
+						<span class="shrink-0 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Connected</span>
+					</div>
+				}
+			}
+			<div class="mt-auto pt-5">
+				<div class="rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 p-3">
+					<div class="flex items-center gap-2 text-xs font-semibold text-sidebar-accent-foreground">
+						@icon.Cloud(icon.Props{Class: "size-3.5 text-sidebar-primary"})
+						Calendar sync
+					</div>
+					<p class="mt-1.5 text-[11px] leading-relaxed text-sidebar-foreground/55">Use account setup to choose which connected calendars appear here.</p>
+				</div>
+			</div>
+		</nav>
+	</div>
+}
+
+templ CalendarPage(month CalendarMonthData, uiSettings map[string]string) {
+	<div id="main-content" class="flex flex-1 min-w-0 bg-background">
+		@CalendarMainPane(month, uiSettings)
+		@ResizeHandle("maillist")
+		@CalendarAgendaPane(month)
+	</div>
+}
+
+templ CalendarMainPane(month CalendarMonthData, uiSettings map[string]string) {
+	<section id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full min-w-0 overflow-hidden" style={ "width:" + mailListWidthCSS(uiSettingGet(uiSettings, "mail_list_width", "50%")) }>
+		@CalendarMainContent(month)
+	</section>
+}
+
+templ CalendarMainContent(month CalendarMonthData) {
+	<div id="calendar-main" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+		<header class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
+			<div class="flex min-w-0 items-center gap-3">
+				<div class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary shadow-sm">
+					@icon.CalendarDays(icon.Props{Class: "size-5"})
+				</div>
+				<div class="min-w-0">
+					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Calendar</p>
+					<h1 class="truncate text-xl font-bold tracking-tight" style="font-family: var(--font-serif)">{ month.MonthLabel }</h1>
+				</div>
+			</div>
+			<div class="flex items-center gap-1.5">
+				<a href={ calendarMonthURL(month.TodayMonthKey) } hx-get={ calendarMonthURL(month.TodayMonthKey) } hx-target="#calendar-main" hx-select="#calendar-main" hx-swap="outerHTML" hx-push-url={ calendarMonthURL(month.TodayMonthKey) } class="inline-flex h-8 items-center rounded-md border border-border bg-background px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-accent">Today</a>
+				<div class="inline-flex items-center rounded-md border border-border bg-background shadow-sm">
+					<a href={ calendarMonthURL(month.PreviousMonthKey) } hx-get={ calendarMonthURL(month.PreviousMonthKey) } hx-target="#calendar-main" hx-select="#calendar-main" hx-swap="outerHTML" hx-push-url={ calendarMonthURL(month.PreviousMonthKey) } class="inline-flex size-8 items-center justify-center rounded-l-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Previous month">
+						@icon.ChevronLeft(icon.Props{Class: "size-4"})
+					</a>
+					<a href={ calendarMonthURL(month.NextMonthKey) } hx-get={ calendarMonthURL(month.NextMonthKey) } hx-target="#calendar-main" hx-select="#calendar-main" hx-swap="outerHTML" hx-push-url={ calendarMonthURL(month.NextMonthKey) } class="inline-flex size-8 items-center justify-center rounded-r-md border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Next month">
+						@icon.ChevronRight(icon.Props{Class: "size-4"})
+					</a>
+				</div>
+				<button type="button" disabled class="hidden h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-semibold text-muted-foreground/55 shadow-sm sm:inline-flex" title="Additional calendar views are planned">
+					@icon.LayoutGrid(icon.Props{Class: "size-3.5"})
+					Month
+				</button>
+			</div>
+		</header>
+		<div class="min-h-0 flex-1 overflow-auto p-3 sm:p-5">
+			<div class="overflow-hidden rounded-xl border border-border bg-background shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+				<div class="grid grid-cols-7 border-b border-border bg-muted/35">
+					for index := 0; index < 7; index++ {
+						<div class="px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]">{ calendarWeekdayLabel(index) }</div>
+					}
+				</div>
+				<div class="grid min-h-[32rem] grid-cols-7 lg:aspect-[7/5] lg:min-h-0">
+					for _, week := range month.Weeks {
+						for _, day := range week.Days {
+							<div class={ calendarDayClass(day) } data-calendar-day={ day.ISODate } aria-label={ calendarDayLabel(day) }>
+								<div class="flex items-start justify-between gap-1">
+									<span class={ calendarDayNumberClass(day) }>{ day.DayNumber }</span>
+									if day.IsToday {
+										<span class="hidden rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary sm:inline-flex">Today</span>
+									}
+								</div>
+							</div>
+						}
+					}
+				</div>
+			</div>
+			<div class="flex flex-wrap items-center justify-between gap-2 px-1 pt-3 text-[11px] text-muted-foreground">
+				<span class="inline-flex items-center gap-1.5"><span class="size-2 rounded-full bg-primary"></span>Today</span>
+				<span class="inline-flex items-center gap-1.5"><span class="size-1 rounded-full bg-muted-foreground/50"></span>Month view is ready for synced events</span>
+			</div>
+		</div>
+	</div>
+}
+
+templ CalendarAgendaPane(month CalendarMonthData) {
+	<section id="mail-view" class="hidden flex-1 min-w-0 bg-background surface-desk lg:flex lg:flex-col">
+		<div class="flex min-h-0 flex-1 flex-col">
+			<header class="border-b border-border px-5 py-4">
+				<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Agenda</p>
+				<div class="mt-1 flex items-center justify-between gap-3">
+					<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Upcoming</h2>
+					<span class="rounded-full border border-border bg-muted/50 px-2 py-1 text-[10px] font-semibold text-muted-foreground">{ month.MonthLabel }</span>
+				</div>
+			</header>
+			<div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-5">
+				<div class="w-full max-w-sm rounded-2xl border border-dashed border-border bg-card/70 px-6 py-8 text-center shadow-sm">
+					<div class="mx-auto flex size-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
+						@icon.CalendarPlus(icon.Props{Class: "size-6"})
+					</div>
+					<h3 class="mt-4 text-base font-bold tracking-tight">No events cached yet</h3>
+					<p class="mt-2 text-sm leading-relaxed text-muted-foreground">Connect a Google or Microsoft calendar and your upcoming events will appear here.</p>
+					<div class="mt-5 grid gap-2 text-left">
+						<div class="flex items-center gap-2 rounded-lg border border-border/70 bg-background px-3 py-2 text-xs">
+							<span class="size-2 rounded-full bg-[#4285f4]"></span>
+							<span class="font-semibold">Google Calendar</span>
+							<span class="ml-auto text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Soon</span>
+						</div>
+						<div class="flex items-center gap-2 rounded-lg border border-border/70 bg-background px-3 py-2 text-xs">
+							<span class="size-2 rounded-full bg-[#2563eb]"></span>
+							<span class="font-semibold">Microsoft Calendar</span>
+							<span class="ml-auto text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Soon</span>
+						</div>
+					</div>
+				</div>
+			</div>
+			<footer class="border-t border-border px-5 py-4">
+				<div class="flex items-center gap-2 text-xs font-semibold text-foreground">
+					<span class="size-2 rounded-full bg-emerald-500"></span>
+					Ready for calendar connections
+				</div>
+				<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Calendar connections will populate this agenda. Event creation will follow after read-only sync.</p>
+			</footer>
+		</div>
+	</section>
+}
+
+templ CalendarAppPartial(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
+	@CalendarMainPane(month, uiSettings)
+	@CalendarSidebarBody(accounts)
+	<div id="sidebar-sync-controls">
+		@SidebarSyncControls(accounts, "calendar")
+	</div>
+	@CalendarAgendaPane(month)
+	<div id="app-pane-dialogs"></div>
+}
+
+templ CalendarMainPartial(month CalendarMonthData) {
+	@CalendarMainContent(month)
+}

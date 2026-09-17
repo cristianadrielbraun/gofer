@@ -16,6 +16,7 @@ type Account struct {
 	EmailSyncErrorAt    string
 	ContactSyncEnabled  bool
 	ContactSyncProvider string
+	CalendarSyncEnabled bool
 	ContactAddressBooks []ContactAddressBook
 	Folders             []Folder
 	Labels              []Label
@@ -115,6 +116,18 @@ type ContactSyncConfig struct {
 	LastError      string
 	LastSuccessAt  string
 	UpdatedAt      string
+}
+
+// CalendarSyncConfig describes the local Calendar source selection for one
+// mailbox account. Provider authorization and discovery create the sources;
+// this configuration controls whether selected sources appear in Calendar.
+type CalendarSyncConfig struct {
+	AccountID           string
+	UserID              string
+	Provider            string
+	Enabled             bool
+	SourceCount         int
+	SelectedSourceCount int
 }
 
 type ContactAddressBook struct {
