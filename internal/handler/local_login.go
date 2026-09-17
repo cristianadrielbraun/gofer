@@ -237,7 +237,7 @@ func (h *Handler) renderTypedLoginPage(w http.ResponseWriter, r *http.Request, u
 func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status int, message, identifier string) {
 	var page bytes.Buffer
 	if err := views.LoginPage(
-		h.auth.HasGoogleLogin(), h.auth.HasMicrosoftLogin(), h.auth.OIDCLoginName(), message, identifier,
+		h.auth.HasGoogleLogin(), h.auth.HasMicrosoftLogin(), h.auth.OIDCLoginName(), message, identifier, h.auth.IsPersonal(),
 	).Render(r.Context(), &page); err != nil {
 		log.Printf("render login page: %v", err)
 		http.Error(w, "failed to render sign-in page", http.StatusInternalServerError)

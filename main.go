@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -22,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/joho/godotenv"
@@ -65,6 +65,9 @@ func runServer() {
 		log.Fatalf("invalid HTTP configuration: %v", err)
 	}
 	authConfig := auth.LoadConfig(httpConfig.BaseURL)
+	if err := authConfig.ValidateMode(); err != nil {
+		log.Fatalf("invalid authentication configuration: %v", err)
+	}
 	authConfig.SecureCookies = httpConfig.SecureCookies()
 	mailboxOAuthConfig := mailauth.LoadConfig(httpConfig.BaseURL, authConfig.Enabled)
 	if err := httpConfig.ValidateExposure(authConfig.Enabled); err != nil {
@@ -108,8 +111,12 @@ func runServer() {
 	log.Printf("boot: blob store initialized")
 
 	authManager := auth.NewManager(authConfig, db, auth.Dependencies{BucketHashKey: secretKey})
-	log.Printf("boot: auth manager initialized (enabled=%t)", authConfig.Enabled)
-	if err := provisionInitialSetupToken(context.Background(), authManager, authConfig.SetupToken, os.Stderr); err != nil {
+	if err := authManager.ValidateRuntimeMode(context.Background()); err != nil {
+		log.Fatalf("incompatible authentication mode: %v", err)
+	}
+	log.Printf("boot: authentication mode=%s", authConfig.AuthenticationMode())
+	var setupNotice bytes.Buffer
+	if err := provisionInitialSetupToken(context.Background(), authManager, authConfig.SetupToken, &setupNotice); err != nil {
 		log.Fatalf("failed to provision authentication setup token: %v", err)
 	}
 	mailCredentials := mailauth.New(mailboxOAuthConfig, db, secretKey)
@@ -174,6 +181,7 @@ func runServer() {
 	var handler http.Handler = mux
 	handler = authManager.Middleware(handler)
 	handler = httpConfig.Middleware(handler)
+	handler = httpConfig.ClientNetworkMiddleware(authConfig.Enabled, handler)
 
 	fmt.Printf("Gofer running on %s\n", httpConfig.BaseURL)
 	fmt.Printf("listening on %s\n", httpConfig.ListenAddr)
@@ -193,29 +201,47 @@ func runServer() {
 		if len(providers) > 0 {
 			appLogin = strings.Join(providers, ", ")
 		}
-		fmt.Printf("auth: enabled (application login: %s)\n", appLogin)
+		fmt.Printf("auth: %s (application login: %s)\n", authConfig.AuthenticationMode(), appLogin)
 	} else {
 		fmt.Printf("auth: disabled (local mode)\n")
+	}
+	// Emit the entire notice together after startup details, rather than burying
+	// its one-time secret among initialization messages.
+	if _, err := setupNotice.WriteTo(os.Stderr); err != nil {
+		log.Fatalf("failed to display setup notice: %v", err)
 	}
 	log.Fatal(http.ListenAndServe(httpConfig.ListenAddr, handler))
 }
 
 func provisionInitialSetupToken(ctx context.Context, manager *auth.Manager, configuredToken string, console io.Writer) error {
+	if !manager.IsEnabled() {
+		return nil
+	}
 	provision, err := manager.EnsureSetupToken(ctx, configuredToken)
 	if err != nil {
 		return err
 	}
-	if !provision.Created || provision.Configured {
+	if provision.State.Initialized {
 		return nil
 	}
-	if provision.Token == "" || provision.State.TokenExpiresAt == nil {
-		return fmt.Errorf("generated setup token is incomplete")
+	var notice strings.Builder
+	fmt.Fprintf(&notice, "\n────────────────────────────────────────────────────────────\n %s SETUP REQUIRED\n\n Open: %s/setup\n", strings.ToUpper(string(manager.Config().AuthenticationMode())), strings.TrimRight(manager.Config().BaseURL, "/"))
+	if provision.Created && !provision.Configured {
+		if provision.Token == "" || provision.State.TokenExpiresAt == nil {
+			return fmt.Errorf("generated setup token is incomplete")
+		}
+		fmt.Fprintf(&notice, "\n Token (shown once):\n setup_token: %s\n", provision.Token)
+	} else if provision.Configured {
+		notice.WriteString("\n Use the token you supplied in GOFER_SETUP_TOKEN.\n")
+	} else {
+		notice.WriteString("\n The setup token was issued earlier and cannot be displayed again.\n")
 	}
-	if _, err := fmt.Fprintf(console,
-		"Authentication setup token (shown once; expires %s):\nsetup_token: %s\nKeep this token private. If it is lost before setup completes, rotate it with the local auth command.\n",
-		provision.State.TokenExpiresAt.UTC().Format(time.RFC3339), provision.Token,
-	); err != nil {
-		return fmt.Errorf("write generated setup token to local console: %w", err)
+	if provision.State.TokenExpiresAt != nil {
+		fmt.Fprintf(&notice, " Expires: %s (server local time)\n", provision.State.TokenExpiresAt.Local().Format("2006-01-02 15:04:05 MST (UTC-07:00)"))
+	}
+	notice.WriteString("\n Lost or expired token? Stop Gofer, then run:\n ./gofer auth setup-token rotate\n Use the same GOFER_DB_PATH, then restart Gofer.\n────────────────────────────────────────────────────────────\n\n")
+	if _, err := io.WriteString(console, notice.String()); err != nil {
+		return fmt.Errorf("write setup notice to local console: %w", err)
 	}
 	return nil
 }

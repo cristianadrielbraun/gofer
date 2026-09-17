@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -497,6 +498,7 @@ func TestOutlookGraphInlineContentMaterializesProviderAttachment(t *testing.T) {
 
 	h := &Handler{db: db, mailboxAuth: manager, blobStore: store.NewBlobStore(filepath.Join(t.TempDir(), "blobs"))}
 	req := httptest.NewRequest(http.MethodGet, "/api/inline-content/"+strconv.FormatInt(msgID, 10)+"/logo@example.com", nil)
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))
 	req.SetPathValue("messageID", strconv.FormatInt(msgID, 10))
 	req.SetPathValue("contentID", "logo@example.com")
 	rr := httptest.NewRecorder()

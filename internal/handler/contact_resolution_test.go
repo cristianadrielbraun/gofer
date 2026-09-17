@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -56,7 +57,7 @@ func TestSyncContactNowQueuesOperationAndPublishesLiveStatus(t *testing.T) {
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
 
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"})))
 
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusAccepted, rec.Body.String())
@@ -207,7 +208,7 @@ func TestUnifyContactCreatesGoferManagedFields(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/contacts/"+profile.ID+"/unify", nil)
 	rec := httptest.NewRecorder()
 
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"})))
 
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -260,7 +261,7 @@ func TestUnifyContactJSONRequestsDetailRefresh(t *testing.T) {
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
 
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"})))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)

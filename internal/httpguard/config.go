@@ -3,6 +3,7 @@ package httpguard
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -26,6 +27,8 @@ type Config struct {
 	ListenAddr                 string
 	BaseURL                    string
 	AllowUnauthenticatedRemote bool
+	allowedCIDRs               []netip.Prefix
+	trustedProxyCIDRs          []netip.Prefix
 
 	baseOrigin     requestOrigin
 	listenLoopback bool
@@ -42,7 +45,23 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
-	return newConfig(listenAddr, baseURL, allowRemote)
+	cfg, err := newConfig(listenAddr, baseURL, allowRemote)
+	if err != nil {
+		return nil, err
+	}
+	cfg.allowedCIDRs, err = parseCIDRs("GOFER_ALLOWED_CIDRS", os.Getenv("GOFER_ALLOWED_CIDRS"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.trustedProxyCIDRs, err = parseCIDRs("GOFER_TRUSTED_PROXY_CIDRS", os.Getenv("GOFER_TRUSTED_PROXY_CIDRS"))
+	if err != nil {
+		return nil, err
+	}
+	// A scoped allowlist takes precedence over the old unrestricted override.
+	if len(cfg.allowedCIDRs) > 0 {
+		cfg.AllowUnauthenticatedRemote = false
+	}
+	return cfg, nil
 }
 
 func newConfig(listenAddr, baseURL string, allowUnauthenticatedRemote bool) (*Config, error) {
@@ -82,9 +101,9 @@ func newConfig(listenAddr, baseURL string, allowUnauthenticatedRemote bool) (*Co
 }
 
 func (c *Config) ValidateExposure(authEnabled bool) error {
-	if !authEnabled && c.hasRemoteExposure() && !c.AllowUnauthenticatedRemote {
+	if !authEnabled && c.hasRemoteExposure() && !c.AllowUnauthenticatedRemote && len(c.allowedCIDRs) == 0 {
 		return fmt.Errorf(
-			"refusing unauthenticated remote exposure: GOFER_ADDR=%q and GOFER_BASE_URL=%q are only allowed when authentication is enabled or GOFER_ALLOW_UNAUTHENTICATED_REMOTE=true is explicitly set",
+			"refusing unauthenticated remote exposure: GOFER_ADDR=%q and GOFER_BASE_URL=%q are only allowed when authentication is enabled or GOFER_ALLOWED_CIDRS explicitly allows client networks",
 			c.ListenAddr,
 			c.BaseURL,
 		)

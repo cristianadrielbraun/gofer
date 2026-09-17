@@ -478,6 +478,10 @@ func (h *Handler) handleSetupReviewAccessError(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
+	if h.auth.IsPersonal() {
+		h.handlePersonalSetup(w, r)
+		return
+	}
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read protected setup state: %v", err)
@@ -515,6 +519,10 @@ func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request) {
+	if h.auth.IsPersonal() {
+		h.handlePersonalSetup(w, r)
+		return
+	}
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup owner submission state: %v", err)

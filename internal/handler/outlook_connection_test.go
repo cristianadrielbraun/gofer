@@ -80,6 +80,7 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 	h := New(db, store, nil, nil, auth.NewManager(&auth.Config{}, db), "", manager)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/acc/test", nil)
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))
 	req.SetPathValue("id", "acc")
 	rec := httptest.NewRecorder()
 	h.handleTestAccount(rec, req)

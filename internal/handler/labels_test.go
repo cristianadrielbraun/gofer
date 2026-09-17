@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -55,6 +56,7 @@ func TestLabelActionFallsBackToLocalLabelWhenRemoteApplyFails(t *testing.T) {
 	h := &Handler{db: db, syncer: mail.NewSyncOrchestrator(db, nil, nil, nil)}
 	body := `{"targets":[{"id":"` + strings.TrimSpace(strconv.FormatInt(msgID, 10)) + `"}],"folder_id":"acc_inbox","label":"Invoices"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/messages/label", strings.NewReader(body))
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))
 	rec := httptest.NewRecorder()
 
 	h.handleLabelMessages(rec, req)
@@ -78,6 +80,7 @@ func TestLabelActionFallsBackToLocalLabelWhenRemoteApplyFails(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/messages/unlabel", strings.NewReader(body))
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))
 	rec = httptest.NewRecorder()
 
 	h.handleUnlabelMessages(rec, req)

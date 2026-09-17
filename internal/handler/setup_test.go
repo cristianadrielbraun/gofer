@@ -1490,3 +1490,59 @@ func TestSetupTokenIsIgnoredInQueryString(t *testing.T) {
 		t.Fatalf("query-string setup GET = %d %q", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestPersonalSetupUsesTokenAndSingleProfileWithoutAdminRoutes(t *testing.T) {
+	manager, _, stack, token := setupEntryStack(t)
+	manager.Config().Mode = auth.ModePersonal
+	get := func(path string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		stack.ServeHTTP(rec, req)
+		return rec
+	}
+	if r := get("/login", nil); r.Code != http.StatusSeeOther || r.Header().Get("Location") != "/setup" {
+		t.Fatalf("uninitialized login: %d", r.Code)
+	}
+	start := postSetup(stack, token)
+	var setupCookie *http.Cookie
+	for _, cookie := range start.Result().Cookies() {
+		if cookie.Name == "gofer_pre_auth" && cookie.Value != "" {
+			setupCookie = cookie
+		}
+	}
+	if setupCookie == nil {
+		t.Fatalf("setup start: %d %s", start.Code, start.Body.String())
+	}
+	if page := get("/setup/owner", setupCookie); page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Protect your personal Gofer") || strings.Contains(page.Body.String(), "Create Management") {
+		t.Fatalf("personal setup: %d %s", page.Code, page.Body.String())
+	}
+	form := url.Values{"name": {"Personal User"}, "username": {"person"}, "password": {"correct horse battery staple 874!"}, "password_confirmation": {"correct horse battery staple 874!"}}
+	completed := postSetupOwner(stack, setupCookie, form)
+	var sessionCookie *http.Cookie
+	for _, cookie := range completed.Result().Cookies() {
+		if cookie.Name == "gofer_session" && cookie.Value != "" {
+			sessionCookie = cookie
+		}
+	}
+	if completed.Code != http.StatusSeeOther || sessionCookie == nil || completed.Header().Get("Location") != "/settings/security" {
+		t.Fatalf("completion: %d %s", completed.Code, completed.Body.String())
+	}
+	if page := get("/settings/security", sessionCookie); page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Add passkey") || !strings.Contains(page.Body.String(), "TOTP") {
+		t.Fatalf("personal security: %d %s", page.Code, page.Body.String())
+	}
+	for _, path := range []string{"/admin", "/admin/users", "/admin/account/security", "/api/admin/users", "/account/enroll", "/account/enroll/google", "/account/recover", "/setup/owner", "/setup/mfa"} {
+		if rec := get(path, sessionCookie); rec.Code != http.StatusNotFound {
+			t.Fatalf("unavailable route %s = %d", path, rec.Code)
+		}
+	}
+	if page := get("/login", nil); page.Code != http.StatusOK || strings.Contains(page.Body.String(), "Have an invitation?") || strings.Contains(page.Body.String(), `href="/account/recover"`) {
+		t.Fatalf("personal login: %d %s", page.Code, page.Body.String())
+	}
+	login, err := manager.AuthenticatePassword(t.Context(), auth.PasswordLoginOptions{Identifier: "person", Password: form.Get("password"), RequiredUserType: auth.UserTypeWebmail, Source: "127.0.0.1"})
+	if err != nil || login.Session == nil || login.Session.UserID != "default" || login.PreAuthChallenge != nil {
+		t.Fatalf("personal password login %#v %v", login, err)
+	}
+}

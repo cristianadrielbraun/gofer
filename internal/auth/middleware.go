@@ -10,6 +10,26 @@ import (
 func (m *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		if m.IsPersonal() {
+			if path == "/admin" || strings.HasPrefix(path, "/admin/") || strings.HasPrefix(path, "/api/admin/") || path == "/account/enroll" || strings.HasPrefix(path, "/account/enroll/") || path == "/account/recover" || (strings.HasPrefix(path, "/setup/") && path != "/setup/owner") {
+				http.NotFound(w, r)
+				return
+			}
+			state, err := m.SetupState(r.Context())
+			if err != nil {
+				http.Error(w, "Unable to read setup state", http.StatusServiceUnavailable)
+				return
+			}
+			if !state.Initialized && path != "/setup" && path != "/setup/owner" && !strings.HasPrefix(path, "/assets/") {
+				w.Header().Set("Cache-Control", "no-store")
+				if r.Method == http.MethodGet && !strings.HasPrefix(path, "/api/") {
+					http.Redirect(w, r, "/setup", http.StatusSeeOther)
+				} else {
+					http.Error(w, "Personal setup required", http.StatusForbidden)
+				}
+				return
+			}
+		}
 		if path == "/setup" || path == "/setup/owner" || path == "/setup/password" || path == "/setup/mfa" || path == "/setup/recovery" || path == "/setup/review" {
 			next.ServeHTTP(w, r)
 			return

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -94,7 +95,7 @@ func TestSavingNewlyEnabledContactStagesSetupBeforeSync(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"})))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -119,7 +120,7 @@ func TestSavingNewlyEnabledContactStagesSetupBeforeSync(t *testing.T) {
 	confirm := httptest.NewRequest(http.MethodPost, "/api/contacts/"+response.ContactID+"/sync-setup/confirm", strings.NewReader(""))
 	confirm.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	confirmRec := httptest.NewRecorder()
-	mux.ServeHTTP(confirmRec, confirm)
+	mux.ServeHTTP(confirmRec, confirm.WithContext(auth.ContextWithUser(confirm.Context(), &auth.User{ID: "default"})))
 	if confirmRec.Code != http.StatusOK {
 		t.Fatalf("confirm status = %d: %s", confirmRec.Code, confirmRec.Body.String())
 	}

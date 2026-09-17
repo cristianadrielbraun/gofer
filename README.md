@@ -158,6 +158,43 @@ http://local.localhost:8090/auth/oidc/callback
 
 The Google, Microsoft, and generic OpenID Connect login callbacks are needed only for their optional application-login clients. Gmail and Outlook mailbox setup use only the provider-specific `mailbox/callback` URLs. Register the generic callback only with the identity provider configured by `GOFER_OIDC_LOGIN_ISSUER`.
 
+## personal authentication
+
+Set `GOFER_AUTH_MODE=personal` for one password-protected profile with multiple mailboxes and no user administration. `open` keeps the no-login profile; `managed` uses separate management administrators and webmail users. When the new setting is absent, `GOFER_AUTH_ENABLED=false` means open and `true` means managed. An explicit `GOFER_AUTH_MODE` takes precedence; unknown modes stop startup.
+
+On first start, Gofer prints a private, short-lived setup token once. Open `/setup` at your configured `GOFER_BASE_URL`, enter the token, and choose your name, sign-in username and password. Setup signs you into Security, where you can optionally add a TOTP authenticator app or a passkey. Once a factor is enrolled, sign-in requires it using the existing MFA rules. Setup never reopens after completion.
+
+A fresh database or an existing open-mode `default` profile is supported. Existing mailboxes and settings keep the same owner. Gofer refuses to select a personal profile from a managed or multi-user database; switching a completed personal database to managed mode is not currently supported. Back up your data before changing modes.
+
+If the setup token expires or is lost, stop Gofer and run `./gofer auth setup-token rotate`, then restart in personal mode. Existing CLI locking and one-time token handling apply. If you lose your password, stop Gofer and run `./gofer auth recover --user default --confirm default`, restart, and redeem the returned token at `/account/redeem`. This resets the password and revokes sessions; it does not remove enrolled MFA. Saved recovery codes remain the recovery path for a lost authenticator.
+
+Personal mode uses the same canonical URL, cookie and HTTPS rules as managed authentication. Client-network restrictions can be applied to every mode as described below.
+
+## client network allowances
+
+`GOFER_ALLOWED_CIDRS` restricts which client networks can reach Gofer in **all three authentication modes**. It does not replace authentication: personal/managed clients must pass both the network restriction and sign-in.
+
+- Unset or empty: open mode permits only loopback clients and refuses a remote listener/canonical URL without an explicit allowance. Personal and managed modes accept any client network, subject to authentication and existing HTTPS rules.
+- A nonempty, comma-separated CIDR list replaces the defaults. Include loopback explicitly if you want local access too. Invalid CIDRs stop startup.
+- `0.0.0.0/0` allows all IPv4 clients; `::/0` allows all IPv6 clients. Both are needed to allow both families. In open mode, allowed clients receive full access to the local mail profile without a password.
+
+Example: open mode reachable on a home LAN (replace the server address and subnet):
+
+```sh
+GOFER_AUTH_MODE=open
+GOFER_ADDR=0.0.0.0:8090
+GOFER_BASE_URL=http://192.168.0.10:8090
+GOFER_ALLOWED_CIDRS=127.0.0.0/8,::1/128,192.168.0.0/24
+```
+
+`GOFER_ADDR` controls the listener, `GOFER_BASE_URL` controls the accepted canonical Host/origin, and `GOFER_ALLOWED_CIDRS` controls client source addresses. Allowing a client subnet does not make arbitrary Host or Origin headers trusted. For personal/managed access through a non-loopback canonical URL, use HTTPS.
+
+Without proxy configuration, the source is the TCP peer. If Gofer sits behind a reverse proxy, that is the proxy's address, not the browser's. To filter original clients, set `GOFER_TRUSTED_PROXY_CIDRS` to the actual proxy peer IPs (prefer `/32` or `/128`). Configure the proxy to overwrite or safely append the actual client address in `X-Forwarded-For`; Gofer walks the chain from right to left through trusted proxies and checks the first untrusted address. Missing, malformed or oversized forwarded chains from a trusted proxy are denied. Forwarded headers from other peers cannot override their socket address. Do not trust client networks as proxies or set the trusted-proxy list to unrestricted ranges.
+
+These proxy settings are used for network admission only; they do not change canonical Host/origin validation. Ensure the proxy passes the configured canonical Host. `Forwarded` and `X-Real-IP` are not used for this allowlist.
+
+For compatibility, `GOFER_ALLOW_UNAUTHENTICATED_REMOTE=true` still means unrestricted open-mode access when no CIDR list is supplied. A nonempty `GOFER_ALLOWED_CIDRS` takes precedence over that legacy flag. Prefer the explicit list for new configurations.
+
 ## configuration
 
 Runtime data lives in `data/` by default. That includes the SQLite DB, cached emails, attachments, and the local secret key used for encrypted account passwords.
@@ -173,8 +210,9 @@ GOFER_SECRET_KEY=64_hex_chars_if_you_want_to_provide_your_own_key
 GOFER_SETUP_TOKEN=optional_first_run_secret_of_at_least_32_bytes
 GOFER_ADDR=127.0.0.1:8090
 GOFER_BASE_URL=http://local.localhost:8090
-GOFER_ALLOW_UNAUTHENTICATED_REMOTE=false
-GOFER_AUTH_ENABLED=false
+GOFER_ALLOWED_CIDRS= # optional restriction in every mode
+GOFER_TRUSTED_PROXY_CIDRS= # optional exact proxy networks
+GOFER_AUTH_MODE=open # open, personal, or managed
 GOFER_GOOGLE_LOGIN_CLIENT_ID=optional_identity_only_google_login
 GOFER_GOOGLE_LOGIN_CLIENT_SECRET=optional_identity_only_google_login
 GOFER_MICROSOFT_LOGIN_CLIENT_ID=optional_identity_only_microsoft_login
@@ -259,7 +297,7 @@ Session revocation requires the same exact-ID confirmation and exclusive databas
 
 Gofer stores mail, cached blobs, account credentials, OAuth tokens, and runtime state locally. The practical security model is simple and very glamorous: run it on a trusted local machine, keep `data/` private, keep OAuth client secrets out of git, and avoid exposing the app directly to the public Internet.
 
-The default HTTP listener is `127.0.0.1:8090`. Gofer refuses to start with authentication disabled when either the listener or canonical base URL is non-loopback. A trusted network or container setup can bypass that check with `GOFER_ALLOW_UNAUTHENTICATED_REMOTE=true`, but anyone who can reach the resulting service can control the application.
+The default HTTP listener is `127.0.0.1:8090`. Open mode requires an explicit `GOFER_ALLOWED_CIDRS` list for a non-loopback listener or canonical URL. Allowed clients can control the application without signing in. The legacy unrestricted override remains supported only when no list is configured; see client network allowances above.
 
 `GOFER_BASE_URL` is the canonical browser origin and OAuth callback origin. Unsafe browser requests and the event stream are accepted only from that origin (plus exact loopback aliases in local mode), and requests with an unexpected Host are rejected. For remote authenticated access, use an HTTPS base URL and terminate TLS at a reverse proxy that preserves the original Host header.
 

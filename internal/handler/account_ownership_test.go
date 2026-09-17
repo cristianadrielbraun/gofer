@@ -401,3 +401,28 @@ func TestVisibleMailListSelectionDoesNotInspectForeignMessage(t *testing.T) {
 		t.Fatalf("visibleMailListSelectionID() = %q, want opaque foreign selection ID", got)
 	}
 }
+
+func TestMissingUserContextAbortsBeforeAccountLookup(t *testing.T) {
+	for _, user := range []*auth.User{nil, {ID: ""}, {ID: " "}} {
+		t.Run("missing identity", func(t *testing.T) {
+			// A nil account store also proves no lookup happens before the abort.
+			h := &Handler{}
+			defer func() {
+				if got := recover(); got != http.ErrAbortHandler {
+					t.Fatalf("abort = %v, want http.ErrAbortHandler", got)
+				}
+			}()
+			_, _ = h.ownedAccount(auth.ContextWithUser(context.Background(), user), "private-account")
+			t.Fatal("missing identity reached account lookup")
+		})
+	}
+}
+
+func TestHandlerUsesOnlyExplicitUserIdentity(t *testing.T) {
+	h := &Handler{}
+	for _, id := range []string{"default", "webmail-user", "management-user"} {
+		if got := h.userID(auth.ContextWithUser(context.Background(), &auth.User{ID: id})); got != id {
+			t.Fatalf("identity = %q, want %q", got, id)
+		}
+	}
+}

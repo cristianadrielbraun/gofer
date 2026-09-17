@@ -29,6 +29,9 @@ type SetupCompletionResult struct {
 // event, and first authenticated session as one security transition. The raw
 // session token is returned only after the transaction commits.
 func (m *Manager) CompleteSetup(ctx context.Context, options CompleteSetupOptions) (*SetupCompletionResult, error) {
+	if m.IsPersonal() {
+		return nil, ErrSetupAccessInvalid
+	}
 	canonicalOrigin, err := canonicalAuthOrigin(options.Origin)
 	if err != nil || strings.TrimSpace(options.Token) == "" {
 		return nil, ErrSetupAccessInvalid

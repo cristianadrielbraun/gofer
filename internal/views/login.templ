@@ -25,7 +25,7 @@ type RecoveryRepairCodesData struct {
 type MFAEnrollmentData = RecoveryRepairMFAData
 type MFAEnrollmentCodesData = RecoveryRepairCodesData
 
-templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage string, identifier string) {
+templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage string, identifier string, personal ...bool) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark" data-theme="classic">
 		<head>
@@ -70,7 +70,9 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 						<div class="space-y-2">
 							<div class="flex items-center justify-between gap-3">
 								<label for="login-password" class="text-sm font-medium">Password</label>
-								<a href="/account/recover" class="text-xs font-semibold text-primary hover:underline hover:underline-offset-2">Forgot password?</a>
+								if len(personal) == 0 || !personal[0] {
+<a href="/account/recover" class="text-xs font-semibold text-primary hover:underline hover:underline-offset-2">Forgot password?</a>
+}
 							</div>
 							<input
 								id="login-password"
@@ -153,10 +155,14 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 							}
 						</div>
 					}
-					<p class="mt-6 text-center text-sm text-muted-foreground">
+					if len(personal) > 0 && personal[0] {
+ <p class="mt-6 text-center text-sm text-muted-foreground">Lost access? Use the local Gofer recovery command to reset your password.</p>
+} else {
+<p class="mt-6 text-center text-sm text-muted-foreground">
 						Have an invitation?
 						<a href="/account/enroll" class="font-semibold text-primary hover:underline hover:underline-offset-2">Set up your account</a>
 					</p>
+}
 				</div>
 			</div>
 			<script src="/assets/js/passkey-authentication.js"></script>

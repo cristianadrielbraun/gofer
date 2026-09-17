@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"path/filepath"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestEffectiveIDLEFolderStatusKeepsConfiguredModeSeparateFromFallback(t *tes
 }
 
 func TestBuildSyncSettingsUsesRemoteFolderPaths(t *testing.T) {
-	ctx := context.Background()
+	ctx := auth.ContextWithUser(context.Background(), &auth.User{ID: "default"})
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
 		t.Fatalf("storage.New() error = %v", err)

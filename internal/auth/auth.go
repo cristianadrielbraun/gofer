@@ -209,6 +209,7 @@ func ContextWithSession(ctx context.Context, session *Session) context.Context {
 }
 
 type Config struct {
+	Mode                 Mode
 	Enabled              bool
 	SetupToken           string
 	GoogleLoginClient    *oauth2.Config
@@ -230,8 +231,13 @@ func LoadConfig(baseURL string) *Config {
 
 	cfg := &Config{
 		Enabled:    enabled,
+		Mode:       Mode(strings.ToLower(strings.TrimSpace(os.Getenv("GOFER_AUTH_MODE")))),
 		SetupToken: os.Getenv("GOFER_SETUP_TOKEN"),
 		BaseURL:    baseURL,
+	}
+
+	if cfg.Mode != "" {
+		cfg.Enabled = cfg.Mode != ModeOpen
 	}
 
 	clientID := strings.TrimSpace(os.Getenv("GOFER_GOOGLE_LOGIN_CLIENT_ID"))
@@ -306,6 +312,9 @@ type Manager struct {
 }
 
 func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *Manager {
+	if config.Mode != "" {
+		config.Enabled = config.Mode != ModeOpen
+	}
 	deps := Dependencies{Clock: systemClock{}, Tokens: secureTokenGenerator{}}
 	if len(dependencies) > 0 {
 		if dependencies[0].Clock != nil {

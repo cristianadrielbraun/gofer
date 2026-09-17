@@ -244,10 +244,14 @@ func (h *Handler) CleanupPendingUserDeletions(ctx context.Context) {
 
 func (h *Handler) userID(ctx context.Context) string {
 	u := auth.GetCurrentUser(ctx)
-	if u != nil {
-		return u.ID
+	if u == nil || strings.TrimSpace(u.ID) == "" {
+		// Authentication middleware supplies an explicit identity in both local
+		// and managed mode. Continuing without one could turn an ownership query
+		// into an unscoped operation. Abort before calling any storage/service code.
+		log.Print("private handler reached without a user identity")
+		panic(http.ErrAbortHandler)
 	}
-	return "default"
+	return u.ID
 }
 
 func (h *Handler) ownedAccount(ctx context.Context, accountID string) (*models.Account, error) {

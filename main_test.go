@@ -100,20 +100,20 @@ func TestProvisionInitialSetupTokenPrintsGeneratedSecretOnlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
 
 	var console bytes.Buffer
 	if err := provisionInitialSetupToken(t.Context(), manager, "", &console); err != nil {
 		t.Fatal(err)
 	}
 	output := console.String()
-	if !strings.Contains(output, "shown once") || !strings.Contains(output, "expires ") || !strings.Contains(output, "setup_token: ") || strings.Contains(output, "http") {
+	if !strings.Contains(output, "shown once") || !strings.Contains(output, "Expires: ") || !strings.Contains(output, "setup_token: ") || !strings.Contains(output, "Open: https://gofer.example/setup") || !strings.Contains(output, "server local time") {
 		t.Fatalf("initial setup console output = %q", output)
 	}
 	var rawToken string
 	for _, line := range strings.Split(output, "\n") {
-		if strings.HasPrefix(line, "setup_token: ") {
-			rawToken = strings.TrimPrefix(line, "setup_token: ")
+		if strings.HasPrefix(strings.TrimSpace(line), "setup_token: ") {
+			rawToken = strings.TrimPrefix(strings.TrimSpace(line), "setup_token: ")
 		}
 	}
 	if rawToken == "" || strings.Count(output, rawToken) != 1 {
@@ -131,8 +131,22 @@ func TestProvisionInitialSetupTokenPrintsGeneratedSecretOnlyOnce(t *testing.T) {
 	if err := provisionInitialSetupToken(t.Context(), manager, "", &console); err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(console.String(), rawToken) || strings.Contains(console.String(), "setup_token:") || !strings.Contains(console.String(), "auth setup-token rotate") {
+		t.Fatalf("incorrect restart notice: %q", console.String())
+	}
+	if _, err := db.Write().Exec(`UPDATE auth_system_state SET initialized = 1 WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	console.Reset()
+	if err := provisionInitialSetupToken(t.Context(), manager, "", &console); err != nil {
+		t.Fatal(err)
+	}
 	if console.Len() != 0 {
-		t.Fatalf("restart reprinted setup token: %q", console.String())
+		t.Fatal("completed setup still displayed a setup notice")
+	}
+	manager.Config().Enabled = false
+	if err := provisionInitialSetupToken(t.Context(), manager, "", &console); err != nil || console.Len() != 0 {
+		t.Fatal("open mode displayed setup notice")
 	}
 }
 
@@ -143,14 +157,14 @@ func TestProvisionInitialSetupTokenDoesNotEchoOperatorSuppliedSecret(t *testing.
 		t.Fatal(err)
 	}
 	defer db.Close()
-	manager := auth.NewManager(&auth.Config{Enabled: true}, db)
+	manager := auth.NewManager(&auth.Config{Enabled: true, BaseURL: "https://gofer.example"}, db)
 	configuredToken := strings.Repeat("operator-supplied-secret-", 2)
 
 	var console bytes.Buffer
 	if err := provisionInitialSetupToken(t.Context(), manager, configuredToken, &console); err != nil {
 		t.Fatal(err)
 	}
-	if console.Len() != 0 || strings.Contains(console.String(), configuredToken) {
+	if strings.Contains(console.String(), configuredToken) || !strings.Contains(console.String(), "GOFER_SETUP_TOKEN") {
 		t.Fatalf("operator-supplied setup token was echoed: %q", console.String())
 	}
 }

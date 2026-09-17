@@ -98,6 +98,9 @@ func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicy
 }
 
 func (m *Manager) loadAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
+	if err := m.requirePersonalProfile(ctx, queryer, userID); err != nil {
+		return authenticationPolicy{}, err
+	}
 	policy, err := queryAuthenticationPolicy(ctx, queryer, userID, expectedAuthVersion)
 	if err != nil {
 		return authenticationPolicy{}, err
