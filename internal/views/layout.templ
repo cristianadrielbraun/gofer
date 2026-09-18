@@ -92,10 +92,9 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 						track.style.transform = 'translateX(0)';
 						if (typeof _editWizStep !== 'undefined') _editWizStep = 0;
 
-						document.querySelectorAll('#edit-account-dialog [data-account-wizard-step]').forEach(function(item) {
-							item.dataset.active = String(+item.dataset.accountWizardStep === 0);
-							if (+item.dataset.accountWizardStep === 4) item.disabled = true;
-						});
+                document.querySelectorAll('#edit-account-dialog [data-account-wizard-step]').forEach(function(item) {
+                    item.dataset.active = String(+item.dataset.accountWizardStep === 0);
+                });
 					});
 				}
 
@@ -211,10 +210,9 @@ templ SettingsRuntime(accounts []models.Account) {
 				track.style.transform = 'translateX(0)';
 				if (typeof _editWizStep !== 'undefined') _editWizStep = 0;
 
-				document.querySelectorAll('#edit-account-dialog [data-account-wizard-step]').forEach(function(item) {
-					item.dataset.active = String(+item.dataset.accountWizardStep === 0);
-					if (+item.dataset.accountWizardStep === 4) item.disabled = true;
-				});
+            document.querySelectorAll('#edit-account-dialog [data-account-wizard-step]').forEach(function(item) {
+                item.dataset.active = String(+item.dataset.accountWizardStep === 0);
+            });
 			});
 		}
 

@@ -114,6 +114,43 @@ func TestGmailRefreshUsesEncryptedMigratedCredential(t *testing.T) {
 	}
 }
 
+func TestGoogleCalendarTokenRequiresCalendarScope(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO users (id, username, username_normalized, name)
+		VALUES ('default', 'default', 'default', 'Default');
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('gmail-account', 'default', 'gmail', 'google-subject', 'person@gmail.com');`); err != nil {
+		t.Fatalf("insert Gmail account: %v", err)
+	}
+
+	manager := New(&Config{GoogleClient: &oauth2.Config{}}, db, testMailboxCredentialKey)
+	expiresAt := time.Now().Add(time.Hour)
+	if err := manager.UpsertOAuthAccount(ctx, "gmail-account", providers.OAuthGoogle, "google-subject", "gmail-token", "refresh-token", "Bearer", &expiresAt, "https://mail.google.com/"); err != nil {
+		t.Fatalf("UpsertOAuthAccount() error = %v", err)
+	}
+
+	if token, err := manager.GetGoogleCalendarTokenForAccount(ctx, "gmail-account"); err == nil || token != "" || !strings.Contains(err.Error(), "reconnect Google") {
+		t.Fatalf("GetGoogleCalendarTokenForAccount() = %q, %v; want reconnect guidance", token, err)
+	}
+
+	if err := manager.UpsertOAuthAccount(ctx, "gmail-account", providers.OAuthGoogle, "google-subject", "calendar-token", "refresh-token", "Bearer", &expiresAt, GoogleCalendarReadOnlyScope); err != nil {
+		t.Fatalf("UpsertOAuthAccount(calendar scope) error = %v", err)
+	}
+	token, err := manager.GetGoogleCalendarTokenForAccount(ctx, "gmail-account")
+	if err != nil {
+		t.Fatalf("GetGoogleCalendarTokenForAccount(calendar scope) error = %v", err)
+	}
+	if token != "calendar-token" {
+		t.Fatalf("Google Calendar token = %q, want cached token", token)
+	}
+}
+
 func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))

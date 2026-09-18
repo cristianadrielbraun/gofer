@@ -435,6 +435,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/services", h.handleUpdateAccountService)
 	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
+	mux.HandleFunc("POST /api/accounts/{id}/calendar/discover", h.handleDiscoverAccountCalendars)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/test", h.handleTestAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/discover", h.handleDiscoverAccountContactSync)
@@ -2555,7 +2556,8 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		SmtpPassword: r.FormValue("smtp_password"),
 	}
 
-	if strings.EqualFold(strings.TrimSpace(req.Provider), providers.ProviderOutlook) {
+	if strings.EqualFold(strings.TrimSpace(req.Provider), providers.ProviderGmail) ||
+		strings.EqualFold(strings.TrimSpace(req.Provider), providers.ProviderOutlook) {
 		if strings.TrimSpace(req.EmailAddress) == "" {
 			w.Header().Set("Content-Type", "text/html")
 			views.AccountFormError("Email address is required").Render(r.Context(), w)
@@ -6361,6 +6363,13 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		defer cancel()
 		if _, err := h.SyncContactAccount(bg, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
 			log.Printf("contacts sync %s after gmail connect: %v", accountID, err)
+		}
+	}()
+	go func() {
+		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := h.discoverGoogleCalendarSources(bg, userID, accountID, token.AccessToken); err != nil {
+			log.Printf("calendar discovery %s after gmail connect: %v", accountID, err)
 		}
 	}()
 

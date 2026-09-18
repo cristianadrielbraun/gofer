@@ -15,6 +15,7 @@ func googleAccountScopes() []string {
 		"profile",
 		"https://mail.google.com/",
 		"https://www.googleapis.com/auth/contacts",
+		GoogleCalendarReadOnlyScope,
 	}
 }
 

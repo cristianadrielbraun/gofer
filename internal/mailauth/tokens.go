@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	GoogleCalendarReadOnlyScope        = "https://www.googleapis.com/auth/calendar.readonly"
 	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
 	microsoftGraphMailScope            = "https://graph.microsoft.com/Mail.ReadWrite"
 	microsoftGraphMailSendScope        = "https://graph.microsoft.com/Mail.Send"
@@ -84,6 +85,27 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 		return m.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	}
 	return m.getOAuthTokenForAccount(ctx, accountID, oauthProvider)
+}
+
+// GetGoogleCalendarTokenForAccount returns a Google mailbox token only when
+// the account was authorized for the read-only Calendar API scope. Existing
+// mailbox grants must be reconnected once before Calendar discovery can use
+// them.
+func (m *Manager) GetGoogleCalendarTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	record, err := m.oauthTokenForAccount(ctx, accountID, providers.OAuthGoogle)
+	if err != nil {
+		return "", err
+	}
+	if !recordHasScopes(record.Scopes, GoogleCalendarReadOnlyScope) {
+		return "", fmt.Errorf("Google Calendar access is not authorized for account %s; reconnect Google to grant Calendar access", accountID)
+	}
+	if record.AccessToken != "" && record.ExpiresAt.Valid && record.ExpiresAt.Time.After(time.Now().Add(5*time.Minute)) {
+		return record.AccessToken, nil
+	}
+	if record.RefreshToken == "" {
+		return "", fmt.Errorf("no refresh token available for account %s", accountID)
+	}
+	return m.refreshToken(ctx, providers.OAuthGoogle, record.ID, record.RefreshToken)
 }
 
 func (m *Manager) RefreshOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
@@ -376,6 +398,18 @@ func (m *Manager) storeOAuthAccessToken(ctx context.Context, oauthAccountID stri
 	credential, err := m.loadOAuthCredentialContext(ctx, m.db.Read(), oauthAccountID)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(scopes) == "" {
+		var existingScopes string
+		err := m.db.Read().QueryRowContext(ctx,
+			`SELECT scopes FROM oauth_accounts WHERE id = ? AND account_id = ?`, oauthAccountID, credential.AccountID,
+		).Scan(&existingScopes)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("load mailbox OAuth scopes: %w", err)
+		}
+		if err == nil {
+			scopes = existingScopes
+		}
 	}
 	accessCiphertext, err := m.encryptOAuthToken(credential, "access", token.AccessToken)
 	if err != nil {

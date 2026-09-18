@@ -87,6 +87,111 @@ function handleAccountTestResult(event) {
   }, finishDelay)
 }
 
+function _settingsEventElement(event) {
+  return (event && event.detail && event.detail.elt) || (event && event.currentTarget) || (event && event.target)
+}
+
+function _editAccountSubmitButtons() {
+  return document.querySelectorAll("#edit-account-dialog [data-account-edit-submit-button]")
+}
+
+function _setEditAccountSubmitBusy(busy) {
+  _editAccountSubmitButtons().forEach(function (button) {
+    button.disabled = !!busy
+    button.setAttribute("aria-busy", busy ? "true" : "false")
+    button.classList.toggle("cursor-wait", !!busy)
+    var label = button.querySelector("[data-account-edit-submit-label]")
+    var spinner = button.querySelector("[data-account-edit-submit-spinner]")
+    if (label && busy) label.textContent = "Saving..."
+    if (spinner) spinner.classList.toggle("hidden", !busy)
+  })
+}
+
+function handleEditAccountSaveStart(event) {
+  var form = _settingsEventElement(event)
+  if (!form || form.id !== "edit-account-form") return
+  _setEditAccountSubmitBusy(true)
+}
+
+function handleEditAccountSaveResult(event) {
+  var form = _settingsEventElement(event)
+  if (!form || form.id !== "edit-account-form") return
+  var xhr = event && event.detail && event.detail.xhr
+  var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
+	if (ok) {
+		_setEditAccountSubmitBusy(false)
+		_editAccountSubmitButtons().forEach(function (button) {
+			var label = button.querySelector("[data-account-edit-submit-label]")
+			if (label) label.textContent = "Next"
+		})
+		var pendingStep = typeof _editWizPendingStep !== "undefined" ? _editWizPendingStep : null
+		var nextStep = typeof pendingStep === "number" ? pendingStep : 5
+		if (typeof pendingStep !== "number" && typeof _editWizStep !== "undefined" && _editWizStep === 3) nextStep = 4
+		if (typeof _editWizPendingStep !== "undefined") _editWizPendingStep = null
+		if (typeof editWizardGo === "function") editWizardGo(nextStep, true)
+    return
+  }
+
+  _setEditAccountSubmitBusy(false)
+  _editAccountSubmitButtons().forEach(function (button) {
+    var label = button.querySelector("[data-account-edit-submit-label]")
+    if (label) label.textContent = "Try again"
+  })
+}
+
+function _calendarDiscoveryForm(event) {
+  var element = _settingsEventElement(event)
+  return element && element.closest ? element.closest("[data-calendar-discovery-form]") : null
+}
+
+function _setCalendarDiscoveryBusy(form, busy) {
+  if (!form) return
+  var button = form.querySelector("[data-calendar-discovery-submit]")
+  if (!button) return
+
+  var label = button.querySelector("[data-calendar-discovery-label]")
+  if (busy) {
+    var originalLabel = label ? label.textContent.trim() : ""
+    button.dataset.calendarDiscoveryOriginalLabel = originalLabel
+    if (label) label.textContent = originalLabel.indexOf("Discover") === 0 ? "Discovering..." : "Refreshing..."
+  } else if (label && button.dataset.calendarDiscoveryOriginalLabel) {
+    label.textContent = button.dataset.calendarDiscoveryOriginalLabel
+    delete button.dataset.calendarDiscoveryOriginalLabel
+  }
+
+  button.disabled = !!busy
+  button.setAttribute("aria-busy", busy ? "true" : "false")
+  button.classList.toggle("cursor-wait", !!busy)
+  var icon = button.querySelector("svg")
+  if (icon) icon.classList.toggle("animate-spin", !!busy)
+}
+
+function handleCalendarDiscoveryStart(event) {
+  var form = _calendarDiscoveryForm(event)
+  if (!form) return
+  _setCalendarDiscoveryBusy(form, true)
+}
+
+function handleCalendarDiscoveryResult(event) {
+  var form = _calendarDiscoveryForm(event)
+  if (!form) return
+  var xhr = event && event.detail && event.detail.xhr
+  var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
+  if (ok) return
+
+  _setCalendarDiscoveryBusy(form, false)
+}
+
+function toggleUnencryptedTransportWarning(input) {
+  if (!input || !input.closest) return
+  var field = input.closest(".select-container")
+  var warning = field && field.parentElement ? field.parentElement.querySelector("[data-unencrypted-transport-warning]") : null
+  if (!warning) return
+  var active = input.value === "plaintext"
+  warning.classList.toggle("hidden", !active)
+  warning.classList.toggle("inline-flex", active)
+}
+
 function normalizeAccountColorInput(color) {
   color = (color || "").trim()
   if (/^[0-9a-f]{6}$/i.test(color)) color = "#" + color
