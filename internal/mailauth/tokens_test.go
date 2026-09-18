@@ -219,6 +219,37 @@ func TestMicrosoftGraphContactsTokenUsesGraphScopeAndPreservesCachedAccessToken(
 	}
 }
 
+func TestMicrosoftGraphCalendarTokenUsesCalendarScopeAndPreservesCachedAccessToken(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("storage.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address)
+		VALUES ('acc', 'default', 'outlook', 'subject-id', 'person@outlook.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	manager := NewManager(&Config{MicrosoftClient: &oauth2.Config{}}, db, testMailboxCredentialKey)
+	expiresAt := time.Now().Add(time.Hour)
+	if err := manager.UpsertOAuthAccount(ctx, "acc", providers.OAuthMicrosoft, "subject-id", "cached-calendar-token", "refresh-token", "Bearer", &expiresAt, microsoftGraphCalendarScope); err != nil {
+		t.Fatalf("UpsertOAuthAccount() error = %v", err)
+	}
+
+	token, err := manager.GetMicrosoftGraphCalendarTokenForAccount(ctx, "acc")
+	if err != nil {
+		t.Fatalf("GetMicrosoftGraphCalendarTokenForAccount() error = %v", err)
+	}
+	if token != "cached-calendar-token" {
+		t.Fatalf("token = %q, want cached calendar token", token)
+	}
+}
+
 func TestMicrosoftGraphMailTokenUsesGraphMailSendAndMailboxSettingsScopesAndPreservesCachedAccessToken(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))

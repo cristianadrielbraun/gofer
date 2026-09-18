@@ -72,7 +72,7 @@ func TestMicrosoftAccountOAuthURLForcesConsentForContacts(t *testing.T) {
 	if got := values.Get("prompt"); got != "consent" {
 		t.Fatalf("prompt = %q, want consent", got)
 	}
-	for _, scope := range []string{microsoftGraphContactsScope, microsoftGraphMailScope, microsoftGraphMailSendScope, microsoftGraphMailboxSettingsScope} {
+	for _, scope := range []string{microsoftGraphContactsScope, microsoftGraphCalendarScope, microsoftGraphMailScope, microsoftGraphMailSendScope, microsoftGraphMailboxSettingsScope} {
 		if !strings.Contains(values.Get("scope"), scope) {
 			t.Fatalf("scope = %q, want Graph scope %q", values.Get("scope"), scope)
 		}

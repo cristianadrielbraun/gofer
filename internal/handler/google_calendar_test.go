@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -52,6 +53,56 @@ func TestDiscoverGoogleCalendarsPaginatesAndNormalizes(t *testing.T) {
 	}
 	if calendars[1].RemoteID != "team" || calendars[1].Name != "My Team" || calendars[1].Color != "#123456" {
 		t.Fatalf("team calendar = %#v", calendars[1])
+	}
+	if strings.Join(pageTokens, ",") != ",page-2" {
+		t.Fatalf("page tokens = %#v, want first page followed by page-2", pageTokens)
+	}
+}
+
+func TestListGoogleCalendarEventsPaginatesAndNormalizes(t *testing.T) {
+	var pageTokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/calendars/primary/events" {
+			t.Fatalf("path = %q, want calendar events endpoint", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer calendar-token" {
+			t.Fatalf("authorization = %q, want bearer token", r.Header.Get("Authorization"))
+		}
+		if r.URL.Query().Get("singleEvents") != "true" || r.URL.Query().Get("orderBy") != "startTime" {
+			t.Fatalf("event query = %v, want expanded chronological events", r.URL.Query())
+		}
+		pageTokens = append(pageTokens, r.URL.Query().Get("pageToken"))
+		w.Header().Set("Content-Type", "application/json")
+		if len(pageTokens) == 1 {
+			_, _ = fmt.Fprint(w, `{"items":[{"id":"timed","iCalUID":"timed@example.com","status":"confirmed","summary":"Planning","start":{"dateTime":"2026-09-03T09:00:00+02:00","timeZone":"Europe/Prague"},"end":{"dateTime":"2026-09-03T10:00:00+02:00","timeZone":"Europe/Prague"},"organizer":{"displayName":"Person","email":"person@example.com"},"nextSyncToken":"ignored-on-page"}],"nextPageToken":"page-2"}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"items":[{"id":"all-day","status":"confirmed","summary":"Holiday","start":{"date":"2026-09-04"},"end":{"date":"2026-09-05"}}],"nextSyncToken":"sync-2"}`)
+	}))
+	defer server.Close()
+
+	previousBase := googleCalendarAPIBaseURL
+	googleCalendarAPIBaseURL = server.URL
+	t.Cleanup(func() { googleCalendarAPIBaseURL = previousBase })
+
+	page, err := listGoogleCalendarEvents(t.Context(), "calendar-token", "primary", calendar.EventQuery{
+		WindowStart: time.Date(2026, time.September, 1, 0, 0, 0, 0, time.FixedZone("CEST", 2*60*60)),
+		WindowEnd:   time.Date(2026, time.October, 1, 0, 0, 0, 0, time.FixedZone("CEST", 2*60*60)),
+	})
+	if err != nil {
+		t.Fatalf("listGoogleCalendarEvents() error = %v", err)
+	}
+	if len(page.Events) != 2 || page.NextSyncCursor.Value != "sync-2" {
+		t.Fatalf("event page = %#v, want two events and final sync cursor", page)
+	}
+	if page.Events[0].StartAt == nil || page.Events[0].StartAt.Hour() != 7 || page.Events[0].EndAt == nil {
+		t.Fatalf("timed event normalization = %#v", page.Events[0])
+	}
+	if !page.Events[1].AllDay || page.Events[1].StartDate != "2026-09-04" || page.Events[1].EndDate != "2026-09-05" {
+		t.Fatalf("all-day event normalization = %#v", page.Events[1])
+	}
+	if page.Events[0].OrganizerEmail != "person@example.com" {
+		t.Fatalf("organizer normalization = %#v", page.Events[0])
 	}
 	if strings.Join(pageTokens, ",") != ",page-2" {
 		t.Fatalf("page tokens = %#v, want first page followed by page-2", pageTokens)

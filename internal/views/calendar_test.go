@@ -61,13 +61,38 @@ func TestCalendarMainRendersNavigationAndAgendaState(t *testing.T) {
 		`September 2026`,
 		`aria-label="Previous month"`,
 		`aria-label="Next month"`,
-		`No events cached yet`,
+		`No upcoming events`,
 		`Google Calendar`,
 		`Microsoft Calendar`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("calendar page missing %q: %s", expected, html)
 		}
+	}
+}
+
+func TestCalendarPageRendersTimedAndAllDayEvents(t *testing.T) {
+	location := time.FixedZone("CEST", 2*60*60)
+	start := time.Date(2026, time.September, 17, 9, 0, 0, 0, location)
+	end := start.Add(time.Hour)
+	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, location))
+	month.Events = []CalendarEvent{
+		{Summary: "Planning", SourceName: "Primary", SourceColor: "#4285f4", StartAt: &start, EndAt: &end},
+		{Summary: "Holiday", SourceName: "Primary", SourceColor: "#4285f4", AllDay: true, StartDate: "2026-09-18", EndDate: "2026-09-19"},
+	}
+	var output bytes.Buffer
+	if err := CalendarPage(month, map[string]string{"mail_list_width": "50%"}).Render(t.Context(), &output); err != nil {
+		t.Fatalf("CalendarPage.Render() error = %v", err)
+	}
+
+	html := output.String()
+	for _, expected := range []string{`Planning`, `09:00`, `Holiday`, `All day`, `Calendar synchronized`} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("calendar page missing rendered event content %q: %s", expected, html)
+		}
+	}
+	if strings.Contains(html, "border-l-2") || strings.Contains(html, "border-left-color") {
+		t.Fatalf("calendar events still render the colored left border: %s", html)
 	}
 }
 

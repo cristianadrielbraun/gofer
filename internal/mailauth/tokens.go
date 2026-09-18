@@ -19,6 +19,7 @@ import (
 const (
 	GoogleCalendarReadOnlyScope        = "https://www.googleapis.com/auth/calendar.readonly"
 	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
+	microsoftGraphCalendarScope        = "https://graph.microsoft.com/Calendars.Read"
 	microsoftGraphMailScope            = "https://graph.microsoft.com/Mail.ReadWrite"
 	microsoftGraphMailSendScope        = "https://graph.microsoft.com/Mail.Send"
 	microsoftGraphMailboxSettingsScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
@@ -129,6 +130,10 @@ func (m *Manager) RefreshOAuthTokenForAccount(ctx context.Context, accountID str
 
 func (m *Manager) GetMicrosoftGraphContactsTokenForAccount(ctx context.Context, accountID string) (string, error) {
 	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, "contacts", microsoftGraphContactsScope)
+}
+
+func (m *Manager) GetMicrosoftGraphCalendarTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, "calendar", microsoftGraphCalendarScope)
 }
 
 func (m *Manager) GetMicrosoftGraphMailTokenForAccount(ctx context.Context, accountID string) (string, error) {

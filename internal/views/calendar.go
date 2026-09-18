@@ -29,6 +29,23 @@ type CalendarMonthData struct {
 	NextMonthKey     string
 	TodayMonthKey    string
 	Weeks            []CalendarWeek
+	Events           []CalendarEvent
+	SyncMessage      string
+	SyncError        bool
+}
+
+type CalendarEvent struct {
+	ID          string
+	SourceName  string
+	SourceColor string
+	Summary     string
+	Location    string
+	Status      string
+	AllDay      bool
+	StartDate   string
+	EndDate     string
+	StartAt     *time.Time
+	EndAt       *time.Time
 }
 
 func NewCalendarMonthData(at time.Time) CalendarMonthData {
@@ -124,6 +141,139 @@ func calendarDayNumberClass(day CalendarDay) string {
 		return classes + " text-muted-foreground/45"
 	}
 	return classes + " text-foreground"
+}
+
+func calendarEventsForDay(day CalendarDay, events []CalendarEvent) []CalendarEvent {
+	dayStart := time.Date(day.Date.Year(), day.Date.Month(), day.Date.Day(), 0, 0, 0, 0, day.Date.Location())
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	var result []CalendarEvent
+	for _, event := range events {
+		if event.AllDay {
+			startDate := strings.TrimSpace(event.StartDate)
+			endDate := strings.TrimSpace(event.EndDate)
+			if startDate != "" && endDate != "" && startDate < dayEnd.Format("2006-01-02") && endDate > dayStart.Format("2006-01-02") {
+				result = append(result, event)
+			}
+			continue
+		}
+		if event.StartAt != nil && event.EndAt != nil && event.StartAt.Before(dayEnd.UTC()) && event.EndAt.After(dayStart.UTC()) {
+			result = append(result, event)
+		}
+	}
+	return result
+}
+
+func calendarAgendaEvents(month CalendarMonthData) []CalendarEvent {
+	now := time.Now().In(month.Month.Location())
+	var result []CalendarEvent
+	for _, event := range month.Events {
+		if event.AllDay {
+			if strings.TrimSpace(event.EndDate) != "" && strings.TrimSpace(event.EndDate) <= now.Format("2006-01-02") {
+				continue
+			}
+		} else if event.EndAt != nil && event.EndAt.Before(now.UTC()) {
+			continue
+		}
+		result = append(result, event)
+	}
+	if len(result) > 8 {
+		return result[:8]
+	}
+	return result
+}
+
+func calendarEventSummary(event CalendarEvent) string {
+	if summary := strings.TrimSpace(event.Summary); summary != "" {
+		return summary
+	}
+	return "Untitled event"
+}
+
+func calendarEventColorStyle(event CalendarEvent) string {
+	color := strings.TrimSpace(event.SourceColor)
+	if color == "" {
+		return "background-color: var(--primary);"
+	}
+	return "background-color: " + accountColorValue(color) + ";"
+}
+
+func calendarEventTimeLabel(event CalendarEvent, location *time.Location) string {
+	if event.AllDay {
+		return "All day"
+	}
+	if event.StartAt == nil {
+		return ""
+	}
+	return event.StartAt.In(location).Format("15:04")
+}
+
+func calendarEventAgendaDateLabel(event CalendarEvent, location *time.Location) string {
+	if event.AllDay {
+		if parsed, err := time.ParseInLocation("2006-01-02", event.StartDate, location); err == nil {
+			return parsed.Format("Mon, Jan 2")
+		}
+		return event.StartDate
+	}
+	if event.StartAt == nil {
+		return ""
+	}
+	return event.StartAt.In(location).Format("Mon, Jan 2")
+}
+
+func calendarEventAgendaTimeLabel(event CalendarEvent, location *time.Location) string {
+	if event.AllDay {
+		return "All day"
+	}
+	if event.StartAt == nil {
+		return ""
+	}
+	if event.EndAt == nil {
+		return event.StartAt.In(location).Format("15:04")
+	}
+	return event.StartAt.In(location).Format("15:04") + "–" + event.EndAt.In(location).Format("15:04")
+}
+
+func calendarEventMeta(event CalendarEvent) string {
+	source := strings.TrimSpace(event.SourceName)
+	location := strings.TrimSpace(event.Location)
+	if source == "" {
+		return location
+	}
+	if location == "" {
+		return source
+	}
+	return source + " · " + location
+}
+
+func calendarAgendaStatusClass(month CalendarMonthData) string {
+	if month.SyncError {
+		return "flex items-center gap-2 text-xs font-semibold text-destructive"
+	}
+	return "flex items-center gap-2 text-xs font-semibold text-foreground"
+}
+
+func calendarAgendaStatusDotClass(month CalendarMonthData) string {
+	if month.SyncError {
+		return "size-2 rounded-full bg-destructive"
+	}
+	return "size-2 rounded-full bg-emerald-500"
+}
+
+func calendarAgendaStatusLabel(month CalendarMonthData) string {
+	if month.SyncError {
+		return "Calendar sync needs attention"
+	}
+	if len(month.Events) > 0 {
+		return "Calendar synchronized"
+	}
+	return "Ready for calendar connections"
+}
+
+func calendarAgendaStatusDetail(month CalendarMonthData) string {
+	if month.SyncError {
+		return month.SyncMessage
+	}
+	return "Events are read-only for now. Event creation will follow after sync is stable."
 }
 
 func calendarAccountDisplayName(account models.Account) string {

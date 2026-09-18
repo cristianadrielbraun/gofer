@@ -617,9 +617,21 @@ func TestAccountDialogsIncludeCalendarServiceSection(t *testing.T) {
 	if strings.Contains(editCalendarButton, " disabled") {
 		t.Fatalf("edit account Calendar navigation button must remain selectable: %s", editCalendarButton)
 	}
+	editCalendarSwitch := renderedWizardSwitchForService(editOut.String(), "calendar")
+	if editCalendarSwitch == "" {
+		t.Fatalf("edit account dialog did not render a Calendar switch")
+	}
+	if strings.Contains(editCalendarSwitch, "disabled") {
+		t.Fatalf("edit account Calendar switch must remain interactive before discovery: %s", editCalendarSwitch)
+	}
+	if strings.Contains(editCalendarSwitch, `hx-post="/api/accounts/calendar-account/services"`) {
+		t.Fatalf("Calendar switch should be saved by its Next action, not immediately on change: %s", editCalendarSwitch)
+	}
 	for _, want := range []string{
 		"Calendar sync",
-		"Microsoft Calendar discovery is next",
+		"Microsoft Calendar access",
+		"Discover calendars",
+		`/api/accounts/calendar-account/calendar/discover`,
 		`data-wizard-service-switch="calendar"`,
 		`handleEditAccountSaveStart(event)`,
 		`handleEditAccountSaveResult(event)`,
@@ -736,6 +748,23 @@ func renderedWizardButtonForStep(html, marker string) string {
 		return ""
 	}
 	return html[start : markerIndex+endOffset+len("</button>")]
+}
+
+func renderedWizardSwitchForService(html, service string) string {
+	marker := `data-wizard-service-switch="` + service + `"`
+	markerIndex := strings.Index(html, marker)
+	if markerIndex < 0 {
+		return ""
+	}
+	start := strings.LastIndex(html[:markerIndex], "<input")
+	if start < 0 {
+		return ""
+	}
+	endOffset := strings.Index(html[markerIndex:], ">")
+	if endOffset < 0 {
+		return ""
+	}
+	return html[start : markerIndex+endOffset+1]
 }
 
 func TestAccountDiscoveryRequiresExplicitCandidateSelection(t *testing.T) {

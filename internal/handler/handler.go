@@ -2625,6 +2625,17 @@ func (h *Handler) handleUpdateAccountService(w http.ResponseWriter, r *http.Requ
 			}()
 		}
 	case "calendar":
+		if enabled {
+			calendarConfig, configErr := h.accountStore.GetCalendarSyncConfig(ctx, userID, accountID)
+			if configErr != nil {
+				http.Error(w, "could not check calendar configuration", http.StatusInternalServerError)
+				return
+			}
+			if calendarConfig.SourceCount == 0 {
+				http.Error(w, "Discover at least one calendar before enabling Calendar.", http.StatusConflict)
+				return
+			}
+		}
 		if err := h.accountStore.SetCalendarSyncEnabled(ctx, userID, accountID, enabled); err != nil {
 			http.Error(w, "could not update calendar sync", http.StatusInternalServerError)
 			return
