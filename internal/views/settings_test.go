@@ -701,6 +701,46 @@ func TestAccountDialogsIncludeCalendarServiceSection(t *testing.T) {
 	}
 }
 
+func TestCalendarSyncSettingsRenderSelectableSources(t *testing.T) {
+	var out bytes.Buffer
+	if err := CalendarSyncSettings(models.EditAccountData{
+		AccountID:    "calendar-account",
+		Provider:     "outlook",
+		EmailAddress: "calendar@outlook.com",
+		CalendarSync: models.CalendarSyncConfig{
+			Enabled:             true,
+			SourceCount:         2,
+			SelectedSourceCount: 1,
+			Sources: []models.CalendarSource{
+				{ID: "primary-source", Name: "Primary", TimeZone: "Europe/Prague", AccessRole: "owner", IsPrimary: true, IsSelected: true, Color: "#4285f4"},
+				{ID: "team-source", Name: "Team", AccessRole: "reader", IsSelected: false, Color: "#34a853"},
+			},
+		},
+	}).Render(context.Background(), &out); err != nil {
+		t.Fatalf("CalendarSyncSettings.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Calendar sources",
+		"Primary",
+		"Team",
+		"Europe/Prague · Owner",
+		"Read only",
+		"1 of 2 selected",
+		`data-calendar-source-form`,
+		`name="source_id"`,
+		`/api/accounts/calendar-account/calendar/sources`,
+		"Your choices are saved when you click Next.",
+		"max-h-56",
+		"overflow-y-auto",
+		"px-3 py-2.5",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("calendar source selector missing %q: %s", want, html)
+		}
+	}
+}
+
 func TestConnectionTestResultsUseProviderLayoutAndStatusColors(t *testing.T) {
 	results := []models.ConnectionTestResult{{Service: "gmail", Message: "Gmail API mail access successful", Success: true}}
 	var successOut bytes.Buffer

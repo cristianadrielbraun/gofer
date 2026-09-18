@@ -65,6 +65,70 @@ func TestReplaceCalendarSourcesReconcilesAndPreservesSelection(t *testing.T) {
 	}
 }
 
+func TestSetCalendarSourceSelectionValidatesAndReplacesSelection(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, username, username_normalized)
+		VALUES ('calendar-selection-user', 'calendar-selection-user', 'calendar-selection-user');
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('calendar-selection-account', 'calendar-selection-user', 'outlook', 'calendar@example.com');
+		INSERT INTO accounts (id, user_id, provider, email_address)
+		VALUES ('calendar-other-account', 'calendar-selection-user', 'outlook', 'other@example.com');`); err != nil {
+		t.Fatalf("insert Calendar selection accounts: %v", err)
+	}
+	if err := db.ReplaceCalendarSources(t.Context(), "calendar-selection-user", "calendar-selection-account", "outlook", []CalendarSource{
+		{ID: "selection-primary", RemoteID: "primary", Name: "Primary", IsPrimary: true, IsSelected: true},
+		{ID: "selection-team", RemoteID: "team", Name: "Team", IsSelected: false},
+	}); err != nil {
+		t.Fatalf("ReplaceCalendarSources() target error = %v", err)
+	}
+	if err := db.ReplaceCalendarSources(t.Context(), "calendar-selection-user", "calendar-other-account", "outlook", []CalendarSource{
+		{ID: "selection-foreign", RemoteID: "foreign", Name: "Foreign", IsSelected: true},
+	}); err != nil {
+		t.Fatalf("ReplaceCalendarSources() foreign error = %v", err)
+	}
+
+	if err := db.SetCalendarSourceSelection(t.Context(), "calendar-selection-user", "calendar-selection-account", []string{"selection-team"}); err != nil {
+		t.Fatalf("SetCalendarSourceSelection() error = %v", err)
+	}
+	sources, err := db.ListCalendarSourcesForAccount(t.Context(), "calendar-selection-user", "calendar-selection-account")
+	if err != nil {
+		t.Fatalf("ListCalendarSourcesForAccount() error = %v", err)
+	}
+	if len(sources) != 2 || sources[0].IsSelected || !sources[1].IsSelected {
+		t.Fatalf("selected sources = %#v, want only team selected", sources)
+	}
+
+	if err := db.SetCalendarSourceSelection(t.Context(), "calendar-selection-user", "calendar-selection-account", []string{"selection-foreign"}); err == nil {
+		t.Fatal("SetCalendarSourceSelection() accepted a source from another account")
+	}
+	sources, err = db.ListCalendarSourcesForAccount(t.Context(), "calendar-selection-user", "calendar-selection-account")
+	if err != nil {
+		t.Fatalf("ListCalendarSourcesForAccount() after rejected selection error = %v", err)
+	}
+	if len(sources) != 2 || sources[0].IsSelected || !sources[1].IsSelected {
+		t.Fatalf("selection changed after rejected request = %#v", sources)
+	}
+
+	if err := db.SetCalendarSourceSelection(t.Context(), "calendar-selection-user", "calendar-selection-account", nil); err != nil {
+		t.Fatalf("SetCalendarSourceSelection() empty selection error = %v", err)
+	}
+	sources, err = db.ListCalendarSourcesForAccount(t.Context(), "calendar-selection-user", "calendar-selection-account")
+	if err != nil {
+		t.Fatalf("ListCalendarSourcesForAccount() after clearing selection error = %v", err)
+	}
+	for _, source := range sources {
+		if source.IsSelected {
+			t.Fatalf("source %q remains selected after clearing selection", source.ID)
+		}
+	}
+}
+
 func TestReplaceCalendarEventsReconcilesWindowAndListsSelected(t *testing.T) {
 	db, err := New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {

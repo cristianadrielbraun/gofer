@@ -180,6 +180,23 @@ func (s *AccountStore) GetCalendarSyncConfig(ctx context.Context, userID, accoun
 	if err != nil {
 		return cfg, err
 	}
+	sources, err := s.db.ListCalendarSourcesForAccount(ctx, userID, accountID)
+	if err != nil {
+		return cfg, err
+	}
+	for _, source := range sources {
+		cfg.Sources = append(cfg.Sources, models.CalendarSource{
+			ID:          source.ID,
+			RemoteID:    source.RemoteID,
+			Name:        source.Name,
+			Description: source.Description,
+			TimeZone:    source.TimeZone,
+			Color:       source.Color,
+			AccessRole:  source.AccessRole,
+			IsPrimary:   source.IsPrimary,
+			IsSelected:  source.IsSelected,
+		})
+	}
 	cfg.Enabled = cfg.SelectedSourceCount > 0
 	return cfg, nil
 }

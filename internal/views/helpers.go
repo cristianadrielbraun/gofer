@@ -870,6 +870,42 @@ func accountColorSelected(current, option string) bool {
 	return accountColorValue(current) == accountColorValue(option)
 }
 
+func calendarSourceName(source models.CalendarSource) string {
+	if name := strings.TrimSpace(source.Name); name != "" {
+		return name
+	}
+	if source.IsPrimary {
+		return "Primary calendar"
+	}
+	return "Untitled calendar"
+}
+
+func calendarSourceDetails(source models.CalendarSource) string {
+	details := make([]string, 0, 2)
+	if timeZone := strings.TrimSpace(source.TimeZone); timeZone != "" {
+		details = append(details, timeZone)
+	}
+	if accessRole := strings.TrimSpace(source.AccessRole); accessRole != "" {
+		details = append(details, calendarSourceAccessLabel(accessRole))
+	}
+	return strings.Join(details, " · ")
+}
+
+func calendarSourceAccessLabel(accessRole string) string {
+	switch strings.ToLower(strings.TrimSpace(accessRole)) {
+	case "owner":
+		return "Owner"
+	case "writer":
+		return "Can edit"
+	case "reader":
+		return "Read only"
+	case "freebusyreader":
+		return "Availability only"
+	default:
+		return accessRole
+	}
+}
+
 func accountMarkerStyle(accounts []models.Account) string {
 	colors := make([]string, 0, len(accounts))
 	seen := map[string]bool{}

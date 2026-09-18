@@ -118,6 +118,19 @@ type ContactSyncConfig struct {
 	UpdatedAt      string
 }
 
+// CalendarSource describes one discovered provider calendar in account setup.
+type CalendarSource struct {
+	ID          string
+	RemoteID    string
+	Name        string
+	Description string
+	TimeZone    string
+	Color       string
+	AccessRole  string
+	IsPrimary   bool
+	IsSelected  bool
+}
+
 // CalendarSyncConfig describes the local Calendar source selection for one
 // mailbox account. Provider authorization and discovery create the sources;
 // this configuration controls whether selected sources appear in Calendar.
@@ -128,6 +141,7 @@ type CalendarSyncConfig struct {
 	Enabled             bool
 	SourceCount         int
 	SelectedSourceCount int
+	Sources             []CalendarSource
 }
 
 type ContactAddressBook struct {

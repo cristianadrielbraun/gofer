@@ -209,6 +209,97 @@ func (db *DB) ListCalendarSourcesForAccount(ctx context.Context, userID, account
 	return sources, rows.Err()
 }
 
+// SetCalendarSourceSelection replaces the selected source set for one
+// account. Source IDs are validated inside the same transaction so callers
+// cannot select a calendar belonging to another account.
+func (db *DB) SetCalendarSourceSelection(ctx context.Context, userID, accountID string, selectedSourceIDs []string) error {
+	userID = strings.TrimSpace(userID)
+	accountID = strings.TrimSpace(accountID)
+	if userID == "" || accountID == "" {
+		return fmt.Errorf("calendar source selection requires user and account")
+	}
+
+	selected := make(map[string]struct{}, len(selectedSourceIDs))
+	for _, sourceID := range selectedSourceIDs {
+		sourceID = strings.TrimSpace(sourceID)
+		if sourceID != "" {
+			selected[sourceID] = struct{}{}
+		}
+	}
+
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin calendar source selection: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var accountExists int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT 1
+		FROM accounts
+		WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0`, accountID, userID).Scan(&accountExists); err != nil {
+		if err == sql.ErrNoRows {
+			return sql.ErrNoRows
+		}
+		return fmt.Errorf("verify calendar source account: %w", err)
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id
+		FROM calendar_sources
+		WHERE account_id = ? AND user_id = ? AND is_deleted = 0`, accountID, userID)
+	if err != nil {
+		return fmt.Errorf("list calendar sources for selection: %w", err)
+	}
+	available := make(map[string]struct{})
+	for rows.Next() {
+		var sourceID string
+		if err := rows.Scan(&sourceID); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan calendar source for selection: %w", err)
+		}
+		available[sourceID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("read calendar sources for selection: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close calendar source selection rows: %w", err)
+	}
+	for sourceID := range selected {
+		if _, ok := available[sourceID]; !ok {
+			return fmt.Errorf("calendar source %q does not belong to account", sourceID)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE calendar_sources
+		SET is_selected = 0, updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = ? AND user_id = ? AND is_deleted = 0`, accountID, userID); err != nil {
+		return fmt.Errorf("clear calendar source selection: %w", err)
+	}
+	if len(selected) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(selected)), ",")
+		args := make([]any, 0, len(selected)+2)
+		args = append(args, accountID, userID)
+		for sourceID := range selected {
+			args = append(args, sourceID)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE calendar_sources
+			SET is_selected = 1, updated_at = CURRENT_TIMESTAMP
+			WHERE account_id = ? AND user_id = ? AND is_deleted = 0 AND id IN (`+placeholders+`)`, args...); err != nil {
+			return fmt.Errorf("set calendar source selection: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit calendar source selection: %w", err)
+	}
+	return nil
+}
+
 // ListSelectedCalendarSources returns active sources that should be included
 // in the user's Calendar view. Sources remain account-scoped so provider
 // tokens can be resolved without exposing unselected calendars.

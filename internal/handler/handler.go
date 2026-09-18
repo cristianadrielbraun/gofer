@@ -436,6 +436,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/services", h.handleUpdateAccountService)
 	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/discover", h.handleDiscoverAccountCalendars)
+	mux.HandleFunc("POST /api/accounts/{id}/calendar/sources", h.handleSaveAccountCalendarSources)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/test", h.handleTestAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/discover", h.handleDiscoverAccountContactSync)

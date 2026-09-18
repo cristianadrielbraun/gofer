@@ -182,6 +182,56 @@ function handleCalendarDiscoveryResult(event) {
   _setCalendarDiscoveryBusy(form, false)
 }
 
+function _calendarSourceForm(event) {
+  var element = _settingsEventElement(event)
+  return element && element.closest ? element.closest("[data-calendar-source-form]") : null
+}
+
+function _calendarSourceStatus(form, message, error) {
+  if (!form) return
+  var status = form.querySelector("[data-calendar-source-save-status]")
+  if (!status) return
+  status.textContent = ""
+  var box = document.createElement("div")
+  box.className = error
+    ? "rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+    : "rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground"
+  if (error) {
+    box.textContent = message
+  } else {
+    box.innerHTML = '<span class="inline-flex items-center gap-2"><span class="size-3.5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></span><span data-calendar-source-save-label></span></span>'
+    box.querySelector("[data-calendar-source-save-label]").textContent = message
+  }
+  status.appendChild(box)
+}
+
+function handleCalendarSourceSaveStart(event) {
+  var form = _calendarSourceForm(event)
+  if (!form) return
+  _calendarSourceStatus(form, "Saving calendar selection...", false)
+}
+
+function handleCalendarSourceSaveResult(event) {
+  var form = _calendarSourceForm(event)
+  if (!form) return
+  var xhr = event && event.detail && event.detail.xhr
+  var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
+  var root = form.closest ? form.closest("#add-account-dialog,#edit-account-dialog") : null
+  var toggle = root && root.querySelector ? root.querySelector('[data-wizard-service-switch="calendar"]') : null
+  if (ok) {
+    if (toggle) {
+      toggle.checked = true
+      toggle.dataset.wizardServiceInitialEnabled = "true"
+    }
+    if (root && typeof wizardServiceAdvance === "function") wizardServiceAdvance(root, 5)
+    return
+  }
+
+  if (toggle && toggle.dataset.wizardServiceInitialEnabled !== "true") toggle.checked = false
+  var message = xhr && xhr.responseText ? xhr.responseText.trim() : "Could not save calendar source selection."
+  _calendarSourceStatus(form, message || "Could not save calendar source selection.", true)
+}
+
 function toggleUnencryptedTransportWarning(input) {
   if (!input || !input.closest) return
   var field = input.closest(".select-container")
