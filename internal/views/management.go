@@ -113,7 +113,7 @@ func renderManagementSidebar(ctx context.Context, w io.Writer, active string, sc
 	if !managedAuthentication {
 		workspaceDescription = "Local administration workspace."
 	}
-	if err := writeHTML(w, `<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm"><div class="border-b border-border px-5 py-5"><a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary"><img src="/assets/logo.svg" alt="Gofer" class="h-8 w-8 shrink-0 p-1"><span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span></a><p class="mt-2 text-xs leading-relaxed text-muted-foreground">`, escaped(workspaceDescription), `</p></div><nav class="flex-1 space-y-1 px-3 py-4">`); err != nil {
+	if err := writeHTML(w, `<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm"><div class="border-b border-border px-5 py-5"><a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary"><img src="/assets/logo.svg" alt="Gofer" class="h-8 w-8 shrink-0"><span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span></a><p class="mt-2 text-xs leading-relaxed text-muted-foreground">`, escaped(workspaceDescription), `</p></div><nav class="flex-1 space-y-1 px-3 py-4">`); err != nil {
 		return err
 	}
 	for _, item := range items {

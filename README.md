@@ -1,5 +1,5 @@
 <h1>
-  <img src="./assets/logo.svg" width="48" align="absmiddle" alt="Gofer logo" />
+  <img src="./assets/logo.svg" width="64" align="absmiddle" alt="Gofer logo" />
   Gofer
 </h1>
 

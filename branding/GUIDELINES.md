@@ -7,6 +7,7 @@
 |---|---|---|
 | Symbol | `symbol/gofer-symbol.svg` | 64 px and up: app tiles, login screen, README header, social |
 | Symbol, small-size cut | `symbol/gofer-symbol-small.svg` | **48 px and below**: favicon, sidebar, toolbar, notifications |
+| Symbol, tight crop | `symbol/gofer-symbol-tight.svg`, `symbol/gofer-symbol-small-tight.svg` | Inline next to text (headers, sidebars, README). The frame hugs the seal, so it fills its box like a normal icon |
 | Symbol, pressed | `symbol/gofer-symbol-pressed.svg` | Decorative, large only (≥128 px): splash, print, stickers |
 | Horizontal lockup | `lockups/gofer-horizontal.svg` (`-dark` on dark backgrounds) | Primary logo: website header, docs, README |
 | Horizontal, small | `lockups/gofer-horizontal-small.svg` (`-dark`) | Horizontal lockup under 160 px wide (e.g. app sidebar header) |
@@ -14,6 +15,8 @@
 | Wordmark | `lockups/gofer-wordmark.svg` (`-cream`) | Only where the symbol already appears nearby |
 | One-colour | `web/gofer-symbol-black.svg`, `-white.svg`, `-mono-7e3f16.svg`, `-mono-f7ecdd.svg` | Single-colour printing, embossing, engraving |
 | Web/app icons | `web/` (favicon.ico, favicon.svg, PNGs, manifest, head snippet) | Browser and PWA |
+
+The standard symbol files keep a 256 × 256 canvas with the seal centred, which is useful for avatars and app tiles. When the logo sits inline next to text, use the `-tight` files instead; otherwise the canvas padding makes the seal look too small.
 
 The stamp is cut out of the wax: what looks like the stamp's line is the background showing through. Put the cut-out symbol only on calm, solid backgrounds.
 
