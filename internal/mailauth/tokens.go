@@ -18,8 +18,10 @@ import (
 
 const (
 	GoogleCalendarReadOnlyScope        = "https://www.googleapis.com/auth/calendar.readonly"
+	GoogleCalendarEventsScope          = "https://www.googleapis.com/auth/calendar.events"
 	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
 	microsoftGraphCalendarScope        = "https://graph.microsoft.com/Calendars.Read"
+	microsoftGraphCalendarWriteScope   = "https://graph.microsoft.com/Calendars.ReadWrite"
 	microsoftGraphMailScope            = "https://graph.microsoft.com/Mail.ReadWrite"
 	microsoftGraphMailSendScope        = "https://graph.microsoft.com/Mail.Send"
 	microsoftGraphMailboxSettingsScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
@@ -89,7 +91,7 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 }
 
 // GetGoogleCalendarTokenForAccount returns a Google mailbox token only when
-// the account was authorized for the read-only Calendar API scope. Existing
+// the account was authorized to read Calendar. Existing
 // mailbox grants must be reconnected once before Calendar discovery can use
 // them.
 func (m *Manager) GetGoogleCalendarTokenForAccount(ctx context.Context, accountID string) (string, error) {
@@ -97,7 +99,7 @@ func (m *Manager) GetGoogleCalendarTokenForAccount(ctx context.Context, accountI
 	if err != nil {
 		return "", err
 	}
-	if !recordHasScopes(record.Scopes, GoogleCalendarReadOnlyScope) {
+	if !recordHasScopes(record.Scopes, GoogleCalendarReadOnlyScope) && !recordHasScopes(record.Scopes, "https://www.googleapis.com/auth/calendar") {
 		return "", fmt.Errorf("Google Calendar access is not authorized for account %s; reconnect Google to grant Calendar access", accountID)
 	}
 	if record.AccessToken != "" && record.ExpiresAt.Valid && record.ExpiresAt.Time.After(time.Now().Add(5*time.Minute)) {
@@ -107,6 +109,37 @@ func (m *Manager) GetGoogleCalendarTokenForAccount(ctx context.Context, accountI
 		return "", fmt.Errorf("no refresh token available for account %s", accountID)
 	}
 	return m.refreshToken(ctx, providers.OAuthGoogle, record.ID, record.RefreshToken)
+}
+
+// CalendarWriteAuthorized is a grant check only: opening a dialog must not
+// refresh credentials or contact a provider. Read-only grants remain usable.
+func (m *Manager) CalendarWriteAuthorized(ctx context.Context, accountID, provider string) bool {
+	oauthProvider, err := oauthProviderForAccountProvider(provider)
+	if err != nil {
+		return false
+	}
+	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider)
+	if err != nil {
+		return false
+	}
+	if provider == providers.ProviderGmail {
+		return recordHasScopes(record.Scopes, GoogleCalendarEventsScope) || recordHasScopes(record.Scopes, "https://www.googleapis.com/auth/calendar")
+	}
+	return recordHasScopes(record.Scopes, microsoftGraphCalendarWriteScope)
+}
+
+func (m *Manager) GetGoogleCalendarWriteTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	if !m.CalendarWriteAuthorized(ctx, accountID, providers.ProviderGmail) {
+		return "", fmt.Errorf("Google Calendar event creation is not authorized; reconnect this account from Accounts to grant write access")
+	}
+	return m.getOAuthTokenForAccount(ctx, accountID, providers.OAuthGoogle)
+}
+
+func (m *Manager) GetMicrosoftGraphCalendarWriteTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	if !m.CalendarWriteAuthorized(ctx, accountID, providers.ProviderOutlook) {
+		return "", fmt.Errorf("Microsoft Calendar event creation is not authorized; reconnect this account from Accounts to grant write access")
+	}
+	return m.getMicrosoftGraphTokenForAccount(ctx, accountID, "calendar write", microsoftGraphCalendarWriteScope)
 }
 
 func (m *Manager) RefreshOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
@@ -190,6 +223,9 @@ func recordHasScopes(recordScopes string, expected ...string) bool {
 		seen[strings.ToLower(scope)] = true
 	}
 	for _, scope := range expected {
+		if strings.EqualFold(scope, microsoftGraphCalendarScope) && seen[strings.ToLower(microsoftGraphCalendarWriteScope)] {
+			continue
+		}
 		if !seen[strings.ToLower(scope)] {
 			return false
 		}

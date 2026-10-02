@@ -3311,6 +3311,10 @@ document.addEventListener("DOMContentLoaded", function () {
       handleCalendarSyncEvent(data)
     })
 
+    source.addEventListener("calendar-changed", function () {
+      scheduleCalendarCacheRefresh()
+    })
+
     source.addEventListener("new-mail", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
@@ -8283,6 +8287,152 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     description: xhr.status === 404 ? "This event is no longer available. Refresh calendars and try again." : "Event details could not be loaded. Please try again.",
     variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true,
   })
+})
+
+var _calendarCreateDialogRequest = null
+
+function configureCalendarCreateDialog(event) {
+  var calendar = document.getElementById("calendar-main")
+  if (!calendar) return
+  var selected = _calendarSelectedDay && _calendarSelectedDay.period === calendar.dataset.calendarPeriod ? _calendarSelectedDay.date : ""
+  event.detail.parameters.date = selected || (calendar.dataset.calendarView === "week" ? calendar.dataset.calendarDate : calendar.dataset.calendarTodayDate.slice(0, 7) === calendar.dataset.calendarMonth ? calendar.dataset.calendarTodayDate : calendar.dataset.calendarMonth + "-01")
+}
+
+document.body.addEventListener("htmx:configRequest", function (event) {
+  if (event.detail && event.detail.elt && event.detail.elt.hasAttribute("data-calendar-create-trigger")) configureCalendarCreateDialog(event)
+})
+
+document.body.addEventListener("htmx:beforeRequest", function (event) {
+  var trigger = event.detail && event.detail.elt
+  if (!trigger || !trigger.hasAttribute("data-calendar-create-trigger")) return
+  _calendarCreateDialogRequest = event.detail.xhr
+  var calendar = document.getElementById("calendar-main")
+  _calendarCreateDialogRequest.goferCalendarCreatePeriod = calendar ? calendar.dataset.calendarPeriod : ""
+  trigger.setAttribute("aria-busy", "true")
+})
+
+function calendarCreateDialogResponseCurrent(xhr) {
+  var calendar = document.getElementById("calendar-main")
+  return xhr === _calendarCreateDialogRequest && calendar && !calendar.hasAttribute("data-calendar-loading") && calendar.dataset.calendarPeriod === xhr.goferCalendarCreatePeriod
+}
+
+document.body.addEventListener("htmx:beforeSwap", function (event) {
+  var xhr = event.detail && event.detail.xhr
+  if (xhr && typeof xhr.goferCalendarCreatePeriod === "string" && !calendarCreateDialogResponseCurrent(xhr)) event.detail.shouldSwap = false
+})
+
+document.body.addEventListener("htmx:afterRequest", function (event) {
+  var xhr = event.detail && event.detail.xhr
+  if (!xhr || xhr !== _calendarCreateDialogRequest) return
+  var current = calendarCreateDialogResponseCurrent(xhr)
+  _calendarCreateDialogRequest = null
+  if (event.detail.elt) event.detail.elt.removeAttribute("aria-busy")
+  if (!current) return
+  if (!event.detail.successful) {
+    showGoferToast({title: "Could not open New event", description: "Please try again.", variant: "error", icon: "error", duration: 5000})
+    return
+  }
+  initializeCalendarCreateForm()
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-create-dialog")
+  var input = document.getElementById("calendar-create-summary")
+  if (input) setTimeout(function () { if (input.isConnected) input.focus() }, 80)
+})
+
+function updateCalendarCreateForm(form) {
+  if (!form) return
+  var source = form.querySelector('[name="source_id"]')
+  var selected = source && source.selectedOptions[0]
+  var allowed = selected && !selected.disabled && selected.dataset.calendarSourceWritable === "true" && selected.dataset.calendarSourceAuthorized === "true"
+  var busy = !!form._calendarCreateBusy
+  var uncertain = !!form._calendarCreateUncertain
+  var allDay = form.querySelector('[name="all_day"]').checked
+  form.querySelectorAll("input, select, textarea").forEach(function (input) { input.disabled = busy || uncertain })
+  form.querySelectorAll("[data-calendar-create-time]").forEach(function (node) {
+    node.hidden = allDay
+    var input = node.querySelector("input")
+    input.disabled = busy || uncertain || allDay
+    input.required = !allDay
+  })
+  form.querySelector("[data-calendar-create-timezone]").hidden = allDay
+  form.querySelector("[data-calendar-create-date-help]").hidden = !allDay
+  var access = form.querySelector("[data-calendar-create-access]")
+  access.hidden = !!allowed
+  access.textContent = !selected || selected.disabled || selected.dataset.calendarSourceWritable !== "true" ?
+    "No writable calendar is configured. Choose calendars in Accounts first." :
+    "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission."
+  var submit = form.querySelector("[data-calendar-create-submit]")
+  submit.disabled = busy || (!uncertain && !allowed)
+  submit.setAttribute("aria-busy", busy ? "true" : "false")
+  form.querySelector("[data-calendar-create-spinner]").hidden = !busy
+  form.querySelector("[data-calendar-create-submit-label]").textContent = busy ? "Creating…" : uncertain ? "Retry safely" : "Create event"
+  form.setAttribute("aria-busy", busy ? "true" : "false")
+}
+
+function initializeCalendarCreateForm() {
+  var form = document.querySelector("[data-calendar-create-form]")
+  if (!form) return
+  var list = form.querySelector("#calendar-create-timezones")
+  if (list && !list.children.length && typeof Intl.supportedValuesOf === "function") {
+    Intl.supportedValuesOf("timeZone").forEach(function (zone) {
+      var option = document.createElement("option")
+      option.value = zone
+      list.appendChild(option)
+    })
+  }
+  updateCalendarCreateForm(form)
+}
+
+function setCalendarCreateError(form, message) {
+  var error = form.querySelector("[data-calendar-create-error]")
+  error.textContent = message || ""
+  error.hidden = !message
+}
+
+function submitCalendarCreate(form) {
+  if (!form || form._calendarCreateBusy || (!form._calendarCreateUncertain && !form.reportValidity())) return Promise.resolve()
+  var payload = form._calendarCreateUncertain ? form._calendarCreatePayload : new URLSearchParams(new FormData(form)).toString()
+  form._calendarCreatePayload = payload
+  form._calendarCreateBusy = true
+  setCalendarCreateError(form, "")
+  updateCalendarCreateForm(form)
+  return fetch("/api/calendar/events", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}, body: payload})
+    .then(function (response) {
+      return response.json().then(function (data) { return {ok: response.ok, data: data} })
+    })
+    .then(function (result) {
+      if (!result.ok) {
+        form._calendarCreateUncertain = !!result.data.uncertain
+        if (!form._calendarCreateUncertain) {
+          if (result.data.request_id) form.querySelector('[name="request_id"]').value = result.data.request_id
+          else if (window.crypto && typeof window.crypto.randomUUID === "function") form.querySelector('[name="request_id"]').value = window.crypto.randomUUID()
+        }
+        setCalendarCreateError(form, result.data.error || "Could not create this event. Try again.")
+        return
+      }
+      if (!result.data.event_id) throw new Error("Provider creation could not be confirmed")
+      // Close only this form; a delayed save must not close a newer dialog.
+      if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
+      showGoferToast({title: "Event created", description: result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: "success", icon: "success", duration: 4500})
+      scheduleCalendarCacheRefresh()
+    })
+    .catch(function () {
+      form._calendarCreateUncertain = true
+      setCalendarCreateError(form, "The result could not be confirmed. Retry this same event to check without creating a duplicate.")
+    })
+    .finally(function () { form._calendarCreateBusy = false; updateCalendarCreateForm(form) })
+}
+
+document.addEventListener("submit", function (event) {
+  if (!event.target || !event.target.matches("[data-calendar-create-form]")) return
+  event.preventDefault()
+  submitCalendarCreate(event.target)
+})
+
+document.addEventListener("change", function (event) {
+  var form = event.target && event.target.closest && event.target.closest("[data-calendar-create-form]")
+  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain) return
+  setCalendarCreateError(form, "")
+  updateCalendarCreateForm(form)
 })
 
 var _calendarSyncRequest = null

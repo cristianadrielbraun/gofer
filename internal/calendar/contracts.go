@@ -86,9 +86,28 @@ type EventPage struct {
 	FullSyncRequired bool
 }
 
-// ReadProvider is intentionally read-only for the first Calendar vertical
-// slice. Create/update/delete operations will add a separate write boundary
-// after conflict and invitation semantics are defined.
+// EventDraft is deliberately limited to single appointments. Attendees,
+// recurrence, and invitation delivery are separate future write operations.
+type EventDraft struct {
+	RequestID   string
+	Summary     string
+	Description string
+	Location    string
+	TimeZone    string
+	AllDay      bool
+	StartDate   string // inclusive
+	EndDate     string // exclusive
+	StartAt     *time.Time
+	EndAt       *time.Time
+}
+
+// CreateProvider is separate from reading: it requires both a writable source
+// and an explicitly authorized credential. RequestID remains stable on retry.
+type CreateProvider interface {
+	CreateEvent(ctx context.Context, remoteCalendarID string, draft EventDraft) (RemoteEvent, error)
+}
+
+// ReadProvider never creates or changes provider events.
 type ReadProvider interface {
 	ListCalendars(ctx context.Context) ([]RemoteCalendar, error)
 	ListEvents(ctx context.Context, remoteCalendarID string, query EventQuery) (EventPage, error)

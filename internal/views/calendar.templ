@@ -74,10 +74,9 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 	{{ configuredAccounts := calendarConfiguredAccounts(accounts) }}
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="calendar" aria-busy={ strconv.FormatBool(loading) } inert?={ loading }>
 		<div class="px-4 pb-4">
-			<button type="button" disabled class="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sm font-semibold text-sidebar-foreground/45 shadow-sm disabled:cursor-not-allowed" title="Event creation will be added after calendar sync">
+			<button type="button" disabled?={ loading } data-calendar-create-trigger hx-get="/api/calendar/events/new" hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" class="btn-skeuo flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold text-sidebar-primary-foreground disabled:cursor-wait disabled:opacity-50" aria-haspopup="dialog" aria-controls="calendar-create-dialog">
 				@icon.CalendarPlus(icon.Props{Class: "size-4"})
 				<span>New event</span>
-				<span class="rounded-full border border-sidebar-border/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-sidebar-foreground/45">Soon</span>
 			</button>
 		</div>
 		<hr class="divider-etched mx-4"/>

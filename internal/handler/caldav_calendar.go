@@ -259,7 +259,7 @@ func calDAVCalendarHome(ctx context.Context, principalURL, username, password st
 }
 
 func listCalDAVCalendars(ctx context.Context, homeURL, username, password, userID, accountID string) ([]storage.CalendarSource, error) {
-	body := `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/"><d:prop><d:displayname/><d:resourcetype/><c:calendar-description/><c:calendar-timezone/><a:calendar-color/></d:prop></d:propfind>`
+	body := `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/"><d:prop><d:displayname/><d:resourcetype/><d:current-user-privilege-set/><c:calendar-description/><c:calendar-timezone/><a:calendar-color/></d:prop></d:propfind>`
 	multi, err := calDAVPropfind(ctx, homeURL, username, password, "1", body)
 	if err != nil {
 		return nil, err
@@ -294,6 +294,16 @@ func listCalDAVCalendars(ctx context.Context, homeURL, username, password, userI
 		if !isCalendarHexColor(color) {
 			color = ""
 		}
+		accessRole := "unknown"
+		if prop.CurrentUserPrivileges != nil {
+			accessRole = "reader"
+			for _, privilege := range prop.CurrentUserPrivileges.Privileges {
+				if privilege.All != nil || privilege.Write != nil || privilege.Bind != nil {
+					accessRole = "writer"
+					break
+				}
+			}
+		}
 		calendars = append(calendars, storage.CalendarSource{
 			UserID:      userID,
 			AccountID:   accountID,
@@ -303,6 +313,7 @@ func listCalDAVCalendars(ctx context.Context, homeURL, username, password, userI
 			Description: strings.TrimSpace(prop.CalendarDescription),
 			TimeZone:    calDAVCalendarTimeZone(prop.CalendarTimeZone),
 			Color:       color,
+			AccessRole:  accessRole,
 			IsPrimary:   isPrimary,
 			IsSelected:  isPrimary,
 		})

@@ -16,6 +16,7 @@ func googleAccountScopes() []string {
 		"https://mail.google.com/",
 		"https://www.googleapis.com/auth/contacts",
 		GoogleCalendarReadOnlyScope,
+		GoogleCalendarEventsScope,
 	}
 }
 
@@ -46,7 +47,7 @@ func (m *Service) ExchangeMicrosoftAccountCode(ctx context.Context, code string)
 func microsoftAccountTokenScopes() []string { return microsoftAccountTokenExchangeScopes() }
 
 func microsoftAccountTokenExchangeScopes() []string {
-	return []string{"openid", "email", "profile", "offline_access", microsoftGraphContactsScope, microsoftGraphCalendarScope, microsoftGraphMailScope, microsoftGraphMailSendScope, microsoftGraphMailboxSettingsScope}
+	return []string{"openid", "email", "profile", "offline_access", microsoftGraphContactsScope, microsoftGraphCalendarWriteScope, microsoftGraphMailScope, microsoftGraphMailSendScope, microsoftGraphMailboxSettingsScope}
 }
 
 func (m *Service) accountOAuthConfig() *oauth2.Config {

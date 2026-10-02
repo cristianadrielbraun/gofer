@@ -71,6 +71,7 @@ type Handler struct {
 	calendarSyncMu             sync.Mutex
 	calendarSyncRunning        map[string]*calendarSyncRun
 	calendarFetchEvents        func(context.Context, storage.CalendarSource, calendar.EventQuery) (calendar.EventPage, error)
+	calendarCreateEvent        func(context.Context, storage.CalendarSource, calendar.EventDraft) (calendar.RemoteEvent, error)
 	googleTranslator           *translation.GoogleWebConnector
 	vapidPublicKey             string
 	outgoingWake               chan struct{}
@@ -424,6 +425,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/calendar/sync", h.handleCalendarSync)
 	mux.HandleFunc("POST /api/calendar/sources/{id}/visibility", h.handleCalendarVisibility)
 	mux.HandleFunc("GET /api/calendar/events/{id}", h.handleCalendarEvent)
+	mux.HandleFunc("GET /api/calendar/events/new", h.handleNewCalendarEvent)
+	mux.HandleFunc("POST /api/calendar/events", h.handleCreateCalendarEvent)
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("GET /api/contacts/export", h.handleExportContacts)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)

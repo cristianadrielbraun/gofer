@@ -1342,6 +1342,18 @@ CREATE TABLE IF NOT EXISTS calendar_sync_state (
 CREATE INDEX IF NOT EXISTS idx_calendar_sync_state_due
 ON calendar_sync_state(state, next_attempt_at, updated_at);
 
+-- Durable idempotency keys for explicit single-event creation.
+CREATE TABLE IF NOT EXISTS calendar_create_requests (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    request_id TEXT NOT NULL,
+    source_id TEXT NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+    request_hash TEXT NOT NULL,
+    event_id TEXT NOT NULL DEFAULT '',
+    remote_id TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, request_id)
+);
+
 CREATE TABLE IF NOT EXISTS account_caldav_configs (
     account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1468,4 +1480,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (97);
+INSERT OR REPLACE INTO schema_version (version) VALUES (98);

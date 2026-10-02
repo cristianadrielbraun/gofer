@@ -11,13 +11,13 @@ import (
 // Calendar upgrades run against a genuine pre-Calendar shape.
 func removeCalendarTablesFromLegacyFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
-	for _, table := range []string{"calendar_events", "calendar_sources", "account_caldav_configs"} {
+	for _, table := range []string{"calendar_create_requests", "calendar_events", "calendar_sources", "account_caldav_configs"} {
 		var count int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("legacy fixture must have empty %s: count %d, error %v", table, count, err)
 		}
 	}
-	if _, err := db.Exec(`DROP TABLE calendar_sync_state; DROP TABLE calendar_events; DROP TABLE calendar_sources; DROP TABLE account_caldav_configs;`); err != nil {
+	if _, err := db.Exec(`DROP TABLE calendar_create_requests; DROP TABLE calendar_sync_state; DROP TABLE calendar_events; DROP TABLE calendar_sources; DROP TABLE account_caldav_configs;`); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -63,7 +63,7 @@ func TestCalendarSkeletonSidebarShowsOnlyConfiguredAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := pending.String()
-	for _, expected := range []string{"New event", "Soon", "My calendars", "All calendars", "Connected accounts", "Configured calendar", "Calendar sync", `aria-busy="true"`, "inert"} {
+	for _, expected := range []string{"New event", "data-calendar-create-trigger", "My calendars", "All calendars", "Connected accounts", "Configured calendar", "Calendar sync", `aria-busy="true"`, "inert"} {
 		if !strings.Contains(html, expected) {
 			t.Errorf("Skeleton sidebar missing %q", expected)
 		}
