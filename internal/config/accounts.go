@@ -164,7 +164,7 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 }
 
 func (s *AccountStore) GetCalendarSyncConfig(ctx context.Context, userID, accountID string) (models.CalendarSyncConfig, error) {
-	cfg := models.CalendarSyncConfig{AccountID: accountID, UserID: userID}
+	cfg := models.CalendarSyncConfig{AccountID: accountID, UserID: userID, CalDAVUseAccountCredentials: true}
 	err := s.db.Read().QueryRowContext(ctx, `
 		SELECT a.provider,
 		       COUNT(cs.id),
@@ -179,6 +179,21 @@ func (s *AccountStore) GetCalendarSyncConfig(ctx context.Context, userID, accoun
 		&cfg.Provider, &cfg.SourceCount, &cfg.SelectedSourceCount)
 	if err != nil {
 		return cfg, err
+	}
+	if cfg.Provider == "imap" {
+		var hasPassword, useAccountCredentials int
+		err := s.db.Read().QueryRowContext(ctx, `
+			SELECT base_url, username, encrypted_password IS NOT NULL, use_account_credentials
+			FROM account_caldav_configs
+			WHERE user_id = ? AND account_id = ?`, userID, accountID).Scan(
+			&cfg.CalDAVBaseURL, &cfg.CalDAVUsername, &hasPassword, &useAccountCredentials)
+		if err != nil && err != sql.ErrNoRows {
+			return cfg, err
+		}
+		if err == nil {
+			cfg.CalDAVHasPassword = hasPassword == 1
+			cfg.CalDAVUseAccountCredentials = useAccountCredentials == 1
+		}
 	}
 	sources, err := s.db.ListCalendarSourcesForAccount(ctx, userID, accountID)
 	if err != nil {
@@ -199,6 +214,67 @@ func (s *AccountStore) GetCalendarSyncConfig(ctx context.Context, userID, accoun
 	}
 	cfg.Enabled = cfg.SelectedSourceCount > 0
 	return cfg, nil
+}
+
+// CalDAVPassword returns the separately configured CalDAV password, if any.
+func (s *AccountStore) CalDAVPassword(ctx context.Context, userID, accountID string) (string, error) {
+	var encrypted []byte
+	err := s.db.Read().QueryRowContext(ctx, `
+		SELECT encrypted_password FROM account_caldav_configs
+		WHERE user_id = ? AND account_id = ?`, userID, accountID).Scan(&encrypted)
+	if err == sql.ErrNoRows || (err == nil && encrypted == nil) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("query CalDAV password: %w", err)
+	}
+	password, err := s.decrypt(encrypted)
+	if err != nil {
+		return "", fmt.Errorf("decrypt CalDAV password: %w", err)
+	}
+	return password, nil
+}
+
+// SaveCalDAVConfig stores the endpoint and authentication choice for an IMAP
+// mailbox. Separate CalDAV passwords are encrypted with the account secret.
+func (s *AccountStore) SaveCalDAVConfig(ctx context.Context, userID, accountID, baseURL, username, password string, useAccountCredentials bool) error {
+	var encrypted []byte
+	if useAccountCredentials {
+		username = ""
+	} else if strings.TrimSpace(password) != "" {
+		var err error
+		encrypted, err = s.encrypt(password)
+		if err != nil {
+			return fmt.Errorf("encrypt CalDAV password: %w", err)
+		}
+	} else {
+		_ = s.db.Read().QueryRowContext(ctx, `
+			SELECT encrypted_password FROM account_caldav_configs
+			WHERE user_id = ? AND account_id = ?`, userID, accountID).Scan(&encrypted)
+	}
+	res, err := s.db.Write().ExecContext(ctx, `
+		INSERT INTO account_caldav_configs (account_id, user_id, base_url, username, encrypted_password, use_account_credentials)
+		SELECT id, user_id, ?, ?, ?, ?
+		FROM accounts
+		WHERE id = ? AND user_id = ? AND provider = 'imap' AND COALESCE(is_deleting, 0) = 0 AND 1 = 1
+		ON CONFLICT(account_id) DO UPDATE SET
+			user_id = excluded.user_id,
+			base_url = excluded.base_url,
+			username = excluded.username,
+			encrypted_password = excluded.encrypted_password,
+			use_account_credentials = excluded.use_account_credentials,
+			updated_at = CURRENT_TIMESTAMP`, strings.TrimSpace(baseURL), strings.TrimSpace(username), encrypted, boolInt(useAccountCredentials), accountID, userID)
+	if err != nil {
+		return fmt.Errorf("save CalDAV configuration: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *AccountStore) GetContactSyncConfig(ctx context.Context, userID, accountID string) (models.ContactSyncConfig, error) {

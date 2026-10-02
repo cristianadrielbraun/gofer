@@ -1241,7 +1241,7 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL CHECK (provider IN ('gmail', 'outlook')),
+    provider TEXT NOT NULL CHECK (provider IN ('gmail', 'outlook', 'caldav')),
     remote_id TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
@@ -1250,6 +1250,7 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     access_role TEXT NOT NULL DEFAULT '',
     is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     is_selected INTEGER NOT NULL DEFAULT 1 CHECK (is_selected IN (0, 1)),
+    is_hidden INTEGER NOT NULL DEFAULT 0 CHECK (is_hidden IN (0, 1)),
     is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1)),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1340,6 +1341,19 @@ CREATE TABLE IF NOT EXISTS calendar_sync_state (
 
 CREATE INDEX IF NOT EXISTS idx_calendar_sync_state_due
 ON calendar_sync_state(state, next_attempt_at, updated_at);
+
+CREATE TABLE IF NOT EXISTS account_caldav_configs (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    base_url TEXT NOT NULL CHECK (trim(base_url) <> ''),
+    username TEXT NOT NULL DEFAULT '',
+    encrypted_password BLOB,
+    use_account_credentials INTEGER NOT NULL DEFAULT 1 CHECK (use_account_credentials IN (0, 1)),
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_caldav_configs_user
+ON account_caldav_configs(user_id, account_id);
 
 CREATE TABLE IF NOT EXISTS web_push_subscriptions (
     endpoint TEXT PRIMARY KEY,
@@ -1454,4 +1468,4 @@ CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (94);
+INSERT OR REPLACE INTO schema_version (version) VALUES (97);

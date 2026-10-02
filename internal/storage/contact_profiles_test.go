@@ -235,6 +235,7 @@ func TestMigrateV39ToCurrentPreservesCanonicalContactsAndRetiresLegacyTables(t *
 	if _, err := db.Write().Exec(`UPDATE schema_version SET version = 39`); err != nil {
 		t.Fatalf("downgrade schema marker: %v", err)
 	}
+	removeCalendarTablesFromLegacyFixture(t, db.Write())
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}

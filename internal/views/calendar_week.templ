@@ -1,0 +1,78 @@
+package views
+
+import (
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"strconv"
+	"time"
+)
+
+templ CalendarWeekGrid(data CalendarMonthData) {
+	<div class="flex h-full min-w-[728px] flex-col border border-border bg-background" data-calendar-week-grid>
+		<div class="sticky top-0 z-20 shrink-0 border-b border-border bg-card shadow-sm" data-calendar-week-header>
+			<div class="grid grid-cols-[56px_repeat(7,minmax(0,1fr))] border-b border-border bg-muted/35">
+				<div class="flex items-end justify-center overflow-hidden px-1 pb-3 text-[10px] font-semibold text-muted-foreground" title={ data.Month.Location().String() } data-calendar-week-timezone>{ data.Weeks[0].Days[0].Date.Format("MST") }</div>
+				for _, day := range data.Weeks[0].Days {
+					<div class={ calendarWeekColumnClass(day) } data-calendar-day={ day.ISODate } data-calendar-day-selected="false" data-calendar-day-start={ day.Date.Format(time.RFC3339) } data-calendar-day-end={ day.Date.AddDate(0, 0, 1).Format(time.RFC3339) } data-calendar-day-title={ day.Date.Format("Monday, January 2") }>
+						<button type="button" disabled?={ data.Loading } data-calendar-select-day={ day.ISODate } aria-label={ "Show events for " + day.Date.Format("Monday, January 2, 2006") } aria-pressed="false" aria-controls="calendar-agenda-list" class="flex w-full flex-col items-center gap-1 px-1 py-2 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+							<span class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{ day.Date.Format("Mon") }</span>
+							<span class={ calendarDayNumberClass(day) }>{ day.DayNumber }</span>
+						</button>
+					</div>
+				}
+			</div>
+			<div class="grid max-h-36 grid-cols-[56px_repeat(7,minmax(0,1fr))] overflow-y-auto" data-calendar-all-day-row>
+				<div class="px-1 py-3 text-center text-[10px] font-semibold text-muted-foreground">All day</div>
+				for _, day := range data.Weeks[0].Days {
+					<div class={ calendarWeekColumnClass(day) + " space-y-1 p-1.5" }>
+						if data.Loading && !day.IsWeekend {
+							<div class="flex h-[22.5px] w-full min-w-0 items-center gap-1.5 rounded border border-border bg-primary/[0.06] px-1.5 py-1" aria-hidden="true">
+								@CalendarSkeletonBar("size-1.5 rounded-full")
+								@CalendarSkeletonBar("h-[10px] min-w-0 flex-1 shrink")
+							</div>
+						} else if !data.Loading {
+						for _, event := range calendarAllDayEvents(day, data.Events) {
+							<button type="button" hidden?={ event.SourceHidden } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-event-trigger data-calendar-week-all-day class="group relative flex w-full min-w-0 items-center gap-1.5 rounded border border-border bg-primary/[0.06] px-1.5 py-1 text-left text-[10px] font-semibold leading-tight transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70" title={ calendarEventSummary(event) } aria-label={ "Open all-day event: " + calendarEventSummary(event) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this">
+								<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
+								<span class="truncate">{ calendarEventSummary(event) }</span>
+								<span class="absolute right-1 hidden bg-card group-[.htmx-request]:inline-flex">@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})</span>
+							</button>
+						}
+						}
+					</div>
+				}
+			</div>
+		</div>
+		<div class="grid min-h-0 flex-1 grid-cols-[56px_repeat(7,minmax(0,1fr))]" data-calendar-week-timeline>
+			<div class="relative text-[10px] font-medium tabular-nums text-muted-foreground" aria-hidden="true">
+				for hour := 0; hour < 24; hour++ {
+					<div class="relative pr-2 text-right" style="height:calc(100% / 24);" data-calendar-week-hour-label={ strconv.Itoa(hour) }><span class="absolute right-2 top-0.5 whitespace-nowrap" data-calendar-week-hour-text>{ calendarHourLabel(hour) }</span></div>
+				}
+			</div>
+			for dayIndex, day := range data.Weeks[0].Days {
+				<div class={ calendarWeekColumnClass(day) } data-calendar-timed-column={ day.ISODate } aria-label={ "Timed events for " + day.Date.Format("Monday, January 2") }>
+					<div class="pointer-events-none absolute inset-0" aria-hidden="true">
+						for hour := 0; hour < 24; hour++ {
+							<div class="border-t border-border/70" style="height:calc(100% / 24);" data-calendar-week-hour={ strconv.Itoa(hour) }><div class="h-1/2 border-b border-dashed border-border/40" data-calendar-half-hour></div></div>
+						}
+					</div>
+					if data.Loading && !day.IsWeekend {
+						<div data-calendar-week-event="loading" data-calendar-week-start={ strconv.Itoa((9 + dayIndex%3) * 60) } data-calendar-week-end={ strconv.Itoa((10 + dayIndex%3) * 60) } class="absolute z-10 flex min-w-0 flex-col items-stretch overflow-hidden rounded border border-border bg-card px-1.5 py-0.5 shadow-sm" aria-hidden="true">
+							@CalendarWeekEventSkeleton()
+						</div>
+					} else if !data.Loading {
+					for _, block := range calendarTimedBlocks(day, data.Events) {
+						<button type="button" hidden?={ block.Event.SourceHidden } data-calendar-source-id={ block.Event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(block.Event.SourceHidden) } data-calendar-event-trigger data-calendar-week-event={ block.Event.ID } data-calendar-week-start={ strconv.FormatFloat(block.StartMinute, 'f', 3, 64) } data-calendar-week-end={ strconv.FormatFloat(block.EndMinute, 'f', 3, 64) } class="group absolute z-10 flex min-w-0 flex-col items-stretch justify-start overflow-hidden rounded border border-border bg-card px-1.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition-colors hover:bg-accent focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70" style={ calendarTimedBlockStyle(block) } title={ calendarEventSummary(block.Event) + " · " + block.TimeLabel } aria-label={ "Open event: " + calendarEventSummary(block.Event) + ", " + day.Date.Format("Monday, January 2") + ", " + block.TimeLabel } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(block.Event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this">
+							<div class="flex min-w-0 items-center gap-1">
+								<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(block.Event) }></span>
+								<span class="truncate font-bold">{ calendarEventSummary(block.Event) }</span>
+							</div>
+							<p hidden?={ calendarTimedBlockShort(block) } data-calendar-week-event-time class="mt-0.5 truncate font-semibold text-primary">{ calendarTimedBlockTimeLabel(block) }</p>
+							<span class="absolute right-1 top-1 hidden bg-card group-[.htmx-request]:inline-flex">@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})</span>
+						</button>
+					}
+					}
+				</div>
+			}
+		</div>
+	</div>
+}

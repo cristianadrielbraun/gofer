@@ -1,6 +1,6 @@
 // Package calendar defines the provider-neutral Calendar boundary.
 //
-// Provider adapters translate Google Calendar and Microsoft Graph responses
+// Provider adapters translate Google Calendar, Microsoft Graph, and CalDAV responses
 // into these types. Storage and HTTP layers should not depend on either
 // provider's wire representation.
 package calendar
@@ -16,6 +16,7 @@ type Provider string
 const (
 	ProviderGmail   Provider = "gmail"
 	ProviderOutlook Provider = "outlook"
+	ProviderCalDAV  Provider = "caldav"
 )
 
 type SyncCursor struct {

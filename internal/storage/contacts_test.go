@@ -46,6 +46,7 @@ func TestMigrateV70SeparatesContactSyncMembershipsFromCards(t *testing.T) {
 	if _, err := db.Write().Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (70)`); err != nil {
 		t.Fatal(err)
 	}
+	removeCalendarTablesFromLegacyFixture(t, db.Write())
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +92,7 @@ func TestMigrateV74ConvertsPreferencesToCanonicalFieldsAndDropsPreferenceTable(t
 		INSERT INTO schema_version (version) VALUES (74)`); err != nil {
 		t.Fatal(err)
 	}
+	removeCalendarTablesFromLegacyFixture(t, db.Write())
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}

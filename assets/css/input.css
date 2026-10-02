@@ -2405,6 +2405,20 @@ body.mail-list-column-resizing {
   }
 }
 
+/* Match the other app skeletons without animating borders, grids, or controls. */
+.calendar-skeleton {
+  animation: calendarSkeletonPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes calendarSkeletonPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-skeleton { animation: none; }
+}
+
 .new-email-banner {
   position: sticky;
   top: 0;

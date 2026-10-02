@@ -304,88 +304,7 @@ func parseGoogleCalendarEventTime(value googleCalendarEventDateTime) (*time.Time
 }
 
 func (h *Handler) syncGoogleCalendarWindow(ctx context.Context, userID string, windowStart, windowEnd time.Time) (int, error) {
-	sources, err := h.db.ListSelectedCalendarSources(ctx, userID)
-	if err != nil {
-		return 0, fmt.Errorf("list selected calendar sources: %w", err)
-	}
-
-	tokens := make(map[string]string)
-	total := 0
-	var firstErr error
-	for _, source := range sources {
-		if source.Provider != providers.ProviderGmail {
-			continue
-		}
-		token, ok := tokens[source.AccountID]
-		if !ok {
-			if h.mailCredentials() == nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("Google OAuth is not configured")
-				}
-				continue
-			}
-			var tokenErr error
-			token, tokenErr = h.mailCredentials().GetGoogleCalendarTokenForAccount(ctx, source.AccountID)
-			if tokenErr != nil {
-				if firstErr == nil {
-					firstErr = tokenErr
-				}
-				continue
-			}
-			tokens[source.AccountID] = token
-		}
-
-		page, fetchErr := listGoogleCalendarEvents(ctx, token, source.RemoteID, calendar.EventQuery{
-			WindowStart: windowStart,
-			WindowEnd:   windowEnd,
-		})
-		if fetchErr != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("sync Google calendar %q: %w", source.Name, fetchErr)
-			}
-			continue
-		}
-
-		events := make([]storage.CalendarEvent, 0, len(page.Events))
-		for _, remote := range page.Events {
-			events = append(events, storage.CalendarEvent{
-				UserID:            userID,
-				SourceID:          source.ID,
-				RemoteID:          remote.RemoteID,
-				ICalUID:           remote.ICalUID,
-				SeriesRemoteID:    remote.SeriesRemoteID,
-				ETag:              remote.ETag,
-				Status:            remote.Status,
-				Summary:           remote.Summary,
-				Description:       remote.Description,
-				Location:          remote.Location,
-				OrganizerName:     remote.OrganizerName,
-				OrganizerEmail:    remote.OrganizerEmail,
-				AllDay:            remote.AllDay,
-				StartDate:         remote.StartDate,
-				EndDate:           remote.EndDate,
-				StartAt:           remote.StartAt,
-				EndAt:             remote.EndAt,
-				StartTimeZone:     remote.StartTimeZone,
-				EndTimeZone:       remote.EndTimeZone,
-				RecurrenceJSON:    string(remote.Recurrence),
-				AttendeesJSON:     string(remote.Attendees),
-				OnlineMeetingJSON: string(remote.OnlineMeeting),
-				HTMLLink:          remote.HTMLLink,
-				ProviderCreatedAt: remote.ProviderCreatedAt,
-				ProviderUpdatedAt: remote.ProviderUpdatedAt,
-				IsDeleted:         remote.Deleted,
-			})
-		}
-		if err := h.db.ReplaceCalendarEvents(ctx, userID, source.ID, events, windowStart, windowEnd); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("store Google calendar %q events: %w", source.Name, err)
-			}
-			continue
-		}
-		total += len(events)
-	}
-	return total, firstErr
+	return h.syncCalendarProviderWindow(ctx, userID, windowStart, windowEnd, providers.ProviderGmail)
 }
 
 func (h *Handler) discoverGoogleCalendarSources(ctx context.Context, userID, accountID, accessToken string) (int, error) {
@@ -488,8 +407,93 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 		}
 		statusMessage = fmt.Sprintf("Discovered %d Microsoft calendar source(s). The primary calendar is selected by default.", count)
 		discoverySucceeded = true
+	case providers.ProviderIMAP:
+		if err := r.ParseForm(); err != nil {
+			statusMessage = "Calendar discovery failed: the CalDAV server URL could not be read."
+			statusError = true
+			break
+		}
+		autodiscover := r.FormValue("autodiscover") == "1"
+		useAccountCredentials := r.FormValue("use_account_credentials") == "1"
+		baseURL := strings.TrimSpace(r.FormValue("caldav_url"))
+		if baseURL == "" && !autodiscover {
+			baseURL = data.CalendarSync.CalDAVBaseURL
+		}
+		data.CalendarSync.CalDAVBaseURL = baseURL
+		data.CalendarSync.CalDAVUseAccountCredentials = useAccountCredentials
+		username := strings.TrimSpace(r.FormValue("username"))
+		password := r.FormValue("password")
+		if useAccountCredentials {
+			username = strings.TrimSpace(data.Username)
+			if username == "" {
+				username = strings.TrimSpace(data.EmailAddress)
+			}
+			password, err = h.accountStore.DecryptPassword(ctx, accountID)
+			if err != nil || strings.TrimSpace(password) == "" {
+				statusMessage = "CalDAV discovery needs this mailbox's password or app password."
+				statusError = true
+				break
+			}
+			data.CalendarSync.CalDAVUsername = ""
+		} else {
+			if username == "" {
+				username = strings.TrimSpace(data.CalendarSync.CalDAVUsername)
+			}
+			data.CalendarSync.CalDAVUsername = username
+			if strings.TrimSpace(password) == "" {
+				password, err = h.accountStore.CalDAVPassword(ctx, userID, accountID)
+				if err != nil {
+					statusMessage = "Could not read the saved CalDAV password."
+					statusError = true
+					break
+				}
+			}
+			if username == "" || strings.TrimSpace(password) == "" {
+				statusMessage = "Enter the CalDAV username and password or use the incoming-mail credentials."
+				statusError = true
+				break
+			}
+		}
+		normalizedBaseURL := ""
+		if !autodiscover {
+			var normalizeErr error
+			normalizedBaseURL, normalizeErr = normalizeCalDAVBaseURL(baseURL)
+			if normalizeErr != nil {
+				statusMessage = "Calendar discovery failed: " + normalizeErr.Error()
+				statusError = true
+				break
+			}
+		}
+		discoveryCtx, cancel := context.WithTimeout(ctx, cardDAVDiscoveryOverallTimeout)
+		var calendars []storage.CalendarSource
+		var discoverErr error
+		if autodiscover {
+			candidates := calDAVAutodiscoveryCandidates(discoveryCtx, baseURL, data.EmailAddress, data.IMAPHost, data.SMTPHost)
+			calendars, normalizedBaseURL, discoverErr = discoverCalDAVCalendarsCandidates(discoveryCtx, candidates, username, password, userID, accountID)
+		} else {
+			calendars, discoverErr = discoverCalDAVCalendars(discoveryCtx, normalizedBaseURL, username, password, userID, accountID)
+		}
+		cancel()
+		if discoverErr != nil {
+			statusMessage = "Calendar discovery failed: " + discoverErr.Error()
+			statusError = true
+			break
+		}
+		if saveErr := h.accountStore.SaveCalDAVConfig(ctx, userID, accountID, normalizedBaseURL, username, password, useAccountCredentials); saveErr != nil {
+			statusMessage = "Calendars were found, but the CalDAV settings could not be saved."
+			statusError = true
+			break
+		}
+		data.CalendarSync.CalDAVBaseURL = normalizedBaseURL
+		if storeErr := h.db.ReplaceCalendarSources(ctx, userID, accountID, storage.CalendarSourceProviderCalDAV, calendars); storeErr != nil {
+			statusMessage = "Could not save the discovered CalDAV calendars."
+			statusError = true
+			break
+		}
+		statusMessage = fmt.Sprintf("Discovered %d CalDAV calendar(s). The first calendar is selected by default.", len(calendars))
+		discoverySucceeded = true
 	default:
-		statusMessage = "Calendar discovery is available for Google and Microsoft accounts."
+		statusMessage = "Calendar discovery is not available for this account type."
 		statusError = true
 	}
 	if discoverySucceeded {

@@ -94,6 +94,7 @@ func TestMigrateV91ToV92RetiresLegacyContactsAndPreservesCanonicalData(t *testin
 		_ = db.Close()
 		t.Fatalf("prepare v91 database: %v", err)
 	}
+	removeCalendarTablesFromLegacyFixture(t, db.Write())
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close() initial error = %v", err)
 	}

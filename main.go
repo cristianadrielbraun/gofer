@@ -170,6 +170,7 @@ func runServer() {
 
 	h.StartAvatarBackfill(ctx)
 	h.StartContactSync(ctx)
+	h.StartCalendarSync(ctx)
 	h.StartOutgoingSendWorker(ctx)
 	h.StartMessageMutationWorker(ctx)
 	h.StartMailRetentionWorker(ctx)

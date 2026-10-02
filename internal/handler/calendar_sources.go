@@ -25,10 +25,6 @@ func (h *Handler) handleSaveAccountCalendarSources(w http.ResponseWriter, r *htt
 	}
 
 	selectedSourceIDs := r.Form["source_id"]
-	if len(selectedSourceIDs) == 0 {
-		http.Error(w, "Select at least one calendar before continuing.", http.StatusConflict)
-		return
-	}
 	if err := h.db.SetCalendarSourceSelection(ctx, h.userID(ctx), accountID, selectedSourceIDs); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)

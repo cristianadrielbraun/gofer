@@ -144,22 +144,62 @@ function _calendarDiscoveryForm(event) {
   return element && element.closest ? element.closest("[data-calendar-discovery-form]") : null
 }
 
+function toggleCalendarAuth(checkbox) {
+  var form = checkbox && checkbox.closest ? checkbox.closest("form") : null
+  if (!form) return
+  var fields = form.querySelector("[data-calendar-credential-fields]")
+  if (!fields) return
+  fields.classList.toggle("opacity-50", checkbox.checked)
+  fields.querySelectorAll('input[name="username"], input[name="password"]').forEach(function (input) {
+    input.disabled = checkbox.checked
+  })
+}
+
+document.addEventListener("click", function (event) {
+  var button = event.target && event.target.closest ? event.target.closest("[data-calendar-autodiscover]") : null
+  if (!button) return
+  var form = button.closest("[data-calendar-discovery-form]")
+  if (!form) return
+  event.preventDefault()
+
+  var flag = form.querySelector('input[name="autodiscover"]')
+  if (!flag) {
+    flag = document.createElement("input")
+    flag.type = "hidden"
+    flag.name = "autodiscover"
+    form.appendChild(flag)
+  }
+  flag.value = "1"
+  if (typeof form.requestSubmit === "function") {
+    var submitter = form.querySelector("[data-calendar-discovery-submit]")
+    if (submitter) form.requestSubmit(submitter)
+    else form.requestSubmit()
+  } else if (window.htmx) {
+    window.htmx.trigger(form, "submit")
+  }
+})
+
 function _setCalendarDiscoveryBusy(form, busy) {
   if (!form) return
-  var button = form.querySelector("[data-calendar-discovery-submit]")
+  var autodiscover = form.querySelector('input[name="autodiscover"][value="1"]')
+  var buttons = [
+    form.querySelector("[data-calendar-discovery-submit]"),
+    form.querySelector("[data-calendar-autodiscover]")
+  ].filter(Boolean)
+  var button = autodiscover ? form.querySelector("[data-calendar-autodiscover]") : form.querySelector("[data-calendar-discovery-submit]")
   if (!button) return
 
-  var label = button.querySelector("[data-calendar-discovery-label]")
+  var label = button.querySelector(autodiscover ? "[data-calendar-autodiscover-label]" : "[data-calendar-discovery-label]")
   if (busy) {
     var originalLabel = label ? label.textContent.trim() : ""
     button.dataset.calendarDiscoveryOriginalLabel = originalLabel
-    if (label) label.textContent = originalLabel.indexOf("Discover") === 0 ? "Discovering..." : "Refreshing..."
+    if (label) label.textContent = autodiscover ? "Searching..." : originalLabel.indexOf("Discover") === 0 ? "Discovering..." : "Refreshing..."
   } else if (label && button.dataset.calendarDiscoveryOriginalLabel) {
     label.textContent = button.dataset.calendarDiscoveryOriginalLabel
     delete button.dataset.calendarDiscoveryOriginalLabel
   }
 
-  button.disabled = !!busy
+  buttons.forEach(function (item) { item.disabled = !!busy })
   button.setAttribute("aria-busy", busy ? "true" : "false")
   button.classList.toggle("cursor-wait", !!busy)
   var icon = button.querySelector("svg")
@@ -180,6 +220,8 @@ function handleCalendarDiscoveryResult(event) {
   if (ok) return
 
   _setCalendarDiscoveryBusy(form, false)
+  var flag = form.querySelector('input[name="autodiscover"]')
+  if (flag) flag.remove()
 }
 
 function _calendarSourceForm(event) {
@@ -208,6 +250,8 @@ function _calendarSourceStatus(form, message, error) {
 function handleCalendarSourceSaveStart(event) {
   var form = _calendarSourceForm(event)
   if (!form) return
+  var root = form.closest ? form.closest("#add-account-dialog,#edit-account-dialog") : null
+  if (root) form.dataset.calendarWizardRootId = root.id
   _calendarSourceStatus(form, "Saving calendar selection...", false)
 }
 
@@ -217,6 +261,7 @@ function handleCalendarSourceSaveResult(event) {
   var xhr = event && event.detail && event.detail.xhr
   var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
   var root = form.closest ? form.closest("#add-account-dialog,#edit-account-dialog") : null
+  if (!root && form.dataset.calendarWizardRootId) root = document.getElementById(form.dataset.calendarWizardRootId)
   var toggle = root && root.querySelector ? root.querySelector('[data-wizard-service-switch="calendar"]') : null
   if (ok) {
     if (toggle) {

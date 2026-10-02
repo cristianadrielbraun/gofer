@@ -69,6 +69,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@AddAccountDialog()
 			@MailSyncProgressDialog()
 			<div id="edit-account-container"></div>
+			@CalendarLoadingTemplates(accounts, uiSettings)
 			<script src="/assets/js/htmx.min.js"></script>
 			<script src="/assets/js/virtual-scroll.js"></script>
 			<script src="/assets/js/app.js"></script>
@@ -305,6 +306,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@OutlookAccountDialog()
 			@AddAccountDialog()
 			<div id="edit-account-container"></div>
+			@CalendarLoadingTemplates(accounts, uiSettings)
 			<script src="/assets/js/htmx.min.js"></script>
 			<script src="/assets/js/virtual-scroll.js"></script>
 			<script src="/assets/js/app.js"></script>

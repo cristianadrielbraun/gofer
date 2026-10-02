@@ -593,7 +593,7 @@ func TestAccountDialogsIncludeCalendarServiceSection(t *testing.T) {
 	}
 
 	var postCreateOut bytes.Buffer
-	if err := AddAccountPostCreateStep("created-account").Render(context.Background(), &postCreateOut); err != nil {
+	if err := AddAccountPostCreateStep(models.EditAccountData{AccountID: "created-account"}).Render(context.Background(), &postCreateOut); err != nil {
 		t.Fatalf("AddAccountPostCreateStep.Render() error = %v", err)
 	}
 	for _, want := range []string{`add-wizard-footer-step-4`, `add-wizard-footer-step-5`, `add-step-4-content`, `add-step-5-content`, "Contact sync", "Calendar sync"} {
@@ -721,7 +721,7 @@ func TestCalendarSyncSettingsRenderSelectableSources(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Calendar sources",
+		"Selected calendars",
 		"Primary",
 		"Team",
 		"Europe/Prague · Owner",
@@ -733,7 +733,7 @@ func TestCalendarSyncSettingsRenderSelectableSources(t *testing.T) {
 		"Your choices are saved when you click Next.",
 		"max-h-56",
 		"overflow-y-auto",
-		"px-3 py-2.5",
+		"p-3 text-xs",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("calendar source selector missing %q: %s", want, html)

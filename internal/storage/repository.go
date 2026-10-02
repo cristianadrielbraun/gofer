@@ -4416,6 +4416,9 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		return nil, err
 	}
 	db.attachContactAddressBooks(ctx, userID, accounts)
+	if err := db.attachCalendarSources(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 
 	return accounts, nil
 }
@@ -4468,6 +4471,9 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		return nil, err
 	}
 	db.attachContactAddressBooks(ctx, userID, accounts)
+	if err := db.attachCalendarSources(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 
 	return accounts, nil
 }
@@ -4532,6 +4538,35 @@ func (db *DB) attachContactAddressBooks(ctx context.Context, userID string, acco
 	for i := range accounts {
 		accounts[i].ContactAddressBooks = byAccount[accounts[i].ID]
 	}
+}
+
+func (db *DB) attachCalendarSources(ctx context.Context, userID string, accounts []models.Account) error {
+	if len(accounts) == 0 {
+		return nil
+	}
+	sources, err := db.ListSelectedCalendarSources(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("query account calendars: %w", err)
+	}
+	byAccount := make(map[string][]models.AccountCalendarSource)
+	for _, source := range sources {
+		byAccount[source.AccountID] = append(byAccount[source.AccountID], models.AccountCalendarSource{
+			ID: source.ID, Name: source.Name, Color: source.Color, IsHidden: source.IsHidden,
+			SyncState: source.SyncState, SyncAttempt: source.SyncAttempt, SyncError: source.SyncError,
+			LastSyncedAt: calendarTimestamp(source.LastSuccessAt), NextAttemptAt: calendarTimestamp(source.NextAttemptAt),
+		})
+	}
+	for i := range accounts {
+		accounts[i].CalendarSources = byAccount[accounts[i].ID]
+	}
+	return nil
+}
+
+func calendarTimestamp(at *time.Time) string {
+	if at == nil {
+		return ""
+	}
+	return at.UTC().Format(time.RFC3339Nano)
 }
 
 func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder, error) {

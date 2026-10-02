@@ -346,6 +346,7 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 				href="/"
 				hx-get="/"
 				hx-target="#mail-list"
+				hx-sync="#app-shell:replace"
 				hx-select="#mail-list"
 				hx-select-oob="#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML,#mail-view:outerHTML,#app-pane-dialogs:outerHTML"
 				hx-swap="outerHTML"
@@ -366,6 +367,7 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 				href="/contacts"
 				hx-get="/contacts"
 				hx-target="#mail-list"
+				hx-sync="#app-shell:replace"
 				hx-select="#mail-list"
 				hx-select-oob="#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML,#mail-view:outerHTML,#app-pane-dialogs:outerHTML"
 				hx-swap="outerHTML"
@@ -386,6 +388,7 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 				href="/calendar"
 				hx-get="/calendar"
 				hx-target="#mail-list"
+				hx-sync="#app-shell:replace"
 				hx-select="#mail-list"
 				hx-select-oob="#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML,#mail-view:outerHTML,#app-pane-dialogs:outerHTML"
 				hx-swap="outerHTML"
@@ -411,12 +414,35 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 		if activeApp == "calendar" {
 			@tooltip.Tooltip() {
 				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
-					<button type="button" disabled class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 text-sidebar-foreground/45 disabled:cursor-not-allowed" aria-label="Calendar sync is not connected">
-						@icon.Cloud(icon.Props{Class: "size-4"})
-					</button>
+					if len(calendarConfiguredAccounts(accounts)) > 0 {
+						<button
+							type="button"
+							hx-post="/api/calendar/sync"
+							hx-target="#main-content"
+							hx-swap="outerHTML"
+							hx-sync="#main-content:drop"
+							hx-on::config-request="configureCalendarSyncRequest(event)"
+							hx-on::before-request="handleCalendarSyncStart(event)"
+							hx-on::after-request="handleCalendarSyncResult(event)"
+							hx-on::send-abort="handleCalendarSyncAbort(event)"
+							data-calendar-sync-button
+							class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-wait"
+							aria-label="Refresh calendars"
+						>
+							@icon.RefreshCw(icon.Props{Class: "size-4"})
+						</button>
+					} else {
+						<button type="button" disabled class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 text-sidebar-foreground/45 disabled:cursor-not-allowed" aria-label="No calendars selected">
+							@icon.RefreshCw(icon.Props{Class: "size-4"})
+						</button>
+					}
 				}
 				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-fit whitespace-nowrap border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-					<span>Calendar sync will be available after provider connection.</span>
+					if len(calendarConfiguredAccounts(accounts)) > 0 {
+						<span>Refresh selected calendars.</span>
+					} else {
+						<span>Choose calendars in account setup to enable refresh.</span>
+					}
 				}
 			}
 		} else {
@@ -532,6 +558,10 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 
 func sidebarContactSyncValues(accountID string) string {
 	return fmt.Sprintf(`{"account_id":%q}`, strings.TrimSpace(accountID))
+}
+
+func sidebarCalendarSyncValues(month string) string {
+	return fmt.Sprintf(`{"month":%q}`, month)
 }
 
 func sidebarAppIndicatorStyle(activeApp string) string {

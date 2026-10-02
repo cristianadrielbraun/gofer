@@ -51,10 +51,15 @@ type davPropStat struct {
 type davProp struct {
 	GetETag              string          `xml:"getetag"`
 	AddressData          string          `xml:"address-data"`
+	CalendarData         string          `xml:"urn:ietf:params:xml:ns:caldav calendar-data"`
+	CalendarTimeZone     string          `xml:"urn:ietf:params:xml:ns:caldav calendar-timezone"`
+	CalendarColor        string          `xml:"http://apple.com/ns/ical/ calendar-color"`
 	DisplayName          string          `xml:"displayname"`
+	CalendarDescription  string          `xml:"calendar-description"`
 	CTag                 string          `xml:"getctag"`
 	CurrentUserPrincipal davHrefProp     `xml:"current-user-principal"`
 	AddressBookHomeSet   davHrefProp     `xml:"addressbook-home-set"`
+	CalendarHomeSet      davHrefProp     `xml:"calendar-home-set"`
 	ResourceType         davResourceType `xml:"resourcetype"`
 }
 
@@ -65,6 +70,7 @@ type davHrefProp struct {
 type davResourceType struct {
 	Collection  bool
 	AddressBook bool
+	Calendar    bool
 }
 
 type cardDAVSyncResult struct {
@@ -95,6 +101,8 @@ func (r *davResourceType) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 				r.Collection = true
 			case "addressbook":
 				r.AddressBook = true
+			case "calendar":
+				r.Calendar = true
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {

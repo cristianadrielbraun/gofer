@@ -68,7 +68,11 @@ func TestHandleSaveAccountCalendarSourcesUpdatesSelectionAndRendersPanel(t *test
 	emptyReq = emptyReq.WithContext(auth.ContextWithUser(emptyReq.Context(), &auth.User{ID: "default", Username: "default"}))
 	emptyRec := httptest.NewRecorder()
 	h.handleSaveAccountCalendarSources(emptyRec, emptyReq)
-	if emptyRec.Code != http.StatusConflict || !strings.Contains(emptyRec.Body.String(), "Select at least one calendar") {
-		t.Fatalf("empty selection response = %d %q, want conflict guidance", emptyRec.Code, emptyRec.Body.String())
+	if emptyRec.Code != http.StatusOK || !strings.Contains(emptyRec.Body.String(), "0 of 2 selected") {
+		t.Fatalf("empty selection response = %d %q, want calendar sync disabled", emptyRec.Code, emptyRec.Body.String())
+	}
+	selected, err := db.ListSelectedCalendarSources(t.Context(), "default")
+	if err != nil || len(selected) != 0 {
+		t.Fatalf("empty setup selection = %#v, %v; want no syncing calendars", selected, err)
 	}
 }

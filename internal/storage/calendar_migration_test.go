@@ -1,11 +1,28 @@
 package storage
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
 
-func TestMigrateV93ToV94CreatesCalendarSchema(t *testing.T) {
+// Legacy fixtures start with today's schema then rewind the version marker.
+// Remove empty Calendar tables introduced after their simulated version, so
+// Calendar upgrades run against a genuine pre-Calendar shape.
+func removeCalendarTablesFromLegacyFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, table := range []string{"calendar_events", "calendar_sources", "account_caldav_configs"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("legacy fixture must have empty %s: count %d, error %v", table, count, err)
+		}
+	}
+	if _, err := db.Exec(`DROP TABLE calendar_sync_state; DROP TABLE calendar_events; DROP TABLE calendar_sources; DROP TABLE account_caldav_configs;`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrateV93ToCurrentCreatesCalendarSchema(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gofer.db")
 	raw, err := openDB(dbPath)
 	if err != nil {
@@ -40,8 +57,8 @@ func TestMigrateV93ToV94CreatesCalendarSchema(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 94 {
-		t.Fatalf("schema version = %d, want 94", version)
+	if version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
 	}
 
 	for _, table := range []string{"calendar_sources", "calendar_events", "calendar_sync_state"} {

@@ -18,8 +18,22 @@ type Account struct {
 	ContactSyncProvider string
 	CalendarSyncEnabled bool
 	ContactAddressBooks []ContactAddressBook
+	CalendarSources     []AccountCalendarSource
 	Folders             []Folder
 	Labels              []Label
+}
+
+// AccountCalendarSource is sidebar metadata, not account sync configuration.
+type AccountCalendarSource struct {
+	ID            string
+	Name          string
+	Color         string
+	IsHidden      bool
+	SyncState     string
+	SyncAttempt   int
+	SyncError     string
+	LastSyncedAt  string
+	NextAttemptAt string
 }
 
 type Folder struct {
@@ -135,13 +149,17 @@ type CalendarSource struct {
 // mailbox account. Provider authorization and discovery create the sources;
 // this configuration controls whether selected sources appear in Calendar.
 type CalendarSyncConfig struct {
-	AccountID           string
-	UserID              string
-	Provider            string
-	Enabled             bool
-	SourceCount         int
-	SelectedSourceCount int
-	Sources             []CalendarSource
+	AccountID                   string
+	UserID                      string
+	Provider                    string
+	CalDAVBaseURL               string
+	CalDAVUsername              string
+	CalDAVHasPassword           bool
+	CalDAVUseAccountCredentials bool
+	Enabled                     bool
+	SourceCount                 int
+	SelectedSourceCount         int
+	Sources                     []CalendarSource
 }
 
 type ContactAddressBook struct {

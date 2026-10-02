@@ -2968,6 +2968,13 @@ templ AddAccountDialog() {
 						if (calendarForm.requestSubmit) calendarForm.requestSubmit(); else calendarForm.submit();
 						return;
 					}
+					// Calendar can be toggled on before discovery so users can inspect the
+					// setup. With no discovered sources there is nothing valid to persist;
+					// let the wizard continue and leave that transient toggle unsaved.
+					if (service === 'calendar' && !root.querySelector('[data-calendar-source-checkbox]')) {
+						wizardServiceAdvance(root, step);
+						return;
+					}
 					var serviceForm = toggle && toggle.closest ? toggle.closest('[data-wizard-service-form]') : null;
 					var accountID = serviceForm ? serviceForm.dataset.accountId : '';
 					var initialEnabled = toggle ? toggle.dataset.wizardServiceInitialEnabled : '';
@@ -3844,7 +3851,7 @@ templ AccountWizardEmailSection(goFn string, accountID string, enabled bool, dis
 				<span class="account-wizard-index">1</span>
 				<span class="min-w-0"><span class="block text-sm font-semibold">Email</span><span class="block text-xs text-muted-foreground">Mail account setup</span></span>
 			</button>
-			@AccountWizardSectionSwitch(accountID, "email", enabled, disabled, persist, nil)
+			@AccountWizardSectionSwitch(goFn, accountID, "email", enabled, disabled, persist, false, nil)
 		</div>
 		<div class="account-wizard-substeps">
 			@AccountWizardSubStep(goFn, 0, "1.a", "Account details", "Name and email", false, true)
@@ -3861,7 +3868,7 @@ templ AccountWizardProviderAPIEmailSection(goFn string, accountID string, provid
 				<span class="account-wizard-index">1</span>
 				<span class="min-w-0"><span class="block text-sm font-semibold">Email</span><span class="block text-xs text-muted-foreground">{ providerAPIMailTransportLabel(provider) }</span></span>
 			</button>
-			@AccountWizardSectionSwitch(accountID, "email", enabled, false, persist, nil)
+			@AccountWizardSectionSwitch(goFn, accountID, "email", enabled, false, persist, false, nil)
 		</div>
 		<div class="account-wizard-substeps">
 			@AccountWizardSubStep(goFn, 0, "1.a", "Account details", "Name and email", false, true)
@@ -3880,25 +3887,29 @@ templ AccountWizardSubStep(goFn string, step int, index string, title string, de
 
 templ AccountWizardTopStep(goFn string, step int, index string, title string, description string, disabled bool, section bool, accountID string, service string, enabled bool, switchDisabled bool, attrs templ.Attributes) {
 	{{ navigationDisabled := disabled && service != "calendar" }}
-	<div class="account-wizard-section" data-wizard-section-steps={ strconv.Itoa(step) } data-active="false" data-disabled={ strconv.FormatBool(navigationDisabled) }>
+	<div id={ fmt.Sprintf("%s-service-section-%s", goFn, service) } class="account-wizard-section" data-wizard-section-steps={ strconv.Itoa(step) } data-active="false" data-disabled={ strconv.FormatBool(navigationDisabled) }>
 		<div class="account-wizard-section-heading">
 			<button type="button" onclick={ templ.JSFuncCall(goFn, step) } data-account-wizard-action={ goFn } data-account-wizard-target-step={ strconv.Itoa(step) } class="account-wizard-section-title" data-account-wizard-step={ strconv.Itoa(step) } data-active="false" disabled?={ navigationDisabled }>
 				<span class="account-wizard-index">{ index }</span>
 				<span class="min-w-0"><span class="block text-sm font-semibold">{ title }</span><span class="block text-xs text-muted-foreground">{ description }</span></span>
 			</button>
 			if service != "" {
-				@AccountWizardSectionSwitch(accountID, service, enabled, switchDisabled, accountID != "" && service != "contacts" && service != "calendar", attrs)
+				@AccountWizardSectionSwitch(goFn, accountID, service, enabled, switchDisabled, accountID != "" && service != "contacts" && service != "calendar", false, attrs)
 			}
 		</div>
 	</div>
 }
 
-templ AccountWizardSectionSwitch(accountID string, service string, enabled bool, disabled bool, persist bool, attrs templ.Attributes) {
+templ AccountWizardSectionSwitch(goFn string, accountID string, service string, enabled bool, disabled bool, persist bool, oob bool, attrs templ.Attributes) {
 	<form
+		id={ fmt.Sprintf("%s-wizard-service-switch-%s", goFn, service) }
 		class="shrink-0 pt-0.5"
 		data-wizard-service-form
 		data-wizard-service={ service }
 		data-account-id={ accountID }
+		if oob {
+			hx-swap-oob="outerHTML"
+		}
 		if persist && service != "calendar" {
 			hx-post={ fmt.Sprintf("/api/accounts/%s/services", accountID) }
 			hx-swap="none"
@@ -4596,8 +4607,15 @@ templ CalendarSyncSettingsResult(data models.EditAccountData, message string, is
 	@CalendarSyncSettingsPanel(data, message, isError)
 }
 
+templ CalendarProviderAccessNotice(title string, message string) {
+	<div class="rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground">
+		<p class="font-semibold text-foreground">{ title }</p>
+		<p class="mt-0.5">{ message }</p>
+	</div>
+}
+
 templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isError bool) {
-	<div id={ fmt.Sprintf("account-calendar-sync-panel-%s", data.AccountID) } class="space-y-3">
+	<div id={ fmt.Sprintf("account-calendar-sync-panel-%s", data.AccountID) } class="space-y-3" data-wizard-service-content="calendar">
 		<div class="account-wizard-sticky-header flex items-start justify-between gap-4">
 			<div class="min-w-0">
 				<h4 class="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -4616,57 +4634,79 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 		</div>
 		<div data-wizard-service-status="calendar" class="min-h-0"></div>
 		if data.Provider == "gmail" {
-			<div class="rounded-md border border-border bg-background/50 px-3 py-2.5">
-				<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-					<div class="flex min-w-0 items-center gap-2.5">
-						<div class="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
-							@icon.CalendarDays(icon.Props{Class: "size-3.5"})
-						</div>
-						<div class="min-w-0">
-							<p class="text-[11px] font-semibold text-foreground">Google Calendar access</p>
-							<p class="mt-0.5 text-[11px] leading-snug text-muted-foreground">Discovery uses this account's Google authorization. If Calendar access is missing, reconnect the account from its actions menu, then try again.</p>
-						</div>
-					</div>
-					<form method="POST" action={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } class="shrink-0" data-calendar-discovery-form hx-post={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } hx-target={ fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID) } hx-swap="outerHTML" hx-on::before-request="handleCalendarDiscoveryStart(event)" hx-on::after-request="handleCalendarDiscoveryResult(event)">
-						<button type="submit" data-calendar-discovery-submit class="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
-							@icon.RefreshCw(icon.Props{Class: "size-3"})
-							<span data-calendar-discovery-label>
-								if data.CalendarSync.SourceCount > 0 {
-									Refresh calendars
-								} else {
-									Discover calendars
-								}
-							</span>
-						</button>
-					</form>
-				</div>
-			</div>
+			@CalendarProviderAccessNotice("Google Calendar access", "Discovery uses this account's Google authorization. If Calendar access is missing, reconnect the account from its actions menu, then try again.")
+			<form method="POST" action={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } data-calendar-discovery-form hx-post={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } hx-target={ fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID) } hx-swap="outerHTML" hx-on::before-request="handleCalendarDiscoveryStart(event)" hx-on::after-request="handleCalendarDiscoveryResult(event)" class="flex justify-end">
+				<button type="submit" data-calendar-discovery-submit class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+					<span data-calendar-discovery-label>
+						if data.CalendarSync.SourceCount > 0 {
+							Refresh calendars
+						} else {
+							Discover calendars
+						}
+					</span>
+				</button>
+			</form>
 		} else if data.Provider == "outlook" {
-			<div class="rounded-md border border-border bg-background/50 px-3 py-2.5">
-				<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-					<div class="flex min-w-0 items-center gap-2.5">
-						<div class="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
-							@icon.CalendarDays(icon.Props{Class: "size-3.5"})
+			@CalendarProviderAccessNotice("Microsoft Calendar access", "Discovery uses this account's Microsoft authorization. If Calendar access is missing, reconnect the account from its actions menu, then try again.")
+			<form method="POST" action={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } data-calendar-discovery-form hx-post={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } hx-target={ fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID) } hx-swap="outerHTML" hx-on::before-request="handleCalendarDiscoveryStart(event)" hx-on::after-request="handleCalendarDiscoveryResult(event)" class="flex justify-end">
+				<button type="submit" data-calendar-discovery-submit class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+					<span data-calendar-discovery-label>
+						if data.CalendarSync.SourceCount > 0 {
+							Refresh calendars
+						} else {
+							Discover calendars
+						}
+					</span>
+				</button>
+			</form>
+		} else if data.Provider == "imap" {
+			<form method="POST" action={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } data-calendar-discovery-form hx-post={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } hx-target={ fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID) } hx-swap="outerHTML" hx-on::before-request="handleCalendarDiscoveryStart(event)" hx-on::after-request="handleCalendarDiscoveryResult(event)" class="space-y-3">
+				<div class="grid gap-3 sm:grid-cols-2">
+					<div class="sm:col-span-2">
+						<div class="mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+							<label class="text-xs font-medium text-muted-foreground">Base URL</label>
+							<button type="button" data-calendar-autodiscover class="inline-flex h-8 w-fit shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary shadow-sm transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-70">
+								@icon.Search(icon.Props{Class: "size-3.5"})
+								<span data-calendar-autodiscover-label>Attempt URL autodiscover</span>
+							</button>
 						</div>
-						<div class="min-w-0">
-							<p class="text-[11px] font-semibold text-foreground">Microsoft Calendar access</p>
-							<p class="mt-0.5 text-[11px] leading-snug text-muted-foreground">Discovery uses this account's Microsoft authorization. If Calendar access is missing, reconnect the account from its actions menu, then try again.</p>
+						@input.Input(input.Props{Name: "caldav_url", Type: input.TypeURL, Value: data.CalendarSync.CalDAVBaseURL, Placeholder: "https://cdav.migadu.com"})
+					</div>
+					<label class="sm:col-span-2 flex cursor-pointer items-center gap-2">
+						@checkbox.Checkbox(checkbox.Props{
+							Name:       "use_account_credentials",
+							Value:      "1",
+							Checked:    data.CalendarSync.CalDAVUseAccountCredentials,
+							Attributes: templ.Attributes{"onchange": "toggleCalendarAuth(this)"},
+						})
+						<span class="text-sm">Use same credentials as incoming mail</span>
+					</label>
+					<div class={ "sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("opacity-50", data.CalendarSync.CalDAVUseAccountCredentials) } data-calendar-credential-fields>
+						<div>
+							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Username</label>
+							@input.Input(input.Props{Name: "username", Type: input.TypeText, Value: data.CalendarSync.CalDAVUsername, Placeholder: data.Username, Disabled: data.CalendarSync.CalDAVUseAccountCredentials})
+						</div>
+						<div>
+							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Password or app password</label>
+							@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: calDAVPasswordPlaceholder(data.CalendarSync), Disabled: data.CalendarSync.CalDAVUseAccountCredentials})
 						</div>
 					</div>
-					<form method="POST" action={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } class="shrink-0" data-calendar-discovery-form hx-post={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } hx-target={ fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID) } hx-swap="outerHTML" hx-on::before-request="handleCalendarDiscoveryStart(event)" hx-on::after-request="handleCalendarDiscoveryResult(event)">
-						<button type="submit" data-calendar-discovery-submit class="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
-							@icon.RefreshCw(icon.Props{Class: "size-3"})
-							<span data-calendar-discovery-label>
-								if data.CalendarSync.SourceCount > 0 {
-									Refresh calendars
-								} else {
-									Discover calendars
-								}
-							</span>
-						</button>
-					</form>
 				</div>
-			</div>
+				<div class="flex flex-wrap justify-end gap-2">
+					<button type="submit" data-calendar-discovery-submit class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+						@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+						<span data-calendar-discovery-label>
+							if data.CalendarSync.SourceCount > 0 {
+								Refresh calendars
+							} else {
+								Discover calendars
+							}
+						</span>
+					</button>
+				</div>
+			</form>
 		} else {
 			<div class="rounded-lg border border-border bg-background/50 p-4">
 				<div class="flex items-start gap-3">
@@ -4682,19 +4722,12 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 			</div>
 		}
 		if data.CalendarSync.SourceCount > 0 {
-			<div class="rounded-lg border border-border bg-background/50 p-4">
-				<div class="flex items-start justify-between gap-4">
-					<div class="flex min-w-0 items-start gap-3">
-						<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
-							@icon.ListChecks(icon.Props{Class: "size-4"})
-						</div>
-						<div class="min-w-0">
-							<p class="text-xs font-semibold text-foreground">Calendar sources</p>
-							<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Select the calendars you want in Gofer. Your choices are saved when you click Next.</p>
-						</div>
-					</div>
+			<div class="rounded-lg border border-border bg-background/45 p-3">
+				<div class="flex items-center justify-between gap-4">
+					<div class="text-xs font-semibold text-foreground">Selected calendars</div>
 					<span class="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{ fmt.Sprintf("%d of %d selected", data.CalendarSync.SelectedSourceCount, data.CalendarSync.SourceCount) }</span>
 				</div>
+				<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Select calendars to sync. Your choices are saved when you click Next.</p>
 				<form
 					method="POST"
 					action={ fmt.Sprintf("/api/accounts/%s/calendar/sources", data.AccountID) }
@@ -4705,11 +4738,11 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 					hx-swap="outerHTML"
 					hx-on::before-request="handleCalendarSourceSaveStart(event)"
 					hx-on::after-request="handleCalendarSourceSaveResult(event)"
-					class="mt-4"
+					class="mt-3"
 				>
 					<div class="max-h-56 space-y-2 overflow-y-auto overscroll-contain pr-1">
 						for _, source := range data.CalendarSync.Sources {
-							<label class="flex w-full cursor-pointer items-start gap-3 rounded-lg border border-border bg-background/35 px-3 py-2.5 transition-colors hover:bg-accent/50 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/[0.06]">
+							<label class="flex w-full cursor-pointer items-start gap-3 rounded-md border border-border bg-background/35 px-3 py-2 text-xs transition-colors hover:bg-accent/50 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/[0.06]">
 								<span class="mt-0.5 inline-flex shrink-0">
 									@checkbox.Checkbox(checkbox.Props{
 										ID:      fmt.Sprintf("calendar-source-%s", source.ID),
@@ -4723,7 +4756,7 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 								</span>
 								<span class="mt-1 size-2 shrink-0 rounded-full" style={ accountColorStyle(source.Color) }></span>
 								<span class="min-w-0 flex-1">
-									<span class="block truncate text-xs font-semibold text-foreground">{ calendarSourceName(source) }</span>
+									<span class="block truncate font-semibold text-foreground">{ calendarSourceName(source) }</span>
 									if calendarSourceDetails(source) != "" {
 										<span class="mt-0.5 block truncate text-[11px] text-muted-foreground">{ calendarSourceDetails(source) }</span>
 									}
@@ -4737,17 +4770,10 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 					<div data-calendar-source-save-status class="mt-3 min-h-0"></div>
 				</form>
 			</div>
-		} else if data.Provider == "gmail" || data.Provider == "outlook" {
-			<div class="rounded-lg border border-border bg-background/50 p-4">
-				<div class="flex items-start gap-3">
-					<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
-						@icon.CalendarDays(icon.Props{Class: "size-4"})
-					</div>
-					<div class="min-w-0">
-						<p class="text-xs font-semibold text-foreground">No calendars discovered yet</p>
-						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Run discovery after granting calendar access. This account will appear in Calendar once at least one source is selected.</p>
-					</div>
-				</div>
+		} else if data.Provider == "gmail" || data.Provider == "outlook" || data.Provider == "imap" {
+			<div class="rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground">
+				<p class="font-semibold text-foreground">No calendars discovered yet</p>
+				<p class="mt-0.5">Run discovery above. This account will appear in Calendar once at least one source is selected.</p>
 			</div>
 		}
 		if message != "" {
@@ -4769,7 +4795,7 @@ templ CalendarSetupNotice() {
 				</div>
 				<div class="min-w-0">
 					<h4 class="text-sm font-semibold text-foreground">Calendar sync</h4>
-					<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Google and Microsoft Calendar access and source discovery are available from this account's edit dialog.</p>
+					<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Calendar setup is optional and depends on the provider. Google and Microsoft use account authorization; IMAP mailboxes can connect a separate CalDAV service.</p>
 				</div>
 			</div>
 			<span class="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Available</span>
@@ -4780,6 +4806,13 @@ templ CalendarSetupNotice() {
 
 func contactSyncPasswordPlaceholder(cfg models.ContactSyncConfig) string {
 	if cfg.HasPassword {
+		return "Leave blank to keep current"
+	}
+	return "App password"
+}
+
+func calDAVPasswordPlaceholder(cfg models.CalendarSyncConfig) string {
+	if cfg.CalDAVHasPassword {
 		return "Leave blank to keep current"
 	}
 	return "App password"
@@ -4866,7 +4899,8 @@ templ CardDAVManualAddressBookButton(fieldsID string, baseURL string) {
 	</span>
 }
 
-templ AddAccountPostCreateStep(accountID string) {
+templ AddAccountPostCreateStep(data models.EditAccountData) {
+	{{ accountID := data.AccountID }}
 	<div id="add-wizard-footer-step-3" data-wizard-footer-step="3" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-between gap-2">
 		<button type="button" onclick="wizardGo(2)" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
 			@icon.ArrowLeft(icon.Props{Class: "size-4"})
@@ -4882,14 +4916,15 @@ templ AddAccountPostCreateStep(accountID string) {
 			@icon.ArrowLeft(icon.Props{Class: "size-4"})
 			Back
 		</button>
-		<button type="button" onclick="wizardGo(5)" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+		<button type="button" onclick="wizardServiceNext(this, 'calendar', 5)" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
 			Next
 			@icon.ChevronRight(icon.Props{Class: "size-4"})
 		</button>
 	</div>
 	<div id="add-step-4-content" hx-swap-oob="innerHTML">
-		@CalendarSetupNotice()
+		@CalendarSyncSettings(data)
 	</div>
+	@AccountWizardSectionSwitch("wizardGo", accountID, "calendar", data.CalendarSync.Enabled, false, false, true, nil)
 	<div id="add-wizard-footer-step-5" data-wizard-footer-step="5" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-between gap-2">
 		<button type="button" onclick="wizardGo(4)" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
 			@icon.ArrowLeft(icon.Props{Class: "size-4"})

@@ -71,11 +71,37 @@ func TestCalendarMainRendersNavigationAndAgendaState(t *testing.T) {
 	}
 }
 
+func TestCalendarTitleBarMatchesMailAndContacts(t *testing.T) {
+	at := time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC)
+	for _, data := range []CalendarMonthData{NewCalendarMonthData(at), NewCalendarWeekData(at)} {
+		var output bytes.Buffer
+		if err := CalendarMainContent(data).Render(t.Context(), &output); err != nil {
+			t.Fatal(err)
+		}
+		html := output.String()
+		start, end := strings.Index(html, "<header"), strings.Index(html, "</header>")
+		if start < 0 || end < start {
+			t.Fatal("Calendar title bar is missing")
+		}
+		header := html[start:end]
+		for _, want := range []string{data.MonthLabel, "text-lg font-bold tracking-tight", "px-4 py-4", `data-calendar-navigate="-1"`, `data-calendar-navigate="1"`, "data-calendar-view-nav"} {
+			if !strings.Contains(header, want) {
+				t.Errorf("%s title bar is missing %q", data.View, want)
+			}
+		}
+		if strings.Contains(header, ">Calendar</p>") || strings.Contains(header, "size-10") || strings.Contains(header, "sm:px-5") {
+			t.Errorf("%s title bar still has the Calendar badge/label or inconsistent spacing", data.View)
+		}
+	}
+}
+
 func TestCalendarPageRendersTimedAndAllDayEvents(t *testing.T) {
 	location := time.FixedZone("CEST", 2*60*60)
 	start := time.Date(2026, time.September, 17, 9, 0, 0, 0, location)
 	end := start.Add(time.Hour)
 	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, location))
+	month.HasSources = true
+	month.LastSyncedAt = &start
 	month.Events = []CalendarEvent{
 		{Summary: "Planning", SourceName: "Primary", SourceColor: "#4285f4", StartAt: &start, EndAt: &end},
 		{Summary: "Holiday", SourceName: "Primary", SourceColor: "#4285f4", AllDay: true, StartDate: "2026-09-18", EndDate: "2026-09-19"},

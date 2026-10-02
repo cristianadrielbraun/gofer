@@ -22,30 +22,60 @@ type CalendarWeek struct {
 }
 
 type CalendarMonthData struct {
+	View             string
+	DateKey          string
+	PeriodKey        string
 	Month            time.Time
 	MonthLabel       string
 	MonthKey         string
 	PreviousMonthKey string
 	NextMonthKey     string
 	TodayMonthKey    string
+	TodayDateKey     string
 	Weeks            []CalendarWeek
 	Events           []CalendarEvent
 	SyncMessage      string
 	SyncError        bool
+	HasSources       bool
+	AllSourcesHidden bool
+	AutoSync         bool
+	Syncing          bool
+	PendingSources   int
+	LastSyncedAt     *time.Time
+	SyncSourcesJSON  string
+	Loading          bool // Presentation only; never starts provider sync or shows empty results.
+}
+
+func calendarLoadingData(view string, uiSettings map[string]string) CalendarMonthData {
+	location := time.Local
+	if timezone := uiSettings["timezone"]; timezone != "" && timezone != "local" {
+		if configured, err := time.LoadLocation(timezone); err == nil {
+			location = configured
+		}
+	}
+	at := time.Now().In(location)
+	data := NewCalendarMonthData(at)
+	if view == "week" {
+		data = NewCalendarWeekData(at)
+	}
+	data.Loading = true
+	return data
 }
 
 type CalendarEvent struct {
-	ID          string
-	SourceName  string
-	SourceColor string
-	Summary     string
-	Location    string
-	Status      string
-	AllDay      bool
-	StartDate   string
-	EndDate     string
-	StartAt     *time.Time
-	EndAt       *time.Time
+	ID           string
+	SourceID     string
+	SourceHidden bool
+	SourceName   string
+	SourceColor  string
+	Summary      string
+	Location     string
+	Status       string
+	AllDay       bool
+	StartDate    string
+	EndDate      string
+	StartAt      *time.Time
+	EndAt        *time.Time
 }
 
 func NewCalendarMonthData(at time.Time) CalendarMonthData {
@@ -82,12 +112,16 @@ func NewCalendarMonthData(at time.Time) CalendarMonthData {
 	}
 
 	return CalendarMonthData{
+		View:             "month",
+		DateKey:          at.Format("2006-01-02"),
+		PeriodKey:        monthKey,
 		Month:            month,
 		MonthLabel:       month.Format("January 2006"),
 		MonthKey:         monthKey,
 		PreviousMonthKey: month.AddDate(0, -1, 0).Format("2006-01"),
 		NextMonthKey:     month.AddDate(0, 1, 0).Format("2006-01"),
 		TodayMonthKey:    today.Format("2006-01"),
+		TodayDateKey:     today.Format("2006-01-02"),
 		Weeks:            weeks,
 	}
 }
@@ -119,7 +153,7 @@ func calendarDayLabel(day CalendarDay) string {
 }
 
 func calendarDayClass(day CalendarDay) string {
-	classes := "relative min-h-24 border-r border-b border-border/70 bg-background p-2 transition-colors sm:min-h-28"
+	classes := "relative flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-b border-border/70 bg-background p-1.5 sm:p-2 transition-colors data-[calendar-day-selected=true]:bg-primary/10 data-[calendar-day-selected=true]:ring-2 data-[calendar-day-selected=true]:ring-inset data-[calendar-day-selected=true]:ring-primary"
 	if !day.InMonth {
 		return classes + " bg-muted/20 text-muted-foreground/45"
 	}
@@ -133,7 +167,7 @@ func calendarDayClass(day CalendarDay) string {
 }
 
 func calendarDayNumberClass(day CalendarDay) string {
-	classes := "inline-flex size-7 items-center justify-center rounded-full text-xs font-semibold tabular-nums"
+	classes := "inline-flex size-6 sm:size-7 items-center justify-center rounded-full text-xs font-semibold tabular-nums"
 	if day.IsToday {
 		return classes + " bg-primary text-primary-foreground shadow-sm"
 	}
@@ -156,7 +190,8 @@ func calendarEventsForDay(day CalendarDay, events []CalendarEvent) []CalendarEve
 			}
 			continue
 		}
-		if event.StartAt != nil && event.EndAt != nil && event.StartAt.Before(dayEnd.UTC()) && event.EndAt.After(dayStart.UTC()) {
+		if event.StartAt != nil && event.EndAt != nil && event.StartAt.Before(dayEnd.UTC()) &&
+			(event.EndAt.After(dayStart.UTC()) || (event.StartAt.Equal(*event.EndAt) && !event.StartAt.Before(dayStart.UTC()))) {
 			result = append(result, event)
 		}
 	}
@@ -167,19 +202,60 @@ func calendarAgendaEvents(month CalendarMonthData) []CalendarEvent {
 	now := time.Now().In(month.Month.Location())
 	var result []CalendarEvent
 	for _, event := range month.Events {
-		if event.AllDay {
-			if strings.TrimSpace(event.EndDate) != "" && strings.TrimSpace(event.EndDate) <= now.Format("2006-01-02") {
-				continue
-			}
-		} else if event.EndAt != nil && event.EndAt.Before(now.UTC()) {
-			continue
+		if !event.SourceHidden && calendarAgendaEventIsUpcoming(event, now) {
+			result = append(result, event)
 		}
-		result = append(result, event)
-	}
-	if len(result) > 8 {
-		return result[:8]
 	}
 	return result
+}
+
+func calendarAgendaEventIsUpcoming(event CalendarEvent, now time.Time) bool {
+	if event.AllDay {
+		return strings.TrimSpace(event.EndDate) == "" || event.EndDate > now.Format("2006-01-02")
+	}
+	return event.EndAt == nil || !event.EndAt.Before(now.UTC())
+}
+
+func calendarEventTimestamp(at *time.Time) string {
+	if at == nil {
+		return ""
+	}
+	return at.Format(time.RFC3339)
+}
+
+type calendarMonthCandidate struct {
+	Event   CalendarEvent
+	Visible bool
+}
+
+func calendarMonthCandidates(events []CalendarEvent) []calendarMonthCandidate {
+	result := make([]calendarMonthCandidate, 0, len(events))
+	visible := 0
+	for _, event := range events {
+		show := !event.SourceHidden && visible < 3
+		if !event.SourceHidden {
+			visible++
+		}
+		result = append(result, calendarMonthCandidate{Event: event, Visible: show})
+	}
+	return result
+}
+
+func calendarVisibleEventCount(events []CalendarEvent) int {
+	count := 0
+	for _, event := range events {
+		if !event.SourceHidden {
+			count++
+		}
+	}
+	return count
+}
+
+func calendarSourceDisplayName(source models.AccountCalendarSource) string {
+	if name := strings.TrimSpace(source.Name); name != "" {
+		return name
+	}
+	return "Untitled calendar"
 }
 
 func calendarEventSummary(event CalendarEvent) string {
@@ -227,7 +303,7 @@ func calendarEventAgendaTimeLabel(event CalendarEvent, location *time.Location) 
 	if event.StartAt == nil {
 		return ""
 	}
-	if event.EndAt == nil {
+	if event.EndAt == nil || event.EndAt.Equal(*event.StartAt) {
 		return event.StartAt.In(location).Format("15:04")
 	}
 	return event.StartAt.In(location).Format("15:04") + "–" + event.EndAt.In(location).Format("15:04")
@@ -246,6 +322,9 @@ func calendarEventMeta(event CalendarEvent) string {
 }
 
 func calendarAgendaStatusClass(month CalendarMonthData) string {
+	if month.Syncing {
+		return "flex items-center gap-2 text-xs font-semibold text-foreground"
+	}
 	if month.SyncError {
 		return "flex items-center gap-2 text-xs font-semibold text-destructive"
 	}
@@ -253,27 +332,94 @@ func calendarAgendaStatusClass(month CalendarMonthData) string {
 }
 
 func calendarAgendaStatusDotClass(month CalendarMonthData) string {
+	if month.Syncing {
+		return "size-2 rounded-full bg-primary animate-pulse"
+	}
 	if month.SyncError {
 		return "size-2 rounded-full bg-destructive"
 	}
-	return "size-2 rounded-full bg-emerald-500"
+	if month.LastSyncedAt != nil && month.PendingSources == 0 {
+		return "size-2 rounded-full bg-emerald-500"
+	}
+	return "size-2 rounded-full bg-muted-foreground/50"
 }
 
 func calendarAgendaStatusLabel(month CalendarMonthData) string {
+	if month.Syncing {
+		return "Refreshing calendars"
+	}
 	if month.SyncError {
 		return "Calendar sync needs attention"
 	}
-	if len(month.Events) > 0 {
+	if month.LastSyncedAt != nil && month.PendingSources == 0 {
 		return "Calendar synchronized"
+	}
+	if month.HasSources {
+		return "Calendar sync pending"
 	}
 	return "Ready for calendar connections"
 }
 
 func calendarAgendaStatusDetail(month CalendarMonthData) string {
+	if month.Syncing {
+		return "Fetching events from your selected calendars."
+	}
 	if month.SyncError {
+		return "Previously cached events remain available. " + month.SyncMessage
+	}
+	if month.SyncMessage != "" {
 		return month.SyncMessage
 	}
-	return "Events are read-only for now. Event creation will follow after sync is stable."
+	if month.LastSyncedAt != nil && month.PendingSources == 0 {
+		return "Last synced " + month.LastSyncedAt.In(month.Month.Location()).Format("15:04") + ". Background refresh is enabled."
+	}
+	if month.HasSources {
+		return "Waiting for the first successful refresh. Cached events remain available."
+	}
+	return "Choose calendars in account setup to show their events here."
+}
+
+func calendarSyncMessageClass(month CalendarMonthData) string {
+	if month.Syncing {
+		return "inline-flex items-center gap-1.5 text-muted-foreground"
+	}
+	if month.SyncError {
+		return "inline-flex items-center gap-1.5 text-destructive"
+	}
+	if month.LastSyncedAt != nil && month.PendingSources == 0 {
+		return "inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300"
+	}
+	return "inline-flex items-center gap-1.5 text-muted-foreground"
+}
+
+func calendarSyncMessage(month CalendarMonthData) string {
+	if month.Syncing {
+		return "Refreshing calendars…"
+	}
+	if month.SyncMessage != "" {
+		return month.SyncMessage
+	}
+	if month.LastSyncedAt != nil && month.PendingSources == 0 {
+		return "Last synced " + month.LastSyncedAt.In(month.Month.Location()).Format("15:04")
+	}
+	if month.HasSources {
+		return "Waiting for first refresh"
+	}
+	return "Choose calendars in account setup to get started"
+}
+
+func calendarSourceSyncTitle(source models.AccountCalendarSource) string {
+	switch source.SyncState {
+	case "syncing":
+		return "Refreshing calendar…"
+	case "failed":
+		return "Refresh failed: " + source.SyncError + ". Cached events remain available; retrying automatically."
+	case "ok":
+		if source.LastSyncedAt != "" {
+			return "Last synced " + source.LastSyncedAt
+		}
+	}
+	return "Waiting for first refresh"
 }
 
 func calendarAccountDisplayName(account models.Account) string {

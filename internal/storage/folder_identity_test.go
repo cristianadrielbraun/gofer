@@ -220,6 +220,7 @@ func seedV65FolderIdentityDB(t *testing.T, duplicate bool) string {
 		t.Fatalf("open raw database: %v", err)
 	}
 	defer raw.Close()
+	removeCalendarTablesFromLegacyFixture(t, raw)
 	if _, err := raw.Exec(`
 		DROP INDEX IF EXISTS idx_folders_account_provider_remote;
 		DROP INDEX IF EXISTS idx_folders_account_remote;

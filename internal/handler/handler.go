@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
+	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	mail "github.com/cristianadrielbraun/gofer/internal/mail"
 	mailautodiscover "github.com/cristianadrielbraun/gofer/internal/mail/autodiscover"
@@ -66,6 +67,10 @@ type Handler struct {
 	contactSyncMu              sync.Mutex
 	contactSyncRunning         map[string]struct{}
 	contactSyncQueue           chan struct{}
+	calendarWorkerOnce         sync.Once
+	calendarSyncMu             sync.Mutex
+	calendarSyncRunning        map[string]*calendarSyncRun
+	calendarFetchEvents        func(context.Context, storage.CalendarSource, calendar.EventQuery) (calendar.EventPage, error)
 	googleTranslator           *translation.GoogleWebConnector
 	vapidPublicKey             string
 	outgoingWake               chan struct{}
@@ -416,6 +421,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /contacts", h.handleContacts)
 	mux.HandleFunc("GET /contacts/items", h.handleContactItems)
 	mux.HandleFunc("GET /calendar", h.handleCalendar)
+	mux.HandleFunc("POST /api/calendar/sync", h.handleCalendarSync)
+	mux.HandleFunc("POST /api/calendar/sources/{id}/visibility", h.handleCalendarVisibility)
+	mux.HandleFunc("GET /api/calendar/events/{id}", h.handleCalendarEvent)
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("GET /api/contacts/export", h.handleExportContacts)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)
@@ -2499,8 +2507,14 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	editData, err := h.accountStore.GetEditData(r.Context(), account.ID)
+	if err != nil {
+		log.Printf("load account %s for post-create wizard: %v", account.ID, err)
+		http.Error(w, "account created but setup details could not be loaded", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html")
-	views.AddAccountPostCreateStep(account.ID).Render(r.Context(), w)
+	views.AddAccountPostCreateStep(*editData).Render(r.Context(), w)
 }
 
 func (h *Handler) handleGetEditAccount(w http.ResponseWriter, r *http.Request) {
@@ -4238,6 +4252,12 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, event := range h.syncer.IDLEFolderStatusSnapshot(userAccounts) {
 		writeEvent(event)
+	}
+	// Reconnecting browsers receive durable Calendar state, not invented success.
+	if sources, err := h.db.ListSelectedCalendarSources(r.Context(), userID); err == nil {
+		for _, source := range sources {
+			writeEvent(mail.Event{Type: mail.EventCalendarSync, UserID: userID, Payload: calendarSyncPayload(source, false, true)})
+		}
 	}
 
 	for {
