@@ -1,0 +1,12 @@
+{
+ "gofer-symbol": {
+  "ears_deg": 43.379,
+  "flap_edge_offset": 4.0,
+  "stamp_cy": 125.18
+ },
+ "gofer-symbol-small": {
+  "ears_deg": 43.281,
+  "flap_edge_offset": 6.5,
+  "stamp_cy": 126.09
+ }
+}
