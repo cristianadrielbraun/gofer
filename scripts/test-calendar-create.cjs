@@ -10,7 +10,10 @@ function helper(name) {
 }
 const inputs = ['source_id', 'request_id', 'summary', 'start_date', 'end_date', 'start_time', 'end_time', 'timezone', 'all_day'].map(name => ({name, value: name, disabled: false, required: false, checked: false}))
 const sourceInput = inputs[0]
-sourceInput.selectedOptions = [{disabled: false, dataset: {calendarSourceWritable: 'true', calendarSourceAuthorized: 'true'}}]
+const sourceChoice = {dataset: {tuiSelectboxValue: sourceInput.value, tuiSelectboxDisabled: 'false', calendarSourceWritable: 'true', calendarSourceAuthorized: 'true'}}
+const sourceTrigger = {disabled: false}
+const choices = [sourceChoice]
+const sourceSelect = {querySelectorAll() { return choices }, querySelector() { return sourceTrigger }}
 const node = () => ({hidden: false, textContent: '', setAttribute(name, value) { this[name] = value }})
 const error = node(), access = node(), submit = node(), spinner = node(), label = node(), timezone = node(), help = node()
 const times = inputs.filter(input => ['start_time', 'end_time'].includes(input.name)).map(input => ({hidden: false, querySelector() { return input }}))
@@ -19,6 +22,7 @@ const form = {
   querySelector(selector) {
     const name = selector.match(/^\[name="([^"]+)"\]$/)?.[1]
     if (name) return inputs.find(input => input.name === name)
+    if (selector === '[data-calendar-create-source-select]') return sourceSelect
     return {'[data-calendar-create-error]': error, '[data-calendar-create-access]': access, '[data-calendar-create-submit]': submit,
       '[data-calendar-create-spinner]': spinner, '[data-calendar-create-submit-label]': label, '[data-calendar-create-timezone]': timezone, '[data-calendar-create-date-help]': help}[selector]
   }, querySelectorAll(selector) { return selector === 'input, select, textarea' ? inputs : times },
@@ -41,11 +45,24 @@ async function main() {
   assert.equal(event.detail.parameters.date, '2026-10-03', 'New event must use the selected day')
   context.updateCalendarCreateForm(form)
   assert.equal(submit.disabled, false)
-  sourceInput.selectedOptions[0].dataset.calendarSourceAuthorized = 'false'
+  assert.equal(sourceTrigger.disabled, false)
+  sourceChoice.dataset.calendarSourceAuthorized = 'false'
   context.updateCalendarCreateForm(form)
   assert.equal(submit.disabled, true, 'A read-only OAuth grant must not be writable')
   assert.match(access.textContent, /Reconnect.*Accounts/)
-  sourceInput.selectedOptions[0].dataset.calendarSourceAuthorized = 'true'
+  sourceChoice.dataset.calendarSourceAuthorized = 'true'
+  sourceChoice.dataset.tuiSelectboxDisabled = 'true'
+  context.updateCalendarCreateForm(form)
+  assert.equal(submit.disabled, true, 'Read-only templUI items must not enable creation')
+  sourceChoice.dataset.tuiSelectboxDisabled = 'false'
+  sourceInput.value = ''
+  context.updateCalendarCreateForm(form)
+  assert.equal(submit.disabled, true, 'An empty templUI selection must not enable creation')
+  choices.length = 0
+  context.updateCalendarCreateForm(form)
+  assert.equal(sourceTrigger.disabled, true, 'A selector without configured calendars must remain disabled')
+  choices.push(sourceChoice)
+  sourceInput.value = sourceChoice.dataset.tuiSelectboxValue
   inputs.find(input => input.name === 'all_day').checked = true
   context.updateCalendarCreateForm(form)
   assert.ok(times.every(node => node.hidden && node.querySelector().disabled))
@@ -58,12 +75,14 @@ async function main() {
   assert.equal(label.textContent, 'Creating…')
   assert.equal(spinner.hidden, false)
   assert.ok(inputs.every(input => input.disabled))
+  assert.equal(sourceTrigger.disabled, true, 'The templUI trigger must be locked while saving')
   const stablePayload = requests[0].options.body
   requests[0].reject(new Error('lost response'))
   await first
   assert.equal(label.textContent, 'Retry safely')
   assert.equal(submit.disabled, false)
   assert.ok(inputs.every(input => input.disabled), 'Uncertain writes must keep the same draft')
+  assert.equal(sourceTrigger.disabled, true, 'Safe retry must not allow another calendar to be selected')
   assert.match(error.textContent, /duplicate/)
   const retry = context.submitCalendarCreate(form)
   assert.equal(requests[1].options.body, stablePayload, 'Retry must use the exact request ID and details')
@@ -81,6 +100,7 @@ async function main() {
   await rejected
   assert.equal(inputs.find(input => input.name === 'request_id').value, 'fresh-request')
   assert.equal(inputs.find(input => input.name === 'summary').disabled, false, 'Definitive failure must keep an editable draft')
+  assert.equal(sourceTrigger.disabled, false, 'Definitive failure must unlock the templUI selector')
   assert.equal(error.textContent, 'Write access denied')
   assert.equal(toasts.length, 1, 'Failed requests must not announce success')
 

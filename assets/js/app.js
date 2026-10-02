@@ -8341,12 +8341,17 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
 function updateCalendarCreateForm(form) {
   if (!form) return
   var source = form.querySelector('[name="source_id"]')
-  var selected = source && source.selectedOptions[0]
-  var allowed = selected && !selected.disabled && selected.dataset.calendarSourceWritable === "true" && selected.dataset.calendarSourceAuthorized === "true"
+  var sourceSelect = form.querySelector("[data-calendar-create-source-select]")
+  var choices = sourceSelect ? Array.from(sourceSelect.querySelectorAll("[data-tui-selectbox-value]")) : []
+  var selected = source && choices.find(function (choice) { return choice.dataset.tuiSelectboxValue === source.value })
+  var writable = selected && selected.dataset.tuiSelectboxDisabled !== "true" && selected.dataset.calendarSourceWritable === "true"
+  var allowed = writable && selected.dataset.calendarSourceAuthorized === "true"
   var busy = !!form._calendarCreateBusy
   var uncertain = !!form._calendarCreateUncertain
   var allDay = form.querySelector('[name="all_day"]').checked
   form.querySelectorAll("input, select, textarea").forEach(function (input) { input.disabled = busy || uncertain })
+  var sourceTrigger = sourceSelect && sourceSelect.querySelector(".select-trigger")
+  if (sourceTrigger) sourceTrigger.disabled = busy || uncertain || choices.length === 0
   form.querySelectorAll("[data-calendar-create-time]").forEach(function (node) {
     node.hidden = allDay
     var input = node.querySelector("input")
@@ -8357,7 +8362,7 @@ function updateCalendarCreateForm(form) {
   form.querySelector("[data-calendar-create-date-help]").hidden = !allDay
   var access = form.querySelector("[data-calendar-create-access]")
   access.hidden = !!allowed
-  access.textContent = !selected || selected.disabled || selected.dataset.calendarSourceWritable !== "true" ?
+  access.textContent = !writable ?
     "No writable calendar is configured. Choose calendars in Accounts first." :
     "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission."
   var submit = form.querySelector("[data-calendar-create-submit]")
