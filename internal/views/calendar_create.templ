@@ -3,16 +3,28 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/datepicker"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/label"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/textarea"
+	"github.com/cristianadrielbraun/gofer/components/timepicker"
 	"strconv"
 )
 
 templ CalendarCreateDialog(data CalendarCreateData) {
+	{{
+		editing := data.EventID != ""
+		title, closeLabel, submitLabel, action := "New event", "Close new event", "Create event", "/api/calendar/events"
+		if editing {
+			title, closeLabel, submitLabel, action = "Edit event", "Close edit event", "Save changes", calendarEventDetailsURL(data.EventID)
+		}
+		if data.EditSeries {
+			title, closeLabel, submitLabel = "Edit series", "Close edit series", "Save series"
+		}
+	}}
 	@dialog.Dialog(dialog.Props{ID: "calendar-create-dialog"}) {
 		@dialog.Content(dialog.ContentProps{
 			HideCloseButton: true,
@@ -21,21 +33,30 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 		}) {
 			<header class="flex shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-4">
 				@dialog.Title(dialog.TitleProps{ID: "calendar-create-title", Class: "text-lg font-semibold"}) {
-					New event
+					{ title }
 				}
-				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-tui-dialog-close": "", "aria-label": "Close new event"}}) {
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-tui-dialog-close": "", "aria-label": closeLabel}}) {
 					@icon.X(icon.Props{Class: "size-4"})
 				}
 			</header>
-			<form id="calendar-create-form" data-calendar-create-form data-request-id={ data.RequestID } class="flex min-h-0 flex-col" action="/api/calendar/events" method="post">
+			<form id="calendar-create-form" data-calendar-create-form data-calendar-event-id={ data.EventID } data-calendar-edit-series={ strconv.FormatBool(data.EditSeries) } data-request-id={ data.RequestID } class="flex min-h-0 flex-col" action={ templ.SafeURL(action) } method="post">
 				<input type="hidden" name="request_id" value={ data.RequestID }/>
+				if editing {
+					<input type="hidden" name="version" value={ data.Version }/>
+				}
+				if data.EditSeries {
+					<input type="hidden" name="edit_scope" value="series"/>
+				}
 				<div class="min-h-0 space-y-4 overflow-y-auto px-5 py-5">
+					if data.EditSeries {
+						<p class="text-xs leading-relaxed text-muted-foreground">Changes apply to the entire series, including past occurrences. The dates below belong to the first event, not just the occurrence you opened.</p>
+					}
 					<div class="space-y-1.5">
 						@label.Label(label.Props{For: "calendar-create-source"}) {
 							Calendar
 						}
 						@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-calendar-create-source-select": ""}}) {
-							@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-source", Name: "source_id", DisableClear: true, Disabled: len(data.Sources) == 0, Attributes: templ.Attributes{"value": data.SourceID}}) {
+							@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-source", Name: "source_id", DisableClear: true, Disabled: editing || len(data.Sources) == 0, Attributes: templ.Attributes{"value": data.SourceID}}) {
 								if len(data.Sources) == 0 {
 									@selectbox.Value(selectbox.ValueProps{Placeholder: "No configured calendars"})
 								} else {
@@ -61,10 +82,10 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 						@label.Label(label.Props{For: "calendar-create-summary"}) {
 							Title
 						}
-						@input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Placeholder: "Event title", Required: true, Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}})
+						@input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Value: data.Summary, Placeholder: "Event title", Required: true, Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}})
 					</div>
 					@label.Label(label.Props{For: "calendar-create-all-day", Class: "inline-flex items-center gap-2"}) {
-						@checkbox.Checkbox(checkbox.Props{ID: "calendar-create-all-day", Name: "all_day", Value: "true"})
+						@checkbox.Checkbox(checkbox.Props{ID: "calendar-create-all-day", Name: "all_day", Value: "true", Checked: data.AllDay})
 						All day
 					}
 					<div class="grid grid-cols-2 gap-3">
@@ -72,42 +93,56 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 							@label.Label(label.Props{For: "calendar-create-start-date"}) {
 								Starts
 							}
-							@input.Input(input.Props{ID: "calendar-create-start-date", Name: "start_date", Type: input.TypeDate, Value: data.Date, Required: true})
-							<div data-calendar-create-time>
-								@input.Input(input.Props{ID: "calendar-create-start-time", Name: "start_time", Type: input.TypeTime, Value: data.StartTime, Required: true, Attributes: templ.Attributes{"aria-label": "Start time"}})
+							@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-start-date", Name: "start_date", Value: calendarCreatePickerValue("2006-01-02", data.Date)})
+							<div data-calendar-create-time hidden?={ data.AllDay }>
+								@timepicker.TimePicker(timepicker.Props{ID: "calendar-create-start-time", Name: "start_time", Value: calendarCreatePickerValue("15:04", data.StartTime), Attributes: templ.Attributes{"aria-label": "Start time"}})
 							</div>
 						</div>
 						<div class="space-y-1.5">
 							@label.Label(label.Props{For: "calendar-create-end-date"}) {
 								Ends
 							}
-							@input.Input(input.Props{ID: "calendar-create-end-date", Name: "end_date", Type: input.TypeDate, Value: data.EndDate, Required: true})
-							<div data-calendar-create-time>
-								@input.Input(input.Props{ID: "calendar-create-end-time", Name: "end_time", Type: input.TypeTime, Value: data.EndTime, Required: true, Attributes: templ.Attributes{"aria-label": "End time"}})
+							@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-end-date", Name: "end_date", Value: calendarCreatePickerValue("2006-01-02", data.EndDate)})
+							<div data-calendar-create-time hidden?={ data.AllDay }>
+								@timepicker.TimePicker(timepicker.Props{ID: "calendar-create-end-time", Name: "end_time", Value: calendarCreatePickerValue("15:04", data.EndTime), Attributes: templ.Attributes{"aria-label": "End time"}})
 							</div>
 						</div>
 					</div>
-					<p data-calendar-create-date-help hidden class="text-xs text-muted-foreground">The end date is included in an all-day event.</p>
-					<div class="space-y-1.5" data-calendar-create-timezone>
+					<p data-calendar-create-date-help hidden?={ !data.AllDay } role="status" aria-live="polite" aria-atomic="true" class="h-8 text-xs leading-4 text-muted-foreground">The end date is included in an all-day event.</p>
+					<div class="space-y-1.5" data-calendar-create-timezone hidden?={ data.AllDay }>
 						@label.Label(label.Props{For: "calendar-create-timezone"}) {
 							Time zone
 						}
-						@input.Input(input.Props{ID: "calendar-create-timezone", Name: "timezone", Value: data.TimeZone, Required: true, Placeholder: "Europe/Prague", Attributes: templ.Attributes{"list": "calendar-create-timezones", "autocomplete": "off", "maxlength": "100"}})
-						<datalist id="calendar-create-timezones"></datalist>
+						@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-calendar-create-timezone-select": ""}}) {
+							@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-timezone", Name: "timezone", DisableClear: true, Attributes: templ.Attributes{"value": data.TimeZone}}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a time zone"})
+							}
+							@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search time zones…"}) {
+								@selectbox.Group(selectbox.GroupProps{ID: "calendar-create-timezones"}) {
+									@selectbox.Item(selectbox.ItemProps{Value: data.TimeZone, Selected: data.TimeZone != ""}) {
+										{ data.TimeZone }
+									}
+									<template data-calendar-create-timezone-option>
+										@selectbox.Item()
+									</template>
+								}
+							}
+						}
 					</div>
+					@CalendarRecurrenceFields(data)
 					<div class="space-y-1.5">
 						@label.Label(label.Props{For: "calendar-create-location"}) {
 							Location <span class="text-xs font-normal text-muted-foreground">optional</span>
 						}
-						@input.Input(input.Props{ID: "calendar-create-location", Name: "location", Attributes: templ.Attributes{"maxlength": "1024"}})
+						@input.Input(input.Props{ID: "calendar-create-location", Name: "location", Value: data.Location, Attributes: templ.Attributes{"maxlength": "1024"}})
 					</div>
 					<div class="space-y-1.5">
 						@label.Label(label.Props{For: "calendar-create-description"}) {
 							Description <span class="text-xs font-normal text-muted-foreground">optional</span>
 						}
-						@textarea.Textarea(textarea.Props{ID: "calendar-create-description", Name: "description", Rows: 3, Class: "resize-y py-2", Attributes: templ.Attributes{"maxlength": "16384"}})
+						@textarea.Textarea(textarea.Props{ID: "calendar-create-description", Name: "description", Value: data.Description, Rows: 3, Class: "resize-y py-2", Attributes: templ.Attributes{"maxlength": "16384"}})
 					</div>
-					<p data-calendar-create-error role="alert" hidden class="text-sm leading-relaxed text-destructive"></p>
+					<p data-calendar-create-error role="alert" aria-atomic="true" tabindex="-1" hidden class="text-sm leading-relaxed text-destructive"></p>
 				</div>
 				<footer class="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
 					@button.Button(button.Props{Variant: button.VariantOutline, Class: "font-semibold", Attributes: templ.Attributes{"data-tui-dialog-close": ""}}) {
@@ -116,7 +151,7 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 					@button.Button(button.Props{Type: button.TypeSubmit, Class: "btn-skeuo font-semibold disabled:cursor-not-allowed", Attributes: templ.Attributes{"data-calendar-create-submit": ""}}) {
 						<span data-calendar-create-spinner hidden>
 							@icon.LoaderCircle(icon.Props{Class: "size-4 animate-spin"})
-						</span><span data-calendar-create-submit-label>Create event</span>
+						</span><span data-calendar-create-submit-label>{ submitLabel }</span>
 					}
 				</footer>
 			</form>

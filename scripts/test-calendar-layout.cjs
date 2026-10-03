@@ -62,4 +62,19 @@ assert.equal(count(3, 40, 21, 19, 4), 0)
 assert.equal(count(3, 45, 21, 19, 4), 1)
 assert.equal(count(2, 46, 21, 19, 4), 2)
 assert.equal(count(3, 10, 21, 19, 4), 0)
+
+const span = (id, start, end) => ({dataset: {calendarMonthEvent: id, calendarEventAllDay: 'true', calendarEventStartDate: start, calendarEventEndDate: end}})
+const early = [span('early', '2026-10-01', '2026-10-03'), span('early', '2026-10-01', '2026-10-03')]
+const trip = [span('trip', '2026-10-02', '2026-10-05'), span('trip', '2026-10-02', '2026-10-05')]
+const timed = {dataset: {}}, single = span('single', '2026-10-02', '2026-10-03')
+const days = [{buttons: [timed, early[0]]}, {buttons: [early[1], single, trip[0]]}, {buttons: [trip[1]]}]
+const rows = context._calendarAllDayEventRows(days)
+assert.equal(rows.get(early[0]), rows.get(early[1]))
+assert.equal(rows.get(trip[0]), rows.get(trip[1]), 'A continuous event must not jump rows when another event ends')
+assert.notEqual(rows.get(trip[0]), rows.get(early[1]), 'Overlapping all-day events need separate rows')
+assert.notEqual(rows.get(single), rows.get(trip[0]), 'Single-day events must not overlap a spanning event')
+assert.notEqual(rows.get(timed), rows.get(early[0]), 'Timed events must leave room for all-day bars')
+const filtered = context._calendarAllDayEventRows(days.map(day => ({buttons: day.buttons.filter(button => !early.includes(button))})))
+assert.equal(filtered.get(trip[0]), 0, 'Hiding another calendar must reclaim its row')
+assert.equal(filtered.get(trip[1]), 0)
 console.log('Calendar layout: screen fit, occupied-hour weighting, zoom, time mapping, overlap hitboxes, and month overflow passed.')

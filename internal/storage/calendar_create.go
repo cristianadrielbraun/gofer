@@ -44,6 +44,31 @@ type CalendarCreateRequest struct {
 	RemoteID string
 }
 
+// CompleteCalendarSeriesCreate records the provider-confirmed master identity
+// without inserting it as an appointment. The normal sync caches occurrences;
+// showing a master as well would duplicate the first event and lose series IDs.
+// Persist before reading instances so a failed refresh can never re-create it.
+func (db *DB) CompleteCalendarSeriesCreate(ctx context.Context, userID, sourceID, requestID, hash, remoteID string) (CalendarCreateRequest, error) {
+	if strings.TrimSpace(remoteID) == "" {
+		return CalendarCreateRequest{}, fmt.Errorf("provider did not confirm the series identity")
+	}
+	result, err := db.Write().ExecContext(ctx, `UPDATE calendar_create_requests SET remote_id = ?
+		WHERE user_id = ? AND source_id = ? AND request_id = ? AND request_hash = ?
+		AND event_id = '' AND (remote_id = '' OR remote_id = ?)
+		AND EXISTS (SELECT 1 FROM calendar_sources source
+		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
+		WHERE source.id = ? AND source.user_id = ? AND source.is_selected = 1
+		AND source.is_deleted = 0 AND COALESCE(account.is_deleting, 0) = 0)`,
+		remoteID, userID, sourceID, requestID, hash, remoteID, sourceID, userID)
+	if err != nil {
+		return CalendarCreateRequest{}, err
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return CalendarCreateRequest{}, ErrCalendarCreateConflict
+	}
+	return CalendarCreateRequest{RemoteID: remoteID}, nil
+}
+
 // BeginCalendarCreate binds a stable request ID to one owned source and draft.
 // Pending requests may be retried using the provider's same idempotency key.
 func (db *DB) BeginCalendarCreate(ctx context.Context, userID, sourceID, requestID, hash string) (CalendarCreateRequest, error) {

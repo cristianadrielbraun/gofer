@@ -1,0 +1,96 @@
+package views
+
+import (
+	"strconv"
+	"github.com/cristianadrielbraun/gofer/components/datepicker"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/label"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+)
+
+templ CalendarRecurrenceFields(data CalendarCreateData) {
+	{{
+		frequency, interval, ending, until, count := "none", "1", "never", "", "10"
+		if repeat := data.Recurrence; repeat != nil {
+			frequency, interval = repeat.Frequency, strconv.Itoa(repeat.Interval)
+			if repeat.Count > 0 { ending, count = "count", strconv.Itoa(repeat.Count) }
+			if repeat.Until != "" { ending, until = "until", repeat.Until }
+		}
+	}}
+	<div class="space-y-3" data-calendar-repeat>
+		<div class="grid grid-cols-1 items-end gap-3 data-[repeating=true]:grid-cols-2" data-calendar-repeat-row data-repeating={ strconv.FormatBool(frequency != "none") }>
+			<div class="min-w-0 space-y-1.5">
+				@label.Label(label.Props{For: "calendar-create-repeat-frequency"}) {
+					Repeat
+				}
+				@selectbox.SelectBox() {
+					@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-repeat-frequency", Name: "repeat_frequency", DisableClear: true, Attributes: templ.Attributes{"value": frequency}}) {
+						@selectbox.Value(selectbox.ValueProps{Placeholder: "Does not repeat"})
+					}
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Group() {
+							for _, option := range [][2]string{{"none", "Does not repeat"}, {"daily", "Daily"}, {"weekly", "Weekly"}, {"monthly", "Monthly"}, {"yearly", "Yearly"}} {
+								@selectbox.Item(selectbox.ItemProps{Value: option[0], Selected: option[0] == frequency, Disabled: data.EditSeries && option[0] == "none"}) {
+									{ option[1] }
+								}
+							}
+						}
+					}
+				}
+			</div>
+			<fieldset data-calendar-repeat-interval-group hidden?={ frequency == "none" } disabled?={ frequency == "none" } class="min-w-0">
+				<div class="flex h-9 min-w-0 items-center gap-2">
+					@label.Label(label.Props{For: "calendar-create-repeat-interval", Class: "shrink-0"}) {
+						Every
+					}
+					<div class="min-w-0 flex-1">
+						@input.Input(input.Props{ID: "calendar-create-repeat-interval", Name: "repeat_interval", Type: input.TypeNumber, Value: interval, Required: true, Attributes: templ.Attributes{"min": "1", "max": "99", "step": "1", "data-calendar-repeat-number": "", "aria-describedby": "calendar-repeat-unit"}})
+					</div>
+					<span id="calendar-repeat-unit" data-calendar-repeat-unit class="whitespace-nowrap text-sm text-muted-foreground">days</span>
+				</div>
+			</fieldset>
+		</div>
+		<fieldset data-calendar-repeat-options hidden?={ frequency == "none" } disabled?={ frequency == "none" } class="min-w-0 space-y-3">
+			<div class="grid grid-cols-2 items-end gap-3">
+				<div class="space-y-1.5">
+					@label.Label(label.Props{For: "calendar-create-repeat-end"}) {
+						Series ends
+					}
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-repeat-end", Name: "repeat_end", DisableClear: true, Attributes: templ.Attributes{"value": ending}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Never"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Group() {
+								for _, option := range [][2]string{{"never", "Never"}, {"until", "On a date"}, {"count", "After occurrences"}} {
+									@selectbox.Item(selectbox.ItemProps{Value: option[0], Selected: option[0] == ending}) {
+										{ option[1] }
+									}
+								}
+							}
+						}
+					}
+				</div>
+				<fieldset data-calendar-repeat-until hidden?={ ending != "until" } disabled?={ ending != "until" } class="min-w-0 space-y-1.5">
+					@label.Label(label.Props{For: "calendar-create-repeat-until"}) {
+						Last start date
+					}
+					@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-repeat-until", Name: "repeat_until", Value: calendarCreatePickerValue("2006-01-02", until)})
+				</fieldset>
+				<fieldset data-calendar-repeat-count hidden?={ ending != "count" } disabled?={ ending != "count" } class="min-w-0 space-y-1.5">
+					@label.Label(label.Props{For: "calendar-create-repeat-count"}) {
+						Occurrences
+					}
+					@input.Input(input.Props{ID: "calendar-create-repeat-count", Name: "repeat_count", Type: input.TypeNumber, Value: count, Required: true, Attributes: templ.Attributes{"min": "1", "max": "999", "step": "1", "data-calendar-repeat-number": ""}})
+				</fieldset>
+			</div>
+			<div class="space-y-1 text-xs leading-relaxed text-muted-foreground">
+				<p data-calendar-repeat-summary role="status" aria-live="polite" aria-atomic="true"></p>
+				<p>Individual occurrences are managed in your calendar provider.</p>
+				if data.EditSeries {
+					<p>To stop repeating, choose an end date. Converting a series back to a single event is not supported yet.</p>
+				}
+			</div>
+		</fieldset>
+	</div>
+}

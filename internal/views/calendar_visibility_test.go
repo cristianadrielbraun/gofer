@@ -12,6 +12,8 @@ import (
 
 func TestCalendarVisibilityRendersAllCandidatesWithoutHiddenSourceFlash(t *testing.T) {
 	start := time.Now().UTC().AddDate(0, 0, 1)
+	// Keep the fixture on one day even when this test runs just before midnight.
+	start = time.Date(start.Year(), start.Month(), start.Day(), 9, 0, 0, 0, time.UTC)
 	month := NewCalendarMonthData(start)
 	for index := range 7 {
 		end := start.Add(time.Hour)

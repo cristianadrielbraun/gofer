@@ -112,10 +112,13 @@ func TestCalendarPageRendersTimedAndAllDayEvents(t *testing.T) {
 	}
 
 	html := output.String()
-	for _, expected := range []string{`Planning`, `09:00`, `Holiday`, `All day`, `Calendar synchronized`} {
+	for _, expected := range []string{`Planning`, `09:00`, `Holiday`, `All day`, `data-calendar-sync-status`, `Last synced 09:00`} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("calendar page missing rendered event content %q: %s", expected, html)
 		}
+	}
+	if strings.Contains(html, "data-calendar-sync-label") || strings.Contains(html, "data-calendar-sync-detail") {
+		t.Fatal("calendar agenda still renders the duplicate sync-status footer")
 	}
 	if strings.Contains(html, "border-l-2") || strings.Contains(html, "border-left-color") {
 		t.Fatalf("calendar events still render the colored left border: %s", html)
@@ -144,7 +147,6 @@ func TestCalendarSidebarActivatesCalendarAppAndShowsProviders(t *testing.T) {
 		`data-sidebar-app-body="calendar"`,
 		`Google account`,
 		`Microsoft account`,
-		`Calendar sync`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("calendar sidebar missing %q: %s", expected, html)

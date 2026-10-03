@@ -2,6 +2,8 @@ package views
 
 import (
 	"bytes"
+	"html"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +95,123 @@ func TestCalendarEventsHaveSharedAccessibleDetailsTriggers(t *testing.T) {
 	for _, attribute := range []string{`hx-get="/api/calendar/events/event-id"`, `hx-target="#app-pane-dialogs"`, `aria-haspopup="dialog"`, `data-calendar-event-trigger`} {
 		if got := strings.Count(output.String(), attribute); got != 2 {
 			t.Errorf("attribute %q count = %d, want grid and agenda triggers", attribute, got)
+		}
+	}
+}
+
+func TestCalendarEventEditAffordanceFollowsCapability(t *testing.T) {
+	for _, test := range []struct {
+		name, reason string
+		canEdit      bool
+	}{
+		{"supported", "", true},
+		{"recurring read-only", "Recurring events must be edited in your calendar provider.", false},
+		{"permissions read-only", "This calendar has read-only access.", false},
+		{"escaped reason", "Unsupported <script>reason</script>", false},
+		{"unspecified read-only", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			details := CalendarEventDetails{Event: CalendarEvent{ID: "event/with space?#"}, CanEdit: test.canEdit, EditUnavailableReason: test.reason}
+			if err := CalendarEventDialog(details, time.UTC).Render(t.Context(), &output); err != nil {
+				t.Fatal(err)
+			}
+			markup := output.String()
+			editButton := regexp.MustCompile(`<button[^>]*data-calendar-edit-trigger[^>]*>`).FindString(markup)
+			if test.canEdit {
+				for _, want := range []string{
+					`data-calendar-create-trigger`, `data-calendar-edit-trigger`, `type="button"`,
+					`hx-get="/api/calendar/events/event%2Fwith%20space%3F%23/edit"`, `hx-target="#app-pane-dialogs"`,
+					`hx-swap="innerHTML"`, `hx-sync="#app-pane-dialogs:replace"`, `hx-disabled-elt="this"`,
+					`aria-haspopup="dialog"`, `aria-controls="calendar-create-dialog"`,
+				} {
+					if !strings.Contains(editButton, want) {
+						t.Errorf("edit button missing %q", want)
+					}
+				}
+				if strings.Contains(markup, "Read-only") || strings.Contains(markup, "data-calendar-edit-unavailable") || strings.Contains(editButton, "data-tui-dialog-close") {
+					t.Error("supported edit must load through the shared lifecycle without closing details early")
+				}
+			} else {
+				if editButton != "" || strings.Contains(markup, "data-calendar-create-trigger") {
+					t.Error("read-only events must not offer editing")
+				}
+				if !strings.Contains(markup, "data-calendar-edit-unavailable") || !strings.Contains(markup, "Read-only") {
+					t.Error("read-only events must explain editing availability")
+				}
+				if test.reason == "" {
+					if !strings.Contains(markup, "Editing is unavailable for this event.") {
+						t.Error("missing read-only fallback")
+					}
+				} else if test.name != "escaped reason" && !strings.Contains(markup, test.reason) {
+					t.Error("missing contextual read-only reason")
+				}
+				if strings.Contains(markup, "<script>") {
+					t.Error("read-only reasons must be escaped")
+				}
+			}
+		})
+	}
+}
+
+func TestCalendarEventDeleteConfirmationUsesTemplUIAndHTMX(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		var output bytes.Buffer
+		details := CalendarEventDetails{Event: CalendarEvent{ID: "event/with space?#", Summary: "Unsafe <script>title</script>"}, CanDelete: allowed, DeleteVersion: `"v1"`}
+		if err := CalendarEventDialog(details, time.UTC).Render(t.Context(), &output); err != nil {
+			t.Fatal(err)
+		}
+		markup := output.String()
+		if strings.Contains(markup, "data-calendar-delete-trigger") != allowed || strings.Contains(markup, "data-calendar-delete-form") != allowed {
+			t.Fatal("delete action did not follow capability")
+		}
+		if !allowed {
+			continue
+		}
+		for _, want := range []string{
+			`data-tui-popover-root`, `data-tui-popover-trigger`, `data-tui-popover-content`,
+			`role="dialog"`, `aria-labelledby="calendar-event-delete-title"`,
+			`hx-delete="/api/calendar/events/event%2Fwith%20space%3F%23"`, `hx-params="version"`, `hx-swap="none"`, `hx-sync="this:drop"`,
+			`name="version"`, `data-calendar-delete-cancel`, `data-calendar-delete-submit`, `data-calendar-delete-error`, `data-calendar-delete-spinner`,
+			`from your calendar provider, not just Gofer`, `Unsafe &lt;script&gt;title&lt;/script&gt;`,
+		} {
+			if !strings.Contains(markup, want) {
+				t.Errorf("missing %q", want)
+			}
+		}
+		version := regexp.MustCompile(`<input[^>]*name="version"[^>]*value="([^"]*)"`).FindStringSubmatch(markup)
+		if len(version) != 2 || html.UnescapeString(version[1]) != details.DeleteVersion {
+			t.Fatal("confirmation lost the exact event version")
+		}
+		if strings.Contains(markup, "confirm(") || strings.Count(markup, "<dialog ") != 1 {
+			t.Fatal("confirmation must not open a native browser prompt or replace the modal backdrop")
+		}
+	}
+}
+
+func TestCalendarEventSeriesDeleteConfirmationIsScopedAndInitiallyDisabled(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		details := CalendarEventDetails{Event: CalendarEvent{ID: "instance/with space", Summary: "Series <script>unsafe</script>"}, CanDelete: true, DeleteSeries: true}
+		if ready {
+			details.DeleteVersion = `"master-v1"`
+			details.DeleteSeriesID = "remote-master"
+		}
+		var output bytes.Buffer
+		if err := CalendarEventDialog(details, time.UTC).Render(t.Context(), &output); err != nil {
+			t.Fatal(err)
+		}
+		markup := output.String()
+		for _, want := range []string{`Delete series`, `Delete the entire series?`, `all occurrences, including past and future events`, `hx-params="version,scope,series_id"`, `name="scope" value="series"`, `data-calendar-delete-load`, `/delete-series-confirmation`, `hx-target="#calendar-event-delete-confirmation-body"`, `data-tui-popover-root`} {
+			if !strings.Contains(markup, want) {
+				t.Errorf("series confirmation missing %q", want)
+			}
+		}
+		button := regexp.MustCompile(`<button[^>]*data-calendar-delete-submit[^>]*>`).FindString(markup)
+		if regexp.MustCompile(`\sdisabled(?:\s|=|>)`).MatchString(button) == ready {
+			t.Fatal("delete readiness does not follow master version availability")
+		}
+		if strings.Count(markup, "<dialog ") != 1 || strings.Contains(markup, "<script>") {
+			t.Fatal("series confirmation changed backdrop or rendered unescaped text")
 		}
 	}
 }

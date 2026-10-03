@@ -37,6 +37,19 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		},
 		Attendees: calendarEventParticipants(event.AttendeesJSON),
 	}
+	_, reason, accessErr := h.calendarEventEditAccess(ctx, event)
+	details.CanEdit = accessErr == nil && reason == ""
+	details.EditSeries = details.CanEdit && calendarEventIsSeries(event)
+	details.EditUnavailableReason = reason
+	if accessErr != nil {
+		details.EditUnavailableReason = "Calendar write access could not be verified."
+	}
+	_, deleteReason, deleteErr := h.calendarEventDeleteAccess(ctx, event)
+	details.CanDelete = deleteErr == nil && deleteReason == ""
+	details.DeleteSeries = details.CanDelete && calendarEventIsSeries(event)
+	if details.CanDelete && !details.DeleteSeries {
+		details.DeleteVersion = event.ETag
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	location := viewsCalendarLocation(h.db.GetUISettings(ctx, userID))

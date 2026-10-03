@@ -24,7 +24,7 @@ const calendar = {
 }
 const context = vm.createContext({document: {getElementById() { return calendar }}})
 vm.runInContext('var _calendarWeekScrollState = null; var _calendarWeekZoom = 0; var _calendarVisibility = new Map();\n' +
-  ['_calendarSourceIsVisible', '_calendarWeekAxis', '_calendarWeekMinutePosition', '_calendarWeekMinuteAtPosition', '_calendarWeekBlockLayout', 'cancelCalendarWeekZoom', 'initializeCalendarWeekScroll', 'configureCalendarSyncRequest'].map(helper).join('\n'), context)
+  ['_calendarSourceIsVisible', '_calendarWeekAxis', '_calendarWeekMinutePosition', '_calendarWeekMinuteAtPosition', '_calendarWeekBlockLayout', '_calendarAllDayEventRows', 'layoutCalendarWeekAllDay', 'cancelCalendarWeekZoom', 'initializeCalendarWeekScroll', 'configureCalendarSyncRequest'].map(helper).join('\n'), context)
 
 const event = {detail: {parameters: {}}}
 context.configureCalendarSyncRequest(event)

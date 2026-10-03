@@ -96,10 +96,11 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 	if err := r.ParseForm(); err != nil {
 		return calendar.EventDraft{}, fmt.Errorf("invalid event form")
 	}
-	allowed := map[string]bool{"request_id": true, "source_id": true, "summary": true, "description": true, "location": true, "timezone": true, "all_day": true, "start_date": true, "end_date": true, "start_time": true, "end_time": true}
+	allowed := map[string]bool{"request_id": true, "source_id": true, "summary": true, "description": true, "location": true, "timezone": true, "all_day": true, "start_date": true, "end_date": true, "start_time": true, "end_time": true,
+		"repeat_frequency": true, "repeat_interval": true, "repeat_end": true, "repeat_until": true, "repeat_count": true}
 	for name, values := range r.PostForm {
 		if !allowed[name] || len(values) != 1 {
-			return calendar.EventDraft{}, fmt.Errorf("this form supports single events without guests or recurrence")
+			return calendar.EventDraft{}, fmt.Errorf("this form contains unsupported or duplicate event fields")
 		}
 	}
 	draft := calendar.EventDraft{RequestID: strings.TrimSpace(r.FormValue("request_id")), Summary: strings.TrimSpace(r.FormValue("summary")),
@@ -141,7 +142,7 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 			return draft, fmt.Errorf("the last day must be on or after the first day")
 		}
 		draft.StartDate, draft.EndDate = startDate, end.AddDate(0, 0, 1).Format("2006-01-02") // UI end is inclusive.
-		return draft, nil
+		return parseCalendarRecurrenceDraft(r, draft)
 	}
 	parseWallTime := func(date, clock string) (time.Time, error) {
 		value := date + "T" + clock
@@ -171,7 +172,7 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 		return draft, fmt.Errorf("the end must be after the start")
 	}
 	draft.StartAt, draft.EndAt = &start, &end
-	return draft, nil
+	return parseCalendarRecurrenceDraft(r, draft)
 }
 
 // Share the source gate with reads so an older snapshot cannot reconcile over
@@ -318,7 +319,7 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		calendarCreateFailure(w, 409, "This event request is no longer valid. Reopen New event.", false)
 		return
 	}
-	replayed := result.EventID != ""
+	replayed := result.RemoteID != ""
 	if !replayed {
 		remote, createErr := h.createCalendarProviderEvent(ctx, source, draft)
 		if createErr != nil {
@@ -334,18 +335,34 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			calendarCreateFailure(w, 502, message, uncertain)
 			return
 		}
-		result, err = h.db.CompleteCalendarCreate(ctx, userID, source.ID, draft.RequestID, hash, calendarStorageEvent(userID, source.ID, remote))
+		if draft.Recurrence != nil {
+			if remote.Deleted || remote.SeriesRemoteID != "" || !calendarUpdateHasDetails(remote.Recurrence) {
+				calendarCreateFailure(w, 502, "The provider did not confirm the series. Retry this same event to verify it safely.", true)
+				return
+			}
+			result, err = h.db.CompleteCalendarSeriesCreate(ctx, userID, source.ID, draft.RequestID, hash, remote.RemoteID)
+		} else {
+			result, err = h.db.CompleteCalendarCreate(ctx, userID, source.ID, draft.RequestID, hash, calendarStorageEvent(userID, source.ID, remote))
+		}
 		if err != nil {
 			calendarCreateFailure(w, 503, "The provider created the event, but the local update could not finish. Retry this same event to recover it without a duplicate.", true)
 			return
 		}
 		// This is an event change, not a fabricated successful full sync.
-		if h.syncer != nil {
+		if h.syncer != nil && draft.Recurrence == nil {
 			h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: userID, Payload: map[string]any{"source_id": source.ID, "event_id": result.EventID}})
 		}
+	}
+	response := map[string]any{"event_id": result.EventID, "source_id": source.ID, "replayed": replayed, "hidden": source.IsHidden}
+	if draft.Recurrence != nil {
+		response["series_id"] = result.RemoteID
+		// We already own the source gate. Read real instances, never generate a
+		// guessed local series. A failed read is a refresh failure, not a failed
+		// creation; the durable request above prevents another provider write.
+		response["refresh_pending"] = !h.refreshCalendarSeries(ctx, source, draft)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]any{"event_id": result.EventID, "source_id": source.ID, "replayed": replayed, "hidden": source.IsHidden})
+	_ = json.NewEncoder(w).Encode(response)
 }

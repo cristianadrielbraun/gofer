@@ -29,9 +29,13 @@ func calendarProviderDraft(t *testing.T, allDay bool) calendar.EventDraft {
 }
 
 func TestGoogleCalendarCreationUsesStableIDAndRecoversConflict(t *testing.T) {
-	for _, allDay := range []bool{false, true} {
-		t.Run(fmt.Sprint(allDay), func(t *testing.T) {
+	for _, options := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
+		allDay, recurring := options[0], options[1]
+		t.Run(fmt.Sprint(options), func(t *testing.T) {
 			draft := calendarProviderDraft(t, allDay)
+			if recurring {
+				draft.Recurrence = &calendar.RecurrenceDraft{Frequency: "weekly", Interval: 2, Count: 4}
+			}
 			var stored map[string]any
 			var posts, gets int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,8 +64,11 @@ func TestGoogleCalendarCreationUsesStableIDAndRecoversConflict(t *testing.T) {
 				if _, ok := stored["attendees"]; ok {
 					t.Error("creation added invitations")
 				}
-				if _, ok := stored["recurrence"]; ok {
-					t.Error("creation added recurrence")
+				if _, ok := stored["recurrence"]; ok != recurring {
+					t.Error("creation changed recurrence")
+				}
+				if recurring && stored["recurrence"].([]any)[0] != "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;WKST=MO;COUNT=4" {
+					t.Errorf("wrong Google rule: %v", stored["recurrence"])
 				}
 				start := stored["start"].(map[string]any)
 				if allDay {
@@ -80,7 +87,7 @@ func TestGoogleCalendarCreationUsesStableIDAndRecoversConflict(t *testing.T) {
 			defer func() { googleCalendarAPIBaseURL = prior }()
 			for range 2 {
 				remote, err := createGoogleCalendarEvent(t.Context(), "test-token", "work@example.com", draft)
-				if err != nil || remote.AllDay != allDay || remote.Summary != "Planning" {
+				if err != nil || remote.AllDay != allDay || remote.Summary != "Planning" || calendarUpdateHasDetails(remote.Recurrence) != recurring {
 					t.Fatalf("created=%#v, err=%v", remote, err)
 				}
 			}
@@ -96,9 +103,13 @@ func TestGoogleCalendarCreationUsesStableIDAndRecoversConflict(t *testing.T) {
 }
 
 func TestOutlookCalendarCreationUsesTransactionIDAndPreservesDates(t *testing.T) {
-	for _, allDay := range []bool{false, true} {
-		t.Run(fmt.Sprint(allDay), func(t *testing.T) {
+	for _, options := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
+		allDay, recurring := options[0], options[1]
+		t.Run(fmt.Sprint(options), func(t *testing.T) {
 			draft := calendarProviderDraft(t, allDay)
+			if recurring {
+				draft.Recurrence = &calendar.RecurrenceDraft{Frequency: "weekly", Interval: 2, Count: 4}
+			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "POST" || r.URL.Path != "/me/calendars/primary/events" || r.Header.Get("Prefer") != `IdType="ImmutableId"` {
 					t.Error("incorrect Graph creation request")
@@ -112,6 +123,16 @@ func TestOutlookCalendarCreationUsesTransactionIDAndPreservesDates(t *testing.T)
 				}
 				if _, ok := payload["attendees"]; ok {
 					t.Error("creation added attendees")
+				}
+				if _, ok := payload["recurrence"]; ok != recurring {
+					t.Error("creation changed recurrence")
+				}
+				if recurring {
+					rule := payload["recurrence"].(map[string]any)
+					pattern, span := rule["pattern"].(map[string]any), rule["range"].(map[string]any)
+					if pattern["type"] != "weekly" || pattern["interval"] != float64(2) || pattern["daysOfWeek"].([]any)[0] != "friday" || span["type"] != "numbered" || span["numberOfOccurrences"] != float64(4) {
+						t.Errorf("wrong Graph rule: %v", rule)
+					}
 				}
 				start := payload["start"].(map[string]any)
 				end := payload["end"].(map[string]any)
@@ -130,7 +151,7 @@ func TestOutlookCalendarCreationUsesTransactionIDAndPreservesDates(t *testing.T)
 			outlookGraphBaseURL = server.URL
 			defer func() { outlookGraphBaseURL = prior }()
 			remote, err := createOutlookCalendarEvent(t.Context(), "test-token", "primary", draft)
-			if err != nil || remote.RemoteID != "graph-event" || remote.AllDay != allDay {
+			if err != nil || remote.RemoteID != "graph-event" || remote.AllDay != allDay || calendarUpdateHasDetails(remote.Recurrence) != recurring {
 				t.Fatalf("created=%#v, err=%v", remote, err)
 			}
 			if !allDay && (!remote.StartAt.Equal(*draft.StartAt) || !remote.EndAt.Equal(*draft.EndAt)) {
@@ -141,9 +162,13 @@ func TestOutlookCalendarCreationUsesTransactionIDAndPreservesDates(t *testing.T)
 }
 
 func TestCalDAVCreationIsConditionalEscapedAndRetryable(t *testing.T) {
-	for _, allDay := range []bool{false, true} {
-		t.Run(fmt.Sprint(allDay), func(t *testing.T) {
+	for _, options := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
+		allDay, recurring := options[0], options[1]
+		t.Run(fmt.Sprint(options), func(t *testing.T) {
 			draft := calendarProviderDraft(t, allDay)
+			if recurring {
+				draft.Recurrence = &calendar.RecurrenceDraft{Frequency: "weekly", Interval: 2, Count: 4}
+			}
 			draft.Description = "Notes; commas, unicode: Žluťoučký\r\nBEGIN:VEVENT\nSUMMARY:injection"
 			var stored string
 			var puts, gets int
@@ -175,6 +200,14 @@ func TestCalDAVCreationIsConditionalEscapedAndRetryable(t *testing.T) {
 				if err != nil || len(decoded.Events()) != 1 {
 					t.Error("iCalendar text injection created extra components")
 				}
+				if recurring {
+					if rule := decoded.Events()[0].Props.Get("RRULE"); rule == nil || rule.Value != "FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;WKST=MO;COUNT=4" {
+						t.Errorf("wrong CalDAV recurrence: %v", rule)
+					}
+					if _, err := parseCalDAVEvents("https://example.com/event.ics", `"v1"`, stored, nil); err == nil {
+						t.Error("normal sync must still reject an unexpanded recurring master")
+					}
+				}
 				w.WriteHeader(201)
 			}))
 			defer server.Close()
@@ -184,7 +217,7 @@ func TestCalDAVCreationIsConditionalEscapedAndRetryable(t *testing.T) {
 			source := storage.CalendarSource{RemoteID: server.URL + "/calendar/"}
 			for range 2 {
 				remote, err := createCalDAVCalendarEvent(t.Context(), source, "calendar-user", "calendar-password", draft)
-				if err != nil || remote.AllDay != allDay || remote.ICalUID != draft.RequestID+"@gofer" || remote.Summary != "Planning" {
+				if err != nil || remote.AllDay != allDay || remote.ICalUID != draft.RequestID+"@gofer" || remote.Summary != "Planning" || calendarUpdateHasDetails(remote.Recurrence) != recurring {
 					t.Fatalf("created=%#v, err=%v", remote, err)
 				}
 			}

@@ -7,10 +7,17 @@ import (
 )
 
 type CalendarEventDetails struct {
-	Event       CalendarEvent
-	Description string
-	Organizer   CalendarEventParticipant
-	Attendees   []CalendarEventParticipant
+	Event                 CalendarEvent
+	Description           string
+	Organizer             CalendarEventParticipant
+	Attendees             []CalendarEventParticipant
+	CanEdit               bool
+	EditSeries            bool
+	EditUnavailableReason string
+	CanDelete             bool
+	DeleteSeries          bool
+	DeleteSeriesID        string
+	DeleteVersion         string
 }
 
 type CalendarEventParticipant struct {
@@ -22,6 +29,14 @@ type CalendarEventParticipant struct {
 
 func calendarEventDetailsURL(eventID string) string {
 	return "/api/calendar/events/" + url.PathEscape(eventID)
+}
+
+func calendarEventEditURL(details CalendarEventDetails) string {
+	endpoint := calendarEventDetailsURL(details.Event.ID) + "/edit"
+	if details.EditSeries {
+		endpoint += "?scope=series"
+	}
+	return endpoint
 }
 
 func calendarEventDetailsDate(event CalendarEvent, location *time.Location) string {

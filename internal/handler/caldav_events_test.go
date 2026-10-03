@@ -193,7 +193,7 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 			}
 			page := httptest.NewRecorder()
 			h.handleCalendar(page, request(http.MethodGet, "/calendar?month=2026-09"))
-			if requests.Load() != 0 || !strings.Contains(page.Body.String(), "data-calendar-auto-sync") || !strings.Contains(page.Body.String(), "Calendar sync pending") || strings.Contains(page.Body.String(), ">Refreshing calendars</span>") {
+			if requests.Load() != 0 || !strings.Contains(page.Body.String(), "data-calendar-auto-sync") || !strings.Contains(page.Body.String(), "Waiting for first refresh") || strings.Contains(page.Body.String(), ">Refreshing calendars</span>") {
 				t.Fatalf("Calendar did not render its cache and pending status before fetching")
 			}
 			refresh := func() *httptest.ResponseRecorder {
@@ -222,7 +222,7 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 			}
 			responseMode.Store(1)
 			rec = refresh()
-			if rec.Header().Get("X-Gofer-Status") != "error" || !strings.Contains(rec.Body.String(), "Weekly planning") || !strings.Contains(rec.Body.String(), "Previously cached events remain available") {
+			if rec.Header().Get("X-Gofer-Status") != "error" || !strings.Contains(rec.Body.String(), "Weekly planning") || !strings.Contains(rec.Body.String(), "Calendar refresh failed:") {
 				t.Fatalf("incomplete refresh did not preserve and display cached events")
 			}
 			var state, lastError string

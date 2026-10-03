@@ -18,7 +18,7 @@ const context = vm.createContext({
   showGoferToast(message) { errors.push(message) },
 })
 vm.runInContext('var _calendarVisibility = new Map();\n' +
-  ['_calendarSourceIsVisible', 'initializeCalendarVisibility', 'saveCalendarVisibility', '_calendarMonthVisibleCount', 'layoutCalendarMonth'].map(helper).join('\n'), context)
+  ['_calendarSourceIsVisible', 'initializeCalendarVisibility', 'saveCalendarVisibility', '_calendarMonthVisibleCount', '_calendarAllDayEventRows', 'layoutCalendarMonth'].map(helper).join('\n'), context)
 function state(visible = false) { return {confirmed: true, visible, saving: false, revision: 1} }
 async function settle() { await new Promise(resolve => setImmediate(resolve)) }
 
@@ -94,6 +94,19 @@ async function main() {
   assert.ok(buttons.slice(3).every(node => !node.hidden), 'Revealing must reuse the intact cached DOM')
   assert.equal(context._calendarSourceIsVisible({dataset: {calendarSourceId: 'work', calendarSourceHidden: 'false'}}), false, 'An older response must not undo the optimistic preference')
   assert.equal(context._calendarSourceIsVisible({dataset: {calendarSourceId: 'unknown', calendarSourceHidden: 'true'}}), false, 'Initial server preferences must be respected')
+
+  const segments = [0, 1].map(() => ({dataset: {calendarSourceId: 'trip-calendar', calendarMonthEvent: 'trip', calendarEventAllDay: 'true', calendarEventStartDate: '2026-10-02', calendarEventEndDate: '2026-10-04'}, style: {}, offsetHeight: 21}))
+  const spanningDays = segments.map((button, index) => {
+    const day = {dataset: {calendarWeekStart: '2026-09-28'}}
+    const overflow = {offsetHeight: 18}
+    return {clientHeight: index ? 10 : 150, querySelectorAll() { return [button] }, querySelector() { return overflow }, closest() { return day }}
+  })
+  const spanningGrid = {clientHeight: 500, querySelectorAll(selector) { return selector === '[data-calendar-month-events]' ? spanningDays : [] }}
+  context.layoutCalendarMonth({querySelector() { return spanningGrid }})
+  assert.ok(segments.every(button => button.hidden), 'Overflow must hide the complete weekly bar instead of leaving a broken segment')
+  spanningDays[1].clientHeight = 150
+  context.layoutCalendarMonth({querySelector() { return spanningGrid }})
+  assert.ok(segments.every(button => !button.hidden && button.style.gridRow === '1'), 'Resizing must restore every segment on the same row')
   console.log('Calendar visibility: source filtering, month overflow/reveal, serialized/coalesced saves, independent calendars, stale responses, and rollback passed.')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

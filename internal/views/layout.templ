@@ -8,6 +8,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
 	"github.com/cristianadrielbraun/gofer/components/calendar"
+	"github.com/cristianadrielbraun/gofer/components/datepicker"
+	"github.com/cristianadrielbraun/gofer/components/timepicker"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
@@ -38,6 +40,8 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@dropdown.Script()
 			@checkbox.Script()
 			@calendar.Script()
+			@datepicker.Script()
+			@timepicker.Script()
 			@input.Script()
 			@selectbox.Script()
 			@tabs.Script()
@@ -171,6 +175,8 @@ templ SettingsComponentScripts() {
 	@dropdown.Script()
 	@checkbox.Script()
 	@calendar.Script()
+	@datepicker.Script()
+	@timepicker.Script()
 	@input.Script()
 	@selectbox.Script()
 	@tabs.Script()
@@ -286,6 +292,8 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@dropdown.Script()
 			@checkbox.Script()
 			@calendar.Script()
+			@datepicker.Script()
+			@timepicker.Script()
 			@input.Script()
 			@selectbox.Script()
 			@tabs.Script()
@@ -369,6 +377,8 @@ templ AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarS
 			@dropdown.Script()
 			@checkbox.Script()
 			@calendar.Script()
+			@datepicker.Script()
+			@timepicker.Script()
 			@input.Script()
 			@selectbox.Script()
 			@tabs.Script()

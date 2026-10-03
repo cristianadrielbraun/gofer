@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -92,7 +93,12 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 	r.URL.RawQuery = values.Encode()
 	month := calendarDataFromRequest(r, uiSettings)
 	windowStart, windowEnd := calendarVisibleWindow(month)
-	synced, syncErr := h.syncCalendarWindow(ctx, userID, windowStart, windowEnd)
+	accountID := strings.TrimSpace(r.FormValue("account_id"))
+	synced, syncErr := h.syncCalendarScopedWindow(ctx, userID, windowStart, windowEnd, "", accountID)
+	if errors.Is(syncErr, errCalendarAccountNotConfigured) {
+		http.Error(w, syncErr.Error(), http.StatusNotFound)
+		return
+	}
 	sources, sourceErr := h.db.ListSelectedCalendarSources(ctx, userID)
 	applyCalendarSyncSummary(&month, sources)
 	if syncErr == nil {

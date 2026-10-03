@@ -7490,6 +7490,9 @@ function showCalendarContentPending(event) {
   var calendar = document.getElementById("calendar-main")
   if (!calendar || !trigger || !detail.target || detail.target.id !== "main-content" ||
       trigger.hasAttribute("data-calendar-auto-sync") || trigger.hasAttribute("data-calendar-sync-button") || trigger.hasAttribute("data-calendar-cache-refresh")) return
+  // Keep the grid and agenda visible until the other view is ready. Briefly
+  // clearing them makes even a fast view switch flash.
+  if (trigger.hasAttribute("data-calendar-view-switch")) return
   var href = trigger.getAttribute("hx-get")
   if (!href || !href.startsWith("/calendar")) return
   var url = new URL(href, window.location.href)
@@ -7506,7 +7509,7 @@ function showCalendarContentPending(event) {
   }
   _calendarContentRequest = detail.xhr
   detail.xhr.goferCalendarContentPending = true
-  // Capture the real outgoing grid before replacing it with placeholders.
+  // Capture the real outgoing grid before installing the empty loading grid.
   if (typeof detail.xhr.goferCalendarNavigationDirection === "number") {
     prepareCalendarNavigation({ detail: { xhr: detail.xhr, target: detail.target, shouldSwap: true } })
   }
@@ -7522,25 +7525,28 @@ function showCalendarContentPending(event) {
     }
   }
   // Dates belong to the incoming response. Only known weekday labels stay
-  // readable here; placeholders must never imply that the old dates are new.
+  // readable here; the loading grid must not show stale dates or placeholders.
   loading.querySelectorAll("[data-calendar-day]").forEach(function (day) {
     day.setAttribute("aria-hidden", "true")
     var number = day.querySelector("span.rounded-full")
     if (number) {
       number.className = "inline-flex size-6 items-center justify-center sm:size-7"
-      number.innerHTML = '<span class="calendar-skeleton size-3 rounded bg-muted"></span>'
+      number.replaceChildren()
     }
     day.querySelectorAll("span").forEach(function (span) { if (span.textContent === "Today") span.remove() })
   })
   var timezone = loading.querySelector("[data-calendar-week-timezone]")
-  if (timezone) timezone.innerHTML = '<span class="calendar-skeleton h-2 w-6 rounded bg-muted"></span>'
+  if (timezone) timezone.textContent = ""
   // Keep the actual header node: the Month/Week indicator continues its slide
-  // even when the skeleton is installed synchronously in beforeRequest.
+  // even when the empty grid is installed synchronously in beforeRequest.
   var header = calendar.querySelector("header")
   var label = calendarLoadingPeriodLabel(view, url.searchParams.get("month") || url.searchParams.get("date") || calendar.dataset.calendarTodayDate)
   if (label) header.querySelector("h1").textContent = label
   loading.querySelector("header").remove()
-  calendar.replaceChildren.apply(calendar, [header].concat(Array.from(loading.childNodes)))
+  // Even reinserting the same header through replaceChildren cancels its CSS
+  // transition. Leave it connected while replacing only the other children.
+  Array.from(calendar.childNodes).forEach(function (child) { if (child !== header) child.remove() })
+  calendar.append.apply(calendar, Array.from(loading.childNodes))
   calendar.setAttribute("data-calendar-loading", "")
   calendar.setAttribute("aria-busy", "true")
   Array.from(calendar.children).forEach(function (child) { if (child !== header && child.tagName !== "FOOTER") child.inert = true })
@@ -7887,41 +7893,106 @@ function _calendarMonthVisibleCount(total, available, itemHeight, overflowHeight
   return visible
 }
 
+function _calendarAllDayEventRows(days) {
+  var spans = new Map(), rows = new Map(), ends = []
+  days.forEach(function (day, index) {
+    day.buttons.forEach(function (button) {
+      var event = button.dataset
+      var id = event.calendarMonthEvent || event.calendarWeekAllDay
+      if (event.calendarEventAllDay !== "true" || !id ||
+          !(Date.parse(event.calendarEventEndDate) - Date.parse(event.calendarEventStartDate) > 86400000)) return
+      var span = spans.get(id)
+      if (!span) { span = { first: index, last: index, buttons: [] }; spans.set(id, span) }
+      span.last = index
+      span.buttons.push(button)
+    })
+  })
+  Array.from(spans.values()).sort(function (a, b) { return a.first - b.first || b.last - a.last }).forEach(function (span) {
+    var row = 0
+    while (row < ends.length && ends[row] >= span.first) row++
+    ends[row] = span.last
+    span.buttons.forEach(function (button) { rows.set(button, row) })
+  })
+  days.forEach(function (day) {
+    var occupied = new Set(day.buttons.filter(function (button) { return rows.has(button) }).map(function (button) { return rows.get(button) }))
+    day.buttons.forEach(function (button) {
+      if (rows.has(button)) return
+      var row = 0
+      while (occupied.has(row)) row++
+      occupied.add(row)
+      rows.set(button, row)
+    })
+  })
+  return rows
+}
+
 function layoutCalendarMonth(calendar) {
   var grid = calendar.querySelector("[data-calendar-month-grid]")
   if (!grid || grid.clientHeight === 0) return
+  var weeks = new Map()
   grid.querySelectorAll("[data-calendar-month-events]").forEach(function (container) {
     var allButtons = Array.from(container.querySelectorAll("[data-calendar-month-event]"))
     var buttons = allButtons.filter(_calendarSourceIsVisible)
     var overflow = container.querySelector("[data-calendar-day-overflow]")
     if (!overflow) return
     var total = buttons.length
-    container.closest("[data-calendar-day]").dataset.calendarDayEventCount = String(total)
+    var day = container.closest("[data-calendar-day]")
+    day.dataset.calendarDayEventCount = String(total)
     allButtons.forEach(function (button) {
       button.hidden = true
       button.style.display = "none"
     })
     container.hidden = total === 0
     if (!total) { overflow.hidden = true; return }
-    // Measuring a visible candidate avoids stale zero heights after a resize.
-    buttons[0].hidden = false
-    buttons[0].style.display = ""
-    overflow.hidden = false
-    var visible = _calendarMonthVisibleCount(total, container.clientHeight, buttons[0].offsetHeight, overflow.offsetHeight, 4)
-    buttons.forEach(function (button, index) {
-      button.hidden = index >= visible
-      button.style.display = index >= visible ? "none" : ""
+    var key = day.dataset.calendarWeekStart || ""
+    if (!weeks.has(key)) weeks.set(key, [])
+    weeks.get(key).push({ container: container, buttons: buttons, overflow: overflow })
+  })
+  weeks.forEach(function (days) {
+    var rows = _calendarAllDayEventRows(days), spanLimits = new Map()
+    days.forEach(function (day) {
+      var buttons = day.buttons, overflow = day.overflow
+      var totalRows = Math.max.apply(null, buttons.map(function (button) { return rows.get(button) })) + 1
+      // Measuring a visible candidate avoids stale zero heights after a resize.
+      buttons[0].hidden = false
+      buttons[0].style.display = ""
+      buttons[0].style.gridRow = "1"
+      overflow.hidden = false
+      day.limit = _calendarMonthVisibleCount(totalRows, day.container.clientHeight, buttons[0].offsetHeight, overflow.offsetHeight, 4)
+      buttons.forEach(function (button) {
+        var event = button.dataset
+        if (event.calendarEventAllDay !== "true" || !event.calendarMonthEvent) return
+        var previous = spanLimits.get(event.calendarMonthEvent)
+        spanLimits.set(event.calendarMonthEvent, previous === undefined ? day.limit : Math.min(previous, day.limit))
+      })
     })
-    overflow.hidden = total <= visible
-    overflow.textContent = "+" + (total - visible) + " more"
+    days.forEach(function (day) {
+      var visible = 0
+      day.buttons.forEach(function (button) {
+        var row = rows.get(button), limit = spanLimits.get(button.dataset.calendarMonthEvent)
+        var show = row < day.limit && (limit === undefined || row < limit)
+        button.hidden = !show
+        button.style.display = show ? "" : "none"
+        button.style.gridRow = String(row + 1)
+        if (show) visible++
+      })
+      day.overflow.hidden = day.buttons.length <= visible
+      day.overflow.textContent = "+" + (day.buttons.length - visible) + " more"
+    })
   })
-  grid.querySelectorAll("[data-calendar-loading-events]").forEach(function (container) {
-    var items = Array.from(container.children)
-    if (!items.length) return
-    items[0].hidden = false
-    var visible = Math.max(0, Math.floor((container.clientHeight + 4) / (items[0].offsetHeight + 4)))
-    items.forEach(function (item, index) { item.hidden = index >= visible })
+}
+
+function layoutCalendarWeekAllDay(grid) {
+  var days = Array.from(grid.querySelectorAll("[data-calendar-all-day-column]")).map(function (column) {
+    var buttons = Array.from(column.querySelectorAll("[data-calendar-week-all-day]"))
+    buttons.forEach(function (button) {
+      button.hidden = !_calendarSourceIsVisible(button)
+      button.style.display = button.hidden ? "none" : ""
+    })
+    return { buttons: buttons.filter(_calendarSourceIsVisible) }
   })
+  var rows = _calendarAllDayEventRows(days)
+  rows.forEach(function (row, button) { button.style.gridRow = String(row + 1) })
 }
 
 function initializeCalendarWeekScroll() {
@@ -7935,6 +8006,7 @@ function initializeCalendarWeekScroll() {
   var header = grid && grid.querySelector("[data-calendar-week-header]")
   var timeline = grid && grid.querySelector("[data-calendar-week-timeline]")
   if (!header || !timeline) return
+  layoutCalendarWeekAllDay(grid)
   var nodes = Array.from(grid.querySelectorAll("[data-calendar-week-event]"))
   var visibility = nodes.map(function (node) { return _calendarSourceIsVisible(node) ? "1" : "0" }).join("")
   var key = [scroller.clientHeight, scroller.clientWidth, header.offsetHeight, _calendarWeekZoom, visibility].join(":")
@@ -8151,6 +8223,7 @@ function prepareCalendarNavigation(event) {
       element: active.snapshot, top: active.snapshot.scrollTop, left: active.snapshot.scrollLeft,
       incoming: { opacity: incoming.opacity, transform: incoming.transform },
       outgoing: { opacity: outgoing.opacity, transform: outgoing.transform },
+      crossover: active.crossover, bounds: active.bounds,
       distance: active.distance, duration: Math.max(0, active.duration - (active.incoming.currentTime || 0)),
     }
   }
@@ -8170,7 +8243,10 @@ function prepareCalendarNavigation(event) {
   snapshot.inert = true
   snapshot.setAttribute("aria-hidden", "true")
   snapshot.setAttribute("data-calendar-navigation-overlay", "")
-  xhr.goferCalendarNavigationSnapshot = { element: snapshot, top: surface.scrollTop, left: surface.scrollLeft }
+  xhr.goferCalendarNavigationSnapshot = {
+    element: snapshot, top: surface.scrollTop, left: surface.scrollLeft,
+    bounds: xhr.goferCalendarNavigationCrossover ? surface.getBoundingClientRect() : null,
+  }
 }
 
 function animateCalendarNavigation(event) {
@@ -8183,7 +8259,8 @@ function animateCalendarNavigation(event) {
   var calendar = document.getElementById("calendar-main")
   var surface = calendar && calendar.querySelector("[data-calendar-surface]")
   if (!saved || !surface || !surface.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-  var bounds = surface.getBoundingClientRect()
+  var crossover = saved.crossover || xhr.goferCalendarNavigationCrossover
+  var bounds = saved.bounds || surface.getBoundingClientRect()
   var parent = calendar.getBoundingClientRect()
   var snapshot = saved.element
   Object.assign(snapshot.style, {
@@ -8191,15 +8268,21 @@ function animateCalendarNavigation(event) {
     width: bounds.width + "px", height: bounds.height + "px", margin: "0", overflow: "hidden",
     pointerEvents: "none", zIndex: "30",
   })
+  // Dissolve the old view over a fully opaque new one, never through the page
+  // background. Keep the old geometry so switching layouts cannot stretch it.
+  if (crossover) snapshot.style.backgroundColor = "var(--color-card)"
   calendar.appendChild(snapshot)
   snapshot.scrollTop = saved.top
   snapshot.scrollLeft = saved.left
-  var distance = saved.distance || xhr.goferCalendarNavigationDirection * 12
-  var timing = { duration: saved.duration === undefined ? 220 : saved.duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+  var distance = crossover ? 0 : saved.distance || xhr.goferCalendarNavigationDirection * 12
+  var timing = { duration: saved.duration === undefined ? (crossover ? 140 : 220) : saved.duration, easing: crossover ? "ease-out" : "cubic-bezier(0.22, 1, 0.36, 1)" }
+  var incoming = crossover ? [{ opacity: 1 }, { opacity: 1 }] : [saved.incoming || { opacity: 0, transform: "translateX(" + distance + "px) scale(0.98)" }, { opacity: 1, transform: "translateX(0) scale(1)" }]
+  var outgoing = crossover ? [{ opacity: saved.outgoing ? saved.outgoing.opacity : 1 }, { opacity: 0 }] : [saved.outgoing || { opacity: 1, transform: "translateX(0) scale(1)" }, { opacity: 0, transform: "translateX(" + -distance + "px) scale(0.98)" }]
   var transition = {
     snapshot: snapshot, surface: surface, distance: distance, duration: timing.duration,
-    incoming: surface.animate([saved.incoming || { opacity: 0, transform: "translateX(" + distance + "px) scale(0.98)" }, { opacity: 1, transform: "translateX(0) scale(1)" }], timing),
-    outgoing: snapshot.animate([saved.outgoing || { opacity: 1, transform: "translateX(0) scale(1)" }, { opacity: 0, transform: "translateX(" + -distance + "px) scale(0.98)" }], timing),
+    crossover: crossover, bounds: saved.bounds,
+    incoming: surface.animate(incoming, timing),
+    outgoing: snapshot.animate(outgoing, timing),
   }
   _calendarNavigationTransition = transition
   transition.incoming.onfinish = function () {
@@ -8219,6 +8302,8 @@ function configureCalendarNavigationRequest(event) {
     return
   }
   _calendarNavigationRequest = detail.xhr
+  detail.xhr.goferCalendarNavigationCrossover = viewSwitch
+  if (viewSwitch) finishCalendarNavigationTransition()
   detail.xhr.goferCalendarNavigationDirection = arrow ? Number(trigger.dataset.calendarNavigate) : trigger.dataset.calendarViewSwitch === "week" ? 1 : -1
 }
 document.body.addEventListener("htmx:beforeRequest", configureCalendarNavigationRequest)
@@ -8241,6 +8326,36 @@ document.body.addEventListener("htmx:afterRequest", handleCalendarContentResult)
 document.body.addEventListener("htmx:sendAbort", handleCalendarContentResult)
 document.body.addEventListener("htmx:beforeHistorySave", finishCalendarNavigationTransition)
 window.addEventListener("resize", finishCalendarNavigationTransition)
+
+function updateCalendarEventHover(event) {
+  if (event.pointerType === "touch") return
+  var selector = "[data-calendar-month-event], [data-calendar-week-all-day], [data-calendar-week-event]"
+  var segment = event.target && event.target.closest && event.target.closest(selector)
+  var calendar = segment && segment.closest("#calendar-main")
+  if (!calendar) return
+  var related = event.relatedTarget && event.relatedTarget.closest && event.relatedTarget.closest(selector)
+  if (segment === related) return // Moving between a pill's label and color dot.
+  var active = event.type === "pointerover" ? segment : related
+  if (active && (active.hidden || active.closest("#calendar-main") !== calendar)) active = null
+  var id = active && (active.dataset.calendarMonthEvent || active.dataset.calendarWeekAllDay || active.dataset.calendarWeekEvent)
+  var source = active && active.dataset.calendarSourceId
+  // Compare data values directly: event IDs must never become CSS selectors.
+  // Keep every segment, including those wrapping into another row, in sync.
+  calendar.querySelectorAll(selector).forEach(function (pill) {
+    var sameEvent = !!id && !pill.hidden && pill.dataset.calendarSourceId === source &&
+      (pill.dataset.calendarMonthEvent || pill.dataset.calendarWeekAllDay || pill.dataset.calendarWeekEvent) === id
+    pill.toggleAttribute("data-calendar-event-hover", sameEvent)
+  })
+}
+
+document.addEventListener("pointerover", updateCalendarEventHover)
+document.addEventListener("pointerout", updateCalendarEventHover)
+document.addEventListener("pointercancel", updateCalendarEventHover)
+window.addEventListener("blur", function () {
+  document.querySelectorAll("#calendar-main [data-calendar-event-hover]").forEach(function (pill) {
+    pill.removeAttribute("data-calendar-event-hover")
+  })
+})
 
 var _calendarEventRequest = null
 
@@ -8292,6 +8407,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
 var _calendarCreateDialogRequest = null
 
 function configureCalendarCreateDialog(event) {
+  if (event.detail.elt && event.detail.elt.hasAttribute("data-calendar-edit-trigger")) return
   var calendar = document.getElementById("calendar-main")
   if (!calendar) return
   var selected = _calendarSelectedDay && _calendarSelectedDay.period === calendar.dataset.calendarPeriod ? _calendarSelectedDay.date : ""
@@ -8308,38 +8424,213 @@ document.body.addEventListener("htmx:beforeRequest", function (event) {
   _calendarCreateDialogRequest = event.detail.xhr
   var calendar = document.getElementById("calendar-main")
   _calendarCreateDialogRequest.goferCalendarCreatePeriod = calendar ? calendar.dataset.calendarPeriod : ""
+  _calendarCreateDialogRequest.goferCalendarEdit = trigger.hasAttribute("data-calendar-edit-trigger")
+  var details = _calendarCreateDialogRequest.goferCalendarEdit && document.getElementById("calendar-event-details-dialog")
+  _calendarCreateDialogRequest.goferCalendarEditDialog = details && details.querySelector("[data-tui-dialog-content]")
   trigger.setAttribute("aria-busy", "true")
 })
 
 function calendarCreateDialogResponseCurrent(xhr) {
   var calendar = document.getElementById("calendar-main")
+  var details = xhr.goferCalendarEditDialog
+  if (details && (!details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing"))) return false
   return xhr === _calendarCreateDialogRequest && calendar && !calendar.hasAttribute("data-calendar-loading") && calendar.dataset.calendarPeriod === xhr.goferCalendarCreatePeriod
+}
+
+function transitionCalendarEditDialog(details, editor, from) {
+  // Lay out the editor at its final size once. Disable templUI's transition-all
+  // while measuring so neither its width nor its entrance scale is in flight.
+  var transition = details.style.transitionProperty
+  details.style.transitionProperty = "none"
+  details.closest("[data-tui-dialog]").id = "calendar-create-dialog"
+  details.className = editor.className
+  details.removeAttribute("id")
+  details.setAttribute("aria-labelledby", editor.getAttribute("aria-labelledby"))
+  initializeCalendarCreateForm()
+  var to = details.getBoundingClientRect()
+  details.style.transitionProperty = transition
+  if (!from || !details.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+  if (from.width <= 0 || from.height <= 0 || to.width <= 0 || to.height <= 0) return
+  if (Math.abs(from.width - to.width) < 0.5 && Math.abs(from.height - to.height) < 0.5) return
+  var panel = details.querySelector("[data-tui-dialog-panel]")
+  var opacity = panel && panel.style.opacity
+  var inert = panel && panel.inert
+  if (panel) {
+    // Hide the entire content layer, including footer buttons. Visibility is
+    // inherited and templUI's transition-all buttons can delay that change;
+    // parent opacity cannot be overridden or delayed by a descendant.
+    panel.style.opacity = "0"
+    panel.inert = true
+  }
+  // FLIP the empty frame from its old visual bounds to the already-laid-out
+  // editor. Scale stays on the compositor; width/height would reflow the entire
+  // form on every frame even with visibility:hidden. Individual scale also
+  // preserves templUI's separate translate used to center the native dialog.
+  var willChange = details.style.willChange
+  details.style.willChange = "scale"
+  var resize = details.animate([
+    { scale: (from.width / to.width) + " " + (from.height / to.height) },
+    { scale: "1 1" },
+  ], { duration: 220, easing: "ease" }) // Match the templUI tabs indicator cadence.
+  function focusSummary() {
+    if (!details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing") || (panel && (!panel.isConnected || panel.inert))) return
+    var input = details.querySelector("#calendar-create-summary")
+    if (input) input.focus({preventScroll: true})
+  }
+  function revealContent(fade) {
+    details.style.willChange = willChange
+    if (!panel) { focusSummary(); return }
+    panel.style.opacity = opacity
+    panel.inert = inert
+    if (!panel.isConnected || !details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing")) return
+    if (fade && panel.animate) {
+      var reveal = panel.animate([{ opacity: 0 }, { opacity: opacity || "1" }], { duration: 160, easing: "ease" })
+      reveal.onfinish = focusSummary
+    } else focusSummary()
+  }
+  resize.onfinish = function () { revealContent(true) }
+  resize.oncancel = function () { revealContent(false) }
+  return resize
 }
 
 document.body.addEventListener("htmx:beforeSwap", function (event) {
   var xhr = event.detail && event.detail.xhr
-  if (xhr && typeof xhr.goferCalendarCreatePeriod === "string" && !calendarCreateDialogResponseCurrent(xhr)) event.detail.shouldSwap = false
+  if (!xhr || typeof xhr.goferCalendarCreatePeriod !== "string") return
+  if (!calendarCreateDialogResponseCurrent(xhr)) { event.detail.shouldSwap = false; return }
+  if (!event.detail.shouldSwap || event.detail.isError) return
+  var details = xhr.goferCalendarEditDialog
+  if (details) {
+    var editor = new DOMParser().parseFromString(event.detail.serverResponse, "text/html").querySelector("#calendar-create-dialog [data-tui-dialog-content]")
+    if (!editor || !editor.querySelector("[data-tui-dialog-panel]")) { event.detail.shouldSwap = false; return }
+    // Swap only the panel: keep the native modal in the top layer so its backdrop
+    // never closes or replays its entrance transition during the handoff.
+    xhr.goferCalendarEditContent = editor
+    xhr.goferCalendarEditBounds = details.getBoundingClientRect()
+    event.detail.target = details
+    event.detail.selectOverride = "#calendar-create-dialog [data-tui-dialog-content] > [data-tui-dialog-panel]"
+    event.detail.swapOverride = "innerHTML"
+  }
+})
+
+document.body.addEventListener("htmx:afterSwap", function (event) {
+  var xhr = event.detail && event.detail.xhr
+  if (!xhr || typeof xhr.goferCalendarCreatePeriod !== "string" || !calendarCreateDialogResponseCurrent(xhr)) return
+  var details = xhr.goferCalendarEditDialog
+  var editor = xhr.goferCalendarEditContent
+  if (details && editor) xhr.goferCalendarEditAnimation = transitionCalendarEditDialog(details, editor, xhr.goferCalendarEditBounds)
+  xhr.goferCalendarCreateSwapped = true
+})
+
+document.body.addEventListener("htmx:sendAbort", function (event) {
+  var xhr = event.detail && event.detail.xhr
+  if (!xhr || typeof xhr.goferCalendarCreatePeriod !== "string") return
+  if (event.detail.elt) event.detail.elt.removeAttribute("aria-busy")
+  if (xhr === _calendarCreateDialogRequest) _calendarCreateDialogRequest = null
 })
 
 document.body.addEventListener("htmx:afterRequest", function (event) {
   var xhr = event.detail && event.detail.xhr
-  if (!xhr || xhr !== _calendarCreateDialogRequest) return
+  if (!xhr || typeof xhr.goferCalendarCreatePeriod !== "string") return
+  if (event.detail.elt) event.detail.elt.removeAttribute("aria-busy")
+  if (xhr !== _calendarCreateDialogRequest) return
   var current = calendarCreateDialogResponseCurrent(xhr)
   _calendarCreateDialogRequest = null
-  if (event.detail.elt) event.detail.elt.removeAttribute("aria-busy")
   if (!current) return
   if (!event.detail.successful) {
-    showGoferToast({title: "Could not open New event", description: "Please try again.", variant: "error", icon: "error", duration: 5000})
+    showGoferToast({title: xhr.goferCalendarEdit ? "Could not open Edit event" : "Could not open New event", description: "Please try again.", variant: "error", icon: "error", duration: 5000})
     return
   }
-  initializeCalendarCreateForm()
-  if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-create-dialog")
+  if (!xhr.goferCalendarCreateSwapped) return
+  if (!xhr.goferCalendarEditDialog) {
+    initializeCalendarCreateForm()
+    if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-create-dialog")
+  }
   var input = document.getElementById("calendar-create-summary")
-  if (input) setTimeout(function () { if (input.isConnected) input.focus() }, 80)
+  if (input && !xhr.goferCalendarEditAnimation) setTimeout(function () { if (input.isConnected) input.focus() }, 80)
 })
+
+function adjustCalendarCreateAllDayRange(form) {
+  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict || form._calendarCreateAdjustingDates) return
+  var allDay = form.querySelector('[name="all_day"]')
+  var start = form.querySelector('[name="start_date"]')
+  var end = form.querySelector('[name="end_date"]')
+  if (!allDay.checked) { form._calendarCreateDateAdjusted = ""; return }
+  if (!start || !end || !/^\d{4}-\d{2}-\d{2}$/.test(start.value) || !/^\d{4}-\d{2}-\d{2}$/.test(end.value)) return
+  if (end.value >= start.value) {
+    if (start.value !== form._calendarCreateDateAdjusted || end.value !== start.value) form._calendarCreateDateAdjusted = ""
+    return
+  }
+  form._calendarCreateAdjustingDates = true
+  form._calendarCreateDateAdjusted = start.value
+  try {
+    end.value = start.value
+    // Keep the popup's highlighted day and viewed month in sync with the
+    // authoritative hidden input, not just the date displayed on its trigger.
+    var root = end.closest("[data-tui-datepicker-root]")
+    var calendar = root && root.querySelector("[data-tui-calendar-container]")
+    if (calendar) {
+      calendar.setAttribute("data-tui-calendar-selected-date", start.value)
+      calendar.dataset.tuiCalendarCurrentYear = String(Number(start.value.slice(0, 4)))
+      calendar.dataset.tuiCalendarCurrentMonth = String(Number(start.value.slice(5, 7)) - 1)
+      var year = calendar.querySelector("[data-tui-calendar-year-select]")
+      var month = calendar.querySelector("[data-tui-calendar-month-select]")
+      if (year) year.value = calendar.dataset.tuiCalendarCurrentYear
+      if (month) {
+        month.value = calendar.dataset.tuiCalendarCurrentMonth
+        month.dispatchEvent(new Event("change", {bubbles: true}))
+      }
+    }
+  } finally { form._calendarCreateAdjustingDates = false }
+}
+
+function updateCalendarRecurrenceForm(form, locked) {
+  var frequency = form.querySelector('[name="repeat_frequency"]')
+  if (!frequency) return
+  var options = form.querySelector("[data-calendar-repeat-options]")
+  var repeating = frequency.value !== "none"
+  var row = form.querySelector("[data-calendar-repeat-row]")
+  if (row) row.dataset.repeating = String(repeating)
+  options.hidden = !repeating
+  options.disabled = locked || !repeating
+  var intervalGroup = form.querySelector("[data-calendar-repeat-interval-group]")
+  if (intervalGroup) {
+    intervalGroup.hidden = !repeating
+    intervalGroup.disabled = locked || !repeating
+  }
+  var ending = form.querySelector('[name="repeat_end"]').value
+  ;["until", "count"].forEach(function (kind) {
+    var group = form.querySelector("[data-calendar-repeat-" + kind + "]")
+    group.hidden = ending !== kind
+    group.disabled = locked || !repeating || ending !== kind
+  })
+  if (!repeating) return
+  var interval = form.querySelector('[name="repeat_interval"]').value
+  var unit = {daily: "day", weekly: "week", monthly: "month", yearly: "year"}[frequency.value]
+  form.querySelector("[data-calendar-repeat-unit]").textContent = unit + (interval === "1" ? "" : "s")
+  var summary = "Every " + (interval || "…") + " " + unit + (interval === "1" ? "" : "s")
+  var start = form.querySelector('[name="start_date"]').value
+  var date = /^\d{4}-\d{2}-\d{2}$/.test(start) ? new Date(start + "T12:00:00Z") : null
+  if (date && !isNaN(date.getTime())) {
+    if (frequency.value === "weekly") summary += " on " + date.toLocaleDateString(undefined, {weekday: "long", timeZone: "UTC"})
+    if (frequency.value === "monthly") summary += " on day " + date.getUTCDate()
+    if (frequency.value === "yearly") summary += " on " + date.toLocaleDateString(undefined, {month: "long", day: "numeric", timeZone: "UTC"})
+  }
+  if (ending === "count") {
+    var count = form.querySelector('[name="repeat_count"]').value
+    summary += ", " + (count || "…") + (count === "1" ? " occurrence" : " occurrences including the first")
+  }
+  if (ending === "until") summary += ", through " + (form.querySelector('[name="repeat_until"]').value || "the selected date")
+  if (ending === "never") summary += ", with no end date"
+  summary += "."
+  if (date && (frequency.value === "monthly" || frequency.value === "yearly") && date.getUTCDate() > 28) summary += " Uses the last day in shorter months."
+  if (!form.querySelector('[name="all_day"]').checked) summary += " Times follow " + form.querySelector('[name="timezone"]').value + "."
+  form.querySelector("[data-calendar-repeat-summary]").textContent = summary
+}
 
 function updateCalendarCreateForm(form) {
   if (!form) return
+  adjustCalendarCreateAllDayRange(form)
+  var editing = !!form.dataset.calendarEventId
   var source = form.querySelector('[name="source_id"]')
   var sourceSelect = form.querySelector("[data-calendar-create-source-select]")
   var choices = sourceSelect ? Array.from(sourceSelect.querySelectorAll("[data-tui-selectbox-value]")) : []
@@ -8348,28 +8639,43 @@ function updateCalendarCreateForm(form) {
   var allowed = writable && selected.dataset.calendarSourceAuthorized === "true"
   var busy = !!form._calendarCreateBusy
   var uncertain = !!form._calendarCreateUncertain
+  var locked = busy || uncertain || !!form._calendarCreateConflict
   var allDay = form.querySelector('[name="all_day"]').checked
-  form.querySelectorAll("input, select, textarea").forEach(function (input) { input.disabled = busy || uncertain })
+  form.querySelectorAll("input, select, textarea").forEach(function (input) { input.disabled = locked })
   var sourceTrigger = sourceSelect && sourceSelect.querySelector(".select-trigger")
-  if (sourceTrigger) sourceTrigger.disabled = busy || uncertain || choices.length === 0
+  form.querySelectorAll(".select-trigger, [data-tui-datepicker], [data-tui-timepicker]").forEach(function (trigger) {
+    trigger.disabled = locked
+  })
+  // The disabled templUI button still owns an enabled hidden source_id input.
+  if (sourceTrigger) sourceTrigger.disabled = editing || locked || choices.length === 0
   form.querySelectorAll("[data-calendar-create-time]").forEach(function (node) {
     node.hidden = allDay
     var input = node.querySelector("input")
-    input.disabled = busy || uncertain || allDay
-    input.required = !allDay
+    input.disabled = locked || allDay
+    var trigger = node.querySelector("[data-tui-timepicker]")
+    if (trigger) trigger.disabled = locked || allDay
+  })
+  if (locked || allDay) form.querySelectorAll("[data-tui-popover-content]").forEach(function (content) {
+    if (!locked && !content.closest("[data-calendar-create-time], [data-calendar-create-timezone]")) return
+    if (content.matches(":popover-open") && window.tui && window.tui.popover) window.tui.popover.closeElement(content)
   })
   form.querySelector("[data-calendar-create-timezone]").hidden = allDay
-  form.querySelector("[data-calendar-create-date-help]").hidden = !allDay
+  updateCalendarRecurrenceForm(form, locked)
+  var dateHelp = form.querySelector("[data-calendar-create-date-help]")
+  dateHelp.hidden = !allDay
+  dateHelp.textContent = form._calendarCreateDateAdjusted ?
+    "End date adjusted to the start date: it can’t end earlier." :
+    "The end date is included in an all-day event."
   var access = form.querySelector("[data-calendar-create-access]")
   access.hidden = !!allowed
-  access.textContent = !writable ?
+  access.textContent = editing ? "This calendar is no longer writable. Refresh calendars and reopen the event to check access." : !writable ?
     "No writable calendar is configured. Choose calendars in Accounts first." :
     "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission."
   var submit = form.querySelector("[data-calendar-create-submit]")
-  submit.disabled = busy || (!uncertain && !allowed)
+  submit.disabled = editing ? locked || !allowed : busy || (!uncertain && !allowed)
   submit.setAttribute("aria-busy", busy ? "true" : "false")
   form.querySelector("[data-calendar-create-spinner]").hidden = !busy
-  form.querySelector("[data-calendar-create-submit-label]").textContent = busy ? "Creating…" : uncertain ? "Retry safely" : "Create event"
+  form.querySelector("[data-calendar-create-submit-label]").textContent = editing ? (busy ? "Saving..." : form.dataset.calendarEditSeries === "true" ? "Save series" : "Save changes") : busy ? "Creating…" : uncertain ? "Retry safely" : "Create event"
   form.setAttribute("aria-busy", busy ? "true" : "false")
 }
 
@@ -8377,52 +8683,93 @@ function initializeCalendarCreateForm() {
   var form = document.querySelector("[data-calendar-create-form]")
   if (!form) return
   var list = form.querySelector("#calendar-create-timezones")
-  if (list && !list.children.length && typeof Intl.supportedValuesOf === "function") {
-    Intl.supportedValuesOf("timeZone").forEach(function (zone) {
-      var option = document.createElement("option")
-      option.value = zone
-      list.appendChild(option)
+  var template = form.querySelector("[data-calendar-create-timezone-option]")
+  if (list && template && !list.dataset.calendarTimezonesInitialized) {
+    list.dataset.calendarTimezonesInitialized = "true"
+    var existing = Array.from(list.querySelectorAll("[data-tui-selectbox-value]")).map(function (item) { return item.dataset.tuiSelectboxValue })
+    var zones = ["UTC"].concat(typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [])
+    var fragment = document.createDocumentFragment()
+    zones.forEach(function (zone) {
+      if (existing.indexOf(zone) !== -1) return
+      var option = template.content.firstElementChild.cloneNode(true)
+      option.dataset.tuiSelectboxValue = zone
+      option.querySelector(".select-item-text").textContent = zone
+      fragment.appendChild(option)
     })
+    list.appendChild(fragment)
   }
   updateCalendarCreateForm(form)
+}
+
+function validateCalendarCreatePickers(form) {
+  adjustCalendarCreateAllDayRange(form)
+  var fields = ["start_date", "end_date", "timezone"]
+  if (!form.querySelector('[name="all_day"]').checked) fields = fields.concat(["start_time", "end_time"])
+  var repeat = form.querySelector('[name="repeat_frequency"]')
+  var until = repeat && repeat.value !== "none" && form.querySelector('[name="repeat_end"]').value === "until"
+  if (until) fields.push("repeat_until")
+  for (var i = 0; i < fields.length; i++) {
+    var input = form.querySelector('[name="' + fields[i] + '"]')
+    if (input && input.value) continue
+    setCalendarCreateError(form, fields[i] === "repeat_until" ? "Choose the last date the series can start." : "Choose a " + fields[i].replace("_", " ").replace("timezone", "time zone") + ".")
+    var trigger = form.querySelector("#calendar-create-" + fields[i].replace(/_/g, "-"))
+    if (trigger) trigger.focus()
+    return false
+  }
+  if (until && form.querySelector('[name="repeat_until"]').value < form.querySelector('[name="start_date"]').value) {
+    setCalendarCreateError(form, "The repeat end date must be on or after the event’s start date.")
+    form.querySelector("#calendar-create-repeat-until").focus()
+    return false
+  }
+  return true
 }
 
 function setCalendarCreateError(form, message) {
   var error = form.querySelector("[data-calendar-create-error]")
   error.textContent = message || ""
   error.hidden = !message
+  if (message && form.isConnected && form.dataset.calendarEventId && (form._calendarCreateUncertain || form._calendarCreateConflict)) error.focus()
 }
 
 function submitCalendarCreate(form) {
-  if (!form || form._calendarCreateBusy || (!form._calendarCreateUncertain && !form.reportValidity())) return Promise.resolve()
+  if (!form) return Promise.resolve()
+  var editing = !!form.dataset.calendarEventId
+  if (form._calendarCreateBusy || (editing && (form._calendarCreateUncertain || form._calendarCreateConflict)) || (!form._calendarCreateUncertain && (!form.reportValidity() || !validateCalendarCreatePickers(form)))) return Promise.resolve()
+  if (editing) ["source_id", "version", "request_id", "edit_scope"].forEach(function (name) {
+    var input = form.querySelector('[name="' + name + '"]')
+    if (input) input.disabled = false
+  })
   var payload = form._calendarCreateUncertain ? form._calendarCreatePayload : new URLSearchParams(new FormData(form)).toString()
   form._calendarCreatePayload = payload
   form._calendarCreateBusy = true
   setCalendarCreateError(form, "")
   updateCalendarCreateForm(form)
-  return fetch("/api/calendar/events", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}, body: payload})
+  return fetch(editing ? form.action : "/api/calendar/events", {method: editing ? "PATCH" : "POST", headers: {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}, body: payload})
     .then(function (response) {
       return response.json().then(function (data) { return {ok: response.ok, data: data} })
     })
     .then(function (result) {
       if (!result.ok) {
         form._calendarCreateUncertain = !!result.data.uncertain
-        if (!form._calendarCreateUncertain) {
+        form._calendarCreateConflict = editing && !!result.data.conflict
+        if (!editing && !form._calendarCreateUncertain) {
           if (result.data.request_id) form.querySelector('[name="request_id"]').value = result.data.request_id
           else if (window.crypto && typeof window.crypto.randomUUID === "function") form.querySelector('[name="request_id"]').value = window.crypto.randomUUID()
         }
-        setCalendarCreateError(form, result.data.error || "Could not create this event. Try again.")
+        var message = result.data.error || (editing ? "Could not update this event." : "Could not create this event. Try again.")
+        if (editing && (form._calendarCreateUncertain || form._calendarCreateConflict) && !result.data.error) message += " Refresh calendars and reopen this event to verify the saved details before editing again."
+        setCalendarCreateError(form, message)
         return
       }
-      if (!result.data.event_id) throw new Error("Provider creation could not be confirmed")
+      if (!(result.data.event_id || (!editing && result.data.series_id)) || (editing && result.data.saved !== true)) throw new Error("Event save could not be confirmed")
       // Close only this form; a delayed save must not close a newer dialog.
       if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
-      showGoferToast({title: "Event created", description: result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: "success", icon: "success", duration: 4500})
+      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: result.data.refresh_pending ? "warning" : "success", icon: result.data.refresh_pending ? "warning" : "success", duration: result.data.refresh_pending ? 8000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {
       form._calendarCreateUncertain = true
-      setCalendarCreateError(form, "The result could not be confirmed. Retry this same event to check without creating a duplicate.")
+      setCalendarCreateError(form, editing ? "The save result could not be confirmed. Refresh calendars and reopen this event to verify the saved details before editing again." : "The result could not be confirmed. Retry this same event to check without creating a duplicate.")
     })
     .finally(function () { form._calendarCreateBusy = false; updateCalendarCreateForm(form) })
 }
@@ -8435,9 +8782,112 @@ document.addEventListener("submit", function (event) {
 
 document.addEventListener("change", function (event) {
   var form = event.target && event.target.closest && event.target.closest("[data-calendar-create-form]")
-  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain) return
+  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict) return
   setCalendarCreateError(form, "")
   updateCalendarCreateForm(form)
+})
+
+document.addEventListener("input", function (event) {
+  if (!event.target || !event.target.matches("[data-tui-datepicker-hidden-input], [data-tui-timepicker-hidden-input], [data-tui-selectbox-hidden-input], [data-calendar-repeat-number]")) return
+  var form = event.target.closest("[data-calendar-create-form]")
+  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict) return
+  setCalendarCreateError(form, "")
+  updateCalendarCreateForm(form)
+})
+
+function updateCalendarDeleteForm(form) {
+  var busy = !!form._calendarDeleteBusy
+  var locked = busy || !!form._calendarDeleteBlocked
+  form.setAttribute("aria-busy", busy ? "true" : "false")
+  form.querySelector("[data-calendar-delete-submit]").disabled = locked || form.dataset.calendarDeleteReady === "false"
+  form.querySelector("[data-calendar-delete-cancel]").disabled = busy
+  form.querySelector("[data-calendar-delete-spinner]").hidden = !busy
+  form.querySelector("[data-calendar-delete-label]").textContent = busy ? "Deleting…" : form.dataset.calendarDeleteSeries === "true" ? "Delete series" : "Delete event"
+  var root = form.closest("[data-tui-dialog]")
+  if (root) root.querySelectorAll("[data-calendar-edit-trigger], [data-calendar-delete-trigger]").forEach(function (button) { button.disabled = locked })
+}
+
+function setCalendarDeleteError(form, message) {
+  var error = form.querySelector("[data-calendar-delete-error]")
+  error.textContent = message || ""
+  error.hidden = !message
+  if (message && form.isConnected) error.focus()
+}
+
+document.addEventListener("click", function (event) {
+  var cancel = event.target.closest && event.target.closest("[data-calendar-delete-cancel]")
+  if (!cancel || !window.tui || !window.tui.popover) return
+  var root = cancel.closest("[data-tui-popover-root]")
+  window.tui.popover.closeElement(root)
+  var trigger = root && root.querySelector("[data-calendar-delete-trigger]")
+  if (trigger) trigger.focus()
+})
+
+document.body.addEventListener("htmx:beforeRequest", function (event) {
+  var form = event.detail && event.detail.elt
+  if (form && form.matches("[data-calendar-delete-load]")) {
+    form = form.closest("[data-tui-popover-root]").querySelector("[data-calendar-delete-form]")
+    if (!form || form._calendarDeleteBusy || form._calendarDeleteBlocked) { event.preventDefault(); return }
+    event.detail.xhr.goferCalendarDeleteLoader = form
+    form.dataset.calendarDeleteReady = "false"
+    form.querySelector("[data-calendar-delete-check]").hidden = false
+    setCalendarDeleteError(form, "")
+    updateCalendarDeleteForm(form)
+    return
+  }
+  if (!form || !form.matches("[data-calendar-delete-form]")) return
+  if (form._calendarDeleteBusy || form._calendarDeleteBlocked || form.dataset.calendarDeleteReady === "false") { event.preventDefault(); return }
+  event.detail.xhr.goferCalendarDeleteForm = form
+  form._calendarDeleteBusy = true
+  setCalendarDeleteError(form, "")
+  updateCalendarDeleteForm(form)
+})
+
+document.body.addEventListener("htmx:beforeSwap", function (event) {
+  var form = event.detail && event.detail.xhr && event.detail.xhr.goferCalendarDeleteLoader
+  if (form && !form.isConnected) event.detail.shouldSwap = false
+})
+
+document.body.addEventListener("htmx:afterRequest", function (event) {
+  var xhr = event.detail && event.detail.xhr
+  var loading = xhr && xhr.goferCalendarDeleteLoader
+  if (loading) {
+    delete xhr.goferCalendarDeleteLoader
+    if (!event.detail.successful && loading.isConnected) {
+      loading.querySelector("[data-calendar-delete-check]").hidden = true
+      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check the series. Close and reopen this confirmation to try again."
+      setCalendarDeleteError(loading, message)
+      updateCalendarDeleteForm(loading)
+    }
+    return
+  }
+  var form = xhr && xhr.goferCalendarDeleteForm
+  if (!form) return
+  // Detached triggers can bubble afterRequest through their surviving ancestor.
+  // Handle a response once, and never close a newer event dialog.
+  delete xhr.goferCalendarDeleteForm
+  form._calendarDeleteBusy = false
+  try {
+    var result = JSON.parse(xhr.responseText)
+    if (!event.detail.successful) {
+      form._calendarDeleteBlocked = !!result.uncertain || !!result.conflict
+      setCalendarDeleteError(form, result.error || (form._calendarDeleteBlocked ? "Refresh the calendar and reopen the event before trying again." : "Could not delete the event. Try again."))
+    } else {
+      if (result.deleted !== true || result.event_id !== form.dataset.calendarEventId) throw new Error("Unconfirmed deletion")
+      if (form.dataset.calendarDeleteSeries === "true" && (!result.series_id || result.series_id !== form.dataset.calendarDeleteSeriesId)) throw new Error("Unconfirmed series deletion")
+      form._calendarDeleteBlocked = true
+      if (form.isConnected && window.tui) {
+        if (window.tui.popover) window.tui.popover.closeElement(form)
+        if (window.tui.dialog) window.tui.dialog.close(form.closest("[data-tui-dialog]"))
+      }
+      showGoferToast({title: form.dataset.calendarDeleteSeries === "true" ? "Series deleted" : "Event deleted", description: form.dataset.calendarDeleteSeries === "true" ? "All occurrences were removed from your calendar." : "Removed from your calendar.", variant: "success", icon: "success", duration: 4500})
+      scheduleCalendarCacheRefresh()
+    }
+  } catch (_) {
+    form._calendarDeleteBlocked = true
+    setCalendarDeleteError(form, "The deletion could not be confirmed. Refresh the calendar and reopen the event before trying again.")
+  }
+  updateCalendarDeleteForm(form)
 })
 
 var _calendarSyncRequest = null
@@ -8608,11 +9058,14 @@ function configureCalendarSyncRequest(event) {
 }
 
 function _setCalendarSyncBusy(busy) {
+  var accountID = _calendarSyncRequest && _calendarSyncRequest.goferCalendarSyncAccount
   document.querySelectorAll("[data-calendar-sync-button]").forEach(function (button) {
+    var buttonAccountID = button.dataset && button.dataset.calendarAccountSyncButton
+    var active = busy && (!accountID || !buttonAccountID || buttonAccountID === accountID)
     button.disabled = busy
-    button.setAttribute("aria-busy", busy ? "true" : "false")
+    button.setAttribute("aria-busy", active ? "true" : "false")
     var icon = button.querySelector("svg")
-    if (icon) icon.classList.toggle("animate-spin", busy)
+    if (icon) icon.classList.toggle("animate-spin", active)
   })
   if (!busy) return
   document.querySelectorAll("[data-calendar-sync-status]").forEach(function (status) {
@@ -8633,9 +9086,13 @@ function _setCalendarSyncBusy(busy) {
 
 function handleCalendarSyncStart(event) {
   _calendarSyncRequest = event.detail.xhr
+  var button = event.detail.elt
+  _calendarSyncRequest.goferCalendarSyncAccount = button && button.getAttribute("data-calendar-account-sync-button") || ""
+  var menu = button && button.closest("[data-tui-popover-content]")
+  if (menu && window.tui && window.tui.popover) window.tui.popover.closeElement(menu)
   var calendar = document.getElementById("calendar-main")
   _calendarSyncRequest.goferCalendarSyncPeriod = calendar ? calendar.dataset.calendarPeriod : ""
-	_setCalendarSyncBusy(true)
+  _setCalendarSyncBusy(true)
 }
 
 document.body.addEventListener("htmx:beforeSwap", function (event) {

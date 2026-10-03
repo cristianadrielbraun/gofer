@@ -95,6 +95,9 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 	}
 	payload := map[string]any{"id": id, "summary": draft.Summary, "description": draft.Description, "location": draft.Location,
 		"start": start, "end": end, "extendedProperties": map[string]any{"private": map[string]string{"goferCreateHash": calendarDraftHash(draft)}}}
+	if draft.Recurrence != nil {
+		payload["recurrence"] = []string{"RRULE:" + calendarRecurrenceRule(draft)}
+	}
 	endpoint := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
 	var remote struct {
 		googleCalendarEvent
@@ -117,6 +120,9 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 	if remote.ID != id {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the requested event identity")
 	}
+	if draft.Recurrence != nil && len(remote.Recurrence) == 0 {
+		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the recurring series")
+	}
 	return normalizeGoogleCalendarEvent(remote.googleCalendarEvent)
 }
 
@@ -133,6 +139,9 @@ func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	}
 	payload := map[string]any{"subject": draft.Summary, "body": outlookCalendarItemBody{ContentType: "text", Content: draft.Description},
 		"location": outlookCalendarLocation{DisplayName: draft.Location}, "start": start, "end": end, "isAllDay": draft.AllDay, "transactionId": draft.RequestID}
+	if draft.Recurrence != nil {
+		payload["recurrence"] = calendarOutlookRecurrence(draft)
+	}
 	var remote outlookCalendarEvent
 	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
 	if err := calendarCreateJSON(ctx, http.MethodPost, endpoint, token, payload, &remote); err != nil {
@@ -140,6 +149,9 @@ func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	}
 	if strings.TrimSpace(remote.ID) == "" {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not return the created event identity")
+	}
+	if draft.Recurrence != nil && !calendarUpdateHasDetails(remote.Recurrence) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the recurring series")
 	}
 	return normalizeOutlookCalendarEvent(remote)
 }
@@ -172,9 +184,26 @@ func calendarCreateICS(draft calendar.EventDraft) (string, error) {
 		}
 		event.Props.SetDate("DTSTART", start)
 		event.Props.SetDate("DTEND", end)
+	} else if draft.Recurrence != nil {
+		zone, err := time.LoadLocation(draft.TimeZone)
+		if err != nil {
+			return "", err
+		}
+		event.Props.SetDateTime("DTSTART", draft.StartAt.In(zone))
+		event.Props.SetDateTime("DTEND", draft.EndAt.In(zone))
+		if zone != time.UTC {
+			timezone, err := calendarRecurrenceTimezone(draft, zone)
+			if err != nil {
+				return "", err
+			}
+			cal.Children = append(cal.Children, timezone)
+		}
 	} else {
 		event.Props.SetDateTime("DTSTART", draft.StartAt.UTC())
 		event.Props.SetDateTime("DTEND", draft.EndAt.UTC())
+	}
+	if draft.Recurrence != nil {
+		event.Props.Set(&ical.Prop{Name: "RRULE", Value: calendarRecurrenceRule(draft)})
 	}
 	cal.Children = append(cal.Children, event.Component)
 	var output bytes.Buffer
@@ -243,6 +272,27 @@ func createCalDAVCalendarEvent(ctx context.Context, source storage.CalendarSourc
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}
+	// Creation confirms the series resource, not an expanded occurrence. The
+	// normal REPORT read path remains strict about requiring server expansion.
+	var recurrence []byte
+	if draft.Recurrence != nil {
+		decoded, decodeErr := ical.NewDecoder(strings.NewReader(body)).Decode()
+		if decodeErr != nil || len(decoded.Events()) != 1 {
+			return calendar.RemoteEvent{}, fmt.Errorf("could not confirm the CalDAV series")
+		}
+		component := decoded.Events()[0]
+		rule := component.Props.Get("RRULE")
+		if rule == nil || component.Props.Get("RECURRENCE-ID") != nil {
+			return calendar.RemoteEvent{}, fmt.Errorf("CalDAV did not confirm the recurring series")
+		}
+		recurrence, _ = json.Marshal([]string{"RRULE:" + rule.Value})
+		delete(component.Props, "RRULE")
+		var single bytes.Buffer
+		if err := ical.NewEncoder(&single).Encode(decoded); err != nil {
+			return calendar.RemoteEvent{}, err
+		}
+		body = single.String()
+	}
 	events, err := parseCalDAVEvents(endpoint, etag, body, location)
 	if err != nil || len(events) != 1 {
 		return calendar.RemoteEvent{}, fmt.Errorf("could not normalize created CalDAV event")
@@ -251,5 +301,8 @@ func createCalDAVCalendarEvent(ctx context.Context, source storage.CalendarSourc
 		return calendar.RemoteEvent{}, fmt.Errorf("CalDAV returned a different event identity")
 	}
 	events[0].StartTimeZone, events[0].EndTimeZone = draft.TimeZone, draft.TimeZone
+	if draft.Recurrence != nil {
+		events[0].Recurrence = recurrence
+	}
 	return events[0], nil
 }

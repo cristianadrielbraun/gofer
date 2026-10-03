@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,22 +20,30 @@ type calendarCredentials struct {
 	err      error
 }
 
+var errCalendarAccountNotConfigured = errors.New("no calendars are configured for this account")
+
 func (h *Handler) syncCalendarWindow(ctx context.Context, userID string, start, end time.Time) (int, error) {
 	return h.syncCalendarProviderWindow(ctx, userID, start, end, "")
 }
 
 func (h *Handler) syncCalendarProviderWindow(ctx context.Context, userID string, start, end time.Time, provider string) (int, error) {
+	return h.syncCalendarScopedWindow(ctx, userID, start, end, provider, "")
+}
+
+func (h *Handler) syncCalendarScopedWindow(ctx context.Context, userID string, start, end time.Time, provider, accountID string) (int, error) {
 	sources, err := h.db.ListSelectedCalendarSources(ctx, userID)
 	if err != nil {
 		return 0, fmt.Errorf("list selected calendars: %w", err)
 	}
 	credentials := make(map[string]calendarCredentials)
 	total := 0
+	matched := accountID == ""
 	var failures []error
 	for _, source := range sources {
-		if provider != "" && source.Provider != provider {
+		if (provider != "" && source.Provider != provider) || (accountID != "" && source.AccountID != accountID) {
 			continue
 		}
+		matched = true
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
@@ -43,6 +52,9 @@ func (h *Handler) syncCalendarProviderWindow(ctx context.Context, userID string,
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", source.Name, err))
 		}
+	}
+	if !matched {
+		return 0, errCalendarAccountNotConfigured
 	}
 	if len(failures) > 1 {
 		return total, fmt.Errorf("%w (and %d more errors)", failures[0], len(failures)-1)

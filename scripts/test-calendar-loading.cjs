@@ -23,6 +23,19 @@ for (const [view, date, label] of [
   ['week', '2026-03-29', 'Mar 23–29, 2026'], // DST cannot shift the weekday axis.
 ]) assert.equal(context.calendarLoadingPeriodLabel(view, date), label)
 assert.equal(context.calendarLoadingPeriodLabel('month', 'invalid'), '')
+assert.ok(!helper('showCalendarContentPending').includes('calendar-skeleton'), 'Date navigation must not inject pulsing placeholders into the empty grid')
+
+const viewSwitchContext = vm.createContext({
+  document: {getElementById(id) {
+    assert.equal(id, 'calendar-main', 'View switches must not load skeletons or replace the agenda')
+    return {}
+  }},
+})
+vm.runInContext(helper('showCalendarContentPending'), viewSwitchContext)
+viewSwitchContext.showCalendarContentPending({detail: {
+  elt: {hasAttribute(name) { return name === 'data-calendar-view-switch' }},
+  target: {id: 'main-content'},
+}})
 
 function pane(id, width, text) {
   return {
@@ -54,4 +67,4 @@ assert.ok(appNav.indexOf('setSidebarAppNavMode(mode)') < appNav.indexOf('showApp
 assert.ok(appNav.includes('xhr !== request'), 'Old app responses must not overwrite the new tab')
 assert.ok(appNav.includes('goferAppPaneMode !== sidebar.dataset.sidebarAppBody'), 'Background replies from the previous app must not overwrite a skeleton or a new app')
 assert.ok(appNav.includes('htmx:sendAbort'), 'Interrupted loading must have a recovery path')
-console.log('Calendar loading: exact month row counts, week labels/DST, target identity, saved widths, rollback, immediate tab selection, and stale request guards passed.')
+console.log('Calendar loading: exact month row counts, week labels/DST, no view-switch skeleton flash, target identity, saved widths, rollback, immediate tab selection, and stale request guards passed.')

@@ -86,8 +86,17 @@ type EventPage struct {
 	FullSyncRequired bool
 }
 
-// EventDraft is deliberately limited to single appointments. Attendees,
-// recurrence, and invitation delivery are separate future write operations.
+// RecurrenceDraft describes a simple series anchored to the event's local start.
+// Until is an inclusive local date; Count includes the first occurrence. With
+// neither set the series has no end. Attendees and invitations remain separate.
+type RecurrenceDraft struct {
+	Frequency string
+	Interval  int
+	Until     string
+	Count     int
+}
+
+// EventDraft creates either a single appointment or a simple recurring series.
 type EventDraft struct {
 	RequestID   string
 	Summary     string
@@ -99,6 +108,7 @@ type EventDraft struct {
 	EndDate     string // exclusive
 	StartAt     *time.Time
 	EndAt       *time.Time
+	Recurrence  *RecurrenceDraft `json:",omitempty"` // Preserve existing single-event idempotency hashes.
 }
 
 // CreateProvider is separate from reading: it requires both a writable source

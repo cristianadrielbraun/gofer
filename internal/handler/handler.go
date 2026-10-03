@@ -72,6 +72,9 @@ type Handler struct {
 	calendarSyncRunning        map[string]*calendarSyncRun
 	calendarFetchEvents        func(context.Context, storage.CalendarSource, calendar.EventQuery) (calendar.EventPage, error)
 	calendarCreateEvent        func(context.Context, storage.CalendarSource, calendar.EventDraft) (calendar.RemoteEvent, error)
+	calendarUpdateEvent        func(context.Context, storage.CalendarSource, storage.CalendarEvent, calendar.EventDraft) (calendar.RemoteEvent, error)
+	calendarReadSeries         func(context.Context, storage.CalendarSource, string) (calendar.RemoteEvent, error)
+	calendarDeleteEvent        func(context.Context, storage.CalendarSource, storage.CalendarEvent) error
 	googleTranslator           *translation.GoogleWebConnector
 	vapidPublicKey             string
 	outgoingWake               chan struct{}
@@ -427,6 +430,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/calendar/events/{id}", h.handleCalendarEvent)
 	mux.HandleFunc("GET /api/calendar/events/new", h.handleNewCalendarEvent)
 	mux.HandleFunc("POST /api/calendar/events", h.handleCreateCalendarEvent)
+	mux.HandleFunc("GET /api/calendar/events/{id}/edit", h.handleEditCalendarEvent)
+	mux.HandleFunc("PATCH /api/calendar/events/{id}", h.handleUpdateCalendarEvent)
+	mux.HandleFunc("DELETE /api/calendar/events/{id}", h.handleDeleteCalendarEvent)
+	mux.HandleFunc("GET /api/calendar/events/{id}/delete-series-confirmation", h.handleCalendarSeriesDeleteConfirmation)
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("GET /api/contacts/export", h.handleExportContacts)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)

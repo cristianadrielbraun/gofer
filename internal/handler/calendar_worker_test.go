@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -44,6 +45,68 @@ func calendarWorkerFixture(t *testing.T) *Handler {
 		}
 	}
 	return &Handler{db: db, syncer: mail.NewSyncOrchestrator(db, nil, nil, nil)}
+}
+
+func TestCalendarRefreshTargetsOnlySelectedAccount(t *testing.T) {
+	h := calendarWorkerFixture(t)
+	ctx := t.Context()
+	if _, err := h.db.Write().Exec(`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('other-account', 'one', 'gmail', 'other@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.ReplaceCalendarSources(ctx, "one", "other-account", "gmail", []storage.CalendarSource{
+		{ID: "other-source", RemoteID: "primary", Name: "Other account", IsSelected: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.ReplaceCalendarSources(ctx, "one", "one-account", "gmail", []storage.CalendarSource{
+		{ID: "one-source", RemoteID: "primary", Name: "Primary", IsSelected: true},
+		{ID: "one-shared", RemoteID: "shared", Name: "Shared", IsSelected: true},
+		{ID: "one-unselected", RemoteID: "unselected", IsSelected: false},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.SetCalendarSourceVisibility(ctx, "one", "one-shared", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, accountID string
+		want            []string
+		status          int
+	}{
+		{"one account including hidden calendars", "one-account", []string{"one-source", "one-shared"}, http.StatusOK},
+		{"other owned account", "other-account", []string{"other-source"}, http.StatusOK},
+		{"all accounts", "", []string{"one-source", "one-shared", "other-source"}, http.StatusOK},
+		{"another user's account", "two-account", nil, http.StatusNotFound},
+		{"unknown account", "missing", nil, http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := make(map[string]int)
+			h.calendarFetchEvents = func(_ context.Context, source storage.CalendarSource, query calendar.EventQuery) (calendar.EventPage, error) {
+				calls[source.ID]++
+				return calendar.EventPage{}, nil
+			}
+			form := url.Values{"account_id": {test.accountID}, "view": {"week"}, "date": {"2026-10-02"}}
+			r := httptest.NewRequest(http.MethodPost, "/api/calendar/sync", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "one"}))
+			w := httptest.NewRecorder()
+			h.handleCalendarSync(w, r)
+			if w.Code != test.status || w.Header().Get("X-Gofer-Status") == "error" {
+				t.Fatalf("refresh status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if len(calls) != len(test.want) {
+				t.Fatalf("refreshed calendars = %v, want %v", calls, test.want)
+			}
+			for _, sourceID := range test.want {
+				if calls[sourceID] != 1 {
+					t.Errorf("calendar %s refreshed %d times, want 1", sourceID, calls[sourceID])
+				}
+			}
+			if test.status == http.StatusOK && !strings.Contains(w.Body.String(), `data-calendar-period="week:2026-09-28"`) {
+				t.Fatal("account refresh changed the visible week")
+			}
+		})
+	}
 }
 
 func TestCalendarWorkerRefreshesHiddenSourcesIndependentlyOfMailAndRespectsDueTime(t *testing.T) {

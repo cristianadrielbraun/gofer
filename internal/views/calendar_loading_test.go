@@ -9,7 +9,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-func TestCalendarSkeletonUsesCanonicalMonthAndWeekLayout(t *testing.T) {
+func TestCalendarLoadingUsesEmptyMonthAndWeekLayout(t *testing.T) {
 	for _, at := range []time.Time{
 		time.Date(2027, time.February, 1, 12, 0, 0, 0, time.UTC),   // four rows
 		time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC), // five rows
@@ -25,14 +25,14 @@ func TestCalendarSkeletonUsesCanonicalMonthAndWeekLayout(t *testing.T) {
 				t.Fatal(err)
 			}
 			html := pending.String()
-			for _, hook := range []string{`id="calendar-main"`, "data-calendar-surface", "data-calendar-layout-footer", `id="calendar-agenda-heading"`, `id="calendar-agenda-list"`, "data-calendar-loading-agenda-event", "data-calendar-loading", `aria-busy="true"`, "Loading calendar…"} {
+			for _, hook := range []string{`id="calendar-main"`, "data-calendar-surface", "data-calendar-layout-footer", `id="calendar-agenda-heading"`, `id="calendar-agenda-list"`, "data-calendar-loading", `aria-busy="true"`, "Loading calendar…"} {
 				if !strings.Contains(html, hook) {
-					t.Errorf("%s skeleton missing %s", data.View, hook)
+					t.Errorf("%s loading grid missing %s", data.View, hook)
 				}
 			}
-			for _, unsafe := range []string{"data-calendar-auto-sync", "data-calendar-event-trigger", "No upcoming events", "Ready for calendar connections", "Calendar events are up to date"} {
+			for _, unsafe := range []string{"calendar-skeleton", "data-calendar-loading-events", "data-calendar-loading-agenda-event", `data-calendar-week-event="loading"`, "data-calendar-auto-sync", "data-calendar-event-trigger", "No upcoming events", "Ready for calendar connections", "Calendar events are up to date"} {
 				if strings.Contains(html, unsafe) {
-					t.Errorf("%s skeleton has premature result or active request: %s", data.View, unsafe)
+					t.Errorf("%s loading grid has a placeholder, premature result, or active request: %s", data.View, unsafe)
 				}
 			}
 			if strings.Count(html, `data-calendar-day=`) != strings.Count(loaded.String(), `data-calendar-day=`) {
@@ -40,14 +40,12 @@ func TestCalendarSkeletonUsesCanonicalMonthAndWeekLayout(t *testing.T) {
 			}
 			start, end := strings.Index(html, "<header"), strings.Index(html, "</header>")+len("</header>")
 			if !strings.Contains(loaded.String(), strings.ReplaceAll(html[start:end], " inert", "")) {
-				t.Error("Skeleton header does not match the real controls")
+				t.Error("Loading header does not match the real controls")
 			}
 			if data.View == "week" {
 				if strings.Count(html, "data-calendar-week-hour=") != 7*24 || strings.Count(html, "data-calendar-week-hour-label=") != 24 {
-					t.Error("Week skeleton must retain the complete shared time axis")
+					t.Error("Empty week grid must retain the complete shared time axis")
 				}
-			} else if !strings.Contains(html, "data-calendar-loading-events") {
-				t.Error("Month skeleton is missing event pill placeholders")
 			}
 		}
 	}
@@ -63,7 +61,7 @@ func TestCalendarSkeletonSidebarShowsOnlyConfiguredAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := pending.String()
-	for _, expected := range []string{"New event", "data-calendar-create-trigger", "My calendars", "All calendars", "Connected accounts", "Configured calendar", "Calendar sync", `aria-busy="true"`, "inert"} {
+	for _, expected := range []string{"New event", "data-calendar-create-trigger", "Connected accounts", "Configured calendar", `aria-busy="true"`, "inert"} {
 		if !strings.Contains(html, expected) {
 			t.Errorf("Skeleton sidebar missing %q", expected)
 		}

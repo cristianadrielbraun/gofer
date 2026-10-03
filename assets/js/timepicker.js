@@ -95,7 +95,14 @@
     const popoverContent = root?.querySelector('[data-tui-popover-content]');
     if (!popoverContent?.matches(':popover-open')) return;
 
+    if (window.tui?.popover?.closeElement) {
+      window.tui.popover.closeElement(popoverContent);
+      return;
+    }
+
     try {
+      popoverContent.setAttribute('data-tui-popover-open', 'false');
+      root.querySelector('[data-tui-popover-trigger]')?.setAttribute('data-tui-popover-open', 'false');
       popoverContent.hidePopover();
     } catch {
       // ignore

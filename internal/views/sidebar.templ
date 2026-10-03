@@ -412,39 +412,82 @@ templ SidebarHeader(accounts []models.Account, activeApp string) {
 templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 	<div class="flex items-center gap-1">
 		if activeApp == "calendar" {
-			@tooltip.Tooltip() {
-				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
-					if len(calendarConfiguredAccounts(accounts)) > 0 {
+			<div class="flex items-center overflow-hidden rounded-md border border-sidebar-border/70 bg-sidebar-accent/20">
+				@tooltip.Tooltip() {
+					@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
+						if len(calendarConfiguredAccounts(accounts)) > 0 {
+							<button
+								type="button"
+								hx-post="/api/calendar/sync"
+								hx-target="#main-content"
+								hx-swap="outerHTML"
+								hx-sync="#main-content:drop"
+								hx-on::config-request="configureCalendarSyncRequest(event)"
+								hx-on::before-request="handleCalendarSyncStart(event)"
+								hx-on::after-request="handleCalendarSyncResult(event)"
+								hx-on::send-abort="handleCalendarSyncAbort(event)"
+								data-calendar-sync-button
+								class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-wait"
+								aria-label="Refresh calendars"
+							>
+								@icon.RefreshCw(icon.Props{Class: "size-4"})
+							</button>
+						} else {
+							<button type="button" disabled class="inline-flex h-8 w-8 items-center justify-center text-sidebar-foreground/45 disabled:cursor-not-allowed" aria-label="No calendars selected">
+								@icon.RefreshCw(icon.Props{Class: "size-4"})
+							</button>
+						}
+					}
+					@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-fit whitespace-nowrap border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+						if len(calendarConfiguredAccounts(accounts)) > 0 {
+							<span>Refresh calendars for all accounts.</span>
+						} else {
+							<span>Choose calendars in account setup to enable refresh.</span>
+						}
+					}
+				}
+				@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+					@popover.Trigger() {
 						<button
 							type="button"
-							hx-post="/api/calendar/sync"
-							hx-target="#main-content"
-							hx-swap="outerHTML"
-							hx-sync="#main-content:drop"
-							hx-on::config-request="configureCalendarSyncRequest(event)"
-							hx-on::before-request="handleCalendarSyncStart(event)"
-							hx-on::after-request="handleCalendarSyncResult(event)"
-							hx-on::send-abort="handleCalendarSyncAbort(event)"
-							data-calendar-sync-button
-							class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-wait"
-							aria-label="Refresh calendars"
+							disabled?={ len(calendarConfiguredAccounts(accounts)) == 0 }
+							class="inline-flex h-8 w-7 items-center justify-center rounded-r-md border-l border-sidebar-border/70 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[tui-popover-open=true]:bg-sidebar-accent data-[tui-popover-open=true]:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+							aria-label="Choose account to sync"
 						>
-							@icon.RefreshCw(icon.Props{Class: "size-4"})
-						</button>
-					} else {
-						<button type="button" disabled class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 text-sidebar-foreground/45 disabled:cursor-not-allowed" aria-label="No calendars selected">
-							@icon.RefreshCw(icon.Props{Class: "size-4"})
+							@icon.ChevronDown(icon.Props{Class: "size-3.5"})
 						</button>
 					}
-				}
-				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "sidebar-account-error-tooltip w-fit whitespace-nowrap border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-					if len(calendarConfiguredAccounts(accounts)) > 0 {
-						<span>Refresh selected calendars.</span>
-					} else {
-						<span>Choose calendars in account setup to enable refresh.</span>
+					@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 10, ShowArrow: true, Class: "sidebar-shortcuts-popover w-64 border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
+						<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground/55">Refresh calendars by account</div>
+						<div class="space-y-1">
+							for _, account := range calendarConfiguredAccounts(accounts) {
+								<button
+									type="button"
+									hx-post="/api/calendar/sync"
+									hx-vals={ sidebarCalendarAccountSyncValues(account.ID) }
+									hx-target="#main-content"
+									hx-swap="outerHTML"
+									hx-sync="#main-content:drop"
+									hx-on::config-request="configureCalendarSyncRequest(event)"
+									hx-on::before-request="handleCalendarSyncStart(event)"
+									hx-on::after-request="handleCalendarSyncResult(event)"
+									hx-on::send-abort="handleCalendarSyncAbort(event)"
+									data-calendar-sync-button
+									data-calendar-account-sync-button={ account.ID }
+									class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-wait"
+									aria-label={ "Refresh calendars for " + calendarAccountDisplayName(account) }
+								>
+									@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
+									<span class="min-w-0 flex-1">
+										<span class="block truncate font-medium">{ calendarAccountDisplayName(account) }</span>
+										<span class="block truncate text-[11px] text-sidebar-foreground/60">{ account.Email }</span>
+									</span>
+								</button>
+							}
+						</div>
 					}
 				}
-			}
+			</div>
 		} else {
 			<div class="flex items-center overflow-hidden rounded-md border border-sidebar-border/70 bg-sidebar-accent/20">
 				if activeApp != "contacts" {
@@ -564,6 +607,10 @@ func sidebarCalendarSyncValues(month string) string {
 	return fmt.Sprintf(`{"month":%q}`, month)
 }
 
+func sidebarCalendarAccountSyncValues(accountID string) string {
+	return fmt.Sprintf(`{"account_id":%q}`, accountID)
+}
+
 func sidebarAppIndicatorStyle(activeApp string) string {
 	transform := "translateX(0)"
 	if activeApp == "contacts" {
@@ -591,9 +638,7 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 				type="button"
 				data-mail-sync-error-indicator
 				hidden?={ mailSyncErrorCount(accounts) == 0 }
-				class={
-					"inline-flex h-8 w-8 items-center justify-center border-r border-sidebar-border/70 text-destructive transition-colors hover:bg-sidebar-accent",
-				}
+				class={ "inline-flex h-8 w-8 items-center justify-center border-r border-sidebar-border/70 text-destructive transition-colors hover:bg-sidebar-accent", }
 				aria-label={ fmt.Sprintf("%d mail sync issue(s)", mailSyncErrorCount(accounts)) }
 			>
 				@icon.CircleAlert(icon.Props{Class: "size-4"})
@@ -651,30 +696,30 @@ templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSe
 	{{ folders := unifiedFolders(accounts, uiSettings) }}
 	{{ labels := unifiedSidebarLabels(accounts) }}
 	if len(folders) > 0 || len(labels) > 0 {
-	{{ active := unifiedHasActiveFolder(activeFolder, uiSettings, filters) }}
-	{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
-	<div class="mb-1.5" data-sidebar-account="__unified__" data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
-		<button
-			type="button"
-			class="sidebar-account-toggle flex w-full items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-			data-sidebar-account-toggle="__unified__"
-			aria-expanded={ fmt.Sprintf("%t", !collapsed) }
-		>
-			<span class="flex size-4 shrink-0 items-center justify-center text-sidebar-primary">
-				@icon.Folders(icon.Props{Class: "size-4"})
-			</span>
-			<span class="flex-1 truncate text-left">Unified folders</span>
-			@icon.ChevronDown(icon.Props{Class: "sidebar-account-chevron size-3.5 shrink-0 text-sidebar-foreground/60 transition-transform duration-200"})
-		</button>
-		<div class="sidebar-account-folders" data-sidebar-account-folders="__unified__">
-			<div class="sidebar-account-folders-inner space-y-px mt-0.5">
-				for _, folder := range folders {
-					@SidebarFolderItem(folder, activeFolder, "", uiSettings)
-				}
-				@SidebarTagGroup(labels, activeFolder, filters, "", uiSettings)
+		{{ active := unifiedHasActiveFolder(activeFolder, uiSettings, filters) }}
+		{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
+		<div class="mb-1.5" data-sidebar-account="__unified__" data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
+			<button
+				type="button"
+				class="sidebar-account-toggle flex w-full items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+				data-sidebar-account-toggle="__unified__"
+				aria-expanded={ fmt.Sprintf("%t", !collapsed) }
+			>
+				<span class="flex size-4 shrink-0 items-center justify-center text-sidebar-primary">
+					@icon.Folders(icon.Props{Class: "size-4"})
+				</span>
+				<span class="flex-1 truncate text-left">Unified folders</span>
+				@icon.ChevronDown(icon.Props{Class: "sidebar-account-chevron size-3.5 shrink-0 text-sidebar-foreground/60 transition-transform duration-200"})
+			</button>
+			<div class="sidebar-account-folders" data-sidebar-account-folders="__unified__">
+				<div class="sidebar-account-folders-inner space-y-px mt-0.5">
+					for _, folder := range folders {
+						@SidebarFolderItem(folder, activeFolder, "", uiSettings)
+					}
+					@SidebarTagGroup(labels, activeFolder, filters, "", uiSettings)
+				</div>
 			</div>
 		</div>
-	</div>
 	}
 }
 
@@ -801,7 +846,8 @@ templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID str
 							"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
 							templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
 							templ.KV("bg-sidebar-accent text-sidebar-foreground/80", activeFolder != folder.ID),
-						}>
+						}
+					>
 						{ fmt.Sprintf("%d", folder.Unread) }
 					</span>
 				}
@@ -844,7 +890,8 @@ templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID str
 					"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
 					templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
 					templ.KV("bg-sidebar-accent text-sidebar-foreground/80", activeFolder != folder.ID),
-				}>
+				}
+			>
 				{ fmt.Sprintf("%d", folder.Unread) }
 			</span>
 		}

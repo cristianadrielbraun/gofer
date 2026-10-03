@@ -175,7 +175,7 @@ func TestCalendarViewSwitchMatchesAppTabStructure(t *testing.T) {
 		for _, want := range []string{
 			`data-calendar-view-nav`, `grid-cols-2 gap-0.5 rounded-lg`, `p-0.5`,
 			`data-calendar-view-indicator`, `top-0.5 bottom-0.5 left-0.5 rounded-md`,
-			`transition-transform duration-200 ease-out`, `relative z-10 inline-flex h-7`,
+			`transition-transform duration-200 ease-out`, `relative z-10 inline-flex h-full min-h-0`,
 			`hx-swap="outerHTML"`, `aria-current="page"`, calendarViewIndicatorStyle(view),
 		} {
 			if !strings.Contains(nav, want) {

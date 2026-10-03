@@ -4,6 +4,7 @@ package calendar
 
 import (
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/utils"
 	"strconv"
 	"time"
@@ -133,46 +134,30 @@ templ Calendar(props ...Props) {
 					@icon.ChevronLeft()
 				</button>
 				<div class="flex gap-2 flex-1 min-w-0">
-					<!-- Month Select -->
-					<!-- Add bg-card to fix rendering in dark mode Chrome -->
-					<div class="relative flex-1 has-[:focus]:border-ring border border-input shadow-xs has-[:focus]:ring-ring/50 has-[:focus]:ring-[3px] rounded-md">
-						<select
-							id={ p.ID + "-month-select" }
-							data-tui-calendar-month-select
-							class="absolute inset-0 opacity-0 cursor-pointer w-full bg-card"
-							aria-label="Choose the Month"
-						>
-							for i := 0; i < 12; i++ {
-								<option value={ strconv.Itoa(i) } selected?={ i == currentMonth } data-tui-calendar-month-index={ strconv.Itoa(i) }>
-									{ monthNames[i] }
-								</option>
+					@selectbox.SelectBox(selectbox.Props{Class: "flex-1 min-w-0"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{ID: p.ID + "-month-select", Class: "h-7 px-2 text-sm", DisableClear: true, Attributes: templ.Attributes{"data-tui-calendar-month-select": "", "value": strconv.Itoa(currentMonth)}}) {
+							@selectbox.Value(selectbox.ValueProps{ID: p.ID + "-month-value", Placeholder: monthNames[currentMonth]})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Attributes: templ.Attributes{"aria-label": "Choose the Month"}}) {
+							@selectbox.Group() {
+								for i := 0; i < 12; i++ {
+									@selectbox.Item(selectbox.ItemProps{Value: strconv.Itoa(i), Selected: i == currentMonth, Attributes: templ.Attributes{"data-tui-calendar-month-index": strconv.Itoa(i)}}) { { monthNames[i] } }
+								}
 							}
-						</select>
-						<span class="select-none font-medium rounded-md px-2 flex items-center justify-center gap-1 text-sm h-7 pointer-events-none" aria-hidden="true">
-							<span id={ p.ID + "-month-value" }>{ monthNames[currentMonth] }</span>
-							@icon.ChevronDown(icon.Props{Class: "size-3.5 text-muted-foreground"})
-						</span>
-					</div>
-					<!-- Year Select -->
-					<!-- Add bg-card to fix rendering in dark mode Chrome -->
-					<div class="relative flex-1 has-[:focus]:border-ring border border-input shadow-xs has-[:focus]:ring-ring/50 has-[:focus]:ring-[3px] rounded-md">
-						<select
-							id={ p.ID + "-year-select" }
-							data-tui-calendar-year-select
-							class="absolute inset-0 opacity-0 cursor-pointer w-full bg-card"
-							aria-label="Choose the Year"
-						>
-							for year := 2100; year >= 1900; year-- {
-								<option value={ strconv.Itoa(year) } selected?={ year == currentYear }>
-									{ strconv.Itoa(year) }
-								</option>
+						}
+					}
+					@selectbox.SelectBox(selectbox.Props{Class: "flex-1 min-w-0"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{ID: p.ID + "-year-select", Class: "h-7 px-2 text-sm", DisableClear: true, Attributes: templ.Attributes{"data-tui-calendar-year-select": "", "value": strconv.Itoa(currentYear)}}) {
+							@selectbox.Value(selectbox.ValueProps{ID: p.ID + "-year-value", Placeholder: strconv.Itoa(currentYear)})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Attributes: templ.Attributes{"aria-label": "Choose the Year"}}) {
+							@selectbox.Group() {
+								for year := 2100; year >= 1900; year-- {
+									@selectbox.Item(selectbox.ItemProps{Value: strconv.Itoa(year), Selected: year == currentYear}) { { strconv.Itoa(year) } }
+								}
 							}
-						</select>
-						<span class="select-none font-medium rounded-md px-2 flex items-center justify-center gap-1 text-sm h-7 pointer-events-none" aria-hidden="true">
-							<span id={ p.ID + "-year-value" }>{ strconv.Itoa(currentYear) }</span>
-							@icon.ChevronDown(icon.Props{Class: "size-3.5 text-muted-foreground"})
-						</span>
-					</div>
+						}
+					}
 				</div>
 				<button
 					type="button"
@@ -194,6 +179,7 @@ var scriptOnce = templ.NewOnceHandle()
 
 templ Script() {
 	@scriptOnce.Once() {
+		@selectbox.Script()
 		@utils.ComponentScript("calendar")
 	}
 }

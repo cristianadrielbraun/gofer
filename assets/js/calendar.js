@@ -130,11 +130,15 @@
 
     // Update SelectBox values
     const monthNames = getMonthNames(locale);
+    container.querySelectorAll("[data-tui-calendar-month-index] .select-item-text").forEach((option, index) => {
+      if (option.textContent !== monthNames[index]) option.textContent = monthNames[index];
+    });
     const monthValue = container.querySelector(`#${container.id}-month-value`);
     const yearValue = container.querySelector(`#${container.id}-year-value`);
 
     if (monthValue) monthValue.textContent = monthNames[currentMonth];
     if (yearValue) yearValue.textContent = currentYear;
+    updateCalendarSelects(container);
 
     // Render weekdays if empty
     if (!weekdaysContainer.children.length) {
@@ -197,7 +201,7 @@
     }
   }
 
-  // Handle month/year selection from native selects
+  // Handle month/year selection through templUI's hidden inputs.
   document.addEventListener("change", (e) => {
     // Month select
     if (e.target.matches("[data-tui-calendar-month-select]")) {
@@ -205,7 +209,7 @@
       if (!container) return;
 
       const newMonth = parseInt(e.target.value, 10);
-      if (isNaN(newMonth)) return;
+      if (isNaN(newMonth)) return updateCalendarSelects(container);
 
       container.dataset.tuiCalendarCurrentMonth = newMonth;
       renderCalendar(container);
@@ -218,7 +222,7 @@
       if (!container) return;
 
       const newYear = parseInt(e.target.value, 10);
-      if (isNaN(newYear)) return;
+      if (isNaN(newYear)) return updateCalendarSelects(container);
 
       container.dataset.tuiCalendarCurrentYear = newYear;
       renderCalendar(container);
@@ -250,7 +254,6 @@
       container.dataset.tuiCalendarCurrentMonth = month;
       container.dataset.tuiCalendarCurrentYear = year;
       renderCalendar(container);
-      updateNativeSelects(container);
       return;
     }
 
@@ -276,7 +279,6 @@
       container.dataset.tuiCalendarCurrentMonth = month;
       container.dataset.tuiCalendarCurrentYear = year;
       renderCalendar(container);
-      updateNativeSelects(container);
       return;
     }
 
@@ -318,8 +320,8 @@
     }
   });
 
-  // Update native selects when month/year changes via arrows
-  function updateNativeSelects(container) {
+  // Keep templUI selections synchronized with arrow navigation and reset.
+  function updateCalendarSelects(container) {
     const month = parseInt(container.dataset.tuiCalendarCurrentMonth, 10);
     const year = parseInt(container.dataset.tuiCalendarCurrentYear, 10);
 
@@ -385,23 +387,6 @@
     document
       .querySelectorAll("[data-tui-calendar-container]")
       .forEach((container) => {
-        // Localize month names in native select options
-        const locale =
-          container.getAttribute("data-tui-calendar-locale-tag") || "en-US";
-        const monthNames = getMonthNames(locale);
-        const monthSelect = container.querySelector(
-          "[data-tui-calendar-month-select]",
-        );
-
-        if (monthSelect) {
-          const options = monthSelect.querySelectorAll("option");
-          options.forEach((option, index) => {
-            if (monthNames[index]) {
-              option.textContent = monthNames[index];
-            }
-          });
-        }
-
         renderCalendar(container);
       });
   }
