@@ -54,7 +54,7 @@ const context = vm.createContext({
 })
 vm.runInContext('var _calendarSelectedDay = {period: "week:2026-09-28", date: "2026-10-03"};\n' +
   ['configureCalendarCreateDialog', 'adjustCalendarCreateAllDayRange', 'updateCalendarRecurrenceForm', 'updateCalendarCreateForm', 'initializeCalendarCreateForm', 'validateCalendarCreatePickers', 'setCalendarCreateError', 'submitCalendarCreate'].map(helper).join('\n'), context)
-vm.runInContext(source.slice(source.indexOf('document.addEventListener("submit",', source.indexOf('function submitCalendarCreate(')), source.indexOf('function updateCalendarDeleteForm(')), context)
+vm.runInContext(source.slice(source.indexOf('document.addEventListener("submit",', source.indexOf('function submitCalendarCreate(')), source.indexOf('function updateCalendarResponseForm(')), context)
 for (const picker of ['datepicker', 'timepicker']) {
   const module = fs.readFileSync(path.join(__dirname, '../assets/js/' + picker + '.js'), 'utf8')
   const start = module.indexOf('  function closePopover('), end = module.indexOf('\n  }', start)

@@ -58,6 +58,7 @@ type CalendarEvent struct {
 	Location          string
 	OrganizerName     string
 	OrganizerEmail    string
+	ResponseStatus    string
 	AllDay            bool
 	StartDate         string
 	EndDate           string
@@ -558,8 +559,8 @@ func (db *DB) ReplaceCalendarEvents(ctx context.Context, userID, sourceID string
 				status, summary, description, location, organizer_name, organizer_email,
 				all_day, start_date, end_date, start_at, end_at, start_timezone,
 				end_timezone, recurrence_json, attendees_json, online_meeting_json,
-				html_link, provider_created_at, provider_updated_at, is_deleted
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				html_link, provider_created_at, provider_updated_at, is_deleted, response_status
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(source_id, remote_id) DO UPDATE SET
 				user_id = excluded.user_id,
 				ical_uid = excluded.ical_uid,
@@ -585,6 +586,7 @@ func (db *DB) ReplaceCalendarEvents(ctx context.Context, userID, sourceID string
 				provider_created_at = excluded.provider_created_at,
 				provider_updated_at = excluded.provider_updated_at,
 				is_deleted = excluded.is_deleted,
+				response_status = excluded.response_status,
 				updated_at = CURRENT_TIMESTAMP`,
 			eventID, userID, sourceID, remoteID,
 			strings.TrimSpace(event.ICalUID), strings.TrimSpace(event.SeriesRemoteID), strings.TrimSpace(event.ETag),
@@ -594,7 +596,7 @@ func (db *DB) ReplaceCalendarEvents(ctx context.Context, userID, sourceID string
 			strings.TrimSpace(event.StartTimeZone), strings.TrimSpace(event.EndTimeZone),
 			calendarJSON(event.RecurrenceJSON, "[]"), calendarJSON(event.AttendeesJSON, "[]"),
 			calendarJSON(event.OnlineMeetingJSON, "{}"), strings.TrimSpace(event.HTMLLink),
-			calendarEventTimeValue(event.ProviderCreatedAt), calendarEventTimeValue(event.ProviderUpdatedAt), calendarBoolInt(event.IsDeleted)); err != nil {
+			calendarEventTimeValue(event.ProviderCreatedAt), calendarEventTimeValue(event.ProviderUpdatedAt), calendarBoolInt(event.IsDeleted), event.ResponseStatus); err != nil {
 			return fmt.Errorf("upsert calendar event %q: %w", remoteID, err)
 		}
 	}
@@ -648,7 +650,7 @@ const calendarEventSelect = `
 		       event.start_at, event.end_at, event.start_timezone, event.end_timezone,
 		       event.recurrence_json, event.attendees_json, event.online_meeting_json,
 		       event.html_link, event.provider_created_at, event.provider_updated_at,
-		       event.is_deleted, source.name, source.color, source.is_hidden
+		       event.is_deleted, source.name, source.color, source.is_hidden, event.response_status
 		FROM calendar_events event
 		JOIN calendar_sources source ON source.id = event.source_id
 		JOIN accounts account ON account.id = source.account_id
@@ -716,6 +718,7 @@ func scanCalendarEvent(row interface{ Scan(...any) error }) (CalendarEvent, erro
 		&event.StartTimeZone, &event.EndTimeZone, &event.RecurrenceJSON, &event.AttendeesJSON,
 		&event.OnlineMeetingJSON, &event.HTMLLink, &providerCreatedAt, &providerUpdatedAt,
 		&isDeleted, &event.SourceName, &event.SourceColor, &sourceHidden,
+		&event.ResponseStatus,
 	); err != nil {
 		return CalendarEvent{}, err
 	}

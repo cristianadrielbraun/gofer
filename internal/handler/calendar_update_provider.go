@@ -323,7 +323,6 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 
 type outlookCalendarUpdateEvent struct {
 	outlookCalendarEvent
-	IsOrganizer           *bool  `json:"isOrganizer"`
 	ODataETag             string `json:"@odata.etag"`
 	Type                  string `json:"type"`
 	IsOnlineMeeting       bool   `json:"isOnlineMeeting"`

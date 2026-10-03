@@ -1286,6 +1286,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
     end_timezone TEXT NOT NULL DEFAULT '',
     recurrence_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(recurrence_json)),
     attendees_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(attendees_json)),
+    response_status TEXT NOT NULL DEFAULT '',
     online_meeting_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(online_meeting_json)),
     html_link TEXT NOT NULL DEFAULT '',
     provider_created_at DATETIME,
@@ -1352,6 +1353,18 @@ CREATE TABLE IF NOT EXISTS calendar_create_requests (
     remote_id TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, request_id)
+);
+
+-- Reserve a provider event version before sending an RSVP. An uncertain result
+-- must never resend a response notification automatically.
+CREATE TABLE IF NOT EXISTS calendar_response_requests (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+    remote_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    response TEXT NOT NULL CHECK (response IN ('accepted', 'tentative', 'declined')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, source_id, remote_id, version)
 );
 
 CREATE TABLE IF NOT EXISTS account_caldav_configs (
@@ -1479,5 +1492,18 @@ CREATE TABLE IF NOT EXISTS mail_security_exceptions (
 CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
+CREATE TABLE IF NOT EXISTS calendar_reply_jobs (
+    id TEXT PRIMARY KEY REFERENCES outgoing_sends(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+    resource_id TEXT NOT NULL, remote_id TEXT NOT NULL, version TEXT NOT NULL,
+    response TEXT NOT NULL CHECK(response IN ('accepted','tentative','declined')),
+    payload TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','complete','conflict','canceled','dismissed')),
+    attempted_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_reply_pending ON calendar_reply_jobs(user_id,source_id,resource_id) WHERE state='pending';
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (98);
+INSERT OR REPLACE INTO schema_version (version) VALUES (101);

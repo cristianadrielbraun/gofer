@@ -20,6 +20,31 @@ type CalendarEventDetails struct {
 	DeleteOccurrence      bool
 	DeleteSeriesID        string
 	DeleteVersion         string
+	Response              *CalendarResponseData
+}
+
+type CalendarResponseData struct {
+	EventID, Status, Version, Scope string
+	HasOccurrence                   bool
+	Ready                           bool
+	Delivery                        string
+}
+
+type CalendarReplyData struct {
+	ID, EventID, Scope, State, SendStatus, Note string
+}
+
+func calendarResponseLabel(status string) string {
+	switch status {
+	case "accepted":
+		return "Accepted"
+	case "tentative":
+		return "Maybe"
+	case "declined":
+		return "Declined"
+	default:
+		return "Not answered"
+	}
 }
 
 type CalendarEventParticipant struct {

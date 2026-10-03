@@ -1,0 +1,176 @@
+package views
+
+import (
+	"strconv"
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+)
+
+templ CalendarResponseForm(data CalendarResponseData) {
+	<form class="space-y-2 border-t border-border pt-3" data-calendar-response-form data-calendar-event-id={ data.EventID } data-calendar-response-scope={ data.Scope } data-calendar-response-ready={ strconv.FormatBool(data.Ready) } hx-post={ calendarEventDetailsURL(data.EventID) + "/response" } hx-params="version,scope,response" hx-swap="none" hx-sync="this:drop">
+		<input type="hidden" name="version" value={ data.Version }/>
+		<input type="hidden" name="scope" value={ data.Scope }/>
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+			<div class="flex items-center gap-3">
+				<h3 id="calendar-event-response-label" class="text-xs font-semibold text-muted-foreground">Your response</h3>
+				@dropdown.Dropdown() {
+					@dropdown.Trigger() {
+						@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Disabled: !data.Ready, Attributes: templ.Attributes{"data-calendar-response-trigger": "", "aria-haspopup": "menu", "aria-labelledby": "calendar-event-response-label calendar-event-response-value"}}) {
+							if data.Ready {
+								@CalendarResponseIcon(data.Status)
+							} else {
+								@icon.LoaderCircle(icon.Props{Class: "size-3.5 animate-spin text-muted-foreground"})
+							}
+							<span id="calendar-event-response-value" data-calendar-response-status>
+								if data.Ready {
+									{ calendarResponseLabel(data.Status) }
+								} else {
+									Checking invitation…
+								}
+							</span>
+							@icon.ChevronDown(icon.Props{Class: "size-3.5 text-muted-foreground"})
+						}
+					}
+					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementTopStart, Class: "w-44", Attributes: templ.Attributes{"role": "menu", "aria-label": "Respond to invitation"}}) {
+						for _, status := range []string{"accepted", "tentative", "declined"} {
+							@dropdown.Item(dropdown.ItemProps{Disabled: !data.Ready, Class: "justify-start gap-2 aria-[current=true]:bg-accent aria-[current=true]:text-accent-foreground", Attributes: templ.Attributes{"type": "submit", "name": "response", "value": status, "data-calendar-response-choice": status, "aria-current": strconv.FormatBool(data.Status == status)}}) {
+								@CalendarResponseIcon(status)
+								if status == "accepted" {
+									Accept
+								} else if status == "tentative" {
+									Maybe
+								} else {
+									Decline
+								}
+							}
+						}
+					}
+				}
+			</div>
+			if data.HasOccurrence {
+				<div class="flex flex-wrap gap-2" role="group" aria-label="Response scope">
+					for _, scope := range []string{"occurrence", "series"} {
+						@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Class: "aria-pressed:bg-accent aria-pressed:text-accent-foreground", Attributes: templ.Attributes{
+							"data-calendar-response-load": "", "aria-pressed": strconv.FormatBool(scope == data.Scope),
+							"hx-get": calendarEventDetailsURL(data.EventID) + "/response?scope=" + scope,
+							"hx-target": "#calendar-event-response", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "#calendar-event-response:replace",
+						}}) {
+							if scope == "series" {
+								Entire series
+							} else {
+								This event
+							}
+						}
+					}
+				</div>
+			}
+		</div>
+		<p class="min-h-4 text-[11px] leading-4 text-muted-foreground" data-calendar-response-progress role="status" aria-live="polite">
+			if data.Delivery == "email" {
+				Your response will be emailed to the organizer using this account, then saved to the calendar.
+			} else if data.Scope == "series" {
+				This responds to the entire series and notifies the organizer.
+			} else if data.Scope == "occurrence" {
+				This responds to this occurrence only and notifies the organizer.
+			} else {
+				Your response will be sent to the organizer.
+			}
+		</p>
+		<p hidden data-calendar-response-error role="alert" tabindex="-1" class="text-xs text-destructive"></p>
+		if !data.Ready {
+			@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantGhost, Attributes: templ.Attributes{
+				"data-calendar-response-load": "", "hx-get": calendarEventDetailsURL(data.EventID) + "/response?scope=" + data.Scope,
+				"hx-trigger": "load, click", "hx-target": "#calendar-event-response", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "#calendar-event-response:replace",
+			}}) {
+				@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+				Check response
+			}
+		}
+	</form>
+}
+
+templ CalendarResponseIcon(status string) {
+	if status == "accepted" {
+		@icon.Check(icon.Props{Class: "size-3.5 text-emerald-600 dark:text-emerald-400"})
+	} else if status == "tentative" {
+		@icon.Minus(icon.Props{Class: "size-3.5 text-amber-600 dark:text-amber-400"})
+	} else if status == "declined" {
+		@icon.X(icon.Props{Class: "size-3.5 text-destructive"})
+	}
+}
+
+templ CalendarReplyStatus(data CalendarReplyData) {
+	<div class="space-y-3 border-t border-border pt-4" data-calendar-reply-status={ data.State } hx-get={ "/api/calendar/replies/"+data.ID } hx-target="this" hx-swap="outerHTML" hx-sync="this:drop"
+		if data.State == "pending" && (data.SendStatus == "pending" || data.SendStatus == "sending" || data.SendStatus == "sent") {
+			hx-trigger="every 3s"
+		} else {
+			hx-trigger="none"
+		}
+	>
+		<h3 class="text-xs font-semibold text-muted-foreground">Reply by email</h3>
+		<p class="flex items-start gap-2 text-xs leading-5" role="status" aria-live="polite">
+			if data.State == "complete" {
+				@icon.Check(icon.Props{Class:"mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"})
+				Reply sent and calendar updated.
+			} else if data.State == "conflict" || data.State == "dismissed" {
+				@icon.TriangleAlert(icon.Props{Class:"mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"})
+				Reply sent, but the calendar could not be updated safely. Refresh and check the event in your calendar provider. Your reply will not be sent again.
+			} else if data.State == "canceled" || data.SendStatus == "canceled" {
+				Reply stopped. No further email will be sent. If delivery was uncertain, check your mail provider before responding again.
+			} else if data.SendStatus == "ambiguous" {
+				@icon.TriangleAlert(icon.Props{Class:"mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"})
+				The email may have been sent. Check your mail provider before replying again; Gofer will not resend automatically. Your calendar has not been updated.
+			} else if data.SendStatus == "failed" {
+				@icon.X(icon.Props{Class:"mt-0.5 size-4 shrink-0 text-destructive"})
+				Reply not sent. Check this account’s mail settings, or cancel and refresh if the invitation changed. Your calendar has not been updated.
+			} else {
+				@icon.LoaderCircle(icon.Props{Class:"mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground"})
+				if data.SendStatus == "sent" {
+					Reply sent. Updating your calendar… Only the calendar save will be retried if needed.
+				} else if data.SendStatus == "sending" {
+					Sending your email reply… You can close this dialog; delivery will continue in the background.
+				} else {
+					Reply queued for sending. You can close this dialog; delivery will continue in the background.
+				}
+			}
+		</p>
+			if data.Note != "" {
+				<p class="text-xs text-destructive" role="alert">{data.Note}</p>
+			}
+		if data.State == "pending" && (data.SendStatus == "failed" || data.SendStatus == "pending") {
+			<form class="flex gap-2" hx-post={ "/api/calendar/replies/"+data.ID } hx-target="closest [data-calendar-reply-status]" hx-swap="outerHTML" hx-disabled-elt="find button" hx-sync="closest [data-calendar-reply-status]:drop">
+				if data.SendStatus == "failed" {
+						@button.Button(button.Props{Type:button.TypeSubmit,Size:button.SizeSm,Variant:button.VariantOutline,Attributes:templ.Attributes{"name":"action","value":"retry"}}) {
+							Retry sending
+						}
+				}
+					@button.Button(button.Props{Type:button.TypeSubmit,Size:button.SizeSm,Variant:button.VariantGhost,Attributes:templ.Attributes{"name":"action","value":"cancel"}}) {
+						Cancel reply
+					}
+			</form>
+		}
+		if data.State == "pending" && data.SendStatus == "ambiguous" {
+			<form class="flex flex-wrap gap-2" hx-post={ "/api/calendar/replies/"+data.ID } hx-target="closest [data-calendar-reply-status]" hx-swap="outerHTML" hx-disabled-elt="find button" hx-sync="closest [data-calendar-reply-status]:drop">
+				@button.Button(button.Props{Type:button.TypeSubmit,Size:button.SizeSm,Variant:button.VariantOutline,Attributes:templ.Attributes{"name":"action","value":"confirm-sent"}}) {
+					I confirmed it was sent
+				}
+				@button.Button(button.Props{Type:button.TypeSubmit,Size:button.SizeSm,Variant:button.VariantGhost,Attributes:templ.Attributes{"name":"action","value":"resend-confirmed"}}) {
+					Resend (may send twice)
+				}
+			</form>
+		}
+		if data.State == "conflict" {
+			<form hx-post={ "/api/calendar/replies/"+data.ID } hx-target="closest [data-calendar-reply-status]" hx-swap="outerHTML" hx-disabled-elt="find button">
+				@button.Button(button.Props{Type:button.TypeSubmit,Size:button.SizeSm,Variant:button.VariantGhost,Attributes:templ.Attributes{"name":"action","value":"dismiss"}}) {
+					Dismiss notice
+				}
+			</form>
+		}
+		if data.State != "pending" && data.State != "conflict" {
+				@button.Button(button.Props{Size:button.SizeSm,Variant:button.VariantGhost,Attributes:templ.Attributes{"hx-get":calendarEventDetailsURL(data.EventID)+"/response?scope="+data.Scope,"hx-target":"#calendar-event-response","hx-swap":"innerHTML","hx-params":"none"}}) {
+					Check invitation
+				}
+		}
+	</div>
+}

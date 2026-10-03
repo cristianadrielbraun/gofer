@@ -36,27 +36,29 @@ type outlookCalendarEventsResponse struct {
 }
 
 type outlookCalendarEvent struct {
-	ID                    string                   `json:"id"`
-	ICalUID               string                   `json:"iCalUId"`
-	ChangeKey             string                   `json:"changeKey"`
-	Subject               string                   `json:"subject"`
-	BodyPreview           string                   `json:"bodyPreview"`
-	Body                  outlookCalendarItemBody  `json:"body"`
-	Location              outlookCalendarLocation  `json:"location"`
-	Start                 outlookCalendarDateTime  `json:"start"`
-	End                   outlookCalendarDateTime  `json:"end"`
-	IsAllDay              bool                     `json:"isAllDay"`
-	IsCancelled           bool                     `json:"isCancelled"`
-	WebLink               string                   `json:"webLink"`
-	CreatedDateTime       string                   `json:"createdDateTime"`
-	LastModifiedDateTime  string                   `json:"lastModifiedDateTime"`
-	Organizer             outlookCalendarRecipient `json:"organizer"`
-	Attendees             json.RawMessage          `json:"attendees"`
-	Recurrence            json.RawMessage          `json:"recurrence"`
-	SeriesMasterID        string                   `json:"seriesMasterId"`
-	OnlineMeetingURL      string                   `json:"onlineMeetingUrl"`
-	OnlineMeetingProvider string                   `json:"onlineMeetingProvider"`
-	OnlineMeeting         json.RawMessage          `json:"onlineMeeting"`
+	ID                    string                    `json:"id"`
+	ICalUID               string                    `json:"iCalUId"`
+	ChangeKey             string                    `json:"changeKey"`
+	Subject               string                    `json:"subject"`
+	BodyPreview           string                    `json:"bodyPreview"`
+	Body                  outlookCalendarItemBody   `json:"body"`
+	Location              outlookCalendarLocation   `json:"location"`
+	Start                 outlookCalendarDateTime   `json:"start"`
+	End                   outlookCalendarDateTime   `json:"end"`
+	IsAllDay              bool                      `json:"isAllDay"`
+	IsCancelled           bool                      `json:"isCancelled"`
+	IsOrganizer           *bool                     `json:"isOrganizer"`
+	ResponseStatus        struct{ Response string } `json:"responseStatus"`
+	WebLink               string                    `json:"webLink"`
+	CreatedDateTime       string                    `json:"createdDateTime"`
+	LastModifiedDateTime  string                    `json:"lastModifiedDateTime"`
+	Organizer             outlookCalendarRecipient  `json:"organizer"`
+	Attendees             json.RawMessage           `json:"attendees"`
+	Recurrence            json.RawMessage           `json:"recurrence"`
+	SeriesMasterID        string                    `json:"seriesMasterId"`
+	OnlineMeetingURL      string                    `json:"onlineMeetingUrl"`
+	OnlineMeetingProvider string                    `json:"onlineMeetingProvider"`
+	OnlineMeeting         json.RawMessage           `json:"onlineMeeting"`
 }
 
 type outlookCalendarDateTime struct {
@@ -187,7 +189,7 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 		"id", "iCalUId", "changeKey", "subject", "bodyPreview", "body", "start", "end",
 		"isAllDay", "isCancelled", "webLink", "createdDateTime", "lastModifiedDateTime",
 		"organizer", "attendees", "location", "onlineMeetingUrl", "onlineMeetingProvider",
-		"onlineMeeting", "seriesMasterId", "recurrence",
+		"onlineMeeting", "seriesMasterId", "recurrence", "isOrganizer", "responseStatus",
 	}, ","))
 
 	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/calendarView?" + values.Encode()
@@ -246,6 +248,11 @@ func normalizeOutlookCalendarEvent(remote outlookCalendarEvent) (calendar.Remote
 		event.Description = strings.TrimSpace(remote.BodyPreview)
 	}
 	event.Recurrence = validOutlookJSON(remote.Recurrence, "{}")
+	if remote.IsOrganizer != nil && !*remote.IsOrganizer && !remote.IsCancelled && remote.Organizer.EmailAddress.Address != "" {
+		event.ResponseStatus = calendarResponseStatus(remote.ResponseStatus.Response)
+	} else if remote.IsOrganizer != nil && *remote.IsOrganizer {
+		event.ResponseStatus = "organizer"
+	}
 	event.Attendees = validOutlookJSON(remote.Attendees, "[]")
 	if len(remote.OnlineMeeting) > 0 && json.Valid(remote.OnlineMeeting) {
 		event.OnlineMeeting = append(json.RawMessage(nil), remote.OnlineMeeting...)

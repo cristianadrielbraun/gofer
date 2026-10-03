@@ -223,6 +223,10 @@ func normalizeGoogleCalendarEvent(remote googleCalendarEvent) (calendar.RemoteEv
 	} else {
 		event.Attendees = json.RawMessage("[]")
 	}
+	_, event.ResponseStatus = googleCalendarSelfResponse(remote)
+	if remote.Organizer.Self != nil && *remote.Organizer.Self {
+		event.ResponseStatus = "organizer"
+	}
 	if len(remote.ConferenceData) > 0 && json.Valid(remote.ConferenceData) {
 		event.OnlineMeeting = append(json.RawMessage(nil), remote.ConferenceData...)
 	} else if strings.TrimSpace(remote.HangoutLink) != "" {

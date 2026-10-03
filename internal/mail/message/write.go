@@ -17,19 +17,21 @@ import (
 )
 
 type OutgoingMessage struct {
-	FromName    string
-	FromEmail   string
-	To          []*mail.Address
-	CC          []*mail.Address
-	Bcc         []*mail.Address
-	Subject     string
-	TextBody    string
-	HTMLBody    string
-	InReplyTo   string
-	References  string
-	MessageID   string
-	Date        time.Time
-	Attachments []OutgoingAttachment
+	FromName  string
+	FromEmail string
+	To        []*mail.Address
+	CC        []*mail.Address
+	Bcc       []*mail.Address
+	Subject   string
+	TextBody  string
+	HTMLBody  string
+	// CalendarReply is a generated iTIP REPLY, never an arbitrary compose field.
+	CalendarReply string
+	InReplyTo     string
+	References    string
+	MessageID     string
+	Date          time.Time
+	Attachments   []OutgoingAttachment
 }
 
 type OutgoingAttachment struct {
@@ -161,6 +163,12 @@ func outgoingMIMEBody(msg *OutgoingMessage) mimeEntity {
 		}
 	}
 
+	if msg.CalendarReply != "" {
+		reply := textMIMEEntity("text/calendar", msg.CalendarReply)
+		reply.contentTypeParams["method"] = "REPLY"
+		reply.disposition = "inline"
+		body = multipartMIMEEntity("multipart/alternative", body, reply)
+	}
 	inlineAttachments, fileAttachments := splitOutgoingAttachments(msg.Attachments)
 	if len(inlineAttachments) > 0 {
 		children := make([]mimeEntity, 0, len(inlineAttachments)+1)

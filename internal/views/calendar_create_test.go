@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	htmlnode "golang.org/x/net/html"
 )
 
 func TestCalendarCreateUsesTemplUIControls(t *testing.T) {
@@ -56,6 +59,87 @@ func TestCalendarCreateUsesTemplUIControls(t *testing.T) {
 	}
 	if strings.Contains(output.String(), `name="version"`) || strings.Contains(output.String(), "Save changes") {
 		t.Error("creation must retain its request ID and create labels")
+	}
+}
+
+func TestCalendarCreateAndEditUseResponsiveColumns(t *testing.T) {
+	repeat := &calendar.RecurrenceDraft{Frequency: "weekly", Interval: 2, Count: 4}
+	for _, test := range []struct {
+		name string
+		data CalendarCreateData
+	}{
+		{"new", CalendarCreateData{}},
+		{"all-day", CalendarCreateData{AllDay: true}},
+		{"repeating", CalendarCreateData{Recurrence: repeat}},
+		{"edit", CalendarCreateData{EventID: "event"}},
+		{"series", CalendarCreateData{EventID: "event", EditSeries: true, Recurrence: repeat}},
+		{"occurrence", CalendarCreateData{EventID: "event", EditOccurrence: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := CalendarCreateDialog(test.data).Render(t.Context(), &output); err != nil {
+				t.Fatal(err)
+			}
+			markup := output.String()
+			for _, want := range []string{"md:max-w-5xl", "md:max-h-[min(44rem,calc(100dvh-4rem))]", "md:grid-cols-2", "md:grid-rows-[minmax(0,1fr)]", "md:overflow-hidden", "md:overflow-y-auto", "md:flex-1", "md:resize-none"} {
+				if !strings.Contains(markup, want) {
+					t.Errorf("missing responsive dialog constraint %q", want)
+				}
+			}
+			doc, err := htmlnode.Parse(strings.NewReader(markup))
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes := map[string]*htmlnode.Node{}
+			fields := map[string]string{}
+			var inspect func(*htmlnode.Node, string)
+			inspect = func(node *htmlnode.Node, column string) {
+				for _, attr := range node.Attr {
+					if strings.HasPrefix(attr.Key, "data-calendar-create-") {
+						nodes[attr.Key] = node
+						if attr.Key == "data-calendar-create-details" || attr.Key == "data-calendar-create-schedule" {
+							column = attr.Key
+						}
+					} else if attr.Key == "name" {
+						fields[attr.Val] = column
+					}
+				}
+				if node.Data == "footer" {
+					nodes["footer"] = node
+				}
+				for child := node.FirstChild; child != nil; child = child.NextSibling {
+					inspect(child, column)
+				}
+			}
+			inspect(doc, "")
+			for _, name := range []string{"source_id", "summary", "location", "description"} {
+				if fields[name] != "data-calendar-create-details" {
+					t.Errorf("%s must remain in the event details column", name)
+				}
+			}
+			for _, name := range []string{"all_day", "start_date", "start_time", "end_date", "end_time", "timezone"} {
+				if fields[name] != "data-calendar-create-schedule" {
+					t.Errorf("%s must remain in the schedule column", name)
+				}
+			}
+			if (fields["repeat_frequency"] == "data-calendar-create-schedule") == test.data.EditOccurrence {
+				t.Error("recurrence belongs with the schedule, except when editing just one occurrence")
+			}
+			columns, form := nodes["data-calendar-create-columns"], nodes["data-calendar-create-form"]
+			if columns == nil || form == nil || columns.Parent != form {
+				t.Fatal("both columns must use the existing single form")
+			}
+			for _, key := range []string{"data-calendar-create-details", "data-calendar-create-schedule"} {
+				if node := nodes[key]; node == nil || node.Parent != columns {
+					t.Errorf("%s must be a direct column", key)
+				}
+			}
+			for _, key := range []string{"data-calendar-create-error", "footer"} {
+				if node := nodes[key]; node == nil || node.Parent != form {
+					t.Errorf("%s must stay outside the scrolling columns", key)
+				}
+			}
+		})
 	}
 }
 

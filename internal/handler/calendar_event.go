@@ -54,6 +54,15 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	if details.HasOccurrence {
 		details.DeleteVersion = event.ETag
 	}
+	if event.ResponseStatus != "organizer" && (event.ResponseStatus != "" || len(details.Attendees) > 0) {
+		if source, err := h.calendarResponseAccess(ctx, event); err == nil {
+			data := calendarResponseData(event)
+			if source.Provider == "caldav" {
+				data.Ready = false
+			}
+			details.Response = &data
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	location := viewsCalendarLocation(h.db.GetUISettings(ctx, userID))

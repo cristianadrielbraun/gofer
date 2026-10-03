@@ -53,6 +53,7 @@ type RemoteEvent struct {
 	Location       string
 	OrganizerName  string
 	OrganizerEmail string
+	ResponseStatus string // This calendar owner's RSVP, "organizer", or empty when unknown.
 
 	AllDay        bool
 	StartDate     string

@@ -57,6 +57,9 @@ func seedV85MailboxOAuthSchema(t *testing.T, path, accounts, credentials string)
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE UNIQUE INDEX idx_oauth_provider_account ON oauth_accounts(provider, provider_account_id);
+		-- The auth-only fixture omits mail payloads, but later calendar-reply
+		-- migrations reference the outgoing queue that already existed in v85.
+		CREATE TABLE outgoing_sends (id TEXT PRIMARY KEY);
 	` + accounts + credentials); err != nil {
 		_ = db.Close()
 		t.Fatalf("seed v85 mailbox OAuth schema: %v", err)

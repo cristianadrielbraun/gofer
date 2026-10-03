@@ -28,10 +28,10 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 	@dialog.Dialog(dialog.Props{ID: "calendar-create-dialog"}) {
 		@dialog.Content(dialog.ContentProps{
 			HideCloseButton: true,
-			Class:           "w-[calc(100vw_-_2rem)] max-w-[calc(100vw_-_2rem)] sm:max-w-lg [&_[data-tui-dialog-panel]]:flex [&_[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&_[data-tui-dialog-panel]]:min-h-0 [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0",
+			Class:           "w-[calc(100vw_-_2rem)] max-w-[calc(100vw_-_2rem)] max-h-[calc(100dvh-2rem)] sm:max-w-xl md:max-w-5xl md:max-h-[min(44rem,calc(100dvh-4rem))] [&_[data-tui-dialog-panel]]:flex [&_[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] md:[&_[data-tui-dialog-panel]]:max-h-[min(44rem,calc(100dvh-4rem))] [&_[data-tui-dialog-panel]]:min-h-0 [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0",
 			Attributes:      templ.Attributes{"aria-labelledby": "calendar-create-title"},
 		}) {
-			<header class="flex shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-4">
+			<header class="flex shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-4 md:px-6">
 				@dialog.Title(dialog.TitleProps{ID: "calendar-create-title", Class: "text-lg font-semibold"}) {
 					{ title }
 				}
@@ -49,108 +49,115 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 				} else if data.EditOccurrence {
 					<input type="hidden" name="edit_scope" value="occurrence"/>
 				}
-				<div class="min-h-0 space-y-4 overflow-y-auto px-5 py-5">
-					if data.EditSeries {
-						<p class="text-xs leading-relaxed text-muted-foreground">Changes apply to the entire series, including past occurrences. The dates below belong to the first event, not just the occurrence you opened.</p>
-					} else if data.EditOccurrence {
-						<p class="text-xs leading-relaxed text-muted-foreground">Changes apply to this event only. The other occurrences and the series’ repeat settings stay unchanged.</p>
-					}
-					<div class="space-y-1.5">
-						@label.Label(label.Props{For: "calendar-create-source"}) {
-							Calendar
-						}
-						@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-calendar-create-source-select": ""}}) {
-							@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-source", Name: "source_id", DisableClear: true, Disabled: editing || len(data.Sources) == 0, Attributes: templ.Attributes{"value": data.SourceID}}) {
-								if len(data.Sources) == 0 {
-									@selectbox.Value(selectbox.ValueProps{Placeholder: "No configured calendars"})
-								} else {
-									@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a calendar"})
-								}
+				if data.EditSeries {
+					<p class="shrink-0 px-5 pt-4 text-xs leading-relaxed text-muted-foreground md:px-6">Changes apply to the entire series, including past occurrences. The dates below belong to the first event, not just the occurrence you opened.</p>
+				} else if data.EditOccurrence {
+					<p class="shrink-0 px-5 pt-4 text-xs leading-relaxed text-muted-foreground md:px-6">Changes apply to this event only. The other occurrences and the series’ repeat settings stay unchanged.</p>
+				}
+				<div class="grid min-h-0 gap-5 overflow-y-auto px-5 py-5 md:grid-cols-2 md:grid-rows-[minmax(0,1fr)] md:gap-0 md:overflow-hidden md:px-6" data-calendar-create-columns>
+					<section class="flex min-h-0 min-w-0 flex-col gap-4 md:overflow-y-auto md:overscroll-contain md:pr-6" aria-label="Event details" data-calendar-create-details>
+						<div class="space-y-1.5">
+							@label.Label(label.Props{For: "calendar-create-source"}) {
+								Calendar
 							}
-							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-								@selectbox.Group() {
-									for _, source := range data.Sources {
-										@selectbox.Item(selectbox.ItemProps{Value: source.ID, Selected: source.ID == data.SourceID, Disabled: !source.Writable, Class: "pr-7", Attributes: templ.Attributes{"data-calendar-source-writable": strconv.FormatBool(source.Writable), "data-calendar-source-authorized": strconv.FormatBool(source.Authorized)}}) {
-											{ source.Name } · { source.AccountName }
-											if !source.Writable {
-												· Read-only
+							@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-calendar-create-source-select": ""}}) {
+								@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-source", Name: "source_id", DisableClear: true, Disabled: editing || len(data.Sources) == 0, Attributes: templ.Attributes{"value": data.SourceID}}) {
+									if len(data.Sources) == 0 {
+										@selectbox.Value(selectbox.ValueProps{Placeholder: "No configured calendars"})
+									} else {
+										@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a calendar"})
+									}
+								}
+								@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+									@selectbox.Group() {
+										for _, source := range data.Sources {
+											@selectbox.Item(selectbox.ItemProps{Value: source.ID, Selected: source.ID == data.SourceID, Disabled: !source.Writable, Class: "pr-7", Attributes: templ.Attributes{"data-calendar-source-writable": strconv.FormatBool(source.Writable), "data-calendar-source-authorized": strconv.FormatBool(source.Authorized)}}) {
+												{ source.Name } · { source.AccountName }
+												if !source.Writable {
+													· Read-only
+												}
 											}
 										}
 									}
 								}
 							}
-						}
-						<p data-calendar-create-access hidden class="text-xs leading-relaxed text-muted-foreground"></p>
-					</div>
-					<div class="space-y-1.5">
-						@label.Label(label.Props{For: "calendar-create-summary"}) {
-							Title
-						}
-						@input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Value: data.Summary, Placeholder: "Event title", Required: true, Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}})
-					</div>
-					@label.Label(label.Props{For: "calendar-create-all-day", Class: "inline-flex items-center gap-2"}) {
-						@checkbox.Checkbox(checkbox.Props{ID: "calendar-create-all-day", Name: "all_day", Value: "true", Checked: data.AllDay})
-						All day
-					}
-					<div class="grid grid-cols-2 gap-3">
-						<div class="space-y-1.5">
-							@label.Label(label.Props{For: "calendar-create-start-date"}) {
-								Starts
-							}
-							@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-start-date", Name: "start_date", Value: calendarCreatePickerValue("2006-01-02", data.Date)})
-							<div data-calendar-create-time hidden?={ data.AllDay }>
-								@timepicker.TimePicker(timepicker.Props{ID: "calendar-create-start-time", Name: "start_time", Value: calendarCreatePickerValue("15:04", data.StartTime), Attributes: templ.Attributes{"aria-label": "Start time"}})
-							</div>
+							<p data-calendar-create-access hidden class="text-xs leading-relaxed text-muted-foreground"></p>
 						</div>
 						<div class="space-y-1.5">
-							@label.Label(label.Props{For: "calendar-create-end-date"}) {
-								Ends
+							@label.Label(label.Props{For: "calendar-create-summary"}) {
+								Title
 							}
-							@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-end-date", Name: "end_date", Value: calendarCreatePickerValue("2006-01-02", data.EndDate)})
-							<div data-calendar-create-time hidden?={ data.AllDay }>
-								@timepicker.TimePicker(timepicker.Props{ID: "calendar-create-end-time", Name: "end_time", Value: calendarCreatePickerValue("15:04", data.EndTime), Attributes: templ.Attributes{"aria-label": "End time"}})
+							@input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Value: data.Summary, Placeholder: "Event title", Required: true, Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}})
+						</div>
+						<div class="space-y-1.5">
+							@label.Label(label.Props{For: "calendar-create-location"}) {
+								Location <span class="text-xs font-normal text-muted-foreground">optional</span>
+							}
+							@input.Input(input.Props{ID: "calendar-create-location", Name: "location", Value: data.Location, Attributes: templ.Attributes{"maxlength": "1024"}})
+						</div>
+						<div class="flex min-h-40 flex-1 flex-col gap-1.5">
+							@label.Label(label.Props{For: "calendar-create-description"}) {
+								Description <span class="text-xs font-normal text-muted-foreground">optional</span>
+							}
+							@textarea.Textarea(textarea.Props{ID: "calendar-create-description", Name: "description", Value: data.Description, Rows: 5, Class: "min-h-32 resize-y py-2 md:flex-1 md:resize-none", Attributes: templ.Attributes{"maxlength": "16384"}})
+						</div>
+					</section>
+					<section class="min-h-0 min-w-0 space-y-4 border-t border-border pt-5 md:overflow-y-auto md:overscroll-contain md:border-t-0 md:border-l md:pt-0 md:pl-6" aria-labelledby="calendar-create-schedule-heading" data-calendar-create-schedule>
+						<div class="flex items-center justify-between gap-3">
+							<h3 id="calendar-create-schedule-heading" class="text-sm font-semibold">Schedule</h3>
+							@label.Label(label.Props{For: "calendar-create-all-day", Class: "inline-flex items-center gap-2"}) {
+								@checkbox.Checkbox(checkbox.Props{ID: "calendar-create-all-day", Name: "all_day", Value: "true", Checked: data.AllDay})
+								All day
+							}
+						</div>
+						<div class="grid grid-cols-2 gap-3">
+							<div class="space-y-1.5">
+								@label.Label(label.Props{For: "calendar-create-start-date"}) {
+									Starts
+								}
+								@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-start-date", Name: "start_date", Value: calendarCreatePickerValue("2006-01-02", data.Date)})
+								<div data-calendar-create-time hidden?={ data.AllDay }>
+									@timepicker.TimePicker(timepicker.Props{ID: "calendar-create-start-time", Name: "start_time", Value: calendarCreatePickerValue("15:04", data.StartTime), Attributes: templ.Attributes{"aria-label": "Start time"}})
+								</div>
+							</div>
+							<div class="space-y-1.5">
+								@label.Label(label.Props{For: "calendar-create-end-date"}) {
+									Ends
+								}
+								@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-end-date", Name: "end_date", Value: calendarCreatePickerValue("2006-01-02", data.EndDate)})
+								<div data-calendar-create-time hidden?={ data.AllDay }>
+									@timepicker.TimePicker(timepicker.Props{ID: "calendar-create-end-time", Name: "end_time", Value: calendarCreatePickerValue("15:04", data.EndTime), Attributes: templ.Attributes{"aria-label": "End time"}})
+								</div>
 							</div>
 						</div>
-					</div>
-					<p data-calendar-create-date-help hidden?={ !data.AllDay } role="status" aria-live="polite" aria-atomic="true" class="h-8 text-xs leading-4 text-muted-foreground">The end date is included in an all-day event.</p>
-					<div class="space-y-1.5" data-calendar-create-timezone hidden?={ data.AllDay }>
-						@label.Label(label.Props{For: "calendar-create-timezone"}) {
-							Time zone
-						}
-						@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-calendar-create-timezone-select": ""}}) {
-							@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-timezone", Name: "timezone", DisableClear: true, Attributes: templ.Attributes{"value": data.TimeZone}}) {
-								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a time zone"})
+						<p data-calendar-create-date-help hidden?={ !data.AllDay } role="status" aria-live="polite" aria-atomic="true" class="h-8 text-xs leading-4 text-muted-foreground">The end date is included in an all-day event.</p>
+						<div class="space-y-1.5" data-calendar-create-timezone hidden?={ data.AllDay }>
+							@label.Label(label.Props{For: "calendar-create-timezone"}) {
+								Time zone
 							}
-							@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search time zones…"}) {
-								@selectbox.Group(selectbox.GroupProps{ID: "calendar-create-timezones"}) {
-									@selectbox.Item(selectbox.ItemProps{Value: data.TimeZone, Selected: data.TimeZone != ""}) {
-										{ data.TimeZone }
+							@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-calendar-create-timezone-select": ""}}) {
+								@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-timezone", Name: "timezone", DisableClear: true, Attributes: templ.Attributes{"value": data.TimeZone}}) {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a time zone"})
+								}
+								@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search time zones…"}) {
+									@selectbox.Group(selectbox.GroupProps{ID: "calendar-create-timezones"}) {
+										@selectbox.Item(selectbox.ItemProps{Value: data.TimeZone, Selected: data.TimeZone != ""}) {
+											{ data.TimeZone }
+										}
+										<template data-calendar-create-timezone-option>
+											@selectbox.Item()
+										</template>
 									}
-									<template data-calendar-create-timezone-option>
-										@selectbox.Item()
-									</template>
 								}
 							}
+						</div>
+						if !data.EditOccurrence {
+							@CalendarRecurrenceFields(data)
 						}
-					</div>
-					if !data.EditOccurrence {
-						@CalendarRecurrenceFields(data)
-					}
-					<div class="space-y-1.5">
-						@label.Label(label.Props{For: "calendar-create-location"}) {
-							Location <span class="text-xs font-normal text-muted-foreground">optional</span>
-						}
-						@input.Input(input.Props{ID: "calendar-create-location", Name: "location", Value: data.Location, Attributes: templ.Attributes{"maxlength": "1024"}})
-					</div>
-					<div class="space-y-1.5">
-						@label.Label(label.Props{For: "calendar-create-description"}) {
-							Description <span class="text-xs font-normal text-muted-foreground">optional</span>
-						}
-						@textarea.Textarea(textarea.Props{ID: "calendar-create-description", Name: "description", Value: data.Description, Rows: 3, Class: "resize-y py-2", Attributes: templ.Attributes{"maxlength": "16384"}})
-					</div>
-					<p data-calendar-create-error role="alert" aria-atomic="true" tabindex="-1" hidden class="text-sm leading-relaxed text-destructive"></p>
+					</section>
 				</div>
-				<footer class="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
+				<p data-calendar-create-error role="alert" aria-atomic="true" tabindex="-1" hidden class="max-h-24 shrink-0 overflow-y-auto px-5 pb-4 text-sm leading-relaxed text-destructive md:px-6"></p>
+				<footer class="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3 md:px-6">
 					@button.Button(button.Props{Variant: button.VariantOutline, Class: "font-semibold", Attributes: templ.Attributes{"data-tui-dialog-close": ""}}) {
 						Cancel
 					}

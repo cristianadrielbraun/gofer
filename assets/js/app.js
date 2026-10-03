@@ -8797,6 +8797,107 @@ document.addEventListener("input", function (event) {
   updateCalendarCreateForm(form)
 })
 
+function updateCalendarResponseForm(form) {
+  var busy = !!form._calendarResponseBusy
+  var locked = busy || !!form._calendarResponseBlocked
+  form.setAttribute("aria-busy", busy || !!form._calendarResponseLoader ? "true" : "false")
+  form.querySelectorAll("[data-calendar-response-choice], [data-calendar-response-trigger]").forEach(function (button) {
+    button.disabled = locked || form.dataset.calendarResponseReady !== "true"
+  })
+  form.querySelectorAll("[data-calendar-response-load]").forEach(function (button) { button.disabled = locked })
+  var progress = form.querySelector("[data-calendar-response-progress]")
+  if (!form._calendarResponseHelp) form._calendarResponseHelp = progress.textContent
+  progress.textContent = busy ? "Sending your response…" : form._calendarResponseLoader ? "Checking invitation…" : form._calendarResponseHelp
+}
+
+function setCalendarResponseError(form, message) {
+  var error = form.querySelector("[data-calendar-response-error]")
+  error.textContent = message || ""
+  error.hidden = !message
+  if (message && form.isConnected) error.focus()
+}
+
+document.body.addEventListener("htmx:beforeRequest", function (event) {
+  var trigger = event.detail && event.detail.elt
+  if (!trigger) return
+  if (trigger.matches("[data-calendar-response-load]")) {
+    var loading = trigger.closest("[data-calendar-response-form]")
+    if (!loading || loading._calendarResponseBusy || loading._calendarResponseBlocked) { event.preventDefault(); return }
+    event.detail.xhr.goferCalendarResponseLoader = loading
+    loading._calendarResponseLoader = event.detail.xhr
+    loading.dataset.calendarResponseReady = "false"
+    setCalendarResponseError(loading, "")
+    updateCalendarResponseForm(loading)
+    return
+  }
+  if (!trigger.matches("[data-calendar-response-form]")) return
+  var response = event.detail.requestConfig && event.detail.requestConfig.parameters.response
+  if (trigger._calendarResponseBusy || trigger._calendarResponseBlocked || trigger.dataset.calendarResponseReady !== "true" || ["accepted", "tentative", "declined"].indexOf(response) < 0) { event.preventDefault(); return }
+  event.detail.xhr.goferCalendarResponse = {form: trigger, response: response, scope: trigger.dataset.calendarResponseScope}
+  trigger._calendarResponseBusy = true
+  setCalendarResponseError(trigger, "")
+  updateCalendarResponseForm(trigger)
+})
+
+document.body.addEventListener("htmx:beforeSwap", function (event) {
+  var form = event.detail && event.detail.xhr && event.detail.xhr.goferCalendarResponseLoader
+  if (!form) return
+  var dialog = form.closest("[data-tui-dialog-content]")
+  if (!form.isConnected || form._calendarResponseLoader !== event.detail.xhr || (dialog && (!dialog.open || dialog.hasAttribute("data-tui-dialog-closing")))) event.detail.shouldSwap = false
+})
+
+document.body.addEventListener("htmx:afterRequest", function (event) {
+  var xhr = event.detail && event.detail.xhr
+  var loading = xhr && xhr.goferCalendarResponseLoader
+  if (loading) {
+    delete xhr.goferCalendarResponseLoader
+    if (loading._calendarResponseLoader !== xhr) return
+    delete loading._calendarResponseLoader
+    if (!event.detail.successful && loading.isConnected) {
+      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check your response. Reopen the invitation or try the scope again."
+      setCalendarResponseError(loading, message)
+      updateCalendarResponseForm(loading)
+    }
+    return
+  }
+  var request = xhr && xhr.goferCalendarResponse
+  if (!request) return
+  delete xhr.goferCalendarResponse
+  var form = request.form
+  form._calendarResponseBusy = false
+  try {
+    var result = JSON.parse(xhr.responseText)
+    if (!event.detail.successful) {
+      form._calendarResponseBlocked = !!result.uncertain || !!result.conflict
+      setCalendarResponseError(form, result.error || "Could not send your response. Try again.")
+    } else {
+      if ((result.responded !== true && result.pending !== true) || (result.responded === true && result.pending === true) || result.event_id !== form.dataset.calendarEventId || result.scope !== request.scope || result.response !== request.response) throw new Error("Unconfirmed response")
+      form._calendarResponseBlocked = true
+      if (result.delivery === "email") {
+        if (result.pending !== true || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(result.delivery_id || "")) throw new Error("Unconfirmed email reply")
+        updateCalendarResponseForm(form)
+        var deliveryRoot = form.closest("#calendar-event-response")
+        var deliveryDialog = form.closest("[data-tui-dialog]")
+        if (form.isConnected && deliveryRoot && deliveryDialog && deliveryDialog.open && !deliveryDialog.hasAttribute("data-tui-dialog-closing")) {
+          window.htmx.ajax("GET", "/api/calendar/replies/" + result.delivery_id, { target: deliveryRoot, swap: "innerHTML" }).catch(function () {
+            setCalendarResponseError(form, "Reply queued. Reopen this invitation to check delivery; do not send it again.")
+          })
+        }
+        showGoferToast({title: "Reply queued", description: "The email reply will send in the background. Reopen the invitation to check delivery.", variant: "info", duration: 5000})
+        return
+      }
+      if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close(form.closest("[data-tui-dialog]"))
+      var pending = result.pending || result.refresh_pending
+      showGoferToast({title: result.pending ? "Response submitted" : "Response saved", description: result.pending ? "The provider is still processing your reply. Refresh the calendar to check its status; don't send it again." : result.refresh_pending ? "Your response was confirmed, but the calendar could not refresh yet." : request.scope === "series" ? "Your response to the series was confirmed." : "Your response was confirmed.", variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
+      scheduleCalendarCacheRefresh()
+    }
+  } catch (_) {
+    form._calendarResponseBlocked = true
+    setCalendarResponseError(form, "The response could not be confirmed. Refresh the calendar and reopen the invitation before trying again.")
+  }
+  updateCalendarResponseForm(form)
+})
+
 function updateCalendarDeleteForm(form) {
   var busy = !!form._calendarDeleteBusy
   var locked = busy || !!form._calendarDeleteBlocked

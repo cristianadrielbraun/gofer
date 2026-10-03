@@ -140,6 +140,23 @@ func calendarCalDAVOccurrenceResource(cal *ical.Calendar, headers http.Header, e
 // Ask the provider to prove membership at the resource version we just read.
 // Never guess recurrence dates locally, or send an instance fragment as a URL.
 func calendarCalDAVVerifyOccurrence(ctx context.Context, source storage.CalendarSource, username, password string, existing storage.CalendarEvent) error {
+	component, err := calendarCalDAVReadOccurrence(ctx, source, username, password, existing)
+	if err != nil {
+		return err
+	}
+	remote, err := normalizeCalDAVEvent(ical.Event{Component: component}, existing.SeriesRemoteID, existing.ETag, time.UTC)
+	if remote.SeriesRemoteID == "" {
+		remote.RemoteID, remote.SeriesRemoteID = existing.RemoteID, existing.SeriesRemoteID
+	}
+	if err != nil || calendarOccurrenceRestriction(remote, existing.SeriesRemoteID) != "" {
+		return errCalendarUpdateConflict
+	}
+	return nil
+}
+
+// Read the expanded occurrence without ordinary-edit restrictions. RSVP has its
+// own invitation/identity checks; ordinary edits still pass through the wrapper.
+func calendarCalDAVReadOccurrence(ctx context.Context, source storage.CalendarSource, username, password string, existing storage.CalendarEvent) (*ical.Component, error) {
 	start, end := time.Time{}, time.Time{}
 	if existing.AllDay {
 		start, _ = time.Parse("2006-01-02", existing.StartDate)
@@ -148,7 +165,7 @@ func calendarCalDAVVerifyOccurrence(ctx context.Context, source storage.Calendar
 		start, end = *existing.StartAt, *existing.EndAt
 	}
 	if start.IsZero() || !end.After(start) {
-		return errCalendarUpdateConflict
+		return nil, errCalendarUpdateConflict
 	}
 	resource, _ := url.Parse(existing.SeriesRemoteID)
 	var href bytes.Buffer
@@ -156,20 +173,20 @@ func calendarCalDAVVerifyOccurrence(ctx context.Context, source storage.Calendar
 	body := fmt.Sprintf(`<c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data></d:prop><d:href>%s</d:href></c:calendar-multiget>`, start.Add(-24*time.Hour).UTC().Format("20060102T150405Z"), end.Add(24*time.Hour).UTC().Format("20060102T150405Z"), href.String())
 	multi, err := calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1", body, 30*time.Second)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(multi.Responses) != 1 {
-		return errCalendarUpdateConflict
+		return nil, errCalendarUpdateConflict
 	}
 	response := multi.Responses[0]
 	resolved, err := resolveCalDAVHref(source.RemoteID, response.Href)
 	if err != nil || resolved != existing.SeriesRemoteID || (response.Status != "" && !strings.Contains(response.Status, " 200 ")) {
-		return errCalendarUpdateConflict
+		return nil, errCalendarUpdateConflict
 	}
 	var data, etag string
 	for _, stat := range response.PropStats {
 		if !strings.Contains(stat.Status, " 200 ") {
-			return errCalendarUpdateConflict
+			return nil, errCalendarUpdateConflict
 		}
 		if stat.Prop.CalendarData != "" {
 			data = stat.Prop.CalendarData
@@ -179,17 +196,18 @@ func calendarCalDAVVerifyOccurrence(ctx context.Context, source storage.Calendar
 		}
 	}
 	if etag != existing.ETag {
-		return errCalendarUpdateConflict
+		return nil, errCalendarUpdateConflict
 	}
 	cal, err := calendarUpdateDecodeICS([]byte(data))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	matches := 0
+	var selected *ical.Component
 	for _, event := range cal.Events() {
 		remote, err := normalizeCalDAVEvent(event, resolved, etag, time.UTC)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if remote.SeriesRemoteID == "" {
 			key := remote.StartDate
@@ -200,16 +218,17 @@ func calendarCalDAVVerifyOccurrence(ctx context.Context, source storage.Calendar
 			remote.RemoteID = resolved + "#recurrence=" + url.QueryEscape(key)
 		}
 		if remote.RemoteID == existing.RemoteID {
-			if remote.ICalUID != existing.ICalUID || calendarOccurrenceRestriction(remote, existing.SeriesRemoteID) != "" {
-				return errCalendarUpdateConflict
+			if remote.ICalUID != existing.ICalUID || remote.Deleted || remote.Status == "cancelled" {
+				return nil, errCalendarUpdateConflict
 			}
 			matches++
+			selected = event.Component
 		}
 	}
 	if matches != 1 {
-		return errCalendarUpdateConflict
+		return nil, errCalendarUpdateConflict
 	}
-	return nil
+	return selected, nil
 }
 
 // A nil draft means delete just this occurrence: add EXDATE and remove only its

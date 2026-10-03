@@ -49,17 +49,20 @@ type davPropStat struct {
 }
 
 type davProp struct {
-	GetETag               string           `xml:"getetag"`
-	AddressData           string           `xml:"address-data"`
-	CalendarData          string           `xml:"urn:ietf:params:xml:ns:caldav calendar-data"`
-	CalendarTimeZone      string           `xml:"urn:ietf:params:xml:ns:caldav calendar-timezone"`
-	CalendarColor         string           `xml:"http://apple.com/ns/ical/ calendar-color"`
-	DisplayName           string           `xml:"displayname"`
-	CalendarDescription   string           `xml:"calendar-description"`
-	CTag                  string           `xml:"getctag"`
-	CurrentUserPrincipal  davHrefProp      `xml:"current-user-principal"`
-	AddressBookHomeSet    davHrefProp      `xml:"addressbook-home-set"`
-	CalendarHomeSet       davHrefProp      `xml:"calendar-home-set"`
+	GetETag               string      `xml:"getetag"`
+	AddressData           string      `xml:"address-data"`
+	CalendarData          string      `xml:"urn:ietf:params:xml:ns:caldav calendar-data"`
+	CalendarTimeZone      string      `xml:"urn:ietf:params:xml:ns:caldav calendar-timezone"`
+	CalendarColor         string      `xml:"http://apple.com/ns/ical/ calendar-color"`
+	DisplayName           string      `xml:"displayname"`
+	CalendarDescription   string      `xml:"calendar-description"`
+	CTag                  string      `xml:"getctag"`
+	CurrentUserPrincipal  davHrefProp `xml:"current-user-principal"`
+	AddressBookHomeSet    davHrefProp `xml:"addressbook-home-set"`
+	CalendarHomeSet       davHrefProp `xml:"calendar-home-set"`
+	CalendarUserAddresses struct {
+		Hrefs []string `xml:"DAV: href"`
+	} `xml:"urn:ietf:params:xml:ns:caldav calendar-user-address-set"`
 	ResourceType          davResourceType  `xml:"resourcetype"`
 	CurrentUserPrivileges *davPrivilegeSet `xml:"current-user-privilege-set"`
 }

@@ -38,19 +38,20 @@ type outgoingAttachmentSnapshot struct {
 }
 
 type outgoingMessageSnapshot struct {
-	FromName    string                       `json:"from_name,omitempty"`
-	FromEmail   string                       `json:"from_email"`
-	To          []outgoingAddressSnapshot    `json:"to"`
-	CC          []outgoingAddressSnapshot    `json:"cc,omitempty"`
-	BCC         []outgoingAddressSnapshot    `json:"bcc,omitempty"`
-	Subject     string                       `json:"subject,omitempty"`
-	TextBody    string                       `json:"text_body,omitempty"`
-	HTMLBody    string                       `json:"html_body,omitempty"`
-	InReplyTo   string                       `json:"in_reply_to,omitempty"`
-	References  string                       `json:"references,omitempty"`
-	MessageID   string                       `json:"message_id"`
-	Date        time.Time                    `json:"date"`
-	Attachments []outgoingAttachmentSnapshot `json:"attachments,omitempty"`
+	FromName      string                       `json:"from_name,omitempty"`
+	FromEmail     string                       `json:"from_email"`
+	To            []outgoingAddressSnapshot    `json:"to"`
+	CC            []outgoingAddressSnapshot    `json:"cc,omitempty"`
+	BCC           []outgoingAddressSnapshot    `json:"bcc,omitempty"`
+	Subject       string                       `json:"subject,omitempty"`
+	TextBody      string                       `json:"text_body,omitempty"`
+	HTMLBody      string                       `json:"html_body,omitempty"`
+	CalendarReply string                       `json:"calendar_reply,omitempty"`
+	InReplyTo     string                       `json:"in_reply_to,omitempty"`
+	References    string                       `json:"references,omitempty"`
+	MessageID     string                       `json:"message_id"`
+	Date          time.Time                    `json:"date"`
+	Attachments   []outgoingAttachmentSnapshot `json:"attachments,omitempty"`
 }
 
 type sentCopyIMAPClient interface {
@@ -65,37 +66,39 @@ type sentCopyIMAPClientFactory func(ctx context.Context, cfg *models.AccountConf
 
 func snapshotOutgoingMessage(msg *message.OutgoingMessage) outgoingMessageSnapshot {
 	return outgoingMessageSnapshot{
-		FromName:    msg.FromName,
-		FromEmail:   msg.FromEmail,
-		To:          snapshotOutgoingAddresses(msg.To),
-		CC:          snapshotOutgoingAddresses(msg.CC),
-		BCC:         snapshotOutgoingAddresses(msg.Bcc),
-		Subject:     msg.Subject,
-		TextBody:    msg.TextBody,
-		HTMLBody:    msg.HTMLBody,
-		InReplyTo:   msg.InReplyTo,
-		References:  msg.References,
-		MessageID:   msg.MessageID,
-		Date:        msg.Date,
-		Attachments: snapshotOutgoingAttachments(msg.Attachments),
+		FromName:      msg.FromName,
+		FromEmail:     msg.FromEmail,
+		To:            snapshotOutgoingAddresses(msg.To),
+		CC:            snapshotOutgoingAddresses(msg.CC),
+		BCC:           snapshotOutgoingAddresses(msg.Bcc),
+		Subject:       msg.Subject,
+		TextBody:      msg.TextBody,
+		HTMLBody:      msg.HTMLBody,
+		CalendarReply: msg.CalendarReply,
+		InReplyTo:     msg.InReplyTo,
+		References:    msg.References,
+		MessageID:     msg.MessageID,
+		Date:          msg.Date,
+		Attachments:   snapshotOutgoingAttachments(msg.Attachments),
 	}
 }
 
 func (snapshot outgoingMessageSnapshot) outgoingMessage() *message.OutgoingMessage {
 	return &message.OutgoingMessage{
-		FromName:    snapshot.FromName,
-		FromEmail:   snapshot.FromEmail,
-		To:          restoreOutgoingAddresses(snapshot.To),
-		CC:          restoreOutgoingAddresses(snapshot.CC),
-		Bcc:         restoreOutgoingAddresses(snapshot.BCC),
-		Subject:     snapshot.Subject,
-		TextBody:    snapshot.TextBody,
-		HTMLBody:    snapshot.HTMLBody,
-		InReplyTo:   snapshot.InReplyTo,
-		References:  snapshot.References,
-		MessageID:   snapshot.MessageID,
-		Date:        snapshot.Date,
-		Attachments: restoreOutgoingAttachments(snapshot.Attachments),
+		FromName:      snapshot.FromName,
+		FromEmail:     snapshot.FromEmail,
+		To:            restoreOutgoingAddresses(snapshot.To),
+		CC:            restoreOutgoingAddresses(snapshot.CC),
+		Bcc:           restoreOutgoingAddresses(snapshot.BCC),
+		Subject:       snapshot.Subject,
+		TextBody:      snapshot.TextBody,
+		HTMLBody:      snapshot.HTMLBody,
+		CalendarReply: snapshot.CalendarReply,
+		InReplyTo:     snapshot.InReplyTo,
+		References:    snapshot.References,
+		MessageID:     snapshot.MessageID,
+		Date:          snapshot.Date,
+		Attachments:   restoreOutgoingAttachments(snapshot.Attachments),
 	}
 }
 
@@ -198,6 +201,9 @@ func (h *Handler) signalOutgoingWorker() {
 }
 
 func (h *Handler) StartOutgoingSendWorker(ctx context.Context) {
+	// Calendar servers can be slow or unavailable. Their post-delivery saves
+	// must never hold up the mail queue or its independent Sent-copy worker.
+	go h.runCalendarReplyWorker(ctx)
 	go func() {
 		if count, err := h.db.MarkInterruptedOutgoingSendsAmbiguous(ctx, "Gofer stopped while this message was being sent. It may have been delivered."); err != nil {
 			log.Printf("outgoing-send: recover interrupted sends: %v", err)
@@ -305,6 +311,16 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 
 	sendCtx, cancel := outgoingSendContext(parent)
 	defer cancel()
+	unlock, err := h.beforeCalendarReplySend(sendCtx, send, msg)
+	defer unlock()
+	if err != nil {
+		if errors.Is(err, errOutgoingSendRetryable) && send.AttemptCount < outgoingSendMaxAttempts {
+			h.finishOutgoingSendRetry(send, err)
+		} else {
+			h.finishOutgoingSend(send, storage.OutgoingSendFailed, err)
+		}
+		return
+	}
 	status := storage.OutgoingSendFailed
 	var providerMessageID, providerToken string
 	switch send.Transport {

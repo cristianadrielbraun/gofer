@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	htmlnode "golang.org/x/net/html"
 )
 
 func TestCalendarEventDetailsDateAndTimeZone(t *testing.T) {
@@ -79,6 +81,84 @@ func TestCalendarEventDialogRendersReadOnlyDetails(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "Untitled event") || !strings.Contains(output.String(), "All day") {
 		t.Fatal("missing untitled or all-day fallback")
+	}
+}
+
+func TestCalendarEventDialogResponsiveColumnsAndScrolling(t *testing.T) {
+	for _, test := range []struct {
+		name                string
+		description, guests bool
+	}{
+		{"invitation with long notes", true, true},
+		{"description only", true, false},
+		{"guests without description", false, true},
+		{"compact event", false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			details := CalendarEventDetails{Event: CalendarEvent{ID: "event"}, Response: &CalendarResponseData{EventID: "event", Ready: true}}
+			if test.description {
+				details.Description = strings.Repeat("Full meeting notes.\n", 100) + "https://example.com/" + strings.Repeat("long-link", 100)
+			}
+			if test.guests {
+				for range 50 {
+					details.Attendees = append(details.Attendees, CalendarEventParticipant{Email: "guest@example.com"})
+				}
+			}
+			var output bytes.Buffer
+			if err := CalendarEventDialog(details, time.UTC).Render(t.Context(), &output); err != nil {
+				t.Fatal(err)
+			}
+			markup := output.String()
+			doc, err := htmlnode.Parse(strings.NewReader(markup))
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes := map[string]*htmlnode.Node{}
+			var inspect func(*htmlnode.Node)
+			inspect = func(node *htmlnode.Node) {
+				for _, attr := range node.Attr {
+					if attr.Key == "id" {
+						nodes[attr.Val] = node
+					} else if strings.HasPrefix(attr.Key, "data-calendar-event-") {
+						nodes[attr.Key] = node
+					}
+				}
+				for child := node.FirstChild; child != nil; child = child.NextSibling {
+					inspect(child)
+				}
+			}
+			inspect(doc)
+			split := test.description || test.guests
+			if strings.Contains(markup, "md:max-w-5xl") != split || strings.Contains(markup, "md:grid-cols-2") != split {
+				t.Error("only events with secondary content should use the wide, two-column desktop layout")
+			}
+			for _, want := range []string{"md:max-h-[min(44rem,calc(100dvh-4rem))]", "md:grid-rows-[minmax(0,1fr)]", "md:overflow-y-auto", "min-h-0 overflow-y-auto md:flex md:flex-col md:overflow-hidden"} {
+				if !strings.Contains(markup, want) {
+					t.Errorf("missing responsive height or scrolling constraint %q", want)
+				}
+			}
+			body, columns := nodes["data-calendar-event-details-body"], nodes["data-calendar-event-columns"]
+			response := nodes["calendar-event-response"]
+			if body == nil || columns == nil || response == nil || columns.Parent != body || response.Parent != body {
+				t.Fatal("response controls must remain outside the scrolling columns, within the mobile scroll body")
+			}
+			if test.description {
+				scroll := nodes["data-calendar-event-description-scroll"]
+				if scroll == nil || scroll.Parent.Parent != columns || !strings.Contains(markup, details.Description) {
+					t.Error("full description must occupy its own column, without truncation")
+				}
+			}
+			if test.guests {
+				parent := columns
+				if test.description {
+					parent = nodes["data-calendar-event-overview"]
+				}
+				heading := nodes["calendar-event-guests-heading"]
+				if heading == nil || heading.Parent.Parent != parent || strings.Count(markup, `id="calendar-event-guests-heading"`) != 1 || strings.Count(markup, "guest@example.com") != 50 {
+					t.Error("all guests must render once, beside the description or in the otherwise unused column")
+				}
+			}
+		})
 	}
 }
 
