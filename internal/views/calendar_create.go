@@ -38,3 +38,11 @@ type CalendarCreateData struct {
 	EndTime  string
 	TimeZone string
 }
+
+// calendarDialogClass sizes a calendar dialog as a bounded column: header and
+// footer stay put while the body scrolls inside the viewport.
+func calendarDialogClass(width string) string {
+	return "w-[calc(100vw_-_2rem)] max-w-[calc(100vw_-_2rem)] " + width +
+		" max-h-[min(46rem,calc(100dvh-2rem))] [&_[data-tui-dialog-panel]]:flex [&_[data-tui-dialog-panel]]:max-h-[min(46rem,calc(100dvh-2rem))]" +
+		" [&_[data-tui-dialog-panel]]:min-h-0 [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0"
+}

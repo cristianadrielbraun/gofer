@@ -60,7 +60,7 @@ func TestCalendarEventDialogRendersReadOnlyDetails(t *testing.T) {
 		`id="calendar-event-details-dialog"`, `aria-labelledby="calendar-event-details-title"`,
 		`Planning &lt;script&gt;alert(1)&lt;/script&gt;`, `Saturday, October 3, 2026`, `09:00–10:00`,
 		`Work`, `Room 2`, `organizer@example.com`, `guest@example.com`, `Accepted`, `Optional`, `Last line`,
-		`overflow-y-auto`, `w-[calc(100vw_-_2rem)]`, `Read-only · Cached event`, `data-tui-dialog-close`,
+		`overflow-y-auto`, `w-[calc(100vw_-_2rem)]`, `Read-only.`, `data-tui-dialog-close`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Errorf("dialog missing %q", expected)
@@ -74,7 +74,7 @@ func TestCalendarEventDialogRendersReadOnlyDetails(t *testing.T) {
 	if err := CalendarEventDialog(CalendarEventDetails{Event: CalendarEvent{AllDay: true, StartDate: "2026-10-03", EndDate: "2026-10-04"}}, time.UTC).Render(t.Context(), &output); err != nil {
 		t.Fatal(err)
 	}
-	for _, unexpected := range []string{"Location", "Organizer", "Description", "Guests (", "UTC"} {
+	for _, unexpected := range []string{"Location", "Organizer", "Description", "calendar-event-guests-heading", "UTC"} {
 		if strings.Contains(output.String(), unexpected) {
 			t.Errorf("empty detail still shows %q", unexpected)
 		}
@@ -84,7 +84,7 @@ func TestCalendarEventDialogRendersReadOnlyDetails(t *testing.T) {
 	}
 }
 
-func TestCalendarEventDialogResponsiveColumnsAndScrolling(t *testing.T) {
+func TestCalendarEventDialogScrollsOneColumn(t *testing.T) {
 	for _, test := range []struct {
 		name                string
 		description, guests bool
@@ -109,6 +109,9 @@ func TestCalendarEventDialogResponsiveColumnsAndScrolling(t *testing.T) {
 				t.Fatal(err)
 			}
 			markup := output.String()
+			if !strings.Contains(markup, "sm:max-w-lg") || !strings.Contains(markup, "max-h-[min(46rem,calc(100dvh-2rem))]") {
+				t.Error("details must keep one bounded width and height regardless of content")
+			}
 			doc, err := htmlnode.Parse(strings.NewReader(markup))
 			if err != nil {
 				t.Fatal(err)
@@ -119,7 +122,7 @@ func TestCalendarEventDialogResponsiveColumnsAndScrolling(t *testing.T) {
 				for _, attr := range node.Attr {
 					if attr.Key == "id" {
 						nodes[attr.Val] = node
-					} else if strings.HasPrefix(attr.Key, "data-calendar-event-") {
+					} else if strings.HasPrefix(attr.Key, "data-calendar-event-") || attr.Key == "data-tui-dialog-panel" {
 						nodes[attr.Key] = node
 					}
 				}
@@ -128,38 +131,41 @@ func TestCalendarEventDialogResponsiveColumnsAndScrolling(t *testing.T) {
 				}
 			}
 			inspect(doc)
-			split := test.description || test.guests
-			if strings.Contains(markup, "md:max-w-5xl") != split || strings.Contains(markup, "md:grid-cols-2") != split {
-				t.Error("only events with secondary content should use the wide, two-column desktop layout")
+			body, response, panel := nodes["data-calendar-event-details-body"], nodes["calendar-event-response"], nodes["data-tui-dialog-panel"]
+			if body == nil || response == nil || panel == nil || body.Parent != panel || response.Parent != panel {
+				t.Fatal("response controls must stay pinned below the scrolling details body")
 			}
-			for _, want := range []string{"md:max-h-[min(44rem,calc(100dvh-4rem))]", "md:grid-rows-[minmax(0,1fr)]", "md:overflow-y-auto", "min-h-0 overflow-y-auto md:flex md:flex-col md:overflow-hidden"} {
-				if !strings.Contains(markup, want) {
-					t.Errorf("missing responsive height or scrolling constraint %q", want)
+			if !strings.Contains(htmlAttr(body, "class"), "overflow-y-auto") {
+				t.Error("details body must scroll")
+			}
+			within := func(node, ancestor *htmlnode.Node) bool {
+				for ; node != nil; node = node.Parent {
+					if node == ancestor {
+						return true
+					}
 				}
+				return false
 			}
-			body, columns := nodes["data-calendar-event-details-body"], nodes["data-calendar-event-columns"]
-			response := nodes["calendar-event-response"]
-			if body == nil || columns == nil || response == nil || columns.Parent != body || response.Parent != body {
-				t.Fatal("response controls must remain outside the scrolling columns, within the mobile scroll body")
-			}
-			if test.description {
-				scroll := nodes["data-calendar-event-description-scroll"]
-				if scroll == nil || scroll.Parent.Parent != columns || !strings.Contains(markup, details.Description) {
-					t.Error("full description must occupy its own column, without truncation")
-				}
+			if test.description && !strings.Contains(markup, details.Description) {
+				t.Error("full description must render without truncation")
 			}
 			if test.guests {
-				parent := columns
-				if test.description {
-					parent = nodes["data-calendar-event-overview"]
-				}
 				heading := nodes["calendar-event-guests-heading"]
-				if heading == nil || heading.Parent.Parent != parent || strings.Count(markup, `id="calendar-event-guests-heading"`) != 1 || strings.Count(markup, "guest@example.com") != 50 {
-					t.Error("all guests must render once, beside the description or in the otherwise unused column")
+				if heading == nil || !within(heading, body) || strings.Count(markup, `id="calendar-event-guests-heading"`) != 1 || strings.Count(markup, "guest@example.com") != 50 {
+					t.Error("all guests must render once inside the scrolling body")
 				}
 			}
 		})
 	}
+}
+
+func htmlAttr(node *htmlnode.Node, key string) string {
+	for _, attr := range node.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
+	}
+	return ""
 }
 
 func TestCalendarEventsHaveSharedAccessibleDetailsTriggers(t *testing.T) {
@@ -293,5 +299,30 @@ func TestCalendarEventSeriesDeleteConfirmationIsScopedAndInitiallyDisabled(t *te
 		if strings.Count(markup, "<dialog ") != 1 || strings.Contains(markup, "<script>") {
 			t.Fatal("series confirmation changed backdrop or rendered unescaped text")
 		}
+	}
+}
+
+func TestCalendarGuestSummaryAndInitials(t *testing.T) {
+	guests := []CalendarEventParticipant{
+		{Name: "Ana Pérez", Email: "ana@example.com", ResponseStatus: "organizer"},
+		{Name: "lee", Email: "lee@example.com", ResponseStatus: "accepted"},
+		{Email: "ops.team@example.com", ResponseStatus: "tentativelyAccepted"},
+		{Email: "x@example.com", ResponseStatus: "declined"},
+		{Email: "y@example.com"},
+	}
+	if got := calendarGuestSummary(guests); got != "2 yes · 1 maybe · 1 no · 1 awaiting" {
+		t.Errorf("summary = %q", got)
+	}
+	if got := calendarGuestSummary(guests[:1]); got != "1 yes" {
+		t.Errorf("organizer-only summary = %q", got)
+	}
+	for person, want := range map[CalendarEventParticipant]string{guests[0]: "AP", guests[1]: "L", guests[2]: "OT", {}: "?"} {
+		if got := calendarParticipantInitials(person); got != want {
+			t.Errorf("initials(%+v) = %q, want %q", person, got, want)
+		}
+	}
+	details := CalendarEventDetails{Organizer: CalendarEventParticipant{Email: "ANA@example.com"}, Attendees: guests}
+	if !calendarOrganizerListed(details) {
+		t.Error("organizer listed among guests should be tagged there, not repeated")
 	}
 }

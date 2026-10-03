@@ -231,7 +231,7 @@ func TestCalendarResponseFormCacheFirstAndSeriesScope(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	h.handleCalendarEvent(w, request("/api/calendar/events/edit-event"))
-	if w.Code != 200 || reads != 0 || !strings.Contains(w.Body.String(), "Your response") || !strings.Contains(w.Body.String(), `data-calendar-response-ready="true"`) {
+	if w.Code != 200 || reads != 0 || !strings.Contains(w.Body.String(), "data-calendar-response-form") || !strings.Contains(w.Body.String(), `data-calendar-response-ready="true"`) {
 		t.Fatal("cached invitation did not render immediately")
 	}
 	w = httptest.NewRecorder()

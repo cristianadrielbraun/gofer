@@ -2,8 +2,10 @@ package views
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type CalendarEventDetails struct {
@@ -134,16 +136,76 @@ func calendarParticipantResponse(person CalendarEventParticipant) string {
 	}
 }
 
-func calendarParticipantResponseClass(person CalendarEventParticipant) string {
-	base := "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+// calendarParticipantBadgeClass colors the small status disc on a guest's avatar.
+func calendarParticipantBadgeClass(person CalendarEventParticipant) string {
+	base := "absolute -right-0.5 -bottom-0.5 flex size-3.5 items-center justify-center rounded-full text-[9px] font-bold leading-none ring-2 ring-card"
 	switch calendarParticipantResponse(person) {
 	case "Accepted", "Organizer":
-		return base + " bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+		return base + " bg-emerald-600 text-white dark:bg-emerald-500"
 	case "Declined":
-		return base + " bg-destructive/10 text-destructive"
+		return base + " bg-destructive text-white"
 	case "Tentative":
-		return base + " bg-amber-500/10 text-amber-700 dark:text-amber-300"
+		return base + " bg-amber-500 text-white"
 	default:
-		return base + " bg-muted text-muted-foreground"
+		return base + " bg-muted-foreground/60 text-card"
 	}
+}
+
+func calendarParticipantInitials(person CalendarEventParticipant) string {
+	name := strings.TrimSpace(person.Name)
+	if name == "" {
+		name, _, _ = strings.Cut(strings.TrimSpace(person.Email), "@")
+	}
+	var initials []rune
+	for _, word := range strings.FieldsFunc(name, func(r rune) bool { return r == ' ' || r == '.' || r == '_' || r == '-' }) {
+		if r := []rune(word); len(r) > 0 {
+			initials = append(initials, unicode.ToUpper(r[0]))
+		}
+		if len(initials) == 2 {
+			break
+		}
+	}
+	if len(initials) == 0 {
+		return "?"
+	}
+	return string(initials)
+}
+
+func calendarSameParticipant(a, b CalendarEventParticipant) bool {
+	if a.Email != "" || b.Email != "" {
+		return strings.EqualFold(strings.TrimSpace(a.Email), strings.TrimSpace(b.Email))
+	}
+	return calendarParticipantName(a) != "" && calendarParticipantName(a) == calendarParticipantName(b)
+}
+
+// calendarOrganizerListed reports whether the organizer already appears in the
+// guest list, where they are tagged instead of repeated in a separate row.
+func calendarOrganizerListed(details CalendarEventDetails) bool {
+	for _, person := range details.Attendees {
+		if calendarSameParticipant(person, details.Organizer) {
+			return true
+		}
+	}
+	return false
+}
+
+// calendarGuestSummary tallies responses, e.g. "2 yes · 1 maybe · 1 awaiting".
+func calendarGuestSummary(attendees []CalendarEventParticipant) string {
+	counts := map[string]int{}
+	for _, person := range attendees {
+		counts[calendarParticipantResponse(person)]++
+	}
+	var parts []string
+	for _, tally := range [][2]string{{"Accepted", "yes"}, {"Organizer", "yes"}, {"Tentative", "maybe"}, {"Declined", "no"}, {"Delegated", "delegated"}, {"No response", "awaiting"}} {
+		if n := counts[tally[0]]; n > 0 {
+			if tally[0] == "Organizer" && counts["Accepted"] > 0 {
+				continue
+			}
+			if tally[0] == "Accepted" {
+				n += counts["Organizer"]
+			}
+			parts = append(parts, strconv.Itoa(n)+" "+tally[1])
+		}
+	}
+	return strings.Join(parts, " · ")
 }

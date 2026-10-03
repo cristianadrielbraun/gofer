@@ -8,12 +8,12 @@ import (
 )
 
 templ CalendarResponseForm(data CalendarResponseData) {
-	<form class="space-y-2 border-t border-border pt-3" data-calendar-response-form data-calendar-event-id={ data.EventID } data-calendar-response-scope={ data.Scope } data-calendar-response-ready={ strconv.FormatBool(data.Ready) } hx-post={ calendarEventDetailsURL(data.EventID) + "/response" } hx-params="version,scope,response" hx-swap="none" hx-sync="this:drop">
+	<form class="space-y-1.5" data-calendar-response-form data-calendar-event-id={ data.EventID } data-calendar-response-scope={ data.Scope } data-calendar-response-ready={ strconv.FormatBool(data.Ready) } hx-post={ calendarEventDetailsURL(data.EventID) + "/response" } hx-params="version,scope,response" hx-swap="none" hx-sync="this:drop">
 		<input type="hidden" name="version" value={ data.Version }/>
 		<input type="hidden" name="scope" value={ data.Scope }/>
-		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
 			<div class="flex items-center gap-3">
-				<h3 id="calendar-event-response-label" class="text-xs font-semibold text-muted-foreground">Your response</h3>
+				<h3 id="calendar-event-response-label" class="text-sm font-medium">Going?</h3>
 				@dropdown.Dropdown() {
 					@dropdown.Trigger() {
 						@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Disabled: !data.Ready, Attributes: templ.Attributes{"data-calendar-response-trigger": "", "aria-haspopup": "menu", "aria-labelledby": "calendar-event-response-label calendar-event-response-value"}}) {
@@ -49,9 +49,9 @@ templ CalendarResponseForm(data CalendarResponseData) {
 				}
 			</div>
 			if data.HasOccurrence {
-				<div class="flex flex-wrap gap-2" role="group" aria-label="Response scope">
+				<div class="ml-auto inline-flex rounded-md border border-border bg-background/60 p-0.5" role="group" aria-label="Response scope">
 					for _, scope := range []string{"occurrence", "series"} {
-						@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Class: "aria-pressed:bg-accent aria-pressed:text-accent-foreground", Attributes: templ.Attributes{
+						@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantGhost, Class: "h-7 rounded-[5px] px-2.5 text-xs font-medium text-muted-foreground hover:bg-transparent aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:shadow-xs", Attributes: templ.Attributes{
 							"data-calendar-response-load": "", "aria-pressed": strconv.FormatBool(scope == data.Scope),
 							"hx-get": calendarEventDetailsURL(data.EventID) + "/response?scope=" + scope,
 							"hx-target": "#calendar-event-response", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "#calendar-event-response:replace",
@@ -66,7 +66,7 @@ templ CalendarResponseForm(data CalendarResponseData) {
 				</div>
 			}
 		</div>
-		<p class="min-h-4 text-[11px] leading-4 text-muted-foreground" data-calendar-response-progress role="status" aria-live="polite">
+		<p class="text-[11px] leading-4 text-muted-foreground" data-calendar-response-progress role="status" aria-live="polite">
 			if data.Delivery == "email" {
 				Your response will be emailed to the organizer using this account, then saved to the calendar.
 			} else if data.Scope == "series" {
@@ -101,14 +101,14 @@ templ CalendarResponseIcon(status string) {
 }
 
 templ CalendarReplyStatus(data CalendarReplyData) {
-	<div class="space-y-3 border-t border-border pt-4" data-calendar-reply-status={ data.State } hx-get={ "/api/calendar/replies/"+data.ID } hx-target="this" hx-swap="outerHTML" hx-sync="this:drop"
+	<div class="space-y-3" data-calendar-reply-status={ data.State } hx-get={ "/api/calendar/replies/"+data.ID } hx-target="this" hx-swap="outerHTML" hx-sync="this:drop"
 		if data.State == "pending" && (data.SendStatus == "pending" || data.SendStatus == "sending" || data.SendStatus == "sent") {
 			hx-trigger="every 3s"
 		} else {
 			hx-trigger="none"
 		}
 	>
-		<h3 class="text-xs font-semibold text-muted-foreground">Reply by email</h3>
+		<h3 class="text-sm font-medium">Reply by email</h3>
 		<p class="flex items-start gap-2 text-xs leading-5" role="status" aria-live="polite">
 			if data.State == "complete" {
 				@icon.Check(icon.Props{Class:"mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"})

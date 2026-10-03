@@ -36,14 +36,14 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<form class=\"space-y-2 border-t border-border pt-3\" data-calendar-response-form data-calendar-event-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<form class=\"space-y-1.5\" data-calendar-response-form data-calendar-event-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(data.EventID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 118}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 92}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -56,7 +56,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(data.Scope)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 162}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 136}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -69,7 +69,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(data.Ready))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 226}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 200}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -82,7 +82,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventDetailsURL(data.EventID) + "/response")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 290}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 11, Col: 264}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -114,7 +114,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"><div class=\"flex flex-wrap items-center gap-x-4 gap-y-2\"><div class=\"flex items-center gap-3\"><h3 id=\"calendar-event-response-label\" class=\"text-xs font-semibold text-muted-foreground\">Your response</h3>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"><div class=\"flex flex-wrap items-center gap-x-3 gap-y-2\"><div class=\"flex items-center gap-3\"><h3 id=\"calendar-event-response-label\" class=\"text-sm font-medium\">Going?</h3>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -282,7 +282,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if data.HasOccurrence {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"flex flex-wrap gap-2\" role=\"group\" aria-label=\"Response scope\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"ml-auto inline-flex rounded-md border border-border bg-background/60 p-0.5\" role=\"group\" aria-label=\"Response scope\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -312,7 +312,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Class: "aria-pressed:bg-accent aria-pressed:text-accent-foreground", Attributes: templ.Attributes{
+				templ_7745c5c3_Err = button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantGhost, Class: "h-7 rounded-[5px] px-2.5 text-xs font-medium text-muted-foreground hover:bg-transparent aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:shadow-xs", Attributes: templ.Attributes{
 					"data-calendar-response-load": "", "aria-pressed": strconv.FormatBool(scope == data.Scope),
 					"hx-get":    calendarEventDetailsURL(data.EventID) + "/response?scope=" + scope,
 					"hx-target": "#calendar-event-response", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "#calendar-event-response:replace",
@@ -326,7 +326,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div><p class=\"min-h-4 text-[11px] leading-4 text-muted-foreground\" data-calendar-response-progress role=\"status\" aria-live=\"polite\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div><p class=\"text-[11px] leading-4 text-muted-foreground\" data-calendar-response-progress role=\"status\" aria-live=\"polite\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -456,14 +456,14 @@ func CalendarReplyStatus(data CalendarReplyData) templ.Component {
 			templ_7745c5c3_Var17 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div class=\"space-y-3 border-t border-border pt-4\" data-calendar-reply-status=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div class=\"space-y-3\" data-calendar-reply-status=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(data.State)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 104, Col: 91}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 104, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -476,7 +476,7 @@ func CalendarReplyStatus(data CalendarReplyData) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs("/api/calendar/replies/" + data.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 104, Col: 135}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_response.templ`, Line: 104, Col: 107}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -497,7 +497,7 @@ func CalendarReplyStatus(data CalendarReplyData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "><h3 class=\"text-xs font-semibold text-muted-foreground\">Reply by email</h3><p class=\"flex items-start gap-2 text-xs leading-5\" role=\"status\" aria-live=\"polite\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "><h3 class=\"text-sm font-medium\">Reply by email</h3><p class=\"flex items-start gap-2 text-xs leading-5\" role=\"status\" aria-live=\"polite\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -37,7 +37,7 @@ func TestCalendarCreateUsesTemplUIControls(t *testing.T) {
 		`name="end_time" value="10:00" data-tui-timepicker-hidden-input`,
 		`data-calendar-create-timezone-select`, `data-calendar-create-timezone-option`,
 		`data-calendar-repeat`, `name="repeat_frequency" data-tui-selectbox-hidden-input value="none"`,
-		`class="grid grid-cols-1 items-end gap-3 data-[repeating=true]:grid-cols-2" data-calendar-repeat-row data-repeating="false"`,
+		`data-calendar-repeat-row data-repeating="false"`,
 		`data-calendar-repeat-interval-group hidden disabled`,
 		`data-calendar-repeat-options hidden disabled`, `data-calendar-repeat-until hidden disabled`, `data-calendar-repeat-count hidden disabled`,
 		`id="calendar-create-repeat-interval" type="number" name="repeat_interval"`,
@@ -45,8 +45,8 @@ func TestCalendarCreateUsesTemplUIControls(t *testing.T) {
 		`name="repeat_until" value="" data-tui-datepicker-hidden-input`,
 		`name="repeat_end" data-tui-selectbox-hidden-input value="never"`,
 		`data-calendar-repeat-summary role="status" aria-live="polite"`,
-		`Does not repeat`, `Daily`, `Weekly`, `Monthly`, `Yearly`, `On a date`, `After occurrences`,
-		`data-calendar-create-date-help hidden role="status" aria-live="polite" aria-atomic="true" class="h-8`,
+		`Does not repeat`, `Daily`, `Weekly`, `Monthly`, `Yearly`, `Never ends`, `Ends on a date`, `Ends after`,
+		`data-calendar-create-date-help hidden role="status" aria-live="polite" aria-atomic="true"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("New event is missing templUI control contract %q", want)
@@ -62,7 +62,7 @@ func TestCalendarCreateUsesTemplUIControls(t *testing.T) {
 	}
 }
 
-func TestCalendarCreateAndEditUseResponsiveColumns(t *testing.T) {
+func TestCalendarCreateAndEditUseOneScrollingColumn(t *testing.T) {
 	repeat := &calendar.RecurrenceDraft{Frequency: "weekly", Interval: 2, Count: 4}
 	for _, test := range []struct {
 		name string
@@ -81,9 +81,9 @@ func TestCalendarCreateAndEditUseResponsiveColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 			markup := output.String()
-			for _, want := range []string{"md:max-w-5xl", "md:max-h-[min(44rem,calc(100dvh-4rem))]", "md:grid-cols-2", "md:grid-rows-[minmax(0,1fr)]", "md:overflow-hidden", "md:overflow-y-auto", "md:flex-1", "md:resize-none"} {
+			for _, want := range []string{"sm:max-w-xl", "max-h-[min(46rem,calc(100dvh-2rem))]", "overflow-y-auto"} {
 				if !strings.Contains(markup, want) {
-					t.Errorf("missing responsive dialog constraint %q", want)
+					t.Errorf("missing bounded dialog constraint %q", want)
 				}
 			}
 			doc, err := htmlnode.Parse(strings.NewReader(markup))
@@ -91,52 +91,40 @@ func TestCalendarCreateAndEditUseResponsiveColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 			nodes := map[string]*htmlnode.Node{}
-			fields := map[string]string{}
-			var inspect func(*htmlnode.Node, string)
-			inspect = func(node *htmlnode.Node, column string) {
+			fields := map[string]bool{}
+			var inspect func(*htmlnode.Node, bool)
+			inspect = func(node *htmlnode.Node, inBody bool) {
 				for _, attr := range node.Attr {
 					if strings.HasPrefix(attr.Key, "data-calendar-create-") {
 						nodes[attr.Key] = node
-						if attr.Key == "data-calendar-create-details" || attr.Key == "data-calendar-create-schedule" {
-							column = attr.Key
-						}
-					} else if attr.Key == "name" {
-						fields[attr.Val] = column
+						inBody = inBody || attr.Key == "data-calendar-create-body"
+					} else if attr.Key == "name" && attr.Val != "request_id" && attr.Val != "version" && attr.Val != "edit_scope" {
+						fields[attr.Val] = inBody
 					}
 				}
 				if node.Data == "footer" {
 					nodes["footer"] = node
 				}
 				for child := node.FirstChild; child != nil; child = child.NextSibling {
-					inspect(child, column)
+					inspect(child, inBody)
 				}
 			}
-			inspect(doc, "")
-			for _, name := range []string{"source_id", "summary", "location", "description"} {
-				if fields[name] != "data-calendar-create-details" {
-					t.Errorf("%s must remain in the event details column", name)
+			inspect(doc, false)
+			for _, name := range []string{"summary", "all_day", "start_date", "start_time", "end_date", "end_time", "timezone", "location", "source_id", "description"} {
+				if !fields[name] {
+					t.Errorf("%s must render inside the scrolling body", name)
 				}
 			}
-			for _, name := range []string{"all_day", "start_date", "start_time", "end_date", "end_time", "timezone"} {
-				if fields[name] != "data-calendar-create-schedule" {
-					t.Errorf("%s must remain in the schedule column", name)
-				}
+			if _, ok := fields["repeat_frequency"]; ok == test.data.EditOccurrence {
+				t.Error("recurrence is offered except when editing just one occurrence")
 			}
-			if (fields["repeat_frequency"] == "data-calendar-create-schedule") == test.data.EditOccurrence {
-				t.Error("recurrence belongs with the schedule, except when editing just one occurrence")
-			}
-			columns, form := nodes["data-calendar-create-columns"], nodes["data-calendar-create-form"]
-			if columns == nil || form == nil || columns.Parent != form {
-				t.Fatal("both columns must use the existing single form")
-			}
-			for _, key := range []string{"data-calendar-create-details", "data-calendar-create-schedule"} {
-				if node := nodes[key]; node == nil || node.Parent != columns {
-					t.Errorf("%s must be a direct column", key)
-				}
+			body, form := nodes["data-calendar-create-body"], nodes["data-calendar-create-form"]
+			if body == nil || form == nil || body.Parent != form {
+				t.Fatal("the scrolling body must belong to the single form")
 			}
 			for _, key := range []string{"data-calendar-create-error", "footer"} {
 				if node := nodes[key]; node == nil || node.Parent != form {
-					t.Errorf("%s must stay outside the scrolling columns", key)
+					t.Errorf("%s must stay outside the scrolling body", key)
 				}
 			}
 		})
