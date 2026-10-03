@@ -132,7 +132,8 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 					return
 				}
 				body, _ := io.ReadAll(r.Body)
-				if !strings.Contains(string(body), `<c:expand start=`) || !strings.Contains(string(body), `<c:time-range start=`) || r.Header.Get("Depth") != "1" {
+				metadata := strings.Contains(string(body), `calendar-multiget`)
+				if (!metadata && (!strings.Contains(string(body), `<c:expand start=`) || !strings.Contains(string(body), `<c:time-range start=`))) || r.Header.Get("Depth") != "1" {
 					t.Errorf("missing bounded, expanded CalDAV query: %s", body)
 				}
 				w.Header().Set("Content-Type", "application/xml")
@@ -143,7 +144,11 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 				case 2:
 					_, _ = fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:"/>`)
 				default:
-					_, _ = fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/main/weekly.ics</d:href><d:propstat><d:prop><d:getetag>"version-1"</d:getetag><c:calendar-data><![CDATA[%s]]></c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, calDAVExpandedFixture)
+					data := calDAVExpandedFixture
+					if metadata {
+						data = strings.Replace(data, "DTSTART:20260917T090000Z", "DTSTART:20260917T090000Z\nRRULE:FREQ=WEEKLY", 1)
+					}
+					_, _ = fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/main/weekly.ics</d:href><d:propstat><d:prop><d:getetag>"version-1"</d:getetag><c:calendar-data><![CDATA[%s]]></c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, data)
 				}
 			}))
 			defer server.Close()
@@ -207,12 +212,12 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 			}
 			start := time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)
 			cached, err := db.ListCalendarEvents(t.Context(), "calendar-user", start, start.AddDate(0, 1, 0))
-			if err != nil || len(cached) != 3 || requests.Load() != 1 {
+			if err != nil || len(cached) != 3 || requests.Load() != 2 {
 				t.Fatalf("cached events=%d requests=%d error=%v", len(cached), requests.Load(), err)
 			}
 			ids := map[string]bool{}
 			for _, event := range cached {
-				if ids[event.RemoteID] || event.SourceID != "main-source" || event.ETag != `"version-1"` {
+				if ids[event.RemoteID] || event.SourceID != "main-source" || event.ETag != `"version-1"` || event.SeriesRemoteID != server.URL+"/calendars/main/weekly.ics" {
 					t.Fatalf("invalid event identity or scope: %#v", event)
 				}
 				ids[event.RemoteID] = true

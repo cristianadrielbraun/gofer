@@ -39,17 +39,21 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 					@icon.X(icon.Props{Class: "size-4"})
 				}
 			</header>
-			<form id="calendar-create-form" data-calendar-create-form data-calendar-event-id={ data.EventID } data-calendar-edit-series={ strconv.FormatBool(data.EditSeries) } data-request-id={ data.RequestID } class="flex min-h-0 flex-col" action={ templ.SafeURL(action) } method="post">
+			<form id="calendar-create-form" data-calendar-create-form data-calendar-event-id={ data.EventID } data-calendar-edit-series={ strconv.FormatBool(data.EditSeries) } data-calendar-edit-occurrence={ strconv.FormatBool(data.EditOccurrence) } data-request-id={ data.RequestID } class="flex min-h-0 flex-col" action={ templ.SafeURL(action) } method="post">
 				<input type="hidden" name="request_id" value={ data.RequestID }/>
 				if editing {
 					<input type="hidden" name="version" value={ data.Version }/>
 				}
 				if data.EditSeries {
 					<input type="hidden" name="edit_scope" value="series"/>
+				} else if data.EditOccurrence {
+					<input type="hidden" name="edit_scope" value="occurrence"/>
 				}
 				<div class="min-h-0 space-y-4 overflow-y-auto px-5 py-5">
 					if data.EditSeries {
 						<p class="text-xs leading-relaxed text-muted-foreground">Changes apply to the entire series, including past occurrences. The dates below belong to the first event, not just the occurrence you opened.</p>
+					} else if data.EditOccurrence {
+						<p class="text-xs leading-relaxed text-muted-foreground">Changes apply to this event only. The other occurrences and the series’ repeat settings stay unchanged.</p>
 					}
 					<div class="space-y-1.5">
 						@label.Label(label.Props{For: "calendar-create-source"}) {
@@ -129,7 +133,9 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 							}
 						}
 					</div>
-					@CalendarRecurrenceFields(data)
+					if !data.EditOccurrence {
+						@CalendarRecurrenceFields(data)
+					}
 					<div class="space-y-1.5">
 						@label.Label(label.Props{For: "calendar-create-location"}) {
 							Location <span class="text-xs font-normal text-muted-foreground">optional</span>

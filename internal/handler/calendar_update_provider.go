@@ -130,6 +130,12 @@ func calendarUpdateJSON(ctx context.Context, endpoint, token, etag string, paylo
 		return err
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusBadRequest {
+		var failure struct{ Error struct{ Code string } }
+		if json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&failure) == nil && failure.Error.Code == "ErrorOccurrenceCrossingBoundary" {
+			return errCalendarOccurrenceBoundary
+		}
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return calendarUpdateHTTPError(calendarCreateProviderError{response.StatusCode})
 	}
@@ -217,9 +223,13 @@ func updateGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 	return updateGoogleCalendarEventScope(ctx, token, remoteCalendarID, existing, draft, false)
 }
 
-func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID string, existing storage.CalendarEvent, draft calendar.EventDraft, series bool) (calendar.RemoteEvent, error) {
-	if err := calendarUpdateExistingScopeRestriction(existing, series); err != nil {
+func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID string, existing storage.CalendarEvent, draft calendar.EventDraft, series bool, occurrenceScope ...bool) (calendar.RemoteEvent, error) {
+	occurrence := calendarOccurrenceScope(occurrenceScope)
+	if err := calendarUpdateExistingScopeRestriction(existing, series, occurrence); err != nil {
 		return calendar.RemoteEvent{}, err
+	}
+	if occurrence && draft.Recurrence != nil {
+		return calendar.RemoteEvent{}, errCalendarUpdateUnsupported
 	}
 	version := strings.TrimSpace(existing.ETag)
 	if !calendarUpdateValidETag(version, false) {
@@ -248,6 +258,10 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 		}
 		if _, err := calendarGoogleSeriesEvent(current); err != nil {
 			return calendar.RemoteEvent{}, err
+		}
+	} else if occurrence {
+		if reason := current.occurrenceRestriction(existing.SeriesRemoteID); reason != "" {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported(reason)
 		}
 	} else if reason := current.restriction(); reason != "" {
 		return calendar.RemoteEvent{}, calendarUpdateUnsupported(reason)
@@ -286,14 +300,21 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 			return calendar.RemoteEvent{}, fmt.Errorf("could not confirm the Google update: %v", err)
 		}
 	}
-	if updated.ID != existing.RemoteID || !calendarUpdateValidETag(updated.ETag, false) || updated.savedRestriction(draft) != "" {
+	restriction := updated.savedRestriction(draft)
+	if occurrence {
+		restriction = updated.occurrenceRestriction(existing.SeriesRemoteID)
+		if restriction == "" && *updated.OriginalStartTime != *current.OriginalStartTime {
+			restriction = "The occurrence identity changed."
+		}
+	}
+	if updated.ID != existing.RemoteID || !calendarUpdateValidETag(updated.ETag, false) || restriction != "" {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm a supported updated event and version")
 	}
 	event, err := normalizeGoogleCalendarEvent(updated.googleCalendarEvent)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}
-	if (needsConfirmation || draft.Recurrence != nil) && !calendarUpdateMatchesDraft(event, draft) {
+	if (needsConfirmation || draft.Recurrence != nil || occurrence) && !calendarUpdateMatchesDraft(event, draft) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the submitted event changes")
 	}
 	event.StartTimeZone, event.EndTimeZone = draft.TimeZone, draft.TimeZone
@@ -302,6 +323,7 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 
 type outlookCalendarUpdateEvent struct {
 	outlookCalendarEvent
+	IsOrganizer           *bool  `json:"isOrganizer"`
 	ODataETag             string `json:"@odata.etag"`
 	Type                  string `json:"type"`
 	IsOnlineMeeting       bool   `json:"isOnlineMeeting"`
@@ -328,9 +350,13 @@ func updateOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	return updateOutlookCalendarEventScope(ctx, token, remoteCalendarID, existing, draft, false)
 }
 
-func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarID string, existing storage.CalendarEvent, draft calendar.EventDraft, series bool) (calendar.RemoteEvent, error) {
-	if err := calendarUpdateExistingScopeRestriction(existing, series); err != nil {
+func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarID string, existing storage.CalendarEvent, draft calendar.EventDraft, series bool, occurrenceScope ...bool) (calendar.RemoteEvent, error) {
+	occurrence := calendarOccurrenceScope(occurrenceScope)
+	if err := calendarUpdateExistingScopeRestriction(existing, series, occurrence); err != nil {
 		return calendar.RemoteEvent{}, err
+	}
+	if occurrence && draft.Recurrence != nil {
+		return calendar.RemoteEvent{}, errCalendarUpdateUnsupported
 	}
 	location, err := calendarUpdateDraftLocation(draft)
 	if err != nil {
@@ -361,6 +387,10 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 		}
 		if _, err := calendarOutlookSeriesEvent(current); err != nil {
 			return calendar.RemoteEvent{}, err
+		}
+	} else if occurrence {
+		if reason := current.occurrenceRestriction(existing.SeriesRemoteID); reason != "" {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported(reason)
 		}
 	} else if reason := current.restriction(); reason != "" {
 		return calendar.RemoteEvent{}, calendarUpdateUnsupported(reason)
@@ -398,14 +428,18 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 			return calendar.RemoteEvent{}, fmt.Errorf("could not confirm the Microsoft update: %v", err)
 		}
 	}
-	if updated.ID != existing.RemoteID || strings.TrimSpace(updated.ChangeKey) == "" || updated.savedRestriction(draft) != "" {
+	restriction := updated.savedRestriction(draft)
+	if occurrence {
+		restriction = updated.occurrenceRestriction(existing.SeriesRemoteID)
+	}
+	if updated.ID != existing.RemoteID || strings.TrimSpace(updated.ChangeKey) == "" || restriction != "" {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm a supported updated event and version")
 	}
 	event, err := normalizeOutlookCalendarEvent(updated.outlookCalendarEvent)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}
-	if (needsConfirmation || draft.Recurrence != nil) && !calendarUpdateMatchesDraft(event, draft) {
+	if (needsConfirmation || draft.Recurrence != nil || occurrence) && !calendarUpdateMatchesDraft(event, draft) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted event changes")
 	}
 	event.StartTimeZone, event.EndTimeZone = draft.TimeZone, draft.TimeZone

@@ -13,9 +13,11 @@ type CalendarEventDetails struct {
 	Attendees             []CalendarEventParticipant
 	CanEdit               bool
 	EditSeries            bool
+	HasOccurrence         bool
 	EditUnavailableReason string
 	CanDelete             bool
 	DeleteSeries          bool
+	DeleteOccurrence      bool
 	DeleteSeriesID        string
 	DeleteVersion         string
 }

@@ -390,6 +390,7 @@ async function main() {
   function resetEdit(allDay = false) {
     Object.assign(form, {isConnected: true, _calendarCreateBusy: false, _calendarCreateUncertain: false, _calendarCreateConflict: false, _calendarCreateDateAdjusted: '', action: '/api/calendar/events/event%2Fwith%20space%3F%23'})
     form.dataset.calendarEventId = 'event/with space?#'
+    form.dataset.calendarEditOccurrence = 'false'
     field('request_id').value = '8d29ced2-98b3-4f55-8d83-bddc7470c486'
     field('version').value = '"provider-version-1"'
     field('summary').value = 'Prefilled event'
@@ -428,11 +429,26 @@ async function main() {
   for (const name of ['source_id', 'version', 'request_id', 'summary', 'description', 'location', 'start_date', 'end_date', 'timezone', 'all_day']) assert.deepEqual(editPayload.getAll(name), [field(name).value], 'Edit payload must submit exactly one ' + name)
   assert.equal(editPayload.has('start_time'), false)
   assert.equal(editPayload.has('end_time'), false)
-  requests[requestIndex].resolve({ok: true, json: async () => ({saved: true, event_id: 'edited'})})
+  requests[requestIndex].resolve({ok: true, json: async () => ({saved: true, event_id: form.dataset.calendarEventId})})
   await edited
   assert.equal(toasts.at(-1).title, 'Event updated')
   assert.equal(refreshes, refreshCount + 1, 'Edit success must schedule the existing grid and Upcoming cache refresh')
   assert.equal(closed.at(-1), 'calendar-create-dialog')
+
+  inputs.push({name: 'edit_scope', value: 'occurrence', disabled: false})
+  for (const scope of ['occurrence', 'series', undefined]) {
+    resetEdit()
+    form.dataset.calendarEditOccurrence = 'true'
+    requestIndex = requests.length
+    const beforeRefresh = refreshes
+    const saving = context.submitCalendarCreate(form)
+    assert.equal(new URLSearchParams(requests[requestIndex].options.body).get('edit_scope'), 'occurrence')
+    requests[requestIndex].resolve({ok: true, json: async () => ({saved: true, event_id: form.dataset.calendarEventId, scope})})
+    await saving
+    assert.equal(refreshes, beforeRefresh + (scope === 'occurrence' ? 1 : 0), 'Confirm the occurrence scope before refreshing or dismissing')
+    assert.equal(!!form._calendarCreateUncertain, scope !== 'occurrence')
+  }
+  inputs.pop()
 
   resetEdit()
   assert.equal(field('start_time').value, '09:15')
@@ -494,7 +510,7 @@ async function main() {
   const lateEdit = context.submitCalendarCreate(form)
   form.isConnected = false
   const closeCount = closed.length
-  requests[requestIndex].resolve({ok: true, json: async () => ({saved: true, event_id: 'edited'})})
+  requests[requestIndex].resolve({ok: true, json: async () => ({saved: true, event_id: form.dataset.calendarEventId})})
   await lateEdit
   assert.equal(closed.length, closeCount, 'Late edit success must not close a newer dialog')
   assert.match(source, /source\.addEventListener\("calendar-changed"/, 'Other sessions need cache change events')

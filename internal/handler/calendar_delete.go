@@ -25,9 +25,10 @@ func (h *Handler) calendarEventDeleteAccess(ctx context.Context, event storage.C
 	return source, calendarDeleteReason(reason), err
 }
 
-func (h *Handler) deleteCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, event storage.CalendarEvent, series bool) error {
+func (h *Handler) deleteCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, event storage.CalendarEvent, series bool, occurrenceScope ...bool) (string, error) {
+	occurrence := calendarOccurrenceScope(occurrenceScope)
 	if h.calendarDeleteEvent != nil {
-		return h.calendarDeleteEvent(ctx, source, event)
+		return "", h.calendarDeleteEvent(ctx, source, event)
 	}
 	credentials := calendarCredentials{}
 	switch source.Provider {
@@ -38,21 +39,25 @@ func (h *Handler) deleteCalendarProviderEvent(ctx context.Context, source storag
 	case storage.CalendarSourceProviderCalDAV:
 		credentials = h.calendarCredentialsForSource(ctx, source.UserID, source)
 	default:
-		return errCalendarUpdateUnsupported
+		return "", errCalendarUpdateUnsupported
 	}
 	if credentials.err != nil {
-		return calendarCreateAuthError{credentials.err}
+		return "", calendarCreateAuthError{credentials.err}
 	}
 	switch source.Provider {
 	case providers.ProviderGmail:
-		return deleteGoogleCalendarEventScope(ctx, credentials.token, source.RemoteID, event, series)
+		return "", deleteGoogleCalendarEventScope(ctx, credentials.token, source.RemoteID, event, series, occurrence)
 	case providers.ProviderOutlook:
-		return deleteOutlookCalendarEventScope(ctx, credentials.token, source.RemoteID, event, series)
+		return "", deleteOutlookCalendarEventScope(ctx, credentials.token, source.RemoteID, event, series, occurrence)
 	default:
 		if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
-			return calendarDeletePreflightError{err}
+			return "", calendarDeletePreflightError{err}
 		}
-		return deleteCalDAVCalendarEventScope(ctx, source, credentials.username, credentials.password, event, series)
+		if occurrence {
+			remote, err := updateCalDAVCalendarOccurrence(ctx, source, credentials.username, credentials.password, event, nil)
+			return remote.ETag, err
+		}
+		return "", deleteCalDAVCalendarEventScope(ctx, source, credentials.username, credentials.password, event, series)
 	}
 }
 
@@ -83,7 +88,7 @@ func (h *Handler) handleCalendarSeriesDeleteConfirmation(w http.ResponseWriter, 
 		http.Error(w, reason, http.StatusForbidden)
 		return
 	}
-	master, err := h.readCalendarProviderSeries(ctx, source, event)
+	master, err := h.readCalendarProviderSeries(ctx, source, event, true)
 	if err != nil {
 		message := "Could not load the series. Close and reopen this confirmation to try again."
 		if errors.Is(err, errCalendarUpdateUnsupported) {
@@ -93,8 +98,31 @@ func (h *Handler) handleCalendarSeriesDeleteConfirmation(w http.ResponseWriter, 
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	details := views.CalendarEventDetails{Event: calendarViewEvent(master), DeleteSeries: true, CanDelete: true, DeleteVersion: master.ETag, DeleteSeriesID: master.RemoteID}
+	details := views.CalendarEventDetails{Event: calendarViewEvent(master), HasOccurrence: event.SeriesRemoteID != "", DeleteSeries: true, CanDelete: true, DeleteVersion: master.ETag, DeleteSeriesID: master.RemoteID}
 	if err := views.CalendarEventDeleteConfirmation(details).Render(ctx, w); err != nil {
+		http.Error(w, "Could not open the confirmation.", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) handleCalendarOccurrenceDeleteConfirmation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	event, err := h.db.GetCalendarEvent(r.Context(), h.userID(r.Context()), r.PathValue("id"))
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "This event is no longer available. Refresh the calendar.", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Could not load this occurrence.", http.StatusInternalServerError)
+		return
+	}
+	_, reason, err := h.calendarEventDeleteAccess(r.Context(), event)
+	if err != nil || reason != "" || calendarOccurrenceExistingRestriction(event) != nil {
+		http.Error(w, "This occurrence cannot be deleted. Refresh the calendar and check its write access.", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	details := views.CalendarEventDetails{Event: calendarViewEvent(event), HasOccurrence: true, CanDelete: true, DeleteOccurrence: true, DeleteVersion: event.ETag}
+	if err := views.CalendarEventDeleteConfirmation(details).Render(r.Context(), w); err != nil {
 		http.Error(w, "Could not open the confirmation.", http.StatusInternalServerError)
 	}
 }
@@ -106,8 +134,9 @@ func (h *Handler) handleDeleteCalendarEvent(w http.ResponseWriter, r *http.Reque
 	versions := values["version"]
 	scopes, scoped := values["scope"]
 	series := scoped && len(scopes) == 1 && scopes[0] == "series"
+	instance := scoped && len(scopes) == 1 && scopes[0] == "occurrence"
 	seriesIDs := values["series_id"]
-	validFields := (len(values) == 1 && !scoped) || (len(values) == 3 && series && len(seriesIDs) == 1 && seriesIDs[0] != "" && len(seriesIDs[0]) <= 4096)
+	validFields := (len(values) == 1 && !scoped) || (len(values) == 2 && instance) || (len(values) == 3 && series && len(seriesIDs) == 1 && seriesIDs[0] != "" && len(seriesIDs[0]) <= 4096)
 	if err != nil || !validFields || len(versions) != 1 || strings.TrimSpace(versions[0]) == "" || len(versions[0]) > 2048 {
 		calendarUpdateFailure(w, http.StatusBadRequest, "Event version is missing or invalid. Reopen the event.", false, false)
 		return
@@ -123,8 +152,8 @@ func (h *Handler) handleDeleteCalendarEvent(w http.ResponseWriter, r *http.Reque
 		calendarUpdateFailure(w, http.StatusInternalServerError, "Could not load this event.", false, false)
 		return
 	}
-	if series != calendarEventIsSeries(event) {
-		calendarUpdateFailure(w, http.StatusForbidden, "Use Delete series and confirm all occurrences to delete a recurring event.", false, false)
+	if (series || instance) != calendarEventIsSeries(event) || (instance && event.SeriesRemoteID == "") {
+		calendarUpdateFailure(w, http.StatusForbidden, "Choose This event or Entire series and confirm before deleting a recurring event.", false, false)
 		return
 	}
 	if series && seriesIDs[0] != calendarSeriesID(event) {
@@ -142,7 +171,7 @@ func (h *Handler) handleDeleteCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	defer unlock()
 	event, err = h.db.GetCalendarEvent(ctx, userID, event.ID)
-	if err != nil || (!series && event.ETag != version) || series != calendarEventIsSeries(event) || (series && seriesIDs[0] != calendarSeriesID(event)) {
+	if err != nil || (!series && event.ETag != version) || (series || instance) != calendarEventIsSeries(event) || (instance && event.SeriesRemoteID == "") || (series && seriesIDs[0] != calendarSeriesID(event)) {
 		calendarUpdateFailure(w, http.StatusConflict, "This event changed. Refresh the calendar and reopen it before deleting.", false, true)
 		return
 	}
@@ -156,13 +185,14 @@ func (h *Handler) handleDeleteCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	occurrence := event
 	if series {
-		event, err = h.readCalendarProviderSeries(ctx, source, occurrence)
+		event, err = h.readCalendarProviderSeries(ctx, source, occurrence, true)
 		if err != nil || event.ETag != version {
 			calendarUpdateFailure(w, http.StatusConflict, "The series could not be verified or has changed. Reopen it before deleting; nothing was deleted.", false, true)
 			return
 		}
 	}
-	if err := h.deleteCalendarProviderEvent(ctx, source, event, series); err != nil {
+	resourceVersion, err := h.deleteCalendarProviderEvent(ctx, source, event, series, instance)
+	if err != nil {
 		var provider calendarCreateProviderError
 		var preflight calendarDeletePreflightError
 		switch {
@@ -184,6 +214,11 @@ func (h *Handler) handleDeleteCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	if series {
 		err = h.db.CompleteCalendarSeriesDelete(ctx, userID, occurrence.ID, source.ID, occurrence.ETag, event)
+	} else if instance {
+		if resourceVersion != "" {
+			event.ETag = resourceVersion
+		}
+		err = h.db.CompleteCalendarOccurrenceDelete(ctx, userID, event.ID, source.ID, version, event)
 	} else {
 		err = h.db.CompleteCalendarDelete(ctx, userID, event.ID, source.ID, version)
 	}
@@ -199,6 +234,9 @@ func (h *Handler) handleDeleteCalendarEvent(w http.ResponseWriter, r *http.Reque
 	response := map[string]any{"deleted": true, "event_id": event.ID, "source_id": source.ID}
 	if series {
 		response["series_id"] = event.RemoteID
+	}
+	if instance {
+		response["scope"] = "occurrence"
 	}
 	_ = json.NewEncoder(w).Encode(response)
 }

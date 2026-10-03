@@ -59,8 +59,9 @@ func deleteGoogleCalendarEvent(ctx context.Context, token, calendarID string, ex
 	return deleteGoogleCalendarEventScope(ctx, token, calendarID, existing, false)
 }
 
-func deleteGoogleCalendarEventScope(ctx context.Context, token, calendarID string, existing storage.CalendarEvent, series bool) error {
-	if err := calendarUpdateExistingScopeRestriction(existing, series); err != nil {
+func deleteGoogleCalendarEventScope(ctx context.Context, token, calendarID string, existing storage.CalendarEvent, series bool, occurrenceScope ...bool) error {
+	occurrence := calendarOccurrenceScope(occurrenceScope)
+	if err := calendarUpdateExistingScopeRestriction(existing, series, occurrence); err != nil {
 		return err
 	}
 	if !calendarUpdateValidETag(existing.ETag, false) {
@@ -83,6 +84,10 @@ func deleteGoogleCalendarEventScope(ctx context.Context, token, calendarID strin
 		if _, err := calendarGoogleSeriesEvent(current.googleCalendarUpdateEvent); err != nil {
 			return calendarDeletePreflightError{err}
 		}
+	} else if occurrence {
+		if reason := current.occurrenceRestriction(existing.SeriesRemoteID); reason != "" {
+			return calendarUpdateUnsupported(reason)
+		}
 	} else if reason := current.restriction(); reason != "" {
 		return calendarUpdateUnsupported(reason)
 	}
@@ -97,8 +102,9 @@ func deleteOutlookCalendarEvent(ctx context.Context, token, calendarID string, e
 	return deleteOutlookCalendarEventScope(ctx, token, calendarID, existing, false)
 }
 
-func deleteOutlookCalendarEventScope(ctx context.Context, token, calendarID string, existing storage.CalendarEvent, series bool) error {
-	if err := calendarUpdateExistingScopeRestriction(existing, series); err != nil {
+func deleteOutlookCalendarEventScope(ctx context.Context, token, calendarID string, existing storage.CalendarEvent, series bool, occurrenceScope ...bool) error {
+	occurrence := calendarOccurrenceScope(occurrenceScope)
+	if err := calendarUpdateExistingScopeRestriction(existing, series, occurrence); err != nil {
 		return err
 	}
 	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(calendarID) + "/events/" + url.PathEscape(existing.RemoteID)
@@ -118,6 +124,10 @@ func deleteOutlookCalendarEventScope(ctx context.Context, token, calendarID stri
 	if series {
 		if _, err := calendarOutlookSeriesEvent(current.outlookCalendarUpdateEvent); err != nil {
 			return calendarDeletePreflightError{err}
+		}
+	} else if occurrence {
+		if reason := current.occurrenceRestriction(existing.SeriesRemoteID); reason != "" {
+			return calendarUpdateUnsupported(reason)
 		}
 	} else if reason := current.restriction(); reason != "" {
 		return calendarUpdateUnsupported(reason)
@@ -168,7 +178,7 @@ func deleteCalDAVCalendarEventScope(ctx context.Context, source storage.Calendar
 				return calendarDeletePreflightError{err}
 			}
 		}
-		if _, err := calendarCalDAVSeriesEvent(current, headers, endpoint, location); err != nil {
+		if _, err := calendarCalDAVDeleteSeriesEvent(current, headers, endpoint, location); err != nil {
 			return calendarDeletePreflightError{err}
 		}
 	} else if reason := calendarUpdateCalDAVRestriction(current, headers); reason != "" {

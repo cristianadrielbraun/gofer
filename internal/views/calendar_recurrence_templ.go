@@ -488,7 +488,7 @@ func CalendarRecurrenceFields(data CalendarCreateData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</fieldset></div><div class=\"space-y-1 text-xs leading-relaxed text-muted-foreground\"><p data-calendar-repeat-summary role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p><p>Individual occurrences are managed in your calendar provider.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</fieldset></div><div class=\"space-y-1 text-xs leading-relaxed text-muted-foreground\"><p data-calendar-repeat-summary role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p><p>To change one occurrence, open it and choose “This event” when editing.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

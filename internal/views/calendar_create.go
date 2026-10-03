@@ -19,19 +19,20 @@ type CalendarCreateSource struct {
 }
 
 type CalendarCreateData struct {
-	RequestID   string
-	EventID     string
-	Version     string
-	EditSeries  bool
-	Recurrence  *calendar.RecurrenceDraft
-	Summary     string
-	Description string
-	Location    string
-	AllDay      bool
-	SourceID    string
-	Sources     []CalendarCreateSource
-	Date        string
-	StartTime   string
+	RequestID      string
+	EventID        string
+	Version        string
+	EditSeries     bool
+	EditOccurrence bool
+	Recurrence     *calendar.RecurrenceDraft
+	Summary        string
+	Description    string
+	Location       string
+	AllDay         bool
+	SourceID       string
+	Sources        []CalendarCreateSource
+	Date           string
+	StartTime      string
 	// EndDate is inclusive for all-day form values, including edit prefill.
 	EndDate  string
 	EndTime  string

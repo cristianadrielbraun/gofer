@@ -44,7 +44,7 @@ func TestCalendarDeleteSeriesConfirmationLoadsFreshMasterWithoutWriting(t *testi
 	if w.Code != 200 || reads != 0 {
 		t.Fatal("cached event details should not wait for a provider read")
 	}
-	for _, want := range []string{`Delete series`, `/delete-series-confirmation`, `data-calendar-delete-ready="false"`, `name="version" value=""`, `Checking the series`} {
+	for _, want := range []string{`Entire series`, `This event`, `/delete-series-confirmation`, `/delete-occurrence-confirmation`, `data-calendar-delete-ready="true"`, `name="scope" value="occurrence"`, `Delete this occurrence?`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("lazy confirmation missing %q", want)
 		}

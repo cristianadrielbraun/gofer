@@ -112,7 +112,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 					if details.CanDelete {
 						{{
 							deleteAttrs := templ.Attributes{"data-calendar-delete-trigger": "", "aria-haspopup": "dialog", "aria-controls": "calendar-event-delete-confirmation-content"}
-							if details.DeleteSeries {
+							if details.DeleteSeries && !details.HasOccurrence {
 								deleteAttrs["data-calendar-delete-load"] = ""
 								deleteAttrs["hx-get"] = calendarEventDetailsURL(event.ID) + "/delete-series-confirmation"
 								deleteAttrs["hx-target"] = "#calendar-event-delete-confirmation-body"
@@ -124,7 +124,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 							@popover.Trigger() {
 								@button.Button(button.Props{Variant: button.VariantGhost, Class: "font-semibold text-destructive hover:text-destructive", Attributes: deleteAttrs}) {
 									@icon.Trash2(icon.Props{Class: "size-4"})
-									if details.DeleteSeries {
+									if details.DeleteSeries && !details.HasOccurrence {
 										Delete series
 									} else {
 										Delete
@@ -133,7 +133,11 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 							}
 							@popover.Content(popover.ContentProps{ID: "calendar-event-delete-confirmation-content", Placement: popover.PlacementTopEnd, Class: "w-80 p-4", Attributes: templ.Attributes{"role": "dialog", "aria-labelledby": "calendar-event-delete-title", "aria-describedby": "calendar-event-delete-description"}}) {
 								<div id="calendar-event-delete-confirmation-body">
-									@CalendarEventDeleteConfirmation(details)
+									{{ confirmation := details }}
+									if details.HasOccurrence {
+										{{ confirmation.DeleteSeries, confirmation.DeleteOccurrence = false, true }}
+									}
+									@CalendarEventDeleteConfirmation(confirmation)
 								</div>
 							}
 						}
@@ -142,22 +146,45 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 						Close
 					}
 					if details.CanEdit {
-						@button.Button(button.Props{Class: "btn-skeuo font-semibold", Attributes: templ.Attributes{
-							"data-calendar-create-trigger": "", "data-calendar-edit-trigger": "",
-							"hx-get": calendarEventEditURL(details), "hx-target": "#app-pane-dialogs",
-							"hx-swap": "innerHTML", "hx-sync": "#app-pane-dialogs:replace", "hx-disabled-elt": "this",
-							"aria-haspopup": "dialog", "aria-controls": "calendar-create-dialog",
-						}}) {
-							if details.EditSeries {
-								Edit series
-							} else {
-								Edit
+						if details.HasOccurrence {
+							@popover.Root() {
+								@popover.Trigger() {
+									@button.Button(button.Props{Class: "btn-skeuo font-semibold", Attributes: templ.Attributes{"data-calendar-edit-trigger": ""}}) {
+										Edit
+										@icon.ChevronDown(icon.Props{Class: "size-3.5"})
+									}
+								}
+								@popover.Content(popover.ContentProps{Placement: popover.PlacementTopEnd, Class: "w-48 p-1"}) {
+									@CalendarEventEditAction(details, "This event", "occurrence", true)
+									@CalendarEventEditAction(details, "Entire series", "series", true)
+								}
 							}
-						}
+						} else if details.EditSeries {
+							@CalendarEventEditAction(details, "Edit series", "series", false)
+						} else {
+							@CalendarEventEditAction(details, "Edit", "", false)
+							}
 					}
 				</div>
 			</footer>
 		}
+	}
+}
+
+templ CalendarEventEditAction(details CalendarEventDetails, text, scope string, menu bool) {
+	{{
+		endpoint := calendarEventDetailsURL(details.Event.ID) + "/edit"
+		if scope != "" { endpoint += "?scope=" + scope }
+		variant, class := button.VariantDefault, "btn-skeuo font-semibold"
+		if menu { variant, class = button.VariantGhost, "w-full justify-start font-medium" }
+	}}
+	@button.Button(button.Props{Variant: variant, Class: class, Attributes: templ.Attributes{
+		"data-calendar-create-trigger": "", "data-calendar-edit-trigger": "",
+		"hx-get": endpoint, "hx-target": "#app-pane-dialogs", "hx-swap": "innerHTML",
+		"hx-sync": "#app-pane-dialogs:replace", "hx-disabled-elt": "this",
+		"aria-haspopup": "dialog", "aria-controls": "calendar-create-dialog",
+	}}) {
+		{ text }
 	}
 }
 
@@ -167,26 +194,55 @@ templ CalendarEventDeleteConfirmation(details CalendarEventDetails) {
 		ready := details.DeleteVersion != ""
 		if details.DeleteSeries {
 			params, title, submitLabel = "version,scope,series_id", "Delete the entire series?", "Delete series"
+		} else if details.DeleteOccurrence {
+			params, title = "version,scope", "Delete this occurrence?"
 		}
 	}}
-	<form data-calendar-delete-form data-calendar-event-id={ details.Event.ID } data-calendar-delete-series={ strconv.FormatBool(details.DeleteSeries) } data-calendar-delete-series-id={ details.DeleteSeriesID } data-calendar-delete-ready={ strconv.FormatBool(ready) } hx-delete={ calendarEventDetailsURL(details.Event.ID) } hx-params={ params } hx-swap="none" hx-sync="this:drop">
+	<form data-calendar-delete-form data-calendar-event-id={ details.Event.ID } data-calendar-delete-series={ strconv.FormatBool(details.DeleteSeries) } data-calendar-delete-occurrence={ strconv.FormatBool(details.DeleteOccurrence) } data-calendar-delete-series-id={ details.DeleteSeriesID } data-calendar-delete-ready={ strconv.FormatBool(ready) } hx-delete={ calendarEventDetailsURL(details.Event.ID) } hx-params={ params } hx-swap="none" hx-sync="this:drop">
+		if details.HasOccurrence {
+			<div class="mb-3 grid grid-cols-2 gap-2" role="group" aria-label="Delete scope">
+				for _, scope := range []string{"occurrence", "series"} {
+					{{
+						selected := (scope == "series") == details.DeleteSeries
+						class := ""
+						if selected { class = "bg-accent text-accent-foreground" }
+					}}
+					@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantOutline, Size: button.SizeSm, Class: class, Attributes: templ.Attributes{
+						"aria-pressed": strconv.FormatBool(selected), "data-calendar-delete-load": "",
+						"hx-get": calendarEventDetailsURL(details.Event.ID) + "/delete-" + scope + "-confirmation",
+						"hx-target": "#calendar-event-delete-confirmation-body", "hx-swap": "innerHTML",
+						"hx-sync": "closest [data-tui-popover-root]:replace",
+					}}) {
+						if scope == "series" {
+							Entire series
+						} else {
+							This event
+						}
+					}
+				}
+			</div>
+		}
 		<input type="hidden" name="version" value={ details.DeleteVersion }/>
 		if details.DeleteSeries {
 			<input type="hidden" name="scope" value="series"/>
 			<input type="hidden" name="series_id" value={ details.DeleteSeriesID }/>
+		} else if details.DeleteOccurrence {
+			<input type="hidden" name="scope" value="occurrence"/>
 		}
 		<h3 id="calendar-event-delete-title" class="font-semibold">{ title }</h3>
 		<p class="mt-2 break-words text-sm font-medium">{ calendarEventSummary(details.Event) }</p>
 		<p id="calendar-event-delete-description" class="mt-2 text-xs leading-relaxed text-muted-foreground">
 			if details.DeleteSeries {
 				This deletes all occurrences, including past and future events, from your calendar provider—not just Gofer. You can’t undo this in Gofer.
+			} else if details.DeleteOccurrence {
+				Only this occurrence will be removed from your calendar provider. The rest of the series stays unchanged. You can’t undo this in Gofer.
 			} else {
 				This deletes the event from your calendar provider, not just Gofer. You can’t undo this in Gofer.
 			}
 		</p>
 		<p data-calendar-delete-check hidden?={ ready } role="status" class="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
 			@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})
-			Checking the series…
+			Checking the selection…
 		</p>
 		<p data-calendar-delete-error hidden role="alert" tabindex="-1" class="mt-3 text-xs leading-relaxed text-destructive"></p>
 		<div class="mt-4 flex justify-end gap-2">

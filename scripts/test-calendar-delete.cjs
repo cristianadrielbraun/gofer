@@ -14,6 +14,7 @@ const form = {
   matches(selector) { return selector === '[data-calendar-delete-form]' },
   closest(selector) { return selector === '[data-tui-dialog]' ? dialog : popover },
   setAttribute(name, value) { this[name] = value },
+  querySelectorAll() { return [trigger] },
   querySelector(selector) { return {
     '[data-calendar-delete-submit]': submit, '[data-calendar-delete-spinner]': spinner,
     '[data-calendar-delete-label]': label, '[data-calendar-delete-error]': error,
@@ -38,6 +39,7 @@ function reset() {
   form.isConnected = true
   form.dataset.calendarDeleteReady = 'true'
   form.dataset.calendarDeleteSeries = 'false'
+  form.dataset.calendarDeleteOccurrence = 'false'
   closed.length = toasts.length = refreshes = 0
   context.updateCalendarDeleteForm(form)
 }
@@ -124,7 +126,7 @@ assert.equal(fire('htmx:beforeRequest', {elt: form, xhr: {}}).prevented, true)
 load.xhr.status = 503
 fire('htmx:afterRequest', {...load, successful: false})
 assert.equal(check.hidden, true)
-assert.match(error.textContent, /Could not check the series/)
+assert.match(error.textContent, /Could not check the selection/)
 assert.equal(submit.disabled, true, 'A failed read must not enable deletion with an older version')
 assert.equal(closed.length + toasts.length + refreshes, 0)
 load = {elt: loader, xhr: {}}
@@ -150,4 +152,27 @@ for (const seriesID of [undefined, 'different-master']) {
   assert.equal(form._calendarDeleteBlocked, true, 'Require confirmation of the selected series, not just an occurrence')
   assert.equal(refreshes + toasts.length, 0)
 }
-console.log('Calendar delete: confirmation cancellation, busy state, single-flight HTMX, conflicts/uncertainty, safe retries, detached responses, and cache refresh passed.')
+reset()
+form.dataset.calendarDeleteOccurrence = 'true'
+finish(begin(), {deleted: true, event_id: 'event-id', scope: 'occurrence'})
+assert.match(toasts.at(-1).description, /Only this occurrence/)
+assert.equal(refreshes, 1)
+for (const scope of [undefined, 'series']) {
+  reset()
+  form.dataset.calendarDeleteOccurrence = 'true'
+  finish(begin(), {deleted: true, event_id: 'event-id', scope})
+  assert.equal(form._calendarDeleteBlocked, true)
+  assert.equal(refreshes, 0, 'Do not accept a different mutation scope')
+}
+reset()
+const oldScope = {elt: loader, xhr: {}}
+const latestScope = {elt: loader, xhr: {}}
+fire('htmx:beforeRequest', oldScope)
+fire('htmx:beforeRequest', latestScope)
+const oldSwap = {xhr: oldScope.xhr, shouldSwap: true}
+fire('htmx:beforeSwap', oldSwap)
+assert.equal(oldSwap.shouldSwap, false, 'An older scope response cannot replace the latest choice')
+fire('htmx:afterRequest', {...oldScope, successful: false})
+assert.equal(form._calendarDeleteLoader, latestScope.xhr)
+assert.equal(submit.disabled, true)
+console.log('Calendar delete: scope selection, stale loaders, cancellation, busy state, conflicts, detached responses, and HTMX refresh passed.')

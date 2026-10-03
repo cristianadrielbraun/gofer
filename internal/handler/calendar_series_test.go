@@ -82,8 +82,8 @@ func TestCalendarSeriesEditorLoadsMasterAndRepeatSettings(t *testing.T) {
 		}
 		w = httptest.NewRecorder()
 		h.handleCalendarEvent(w, r)
-		if !strings.Contains(w.Body.String(), `/edit?scope=series`) || !strings.Contains(w.Body.String(), "Edit series") || strings.Contains(w.Body.String(), `hx-delete=`) {
-			t.Fatal("details must advertise whole-series editing, but not series deletion")
+		if !strings.Contains(w.Body.String(), `/edit?scope=series`) || !strings.Contains(w.Body.String(), `/edit?scope=occurrence`) || !strings.Contains(w.Body.String(), "Entire series") || strings.Contains(w.Body.String(), `hx-delete=`) {
+			t.Fatal("details must offer both edit scopes without granting deletion access")
 		}
 	}
 }

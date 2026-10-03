@@ -8425,6 +8425,7 @@ document.body.addEventListener("htmx:beforeRequest", function (event) {
   var calendar = document.getElementById("calendar-main")
   _calendarCreateDialogRequest.goferCalendarCreatePeriod = calendar ? calendar.dataset.calendarPeriod : ""
   _calendarCreateDialogRequest.goferCalendarEdit = trigger.hasAttribute("data-calendar-edit-trigger")
+  if (_calendarCreateDialogRequest.goferCalendarEdit && window.tui && window.tui.popover) window.tui.popover.closeElement(trigger)
   var details = _calendarCreateDialogRequest.goferCalendarEdit && document.getElementById("calendar-event-details-dialog")
   _calendarCreateDialogRequest.goferCalendarEditDialog = details && details.querySelector("[data-tui-dialog-content]")
   trigger.setAttribute("aria-busy", "true")
@@ -8762,6 +8763,7 @@ function submitCalendarCreate(form) {
         return
       }
       if (!(result.data.event_id || (!editing && result.data.series_id)) || (editing && result.data.saved !== true)) throw new Error("Event save could not be confirmed")
+      if (editing && (result.data.event_id !== form.dataset.calendarEventId || (form.dataset.calendarEditOccurrence === "true" && result.data.scope !== "occurrence"))) throw new Error("Event scope could not be confirmed")
       // Close only this form; a delayed save must not close a newer dialog.
       if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
       showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: result.data.refresh_pending ? "warning" : "success", icon: result.data.refresh_pending ? "warning" : "success", duration: result.data.refresh_pending ? 8000 : 4500})
@@ -8802,6 +8804,7 @@ function updateCalendarDeleteForm(form) {
   form.querySelector("[data-calendar-delete-submit]").disabled = locked || form.dataset.calendarDeleteReady === "false"
   form.querySelector("[data-calendar-delete-cancel]").disabled = busy
   form.querySelector("[data-calendar-delete-spinner]").hidden = !busy
+  form.querySelectorAll("[data-calendar-delete-load]").forEach(function (button) { button.disabled = locked })
   form.querySelector("[data-calendar-delete-label]").textContent = busy ? "Deleting…" : form.dataset.calendarDeleteSeries === "true" ? "Delete series" : "Delete event"
   var root = form.closest("[data-tui-dialog]")
   if (root) root.querySelectorAll("[data-calendar-edit-trigger], [data-calendar-delete-trigger]").forEach(function (button) { button.disabled = locked })
@@ -8829,6 +8832,7 @@ document.body.addEventListener("htmx:beforeRequest", function (event) {
     form = form.closest("[data-tui-popover-root]").querySelector("[data-calendar-delete-form]")
     if (!form || form._calendarDeleteBusy || form._calendarDeleteBlocked) { event.preventDefault(); return }
     event.detail.xhr.goferCalendarDeleteLoader = form
+    form._calendarDeleteLoader = event.detail.xhr
     form.dataset.calendarDeleteReady = "false"
     form.querySelector("[data-calendar-delete-check]").hidden = false
     setCalendarDeleteError(form, "")
@@ -8845,7 +8849,7 @@ document.body.addEventListener("htmx:beforeRequest", function (event) {
 
 document.body.addEventListener("htmx:beforeSwap", function (event) {
   var form = event.detail && event.detail.xhr && event.detail.xhr.goferCalendarDeleteLoader
-  if (form && !form.isConnected) event.detail.shouldSwap = false
+  if (form && (!form.isConnected || form._calendarDeleteLoader !== event.detail.xhr)) event.detail.shouldSwap = false
 })
 
 document.body.addEventListener("htmx:afterRequest", function (event) {
@@ -8853,9 +8857,11 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
   var loading = xhr && xhr.goferCalendarDeleteLoader
   if (loading) {
     delete xhr.goferCalendarDeleteLoader
+    if (loading._calendarDeleteLoader !== xhr) return
+    delete loading._calendarDeleteLoader
     if (!event.detail.successful && loading.isConnected) {
       loading.querySelector("[data-calendar-delete-check]").hidden = true
-      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check the series. Close and reopen this confirmation to try again."
+      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check the selection. Choose the scope again or reopen this confirmation to retry."
       setCalendarDeleteError(loading, message)
       updateCalendarDeleteForm(loading)
     }
@@ -8875,12 +8881,13 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     } else {
       if (result.deleted !== true || result.event_id !== form.dataset.calendarEventId) throw new Error("Unconfirmed deletion")
       if (form.dataset.calendarDeleteSeries === "true" && (!result.series_id || result.series_id !== form.dataset.calendarDeleteSeriesId)) throw new Error("Unconfirmed series deletion")
+      if (form.dataset.calendarDeleteOccurrence === "true" && result.scope !== "occurrence") throw new Error("Unconfirmed occurrence deletion")
       form._calendarDeleteBlocked = true
       if (form.isConnected && window.tui) {
         if (window.tui.popover) window.tui.popover.closeElement(form)
         if (window.tui.dialog) window.tui.dialog.close(form.closest("[data-tui-dialog]"))
       }
-      showGoferToast({title: form.dataset.calendarDeleteSeries === "true" ? "Series deleted" : "Event deleted", description: form.dataset.calendarDeleteSeries === "true" ? "All occurrences were removed from your calendar." : "Removed from your calendar.", variant: "success", icon: "success", duration: 4500})
+      showGoferToast({title: form.dataset.calendarDeleteSeries === "true" ? "Series deleted" : "Event deleted", description: form.dataset.calendarDeleteSeries === "true" ? "All occurrences were removed from your calendar." : form.dataset.calendarDeleteOccurrence === "true" ? "Only this occurrence was removed. The rest of the series is unchanged." : "Removed from your calendar.", variant: "success", icon: "success", duration: 4500})
       scheduleCalendarCacheRefresh()
     }
   } catch (_) {

@@ -65,6 +65,7 @@ type googleCalendarEvent struct {
 type googleCalendarPerson struct {
 	DisplayName string `json:"displayName"`
 	Email       string `json:"email"`
+	Self        *bool  `json:"self,omitempty"`
 }
 
 type googleCalendarEventDateTime struct {

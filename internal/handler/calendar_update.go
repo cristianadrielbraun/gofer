@@ -93,7 +93,19 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 		http.Error(w, reason, http.StatusForbidden)
 		return
 	}
-	series := calendarEventIsSeries(event)
+	scopes := r.URL.Query()["scope"]
+	occurrence := len(scopes) == 1 && scopes[0] == "occurrence"
+	series := calendarEventIsSeries(event) && len(scopes) == 1 && scopes[0] == "series"
+	if (len(scopes) != 0 && !series && !occurrence) || (occurrence && event.SeriesRemoteID == "") || (calendarEventIsSeries(event) && !series && !occurrence) {
+		http.Error(w, "Choose This event or Entire series to edit a recurring event.", http.StatusBadRequest)
+		return
+	}
+	if occurrence {
+		if err := calendarOccurrenceExistingRestriction(event); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
 	var repeat *calendar.RecurrenceDraft
 	if series {
 		if r.URL.Query().Get("scope") != "series" {
@@ -136,7 +148,7 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 		location = time.UTC
 	}
 	data := views.CalendarCreateData{
-		EditSeries: series, Recurrence: repeat,
+		EditSeries: series, EditOccurrence: occurrence, Recurrence: repeat,
 		EventID: event.ID, Version: event.ETag, RequestID: uuid.NewString(), SourceID: source.ID,
 		Sources: []views.CalendarCreateSource{{ID: source.ID, Name: source.Name, AccountName: accountName, Writable: true, Authorized: true}},
 		Summary: event.Summary, Description: calendarDescriptionText(event.Description), Location: event.Location,
@@ -171,7 +183,7 @@ func parseCalendarUpdateDraft(r *http.Request) (calendar.EventDraft, string, err
 	if len(versions) != 1 || strings.TrimSpace(versions[0]) == "" || len(versions[0]) > 2048 {
 		return calendar.EventDraft{}, "", fmt.Errorf("event version is missing; reopen the event")
 	}
-	if scopes, exists := r.PostForm["edit_scope"]; exists && (len(scopes) != 1 || scopes[0] != "series") {
+	if scopes, exists := r.PostForm["edit_scope"]; exists && (len(scopes) != 1 || (scopes[0] != "series" && scopes[0] != "occurrence")) {
 		return calendar.EventDraft{}, "", fmt.Errorf("choose a valid edit scope")
 	}
 	// Reuse creation validation without allowing its callers extra fields.
@@ -194,7 +206,8 @@ func calendarUpdateFailure(w http.ResponseWriter, status int, message string, un
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": message, "uncertain": uncertain, "conflict": conflict})
 }
 
-func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, event storage.CalendarEvent, draft calendar.EventDraft, series bool) (calendar.RemoteEvent, error) {
+func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, event storage.CalendarEvent, draft calendar.EventDraft, series bool, occurrenceScope ...bool) (calendar.RemoteEvent, error) {
+	occurrence := calendarOccurrenceScope(occurrenceScope)
 	if h.calendarUpdateEvent != nil {
 		return h.calendarUpdateEvent(ctx, source, event, draft)
 	}
@@ -204,12 +217,15 @@ func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storag
 	}
 	switch source.Provider {
 	case providers.ProviderGmail:
-		return updateGoogleCalendarEventScope(ctx, credentials.token, source.RemoteID, event, draft, series)
+		return updateGoogleCalendarEventScope(ctx, credentials.token, source.RemoteID, event, draft, series, occurrence)
 	case providers.ProviderOutlook:
-		return updateOutlookCalendarEventScope(ctx, credentials.token, source.RemoteID, event, draft, series)
+		return updateOutlookCalendarEventScope(ctx, credentials.token, source.RemoteID, event, draft, series, occurrence)
 	default:
 		if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
 			return calendar.RemoteEvent{}, err
+		}
+		if occurrence {
+			return updateCalDAVCalendarOccurrence(ctx, source, credentials.username, credentials.password, event, &draft)
 		}
 		return updateCalDAVCalendarEventScope(ctx, source, credentials.username, credentials.password, event, draft, series)
 	}
@@ -252,8 +268,9 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	series := r.PostForm.Get("edit_scope") == "series"
-	if series != calendarEventIsSeries(event) || (series && draft.Recurrence == nil) {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Use Edit series to change a recurring event. Removing repeat settings is not supported yet.", false, false)
+	instance := r.PostForm.Get("edit_scope") == "occurrence"
+	if (series || instance) != calendarEventIsSeries(event) || (series && draft.Recurrence == nil) || (instance && (event.SeriesRemoteID == "" || draft.Recurrence != nil)) {
+		calendarUpdateFailure(w, http.StatusBadRequest, "Choose This event or Entire series. Only Entire series can change repeat settings.", false, false)
 		return
 	}
 	// The shared source gate serializes writes with cache reconciliation. Finish
@@ -267,7 +284,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	defer unlock()
 	event, err = h.db.GetCalendarEvent(ctx, userID, event.ID)
-	if err != nil || (!series && event.ETag != version) || series != calendarEventIsSeries(event) {
+	if err != nil || (!series && event.ETag != version) || (series || instance) != calendarEventIsSeries(event) || (instance && event.SeriesRemoteID == "") {
 		calendarUpdateFailure(w, http.StatusConflict, "This event changed. Refresh the calendar and reopen it before saving.", false, true)
 		return
 	}
@@ -301,10 +318,13 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			draft.EndAt = event.EndAt
 		}
 	}
-	remote, err := h.updateCalendarProviderEvent(ctx, source, event, draft, series)
+	remote, err := h.updateCalendarProviderEvent(ctx, source, event, draft, series, instance)
 	if err != nil {
 		var provider calendarCreateProviderError
+		var preflight calendarDeletePreflightError
 		switch {
+		case errors.Is(err, errCalendarOccurrenceBoundary):
+			calendarUpdateFailure(w, http.StatusBadRequest, err.Error(), false, false)
 		case errors.Is(err, errCalendarUpdateConflict):
 			calendarUpdateFailure(w, http.StatusConflict, "This event changed at the provider. Refresh the calendar and reopen it; your changes were not applied.", false, true)
 		case errors.Is(err, errCalendarUpdateUnsupported):
@@ -312,7 +332,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		case errors.As(err, &provider) && (provider.Status == 404 || provider.Status == 410):
 			calendarUpdateFailure(w, http.StatusConflict, "This event is no longer available at the provider. Refresh the calendar.", false, true)
 		default:
-			uncertain := calendarCreateUncertain(err)
+			uncertain := !errors.As(err, &preflight) && calendarCreateUncertain(err)
 			message := "Could not update the event. Check Calendar write access and try again."
 			if uncertain {
 				message = "The save could not be confirmed. Refresh the calendar and reopen the event to check before making further changes."
@@ -321,13 +341,19 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	if remote.RemoteID != event.RemoteID || strings.TrimSpace(remote.ETag) == "" || calendarUpdateSavedRestriction(remote, draft) != "" || (draft.Recurrence != nil && !calendarUpdateMatchesDraft(remote, draft)) {
+	restriction := calendarUpdateSavedRestriction(remote, draft)
+	if instance {
+		restriction = calendarOccurrenceRestriction(remote, event.SeriesRemoteID)
+	}
+	if remote.RemoteID != event.RemoteID || strings.TrimSpace(remote.ETag) == "" || restriction != "" || ((draft.Recurrence != nil || instance) && !calendarUpdateMatchesDraft(remote, draft)) {
 		calendarUpdateFailure(w, http.StatusBadGateway, "The provider's saved event could not be confirmed. Refresh the calendar and reopen the event.", true, false)
 		return
 	}
 	stored := calendarStorageEvent(userID, source.ID, remote)
 	if series {
 		err = h.db.CompleteCalendarSeriesUpdate(ctx, userID, occurrence.ID, source.ID, occurrence.ETag, stored)
+	} else if instance {
+		err = h.db.CompleteCalendarOccurrenceUpdate(ctx, userID, event.ID, source.ID, version, stored)
 	} else if draft.Recurrence != nil {
 		err = h.db.CompleteCalendarSeriesConversion(ctx, userID, event.ID, source.ID, version, stored)
 	} else {
@@ -341,6 +367,9 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: userID, Payload: map[string]any{"source_id": source.ID, "event_id": event.ID}})
 	}
 	response := map[string]any{"saved": true, "event_id": event.ID, "source_id": source.ID, "hidden": source.IsHidden}
+	if instance {
+		response["scope"] = "occurrence"
+	}
 	if draft.Recurrence != nil {
 		response["series_id"] = remote.RemoteID
 		if series {

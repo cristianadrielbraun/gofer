@@ -133,6 +133,19 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 			page.Events = append(page.Events, event)
 		}
 	}
+	// RFC 4791 allows the initial expanded occurrence to omit RECURRENCE-ID.
+	// Read minimal original metadata in batches so it is not mistaken for a
+	// standalone event, even when the next recurrence is outside this window.
+	if err := identifyCalDAVInitialOccurrences(ctx, source, username, password, page.Events); err != nil {
+		return calendar.EventPage{}, err
+	}
+	clear(seen)
+	for _, event := range page.Events {
+		if seen[event.RemoteID] {
+			return calendar.EventPage{}, fmt.Errorf("CalDAV returned a duplicate initial occurrence")
+		}
+		seen[event.RemoteID] = true
+	}
 	return page, nil
 }
 

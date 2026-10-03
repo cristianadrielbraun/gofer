@@ -50,6 +50,10 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	if details.CanDelete && !details.DeleteSeries {
 		details.DeleteVersion = event.ETag
 	}
+	details.HasOccurrence = event.SeriesRemoteID != "" && calendarOccurrenceExistingRestriction(event) == nil
+	if details.HasOccurrence {
+		details.DeleteVersion = event.ETag
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	location := viewsCalendarLocation(h.db.GetUISettings(ctx, userID))

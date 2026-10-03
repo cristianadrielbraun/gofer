@@ -434,6 +434,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/calendar/events/{id}", h.handleUpdateCalendarEvent)
 	mux.HandleFunc("DELETE /api/calendar/events/{id}", h.handleDeleteCalendarEvent)
 	mux.HandleFunc("GET /api/calendar/events/{id}/delete-series-confirmation", h.handleCalendarSeriesDeleteConfirmation)
+	mux.HandleFunc("GET /api/calendar/events/{id}/delete-occurrence-confirmation", h.handleCalendarOccurrenceDeleteConfirmation)
 	mux.HandleFunc("GET /search", h.handleSearch)
 	mux.HandleFunc("GET /api/contacts/export", h.handleExportContacts)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)

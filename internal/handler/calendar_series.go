@@ -221,7 +221,7 @@ func calendarCalDAVSeriesEvent(cal *ical.Calendar, headers http.Header, endpoint
 	return event, err
 }
 
-func (h *Handler) readCalendarProviderSeries(ctx context.Context, source storage.CalendarSource, occurrence storage.CalendarEvent) (storage.CalendarEvent, error) {
+func (h *Handler) readCalendarProviderSeries(ctx context.Context, source storage.CalendarSource, occurrence storage.CalendarEvent, deletingScope ...bool) (storage.CalendarEvent, error) {
 	id := calendarSeriesID(occurrence)
 	var event calendar.RemoteEvent
 	var err error
@@ -261,7 +261,11 @@ func (h *Handler) readCalendarProviderSeries(ctx context.Context, source storage
 			cal, headers, getErr := calendarUpdateCalDAVGet(ctx, client, endpoint, credentials.username, credentials.password)
 			err = getErr
 			if err == nil {
-				event, err = calendarCalDAVSeriesEvent(cal, headers, endpoint, location)
+				if calendarOccurrenceScope(deletingScope) {
+					event, err = calendarCalDAVDeleteSeriesEvent(cal, headers, endpoint, location)
+				} else {
+					event, err = calendarCalDAVSeriesEvent(cal, headers, endpoint, location)
+				}
 			}
 		default:
 			err = errCalendarUpdateUnsupported
@@ -285,7 +289,13 @@ func (h *Handler) readCalendarProviderSeries(ctx context.Context, source storage
 	return stored, nil
 }
 
-func calendarUpdateExistingScopeRestriction(existing storage.CalendarEvent, series bool) error {
+func calendarUpdateExistingScopeRestriction(existing storage.CalendarEvent, series bool, occurrenceScope ...bool) error {
+	if calendarOccurrenceScope(occurrenceScope) {
+		if series {
+			return errCalendarUpdateUnsupported
+		}
+		return calendarOccurrenceExistingRestriction(existing)
+	}
 	if series {
 		_, err := calendarSeriesDraft(calendar.RemoteEvent{AllDay: existing.AllDay, StartDate: existing.StartDate, EndDate: existing.EndDate,
 			StartAt: existing.StartAt, EndAt: existing.EndAt, StartTimeZone: existing.StartTimeZone, SeriesRemoteID: existing.SeriesRemoteID, Recurrence: json.RawMessage(existing.RecurrenceJSON)})
