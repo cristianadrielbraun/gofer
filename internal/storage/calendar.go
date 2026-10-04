@@ -76,6 +76,8 @@ type CalendarEvent struct {
 	SourceName        string
 	SourceColor       string
 	SourceHidden      bool
+	SourceProvider    string // Read-only context from the source/account joins.
+	AccountEmail      string
 }
 
 // ReplaceCalendarSources reconciles one provider account's discovered
@@ -650,7 +652,8 @@ const calendarEventSelect = `
 		       event.start_at, event.end_at, event.start_timezone, event.end_timezone,
 		       event.recurrence_json, event.attendees_json, event.online_meeting_json,
 		       event.html_link, event.provider_created_at, event.provider_updated_at,
-		       event.is_deleted, source.name, source.color, source.is_hidden, event.response_status
+		       event.is_deleted, source.name, source.color, source.is_hidden, event.response_status,
+		       source.provider, account.email_address
 		FROM calendar_events event
 		JOIN calendar_sources source ON source.id = event.source_id
 		JOIN accounts account ON account.id = source.account_id
@@ -719,6 +722,7 @@ func scanCalendarEvent(row interface{ Scan(...any) error }) (CalendarEvent, erro
 		&event.OnlineMeetingJSON, &event.HTMLLink, &providerCreatedAt, &providerUpdatedAt,
 		&isDeleted, &event.SourceName, &event.SourceColor, &sourceHidden,
 		&event.ResponseStatus,
+		&event.SourceProvider, &event.AccountEmail,
 	); err != nil {
 		return CalendarEvent{}, err
 	}

@@ -98,6 +98,9 @@ func (h *Handler) queueCalDAVResponse(ctx context.Context, source storage.Calend
 // Run immediately before SMTP, including every safe retry. Canceled, stale or
 // reconfigured invitations must not be sent just because they were queued.
 func (h *Handler) beforeCalendarReplySend(ctx context.Context, send storage.OutgoingSend, msg *message.OutgoingMessage) (func(), error) {
+	if msg.CalendarNotification != nil {
+		return h.beforeCalendarNotificationSend(ctx, send, msg)
+	}
 	noop := func() {}
 	if msg.CalendarReply == "" {
 		return noop, nil

@@ -53,3 +53,42 @@ func TestCalendarReplyMIME(t *testing.T) {
 		t.Fatal("wrong number of MIME alternatives")
 	}
 }
+
+func TestCalendarOrganizerNotificationMIME(t *testing.T) {
+	for _, method := range []string{"REQUEST", "CANCEL"} {
+		t.Run(method, func(t *testing.T) {
+			ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:" + method + "\r\nBEGIN:VEVENT\r\nUID:meeting\r\nORGANIZER:mailto:host@example.com\r\nATTENDEE:mailto:guest@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+			raw, err := BuildMIMEMessage(&OutgoingMessage{FromEmail: "host@example.com", To: []*mail.Address{{Address: "guest@example.com"}}, TextBody: "Meeting notification.", CalendarNotification: &CalendarNotification{Method: method, Calendar: ics, ExpectedCalendar: "private expected-resource metadata"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(raw, []byte("private expected-resource metadata")) {
+				t.Fatal("queue metadata leaked into MIME")
+			}
+			msg, err := mail.ReadMessage(bytes.NewReader(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts := multipart.NewReader(msg.Body, params["boundary"])
+			if _, err := parts.NextPart(); err != nil {
+				t.Fatal(err)
+			}
+			part, err := parts.NextPart()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ct, params, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := io.ReadAll(part)
+			if err != nil || ct != "text/calendar" || params["method"] != method || string(data) != ics {
+				t.Fatalf("wrong organizer MIME: %s %v", data, part.Header)
+			}
+		})
+	}
+}

@@ -1,0 +1,50 @@
+package views
+
+import (
+	"strconv"
+
+	"github.com/cristianadrielbraun/gofer/components/badge"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+)
+
+templ CalendarEventResponseIndicator(event CalendarEvent, compact bool) {
+	if state := calendarEventResponseState(event); state != "" && !(compact && (state == "tentative" || state == "declined")) {
+		@badge.Badge(badge.Props{
+			Variant: badge.VariantSecondary,
+			Class: "calendar-event-response-indicator rounded-sm border-0 font-bold leading-none",
+			Attributes: templ.Attributes{
+				"title": calendarEventResponseLabel(event),
+				"aria-hidden": "true",
+				"data-calendar-response-compact": strconv.FormatBool(compact),
+			},
+		}) {
+			if !compact || state == "accepted" {
+				if state == "pending" {
+					@icon.Clock3(icon.Props{Class: "size-3 shrink-0"})
+				} else if state == "tentative" {
+					@icon.CircleQuestionMark(icon.Props{Class: "size-3 shrink-0"})
+				} else if state == "declined" {
+					@icon.X(icon.Props{Class: "size-3 shrink-0"})
+				} else {
+					@icon.Check(icon.Props{Class: "size-3 shrink-0"})
+				}
+			}
+			if compact && state == "pending" {
+				<span>Reply</span>
+			} else if !compact || state != "accepted" {
+				<span>{ calendarEventResponseLabel(event) }</span>
+			}
+		}
+	}
+}
+
+templ CalendarEventResponseLegend() {
+	<span class="inline-flex items-center gap-1.5">
+		<span class="relative inline-block h-3 w-5 shrink-0 rounded-sm border" data-calendar-response-swatch data-calendar-response-state="tentative" aria-hidden="true"></span>
+		Maybe
+	</span>
+	<span class="inline-flex items-center gap-1.5">
+		<span class="relative inline-block h-3 w-5 shrink-0 rounded-sm border" data-calendar-response-swatch data-calendar-response-state="declined" aria-hidden="true"></span>
+		Declined
+	</span>
+}

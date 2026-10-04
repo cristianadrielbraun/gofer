@@ -68,12 +68,7 @@ func deleteGoogleCalendarEventScope(ctx context.Context, token, calendarID strin
 		return calendarUpdateUnsupported("Refresh the calendar to retrieve a safe event version.")
 	}
 	endpoint := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(calendarID) + "/events/" + url.PathEscape(existing.RemoteID)
-	var current struct {
-		googleCalendarUpdateEvent
-		Organizer struct {
-			Self *bool `json:"self"`
-		} `json:"organizer"`
-	}
+	var current googleCalendarUpdateEvent
 	if err := calendarCreateJSON(ctx, http.MethodGet, endpoint, token, nil, &current); err != nil {
 		return calendarDeletePreflightError{calendarUpdateHTTPError(err)}
 	}
@@ -81,7 +76,7 @@ func deleteGoogleCalendarEventScope(ctx context.Context, token, calendarID strin
 		return errCalendarUpdateConflict
 	}
 	if series {
-		if _, err := calendarGoogleSeriesEvent(current.googleCalendarUpdateEvent); err != nil {
+		if _, err := calendarGoogleSeriesEvent(current); err != nil {
 			return calendarDeletePreflightError{err}
 		}
 	} else if occurrence {
@@ -93,6 +88,9 @@ func deleteGoogleCalendarEventScope(ctx context.Context, token, calendarID strin
 	}
 	if current.Organizer.Self != nil && !*current.Organizer.Self {
 		return calendarUpdateUnsupported("Invitations cannot be deleted in Gofer yet.")
+	}
+	if calendarUpdateHasDetails(current.Attendees) {
+		endpoint += "?sendUpdates=all"
 	}
 	return calendarDeleteJSON(ctx, endpoint, token, current.ETag)
 }
@@ -108,10 +106,7 @@ func deleteOutlookCalendarEventScope(ctx context.Context, token, calendarID stri
 		return err
 	}
 	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(calendarID) + "/events/" + url.PathEscape(existing.RemoteID)
-	var current struct {
-		outlookCalendarUpdateEvent
-		IsOrganizer *bool `json:"isOrganizer"`
-	}
+	var current outlookCalendarUpdateEvent
 	if err := calendarCreateJSON(ctx, http.MethodGet, endpoint, token, nil, &current); err != nil {
 		return calendarDeletePreflightError{calendarUpdateHTTPError(err)}
 	}
@@ -122,7 +117,7 @@ func deleteOutlookCalendarEventScope(ctx context.Context, token, calendarID stri
 		return calendarUpdateUnsupported("Microsoft did not supply a safe event version.")
 	}
 	if series {
-		if _, err := calendarOutlookSeriesEvent(current.outlookCalendarUpdateEvent); err != nil {
+		if _, err := calendarOutlookSeriesEvent(current); err != nil {
 			return calendarDeletePreflightError{err}
 		}
 	} else if occurrence {

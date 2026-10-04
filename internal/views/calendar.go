@@ -63,19 +63,20 @@ func calendarLoadingData(view string, uiSettings map[string]string) CalendarMont
 }
 
 type CalendarEvent struct {
-	ID           string
-	SourceID     string
-	SourceHidden bool
-	SourceName   string
-	SourceColor  string
-	Summary      string
-	Location     string
-	Status       string
-	AllDay       bool
-	StartDate    string
-	EndDate      string
-	StartAt      *time.Time
-	EndAt        *time.Time
+	ID             string
+	SourceID       string
+	SourceHidden   bool
+	SourceName     string
+	SourceColor    string
+	Summary        string
+	Location       string
+	Status         string
+	ResponseStatus string
+	AllDay         bool
+	StartDate      string
+	EndDate        string
+	StartAt        *time.Time
+	EndAt          *time.Time
 }
 
 func NewCalendarMonthData(at time.Time) CalendarMonthData {

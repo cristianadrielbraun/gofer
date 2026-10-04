@@ -37,6 +37,7 @@ type CalendarCreateData struct {
 	EndDate  string
 	EndTime  string
 	TimeZone string
+	Guests   string
 }
 
 // calendarDialogClass sizes a calendar dialog as a bounded column: header and

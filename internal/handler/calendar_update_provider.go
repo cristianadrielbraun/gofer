@@ -33,7 +33,12 @@ func calendarUpdateRestriction(event calendar.RemoteEvent) string {
 		return "Recurring events and individual occurrences cannot be edited in Gofer yet."
 	}
 	if calendarUpdateHasDetails(event.Attendees) {
-		return "Events with guests cannot be edited in Gofer yet."
+		if event.ResponseStatus != "organizer" {
+			return "Events with guests can only be edited by their organizer."
+		}
+		if _, err := calendarMeetingGuests(event.Attendees); err != nil {
+			return err.Error()
+		}
 	}
 	if calendarUpdateHasDetails(event.OnlineMeeting) {
 		return "Online meetings cannot be edited in Gofer yet."
@@ -72,7 +77,8 @@ func calendarUpdateExistingRestriction(existing storage.CalendarEvent) error {
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
 		Status: existing.Status, Deleted: existing.IsDeleted, SeriesRemoteID: existing.SeriesRemoteID,
 		Recurrence: json.RawMessage(existing.RecurrenceJSON), Attendees: json.RawMessage(existing.AttendeesJSON),
-		OnlineMeeting: json.RawMessage(existing.OnlineMeetingJSON),
+		OnlineMeeting:  json.RawMessage(existing.OnlineMeetingJSON),
+		ResponseStatus: existing.ResponseStatus,
 	}); reason != "" {
 		return calendarUpdateUnsupported(reason)
 	}
@@ -201,6 +207,7 @@ func (remote googleCalendarUpdateEvent) restriction() string {
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
 		Status: remote.Status, SeriesRemoteID: remote.RecurringEventID,
 		Recurrence: recurrence, Attendees: remote.Attendees, OnlineMeeting: remote.ConferenceData,
+		ResponseStatus: calendarGoogleOrganizerStatus(remote.googleCalendarEvent),
 	}); reason != "" {
 		return reason
 	}
@@ -252,6 +259,13 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 	if current.ETag != version {
 		return calendar.RemoteEvent{}, errCalendarUpdateConflict
 	}
+	if err := calendarMeetingScopeRestriction(calendarGoogleOrganizerStatus(current.googleCalendarEvent), current.Attendees, draft, series || occurrence || draft.Recurrence != nil); err != nil {
+		return calendar.RemoteEvent{}, err
+	}
+	draft.OrganizerEmail = current.Organizer.Email
+	if err := calendarMeetingCheckSelfGuest(draft, draft.OrganizerEmail); err != nil {
+		return calendar.RemoteEvent{}, err
+	}
 	if series {
 		if draft.Recurrence == nil {
 			return calendar.RemoteEvent{}, errCalendarUpdateUnsupported
@@ -280,6 +294,9 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 		start["timeZone"], end["timeZone"] = draft.TimeZone, draft.TimeZone
 	}
 	payload := map[string]any{"summary": draft.Summary, "location": draft.Location, "start": start, "end": end}
+	if draft.GuestsSet {
+		payload["attendees"] = calendarMeetingGoogleGuests(draft, current.Attendees)
+	}
 	if draft.Recurrence != nil {
 		payload["recurrence"] = []string{"RRULE:" + calendarRecurrenceRule(draft)}
 	}
@@ -287,7 +304,11 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 		payload["description"] = draft.Description
 	}
 	var updated googleCalendarUpdateEvent
-	if err := calendarUpdateJSON(ctx, endpoint, token, current.ETag, payload, &updated); err != nil {
+	writeEndpoint := endpoint
+	if len(draft.Guests) > 0 || calendarUpdateHasDetails(current.Attendees) {
+		writeEndpoint += "?sendUpdates=all"
+	}
+	if err := calendarUpdateJSON(ctx, writeEndpoint, token, current.ETag, payload, &updated); err != nil {
 		return calendar.RemoteEvent{}, err
 	}
 	needsConfirmation := strings.TrimSpace(updated.ETag) == ""
@@ -314,6 +335,9 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}
+	if draft.GuestsSet && !calendarMeetingGuestsMatch(event.Attendees, draft.Guests, event.OrganizerEmail) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the submitted guests")
+	}
 	if (needsConfirmation || draft.Recurrence != nil || occurrence) && !calendarUpdateMatchesDraft(event, draft) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the submitted event changes")
 	}
@@ -333,6 +357,7 @@ func (remote outlookCalendarUpdateEvent) restriction() string {
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
 		Deleted: remote.IsCancelled, SeriesRemoteID: remote.SeriesMasterID,
 		Recurrence: remote.Recurrence, Attendees: remote.Attendees, OnlineMeeting: remote.OnlineMeeting,
+		ResponseStatus: calendarOutlookOrganizerStatus(remote.outlookCalendarEvent),
 	}); reason != "" {
 		return reason
 	}
@@ -380,6 +405,13 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 	if version != current.ChangeKey && version != current.ODataETag {
 		return calendar.RemoteEvent{}, errCalendarUpdateConflict
 	}
+	if err := calendarMeetingScopeRestriction(calendarOutlookOrganizerStatus(current.outlookCalendarEvent), current.Attendees, draft, series || occurrence || draft.Recurrence != nil); err != nil {
+		return calendar.RemoteEvent{}, err
+	}
+	draft.OrganizerEmail = current.Organizer.EmailAddress.Address
+	if err := calendarMeetingCheckSelfGuest(draft, draft.OrganizerEmail); err != nil {
+		return calendar.RemoteEvent{}, err
+	}
 	if series {
 		if draft.Recurrence == nil {
 			return calendar.RemoteEvent{}, errCalendarUpdateUnsupported
@@ -404,6 +436,9 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 		start["dateTime"], end["dateTime"] = draft.StartAt.In(location).Format("2006-01-02T15:04:05.999999999"), draft.EndAt.In(location).Format("2006-01-02T15:04:05.999999999")
 	}
 	payload := map[string]any{"subject": draft.Summary, "start": start, "end": end, "isAllDay": draft.AllDay}
+	if draft.GuestsSet {
+		payload["attendees"] = calendarMeetingOutlookGuests(draft, current.Attendees)
+	}
 	if draft.Recurrence != nil {
 		payload["recurrence"] = calendarOutlookRecurrence(draft)
 	}
@@ -437,6 +472,9 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 	event, err := normalizeOutlookCalendarEvent(updated.outlookCalendarEvent)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
+	}
+	if draft.GuestsSet && !calendarMeetingGuestsMatch(event.Attendees, draft.Guests, event.OrganizerEmail) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted guests")
 	}
 	if (needsConfirmation || draft.Recurrence != nil || occurrence) && !calendarUpdateMatchesDraft(event, draft) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted event changes")

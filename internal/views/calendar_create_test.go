@@ -110,7 +110,7 @@ func TestCalendarCreateAndEditUseOneScrollingColumn(t *testing.T) {
 				}
 			}
 			inspect(doc, false)
-			for _, name := range []string{"summary", "all_day", "start_date", "start_time", "end_date", "end_time", "timezone", "location", "source_id", "description"} {
+			for _, name := range []string{"all_day", "start_date", "start_time", "end_date", "end_time", "timezone", "location", "source_id", "description"} {
 				if !fields[name] {
 					t.Errorf("%s must render inside the scrolling body", name)
 				}
@@ -119,10 +119,14 @@ func TestCalendarCreateAndEditUseOneScrollingColumn(t *testing.T) {
 				t.Error("recurrence is offered except when editing just one occurrence")
 			}
 			body, form := nodes["data-calendar-create-body"], nodes["data-calendar-create-form"]
-			if body == nil || form == nil || body.Parent != form {
-				t.Fatal("the scrolling body must belong to the single form")
+			viewport := nodes["data-calendar-create-viewport"]
+			if body == nil || form == nil || viewport == nil || body.Parent != viewport || viewport.Parent != form {
+				t.Fatal("the scrolling body and description viewport must belong to the single form")
 			}
-			for _, key := range []string{"data-calendar-create-error", "footer"} {
+			if inBody, exists := fields["summary"]; !exists || inBody {
+				t.Error("the event title must remain outside the fading body")
+			}
+			for _, key := range []string{"data-calendar-create-title-field", "data-calendar-create-error", "footer"} {
 				if node := nodes[key]; node == nil || node.Parent != form {
 					t.Errorf("%s must stay outside the scrolling body", key)
 				}

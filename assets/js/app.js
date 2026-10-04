@@ -8628,6 +8628,131 @@ function updateCalendarRecurrenceForm(form, locked) {
   form.querySelector("[data-calendar-repeat-summary]").textContent = summary
 }
 
+function toggleCalendarDescription(form) {
+  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict) return
+  return setCalendarDescriptionExpanded(form, !form._calendarDescriptionExpanded)
+}
+
+function setCalendarDescriptionExpanded(form, expanded) {
+  var editor = form.querySelector("[data-calendar-description-editor]")
+  var slot = form.querySelector("[data-calendar-description-slot]")
+  var viewport = form.querySelector("[data-calendar-create-viewport]")
+  var body = form.querySelector("[data-calendar-create-body]")
+  var content = editor && editor.querySelector("[data-calendar-description-content]")
+  if (!editor || !slot || !viewport || !body || !content) return Promise.resolve()
+  var state = form._calendarDescriptionState
+  if (!state && !expanded) return Promise.resolve()
+  if (editor._calendarDescriptionReveal) editor._calendarDescriptionReveal.cancel()
+  var from = editor.getBoundingClientRect()
+  var opacity = getComputedStyle(body).opacity
+  if (!state) {
+    state = form._calendarDescriptionState = {
+      editorStyle: editor.style.cssText, slotHeight: slot.style.minHeight,
+      bodyOpacity: body.style.opacity, bodyPointerEvents: body.style.pointerEvents, bodyInert: body.inert,
+      contentOpacity: content.style.opacity,
+      token: 0,
+    }
+    slot.style.minHeight = from.height + "px"
+    // Move the original editor, not a copy: value, selection, and undo history
+    // stay live. Its placeholder keeps the dialog's layout and height stable.
+    viewport.appendChild(editor)
+    editor.dataset.expanded = "true"
+    editor.style.position = "absolute"
+    editor.style.zIndex = "10"
+  }
+  var token = ++state.token
+  if (state.resize) state.resize.cancel()
+  if (state.fade) state.fade.cancel()
+  if (state.reveal) state.reveal.cancel()
+  var bounds = viewport.getBoundingClientRect()
+  var padding = getComputedStyle(body)
+  var left = parseFloat(padding.paddingLeft) || 0
+  var top = parseFloat(padding.paddingTop) || 0
+  var right = parseFloat(padding.paddingRight) || 0
+  var bottom = parseFloat(padding.paddingBottom) || 0
+  var destination = expanded ? {
+    left: left, top: top,
+  } : (function () {
+    var target = slot.getBoundingClientRect()
+    return {left: target.left - bounds.left, top: target.top - bounds.top, width: target.width, height: target.height}
+  })()
+  editor.style.left = destination.left + "px"
+  editor.style.top = destination.top + "px"
+  // The expanded resting size follows the viewport on window resizing.
+  editor.style.width = expanded ? "calc(100% - " + (left + right) + "px)" : destination.width + "px"
+  editor.style.height = expanded ? "calc(100% - " + (top + bottom) + "px)" : destination.height + "px"
+  editor.style.transformOrigin = "top left"
+  editor.style.willChange = "translate, scale"
+  body.inert = true
+  body.style.pointerEvents = "none"
+  body.style.opacity = expanded ? "0" : state.bodyOpacity || "1"
+  form._calendarDescriptionExpanded = expanded
+  var button = editor.querySelector("[data-calendar-description-toggle]")
+  var label = expanded ? "Collapse description" : "Expand description"
+  button.setAttribute("aria-expanded", String(expanded))
+  button.setAttribute("aria-label", label)
+  button.title = label
+  editor.querySelector("[data-calendar-description-expand]").hidden = expanded
+  editor.querySelector("[data-calendar-description-collapse]").hidden = !expanded
+  var textarea = editor.querySelector("textarea")
+  // Native textarea wrapping and scrollbar changes are discrete. Keep them
+  // out of the motion: lay out the real input once, and scale an empty frame.
+  content.style.opacity = "0"
+  textarea.focus({preventScroll: true})
+  editor.dataset.resizing = "true"
+  function finish() {
+    if (state.token !== token) return
+    var resize = state.resize, fade = state.fade
+    state.resize = state.fade = null
+    editor.style.willChange = ""
+    delete editor.dataset.resizing
+    if (!expanded) {
+      body.inert = state.bodyInert
+      body.style.opacity = state.bodyOpacity
+      body.style.pointerEvents = state.bodyPointerEvents
+      slot.appendChild(editor)
+      slot.style.minHeight = state.slotHeight
+      editor.style.cssText = state.editorStyle
+      delete editor.dataset.expanded
+      form._calendarDescriptionState = null
+    }
+    // Release the held final frame only after the normal layout is restored.
+    if (resize) resize.cancel()
+    if (fade) fade.cancel()
+    // Moving a focused input back into its slot may clear focus. Restore it
+    // in the same frame, before the text and controls fade back in.
+    var dialog = form.closest("dialog")
+    if (form.isConnected && dialog && dialog.open) textarea.focus({preventScroll: true})
+    content.style.opacity = state.contentOpacity
+    if (!reduced && content.animate) {
+      state.reveal = content.animate([{opacity: 0}, {opacity: state.contentOpacity || "1"}], {duration: 160, easing: "ease"})
+      editor._calendarDescriptionReveal = state.reveal
+      return state.reveal.finished.catch(function () {})
+    }
+  }
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  if (!editor.animate || reduced) { finish(); return Promise.resolve() }
+  var to = editor.getBoundingClientRect()
+  // FLIP only the empty surface, not the text or buttons. No width/height
+  // interpolation, percentage endpoint handoff, or last-frame text reflow.
+  state.resize = editor.animate([
+    {translate: (from.left - to.left) + "px " + (from.top - to.top) + "px", scale: (from.width / to.width) + " " + (from.height / to.height)},
+    {translate: "0px 0px", scale: "1 1"},
+  ], {duration: 220, easing: "ease", fill: "forwards"})
+  state.fade = body.animate([{opacity: opacity}, {opacity: body.style.opacity}], {duration: expanded ? 160 : 220, easing: "ease", fill: "forwards"})
+  return state.resize.finished.then(finish, function () {})
+}
+
+function prepareCalendarDescriptionSubmit(event, button) {
+  var form = button.closest("[data-calendar-create-form]")
+  if (!form || !form._calendarDescriptionState) return
+  // Reveal required fields before the browser tries to focus an invalid one.
+  event.preventDefault()
+  setCalendarDescriptionExpanded(form, false).then(function () {
+    if (form.isConnected && !form._calendarDescriptionState) submitCalendarCreate(form)
+  })
+}
+
 function updateCalendarCreateForm(form) {
   if (!form) return
   adjustCalendarCreateAllDayRange(form)
@@ -8641,6 +8766,8 @@ function updateCalendarCreateForm(form) {
   var busy = !!form._calendarCreateBusy
   var uncertain = !!form._calendarCreateUncertain
   var locked = busy || uncertain || !!form._calendarCreateConflict
+  var descriptionToggle = form.querySelector("[data-calendar-description-toggle]")
+  if (descriptionToggle) descriptionToggle.disabled = locked
   var allDay = form.querySelector('[name="all_day"]').checked
   form.querySelectorAll("input, select, textarea").forEach(function (input) { input.disabled = locked })
   var sourceTrigger = sourceSelect && sourceSelect.querySelector(".select-trigger")
@@ -8702,11 +8829,105 @@ function initializeCalendarCreateForm() {
   updateCalendarCreateForm(form)
 }
 
+function updateCalendarGuestDropdown(form) {
+  if (!form || !window.tui || !window.tui.popover) return
+  var input = form.querySelector('[name="guests"]')
+  var root = form.querySelector("#calendar-guests-dropdown")
+  var list = form.querySelector("#calendar-guest-suggestions")
+  if (!input || !root || !list) return
+  var content = root.querySelector("[data-calendar-guests-dropdown-content]")
+  if (input.disabled || !list.querySelector("[data-calendar-guest-value]") || (document.activeElement !== input && !content.contains(document.activeElement))) {
+    window.tui.popover.close(root.id)
+    input.setAttribute("aria-expanded", "false")
+    input.removeAttribute("aria-activedescendant")
+    return
+  }
+  content.style.width = input.getBoundingClientRect().width + "px"
+  window.tui.popover.open(root.id)
+  input.setAttribute("aria-expanded", "true")
+}
+
+function syncCalendarGuestDropdownState(content, event) {
+  var form = content.closest("[data-calendar-create-form]")
+  var input = form && form.querySelector('[name="guests"]')
+  if (!input) return
+  var open = event.newState === "open"
+  input.setAttribute("aria-expanded", String(open))
+  if (!open) input.removeAttribute("aria-activedescendant")
+}
+
+function handleCalendarGuestKeydown(event, input) {
+  var form = input.closest("[data-calendar-create-form]")
+  var api = window.tui && window.tui.popover
+  if (!form || !api || input.disabled) return
+  var list = form.querySelector("#calendar-guest-suggestions")
+  if (event.key === "Escape" || event.key === "Tab") {
+    if (event.key === "Escape" && api.isOpen("calendar-guests-dropdown")) event.preventDefault()
+    api.close("calendar-guests-dropdown")
+    input.setAttribute("aria-expanded", "false")
+    input.removeAttribute("aria-activedescendant")
+    return
+  }
+  if (!list) return
+  var options = Array.from(list.querySelectorAll("[data-calendar-guest-value]"))
+  var active = options.findIndex(function (option) { return option.dataset.calendarGuestActive === "true" })
+  if (event.key === "Enter" && api.isOpen("calendar-guests-dropdown") && active !== -1) {
+    event.preventDefault()
+    selectCalendarGuest(options[active])
+  } else if ((event.key === "ArrowDown" || event.key === "ArrowUp") && options.length) {
+    event.preventDefault()
+    updateCalendarGuestDropdown(form)
+    active = active === -1 ? (event.key === "ArrowDown" ? 0 : options.length - 1) : (active + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length
+    options.forEach(function (option, index) {
+      option.dataset.calendarGuestActive = String(index === active)
+      option.setAttribute("aria-selected", String(index === active))
+    })
+    input.setAttribute("aria-activedescendant", options[active].id)
+    options[active].scrollIntoView({block: "nearest"})
+  }
+}
+
+document.body.addEventListener("htmx:afterSwap", function (event) {
+  var target = event.detail && event.detail.target
+  if (!target || target.id !== "calendar-guest-suggestions") return
+  var form = target.closest("[data-calendar-create-form]")
+  var input = form && form.querySelector('[name="guests"]')
+  if (input) input.removeAttribute("aria-activedescendant")
+  updateCalendarGuestDropdown(form)
+})
+
+function selectCalendarGuest(button) {
+  var form = button.closest("[data-calendar-create-form]")
+  var input = form && form.querySelector('[name="guests"]')
+  if (!input || input.disabled) return
+  var separator = -1, quoted = false, escaped = false
+  for (var i = 0; i < input.value.length; i++) {
+    var char = input.value[i]
+    if (escaped) { escaped = false; continue }
+    if (char === "\\" && quoted) { escaped = true; continue }
+    if (char === '"') quoted = !quoted
+    if (char === "," && !quoted) separator = i
+  }
+  var prefix = input.value.slice(0, separator + 1).trim()
+  input.value = (prefix ? prefix + " " : "") + button.dataset.calendarGuestValue + ", "
+  if (window.htmx) window.htmx.trigger(input, "htmx:abort")
+  form.querySelector("#calendar-guest-suggestions").replaceChildren()
+  updateCalendarGuestDropdown(form)
+  input.dispatchEvent(new Event("change", {bubbles: true}))
+  input.focus()
+}
+
 function validateCalendarCreatePickers(form) {
   adjustCalendarCreateAllDayRange(form)
   var fields = ["start_date", "end_date", "timezone"]
   if (!form.querySelector('[name="all_day"]').checked) fields = fields.concat(["start_time", "end_time"])
   var repeat = form.querySelector('[name="repeat_frequency"]')
+  var guests = form.querySelector('[name="guests"]')
+  if (guests && guests.value.trim() && repeat && repeat.value !== "none") {
+    setCalendarCreateError(form, "Guest invitations currently support events that do not repeat. Remove the guests or choose Does not repeat.")
+    guests.focus()
+    return false
+  }
   var until = repeat && repeat.value !== "none" && form.querySelector('[name="repeat_end"]').value === "until"
   if (until) fields.push("repeat_until")
   for (var i = 0; i < fields.length; i++) {
@@ -8734,6 +8955,11 @@ function setCalendarCreateError(form, message) {
 
 function submitCalendarCreate(form) {
   if (!form) return Promise.resolve()
+  if (form._calendarDescriptionState && !form._calendarCreateBusy && !form._calendarCreateUncertain && !form._calendarCreateConflict) {
+    return setCalendarDescriptionExpanded(form, false).then(function () {
+      if (form.isConnected && !form._calendarDescriptionState) return submitCalendarCreate(form)
+    })
+  }
   var editing = !!form.dataset.calendarEventId
   if (form._calendarCreateBusy || (editing && (form._calendarCreateUncertain || form._calendarCreateConflict)) || (!form._calendarCreateUncertain && (!form.reportValidity() || !validateCalendarCreatePickers(form)))) return Promise.resolve()
   if (editing) ["source_id", "version", "request_id", "edit_scope"].forEach(function (name) {
@@ -8766,7 +8992,7 @@ function submitCalendarCreate(form) {
       if (editing && (result.data.event_id !== form.dataset.calendarEventId || (form.dataset.calendarEditOccurrence === "true" && result.data.scope !== "occurrence"))) throw new Error("Event scope could not be confirmed")
       // Close only this form; a delayed save must not close a newer dialog.
       if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
-      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: result.data.refresh_pending ? "warning" : "success", icon: result.data.refresh_pending ? "warning" : "success", duration: result.data.refresh_pending ? 8000 : 4500})
+      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.notify_guests ? "Meeting saved. Guest notifications are being delivered." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: result.data.refresh_pending ? "warning" : "success", icon: result.data.refresh_pending ? "warning" : "success", duration: result.data.refresh_pending ? 8000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {

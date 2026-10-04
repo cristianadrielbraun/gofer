@@ -2406,6 +2406,11 @@ body.mail-list-column-resizing {
 }
 
 /* Joined all-day segments share a row and meet across the day gutters. */
+.dark [data-calendar-month-grid] [data-calendar-day-selected="true"] {
+  background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  --tw-ring-color: color-mix(in srgb, var(--color-primary) 90%, transparent);
+}
+
 [data-calendar-month-grid] [data-calendar-day] {
   --calendar-day-padding: 0.375rem;
   overflow: visible;
@@ -2464,7 +2469,8 @@ body.mail-list-column-resizing {
   box-shadow: none;
 }
 
-:root:not(.dark) [data-calendar-month-event]::before {
+:root:not(.dark) [data-calendar-month-event]::before,
+[data-calendar-month-event]:is([data-calendar-response-state="pending"], [data-calendar-response-state="tentative"], [data-calendar-response-state="declined"])::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -2490,6 +2496,129 @@ body.mail-list-column-resizing {
 
 :root:not(.dark) :is([data-calendar-month-event], [data-calendar-week-all-day], [data-calendar-week-event]) .text-primary {
   color: color-mix(in srgb, var(--color-primary) 35%, var(--color-foreground));
+}
+
+/* Dark agenda cards need a visible lift above their normal card surface. */
+.dark [data-calendar-agenda-event]:is([data-calendar-response-state=""], [data-calendar-response-state="accepted"]):hover {
+  background-color: color-mix(in srgb, var(--color-foreground) 8%, var(--color-card));
+  border-color: color-mix(in srgb, var(--color-foreground) 20%, var(--color-border));
+}
+
+/* RSVP has distinct surfaces and readable labels, using only theme colors.
+   Pending is hollow, Maybe is hatched, and Declined recedes from the grid. */
+[data-calendar-event-trigger][data-calendar-response-state="pending"] {
+  --calendar-response-surface: var(--color-background);
+  --calendar-response-border: var(--color-primary);
+  --calendar-response-label: var(--color-primary);
+  --calendar-response-label-text: var(--color-primary-foreground);
+}
+
+[data-calendar-event-trigger][data-calendar-response-state="tentative"] {
+  --calendar-response-surface: var(--color-background);
+  --calendar-response-hover-tint: 3%;
+  --calendar-response-border: color-mix(in srgb, var(--color-foreground) 45%, var(--color-border));
+  --calendar-response-label: var(--color-foreground);
+  --calendar-response-label-text: var(--color-background);
+  background-image: repeating-linear-gradient(-45deg, transparent 0 7px, color-mix(in srgb, var(--color-foreground) 6%, transparent) 7px 8px);
+}
+
+/* The grid uses stronger drawings in place of response text. The footer
+   samples share these rules so the legend matches the actual event pills. */
+[data-calendar-response-swatch] {
+  background-color: var(--color-background);
+  border-color: var(--color-border);
+}
+
+:is([data-calendar-month-event], [data-calendar-week-all-day], [data-calendar-week-event], [data-calendar-response-swatch])[data-calendar-response-state="tentative"] {
+  background-image: repeating-linear-gradient(-45deg, transparent 0 5px, color-mix(in srgb, var(--color-foreground) 14%, transparent) 5px 7px);
+}
+
+[data-calendar-response-swatch][data-calendar-response-state="tentative"] {
+  border-color: color-mix(in srgb, var(--color-foreground) 45%, var(--color-border));
+}
+
+:is([data-calendar-month-event], [data-calendar-week-all-day], [data-calendar-week-event], [data-calendar-response-swatch])[data-calendar-response-state="declined"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  right: 3px;
+  height: 1px;
+  background-color: var(--color-muted-foreground);
+  pointer-events: none;
+}
+
+:is([data-calendar-month-event], [data-calendar-week-all-day])[data-calendar-response-state="declined"][data-calendar-continues-before]::after { left: 0; }
+:is([data-calendar-month-event], [data-calendar-week-all-day])[data-calendar-response-state="declined"][data-calendar-continues-after]::after { right: 0; }
+
+[data-calendar-event-trigger][data-calendar-response-state="declined"] {
+  --calendar-response-surface: var(--color-background);
+  --calendar-response-border: var(--color-border);
+  --calendar-response-label: var(--color-secondary);
+  --calendar-response-label-text: var(--color-secondary-foreground);
+}
+
+/* Match the specificity of the light-theme pill overrides. Do not add real
+   borders to month pills: their inset stroke keeps row sizing and joins intact. */
+:root [data-calendar-event-trigger]:is([data-calendar-response-state="pending"], [data-calendar-response-state="tentative"], [data-calendar-response-state="declined"]) {
+  --calendar-response-content-surface: var(--calendar-response-surface);
+  background-color: var(--calendar-response-surface);
+  border-color: var(--calendar-response-border);
+}
+
+:root [data-calendar-event-trigger]:is([data-calendar-response-state="pending"], [data-calendar-response-state="tentative"], [data-calendar-response-state="declined"]):not(:focus-visible) {
+  box-shadow: none;
+}
+
+:root [data-calendar-event-trigger]:is([data-calendar-response-state="pending"], [data-calendar-response-state="tentative"], [data-calendar-response-state="declined"]):is(:hover, [data-calendar-event-hover]) {
+  --calendar-response-content-surface: color-mix(in srgb, var(--color-foreground) var(--calendar-response-hover-tint, 8%), var(--calendar-response-surface));
+  background-color: var(--calendar-response-content-surface);
+}
+
+/* Clear the hatching beneath titles, dates, and supporting text. */
+[data-calendar-event-trigger][data-calendar-response-state="tentative"] :is([data-calendar-event-text], [data-calendar-agenda-event] [data-calendar-event-summary], span.text-primary, p) {
+  background-color: var(--calendar-response-content-surface);
+  box-shadow: 0 0 0 1px var(--calendar-response-content-surface);
+  transition-property: background-color, box-shadow;
+}
+
+/* Card and text masks must interpolate the same colors at the same pace,
+   including when the pointer leaves or reverses direction mid-transition. */
+[data-calendar-event-trigger][data-calendar-response-state="tentative"],
+[data-calendar-event-trigger][data-calendar-response-state="tentative"] :is([data-calendar-event-text], [data-calendar-agenda-event] [data-calendar-event-summary], span.text-primary, p) {
+  transition-duration: var(--default-transition-duration, 150ms);
+  transition-timing-function: var(--default-transition-timing-function, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+[data-calendar-event-trigger] .calendar-event-response-indicator {
+  background-color: var(--calendar-response-label, transparent);
+  color: var(--calendar-response-label-text, var(--color-muted-foreground));
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+[data-calendar-event-trigger] .calendar-event-response-indicator[data-calendar-response-compact="true"] {
+  padding: 1px 4px;
+  font-size: 10px;
+}
+
+[data-calendar-event-trigger][data-calendar-response-state="accepted"] .calendar-event-response-indicator {
+  padding: 0;
+}
+
+[data-calendar-event-trigger][data-calendar-response-state="declined"] [data-calendar-event-summary] {
+  color: var(--color-muted-foreground);
+  font-weight: 400;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+:is([data-calendar-month-event], [data-calendar-week-all-day], [data-calendar-week-event])[data-calendar-response-state="declined"] [data-calendar-event-summary] {
+  text-decoration: none;
+}
+
+:root [data-calendar-event-trigger][data-calendar-response-state="declined"] .text-primary {
+  color: var(--color-muted-foreground);
 }
 
 /* Match the other app skeletons without animating borders, grids, or controls. */
@@ -3114,6 +3243,40 @@ body.mail-list-column-resizing {
     0 2px 6px rgba(0,0,0,0.2);
 }
 
+[data-calendar-description-editor][data-expanded="true"] textarea {
+  height: 100% !important;
+  min-height: 0;
+  resize: none;
+}
+
+[data-calendar-description-editor][data-expanded="true"] [data-calendar-description-content] {
+  height: 100%;
+}
+
+/* One permanent surface: resizing and revealing never exchange backdrops. */
+[data-calendar-description-editor]::before {
+  @apply pointer-events-none absolute inset-0 rounded-md border border-input bg-input/30 shadow-xs transition-colors;
+  content: "";
+}
+
+[data-calendar-description-editor]:focus-within::before {
+  @apply border-ring ring-ring/50 ring-[3px];
+}
+
+[data-calendar-description-editor][data-resizing="true"]::before {
+  box-shadow: none;
+  transition: none;
+}
+
+/* Keep the native border's geometry, but draw the surface outside the fading
+   content layer so only text and controls fade, never the field itself. */
+[data-calendar-description-editor] textarea,
+[data-calendar-description-editor] textarea:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
 .avatar-live-switch::after {
   transform: translateY(-50%) scaleX(-1);
 }
@@ -3133,6 +3296,7 @@ body.mail-list-column-resizing {
 
 .focus-visible\:ring-\[3px\]:focus-visible,
 .focus-within\:ring-\[3px\]:focus-within,
-.has-\[\:focus\]\:ring-\[3px\]:has(*:is(:focus)) {
+.has-\[\:focus\]\:ring-\[3px\]:has(*:is(:focus)),
+[data-calendar-description-editor]:focus-within::before {
   --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(var(--ring-width) + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
 }

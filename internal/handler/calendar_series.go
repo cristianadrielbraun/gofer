@@ -139,6 +139,9 @@ func calendarSeriesUntil(value string, draft calendar.EventDraft) (string, error
 }
 
 func calendarGoogleSeriesEvent(remote googleCalendarUpdateEvent) (calendar.RemoteEvent, error) {
+	if calendarUpdateHasDetails(remote.Attendees) {
+		return calendar.RemoteEvent{}, calendarUpdateUnsupported("Recurring meetings with guests are not supported yet.")
+	}
 	event, err := normalizeGoogleCalendarEvent(remote.googleCalendarEvent)
 	if err != nil {
 		return event, err
@@ -154,6 +157,9 @@ func calendarGoogleSeriesEvent(remote googleCalendarUpdateEvent) (calendar.Remot
 }
 
 func calendarOutlookSeriesEvent(remote outlookCalendarUpdateEvent) (calendar.RemoteEvent, error) {
+	if calendarUpdateHasDetails(remote.Attendees) {
+		return calendar.RemoteEvent{}, calendarUpdateUnsupported("Recurring meetings with guests are not supported yet.")
+	}
 	// Validate wire zones before the normal reader's permissive fallback.
 	for _, endpoint := range []*outlookCalendarDateTime{&remote.Start, &remote.End} {
 		location, err := calendarSeriesLocation(endpoint.TimeZone)

@@ -193,21 +193,68 @@ func calendarSourcesAllHidden(sources []storage.CalendarSource) bool {
 }
 
 func calendarViewEvent(event storage.CalendarEvent) views.CalendarEvent {
-	return views.CalendarEvent{
-		ID:           event.ID,
-		SourceID:     event.SourceID,
-		SourceHidden: event.SourceHidden,
-		SourceName:   event.SourceName,
-		SourceColor:  event.SourceColor,
-		Summary:      event.Summary,
-		Location:     event.Location,
-		Status:       event.Status,
-		AllDay:       event.AllDay,
-		StartDate:    event.StartDate,
-		EndDate:      event.EndDate,
-		StartAt:      event.StartAt,
-		EndAt:        event.EndAt,
+	response := event.ResponseStatus
+	if response == "" && event.SourceProvider == storage.CalendarSourceProviderCalDAV {
+		response = calendarCachedCalDAVResponse(event)
 	}
+	return views.CalendarEvent{
+		ID:             event.ID,
+		SourceID:       event.SourceID,
+		SourceHidden:   event.SourceHidden,
+		SourceName:     event.SourceName,
+		SourceColor:    event.SourceColor,
+		Summary:        event.Summary,
+		Location:       event.Location,
+		Status:         event.Status,
+		ResponseStatus: response,
+		AllDay:         event.AllDay,
+		StartDate:      event.StartDate,
+		EndDate:        event.EndDate,
+		StartAt:        event.StartAt,
+		EndAt:          event.EndAt,
+	}
+}
+
+// CalDAV sync retains per-attendee PARTSTAT, rather than a provider "self"
+// flag. For display only, match the linked mailbox exactly; never use another
+// guest's reply or guess based on the number of attendees. Response actions
+// continue to verify identity and version with the server independently.
+func calendarCachedCalDAVResponse(event storage.CalendarEvent) string {
+	address := func(value string) string {
+		value = strings.TrimSpace(value)
+		if !strings.HasPrefix(strings.ToLower(value), "mailto:") {
+			value = "mailto:" + value
+		}
+		return calendarReplyAddress(value)
+	}
+	self, organizer := address(event.AccountEmail), address(event.OrganizerEmail)
+	if self == "" || organizer == "" {
+		return ""
+	}
+	if strings.EqualFold(self, organizer) {
+		return "organizer"
+	}
+	var attendees []struct{ Email, Status string }
+	if json.Unmarshal([]byte(event.AttendeesJSON), &attendees) != nil {
+		return ""
+	}
+	count, response := 0, ""
+	for _, attendee := range attendees {
+		if !strings.EqualFold(address(attendee.Email), self) {
+			continue
+		}
+		count++
+		switch strings.ToUpper(strings.TrimSpace(attendee.Status)) {
+		case "", "NEEDS-ACTION":
+			response = "needsAction"
+		case "ACCEPTED", "TENTATIVE", "DECLINED":
+			response = strings.ToLower(strings.TrimSpace(attendee.Status))
+		}
+	}
+	if count != 1 {
+		return ""
+	}
+	return response
 }
 
 func calendarMonthFromRequest(r *http.Request, uiSettings map[string]string) time.Time {

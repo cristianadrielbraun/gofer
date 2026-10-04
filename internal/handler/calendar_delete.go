@@ -57,6 +57,9 @@ func (h *Handler) deleteCalendarProviderEvent(ctx context.Context, source storag
 			remote, err := updateCalDAVCalendarOccurrence(ctx, source, credentials.username, credentials.password, event, nil)
 			return remote.ETag, err
 		}
+		if event.OrganizerEmail != "" || calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON)) {
+			return "", h.deleteCalDAVMeeting(ctx, source, credentials, event)
+		}
 		return "", deleteCalDAVCalendarEventScope(ctx, source, credentials.username, credentials.password, event, series)
 	}
 }

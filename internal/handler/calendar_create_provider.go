@@ -37,6 +37,10 @@ func calendarDraftHash(draft calendar.EventDraft) string {
 }
 
 func calendarCreateUncertain(err error) bool {
+	var preflight calendarDeletePreflightError
+	if errors.As(err, &preflight) {
+		return false
+	}
 	var authorization calendarCreateAuthError
 	if errors.As(err, &authorization) {
 		return false
@@ -98,6 +102,9 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 	if draft.Recurrence != nil {
 		payload["recurrence"] = []string{"RRULE:" + calendarRecurrenceRule(draft)}
 	}
+	if len(draft.Guests) > 0 {
+		payload["attendees"] = calendarMeetingGoogleGuests(draft, nil)
+	}
 	endpoint := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
 	var remote struct {
 		googleCalendarEvent
@@ -105,7 +112,11 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 			Private map[string]string `json:"private"`
 		} `json:"extendedProperties"`
 	}
-	err := calendarCreateJSON(ctx, http.MethodPost, endpoint, token, payload, &remote)
+	writeEndpoint := endpoint
+	if len(draft.Guests) > 0 {
+		writeEndpoint += "?sendUpdates=all"
+	}
+	err := calendarCreateJSON(ctx, http.MethodPost, writeEndpoint, token, payload, &remote)
 	var conflict calendarCreateProviderError
 	if errors.As(err, &conflict) && conflict.Status == http.StatusConflict {
 		// A previous attempt may have succeeded before its response was lost.
@@ -122,6 +133,9 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 	}
 	if draft.Recurrence != nil && len(remote.Recurrence) == 0 {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the recurring series")
+	}
+	if len(draft.Guests) > 0 && (calendarGoogleOrganizerStatus(remote.googleCalendarEvent) != "organizer" || !calendarMeetingGuestsMatch(remote.Attendees, draft.Guests, remote.Organizer.Email)) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the invited guests and organizer")
 	}
 	return normalizeGoogleCalendarEvent(remote.googleCalendarEvent)
 }
@@ -142,6 +156,10 @@ func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	if draft.Recurrence != nil {
 		payload["recurrence"] = calendarOutlookRecurrence(draft)
 	}
+	if len(draft.Guests) > 0 {
+		payload["attendees"] = calendarMeetingOutlookGuests(draft, nil)
+		payload["responseRequested"] = true
+	}
 	var remote outlookCalendarEvent
 	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
 	if err := calendarCreateJSON(ctx, http.MethodPost, endpoint, token, payload, &remote); err != nil {
@@ -152,6 +170,9 @@ func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	}
 	if draft.Recurrence != nil && !calendarUpdateHasDetails(remote.Recurrence) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the recurring series")
+	}
+	if len(draft.Guests) > 0 && (calendarOutlookOrganizerStatus(remote) != "organizer" || !calendarMeetingGuestsMatch(remote.Attendees, draft.Guests, remote.Organizer.EmailAddress.Address)) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the invited guests and organizer")
 	}
 	return normalizeOutlookCalendarEvent(remote)
 }
@@ -173,6 +194,35 @@ func calendarCreateICS(draft calendar.EventDraft) (string, error) {
 	event.Props.SetText("X-GOFER-CREATE-HASH", calendarDraftHash(draft))
 	event.Props.SetText("X-GOFER-TIMEZONE", draft.TimeZone)
 	event.Props.SetDateTime("DTSTAMP", time.Now().UTC())
+	if len(draft.Guests) > 0 {
+		if calendarReplyAddress("mailto:"+draft.OrganizerEmail) == "" {
+			return "", fmt.Errorf("a verified organizer is required")
+		}
+		organizer := &ical.Prop{Name: "ORGANIZER", Value: "mailto:" + draft.OrganizerEmail, Params: ical.Params{}}
+		if draft.OrganizerName != "" {
+			organizer.Params.Set("CN", draft.OrganizerName)
+		}
+		if draft.ScheduleAgent != "" {
+			organizer.Params.Set("SCHEDULE-AGENT", draft.ScheduleAgent)
+		}
+		event.Props.Set(organizer)
+		event.Props.SetText("SEQUENCE", "0")
+		for _, guest := range draft.Guests {
+			attendee := ical.Prop{Name: "ATTENDEE", Value: "mailto:" + guest.Email, Params: ical.Params{}}
+			attendee.Params.Set("CN", guest.Name)
+			attendee.Params.Set("PARTSTAT", "NEEDS-ACTION")
+			attendee.Params.Set("RSVP", "TRUE")
+			role := "REQ-PARTICIPANT"
+			if guest.Optional {
+				role = "OPT-PARTICIPANT"
+			}
+			attendee.Params.Set("ROLE", role)
+			if draft.ScheduleAgent != "" {
+				attendee.Params.Set("SCHEDULE-AGENT", draft.ScheduleAgent)
+			}
+			event.Props["ATTENDEE"] = append(event.Props["ATTENDEE"], attendee)
+		}
+	}
 	if draft.AllDay {
 		start, err := time.Parse("2006-01-02", draft.StartDate)
 		if err != nil {
@@ -268,6 +318,20 @@ func createCalDAVCalendarEvent(ctx context.Context, source storage.CalendarSourc
 	} else if status != http.StatusCreated && status != http.StatusNoContent {
 		return calendar.RemoteEvent{}, calendarCreateProviderError{status}
 	}
+	if len(draft.Guests) > 0 {
+		confirmed, headers, err := calendarUpdateCalDAVGet(ctx, client, endpoint, username, password)
+		if err != nil {
+			return calendar.RemoteEvent{}, fmt.Errorf("could not confirm the CalDAV meeting: %v", err)
+		}
+		body, err = encodeCalendarReply(confirmed)
+		if err != nil {
+			return calendar.RemoteEvent{}, err
+		}
+		etag = headers.Get("ETag")
+		if !calendarUpdateValidETag(etag, false) {
+			return calendar.RemoteEvent{}, fmt.Errorf("CalDAV did not confirm a safe meeting version")
+		}
+	}
 	location, err := time.LoadLocation(draft.TimeZone)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
@@ -299,6 +363,12 @@ func createCalDAVCalendarEvent(ctx context.Context, source storage.CalendarSourc
 	}
 	if events[0].ICalUID != draft.RequestID+"@gofer" {
 		return calendar.RemoteEvent{}, fmt.Errorf("CalDAV returned a different event identity")
+	}
+	if len(draft.Guests) > 0 {
+		if !strings.EqualFold(events[0].OrganizerEmail, draft.OrganizerEmail) || !calendarMeetingGuestsMatch(events[0].Attendees, draft.Guests, draft.OrganizerEmail) || !calendarUpdateMatchesDraft(events[0], draft) {
+			return calendar.RemoteEvent{}, fmt.Errorf("CalDAV did not confirm the meeting and guests")
+		}
+		events[0].ResponseStatus = "organizer"
 	}
 	events[0].StartTimeZone, events[0].EndTimeZone = draft.TimeZone, draft.TimeZone
 	if draft.Recurrence != nil {

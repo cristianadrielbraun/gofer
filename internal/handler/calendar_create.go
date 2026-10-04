@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	stdmail "net/mail"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -97,7 +99,7 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 		return calendar.EventDraft{}, fmt.Errorf("invalid event form")
 	}
 	allowed := map[string]bool{"request_id": true, "source_id": true, "summary": true, "description": true, "location": true, "timezone": true, "all_day": true, "start_date": true, "end_date": true, "start_time": true, "end_time": true,
-		"repeat_frequency": true, "repeat_interval": true, "repeat_end": true, "repeat_until": true, "repeat_count": true}
+		"repeat_frequency": true, "repeat_interval": true, "repeat_end": true, "repeat_until": true, "repeat_count": true, "guests": true}
 	for name, values := range r.PostForm {
 		if !allowed[name] || len(values) != 1 {
 			return calendar.EventDraft{}, fmt.Errorf("this form contains unsupported or duplicate event fields")
@@ -110,6 +112,31 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 		return draft, fmt.Errorf("invalid event request; reopen New event")
 	}
 	draft.RequestID = id.String()
+	draft.GuestsSet = r.PostForm.Has("guests")
+	if raw := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(r.PostForm.Get("guests")), ",")); raw != "" {
+		if len(raw) > 16384 || !utf8.ValidString(raw) || strings.ContainsAny(raw, "\r\n\x00") {
+			return draft, fmt.Errorf("enter guest email addresses separated by commas")
+		}
+		addresses, err := stdmail.ParseAddressList(raw)
+		if err != nil || len(addresses) > 50 {
+			return draft, fmt.Errorf("enter up to 50 valid guest email addresses, separated by commas")
+		}
+		seen := map[string]bool{}
+		for _, address := range addresses {
+			email := strings.ToLower(address.Address)
+			if calendarReplyAddress("mailto:"+email) == "" || len(address.Name) > 255 {
+				return draft, fmt.Errorf("enter valid guest email addresses")
+			}
+			if !seen[email] {
+				draft.Guests = append(draft.Guests, calendar.GuestDraft{Email: email, Name: address.Name})
+				seen[email] = true
+			}
+		}
+		sort.Slice(draft.Guests, func(i, j int) bool { return draft.Guests[i].Email < draft.Guests[j].Email })
+		if frequency := r.PostForm.Get("repeat_frequency"); frequency != "" && frequency != "none" {
+			return draft, fmt.Errorf("guest invitations currently support events that do not repeat")
+		}
+	}
 	if draft.Summary == "" || utf8.RuneCountInString(draft.Summary) > 255 {
 		return draft, fmt.Errorf("enter an event title of at most 255 characters")
 	}
@@ -233,6 +260,9 @@ func (h *Handler) createCalendarProviderEvent(ctx context.Context, source storag
 		if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
 			return calendar.RemoteEvent{}, err
 		}
+		if len(draft.Guests) > 0 {
+			return h.createCalDAVMeeting(ctx, source, credentials, draft)
+		}
 		return createCalDAVCalendarEvent(ctx, source, credentials.username, credentials.password, draft)
 	}
 	return calendar.RemoteEvent{}, calendarCreateProviderError{http.StatusBadRequest}
@@ -285,6 +315,20 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		calendarCreateFailure(w, 403, "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission.", false)
 		return
 	}
+	if len(draft.Guests) > 0 {
+		account, err := h.calendarReplyAccount(r.Context(), source)
+		if err != nil || calendarReplyAddress("mailto:"+account.Email) == "" {
+			calendarCreateFailure(w, 400, "A valid account sending address is required to invite guests.", false)
+			return
+		}
+		draft.OrganizerEmail, draft.OrganizerName = strings.ToLower(account.Email), account.Name
+		for _, guest := range draft.Guests {
+			if strings.EqualFold(guest.Email, account.Email) {
+				calendarCreateFailure(w, 400, "You are already the organizer; add other people as guests.", false)
+				return
+			}
+		}
+	}
 	// Once accepted, finish even if the browser disconnects. A timed-out client
 	// can retry the same durable ID instead of generating a second appointment.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), calendarSourceTimeout)
@@ -326,6 +370,13 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			message := "Could not create the event. Check the calendar permissions and try again."
 			uncertain := calendarCreateUncertain(createErr)
 			var provider calendarCreateProviderError
+			var configuration calendarReplyConfigurationError
+			if errors.As(createErr, &configuration) {
+				message = configuration.Error()
+			}
+			if errors.Is(createErr, errCalendarUpdateUnsupported) {
+				message = createErr.Error()
+			}
 			if errors.As(createErr, &provider) && (provider.Status == 401 || provider.Status == 403) {
 				message = "Calendar write access was denied. Reconnect OAuth accounts from Accounts, or check your CalDAV permissions."
 			}
@@ -353,7 +404,7 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: userID, Payload: map[string]any{"source_id": source.ID, "event_id": result.EventID}})
 		}
 	}
-	response := map[string]any{"event_id": result.EventID, "source_id": source.ID, "replayed": replayed, "hidden": source.IsHidden}
+	response := map[string]any{"event_id": result.EventID, "source_id": source.ID, "replayed": replayed, "hidden": source.IsHidden, "notify_guests": len(draft.Guests) > 0}
 	if draft.Recurrence != nil {
 		response["series_id"] = result.RemoteID
 		// We already own the source gate. Read real instances, never generate a

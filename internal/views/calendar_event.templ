@@ -270,6 +270,9 @@ templ CalendarEventDeleteConfirmation(details CalendarEventDetails) {
 			} else {
 				This deletes the event from your calendar provider, not just Gofer. You can’t undo this in Gofer.
 			}
+			if len(details.Attendees) > 0 {
+				Guests will receive a cancellation.
+			}
 		</p>
 		<p data-calendar-delete-check hidden?={ ready } role="status" class="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
 			@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})

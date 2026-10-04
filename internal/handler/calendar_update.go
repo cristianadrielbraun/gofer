@@ -23,7 +23,8 @@ func calendarStoredEditRestriction(event storage.CalendarEvent) string {
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
 		Status: event.Status, Deleted: event.IsDeleted, SeriesRemoteID: event.SeriesRemoteID,
 		Recurrence: json.RawMessage(event.RecurrenceJSON), Attendees: json.RawMessage(event.AttendeesJSON),
-		OnlineMeeting: json.RawMessage(event.OnlineMeetingJSON),
+		OnlineMeeting:  json.RawMessage(event.OnlineMeetingJSON),
+		ResponseStatus: calendarStoredOrganizerStatus(event),
 	}); reason != "" {
 		return reason
 	}
@@ -55,13 +56,16 @@ func (h *Handler) calendarEventMutationAccess(ctx context.Context, event storage
 		if !calendarSourceWritable(source) {
 			return source, "This calendar is read-only.", nil
 		}
+		if series && calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON)) {
+			return source, "Recurring meetings with guests cannot be edited yet.", nil
+		}
 		if reason := calendarStoredEditRestriction(event); reason != "" {
 			return source, reason, nil
 		}
 		if source.Provider != providers.ProviderOutlook && !calendarUpdateValidETag(event.ETag, false) {
 			return source, "This provider must supply a strong event version before safe editing is available.", nil
 		}
-		if source.Provider == storage.CalendarSourceProviderCalDAV && (event.OrganizerName != "" || event.OrganizerEmail != "") {
+		if source.Provider == storage.CalendarSourceProviderCalDAV && (event.OrganizerName != "" || event.OrganizerEmail != "") && !calendarCachedOrganizer(event) {
 			return source, "Invitations cannot be edited in Gofer yet.", nil
 		}
 		if !injectedWriter && !h.calendarWriteAuthorized(ctx, source) {
@@ -154,6 +158,7 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 		Summary: event.Summary, Description: calendarDescriptionText(event.Description), Location: event.Location,
 		AllDay: event.AllDay, TimeZone: location.String(), StartTime: "09:00", EndTime: "10:00",
 	}
+	data.Guests = calendarMeetingGuestText(event)
 	if event.AllDay {
 		end, err := time.Parse("2006-01-02", event.EndDate)
 		if err != nil {
@@ -227,6 +232,9 @@ func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storag
 		if occurrence {
 			return updateCalDAVCalendarOccurrence(ctx, source, credentials.username, credentials.password, event, &draft)
 		}
+		if len(draft.Guests) > 0 || event.OrganizerEmail != "" || calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON)) {
+			return h.updateCalDAVMeeting(ctx, source, credentials, event, draft)
+		}
 		return updateCalDAVCalendarEventScope(ctx, source, credentials.username, credentials.password, event, draft, series)
 	}
 }
@@ -297,6 +305,14 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	occurrence := event
+	if draft.Recurrence != nil && calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON)) {
+		calendarUpdateFailure(w, 400, "Recurring meetings with guests are not supported yet.", false, false)
+		return
+	}
+	draft.OrganizerEmail, draft.OrganizerName = event.OrganizerEmail, event.OrganizerName
+	if calendarCachedOrganizer(event) {
+		event.ResponseStatus = "organizer"
+	}
 	if series {
 		event, err = h.readCalendarProviderSeries(ctx, source, occurrence)
 		if err != nil || event.ETag != version {
@@ -322,7 +338,10 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		var provider calendarCreateProviderError
 		var preflight calendarDeletePreflightError
+		var configuration calendarReplyConfigurationError
 		switch {
+		case errors.As(err, &configuration):
+			calendarUpdateFailure(w, http.StatusBadRequest, configuration.Error(), false, false)
 		case errors.Is(err, errCalendarOccurrenceBoundary):
 			calendarUpdateFailure(w, http.StatusBadRequest, err.Error(), false, false)
 		case errors.Is(err, errCalendarUpdateConflict):
@@ -366,7 +385,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	if h.syncer != nil {
 		h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: userID, Payload: map[string]any{"source_id": source.ID, "event_id": event.ID}})
 	}
-	response := map[string]any{"saved": true, "event_id": event.ID, "source_id": source.ID, "hidden": source.IsHidden}
+	response := map[string]any{"saved": true, "event_id": event.ID, "source_id": source.ID, "hidden": source.IsHidden, "notify_guests": len(draft.Guests) > 0 || calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON))}
 	if instance {
 		response["scope"] = "occurrence"
 	}
