@@ -34,7 +34,7 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		Event:           calendarViewEvent(event),
 		Description:     calendarDescriptionText(event.Description),
 		DescriptionHTML: calendar.DescriptionHTML(event.Description),
-		JoinURL:         calendar.MeetingJoinURL(string(calendarOutlookCachedMeetingJSON(event))),
+		JoinURL:         calendar.MeetingJoinURLWithDescription(string(calendarOutlookCachedMeetingJSON(event)), event.Description),
 		Organizer: views.CalendarEventParticipant{
 			Name: strings.TrimSpace(event.OrganizerName), Email: strings.TrimSpace(event.OrganizerEmail),
 		},

@@ -101,11 +101,16 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 					</p>
 				}
 				if joinURL := calendar.SafeMeetingURL(details.JoinURL); joinURL != "" {
-					@calendarDialogRow(icon.Video(icon.Props{Class: "size-4"}), "pt-2") {
-						@button.Button(button.Props{Href: joinURL, Target: "_blank", Variant: button.VariantOutline, Size: button.SizeSm, Class: "font-semibold", Attributes: templ.Attributes{"rel": "noopener noreferrer", "data-calendar-join-meeting": ""}}) {
-							Join meeting
-							@icon.ExternalLink(icon.Props{Class: "size-3.5"})
-						}
+					@calendarDialogRow(icon.Video(icon.Props{Class: "size-4"}), "pt-0.5 sm:pt-2") {
+						<div class="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3" data-calendar-meeting-section>
+							if calendar.TeamsJoinURL(joinURL) != "" {
+								<p class="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">This is a Microsoft Teams meeting</p>
+							}
+							@button.Button(button.Props{Href: joinURL, Target: "_blank", Variant: button.VariantOutline, Size: button.SizeSm, Class: "shrink-0 font-semibold", Attributes: templ.Attributes{"rel": "noopener noreferrer", "data-calendar-join-meeting": ""}}) {
+								Join meeting
+								@icon.ExternalLink(icon.Props{Class: "size-3.5"})
+							}
+						</div>
 					}
 				}
 				if event.Location != "" {

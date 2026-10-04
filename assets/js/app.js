@@ -7720,6 +7720,7 @@ function initializeCalendarVisibility() {
     if (sync) sync.style.visibility = state && state.saving ? "hidden" : ""
   })
   document.querySelectorAll("#calendar-main [data-calendar-week-all-day], #calendar-main [data-calendar-week-event]").forEach(function (node) {
+    if (node.dataset.calendarPillExit) return
     node.hidden = !_calendarSourceIsVisible(node)
   })
 }
@@ -7771,6 +7772,7 @@ document.addEventListener("change", function (event) {
 })
 
 function initializeCalendarDaySelection() {
+  rememberCalendarPillGeometry(document.getElementById("calendar-main"))
   initializeCalendarVisibility()
   var calendar = document.getElementById("calendar-main")
   var agenda = document.querySelector("[data-calendar-agenda]")
@@ -8188,8 +8190,125 @@ function setCalendarWeekZoom(zoom) {
   animation.frame = requestAnimationFrame(step)
 }
 
+var _calendarPillSnapshot = null
+var _calendarPillFades = new Map()
+
+function captureCalendarPills(calendar) {
+  var pills = new Map(), counts = new Map()
+  var bounds = calendar.getBoundingClientRect()
+  calendar.querySelectorAll("[data-calendar-month-event], [data-calendar-week-all-day], [data-calendar-week-event]").forEach(function (node) {
+    if (node.dataset.calendarPillExit) return
+    var kind = node.dataset.calendarMonthEvent !== undefined ? "month" : node.dataset.calendarWeekAllDay !== undefined ? "all-day" : "timed"
+    var id = node.dataset.calendarMonthEvent || node.dataset.calendarWeekAllDay || node.dataset.calendarWeekEvent
+    var base = JSON.stringify([kind, node.dataset.calendarSourceId, id])
+    var index = counts.get(base) || 0
+    counts.set(base, index + 1) // Count hidden segments too, keeping multi-day keys stable.
+    if (node.hidden || node.style.display === "none" || !node.getClientRects().length) return
+    var rect = node.getBoundingClientRect()
+    var style = window.getComputedStyle(node)
+    var scroll = node.closest("[data-calendar-week-scroll], [data-calendar-all-day-row]")
+    var clip = scroll && scroll.getBoundingClientRect()
+    var inset = clip ? [Math.max(0, clip.top - rect.top), Math.max(0, rect.right - clip.right),
+      Math.max(0, rect.bottom - clip.bottom), Math.max(0, clip.left - rect.left)] : [0, 0, 0, 0]
+    pills.set(base + ":" + index, { node: node, top: rect.top - bounds.top, left: rect.left - bounds.left,
+      width: rect.width, height: rect.height, opacity: style.opacity, dayPadding: style.getPropertyValue("--calendar-day-padding"),
+      clipPath: inset.some(function (value) { return value > 0 }) ? "inset(" + inset.map(function (value) { return value + "px" }).join(" ") + ")" : "none" })
+  })
+  return { calendar: calendar, period: calendar.dataset.calendarPeriod, view: calendar.dataset.calendarView, pills: pills }
+}
+
+function rememberCalendarPillGeometry(calendar) {
+  if (!calendar || !_calendarPillSnapshot || _calendarPillSnapshot.calendar !== calendar) return
+  var current = captureCalendarPills(calendar)
+  // Preserve entries already hidden by another layout pass until reconciliation.
+  current.pills.forEach(function (pill, key) {
+    if (_calendarPillSnapshot.pills.has(key)) _calendarPillSnapshot.pills.set(key, pill)
+  })
+}
+
+function finishCalendarPillFade(key) {
+  var fade = _calendarPillFades.get(key)
+  if (!fade) return
+  _calendarPillFades.delete(key)
+  fade.animation.cancel()
+  if (fade.ghost) fade.node.remove()
+}
+
+function clearCalendarPillFades() {
+  Array.from(_calendarPillFades.keys()).forEach(finishCalendarPillFade)
+}
+
+function fadeCalendarPill(key, node, from, to, ghost) {
+  var fade = { node: node, ghost: ghost, animation: node.animate([{ opacity: from }, { opacity: to }], {
+    duration: 300, easing: "ease", fill: "both", // Same easing as tabs, with a gentler pill fade.
+  }) }
+  _calendarPillFades.set(key, fade)
+  fade.animation.onfinish = function () {
+    if (_calendarPillFades.get(key) === fade) finishCalendarPillFade(key)
+  }
+}
+
+function animateCalendarPills(calendar) {
+  if (!calendar || calendar.hasAttribute("data-calendar-loading")) {
+    clearCalendarPillFades()
+    _calendarPillSnapshot = null
+    return
+  }
+  var current = captureCalendarPills(calendar), previous = _calendarPillSnapshot
+  var samePeriod = previous && previous.period === current.period && previous.view === current.view
+  _calendarPillSnapshot = current
+  if (!samePeriod) clearCalendarPillFades()
+  if ((window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) || !calendar.animate) {
+    clearCalendarPillFades()
+    return
+  }
+  // A cache refresh can replace the calendar during an exit fade. Keep its
+  // inert copy on the current root until the same animation finishes.
+  if (samePeriod) _calendarPillFades.forEach(function (fade) {
+    if (fade.ghost && fade.node.parentElement !== calendar) calendar.appendChild(fade.node)
+  })
+  if (samePeriod) previous.pills.forEach(function (pill, key) {
+    if (current.pills.has(key)) return
+    var fade = _calendarPillFades.get(key)
+    var opacity = fade ? window.getComputedStyle(fade.node).opacity || pill.opacity : pill.opacity
+    finishCalendarPillFade(key)
+    var ghost = pill.node.cloneNode(true)
+    // Keep visual data attributes for theme/RSVP styles, but no IDs or HTMX
+    // actions. The exit copy never participates in layout or user interaction.
+    ;[ghost].concat(Array.from(ghost.querySelectorAll("*"))).forEach(function (node) {
+      Array.from(node.attributes).forEach(function (attr) {
+        if (attr.name === "id" || /^(?:data-)?hx-/.test(attr.name) || /^on/i.test(attr.name)) node.removeAttribute(attr.name)
+      })
+    })
+    ghost.removeAttribute("data-calendar-event-hover")
+    ghost.dataset.calendarPillExit = "true"
+    ghost.hidden = false
+    ghost.inert = true
+    ghost.setAttribute("aria-hidden", "true")
+    Object.assign(ghost.style, { position: "absolute", display: "flex", pointerEvents: "none", margin: "0",
+      top: pill.top + "px", left: pill.left + "px", width: pill.width + "px", height: pill.height + "px", zIndex: "30", clipPath: pill.clipPath })
+    ghost.style.setProperty("--calendar-day-padding", pill.dayPadding)
+    calendar.appendChild(ghost)
+    fadeCalendarPill(key, ghost, opacity, 0, true)
+  })
+  current.pills.forEach(function (pill, key) {
+    var before = samePeriod && previous.pills.get(key)
+    var fade = _calendarPillFades.get(key)
+    if (before && (!fade || fade.node === pill.node)) return
+    var opacity = fade ? window.getComputedStyle(fade.node).opacity || (before ? before.opacity : 0) : before ? before.opacity : 0
+    finishCalendarPillFade(key)
+    fadeCalendarPill(key, pill.node, opacity, pill.opacity, false)
+  })
+}
+
+document.body.addEventListener("htmx:beforeSwap", function (event) {
+  if (event.defaultPrevented || !event.detail || event.detail.shouldSwap === false) return
+  rememberCalendarPillGeometry(document.getElementById("calendar-main"))
+})
+
 function initializeCalendarViewport() {
   var calendar = document.getElementById("calendar-main")
+  rememberCalendarPillGeometry(calendar)
   var pane = calendar && calendar.closest("#mail-list")
   if (_calendarViewportPane !== pane) {
     if (_calendarViewportObserver) _calendarViewportObserver.disconnect()
@@ -8207,9 +8326,10 @@ function initializeCalendarViewport() {
       if (scroller) _calendarViewportObserver.observe(scroller)
     }
   }
-  if (!calendar) return
+  if (!calendar) { animateCalendarPills(null); return }
   layoutCalendarMonth(calendar)
   initializeCalendarWeekScroll()
+  animateCalendarPills(calendar)
 }
 
 document.addEventListener("scroll", function (event) {

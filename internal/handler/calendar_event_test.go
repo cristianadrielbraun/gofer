@@ -46,6 +46,39 @@ func TestCalendarDescriptionText(t *testing.T) {
 	}
 }
 
+func TestCalendarInvitedTeamsMeetingShowsJoinWithoutEditAccess(t *testing.T) {
+	for _, provider := range []string{"gmail", "outlook", "caldav"} {
+		for _, status := range []string{"needsAction", "accepted", "tentative", "declined"} {
+			t.Run(provider+"/"+status, func(t *testing.T) {
+				h := calendarUpdateFixture(t)
+				body := originalOnlineBody
+				if provider == "caldav" {
+					body = "Join <https://teams.live.com/meet/123?p=token&lang=es>"
+				}
+				if _, err := h.db.Write().Exec(`UPDATE accounts SET provider=? WHERE id='one-account'`, provider); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := h.db.Write().Exec(`UPDATE calendar_sources SET provider=?,access_role='reader' WHERE id='one-source'`, provider); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := h.db.Write().Exec(`UPDATE calendar_events SET description=?,online_meeting_json='{}',response_status=?,organizer_email='organizer@example.com',attendees_json='[{"email":"one@example.com"}]' WHERE id='edit-event'`, body, status); err != nil {
+					t.Fatal(err)
+				}
+				r := calendarUpdateRequest(nil, "one")
+				r.Method = http.MethodGet
+				w := httptest.NewRecorder()
+				h.handleCalendarEvent(w, r)
+				if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "data-calendar-join-meeting") || !strings.Contains(w.Body.String(), `href="https://teams.live.com/meet/123?p=token&amp;lang=es"`) {
+					t.Fatalf("cached invitation lost Join button or its complete link: status=%d", w.Code)
+				}
+				if strings.Contains(w.Body.String(), "data-calendar-edit-trigger") {
+					t.Fatal("Join link must not grant editing access to the invitation")
+				}
+			})
+		}
+	}
+}
+
 func TestHandleCalendarEventReadsOnlyVisibleOwnedCache(t *testing.T) {
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {

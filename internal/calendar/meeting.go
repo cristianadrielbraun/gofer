@@ -28,6 +28,23 @@ func MeetingJoinURL(raw string) string {
 	return SafeMeetingURL(meeting.URL)
 }
 
+// MeetingJoinURLWithDescription resolves a display-only link for any calendar,
+// including invitations imported without native conferencing metadata. Native
+// metadata wins; only recognizable Teams join URLs qualify as a body fallback.
+// An explicitly disabled online meeting must not resurrect an obsolete link.
+func MeetingJoinURLWithDescription(raw, description string) string {
+	if link := MeetingJoinURL(raw); link != "" {
+		return link
+	}
+	var meeting struct {
+		Online *bool `json:"isOnlineMeeting"`
+	}
+	if json.Unmarshal([]byte(raw), &meeting) == nil && meeting.Online != nil && !*meeting.Online {
+		return ""
+	}
+	return TeamsJoinURLFromDescription(description)
+}
+
 func SafeMeetingURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if strings.ContainsAny(raw, "\r\n\t\x00") {

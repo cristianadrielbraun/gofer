@@ -22,6 +22,26 @@ func TestMeetingJoinURL(t *testing.T) {
 	}
 }
 
+func TestMeetingJoinURLWithDescription(t *testing.T) {
+	link := "https://teams.live.com/meet/123?p=abc&lang=es"
+	body := `<p><a href="https://teams.live.com/meet/123?p=abc&amp;lang=es">Join</a></p>`
+	for _, tc := range []struct{ raw, description, want string }{
+		{`{}`, body, link},
+		{`null`, "Join <" + link + ">", link},
+		{`{"isOnlineMeeting":true,"provider":"teamsForBusiness"}`, body, link},
+		{`{"joinUrl":"https://teams.microsoft.com/l/meetup-join/native"}`, body, "https://teams.microsoft.com/l/meetup-join/native"},
+		{`{"isOnlineMeeting":false}`, body, ""},
+		{`{}`, `<a href="https://teams.live.com/meetingOptions/123">Options</a>`, ""},
+		{`{}`, `<a href="https://teams.live.com.evil.example/meet/123">Join</a>`, ""},
+		{`{}`, `<a href="javascript:alert(1)">Join</a>`, ""},
+		{`{}`, "No meeting link", ""},
+	} {
+		if got := MeetingJoinURLWithDescription(tc.raw, tc.description); got != tc.want {
+			t.Errorf("metadata=%s description=%q got=%q want=%q", tc.raw, tc.description, got, tc.want)
+		}
+	}
+}
+
 func TestTeamsJoinURLFromDescription(t *testing.T) {
 	link := "https://teams.live.com/meet/123?p=abc&lang=es"
 	for _, tc := range []struct{ description, want string }{
