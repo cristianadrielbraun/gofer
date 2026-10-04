@@ -97,7 +97,7 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 		start["dateTime"], end["dateTime"] = draft.StartAt.Format(time.RFC3339), draft.EndAt.Format(time.RFC3339)
 		start["timeZone"], end["timeZone"] = draft.TimeZone, draft.TimeZone
 	}
-	payload := map[string]any{"id": id, "summary": draft.Summary, "description": draft.Description, "location": draft.Location,
+	payload := map[string]any{"id": id, "summary": draft.Summary, "description": calendar.DraftDescription(draft), "location": draft.Location,
 		"start": start, "end": end, "extendedProperties": map[string]any{"private": map[string]string{"goferCreateHash": calendarDraftHash(draft)}}}
 	if draft.Recurrence != nil {
 		payload["recurrence"] = []string{"RRULE:" + calendarRecurrenceRule(draft)}
@@ -141,6 +141,20 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 }
 
 func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID string, draft calendar.EventDraft) (calendar.RemoteEvent, error) {
+	teamsMode := ""
+	if draft.TeamsMeeting {
+		if draft.Recurrence != nil {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{calendarUpdateUnsupported("Adding Teams to recurring events is not supported in Gofer yet.")}
+		}
+		mode, err := outlookCalendarTeamsMode(ctx, token, remoteCalendarID)
+		if err != nil {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{err}
+		}
+		if mode != "available" && mode != "available-default" {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{calendarUpdateUnsupported(calendarTeamsUnavailableMessage)}
+		}
+		teamsMode = mode
+	}
 	start, end := map[string]string{"timeZone": draft.TimeZone}, map[string]string{"timeZone": draft.TimeZone}
 	if draft.AllDay {
 		start["dateTime"], end["dateTime"] = draft.StartDate+"T00:00:00", draft.EndDate+"T00:00:00"
@@ -151,8 +165,14 @@ func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 		}
 		start["dateTime"], end["dateTime"] = draft.StartAt.In(location).Format("2006-01-02T15:04:05"), draft.EndAt.In(location).Format("2006-01-02T15:04:05")
 	}
-	payload := map[string]any{"subject": draft.Summary, "body": outlookCalendarItemBody{ContentType: "text", Content: draft.Description},
+	payload := map[string]any{"subject": draft.Summary, "body": calendarDraftOutlookBody(draft),
 		"location": outlookCalendarLocation{DisplayName: draft.Location}, "start": start, "end": end, "isAllDay": draft.AllDay, "transactionId": draft.RequestID}
+	if draft.TeamsMeeting {
+		payload["isOnlineMeeting"] = true
+		if teamsMode == "available" {
+			payload["onlineMeetingProvider"] = "teamsForBusiness"
+		}
+	}
 	if draft.Recurrence != nil {
 		payload["recurrence"] = calendarOutlookRecurrence(draft)
 	}
@@ -168,13 +188,37 @@ func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	if strings.TrimSpace(remote.ID) == "" {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not return the created event identity")
 	}
+	if draft.TeamsMeeting && !calendarOutlookTeamsConfirmed(remote) {
+		createdID := remote.ID
+		remote = outlookCalendarEvent{}
+		if err := calendarCreateJSON(ctx, http.MethodGet, endpoint+"/"+url.PathEscape(createdID), token, nil, &remote); err != nil {
+			return calendar.RemoteEvent{}, fmt.Errorf("could not confirm the Microsoft Teams meeting: %v", err)
+		}
+		if remote.ID != createdID {
+			return calendar.RemoteEvent{}, fmt.Errorf("Microsoft returned a different meeting identity")
+		}
+	}
+	if draft.TeamsMeeting && !calendarTeamsDescriptionConfirmed(remote.Body.Content, draft) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted description")
+	}
 	if draft.Recurrence != nil && !calendarUpdateHasDetails(remote.Recurrence) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the recurring series")
 	}
 	if len(draft.Guests) > 0 && (calendarOutlookOrganizerStatus(remote) != "organizer" || !calendarMeetingGuestsMatch(remote.Attendees, draft.Guests, remote.Organizer.EmailAddress.Address)) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the invited guests and organizer")
 	}
-	return normalizeOutlookCalendarEvent(remote)
+	event, err := normalizeOutlookCalendarEvent(remote)
+	if err != nil {
+		return calendar.RemoteEvent{}, err
+	}
+	if draft.TeamsMeeting {
+		confirmed := event
+		confirmed.Description = calendar.DraftDescription(draft) // Provider may append its meeting block.
+		if !calendarUpdateMatchesDraft(confirmed, draft) {
+			return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted event changes")
+		}
+	}
+	return event, nil
 }
 
 func calendarCreateICS(draft calendar.EventDraft) (string, error) {
@@ -190,6 +234,10 @@ func calendarCreateICS(draft calendar.EventDraft) (string, error) {
 	}
 	event.Props.SetText("SUMMARY", text(draft.Summary))
 	event.Props.SetText("DESCRIPTION", text(draft.Description))
+	if draft.DescriptionHTML != nil && *draft.DescriptionHTML != "" {
+		event.Props.SetText("X-ALT-DESC", *draft.DescriptionHTML)
+		event.Props.Get("X-ALT-DESC").Params.Set("FMTTYPE", "text/html")
+	}
 	event.Props.SetText("LOCATION", text(draft.Location))
 	event.Props.SetText("X-GOFER-CREATE-HASH", calendarDraftHash(draft))
 	event.Props.SetText("X-GOFER-TIMEZONE", draft.TimeZone)

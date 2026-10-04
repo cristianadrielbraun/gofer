@@ -11,6 +11,8 @@ import (
 type CalendarEventDetails struct {
 	Event                 CalendarEvent
 	Description           string
+	DescriptionHTML       string
+	JoinURL               string
 	Organizer             CalendarEventParticipant
 	Attendees             []CalendarEventParticipant
 	CanEdit               bool
@@ -23,6 +25,18 @@ type CalendarEventDetails struct {
 	DeleteSeriesID        string
 	DeleteVersion         string
 	Response              *CalendarResponseData
+	Delivery              *CalendarDeliveryData
+}
+
+type CalendarDeliveryData struct {
+	EventID, Error, EmptyNote string
+	HasEmailDelivery          bool
+	Rows                      []CalendarDeliveryRow
+}
+
+type CalendarDeliveryRow struct {
+	ID, Label, Recipient, State, Note string
+	CanRetry                          bool
 }
 
 type CalendarResponseData struct {

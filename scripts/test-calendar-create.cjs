@@ -53,7 +53,7 @@ const context = vm.createContext({
   showGoferToast(data) { toasts.push(data) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
 vm.runInContext('var _calendarSelectedDay = {period: "week:2026-09-28", date: "2026-10-03"};\n' +
-  ['configureCalendarCreateDialog', 'adjustCalendarCreateAllDayRange', 'updateCalendarRecurrenceForm', 'updateCalendarCreateForm', 'initializeCalendarCreateForm', 'validateCalendarCreatePickers', 'setCalendarCreateError', 'submitCalendarCreate'].map(helper).join('\n'), context)
+  ['configureCalendarCreateDialog', 'adjustCalendarCreateAllDayRange', 'updateCalendarRecurrenceForm', 'updateCalendarTeamsForm', 'updateCalendarCreateForm', 'initializeCalendarCreateForm', 'validateCalendarCreatePickers', 'setCalendarCreateError', 'syncCalendarDescription', 'submitCalendarCreate'].map(helper).join('\n'), context)
 vm.runInContext(source.slice(source.indexOf('document.addEventListener("submit",', source.indexOf('function submitCalendarCreate(')), source.indexOf('function updateCalendarResponseForm(')), context)
 for (const picker of ['datepicker', 'timepicker']) {
   const module = fs.readFileSync(path.join(__dirname, '../assets/js/' + picker + '.js'), 'utf8')
@@ -382,9 +382,12 @@ async function main() {
 
   form.isConnected = false
   const detached = context.submitCalendarCreate(form)
-  requests[3].resolve({ok: true, json: async () => ({event_id: 'another'})})
+  requests[3].resolve({ok: true, json: async () => ({event_id: 'another', teams_unconfirmed: true})})
   await detached
   assert.equal(closed.length, 1, 'Late save must not close a newer dialog')
+  assert.equal(toasts.at(-1).variant, 'warning', 'Missing Teams link must not be announced as successful Teams creation')
+  assert.match(toasts.at(-1).description, /Event saved.*did not confirm a Teams link/)
+  assert.equal(form._calendarCreateUncertain, false, 'A confirmed event without Teams must not offer a duplicate creation retry')
 
   const field = name => inputs.find(input => input.name === name)
   function resetEdit(allDay = false) {

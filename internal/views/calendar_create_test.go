@@ -30,7 +30,7 @@ func TestCalendarCreateUsesTemplUIControls(t *testing.T) {
 		`data-tui-selectbox-value="work" data-tui-selectbox-selected="true" data-tui-selectbox-disabled="false"`,
 		`data-tui-selectbox-value="holidays" data-tui-selectbox-selected="false" data-tui-selectbox-disabled="true"`,
 		`data-calendar-source-authorized="false"`, `Read-only`, `Outlook`, `Google`,
-		`data-tui-textarea`, `data-tui-label-disabled-style`, `data-calendar-create-submit`,
+		`data-calendar-rich-editor`, `contenteditable="true"`, `name="description_html"`, `data-calendar-description-toolbar`, `data-tui-label-disabled-style`, `data-calendar-create-submit`,
 		`name="start_date" value="2026-10-02" data-tui-datepicker-hidden-input`,
 		`name="end_date" value="2026-10-02" data-tui-datepicker-hidden-input`,
 		`name="start_time" value="09:00" data-tui-timepicker-hidden-input`,
@@ -81,7 +81,7 @@ func TestCalendarCreateAndEditUseOneScrollingColumn(t *testing.T) {
 				t.Fatal(err)
 			}
 			markup := output.String()
-			for _, want := range []string{"sm:max-w-xl", "max-h-[min(46rem,calc(100dvh-2rem))]", "overflow-y-auto"} {
+			for _, want := range []string{"sm:max-w-xl", "max-h-[calc(100dvh-2rem)]", "overflow-y-auto"} {
 				if !strings.Contains(markup, want) {
 					t.Errorf("missing bounded dialog constraint %q", want)
 				}
@@ -167,7 +167,7 @@ func TestCalendarEditReusesFormWithServerPrefill(t *testing.T) {
 				`name="start_date" value="2026-10-24" data-tui-datepicker-hidden-input`,
 				`name="end_date" value="` + test.endDate + `" data-tui-datepicker-hidden-input`,
 				`name="start_time" value="09:15" data-tui-timepicker-hidden-input`, `name="end_time" value="10:30" data-tui-timepicker-hidden-input`,
-				`name="timezone" data-tui-selectbox-hidden-input value="Europe/Prague"`, `data-tui-textarea`,
+				`name="timezone" data-tui-selectbox-hidden-input value="Europe/Prague"`, `data-calendar-rich-editor`, `name="description_html"`,
 				`name="repeat_frequency" data-tui-selectbox-hidden-input value="none"`, `data-calendar-repeat-options hidden disabled`,
 				`name="repeat_until" value="" data-tui-datepicker-hidden-input`, `name="repeat_count"`,
 			} {

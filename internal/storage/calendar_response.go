@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 func migrateV98ToV99(db *sql.DB) error {
@@ -71,8 +72,20 @@ func (db *DB) ReleaseCalendarResponse(ctx context.Context, userID, sourceID, rem
 // Series responses are refreshed from the provider: never copy a master's
 // version or response blindly over individually overridden occurrences.
 func (db *DB) CompleteCalendarResponse(ctx context.Context, existing CalendarEvent, event CalendarEvent) error {
+	return db.completeCalendarResponse(ctx, existing, event, false)
+}
+
+func (db *DB) CompleteCalendarIncomingResponse(ctx context.Context, existing CalendarEvent, event CalendarEvent) error {
+	return db.completeCalendarResponse(ctx, existing, event, true)
+}
+
+func (db *DB) completeCalendarResponse(ctx context.Context, existing CalendarEvent, event CalendarEvent, organizer bool) error {
+	validResponse := event.ResponseStatus == "accepted" || event.ResponseStatus == "tentative" || event.ResponseStatus == "declined"
+	if organizer {
+		validResponse = existing.SourceProvider == CalendarSourceProviderCalDAV && event.ResponseStatus == "organizer" && existing.AccountEmail != "" && strings.EqualFold(event.OrganizerEmail, existing.AccountEmail) && event.ICalUID == existing.ICalUID && event.SeriesRemoteID == ""
+	}
 	if event.RemoteID != existing.RemoteID || event.SeriesRemoteID != existing.SeriesRemoteID || event.ETag == "" || event.IsDeleted || event.Status == "cancelled" || !json.Valid([]byte(event.AttendeesJSON)) ||
-		(event.ResponseStatus != "accepted" && event.ResponseStatus != "tentative" && event.ResponseStatus != "declined") {
+		!validResponse {
 		return ErrCalendarUpdateConflict
 	}
 	var startDate, endDate, startAt, endAt any

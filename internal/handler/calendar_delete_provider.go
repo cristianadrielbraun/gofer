@@ -110,6 +110,9 @@ func deleteOutlookCalendarEventScope(ctx context.Context, token, calendarID stri
 	if err := calendarCreateJSON(ctx, http.MethodGet, endpoint, token, nil, &current); err != nil {
 		return calendarDeletePreflightError{calendarUpdateHTTPError(err)}
 	}
+	if calendarOutlookOnline(current) {
+		return calendarDeletePreflightError{calendarUpdateUnsupported("Online meetings cannot be deleted in Gofer yet.")}
+	}
 	if current.ID != existing.RemoteID || (existing.ETag != current.ChangeKey && existing.ETag != current.ODataETag) {
 		return errCalendarUpdateConflict
 	}

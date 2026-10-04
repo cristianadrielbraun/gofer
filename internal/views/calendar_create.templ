@@ -10,7 +10,6 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/label"
 	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
-	"github.com/cristianadrielbraun/gofer/components/textarea"
 	"github.com/cristianadrielbraun/gofer/components/timepicker"
 	"strconv"
 )
@@ -83,7 +82,7 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 									@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 										@selectbox.Group() {
 											for _, source := range data.Sources {
-												@selectbox.Item(selectbox.ItemProps{Value: source.ID, Selected: source.ID == data.SourceID, Disabled: !source.Writable, Class: "pr-7", Attributes: templ.Attributes{"data-calendar-source-writable": strconv.FormatBool(source.Writable), "data-calendar-source-authorized": strconv.FormatBool(source.Authorized)}}) {
+												@selectbox.Item(selectbox.ItemProps{Value: source.ID, Selected: source.ID == data.SourceID, Disabled: !source.Writable, Class: "pr-7", Attributes: templ.Attributes{"data-calendar-source-writable": strconv.FormatBool(source.Writable), "data-calendar-source-authorized": strconv.FormatBool(source.Authorized), "data-calendar-source-provider": source.Provider}}) {
 													{ source.Name } · { source.AccountName }
 													if !source.Writable {
 														· Read-only
@@ -172,25 +171,16 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 								</div>
 							}
 						}
-						@calendarDialogRow(icon.TextAlignStart(icon.Props{Class: "size-4"}), "pt-2.5") {
-							@label.Label(label.Props{For: "calendar-create-description", Class: "sr-only"}) {
-								Description
+						<template data-calendar-teams-checking>
+							@CalendarTeamsOption(CalendarTeamsData{State:"checking"})
+						</template>
+						<div id="calendar-teams-options" data-calendar-teams-options data-calendar-teams-state={data.TeamsState} data-calendar-teams-source={data.SourceID} hx-get="/api/calendar/teams-options" hx-trigger="calendar-teams-source-changed" hx-include="closest form" hx-vals={calendarTeamsEventParams(data.EventID)} hx-params="source_id,event_id" hx-target="this" hx-swap="innerHTML" hx-sync="this:replace">
+							if data.TeamsState != "" && len(data.Sources) > 0 && data.Sources[0].Provider == "outlook" {
+								@CalendarTeamsOption(CalendarTeamsData{State:data.TeamsState,SourceID:data.SourceID})
 							}
-							<div data-calendar-description-slot>
-								<div class="relative" data-calendar-description-editor>
-									<div data-calendar-description-content>
-										@textarea.Textarea(textarea.Props{ID: "calendar-create-description", Name: "description", Value: data.Description, Placeholder: "Add description", Rows: 4, Class: "min-h-24 resize-y py-2 pr-11", Attributes: templ.Attributes{"maxlength": "16384", "aria-label": "Description"}})
-										@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIcon, Class: "absolute top-1.5 right-1.5 size-7 text-muted-foreground", Attributes: templ.Attributes{"data-calendar-description-toggle": "", "aria-label": "Expand description", "title": "Expand description", "aria-controls": "calendar-create-description", "aria-expanded": "false", "onclick": "toggleCalendarDescription(this.closest('[data-calendar-create-form]'))"}}) {
-											<span data-calendar-description-expand>
-												@icon.Maximize2(icon.Props{Class: "size-4"})
-											</span>
-											<span data-calendar-description-collapse hidden>
-												@icon.Minimize2(icon.Props{Class: "size-4"})
-											</span>
-										}
-									</div>
-								</div>
-							</div>
+						</div>
+						@calendarDialogRow(icon.TextAlignStart(icon.Props{Class: "size-4"}), "pt-2.5") {
+							@CalendarDescriptionEditor(data)
 						}
 					</div>
 				</div>

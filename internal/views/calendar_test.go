@@ -71,6 +71,28 @@ func TestCalendarMainRendersNavigationAndAgendaState(t *testing.T) {
 	}
 }
 
+func TestCalendarLayoutLoadsMailAndContactsListsBeforeApp(t *testing.T) {
+	at := time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC)
+	for _, data := range []CalendarMonthData{NewCalendarMonthData(at), NewCalendarWeekData(at)} {
+		t.Run(data.View, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := CalendarLayout(nil, data, nil).Render(t.Context(), &output); err != nil {
+				t.Fatal(err)
+			}
+			html := output.String()
+			previous := -1
+			for _, script := range []string{"htmx.min.js", "virtual-scroll.js", "app.js"} {
+				tag := `<script src="/assets/js/` + script + `"></script>`
+				index := strings.Index(html, tag)
+				if strings.Count(html, tag) != 1 || index <= previous {
+					t.Fatalf("Calendar must load %s exactly once, in dependency order, so HTMX tab switches can initialize lists", script)
+				}
+				previous = index
+			}
+		})
+	}
+}
+
 func TestCalendarTitleBarMatchesMailAndContacts(t *testing.T) {
 	at := time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC)
 	for _, data := range []CalendarMonthData{NewCalendarMonthData(at), NewCalendarWeekData(at)} {

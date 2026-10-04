@@ -13,7 +13,16 @@ var ErrCalendarUpdateConflict = errors.New("calendar event or calendar configura
 // CompleteCalendarUpdate changes just one confirmed event in place. It neither
 // reconciles other events nor reports a successful full-calendar refresh.
 func (db *DB) CompleteCalendarUpdate(ctx context.Context, userID, eventID, sourceID, expectedETag string, event CalendarEvent) error {
-	return db.completeCalendarUpdate(ctx, userID, eventID, sourceID, expectedETag, event, false)
+	return db.completeCalendarUpdate(ctx, userID, eventID, sourceID, expectedETag, event, false, false, false)
+}
+
+// Keep the newly confirmed Outlook guest list and conferencing metadata on the
+// same version as its editable fields. Never attach a new ETag to old guests.
+func (db *DB) CompleteCalendarOutlookOnlineUpdate(ctx context.Context, existing CalendarEvent, event CalendarEvent) error {
+	if existing.SourceProvider != "outlook" || event.ResponseStatus != "organizer" || event.ICalUID == "" || (existing.ICalUID != "" && existing.ICalUID != event.ICalUID) || !json.Valid([]byte(event.AttendeesJSON)) || !json.Valid([]byte(event.OnlineMeetingJSON)) {
+		return ErrCalendarUpdateConflict
+	}
+	return db.completeCalendarUpdate(ctx, existing.UserID, existing.ID, existing.SourceID, existing.ETag, event, false, false, true)
 }
 
 // Keep both the occurrence identity and its parent unchanged; no other cached
@@ -28,18 +37,17 @@ func (db *DB) CompleteCalendarOccurrenceUpdate(ctx context.Context, userID, even
 			return fmt.Errorf("occurrence update cannot change repeat settings")
 		}
 	}
-	return db.completeCalendarUpdate(ctx, userID, eventID, sourceID, expectedETag, event, false, true)
+	return db.completeCalendarUpdate(ctx, userID, eventID, sourceID, expectedETag, event, false, true, false)
 }
 
 // CompleteCalendarSeriesConversion keeps a versioned tombstone for the former
 // single event. A series master is not an appointment: only provider-expanded
 // occurrences should be visible, even if the subsequent refresh fails.
 func (db *DB) CompleteCalendarSeriesConversion(ctx context.Context, userID, eventID, sourceID, expectedETag string, event CalendarEvent) error {
-	return db.completeCalendarUpdate(ctx, userID, eventID, sourceID, expectedETag, event, true)
+	return db.completeCalendarUpdate(ctx, userID, eventID, sourceID, expectedETag, event, true, false, false)
 }
 
-func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourceID, expectedETag string, event CalendarEvent, series bool, occurrenceScope ...bool) error {
-	occurrence := len(occurrenceScope) == 1 && occurrenceScope[0]
+func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourceID, expectedETag string, event CalendarEvent, series, occurrence, onlineMeeting bool) error {
 	if expectedETag == "" || strings.TrimSpace(event.ETag) == "" || strings.TrimSpace(event.RemoteID) == "" || event.IsDeleted || (!occurrence && event.SeriesRemoteID != "") {
 		return fmt.Errorf("provider did not confirm a versioned event")
 	}
@@ -90,6 +98,18 @@ func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourc
 	}
 	if count != 1 {
 		return ErrCalendarUpdateConflict
+	}
+	if onlineMeeting {
+		result, err := tx.ExecContext(ctx, `UPDATE calendar_events SET ical_uid=?,organizer_name=?,organizer_email=?,response_status=?,attendees_json=?,online_meeting_json=?
+ WHERE id=? AND user_id=? AND source_id=? AND etag=? AND EXISTS(SELECT 1 FROM calendar_sources s WHERE s.id=calendar_events.source_id AND s.provider='outlook')`, event.ICalUID, event.OrganizerName, event.OrganizerEmail, event.ResponseStatus, event.AttendeesJSON, event.OnlineMeetingJSON, eventID, userID, sourceID, event.ETag)
+		if err != nil {
+			return err
+		}
+		if count, err := result.RowsAffected(); err != nil {
+			return err
+		} else if count != 1 {
+			return ErrCalendarUpdateConflict
+		}
 	}
 	if occurrence {
 		if err := advanceCalendarOccurrenceResourceVersion(ctx, tx, userID, sourceID, expectedETag, event); err != nil {

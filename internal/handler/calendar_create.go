@@ -78,7 +78,7 @@ func (h *Handler) handleNewCalendarEvent(w http.ResponseWriter, r *http.Request)
 	}
 	data := views.CalendarCreateData{RequestID: uuid.NewString(), Date: start.Format("2006-01-02"), StartTime: start.Format("15:04"), EndDate: end.Format("2006-01-02"), EndTime: end.Format("15:04"), TimeZone: zone}
 	for _, source := range sources {
-		choice := views.CalendarCreateSource{ID: source.ID, Name: source.Name, AccountName: accountNames[source.AccountID], Writable: calendarSourceWritable(source), Authorized: h.calendarWriteAuthorized(ctx, source)}
+		choice := views.CalendarCreateSource{ID: source.ID, Name: source.Name, AccountName: accountNames[source.AccountID], Writable: calendarSourceWritable(source), Authorized: h.calendarWriteAuthorized(ctx, source), Provider: source.Provider}
 		if choice.Name == "" {
 			choice.Name = "Calendar"
 		}
@@ -99,7 +99,7 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 		return calendar.EventDraft{}, fmt.Errorf("invalid event form")
 	}
 	allowed := map[string]bool{"request_id": true, "source_id": true, "summary": true, "description": true, "location": true, "timezone": true, "all_day": true, "start_date": true, "end_date": true, "start_time": true, "end_time": true,
-		"repeat_frequency": true, "repeat_interval": true, "repeat_end": true, "repeat_until": true, "repeat_count": true, "guests": true}
+		"repeat_frequency": true, "repeat_interval": true, "repeat_end": true, "repeat_until": true, "repeat_count": true, "guests": true, "description_html": true, "teams_meeting": true}
 	for name, values := range r.PostForm {
 		if !allowed[name] || len(values) != 1 {
 			return calendar.EventDraft{}, fmt.Errorf("this form contains unsupported or duplicate event fields")
@@ -107,6 +107,26 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 	}
 	draft := calendar.EventDraft{RequestID: strings.TrimSpace(r.FormValue("request_id")), Summary: strings.TrimSpace(r.FormValue("summary")),
 		Description: strings.TrimSpace(r.FormValue("description")), Location: strings.TrimSpace(r.FormValue("location")), TimeZone: strings.TrimSpace(r.FormValue("timezone"))}
+	draft.TeamsMeetingSet = r.PostForm.Has("teams_meeting")
+	if value := r.PostForm.Get("teams_meeting"); value != "" && value != "true" && value != "false" {
+		return draft, fmt.Errorf("invalid Teams meeting setting")
+	}
+	draft.TeamsMeeting = r.PostForm.Get("teams_meeting") == "true"
+	if draft.TeamsMeeting {
+		frequency := r.PostForm.Get("repeat_frequency")
+		if frequency != "" && frequency != "none" {
+			return draft, fmt.Errorf("Teams meetings currently support events that do not repeat in Gofer")
+		}
+	}
+	if r.PostForm.Has("description_html") {
+		raw := r.PostForm.Get("description_html")
+		if len(raw) > 65536 || !utf8.ValidString(raw) || strings.ContainsRune(raw, 0) {
+			return draft, fmt.Errorf("event description is invalid or too long")
+		}
+		safe := calendar.SanitizeDescriptionHTML(raw)
+		draft.DescriptionHTML = &safe
+		draft.Description = calendar.DescriptionPlainText(safe)
+	}
 	id, err := uuid.Parse(draft.RequestID)
 	if err != nil || id == uuid.Nil {
 		return draft, fmt.Errorf("invalid event request; reopen New event")
@@ -280,7 +300,7 @@ func calendarCreateFailure(w http.ResponseWriter, status int, message string, un
 }
 
 func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 100<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 384<<10) // Bounded HTML + plain fallback, including URL-encoding overhead.
 	if err := r.ParseForm(); err != nil {
 		calendarCreateFailure(w, 400, "Event details could not be read.", false)
 		return
@@ -305,6 +325,10 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	if source.ID == "" {
 		calendarCreateFailure(w, 404, "This calendar is no longer configured.", false)
+		return
+	}
+	if draft.TeamsMeeting && source.Provider != providers.ProviderOutlook {
+		calendarCreateFailure(w, 400, "Teams meetings require a supported Outlook calendar.", false)
 		return
 	}
 	if !calendarSourceWritable(source) {
@@ -405,6 +429,13 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	response := map[string]any{"event_id": result.EventID, "source_id": source.ID, "replayed": replayed, "hidden": source.IsHidden, "notify_guests": len(draft.Guests) > 0}
+	if draft.TeamsMeeting && source.Provider == providers.ProviderOutlook {
+		// Derive this from the durable result on both create and replay. Microsoft
+		// may save an ordinary appointment without enabling the requested meeting;
+		// cache that confirmed event instead of inviting a duplicate POST retry.
+		saved, readErr := h.db.GetCalendarEvent(ctx, userID, result.EventID)
+		response["teams_unconfirmed"] = readErr != nil || !calendarTeamsLinkConfirmed(calendarOutlookCachedMeetingJSON(saved))
+	}
 	if draft.Recurrence != nil {
 		response["series_id"] = result.RemoteID
 		// We already own the source gate. Read real instances, never generate a

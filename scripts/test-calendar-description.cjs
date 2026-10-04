@@ -6,7 +6,7 @@ const css = fs.readFileSync(require('node:path').join(__dirname, '../assets/css/
 assert(css.includes('[data-calendar-description-editor]::before {'), 'the surface must exist independently of animation state')
 assert(css.includes('[data-calendar-description-editor][data-resizing="true"]::before {\n  box-shadow: none;\n  transition: none;\n}'), 'hide the ring during resize without hiding the surface')
 assert(!css.includes('shadow-xs transition-[color,box-shadow]'), 'restoring the ring must not start a delayed shadow transition')
-assert(css.includes('[data-calendar-description-editor] textarea:focus-visible {'), 'native focus styling must not introduce a second fading surface')
+assert(css.includes('[data-calendar-rich-editor]:focus-visible {'), 'rich editor focus styling must not introduce a second fading surface')
 function fn(name) {
   const start = source.indexOf('function ' + name + '(')
   const end = source.indexOf('\n}', start)
@@ -35,12 +35,12 @@ const editor = {
     if (this.parent === slot) return slot.getBoundingClientRect()
     return {left: 124, top: 104, width: 376, height: 476}
   },
-  querySelector(selector) { return selector === 'textarea' ? textarea : selector.endsWith('-content]') ? content : selector.endsWith('-toggle]') ? button : selector.endsWith('-expand]') ? icons.expand : icons.collapse },
+  querySelector(selector) { return selector === '[data-calendar-rich-editor]' ? textarea : selector.endsWith('-content]') ? content : selector.endsWith('-toggle]') ? button : selector.endsWith('-expand]') ? icons.expand : icons.collapse },
 }
 const elements = {'[data-calendar-description-editor]': editor, '[data-calendar-description-slot]': slot, '[data-calendar-create-viewport]': viewport, '[data-calendar-create-body]': body}
 const form = {isConnected: true, querySelector(selector) { return elements[selector] }, closest() { return {open: true} }}
 let reduced = false, saves = 0
-const runtime = vm.createContext({window: {matchMedia() { return {matches: reduced} }}, getComputedStyle() { return {opacity: body.style.opacity || '1', paddingLeft: '24', paddingRight: '24', paddingTop: '4', paddingBottom: '20'} }, submitCalendarCreate() { saves++ }})
+const runtime = vm.createContext({_saveComposeSelection() {}, _restoreComposeSelection() {}, window: {matchMedia() { return {matches: reduced} }}, getComputedStyle() { return {opacity: body.style.opacity || '1', paddingLeft: '24', paddingRight: '24', paddingTop: '4', paddingBottom: '20'} }, submitCalendarCreate() { saves++ }})
 vm.runInContext(['toggleCalendarDescription', 'setCalendarDescriptionExpanded', 'prepareCalendarDescriptionSubmit'].map(fn).join('\n'), runtime)
 
 async function completeMotion(done) {

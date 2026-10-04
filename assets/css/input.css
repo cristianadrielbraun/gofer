@@ -3243,15 +3243,39 @@ body.mail-list-column-resizing {
     0 2px 6px rgba(0,0,0,0.2);
 }
 
-[data-calendar-description-editor][data-expanded="true"] textarea {
+[data-calendar-description-editor][data-expanded="true"] [data-calendar-description-scroll] {
   height: 100% !important;
   min-height: 0;
-  resize: none;
+  max-height: none;
 }
 
 [data-calendar-description-editor][data-expanded="true"] [data-calendar-description-content] {
   height: 100%;
 }
+
+.calendar-rich-description {
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.calendar-rich-description p,
+.calendar-rich-description blockquote,
+.calendar-rich-description pre {
+  margin: 0.45rem 0;
+}
+
+.calendar-rich-description ul { list-style: disc; padding-left: 1.4rem; }
+.calendar-rich-description ol { list-style: decimal; padding-left: 1.4rem; }
+.calendar-rich-description a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.calendar-rich-description h1,
+.calendar-rich-description h2,
+.calendar-rich-description h3,
+.calendar-rich-description h4 { font-weight: 600; font-size: 1.1em; margin: 0.6rem 0; }
+.calendar-rich-description table { max-width: 100%; border-collapse: collapse; }
+.calendar-rich-description td,
+.calendar-rich-description th { padding: 0.2rem 0.5rem; vertical-align: top; }
+.calendar-rich-description hr { margin: 0.75rem 0; border-color: var(--border); }
 
 /* One permanent surface: resizing and revealing never exchange backdrops. */
 [data-calendar-description-editor]::before {
@@ -3268,10 +3292,10 @@ body.mail-list-column-resizing {
   transition: none;
 }
 
-/* Keep the native border's geometry, but draw the surface outside the fading
+/* Keep the editor's geometry, but draw the surface outside the fading
    content layer so only text and controls fade, never the field itself. */
-[data-calendar-description-editor] textarea,
-[data-calendar-description-editor] textarea:focus-visible {
+[data-calendar-rich-editor],
+[data-calendar-rich-editor]:focus-visible {
   border-color: transparent;
   background: transparent;
   box-shadow: none;

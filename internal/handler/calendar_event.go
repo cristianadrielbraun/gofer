@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
@@ -30,12 +31,21 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	details := views.CalendarEventDetails{
-		Event:       calendarViewEvent(event),
-		Description: calendarDescriptionText(event.Description),
+		Event:           calendarViewEvent(event),
+		Description:     calendarDescriptionText(event.Description),
+		DescriptionHTML: calendar.DescriptionHTML(event.Description),
+		JoinURL:         calendar.MeetingJoinURL(string(calendarOutlookCachedMeetingJSON(event))),
 		Organizer: views.CalendarEventParticipant{
 			Name: strings.TrimSpace(event.OrganizerName), Email: strings.TrimSpace(event.OrganizerEmail),
 		},
 		Attendees: calendarEventParticipants(event.AttendeesJSON),
+	}
+	if calendarDeliveryAvailable(event) {
+		data, err := h.calendarDeliveryData(ctx, event)
+		if err != nil {
+			data.Error = "Delivery status is temporarily unavailable."
+		}
+		details.Delivery = &data
 	}
 	_, reason, accessErr := h.calendarEventEditAccess(ctx, event)
 	details.CanEdit = accessErr == nil && reason == ""

@@ -71,7 +71,9 @@ type Handler struct {
 	calendarSyncMu             sync.Mutex
 	calendarSyncRunning        map[string]*calendarSyncRun
 	calendarFetchEvents        func(context.Context, storage.CalendarSource, calendar.EventQuery) (calendar.EventPage, error)
+	calendarIncomingLookupTXT  func(context.Context, string) ([]string, error)
 	calendarCreateEvent        func(context.Context, storage.CalendarSource, calendar.EventDraft) (calendar.RemoteEvent, error)
+	calendarTeamsSupported     func(context.Context, storage.CalendarSource) (bool, error)
 	calendarUpdateEvent        func(context.Context, storage.CalendarSource, storage.CalendarEvent, calendar.EventDraft) (calendar.RemoteEvent, error)
 	calendarReadSeries         func(context.Context, storage.CalendarSource, string) (calendar.RemoteEvent, error)
 	calendarDeleteEvent        func(context.Context, storage.CalendarSource, storage.CalendarEvent) error
@@ -430,7 +432,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/calendar/sync", h.handleCalendarSync)
 	mux.HandleFunc("POST /api/calendar/sources/{id}/visibility", h.handleCalendarVisibility)
 	mux.HandleFunc("GET /api/calendar/events/{id}", h.handleCalendarEvent)
+	mux.HandleFunc("GET /api/calendar/events/{id}/delivery", h.handleCalendarDeliveryStatus)
+	mux.HandleFunc("POST /api/calendar/events/{id}/delivery/{sendID}/retry", h.handleCalendarDeliveryRetry)
 	mux.HandleFunc("GET /api/calendar/events/new", h.handleNewCalendarEvent)
+	mux.HandleFunc("GET /api/calendar/teams-options", h.handleCalendarTeamsOptions)
 	mux.HandleFunc("GET /api/calendar/guest-suggestions", h.handleCalendarGuestSuggestions)
 	mux.HandleFunc("POST /api/calendar/events", h.handleCreateCalendarEvent)
 	mux.HandleFunc("GET /api/calendar/events/{id}/edit", h.handleEditCalendarEvent)

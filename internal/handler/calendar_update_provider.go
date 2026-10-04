@@ -71,6 +71,9 @@ func calendarUpdateUnsupported(reason string) error {
 }
 
 func calendarUpdateExistingRestriction(existing storage.CalendarEvent) error {
+	if calendarStoredOutlookOnline(existing) {
+		existing.OnlineMeetingJSON = "{}"
+	}
 	if strings.TrimSpace(existing.RemoteID) == "" || strings.TrimSpace(existing.ETag) == "" {
 		return calendarUpdateUnsupported("Refresh the calendar to retrieve the event's current version.")
 	}
@@ -182,9 +185,12 @@ func calendarUpdateDraftLocation(draft calendar.EventDraft) (*time.Location, err
 // or concurrently replaced appointment at the same URL. Providers may return
 // a plain-text body as HTML, so compare its visible text for this purpose.
 func calendarUpdateMatchesDraft(event calendar.RemoteEvent, draft calendar.EventDraft) bool {
+	if draft.DescriptionHTML != nil && calendar.DescriptionHTML(event.Description) != *draft.DescriptionHTML {
+		return false
+	}
 	text := func(value string) string { return strings.Join(strings.Fields(calendarDescriptionText(value)), " ") }
 	if event.Summary != strings.TrimSpace(draft.Summary) || event.Location != strings.TrimSpace(draft.Location) ||
-		text(event.Description) != text(draft.Description) || event.AllDay != draft.AllDay {
+		(draft.DescriptionHTML == nil && text(event.Description) != text(draft.Description)) || event.AllDay != draft.AllDay {
 		return false
 	}
 	if draft.AllDay {
@@ -300,8 +306,8 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 	if draft.Recurrence != nil {
 		payload["recurrence"] = []string{"RRULE:" + calendarRecurrenceRule(draft)}
 	}
-	if draft.Description != calendarDescriptionText(existing.Description) {
-		payload["description"] = draft.Description
+	if calendarDescriptionChanged(existing.Description, draft) {
+		payload["description"] = calendar.DraftDescription(draft)
 	}
 	var updated googleCalendarUpdateEvent
 	writeEndpoint := endpoint
@@ -349,14 +355,13 @@ type outlookCalendarUpdateEvent struct {
 	outlookCalendarEvent
 	ODataETag             string `json:"@odata.etag"`
 	Type                  string `json:"type"`
-	IsOnlineMeeting       bool   `json:"isOnlineMeeting"`
 	OriginalStartTimeZone string `json:"originalStartTimeZone"`
 }
 
 func (remote outlookCalendarUpdateEvent) restriction() string {
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
 		Deleted: remote.IsCancelled, SeriesRemoteID: remote.SeriesMasterID,
-		Recurrence: remote.Recurrence, Attendees: remote.Attendees, OnlineMeeting: remote.OnlineMeeting,
+		Recurrence: remote.Recurrence, Attendees: remote.Attendees,
 		ResponseStatus: calendarOutlookOrganizerStatus(remote.outlookCalendarEvent),
 	}); reason != "" {
 		return reason
@@ -364,8 +369,8 @@ func (remote outlookCalendarUpdateEvent) restriction() string {
 	if remote.Type != "" && remote.Type != "singleInstance" {
 		return "Recurring events and individual occurrences cannot be edited in Gofer yet."
 	}
-	if remote.IsOnlineMeeting || strings.TrimSpace(remote.OnlineMeetingURL) != "" || (remote.OnlineMeetingProvider != "" && remote.OnlineMeetingProvider != "unknown") {
-		return "Online meetings cannot be edited in Gofer yet."
+	if calendarOutlookOnline(remote) && (remote.IsOrganizer == nil || !*remote.IsOrganizer) {
+		return "Only the organizer can edit an online meeting."
 	}
 	return ""
 }
@@ -376,6 +381,9 @@ func updateOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 
 func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarID string, existing storage.CalendarEvent, draft calendar.EventDraft, series bool, occurrenceScope ...bool) (calendar.RemoteEvent, error) {
 	occurrence := calendarOccurrenceScope(occurrenceScope)
+	// This adapter supports Outlook conferencing; other providers keep their
+	// existing restrictions. The fresh read below is still authoritative.
+	existing.SourceProvider = "outlook"
 	if err := calendarUpdateExistingScopeRestriction(existing, series, occurrence); err != nil {
 		return calendar.RemoteEvent{}, err
 	}
@@ -393,6 +401,28 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 	}
 	if current.ID != existing.RemoteID {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not return the requested event identity")
+	}
+	online := calendarOutlookOnline(current)
+	addingTeams := draft.TeamsMeeting && !online
+	if online && draft.TeamsMeetingSet && !draft.TeamsMeeting {
+		return calendar.RemoteEvent{}, calendarUpdateUnsupported("Microsoft does not allow disabling an online meeting once enabled.")
+	}
+	if online && draft.TeamsMeeting && !calendarOutlookTeamsConfirmed(current.outlookCalendarEvent) {
+		return calendar.RemoteEvent{}, calendarUpdateUnsupported("Microsoft does not allow changing an online meeting's provider.")
+	}
+	if addingTeams {
+		if series || occurrence || draft.Recurrence != nil {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported("Adding Teams to recurring events is not supported in Gofer yet.")
+		}
+		if calendarOutlookOrganizerStatus(current.outlookCalendarEvent) != "organizer" {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported("Only the organizer can add a Teams meeting.")
+		}
+	}
+	if (online || addingTeams) && existing.ICalUID != "" && existing.ICalUID != current.ICalUID {
+		return calendar.RemoteEvent{}, errCalendarUpdateConflict
+	}
+	if online && (series || occurrence || draft.Recurrence != nil) {
+		return calendar.RemoteEvent{}, calendarUpdateUnsupported("Recurring online meetings are not supported yet.")
 	}
 	// The cache stores changeKey, but it is NOT an HTTP entity tag. Use the
 	// fresh @odata.etag verbatim, including W/ and quotes; never guess it from
@@ -429,6 +459,17 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 	if _, err := normalizeOutlookCalendarEvent(current.outlookCalendarEvent); err != nil {
 		return calendar.RemoteEvent{}, err
 	}
+	teamsMode := ""
+	if addingTeams {
+		mode, err := outlookCalendarTeamsMode(ctx, token, remoteCalendarID)
+		if err != nil {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{calendarUpdateHTTPError(err)}
+		}
+		if mode != "available" && mode != "available-default" {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported(calendarTeamsUnavailableMessage)
+		}
+		teamsMode = mode
+	}
 	start, end := map[string]string{"timeZone": draft.TimeZone}, map[string]string{"timeZone": draft.TimeZone}
 	if draft.AllDay {
 		start["dateTime"], end["dateTime"] = draft.StartDate+"T00:00:00", draft.EndDate+"T00:00:00"
@@ -436,14 +477,20 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 		start["dateTime"], end["dateTime"] = draft.StartAt.In(location).Format("2006-01-02T15:04:05.999999999"), draft.EndAt.In(location).Format("2006-01-02T15:04:05.999999999")
 	}
 	payload := map[string]any{"subject": draft.Summary, "start": start, "end": end, "isAllDay": draft.AllDay}
+	if addingTeams {
+		payload["isOnlineMeeting"] = true
+		if teamsMode == "available" {
+			payload["onlineMeetingProvider"] = "teamsForBusiness"
+		}
+	}
 	if draft.GuestsSet {
 		payload["attendees"] = calendarMeetingOutlookGuests(draft, current.Attendees)
 	}
 	if draft.Recurrence != nil {
 		payload["recurrence"] = calendarOutlookRecurrence(draft)
 	}
-	if draft.Description != calendarDescriptionText(existing.Description) {
-		payload["body"] = outlookCalendarItemBody{ContentType: "text", Content: draft.Description}
+	if calendarDescriptionChanged(current.Body.Content, draft) {
+		payload["body"] = calendarDraftOutlookBody(draft)
 	}
 	if draft.Location != existing.Location {
 		payload["location"] = map[string]string{"displayName": draft.Location}
@@ -452,7 +499,7 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 	if err := calendarUpdateJSON(ctx, endpoint, token, current.ODataETag, payload, &updated); err != nil {
 		return calendar.RemoteEvent{}, err
 	}
-	needsConfirmation := strings.TrimSpace(updated.ChangeKey) == ""
+	needsConfirmation := online || addingTeams || strings.TrimSpace(updated.ChangeKey) == ""
 	if needsConfirmation {
 		if updated.ID != "" && updated.ID != existing.RemoteID {
 			return calendar.RemoteEvent{}, fmt.Errorf("Microsoft returned a different event identity after the update")
@@ -469,6 +516,9 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 	if updated.ID != existing.RemoteID || strings.TrimSpace(updated.ChangeKey) == "" || restriction != "" {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm a supported updated event and version")
 	}
+	if (online || addingTeams) && current.ICalUID != updated.ICalUID {
+		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the same meeting identity")
+	}
 	event, err := normalizeOutlookCalendarEvent(updated.outlookCalendarEvent)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
@@ -476,7 +526,14 @@ func updateOutlookCalendarEventScope(ctx context.Context, token, remoteCalendarI
 	if draft.GuestsSet && !calendarMeetingGuestsMatch(event.Attendees, draft.Guests, event.OrganizerEmail) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted guests")
 	}
-	if (needsConfirmation || draft.Recurrence != nil || occurrence) && !calendarUpdateMatchesDraft(event, draft) {
+	confirmed := event
+	if addingTeams {
+		if !calendarTeamsDescriptionConfirmed(event.Description, draft) {
+			return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted description")
+		}
+		confirmed.Description = calendar.DraftDescription(draft)
+	}
+	if (needsConfirmation || draft.Recurrence != nil || occurrence) && !calendarUpdateMatchesDraft(confirmed, draft) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft did not confirm the submitted event changes")
 	}
 	event.StartTimeZone, event.EndTimeZone = draft.TimeZone, draft.TimeZone
@@ -654,11 +711,12 @@ func updateCalDAVCalendarEventScope(ctx context.Context, source storage.Calendar
 	}
 	props := current.Events()[0].Props
 	for _, name := range []string{"SUMMARY", "DESCRIPTION", "LOCATION", "DTSTART", "DTEND", "X-GOFER-TIMEZONE"} {
-		if name == "DESCRIPTION" && draft.Description == calendarDescriptionText(existing.Description) {
+		if name == "DESCRIPTION" {
 			continue
 		}
 		props.Set(edited.Events()[0].Props.Get(name))
 	}
+	calendarUpdateDescriptionProps(props, edited.Events()[0].Props, existing.Description, draft)
 	delete(props, "DURATION") // DTEND and DURATION are mutually exclusive.
 	if draft.Recurrence != nil {
 		props.Set(edited.Events()[0].Props.Get("RRULE"))

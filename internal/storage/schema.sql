@@ -1505,5 +1505,29 @@ CREATE TABLE IF NOT EXISTS calendar_reply_jobs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_reply_pending ON calendar_reply_jobs(user_id,source_id,resource_id) WHERE state='pending';
 
+CREATE TABLE IF NOT EXISTS calendar_incoming_messages (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK(state IN ('complete','ignored','retry')),
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    event_id TEXT NOT NULL DEFAULT '',
+    ical_uid TEXT NOT NULL DEFAULT '',
+    attendee TEXT NOT NULL DEFAULT '',
+    reason_code TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_messages_calendar_sender ON messages(account_id,lower(from_email),id);
+CREATE INDEX IF NOT EXISTS idx_calendar_incoming_event ON calendar_incoming_messages(event_id,attendee,message_id);
+CREATE TABLE IF NOT EXISTS calendar_incoming_responses (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+    ical_uid TEXT NOT NULL, attendee TEXT NOT NULL,
+    sequence INTEGER NOT NULL, stamp TEXT NOT NULL,
+    response TEXT NOT NULL CHECK(response IN ('ACCEPTED','TENTATIVE','DECLINED')),
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(source_id,ical_uid,attendee)
+);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (101);
+INSERT OR REPLACE INTO schema_version (version) VALUES (103);

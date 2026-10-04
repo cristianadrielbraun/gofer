@@ -20,6 +20,9 @@ import (
 )
 
 func calendarStoredEditRestriction(event storage.CalendarEvent) string {
+	if calendarStoredOutlookOnline(event) {
+		event.OnlineMeetingJSON = "{}"
+	}
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
 		Status: event.Status, Deleted: event.IsDeleted, SeriesRemoteID: event.SeriesRemoteID,
 		Recurrence: json.RawMessage(event.RecurrenceJSON), Attendees: json.RawMessage(event.AttendeesJSON),
@@ -35,6 +38,12 @@ func calendarStoredEditRestriction(event storage.CalendarEvent) string {
 }
 
 func (h *Handler) calendarEventEditAccess(ctx context.Context, event storage.CalendarEvent) (storage.CalendarSource, string, error) {
+	if calendarStoredOutlookOnline(event) && !calendarCachedOrganizer(event) {
+		return storage.CalendarSource{}, "Only the organizer can edit an online meeting.", nil
+	}
+	if calendarStoredOutlookOnline(event) && calendarEventIsSeries(event) {
+		return storage.CalendarSource{}, "Recurring online meetings cannot be edited in Gofer yet.", nil
+	}
 	return h.calendarEventMutationAccess(ctx, event, h.calendarUpdateEvent != nil, calendarEventIsSeries(event))
 }
 
@@ -154,11 +163,19 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 	data := views.CalendarCreateData{
 		EditSeries: series, EditOccurrence: occurrence, Recurrence: repeat,
 		EventID: event.ID, Version: event.ETag, RequestID: uuid.NewString(), SourceID: source.ID,
-		Sources: []views.CalendarCreateSource{{ID: source.ID, Name: source.Name, AccountName: accountName, Writable: true, Authorized: true}},
-		Summary: event.Summary, Description: calendarDescriptionText(event.Description), Location: event.Location,
+		Sources: []views.CalendarCreateSource{{ID: source.ID, Name: source.Name, AccountName: accountName, Writable: true, Authorized: true, Provider: source.Provider}},
+		Summary: event.Summary, Description: calendarDescriptionText(event.Description), DescriptionHTML: calendar.DescriptionHTML(event.Description), Location: event.Location,
 		AllDay: event.AllDay, TimeZone: location.String(), StartTime: "09:00", EndTime: "10:00",
 	}
 	data.Guests = calendarMeetingGuestText(event)
+	if calendarStoredOutlookOnline(event) {
+		data.TeamsState = "other-online"
+		if calendarOutlookTeamsJSON(calendarOutlookCachedMeetingJSON(event)) {
+			data.TeamsState = "existing"
+		}
+	} else if series || occurrence {
+		data.TeamsState = "recurring"
+	}
 	if event.AllDay {
 		end, err := time.Parse("2006-01-02", event.EndDate)
 		if err != nil {
@@ -255,7 +272,7 @@ func (h *Handler) calendarUpdateCredentials(ctx context.Context, source storage.
 }
 
 func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 100<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 384<<10) // Bounded HTML + plain fallback, including URL-encoding overhead.
 	draft, version, err := parseCalendarUpdateDraft(r)
 	if err != nil {
 		calendarUpdateFailure(w, http.StatusBadRequest, err.Error(), false, false)
@@ -269,6 +286,10 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	if err != nil {
 		calendarUpdateFailure(w, http.StatusInternalServerError, "Could not load this event.", false, false)
+		return
+	}
+	if draft.TeamsMeeting && event.SourceProvider != providers.ProviderOutlook {
+		calendarUpdateFailure(w, 400, "Teams meetings require a supported Outlook calendar.", false, false)
 		return
 	}
 	if r.PostForm.Get("source_id") != event.SourceID {
@@ -360,7 +381,11 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	restriction := calendarUpdateSavedRestriction(remote, draft)
+	confirmed := remote
+	if source.Provider == providers.ProviderOutlook && calendarUpdateHasDetails(remote.OnlineMeeting) {
+		confirmed.OnlineMeeting = nil
+	}
+	restriction := calendarUpdateSavedRestriction(confirmed, draft)
 	if instance {
 		restriction = calendarOccurrenceRestriction(remote, event.SeriesRemoteID)
 	}
@@ -375,6 +400,8 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		err = h.db.CompleteCalendarOccurrenceUpdate(ctx, userID, event.ID, source.ID, version, stored)
 	} else if draft.Recurrence != nil {
 		err = h.db.CompleteCalendarSeriesConversion(ctx, userID, event.ID, source.ID, version, stored)
+	} else if source.Provider == providers.ProviderOutlook && (calendarStoredOutlookOnline(event) || calendarUpdateHasDetails(remote.OnlineMeeting)) {
+		err = h.db.CompleteCalendarOutlookOnlineUpdate(ctx, event, stored)
 	} else {
 		err = h.db.CompleteCalendarUpdate(ctx, userID, event.ID, source.ID, version, stored)
 	}
@@ -386,6 +413,9 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: userID, Payload: map[string]any{"source_id": source.ID, "event_id": event.ID}})
 	}
 	response := map[string]any{"saved": true, "event_id": event.ID, "source_id": source.ID, "hidden": source.IsHidden, "notify_guests": len(draft.Guests) > 0 || calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON))}
+	if draft.TeamsMeeting && source.Provider == providers.ProviderOutlook {
+		response["teams_unconfirmed"] = !calendarTeamsLinkConfirmed(remote.OnlineMeeting)
+	}
 	if instance {
 		response["scope"] = "occurrence"
 	}

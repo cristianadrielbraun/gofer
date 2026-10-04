@@ -1,3 +1,39 @@
+function setupPageRequestOwnership() {
+  if (window._goferPageRequestOwnershipReady) return
+  window._goferPageRequestOwnershipReady = true
+  var generation = 0
+
+  // Register immediately: HTMX processes load triggers in its own
+  // DOMContentLoaded listener, before the rest of our app is initialized.
+  document.addEventListener("htmx:beforeRequest", function (event) {
+    var detail = event.detail
+    if (!detail || !detail.xhr) return
+    var trigger = detail.elt
+    var pageTarget = detail.target && /^(main-content|settings-content|app-shell)$/.test(detail.target.id)
+    var navigation = trigger && trigger.hasAttribute && (
+      trigger.hasAttribute("data-sidebar-app-button") ||
+      (pageTarget && detail.requestConfig && detail.requestConfig.verb === "get" &&
+        (trigger.hasAttribute("href") || detail.boosted)))
+    if (navigation) generation++
+    detail.xhr.goferPageGeneration = generation
+  }, true)
+
+  function rejectPreviousPageResponse(event) {
+    var xhr = event.detail && event.detail.xhr
+    if (!xhr || typeof xhr.goferPageGeneration !== "number" || xhr.goferPageGeneration === generation) return
+    event.detail.shouldSwap = false
+    // Cancelling the event also blocks response headers, history/title updates,
+    // and out-of-band swaps, rather than just hiding the primary swap.
+    event.preventDefault()
+  }
+  document.addEventListener("htmx:beforeOnLoad", rejectPreviousPageResponse, true)
+  // The original trigger may be detached, so also check the surviving target.
+  document.addEventListener("htmx:beforeSwap", rejectPreviousPageResponse, true)
+  window.addEventListener("popstate", function () { generation++ }, true)
+}
+
+setupPageRequestOwnership()
+
 document.addEventListener("DOMContentLoaded", function () {
   if (!document.getElementById("mail-sync-indeterminate-style")) {
     var style = document.createElement("style")
@@ -8633,6 +8669,76 @@ function toggleCalendarDescription(form) {
   return setCalendarDescriptionExpanded(form, !form._calendarDescriptionExpanded)
 }
 
+// Calendar uses the composer's contenteditable, formatting and selection
+// mechanics, without its email attachments, signatures or draft autosave.
+function syncCalendarDescription(editor) {
+  var form = editor && editor.closest("[data-calendar-create-form]")
+  if (!form) return
+  var html = _sanitizeComposeHTML(editor.innerHTML || "")
+  // No remote images or message-only metadata in calendar notes.
+  var fragment = document.createElement("template")
+  fragment.innerHTML = html
+  fragment.content.querySelectorAll("img").forEach(function (image) { image.remove() })
+  form.querySelector('[name="description_html"]').value = fragment.innerHTML.trim()
+  form.querySelector('[name="description"]').value = _composeEditorText(editor)
+  calendarDescriptionSelection(editor)
+}
+
+function calendarDescriptionSelection(editor) {
+  _saveComposeSelection(editor)
+  var form = editor && editor.closest("[data-calendar-create-form]")
+  if (!form) return
+  form.querySelectorAll("[data-calendar-description-command]").forEach(function (button) {
+    var active = false
+    try { active = document.queryCommandState(button.dataset.calendarDescriptionCommand) } catch (e) {}
+    button.classList.toggle("bg-accent", active)
+    button.classList.toggle("text-foreground", active)
+    button.setAttribute("aria-pressed", String(active))
+  })
+}
+
+function calendarDescriptionExec(el, command, value) {
+  // templUI dropdown items may be portaled outside the form.
+  var form = el.closest("[data-calendar-create-form]") || document.getElementById("calendar-create-form")
+  var editor = form && form.querySelector("[data-calendar-rich-editor]")
+  if (!editor || editor.getAttribute("contenteditable") !== "true") return
+  if (command === "createLink") {
+    value = window.prompt("Paste a URL or email address")
+    if (!value) return
+    value = value.trim()
+    if (value.indexOf("@") > 0 && !/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "mailto:" + value
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "https://" + value
+    if (!/^(https?:|mailto:)/i.test(value)) return
+  }
+  editor.focus()
+  _restoreComposeSelection(editor)
+  document.execCommand(command, false, value || null)
+  syncCalendarDescription(editor)
+}
+
+function pasteCalendarDescription(event) {
+  var clipboard = event.clipboardData || event.dataTransfer
+  if (!clipboard) return
+  event.preventDefault()
+  var fragment = document.createElement("template")
+  fragment.innerHTML = _sanitizeComposeHTML(clipboard.getData("text/html") || _composePlainToHTML(clipboard.getData("text/plain")))
+  fragment.content.querySelectorAll("img").forEach(function (image) { image.remove() })
+  document.execCommand("insertHTML", false, fragment.innerHTML)
+  syncCalendarDescription(event.currentTarget)
+}
+
+document.addEventListener("keydown", function (event) {
+  var editor = event.target && event.target.closest && event.target.closest("[data-calendar-rich-editor]")
+  if (!editor || (!event.ctrlKey && !event.metaKey)) return
+  var command = {b: "bold", i: "italic", u: "underline", k: "createLink"}[event.key.toLowerCase()]
+  if (command) { event.preventDefault(); calendarDescriptionExec(editor, command) }
+})
+
+document.addEventListener("selectionchange", function () {
+  var editor = document.activeElement && document.activeElement.closest && document.activeElement.closest("[data-calendar-rich-editor]")
+  if (editor) calendarDescriptionSelection(editor)
+})
+
 function setCalendarDescriptionExpanded(form, expanded) {
   var editor = form.querySelector("[data-calendar-description-editor]")
   var slot = form.querySelector("[data-calendar-description-slot]")
@@ -8640,6 +8746,9 @@ function setCalendarDescriptionExpanded(form, expanded) {
   var body = form.querySelector("[data-calendar-create-body]")
   var content = editor && editor.querySelector("[data-calendar-description-content]")
   if (!editor || !slot || !viewport || !body || !content) return Promise.resolve()
+  var richInput = editor.querySelector("[data-calendar-rich-editor]")
+  _saveComposeSelection(richInput)
+  var richRange = richInput._composeRange && richInput._composeRange.cloneRange()
   var state = form._calendarDescriptionState
   if (!state && !expanded) return Promise.resolve()
   if (editor._calendarDescriptionReveal) editor._calendarDescriptionReveal.cancel()
@@ -8694,11 +8803,11 @@ function setCalendarDescriptionExpanded(form, expanded) {
   button.title = label
   editor.querySelector("[data-calendar-description-expand]").hidden = expanded
   editor.querySelector("[data-calendar-description-collapse]").hidden = !expanded
-  var textarea = editor.querySelector("textarea")
-  // Native textarea wrapping and scrollbar changes are discrete. Keep them
+  // Rich-text wrapping and scrollbar changes are discrete. Keep them
   // out of the motion: lay out the real input once, and scale an empty frame.
   content.style.opacity = "0"
-  textarea.focus({preventScroll: true})
+  richInput.focus({preventScroll: true})
+  if (richRange) { richInput._composeRange = richRange; _restoreComposeSelection(richInput) }
   editor.dataset.resizing = "true"
   function finish() {
     if (state.token !== token) return
@@ -8722,7 +8831,11 @@ function setCalendarDescriptionExpanded(form, expanded) {
     // Moving a focused input back into its slot may clear focus. Restore it
     // in the same frame, before the text and controls fade back in.
     var dialog = form.closest("dialog")
-    if (form.isConnected && dialog && dialog.open) textarea.focus({preventScroll: true})
+    if (form.isConnected && dialog && dialog.open) {
+      var range = richInput._composeRange
+      richInput.focus({preventScroll: true})
+      if (range) { richInput._composeRange = range; _restoreComposeSelection(richInput) }
+    }
     content.style.opacity = state.contentOpacity
     if (!reduced && content.animate) {
       state.reveal = content.animate([{opacity: 0}, {opacity: state.contentOpacity || "1"}], {duration: 160, easing: "ease"})
@@ -8753,6 +8866,84 @@ function prepareCalendarDescriptionSubmit(event, button) {
   })
 }
 
+function updateCalendarTeamsForm(form, selected, locked) {
+  var root = form.querySelector("[data-calendar-teams-options]")
+  if (!root) return
+  var source = form.querySelector('[name="source_id"]')
+  var outlook = selected && selected.dataset.calendarSourceProvider === "outlook"
+  root.hidden = !outlook
+  if (locked) {
+    if (root._calendarTeamsPending) {
+      root._calendarTeamsSource = ""
+      root.dataset.calendarTeamsState = ""
+      root._calendarTeamsPending = false
+    }
+    if (window.htmx) window.htmx.trigger(root, "htmx:abort")
+    root.querySelectorAll("input, button").forEach(function (input) { input.disabled = true })
+    return
+  }
+  if (!outlook) {
+    if (window.htmx) window.htmx.trigger(root, "htmx:abort")
+    root.replaceChildren()
+    root._calendarTeamsSource = ""
+    root._calendarTeamsPending = false
+    return
+  }
+  if (root._calendarTeamsSource === undefined && root.dataset.calendarTeamsSource === source.value && root.dataset.calendarTeamsState) {
+    root._calendarTeamsSource = source.value
+  }
+  if (root._calendarTeamsSource !== source.value && window.htmx) {
+    window.htmx.trigger(root, "htmx:abort")
+    root._calendarTeamsSource = source.value
+    root.replaceChildren(form.querySelector("[data-calendar-teams-checking]").content.cloneNode(true))
+    root._calendarTeamsPending = true
+    window.htmx.trigger(root, "calendar-teams-source-changed")
+  }
+  root.querySelectorAll("[data-calendar-teams-toggle]").forEach(function (toggle) {
+    toggle.disabled = toggle.dataset.calendarTeamsAvailable !== "true"
+  })
+  root.querySelectorAll("[data-calendar-teams-retry]").forEach(function (button) { button.disabled = false })
+}
+
+function retryCalendarTeams(form) {
+  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict) return
+  var root = form.querySelector("[data-calendar-teams-options]")
+  if (!root) return
+  root._calendarTeamsSource = ""
+  root.dataset.calendarTeamsState = ""
+  updateCalendarCreateForm(form)
+}
+
+function calendarTeamsSwapAllowed(detail) {
+  var root = detail.target
+  var form = root.closest("[data-calendar-create-form]")
+  var source = form && form.querySelector('[name="source_id"]')
+  return !!(form && form.isConnected && !form._calendarCreateBusy && !form._calendarCreateUncertain && !form._calendarCreateConflict && source && detail.xhr.getResponseHeader("X-Gofer-Calendar-Source") === source.value)
+}
+
+document.body.addEventListener("htmx:beforeSwap", function (event) {
+  var detail = event.detail
+  if (detail && detail.target && detail.target.id === "calendar-teams-options" && !calendarTeamsSwapAllowed(detail)) detail.shouldSwap = false
+})
+
+document.body.addEventListener("htmx:afterSwap", function (event) {
+  var target = event.detail && event.detail.target
+  if (target && target.id === "calendar-teams-options") {
+    target._calendarTeamsPending = false
+    updateCalendarCreateForm(target.closest("[data-calendar-create-form]"))
+  }
+})
+
+document.body.addEventListener("htmx:afterRequest", function (event) {
+  var detail = event.detail
+  var root = detail && detail.elt
+  if (!root || root.id !== "calendar-teams-options" || !detail.failed || !root.isConnected) return
+  var form = root.closest("[data-calendar-create-form]")
+  if (!form || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict) return
+  var retry = root.querySelector("[data-calendar-teams-retry]")
+  if (retry) retry.hidden = false
+})
+
 function updateCalendarCreateForm(form) {
   if (!form) return
   adjustCalendarCreateAllDayRange(form)
@@ -8766,10 +8957,21 @@ function updateCalendarCreateForm(form) {
   var busy = !!form._calendarCreateBusy
   var uncertain = !!form._calendarCreateUncertain
   var locked = busy || uncertain || !!form._calendarCreateConflict
+  var richEditor = form.querySelector("[data-calendar-rich-editor]")
+  if (richEditor) {
+    richEditor.setAttribute("contenteditable", String(!locked))
+    richEditor.setAttribute("aria-disabled", String(locked))
+  }
+  var toolbar = form.querySelector("[data-calendar-description-toolbar]")
+  if (toolbar) {
+    toolbar.inert = locked
+    toolbar.querySelectorAll("button").forEach(function (button) { button.disabled = locked })
+  }
   var descriptionToggle = form.querySelector("[data-calendar-description-toggle]")
   if (descriptionToggle) descriptionToggle.disabled = locked
   var allDay = form.querySelector('[name="all_day"]').checked
   form.querySelectorAll("input, select, textarea").forEach(function (input) { input.disabled = locked })
+  updateCalendarTeamsForm(form, selected, locked)
   var sourceTrigger = sourceSelect && sourceSelect.querySelector(".select-trigger")
   form.querySelectorAll(".select-trigger, [data-tui-datepicker], [data-tui-timepicker]").forEach(function (trigger) {
     trigger.disabled = locked
@@ -8922,6 +9124,12 @@ function validateCalendarCreatePickers(form) {
   var fields = ["start_date", "end_date", "timezone"]
   if (!form.querySelector('[name="all_day"]').checked) fields = fields.concat(["start_time", "end_time"])
   var repeat = form.querySelector('[name="repeat_frequency"]')
+  var teams = form.querySelector('[name="teams_meeting"]')
+  if (teams && teams.checked && !teams.disabled && repeat && repeat.value !== "none") {
+    setCalendarCreateError(form, "Teams meetings currently support events that do not repeat. Choose Does not repeat or turn Teams off.")
+    teams.focus()
+    return false
+  }
   var guests = form.querySelector('[name="guests"]')
   if (guests && guests.value.trim() && repeat && repeat.value !== "none") {
     setCalendarCreateError(form, "Guest invitations currently support events that do not repeat. Remove the guests or choose Does not repeat.")
@@ -8962,6 +9170,7 @@ function submitCalendarCreate(form) {
   }
   var editing = !!form.dataset.calendarEventId
   if (form._calendarCreateBusy || (editing && (form._calendarCreateUncertain || form._calendarCreateConflict)) || (!form._calendarCreateUncertain && (!form.reportValidity() || !validateCalendarCreatePickers(form)))) return Promise.resolve()
+  if (!form._calendarCreateUncertain) syncCalendarDescription(form.querySelector("[data-calendar-rich-editor]"))
   if (editing) ["source_id", "version", "request_id", "edit_scope"].forEach(function (name) {
     var input = form.querySelector('[name="' + name + '"]')
     if (input) input.disabled = false
@@ -8992,7 +9201,8 @@ function submitCalendarCreate(form) {
       if (editing && (result.data.event_id !== form.dataset.calendarEventId || (form.dataset.calendarEditOccurrence === "true" && result.data.scope !== "occurrence"))) throw new Error("Event scope could not be confirmed")
       // Close only this form; a delayed save must not close a newer dialog.
       if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
-      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.notify_guests ? "Meeting saved. Guest notifications are being delivered." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: result.data.refresh_pending ? "warning" : "success", icon: result.data.refresh_pending ? "warning" : "success", duration: result.data.refresh_pending ? 8000 : 4500})
+      var warning = result.data.teams_unconfirmed || result.data.refresh_pending
+      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.teams_unconfirmed ? "Event saved, but Microsoft did not confirm a Teams link. Check the event in Outlook; do not create it again." : result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.notify_guests ? "Meeting saved. Guest notifications are being delivered." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", duration: warning ? 10000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {

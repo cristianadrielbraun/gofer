@@ -306,11 +306,12 @@ func updateCalDAVCalendarOccurrence(ctx context.Context, source storage.Calendar
 			return preflight(err)
 		}
 		for _, name := range []string{"SUMMARY", "DESCRIPTION", "LOCATION", "DTSTART", "DTEND", "X-GOFER-TIMEZONE"} {
-			if name == "DESCRIPTION" && draft.Description == calendarDescriptionText(existing.Description) {
+			if name == "DESCRIPTION" {
 				continue
 			}
 			override.Props.Set(edited.Events()[0].Props.Get(name))
 		}
+		calendarUpdateDescriptionProps(override.Props, edited.Events()[0].Props, existing.Description, *draft)
 		delete(override.Props, "DURATION")
 		override.Props.SetDateTime("DTSTAMP", time.Now().UTC())
 		override.Props.SetDateTime("LAST-MODIFIED", time.Now().UTC())

@@ -35,7 +35,7 @@ func calendarNotificationICS(source *ical.Calendar, method string, guests []cale
 	}
 	event := cloneCalendarComponent(source.Events()[0].Component)
 	allowed := map[string]bool{}
-	for _, name := range []string{"UID", "DTSTAMP", "SEQUENCE", "DTSTART", "DTEND", "DURATION", "SUMMARY", "DESCRIPTION", "LOCATION", "STATUS", "ORGANIZER", "ATTENDEE", "TRANSP", "CLASS", "URL"} {
+	for _, name := range []string{"UID", "DTSTAMP", "SEQUENCE", "DTSTART", "DTEND", "DURATION", "SUMMARY", "DESCRIPTION", "X-ALT-DESC", "LOCATION", "STATUS", "ORGANIZER", "ATTENDEE", "TRANSP", "CLASS", "URL"} {
 		allowed[name] = true
 	}
 	for name := range event.Props {

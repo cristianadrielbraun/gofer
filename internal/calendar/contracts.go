@@ -99,22 +99,25 @@ type RecurrenceDraft struct {
 
 // EventDraft creates either a single appointment or a simple recurring series.
 type EventDraft struct {
-	RequestID      string
-	Summary        string
-	Description    string
-	Location       string
-	TimeZone       string
-	AllDay         bool
-	StartDate      string // inclusive
-	EndDate        string // exclusive
-	StartAt        *time.Time
-	EndAt          *time.Time
-	Recurrence     *RecurrenceDraft `json:",omitempty"` // Preserve existing single-event idempotency hashes.
-	Guests         []GuestDraft     `json:",omitempty"`
-	GuestsSet      bool             `json:"-"`
-	OrganizerEmail string           `json:"-"` // Trusted account identity, never a form field.
-	OrganizerName  string           `json:"-"`
-	ScheduleAgent  string           `json:"-"`
+	RequestID       string
+	Summary         string
+	Description     string
+	DescriptionHTML *string `json:",omitempty"` // Nil keeps legacy plain-text requests and hashes unchanged.
+	TeamsMeeting    bool    `json:",omitempty"`
+	TeamsMeetingSet bool    `json:"-"` // Distinguish an explicit disable from an omitted field.
+	Location        string
+	TimeZone        string
+	AllDay          bool
+	StartDate       string // inclusive
+	EndDate         string // exclusive
+	StartAt         *time.Time
+	EndAt           *time.Time
+	Recurrence      *RecurrenceDraft `json:",omitempty"` // Preserve existing single-event idempotency hashes.
+	Guests          []GuestDraft     `json:",omitempty"`
+	GuestsSet       bool             `json:"-"`
+	OrganizerEmail  string           `json:"-"` // Trusted account identity, never a form field.
+	OrganizerName   string           `json:"-"`
+	ScheduleAgent   string           `json:"-"`
 }
 
 type GuestDraft struct {

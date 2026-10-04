@@ -224,11 +224,12 @@ func (h *Handler) updateCalDAVMeeting(ctx context.Context, source storage.Calend
 	old := &ical.Calendar{Component: cloneCalendarComponent(current.Component)}
 	props := current.Events()[0].Props
 	for _, field := range []string{"SUMMARY", "DESCRIPTION", "LOCATION", "DTSTART", "DTEND", "X-GOFER-TIMEZONE"} {
-		if field == "DESCRIPTION" && draft.Description == calendarDescriptionText(existing.Description) {
+		if field == "DESCRIPTION" {
 			continue
 		}
 		props.Set(edited.Events()[0].Props.Get(field))
 	}
+	calendarUpdateDescriptionProps(props, edited.Events()[0].Props, existing.Description, draft)
 	delete(props, "DURATION")
 	var people []ical.Prop
 	for _, person := range old.Events()[0].Props["ATTENDEE"] {
@@ -404,6 +405,10 @@ func calendarMeetingResourceMatches(expected, actual *ical.Calendar) bool {
 		return false
 	}
 	draft := calendar.EventDraft{Summary: a.Summary, Description: a.Description, Location: a.Location, AllDay: a.AllDay, StartAt: a.StartAt, EndAt: a.EndAt, StartDate: a.StartDate, EndDate: a.EndDate}
+	if left.Get("X-ALT-DESC") != nil {
+		rich := calendar.DescriptionHTML(a.Description)
+		draft.DescriptionHTML = &rich
+	}
 	if !calendarUpdateMatchesDraft(b, draft) {
 		return false
 	}

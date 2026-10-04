@@ -48,7 +48,7 @@ const context = vm.createContext({
   adjustCalendarCreateAllDayRange() {}, setCalendarCreateError(_form, value) { message = value },
   showGoferToast(value) { toasts.push(value) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
-vm.runInContext(['updateCalendarRecurrenceForm', 'validateCalendarCreatePickers', 'submitCalendarCreate'].map(helper).join('\n'), context)
+vm.runInContext(['updateCalendarRecurrenceForm', 'validateCalendarCreatePickers', 'syncCalendarDescription', 'submitCalendarCreate'].map(helper).join('\n'), context)
 context.updateCalendarCreateForm = form => {
   const locked = !!(form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict)
   Object.values(inputs).forEach(input => { input.disabled = locked })

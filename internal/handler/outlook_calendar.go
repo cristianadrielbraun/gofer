@@ -46,6 +46,7 @@ type outlookCalendarEvent struct {
 	Start                 outlookCalendarDateTime   `json:"start"`
 	End                   outlookCalendarDateTime   `json:"end"`
 	IsAllDay              bool                      `json:"isAllDay"`
+	IsOnlineMeeting       *bool                     `json:"isOnlineMeeting"`
 	IsCancelled           bool                      `json:"isCancelled"`
 	IsOrganizer           *bool                     `json:"isOrganizer"`
 	ResponseStatus        struct{ Response string } `json:"responseStatus"`
@@ -189,7 +190,7 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 		"id", "iCalUId", "changeKey", "subject", "bodyPreview", "body", "start", "end",
 		"isAllDay", "isCancelled", "webLink", "createdDateTime", "lastModifiedDateTime",
 		"organizer", "attendees", "location", "onlineMeetingUrl", "onlineMeetingProvider",
-		"onlineMeeting", "seriesMasterId", "recurrence", "isOrganizer", "responseStatus",
+		"onlineMeeting", "isOnlineMeeting", "seriesMasterId", "recurrence", "isOrganizer", "responseStatus",
 	}, ","))
 
 	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/calendarView?" + values.Encode()
@@ -244,7 +245,7 @@ func normalizeOutlookCalendarEvent(remote outlookCalendarEvent) (calendar.Remote
 		HTMLLink:       strings.TrimSpace(remote.WebLink),
 		Deleted:        remote.IsCancelled,
 	}
-	if event.Description == "" {
+	if event.Description == "" && remote.Body.ContentType == "" {
 		event.Description = strings.TrimSpace(remote.BodyPreview)
 	}
 	event.Recurrence = validOutlookJSON(remote.Recurrence, "{}")
@@ -254,13 +255,7 @@ func normalizeOutlookCalendarEvent(remote outlookCalendarEvent) (calendar.Remote
 		event.ResponseStatus = "organizer"
 	}
 	event.Attendees = validOutlookJSON(remote.Attendees, "[]")
-	if len(remote.OnlineMeeting) > 0 && json.Valid(remote.OnlineMeeting) {
-		event.OnlineMeeting = append(json.RawMessage(nil), remote.OnlineMeeting...)
-	} else if value := strings.TrimSpace(remote.OnlineMeetingURL); value != "" {
-		event.OnlineMeeting = json.RawMessage(fmt.Sprintf(`{"url":%q}`, value))
-	} else {
-		event.OnlineMeeting = json.RawMessage("{}")
-	}
+	event.OnlineMeeting = calendarOutlookMeetingJSON(remote)
 
 	var err error
 	event.ProviderCreatedAt, err = parseOutlookCalendarTimestamp(remote.CreatedDateTime)

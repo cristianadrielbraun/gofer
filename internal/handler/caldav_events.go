@@ -194,6 +194,11 @@ func normalizeCalDAVEvent(component ical.Event, href, etag string, location *tim
 		}
 		*field.value = strings.TrimSpace(text)
 	}
+	if alternate := props.Get("X-ALT-DESC"); alternate != nil && strings.EqualFold(alternate.Params.Get("FMTTYPE"), "text/html") {
+		if rich, err := props.Text("X-ALT-DESC"); err == nil {
+			event.Description = calendar.SanitizeDescriptionHTML(rich)
+		}
+	}
 	if event.ICalUID == "" {
 		return calendar.RemoteEvent{}, fmt.Errorf("CalDAV event has no UID")
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/internal/calendar"
 )
 
 templ CalendarEventDialog(details CalendarEventDetails, location *time.Location) {
@@ -99,6 +100,14 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 						}
 					</p>
 				}
+				if joinURL := calendar.SafeMeetingURL(details.JoinURL); joinURL != "" {
+					@calendarDialogRow(icon.Video(icon.Props{Class: "size-4"}), "pt-2") {
+						@button.Button(button.Props{Href: joinURL, Target: "_blank", Variant: button.VariantOutline, Size: button.SizeSm, Class: "font-semibold", Attributes: templ.Attributes{"rel": "noopener noreferrer", "data-calendar-join-meeting": ""}}) {
+							Join meeting
+							@icon.ExternalLink(icon.Props{Class: "size-3.5"})
+						}
+					}
+				}
 				if event.Location != "" {
 					@calendarDialogRow(icon.MapPin(icon.Props{Class: "size-4"}), "pt-0.5") {
 						<p class="sr-only">Location</p>
@@ -111,7 +120,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 						<p class="mt-0.5 text-xs text-muted-foreground">Organizer</p>
 					}
 				}
-				if len(details.Attendees) > 0 {
+				if len(details.Attendees) > 0 || details.Delivery != nil {
 					@calendarDialogRow(icon.Users(icon.Props{Class: "size-4"}), "pt-0.5") {
 						@CalendarEventGuests(details)
 					}
@@ -119,7 +128,11 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 				if details.Description != "" {
 					@calendarDialogRow(icon.TextAlignStart(icon.Props{Class: "size-4"}), "pt-0.5") {
 						<h3 class="sr-only">Description</h3>
-						<p class="whitespace-pre-wrap leading-relaxed">{ details.Description }</p>
+						if details.DescriptionHTML != "" {
+							<div class="calendar-rich-description leading-relaxed">@templ.Raw(calendar.SanitizeDescriptionHTML(details.DescriptionHTML))</div>
+						} else {
+							<p class="whitespace-pre-wrap leading-relaxed">{ details.Description }</p>
+						}
 					}
 				}
 				if !details.CanEdit {
@@ -149,7 +162,13 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 }
 
 templ CalendarEventGuests(details CalendarEventDetails) {
-	<section aria-labelledby="calendar-event-guests-heading">
+	{{
+		attrs := templ.Attributes{}
+		if details.Delivery != nil {
+			attrs = templ.Attributes{"hx-get": calendarEventDetailsURL(details.Event.ID) + "/delivery", "hx-trigger": "every 5s [document.visibilityState === 'visible' && document.getElementById('calendar-event-guests')?.getClientRects().length > 0]", "hx-target": "this", "hx-swap": "outerHTML", "hx-sync": "this:drop", "hx-params": "none"}
+		}
+	}}
+	<section id="calendar-event-guests" aria-labelledby="calendar-event-guests-heading" { attrs... }>
 		<div class="flex flex-wrap items-baseline gap-x-2">
 			<h3 id="calendar-event-guests-heading" class="font-medium">
 				{ strconv.Itoa(len(details.Attendees)) }
@@ -196,6 +215,9 @@ templ CalendarEventGuests(details CalendarEventDetails) {
 				</li>
 			}
 		</ul>
+		if details.Delivery != nil {
+			@CalendarDeliveryStatus(*details.Delivery)
+		}
 	</section>
 }
 

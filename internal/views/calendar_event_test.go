@@ -109,7 +109,7 @@ func TestCalendarEventDialogScrollsOneColumn(t *testing.T) {
 				t.Fatal(err)
 			}
 			markup := output.String()
-			if !strings.Contains(markup, "sm:max-w-lg") || !strings.Contains(markup, "max-h-[min(46rem,calc(100dvh-2rem))]") {
+			if !strings.Contains(markup, "sm:max-w-lg") || !strings.Contains(markup, "max-h-[calc(100dvh-2rem)]") {
 				t.Error("details must keep one bounded width and height regardless of content")
 			}
 			doc, err := htmlnode.Parse(strings.NewReader(markup))
