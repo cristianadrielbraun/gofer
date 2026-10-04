@@ -30,7 +30,7 @@ func TestMailFiltersPopoverRendersWithCompactSidebarSections(t *testing.T) {
 		`data-mail-filter-panel-button="status"`,
 		`data-mail-advanced-filter-count`,
 		`w-[min(36rem,calc(100vw-1.5rem))]`,
-		`h-[min(28rem,calc(100vh-2rem))]`,
+		`h-[min(32.2rem,calc(100vh-2rem))]`,
 		`sm:grid-cols-[9rem_minmax(0,1fr)]`,
 		`grid-rows-[auto_minmax(0,1fr)]`,
 		`sm:grid-rows-[minmax(0,1fr)]`,

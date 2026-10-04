@@ -25,10 +25,7 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 	<div class="flex-1 flex flex-col min-w-0 overflow-hidden" data-settings-page>
 		<div class="flex-1 overflow-y-auto">
 			<div id="settings-content" class="max-w-3xl px-8 py-10">
-				<div class="mb-6">
-					<h2 class="text-2xl font-bold text-foreground mb-1" style="font-family: var(--font-serif)">Settings</h2>
-					<p class="text-sm text-muted-foreground">Manage your accounts and preferences</p>
-				</div>
+				@SettingsSectionHeader(activeTab)
 				if activeTab == "accounts" {
 					@SettingsAccountsTab(accounts)
 				} else if activeTab == "sync" {
@@ -48,6 +45,39 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 				}
 			</div>
 		</div>
+	</div>
+}
+
+func settingsSectionHeading(section string) (string, string) {
+	switch section {
+		case "accounts":
+			return "Accounts", "Connect and manage your email and calendar accounts."
+		case "sync":
+			return "Email sync and folders", "Choose how email syncs and which folders appear in unified views."
+		case "operations":
+			return "Mail operations", "Track outgoing messages and background mail operations."
+		case "contacts":
+			return "Contacts", "Manage local contacts and sync contacts from connected accounts."
+		case "appearance":
+			return "Appearance", "Choose the visual style and color mode for Gofer."
+		case "regional":
+			return "Regional", "Choose the time zone used for message dates and scheduled sends."
+		case "compose-display":
+			return "Compose and display", "Customize compose windows, message lists, signatures, and translation."
+		case "security":
+			return "Security", "Manage sign-in methods, active sessions, and security activity."
+		case "advanced":
+			return "Advanced", "Configure prefetching, notifications, and email link handling."
+		default:
+			return "Settings", "Manage your accounts and preferences."
+	}
+}
+
+templ SettingsSectionHeader(section string) {
+	{{ title, description := settingsSectionHeading(section) }}
+	<div class="mb-6">
+		<h2 class="text-2xl font-bold text-foreground mb-1" style="font-family: var(--font-serif)">{ title }</h2>
+		<p class="text-sm text-muted-foreground">{ description }</p>
 	</div>
 }
 

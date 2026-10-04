@@ -34,6 +34,15 @@ function setupPageRequestOwnership() {
 
 setupPageRequestOwnership()
 
+function animateSectionContent(section) {
+  if (!section || typeof section.animate !== "function" ||
+      (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return
+  section.animate([
+    { opacity: 0, transform: "translateY(5px)" },
+    { opacity: 1, transform: "translateY(0)" },
+  ], { duration: 180, easing: "ease-out" })
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   if (!document.getElementById("mail-sync-indeterminate-style")) {
     var style = document.createElement("style")
@@ -1900,7 +1909,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function readFilters() {
       var filters = emptyFilters()
-      var form = document.querySelector("[data-mail-filter-form]")
+      var form = document.querySelector("[data-mail-advanced-filter-form]") || document.querySelector("[data-mail-filter-form]")
       if (form) {
         var status = form.querySelector('[data-mail-tristate="status"]')
         var attachments = form.querySelector('[data-mail-tristate="attachments"]')
@@ -2003,7 +2012,9 @@ document.addEventListener("DOMContentLoaded", function () {
         { key: "minSizeMB", name: "min_size_mb", label: "Minimum size" },
         { key: "maxSizeMB", name: "max_size_mb", label: "Maximum size" },
         { key: "tag", name: "tag", label: "Tag" },
+        { key: "unread", name: "unread", label: "Unread" },
         { key: "read", name: "read", label: "Read" },
+        { key: "attachments", name: "attachments", label: "Has attachments" },
         { key: "noAttachments", name: "no_attachments", label: "No attachments" },
         { key: "hasTags", name: "has_tags", label: "Has tags" },
         { key: "noTags", name: "no_tags", label: "No tags" },
@@ -2075,12 +2086,7 @@ document.addEventListener("DOMContentLoaded", function () {
       box.style.overflow = "hidden"
       box.offsetHeight
       box.style.height = nextHeight + "px"
-      if (typeof nextSection.animate === "function") {
-        nextSection.animate([
-          { opacity: 0, transform: "translateY(5px)" },
-          { opacity: 1, transform: "translateY(0)" },
-        ], { duration: 180, easing: "ease-out" })
-      }
+      animateSectionContent(nextSection)
       box._mailFilterPanelTimer = window.setTimeout(function () {
         box._mailFilterPanelTimer = null
         box.style.height = ""
@@ -4398,7 +4404,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
       for (var i = 0; i < sidebarLinks.length; i++) {
         sidebarLinks[i].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
-        sidebarLinks[i].classList.add("text-sidebar-foreground")
+        sidebarLinks[i].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
         var badge = sidebarLinks[i].querySelector("[data-folder-unread]")
         if (badge) {
           badge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
@@ -4556,7 +4562,7 @@ document.addEventListener("DOMContentLoaded", function () {
         "text-sidebar-primary",
         "font-medium"
       )
-      link.classList.remove("text-sidebar-foreground")
+      link.classList.remove("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
       var activeRow = link.closest("[data-sidebar-folder-row]")
       if (activeRow) {
         activeRow.classList.add("bg-sidebar-accent")

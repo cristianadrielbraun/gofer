@@ -1012,6 +1012,13 @@ function setSettingsSidebarActive(value) {
   })
 }
 
+document.body.addEventListener("htmx:afterSwap", function (event) {
+  var section = event.target
+  var request = event.detail && event.detail.requestConfig
+  if (!section || section.id !== "settings-content" || !request || request.verb !== "get") return
+  animateSectionContent(section)
+})
+
 document.body.addEventListener("htmx:afterSettle", function (e) {
   if (!e.target || !e.target.querySelector) return
   var signaturesTarget = e.target.matches && e.target.matches("[data-account-signatures-manager]")

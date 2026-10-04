@@ -34,7 +34,7 @@ templ ContactsSidebar(accounts []models.Account, activeFolder string, width stri
 templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int, filters models.EmailFilters) {
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="mail">
 		<div class="px-4 pb-4">
-			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex cursor-pointer items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
 				@icon.Pen(icon.Props{Class: "size-4"})
 				Compose
 			</button>
@@ -286,7 +286,7 @@ templ SettingsSidebarItem(activeTab string, value string, label string) {
 		hx-get={ templ.URL(fmt.Sprintf("/settings/%s", value)) }
 		hx-target="#settings-content"
 		hx-select="#settings-content"
-		hx-swap="outerHTML swap:45ms settle:20ms"
+		hx-swap="outerHTML"
 		hx-push-url={ templ.URL(fmt.Sprintf("/settings/%s", value)) }
 		data-settings-sidebar-link
 		data-settings-sidebar-value={ value }
