@@ -11,12 +11,24 @@ const dialog = {open: true, hasAttribute() { return false }}
 const form = {
   dataset: {calendarEventId: 'event-id', calendarResponseScope: 'occurrence', calendarResponseReady: 'true'}, isConnected: true,
   matches(selector) { return selector === '[data-calendar-response-form]' },
-  closest() { return dialog },
+  closest(selector) {
+    if (selector === '[data-calendar-response-form]') return this
+    if (['[data-tui-dialog]', '[data-tui-dialog-content]', '[data-calendar-response-container]'].includes(selector)) return dialog
+    return null
+  },
   setAttribute(name, value) { this[name] = value },
-  querySelectorAll(selector) { return selector === '[data-calendar-response-choice], [data-calendar-response-trigger]' ? [...choices, menuTrigger] : [scope] },
-  querySelector(selector) { return selector === '[data-calendar-response-progress]' ? progress : error },
+  querySelectorAll(selector) {
+    if (selector === '[data-calendar-response-choice], [data-calendar-response-trigger]') return [...choices, menuTrigger]
+    if (selector === '[data-calendar-response-load]') return [scope]
+    return []
+  },
+  querySelector(selector) {
+    if (selector === '[data-calendar-response-progress]') return progress
+    if (selector === '[data-calendar-response-error]') return error
+    return null
+  },
 }
-const loader = {matches(selector) { return selector === '[data-calendar-response-load]' }, closest() { return form }}
+const loader = {matches(selector) { return selector === '[data-calendar-response-load]' }, closest(selector) { return selector === '[data-calendar-response-form]' ? form : null }}
 const context = vm.createContext({
   document: {body: {addEventListener(type, handler) { (handlers[type] ||= []).push(handler) }}},
   window: {tui: {dialog: {close(root) { closed.push(root) }}}, htmx: {ajax(method, url, options) { deliveryRequests.push({method, url, options}); return {catch() {}} }}},

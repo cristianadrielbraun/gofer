@@ -11,24 +11,26 @@
 
 <br>
 
-Gofer is a local-first email client I work on as a side project. It's built with Go, templ views, HTMX-style interactions, and SQLite storage.
+Gofer is a self-hosted email, contacts, and calendar app I'm building. It started as a small mail thing and has grown to support personal use and shared installations with multiple users, separate administrators, invitations, and security policies.
 
-It is meant to run on your own machine, keep mail and related data local, and talk directly to mail and contact providers. Generic accounts use IMAP/SMTP. Gmail uses the Gmail API and Google People API. Outlook uses Microsoft Graph.
+You can run it on your own machine or a server and access it through a browser. Mail and related data are cached in SQLite wherever you host it. Gofer talks directly to your providers: IMAP/SMTP for generic mail accounts, Google APIs for Gmail, contacts, and calendars, Microsoft Graph for Outlook, and CardDAV/CalDAV for compatible contact and calendar services.
 
-The project is in alpha, but it is already useful for real local mail. It started as a small mail thing and then, predictably, became a slightly larger mail thing. I'm keeping it light for now, so expect things to keep changing as the app settles.
+I'm still working on it, and it's pre-1.0, so expect things to keep changing as the app settles. Provider compatibility, setup, and upgrades still need care. Please read the limitations below and keep backups before upgrading.
 
-For reference, I'm using it actively with 6 configured accounts and about 100k emails in total. So far not a single performance issue or increased memory consumption
+For reference, I'm actively using it with six configured accounts and around 100k emails in total. So far, I haven't run into performance issues or increased memory consumption.
 
 ## features
 
-Things that already work (well, they work on my machine):
+What you can do with it today:
 
-- **Accounts and sync:** multiple IMAP/SMTP, Gmail, and Outlook accounts, with mail cached locally in SQLite.
+- **Users and access:** multiple users with separate administrators, invitations, and security policies; personal mode for one protected profile; and a no-login mode for local use.
+- **Accounts and sync:** multiple IMAP/SMTP, Gmail, and Outlook accounts, with mail cached in the instance's SQLite database.
 - **Reading and sending:** threads, attachments, drafts with autosave, signatures, scheduled send, and translation.
 - **Organization and search:** folders, stars, archive, spam controls, and advanced search filters.
 - **Contacts:** local address books, vCard import/export, Google, Outlook, and CardDAV sync, plus Gofer Sync for automatic contact syncing between accounts.
-- **Security:** encrypted stored credentials, remote content blocked by default, and optional authentication with passwords, TOTP, passkeys, or external sign-in.
-- **Access modes:** no-login local use, one protected personal profile, or managed users with separate administrators.
+- **Calendar:** Google Calendar, Outlook, and CalDAV sync, month and week views, upcoming events, and event creation, editing, and deletion, including recurring series and individual occurrences.
+- **Meetings:** guest invitations, RSVP from Calendar or Mail, rich event descriptions, and Google Meet or Microsoft Teams links where the provider supports them.
+- **Security:** encrypted stored credentials, remote content blocked by default, password and external sign-in, and MFA with TOTP or passkeys.
 - **Customization:** themes, layouts, account colors, regional settings, and browser/Web Push notifications.
 
 ## still moving
@@ -36,15 +38,13 @@ Things that already work (well, they work on my machine):
 Things I'm still improving, in no particular order:
 
 - smoother first-run setup and OAuth credential guidance
-- proper, public implementation of the oauth integration, so you as end user don't need to create your own provider
+- shared OAuth applications so users do not need to register their own provider clients
 - clearer diagnostics and reconnect flows
 - broader test coverage around provider sync behavior
 - deeper labels/tags workflows beyond filtering
-- calendar support
+- broader calendar provider compatibility and recurring meeting support
 - richer regional and language settings
 - more keyboard shortcuts, bulk actions, and cleanup flows
-
-Local use is the default. Personal and managed modes also support authenticated remote access with HTTPS and explicit configuration; the project is still alpha.
 
 ## running and building
 
@@ -60,11 +60,28 @@ With the development server running, open `http://local.localhost:8090`. See the
 
 ## setup and configuration
 
-Gofer runs locally without a login by default. It also supports personal mode (one protected profile with multiple mailboxes) and managed mode (separate administrators and webmail users). See [`.env.example`](./.env.example) for configuration options. Authenticated modes guide you through first-run setup using a token printed in the terminal.
+Choose `GOFER_AUTH_MODE=managed` for multiple users with separate administrator accounts, or `personal` for one protected profile with multiple mailboxes. Both modes guide you through first-run setup using a token printed in the terminal. The default `open` mode has no login and is intended for local use. See [`.env.example`](./.env.example) for configuration options.
 
 Generic IMAP/SMTP accounts need no OAuth application credentials. Gmail and Outlook currently require your own provider client ID and secret. Mailbox authorization and optional Google/Microsoft application sign-in use separate clients and callbacks.
 
-Runtime data is stored in `data/` by default. Keep it and your secrets private. The default listener is loopback-only; remote access requires explicit configuration.
+> [!NOTE]
+> I plan to add Gmail and Outlook connections that don't require you to provide your own OAuth app credentials. First, I need to research the right way to set up public OAuth applications and complete the providers' identity verification and any required app reviews. Until then, you'll need to use your own credentials as described above.
+
+Configure Calendar under **Settings → Accounts**: enable it for an account, discover calendars, and select which ones to sync. Google and Outlook use the account's existing OAuth connection; reconnect older accounts to grant Calendar access if needed. Generic accounts can connect a CalDAV server using an HTTPS URL and server credentials, which may require an app password.
+
+## deployment precautions
+
+For server deployments, use personal or managed authentication, serve the application through an HTTPS reverse proxy, and configure `GOFER_ADDR` and `GOFER_BASE_URL` for your deployment. The listener binds to loopback by default. Set `GOFER_TRUSTED_PROXY_CIDRS` only for your actual proxy peers; use `GOFER_ALLOWED_CIDRS` when you need to restrict client networks.
+
+Runtime data is stored in `data/` by default. Protect the data directory, configuration, and secrets, and back them up together before upgrades. Database migrations run automatically at startup; going back to an older version may require restoring its matching backup. I recommend testing your providers and access setup before relying on Gofer for anything critical.
+
+## current limitations
+
+Calendar actions depend on provider permissions and capabilities:
+
+- Creating or editing recurring meetings with guests or online meeting links is not supported yet.
+- Existing Google Meet conferences cannot be removed in Gofer, Teams meetings cannot be disabled, and conference providers cannot be changed.
+- CalDAV invitation delivery depends on the server's scheduling support or the account's mail-sending configuration.
 
 ## admin panel
 
