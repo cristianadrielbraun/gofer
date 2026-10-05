@@ -4730,9 +4730,9 @@ document.addEventListener("DOMContentLoaded", function () {
         else indicator.style.transform = "translateX(0)"
       }
     }
-    if (mode === "contacts") document.title = "Contacts — Gofer"
-    else if (mode === "calendar") document.title = "Calendar — Gofer"
-    else if (mode === "mail") document.title = "Gofer"
+    if (mode === "contacts") document.title = "Gofer - Contacts"
+    else if (mode === "calendar") document.title = "Gofer - Calendar"
+    else if (mode === "mail") document.title = "Gofer - Email"
   }
 
   function setupSidebarAppNavToggle() {
