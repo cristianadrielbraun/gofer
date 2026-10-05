@@ -957,6 +957,28 @@ func (db *DB) ReindexMessageSearch(ctx context.Context, messageID int64) error {
 }
 
 func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) error {
+	messageIDs = compactMessageIDs(messageIDs)
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin message search batch: %w", err)
+	}
+	defer tx.Rollback()
+	if err := db.reindexMessagesSearchTx(ctx, tx, messageIDs); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Keep search documents in the same transaction as the mail they describe.
+// Callers must not commit mail changes before this succeeds.
+func (db *DB) reindexMessagesSearchTx(ctx context.Context, tx *sql.Tx, messageIDs []int64) error {
+	messageIDs = compactMessageIDs(messageIDs)
+	if len(messageIDs) == 0 {
+		return nil
+	}
 	type searchDoc struct {
 		accountID       string
 		threadKey       string
@@ -969,16 +991,6 @@ func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) err
 		bodyTextPath    sql.NullString
 		bodyHTMLPath    sql.NullString
 	}
-
-	messageIDs = compactMessageIDs(messageIDs)
-	if len(messageIDs) == 0 {
-		return nil
-	}
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin message search batch: %w", err)
-	}
-	defer tx.Rollback()
 
 	loadStmt, err := tx.PrepareContext(ctx, `
 		SELECT m.account_id,
@@ -1041,7 +1053,7 @@ func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) err
 			return fmt.Errorf("insert message search doc: %w", err)
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func compactMessageIDs(messageIDs []int64) []int64 {
@@ -1055,11 +1067,6 @@ func compactMessageIDs(messageIDs []int64) []int64 {
 		compacted = append(compacted, messageID)
 	}
 	return compacted
-}
-
-func (db *DB) deleteMessageSearch(ctx context.Context, messageID int64) error {
-	_, err := db.Write().ExecContext(ctx, `DELETE FROM message_search WHERE rowid = ?`, messageID)
-	return err
 }
 
 func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (int64, error) {
@@ -1148,10 +1155,10 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{msgID}); err != nil {
 		return 0, err
 	}
-	if err := db.ReindexMessageSearch(ctx, msgID); err != nil {
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	db.UpsertObservedContactsForMessage(ctx, draft.AccountID, draft.FromName, draft.FromEmail, draft.ToRecipients, draft.CCRecipients, draft.BCCRecipients, draft.Date)
@@ -1309,10 +1316,10 @@ func (db *DB) DeleteDraftMessage(ctx context.Context, accountID, internetMessage
 	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, msgID); err != nil {
 		return "", err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{msgID}); err != nil {
 		return "", err
 	}
-	if err := db.deleteMessageSearch(ctx, msgID); err != nil {
+	if err := tx.Commit(); err != nil {
 		return "", err
 	}
 	db.RefreshFolderUnreadCount(ctx, folderID)
@@ -1496,16 +1503,14 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		msgIDs = append(msgIDs, msgID)
 	}
 
+	if err := db.reindexMessagesSearchTx(ctx, tx, msgIDs); err != nil {
+		return err
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
 	for _, m := range msgs {
 		db.UpsertObservedContactsForMessage(ctx, m.AccountID, m.FromName, m.FromEmail, m.ToRecipients, m.CCRecipients, nil, m.DateSent)
-	}
-	for _, msgID := range msgIDs {
-		if err := db.ReindexMessageSearch(ctx, msgID); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -1799,6 +1804,9 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		}
 	}
 
+	if err := db.reindexMessagesSearchTx(ctx, tx, msgIDs); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -1852,9 +1860,6 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		for _, contact := range contacts {
 			_ = db.upsertObservedContact(ctx, userID, contact.name, contact.email, contact.seenAt, contact.count, settings)
 		}
-	}
-	if err := db.ReindexMessagesSearch(ctx, msgIDs); err != nil {
-		return nil, err
 	}
 	for folderID, affectedMessageIDs := range affectedFolderMessages {
 		if err := db.RefreshFolderThreadsForMessages(ctx, folderID, affectedMessageIDs); err != nil {
@@ -6418,13 +6423,22 @@ func (db *DB) getEmailOriginalHTMLBody(ctx context.Context, id, userID string) (
 }
 
 func (db *DB) UpdateMessageBodyInternal(ctx context.Context, messageID int64, textPath, htmlPath, rawPath string, snippet string) error {
-	_, err := db.Write().ExecContext(ctx,
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx,
 		`UPDATE messages SET body_text_path = ?, body_html_path = ?, raw_path = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, textPath, htmlPath, rawPath, snippet, snippet, messageID)
 	if err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) UpdateMessageOriginalHTMLPathInternal(ctx context.Context, messageID int64, htmlPath string) error {
@@ -6434,12 +6448,21 @@ func (db *DB) UpdateMessageOriginalHTMLPathInternal(ctx context.Context, message
 }
 
 func (db *DB) ClearEmailBody(ctx context.Context, messageID int64) error {
-	_, err := db.Write().ExecContext(ctx,
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx,
 		`UPDATE messages SET body_text_path = NULL, body_html_path = NULL, body_html_original_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, messageID)
 	if err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) ClearEmailData(ctx context.Context, messageID int64) error {
@@ -6488,20 +6511,29 @@ func (db *DB) clearEmailData(ctx context.Context, messageID int64, userID string
 		return fmt.Errorf("clear body: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	return tx.Commit()
 }
 
 func (db *DB) UpdateMessageHeaders(ctx context.Context, messageID int64, subject, fromName, fromEmail, snippet string) error {
-	_, err := db.Write().ExecContext(ctx,
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx,
 		`UPDATE messages SET subject = ?, from_name = ?, from_email = ?, snippet = ?, preview_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		subject, fromName, fromEmail, snippet, snippet, messageID)
 	if err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) UpdateMessageThreadHeadersInternal(ctx context.Context, messageID int64, accountID, inReplyTo, refs, subject string) error {
@@ -6532,14 +6564,20 @@ func (db *DB) UpdateMessageThreadHeadersInternal(ctx context.Context, messageID 
 	if err := db.reconcileMessageThreadTx(ctx, tx, messageID, accountID, messageIDNorm, inReplyTo, refs, subject, date); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	return tx.Commit()
 }
 
 func (db *DB) UpsertRecipientsInternal(ctx context.Context, messageID int64, to, cc []Recipient) error {
-	stmt, err := db.Write().PrepareContext(ctx,
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
 		`INSERT INTO message_recipients (message_id, kind, name, email) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare recip: %w", err)
@@ -6556,7 +6594,10 @@ func (db *DB) UpsertRecipientsInternal(ctx context.Context, messageID int64, to,
 			return err
 		}
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) InsertAttachmentsInternal(ctx context.Context, messageID int64, atts []AttachmentRow) error {
@@ -6596,10 +6637,10 @@ func (db *DB) InsertAttachmentsInternal(ctx context.Context, messageID int64, at
 		return fmt.Errorf("update has_attachments: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	return tx.Commit()
 }
 
 func (db *DB) ReplaceAttachmentsInternal(ctx context.Context, messageID int64, atts []AttachmentRow) error {
@@ -6665,10 +6706,10 @@ func (db *DB) ReplaceAttachmentsInternal(ctx context.Context, messageID int64, a
 	if _, err := tx.ExecContext(ctx, `UPDATE messages SET has_attachments = ? WHERE id = ?`, hasAttach, messageID); err != nil {
 		return fmt.Errorf("update has_attachments: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	return tx.Commit()
 }
 
 type AttachmentRow struct {
@@ -8388,13 +8429,22 @@ func (db *DB) GetMessageSenderEmailForUser(ctx context.Context, messageID int64,
 }
 
 func (db *DB) UpdateMessageBodyHTMLPath(ctx context.Context, messageID int64, htmlPath string) error {
-	_, err := db.Write().ExecContext(ctx,
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx,
 		`UPDATE messages SET body_html_path = ? WHERE id = ?`, htmlPath, messageID,
 	)
 	if err != nil {
 		return err
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) UpdateMessageBodyHTMLPathForUser(ctx context.Context, messageID int64, htmlPath, userID string) error {
@@ -8402,7 +8452,13 @@ func (db *DB) UpdateMessageBodyHTMLPathForUser(ctx context.Context, messageID in
 	if messageID <= 0 || userID == "" {
 		return sql.ErrNoRows
 	}
-	result, err := db.Write().ExecContext(ctx, `
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
 		UPDATE messages
 		SET body_html_path = ?
 		WHERE id = ?
@@ -8425,5 +8481,8 @@ func (db *DB) UpdateMessageBodyHTMLPathForUser(ctx context.Context, messageID in
 	if affected != 1 {
 		return sql.ErrNoRows
 	}
-	return db.ReindexMessageSearch(ctx, messageID)
+	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{messageID}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
