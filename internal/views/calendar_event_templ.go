@@ -719,7 +719,7 @@ func CalendarEventDialog(details CalendarEventDetails, location *time.Location) 
 					return templ_7745c5c3_Err
 				}
 				if details.Response != nil {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<footer id=\"calendar-event-response\" class=\"max-h-[40dvh] shrink-0 overflow-y-auto border-t border-border bg-muted/30 px-5 py-3 sm:px-6\" data-calendar-response-root>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<footer id=\"calendar-event-response\" class=\"max-h-[40dvh] shrink-0 overflow-y-auto border-t border-border bg-muted/30 px-5 py-3 sm:px-6\" data-calendar-response-root data-calendar-response-container>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

@@ -138,6 +138,22 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 				parsed.TextBody = string(content)
 			case ct == "text/html":
 				parsed.HTMLBody = content
+			case ct == "text/calendar":
+				// Exchange replies can contain only an unnamed calendar alternative.
+				// Keep it downloadable rather than replacing the human-readable body.
+				attID++
+				filename, _ := (&mail.AttachmentHeader{Header: h.Header}).Filename()
+				if filename == "" {
+					filename = "calendar.ics"
+				}
+				bp, storeErr := blobStore.StoreAttachment(ctx, accountID, localID, attID, filename, bytes.NewReader(content))
+				if storeErr != nil {
+					parsed.ParseError = fmt.Errorf("store calendar attachment: %w", storeErr)
+					continue
+				}
+				parsed.Attachments = append(parsed.Attachments, AttachmentMeta{
+					Filename: filename, ContentType: ct, BlobPath: bp, Size: int64(len(content)),
+				})
 			case strings.HasPrefix(ct, "text/"):
 				parsed.TextBody = string(content)
 			default:
@@ -172,7 +188,11 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 			filename, _ := h.Filename()
 			ct, _, _ := h.ContentType()
 			if filename == "" {
-				filename = fmt.Sprintf("attachment-%d", attID)
+				if ct == "text/calendar" {
+					filename = "calendar.ics"
+				} else {
+					filename = fmt.Sprintf("attachment-%d", attID)
+				}
 			}
 			if ct == "" {
 				ct = "application/octet-stream"
@@ -181,6 +201,9 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 			cid := h.Get("Content-Id")
 			cid = strings.Trim(cid, "<>")
 			isInline := strings.HasPrefix(strings.ToLower(strings.TrimSpace(h.Get("Content-Disposition"))), "inline")
+			if ct == "text/calendar" {
+				isInline = false
+			}
 
 			var sizeBuf countingWriter
 			teeReader := io.TeeReader(part.Body, &sizeBuf)
@@ -202,6 +225,15 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 		}
 	}
 
+	if strings.TrimSpace(parsed.TextBody) == "" && len(parsed.HTMLBody) == 0 {
+		for _, attachment := range parsed.Attachments {
+			if attachment.ContentType == "text/calendar" {
+				// Calendar-only messages still need a readable, cacheable body.
+				parsed.TextBody = "Calendar file attached."
+				break
+			}
+		}
+	}
 	parsed.Snippet = GenerateSnippet(parsed.TextBody, parsed.HTMLBody)
 
 	return parsed, nil

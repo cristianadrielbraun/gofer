@@ -185,6 +185,7 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 					}
 				</div>
 			</div>
+			<div id={"mail-calendar-footer-"+email.ID} data-mail-calendar-footer class="max-h-[35dvh] shrink-0 overflow-y-auto" hx-get={"/api/mail/"+email.ID+"/calendar"} hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
 			if thread == nil || len(thread) <= 1 {
 				if email.IsDraft {
 					@MailViewDraftBar(email)

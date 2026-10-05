@@ -9790,6 +9790,27 @@ document.addEventListener("input", function (event) {
   updateCalendarCreateForm(form)
 })
 
+document.addEventListener("click", function (event) {
+  var toggle = event.target.closest && event.target.closest("[data-mail-calendar-response-edit], [data-mail-calendar-response-cancel]")
+  if (!toggle || toggle.disabled) return
+  var form = toggle.closest("[data-calendar-response-form]")
+  if (!form || form._calendarResponseBusy || form._calendarResponseBlocked || form._calendarResponseLoader || form.dataset.calendarResponseReady !== "true") return
+  var summary = form.querySelector("[data-mail-calendar-response-summary]")
+  var editor = form.querySelector("[data-mail-calendar-response-editor]")
+  if (!summary || !editor) return
+  var editing = toggle.hasAttribute("data-mail-calendar-response-edit")
+  summary.hidden = editing
+  editor.hidden = !editing
+  form.querySelector("[data-calendar-response-progress]").hidden = !editing
+  if (!editing) {
+    setCalendarResponseError(form, "")
+    summary.querySelector("[data-mail-calendar-response-edit]").focus()
+    return
+  }
+  var choice = editor.querySelector('[data-calendar-response-choice][aria-pressed="true"]') || editor.querySelector("[data-calendar-response-choice]")
+  if (choice) choice.focus()
+})
+
 function updateCalendarResponseForm(form) {
   var busy = !!form._calendarResponseBusy
   var locked = busy || !!form._calendarResponseBlocked
@@ -9798,6 +9819,9 @@ function updateCalendarResponseForm(form) {
     button.disabled = locked || form.dataset.calendarResponseReady !== "true"
   })
   form.querySelectorAll("[data-calendar-response-load]").forEach(function (button) { button.disabled = locked })
+  form.querySelectorAll("[data-mail-calendar-response-edit], [data-mail-calendar-response-cancel]").forEach(function (button) {
+    button.disabled = locked || !!form._calendarResponseLoader || form.dataset.calendarResponseReady !== "true"
+  })
   var progress = form.querySelector("[data-calendar-response-progress]")
   if (!form._calendarResponseHelp) form._calendarResponseHelp = progress.textContent
   progress.textContent = busy ? "Sending your response…" : form._calendarResponseLoader ? "Checking invitation…" : form._calendarResponseHelp
@@ -9869,9 +9893,9 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
       if (result.delivery === "email") {
         if (result.pending !== true || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(result.delivery_id || "")) throw new Error("Unconfirmed email reply")
         updateCalendarResponseForm(form)
-        var deliveryRoot = form.closest("#calendar-event-response")
+        var deliveryRoot = form.closest("[data-calendar-response-container]")
         var deliveryDialog = form.closest("[data-tui-dialog]")
-        if (form.isConnected && deliveryRoot && deliveryDialog && deliveryDialog.open && !deliveryDialog.hasAttribute("data-tui-dialog-closing")) {
+        if (form.isConnected && deliveryRoot && (!deliveryDialog || (deliveryDialog.open && !deliveryDialog.hasAttribute("data-tui-dialog-closing")))) {
           window.htmx.ajax("GET", "/api/calendar/replies/" + result.delivery_id, { target: deliveryRoot, swap: "innerHTML" }).catch(function () {
             setCalendarResponseError(form, "Reply queued. Reopen this invitation to check delivery; do not send it again.")
           })
@@ -9879,8 +9903,33 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
         showGoferToast({title: "Reply queued", description: "The email reply will send in the background. Reopen the invitation to check delivery.", variant: "info", duration: 5000})
         return
       }
-      if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close(form.closest("[data-tui-dialog]"))
+      var responseDialog = form.closest("[data-tui-dialog]")
+      if (form.isConnected && responseDialog && window.tui && window.tui.dialog) window.tui.dialog.close(responseDialog)
+      var mailFooter = form.closest("[data-mail-calendar-footer]")
       var pending = result.pending || result.refresh_pending
+      if (mailFooter && form.isConnected) {
+        if (result.responded === true) {
+          var summary = form.querySelector("[data-mail-calendar-response-summary]")
+          var editor = form.querySelector("[data-mail-calendar-response-editor]")
+          var chosen = form.querySelector('[data-calendar-response-choice="' + request.response + '"]')
+          if (summary && editor && chosen) {
+            summary.querySelector("[data-mail-calendar-response-message]").textContent = chosen.getAttribute("data-mail-calendar-response-message")
+            summary.hidden = false
+            editor.hidden = true
+            form.querySelector("[data-calendar-response-progress]").hidden = true
+          }
+        }
+        if (pending) {
+          form._calendarResponseHelp = "Response submitted. Refresh to check its status before responding again."
+          form.querySelector("[data-calendar-response-progress]").hidden = false
+        } else {
+          window.htmx.ajax("GET", mailFooter.getAttribute("hx-get"), {target: mailFooter, swap: "innerHTML"}).catch(function () {
+            form._calendarResponseHelp = "Response saved. Refresh to update the event information."
+            form.querySelector("[data-calendar-response-progress]").hidden = false
+            updateCalendarResponseForm(form)
+          })
+        }
+      }
       showGoferToast({title: result.pending ? "Response submitted" : "Response saved", description: result.pending ? "The provider is still processing your reply. Refresh the calendar to check its status; don't send it again." : result.refresh_pending ? "Your response was confirmed, but the calendar could not refresh yet." : request.scope === "series" ? "Your response to the series was confirmed." : "Your response was confirmed.", variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
       scheduleCalendarCacheRefresh()
     }

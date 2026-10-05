@@ -108,7 +108,16 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	query, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil || len(query) != 1 || len(query["scope"]) != 1 || !calendarResponseScopeValid(event, query.Get("scope")) {
+	mailID := query.Get("mail_id")
+	expectedFields := 1
+	if mailID != "" {
+		expectedFields = 2
+	}
+	editing, hasEditing := query["edit"]
+	if hasEditing {
+		expectedFields++
+	}
+	if err != nil || len(query) != expectedFields || len(query["scope"]) != 1 || (mailID != "" && len(query["mail_id"]) != 1) || (hasEditing && (mailID == "" || len(editing) != 1 || editing[0] != "1")) || !calendarResponseScopeValid(event, query.Get("scope")) {
 		http.Error(w, "Choose This event or Entire series before responding.", http.StatusBadRequest)
 		return
 	}
@@ -116,6 +125,25 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		http.Error(w, "Calendar response access could not be verified. Check this account's Calendar write access.", http.StatusForbidden)
 		return
+	}
+	if mailID != "" {
+		items, accountID, err := h.readMailCalendarEvents(ctx, mailID)
+		verified := false
+		if err == nil && accountID == source.AccountID {
+			for _, item := range items {
+				if item.Method != "REQUEST" || !item.Invited || item.Cancelled || item.Organizer == "" {
+					continue
+				}
+				if matched, ok := h.matchMailCalendarEvent(ctx, accountID, item); ok && matched.ID == event.ID {
+					verified = true
+					break
+				}
+			}
+		}
+		if !verified {
+			http.Error(w, "This email does not match this account's invitation.", http.StatusForbidden)
+			return
+		}
 	}
 	if source.Provider == storage.CalendarSourceProviderCalDAV {
 		job, err := h.db.UnresolvedCalendarReply(ctx, event.UserID, source.ID, calendarReplyResource(event))
@@ -147,6 +175,8 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	data := calendarResponseData(event)
+	data.MailMessageID = mailID
+	data.MailResponseEditing = hasEditing
 	data.Status, data.Version, data.Scope, data.Ready = target.Event.ResponseStatus, target.Event.ETag, target.Scope, true
 	if target.CalDAV != nil {
 		data.Delivery = "server"
@@ -155,6 +185,12 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if mailID != "" {
+		if err := views.MailCalendarResponseForm(data).Render(ctx, w); err != nil {
+			http.Error(w, "Could not open invitation response controls.", http.StatusInternalServerError)
+		}
+		return
+	}
 	if err := views.CalendarResponseForm(data).Render(ctx, w); err != nil {
 		http.Error(w, "Could not open invitation response controls.", http.StatusInternalServerError)
 	}

@@ -41,6 +41,8 @@ type CalendarDeliveryRow struct {
 
 type CalendarResponseData struct {
 	EventID, Status, Version, Scope string
+	MailMessageID                   string
+	MailResponseEditing             bool
 	HasOccurrence                   bool
 	Ready                           bool
 	Delivery                        string

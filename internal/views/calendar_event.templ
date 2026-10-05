@@ -160,7 +160,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 				}
 			</div>
 			if details.Response != nil {
-				<footer id="calendar-event-response" class="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-border bg-muted/30 px-5 py-3 sm:px-6" data-calendar-response-root>
+				<footer id="calendar-event-response" class="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-border bg-muted/30 px-5 py-3 sm:px-6" data-calendar-response-root data-calendar-response-container>
 					@CalendarResponseForm(*details.Response)
 				</footer>
 			}

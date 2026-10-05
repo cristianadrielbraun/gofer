@@ -315,7 +315,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 				templ_7745c5c3_Err = button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantGhost, Class: "h-7 rounded-[5px] px-2.5 text-xs font-medium text-muted-foreground hover:bg-transparent aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:shadow-xs", Attributes: templ.Attributes{
 					"data-calendar-response-load": "", "aria-pressed": strconv.FormatBool(scope == data.Scope),
 					"hx-get":    calendarEventDetailsURL(data.EventID) + "/response?scope=" + scope,
-					"hx-target": "#calendar-event-response", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "#calendar-event-response:replace",
+					"hx-target": "closest [data-calendar-response-container]", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "closest [data-calendar-response-container]:replace",
 				}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -380,7 +380,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 			})
 			templ_7745c5c3_Err = button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantGhost, Attributes: templ.Attributes{
 				"data-calendar-response-load": "", "hx-get": calendarEventDetailsURL(data.EventID) + "/response?scope=" + data.Scope,
-				"hx-trigger": "load, click", "hx-target": "#calendar-event-response", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "#calendar-event-response:replace",
+				"hx-trigger": "load, click", "hx-target": "closest [data-calendar-response-container]", "hx-swap": "innerHTML", "hx-params": "none", "hx-sync": "closest [data-calendar-response-container]:replace",
 			}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -791,7 +791,7 @@ func CalendarReplyStatus(data CalendarReplyData) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantGhost, Attributes: templ.Attributes{"hx-get": calendarEventDetailsURL(data.EventID) + "/response?scope=" + data.Scope, "hx-target": "#calendar-event-response", "hx-swap": "innerHTML", "hx-params": "none"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var29), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantGhost, Attributes: templ.Attributes{"hx-get": calendarEventDetailsURL(data.EventID) + "/response?scope=" + data.Scope, "hx-target": "closest [data-calendar-response-container]", "hx-swap": "innerHTML", "hx-params": "none"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var29), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

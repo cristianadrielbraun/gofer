@@ -420,6 +420,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/security/private-target", h.handleAddPrivateTargetException)
 	adminRoute("POST /admin/security/exceptions/{id}/delete", h.handleDeleteMailSecurityException)
 	mux.HandleFunc("GET /email/{id}", h.handleEmailPartial)
+	mux.HandleFunc("GET /api/mail/{id}/calendar", h.handleMailCalendarFooter)
 	mux.HandleFunc("GET /email/{id}/body", h.handleEmailBody)
 	mux.HandleFunc("GET /email/{id}/body/translated", h.handleTranslatedEmailBody)
 	mux.HandleFunc("GET /folder/{id}", h.handleFolderPartial)
@@ -712,11 +713,25 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if h.repairCachedCalendarBody(ctx, email.ID, email.AccountID, email.TextBody) {
+		if repaired, err := h.db.GetEmailByIDForFolderForUser(ctx, emailID, folderID, userID); err == nil && repaired != nil {
+			email = repaired
+		}
+	}
 
 	w.Header().Set("Content-Type", "text/html")
 	var thread []models.ThreadItem
 	if r.URL.Query().Get("single") != "1" {
 		thread, _ = h.db.GetThreadMessagesForUser(ctx, email.AccountID, email.ThreadID, userID)
+		repaired := false
+		for _, item := range thread {
+			if h.repairCachedCalendarBody(ctx, item.ID, email.AccountID, item.TextBody) {
+				repaired = true
+			}
+		}
+		if repaired {
+			thread, _ = h.db.GetThreadMessagesForUser(ctx, email.AccountID, email.ThreadID, userID)
+		}
 	}
 	views.MailViewContent(email, thread).Render(ctx, w)
 }
