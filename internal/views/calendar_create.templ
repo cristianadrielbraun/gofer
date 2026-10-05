@@ -72,7 +72,7 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 									Calendar
 								}
 								@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-calendar-create-source-select": ""}}) {
-									@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-source", Name: "source_id", DisableClear: true, Disabled: editing || len(data.Sources) == 0, Attributes: templ.Attributes{"value": data.SourceID}}) {
+									@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-source", Name: "source_id", DisableClear: true, Required: true, Disabled: editing || len(data.Sources) == 0, Attributes: templ.Attributes{"value": data.SourceID}}) {
 										if len(data.Sources) == 0 {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "No configured calendars"})
 										} else {
@@ -174,9 +174,12 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 						<template data-calendar-teams-checking>
 							@CalendarTeamsOption(CalendarTeamsData{State:"checking"})
 						</template>
-						<div id="calendar-teams-options" data-calendar-teams-options data-calendar-teams-state={data.TeamsState} data-calendar-teams-source={data.SourceID} hx-get="/api/calendar/teams-options" hx-trigger="calendar-teams-source-changed" hx-include="closest form" hx-vals={calendarTeamsEventParams(data.EventID)} hx-params="source_id,event_id" hx-target="this" hx-swap="innerHTML" hx-sync="this:replace">
-							if data.TeamsState != "" && len(data.Sources) > 0 && data.Sources[0].Provider == "outlook" {
-								@CalendarTeamsOption(CalendarTeamsData{State:data.TeamsState,SourceID:data.SourceID})
+						<template data-calendar-meet-checking>
+							@CalendarTeamsOption(CalendarTeamsData{State:"checking",Provider:"gmail"})
+						</template>
+						<div id="calendar-teams-options" data-calendar-teams-options data-calendar-teams-state={data.TeamsState} data-calendar-teams-source={data.SourceID} hx-get="/api/calendar/meeting-options" hx-trigger="calendar-teams-source-changed" hx-include="closest form" hx-vals={calendarTeamsEventParams(data.EventID)} hx-params="source_id,event_id" hx-target="this" hx-swap="innerHTML" hx-sync="this:replace">
+							if data.TeamsState != "" && len(data.Sources) > 0 && (data.Sources[0].Provider == "outlook" || data.Sources[0].Provider == "gmail") {
+								@CalendarTeamsOption(CalendarTeamsData{State:data.TeamsState,SourceID:data.SourceID,Provider:data.Sources[0].Provider,JoinURL:data.MeetingJoinURL,EventID:data.EventID})
 							}
 						</div>
 						@calendarDialogRow(icon.TextAlignStart(icon.Props{Class: "size-4"}), "pt-2.5") {

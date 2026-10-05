@@ -11,22 +11,50 @@ import (
 templ CalendarTeamsOption(data CalendarTeamsData) {
 	{{ available := data.State == "available" || data.State == "available-default" }}
 	{{ name := "teams_meeting" }}
+	{{ title := "Teams meeting" }}
+	{{ id := "calendar-create-teams" }}
+	{{ retryLabel := "Retry Teams availability check" }}
+	if data.Provider == "gmail" {
+		{{ name, title, id = "google_meet_meeting", "Google Meet meeting", "calendar-create-google-meet" }}
+		{{ retryLabel = "Retry Google Meet availability check" }}
+	}
 	if data.State == "existing" || data.State == "other-online" {
 		{{ name = "" }}
 	}
 	@calendarDialogRow(icon.Video(icon.Props{Class: "size-4"}), "pt-0.5") {
 		<div class="flex items-center justify-between gap-3">
-			@label.Label(label.Props{For: "calendar-create-teams", Class: "font-normal"}) {
-				Teams meeting
+			@label.Label(label.Props{For: id, Class: "font-normal"}) {
+				{ title }
 			}
 			<div class="flex items-center gap-2">
 				if data.State == "error" || data.State == "checking" {
-					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-7", Attributes: templ.Attributes{"data-calendar-teams-retry": "", "hidden": data.State != "error", "aria-label": "Retry Teams availability check", "title": "Retry Teams availability check", "onclick": "retryCalendarTeams(this.closest('[data-calendar-create-form]'))"}}) {
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-7", Attributes: templ.Attributes{"data-calendar-teams-retry": "", "hidden": data.State != "error", "aria-label": retryLabel, "title": retryLabel, "onclick": "retryCalendarTeams(this.closest('[data-calendar-create-form]'))"}}) {
 						@icon.RefreshCw(icon.Props{Class: "size-3.5"})
 					}
 				}
-				@switchcomp.Switch(switchcomp.Props{ID: "calendar-create-teams", Name: name, Value: "true", Checked: data.State == "existing", Disabled: !available, Attributes: templ.Attributes{"data-calendar-teams-toggle": "", "data-calendar-teams-available": strconv.FormatBool(available)}})
+				@switchcomp.Switch(switchcomp.Props{ID: id, Name: name, Value: "true", Checked: data.State == "existing", Disabled: !available, Attributes: templ.Attributes{"data-calendar-teams-toggle": "", "data-calendar-teams-available": strconv.FormatBool(available)}})
 			</div>
 		</div>
+		if available && (data.Provider == "gmail" || data.EventID == "") {
+   {{ draftName, retryAction := "google_meet_draft_id", "retryCalendarMeetPreview(this.closest('[data-calendar-create-form]'))" }}
+   if data.Provider != "gmail" {
+    {{ draftName, retryAction = "teams_draft_id", "retryCalendarTeamsPreview(this.closest('[data-calendar-create-form]'))" }}
+   }
+			<div data-calendar-meet-preview data-calendar-meeting-provider={ name } hidden class="mt-2 space-y-2">
+				<input type="hidden" name={ draftName } value=""/>
+				<p data-calendar-meet-status role="status" aria-live="polite" class="text-xs text-muted-foreground"></p>
+				<div data-calendar-meet-link hidden class="flex min-w-0 items-center gap-2">
+					<a data-calendar-meet-url target="_blank" rel="noopener noreferrer" class="min-w-0 break-all text-sm underline underline-offset-4"></a>
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Attributes: templ.Attributes{"data-calendar-meet-copy": "", "onclick": "copyCalendarMeetLink(this)"}}) {
+						Copy link
+					}
+				</div>
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Attributes: templ.Attributes{"data-calendar-meet-prepare-retry": "", "hidden": true, "onclick": retryAction}}) {
+					Retry
+				}
+			</div>
+		} else if data.Provider == "gmail" && data.JoinURL != "" {
+			<a href={ templ.SafeURL(data.JoinURL) } target="_blank" rel="noopener noreferrer" class="mt-2 block break-all text-sm underline underline-offset-4">{ data.JoinURL }</a>
+		}
 	}
 }

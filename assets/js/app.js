@@ -8521,28 +8521,97 @@ window.addEventListener("blur", function () {
 
 var _calendarEventRequest = null
 
+function calendarEventRequestCurrent(xhr) {
+  var calendar = document.getElementById("calendar-main")
+  var dialog = xhr.goferCalendarEventDialog
+  return xhr === _calendarEventRequest && calendar && !calendar.hasAttribute("data-calendar-loading") &&
+    calendar.dataset.calendarPeriod === xhr.goferCalendarEventPeriod &&
+    _calendarSourceIsVisible({dataset: {calendarSourceId: xhr.goferCalendarEventSource}}) &&
+    (!dialog || (dialog.isConnected && dialog.open && !dialog.hasAttribute("data-tui-dialog-closing")))
+}
+
+function clearCalendarEventLoading(xhr, removeDialog) {
+  if (!xhr) return
+  clearTimeout(xhr.goferCalendarEventTimer)
+  delete xhr.goferCalendarEventTimer
+  var dialog = xhr.goferCalendarEventDialog
+  if (removeDialog && dialog && dialog.isConnected && !xhr.goferCalendarEventSwapped) {
+    if (dialog.open) dialog.close()
+    xhr.goferCalendarEventRoot.remove()
+  }
+}
+
+function showCalendarEventPending(xhr, trigger) {
+  if (!calendarEventRequestCurrent(xhr) || !window.tui || !window.tui.dialog) return
+  var template = document.getElementById("calendar-event-loading")
+  var target = document.getElementById("app-pane-dialogs")
+  if (!template || !target) return
+  target.replaceChildren(template.content.cloneNode(true))
+  var root = target.querySelector("#calendar-event-details-dialog")
+  var dialog = root && root.querySelector("[data-tui-dialog-content]")
+  if (!dialog) return
+  var summary = trigger.querySelector("[data-calendar-event-text]") || trigger.querySelector("[data-calendar-event-summary]")
+  if (summary) dialog.querySelector("#calendar-event-details-title").textContent = summary.textContent
+  xhr.goferCalendarEventRoot = root
+  xhr.goferCalendarEventDialog = dialog
+  function cancelPending() {
+    if (xhr !== _calendarEventRequest || xhr.goferCalendarEventSwapped) return
+    _calendarEventRequest = null
+    clearCalendarEventLoading(xhr, false)
+    if (window.htmx) window.htmx.trigger(trigger, "htmx:abort")
+  }
+  dialog.addEventListener("cancel", cancelPending)
+  dialog.addEventListener("close", cancelPending)
+  dialog.addEventListener("click", function (event) {
+    if (event.target === dialog || event.target.closest("[data-tui-dialog-close]")) cancelPending()
+  })
+  window.tui.dialog.open("calendar-event-details-dialog")
+}
+
 document.body.addEventListener("htmx:beforeRequest", function (event) {
   var trigger = event.detail && event.detail.elt
   if (!trigger || !trigger.hasAttribute("data-calendar-event-trigger")) return
+  clearCalendarEventLoading(_calendarEventRequest, true)
   var calendar = document.getElementById("calendar-main")
-  _calendarEventRequest = event.detail.xhr
-  _calendarEventRequest.goferCalendarEventPeriod = calendar ? calendar.dataset.calendarPeriod : ""
-  _calendarEventRequest.goferCalendarEventSource = trigger.dataset.calendarSourceId
+  var xhr = _calendarEventRequest = event.detail.xhr
+  xhr.goferCalendarEventPeriod = calendar ? calendar.dataset.calendarPeriod : ""
+  xhr.goferCalendarEventSource = trigger.dataset.calendarSourceId
+  // Fast requests open the complete dialog with no loading flash.
+  xhr.goferCalendarEventTimer = setTimeout(function () { showCalendarEventPending(xhr, trigger) }, 250)
   trigger.setAttribute("aria-busy", "true")
 })
 
 document.body.addEventListener("htmx:beforeSwap", function (event) {
   var xhr = event.detail && event.detail.xhr
   if (!xhr || typeof xhr.goferCalendarEventPeriod !== "string") return
-  var calendar = document.getElementById("calendar-main")
-  if (xhr !== _calendarEventRequest || !calendar || calendar.dataset.calendarPeriod !== xhr.goferCalendarEventPeriod ||
-      !_calendarSourceIsVisible({ dataset: { calendarSourceId: xhr.goferCalendarEventSource } })) {
+  clearCalendarEventLoading(xhr, false)
+  if (!calendarEventRequestCurrent(xhr)) {
     event.detail.shouldSwap = false
+    clearCalendarEventLoading(xhr, true)
+    return
   }
+  if (!event.detail.shouldSwap || event.detail.isError || !xhr.goferCalendarEventDialog) return
+  var incoming = new DOMParser().parseFromString(event.detail.serverResponse, "text/html").querySelector("#calendar-event-details-dialog [data-tui-dialog-content] > [data-tui-dialog-panel]")
+  if (!incoming) { event.detail.shouldSwap = false; return }
+  // Keep the open modal in the top layer while its loading panel is filled.
+  event.detail.target = xhr.goferCalendarEventDialog
+  event.detail.selectOverride = "#calendar-event-details-dialog [data-tui-dialog-content] > [data-tui-dialog-panel]"
+  event.detail.swapOverride = "innerHTML"
+})
+
+document.body.addEventListener("htmx:afterSwap", function (event) {
+  var xhr = event.detail && event.detail.xhr
+  if (!xhr || typeof xhr.goferCalendarEventPeriod !== "string" || !calendarEventRequestCurrent(xhr)) return
+  xhr.goferCalendarEventSwapped = true
+  if (xhr.goferCalendarEventDialog) xhr.goferCalendarEventDialog.removeAttribute("aria-busy")
 })
 
 document.body.addEventListener("htmx:sendAbort", function (event) {
-  if (event.detail && event.detail.xhr === _calendarEventRequest) _calendarEventRequest = null
+  var xhr = event.detail && event.detail.xhr
+  if (!xhr || typeof xhr.goferCalendarEventPeriod !== "string") return
+  if (event.detail.elt) event.detail.elt.removeAttribute("aria-busy")
+  clearCalendarEventLoading(xhr, true)
+  if (xhr === _calendarEventRequest) _calendarEventRequest = null
 })
 
 document.body.addEventListener("htmx:afterRequest", function (event) {
@@ -8550,15 +8619,16 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
   if (!xhr || typeof xhr.goferCalendarEventPeriod !== "string") return
   var trigger = event.detail.elt
   if (trigger) trigger.removeAttribute("aria-busy")
+  clearCalendarEventLoading(xhr, false)
   if (xhr !== _calendarEventRequest) return
+  var current = calendarEventRequestCurrent(xhr)
   _calendarEventRequest = null
-  var calendar = document.getElementById("calendar-main")
-  if (!calendar || calendar.dataset.calendarPeriod !== xhr.goferCalendarEventPeriod ||
-      !_calendarSourceIsVisible({ dataset: { calendarSourceId: xhr.goferCalendarEventSource } })) return
-  if (event.detail.successful) {
-    if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-event-details-dialog")
+  if (!current) { clearCalendarEventLoading(xhr, true); return }
+  if (event.detail.successful && xhr.goferCalendarEventSwapped) {
+    if (!xhr.goferCalendarEventDialog && window.tui && window.tui.dialog) window.tui.dialog.open("calendar-event-details-dialog")
     return
   }
+  clearCalendarEventLoading(xhr, true)
   showGoferToast({
     title: "Could not open event",
     description: xhr.status === 404 ? "This event is no longer available. Refresh calendars and try again." : "Event details could not be loaded. Please try again.",
@@ -8993,11 +9063,16 @@ function prepareCalendarDescriptionSubmit(event, button) {
 }
 
 function updateCalendarTeamsForm(form, selected, locked) {
+  var teamsSource = form.querySelector('[name="source_id"]')
+  if (form._calendarTeamsPreview && (!teamsSource || teamsSource.value !== form._calendarTeamsPreview.source)) abandonCalendarTeamsPreview(form)
+  var currentSource = form.querySelector('[name="source_id"]')
+  if (form._calendarMeetPreview && (!currentSource || currentSource.value !== form._calendarMeetPreview.source)) form._calendarMeetPreview = null
   var root = form.querySelector("[data-calendar-teams-options]")
   if (!root) return
   var source = form.querySelector('[name="source_id"]')
-  var outlook = selected && selected.dataset.calendarSourceProvider === "outlook"
-  root.hidden = !outlook
+  var provider = selected && selected.dataset.calendarSourceProvider
+  var supported = provider === "outlook" || provider === "gmail"
+  root.hidden = !supported
   if (locked) {
     if (root._calendarTeamsPending) {
       root._calendarTeamsSource = ""
@@ -9008,7 +9083,7 @@ function updateCalendarTeamsForm(form, selected, locked) {
     root.querySelectorAll("input, button").forEach(function (input) { input.disabled = true })
     return
   }
-  if (!outlook) {
+  if (!supported) {
     if (window.htmx) window.htmx.trigger(root, "htmx:abort")
     root.replaceChildren()
     root._calendarTeamsSource = ""
@@ -9021,14 +9096,180 @@ function updateCalendarTeamsForm(form, selected, locked) {
   if (root._calendarTeamsSource !== source.value && window.htmx) {
     window.htmx.trigger(root, "htmx:abort")
     root._calendarTeamsSource = source.value
-    root.replaceChildren(form.querySelector("[data-calendar-teams-checking]").content.cloneNode(true))
+    root.replaceChildren(form.querySelector(provider === "gmail" ? "[data-calendar-meet-checking]" : "[data-calendar-teams-checking]").content.cloneNode(true))
     root._calendarTeamsPending = true
+    // A freshly swapped dialog can initialize before HTMX's settle phase
+    // binds this custom trigger. Process it before sending the first check.
+    window.htmx.process(root)
     window.htmx.trigger(root, "calendar-teams-source-changed")
   }
   root.querySelectorAll("[data-calendar-teams-toggle]").forEach(function (toggle) {
     toggle.disabled = toggle.dataset.calendarTeamsAvailable !== "true"
   })
   root.querySelectorAll("[data-calendar-teams-retry]").forEach(function (button) { button.disabled = false })
+  updateCalendarMeetPreview(form, locked)
+  updateCalendarTeamsPreview(form, locked)
+}
+
+// The conference is prepared independently of the event draft. Changes to
+// dates, guests, or title must not allocate another meeting or lose its link.
+function updateCalendarMeetPreview(form, locked) {
+  var toggle = form.querySelector('[name="google_meet_meeting"]')
+  var panel = form.querySelector("[data-calendar-meet-preview]")
+  if (!toggle || !panel) return
+  var input = panel.querySelector('[name="google_meet_draft_id"]')
+  var source = form.querySelector('[name="source_id"]').value
+  if (!toggle.checked) {
+    panel.hidden = true
+    input.value = ""
+    form._calendarMeetPreview = null
+    return
+  }
+  panel.hidden = false
+  var state = form._calendarMeetPreview
+  if (!state || state.source !== source) {
+    if (locked) return
+    state = {source: source, id: window.crypto.randomUUID(), status: "loading", url: ""}
+    form._calendarMeetPreview = state
+    prepareCalendarMeetPreview(form, state)
+  }
+  input.value = state.status === "ready" ? state.id : ""
+  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? "Generating Google Meet link…" : state.status === "error" ? state.error : ""
+  var link = panel.querySelector("[data-calendar-meet-link]")
+  link.hidden = state.status !== "ready"
+  var anchor = panel.querySelector("[data-calendar-meet-url]")
+  anchor.textContent = state.url
+  if (state.url) anchor.href = state.url
+  else anchor.removeAttribute("href")
+  var retry = panel.querySelector("[data-calendar-meet-prepare-retry]")
+  retry.hidden = state.status !== "error"
+  retry.disabled = locked
+  panel.querySelector("[data-calendar-meet-copy]").disabled = locked
+}
+
+function abandonCalendarTeamsPreview(form) {
+  var state = form && form._calendarTeamsPreview
+  if (!state || state.saved || form._calendarCreateBusy || form._calendarCreateUncertain) return
+  form._calendarTeamsPreview = null
+  // The server serializes discard behind preparation and retains a tombstone
+  // if discard arrives first. A disconnected browser still has expiry cleanup.
+  fetch("/api/calendar/teams/drafts/discard", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"}, body: new URLSearchParams({source_id: state.source, draft_id: state.id}).toString(), keepalive: true}).catch(function () {})
+}
+
+document.body.addEventListener("htmx:beforeCleanupElement", function (event) {
+  var element = event.detail && event.detail.elt
+  if (!element || !element.querySelector) return
+  var form = element.matches("[data-calendar-create-form]") ? element : element.querySelector("[data-calendar-create-form]")
+  if (form) { abandonCalendarTeamsPreview(form); stopCalendarDialogResize(form) }
+})
+
+window.addEventListener("pagehide", function () {
+  var form = document.querySelector("[data-calendar-create-form]")
+  if (form) abandonCalendarTeamsPreview(form)
+})
+
+function updateCalendarTeamsPreview(form, locked) {
+  var panel = form.querySelector('[data-calendar-meeting-provider="teams_meeting"]')
+  var toggle = form.querySelector('[name="teams_meeting"]')
+  if (!panel || !toggle || form.dataset.calendarEventId) return
+  var input = panel.querySelector('[name="teams_draft_id"]')
+  if (!toggle.checked) {
+    panel.hidden = true
+    input.value = ""
+    abandonCalendarTeamsPreview(form)
+    return
+  }
+  panel.hidden = false
+  var source = form.querySelector('[name="source_id"]').value
+  var state = form._calendarTeamsPreview
+  if (!state || state.source !== source) {
+    if (locked) return
+    state = {provider: "teams", source: source, id: window.crypto.randomUUID(), status: "loading", url: ""}
+    form._calendarTeamsPreview = state
+    prepareCalendarMeetPreview(form, state)
+  }
+  input.value = state.status === "ready" ? state.id : ""
+  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? "Generating Teams link…" : state.status === "error" ? state.error : ""
+  panel.querySelector("[data-calendar-meet-link]").hidden = state.status !== "ready"
+  var anchor = panel.querySelector("[data-calendar-meet-url]")
+  anchor.textContent = state.url
+  if (state.url) anchor.href = state.url
+  else anchor.removeAttribute("href")
+  var retry = panel.querySelector("[data-calendar-meet-prepare-retry]")
+  retry.hidden = state.status !== "error"
+  retry.disabled = locked
+  panel.querySelector("[data-calendar-meet-copy]").disabled = locked
+}
+
+function retryCalendarTeamsPreview(form) {
+  var state = form && form._calendarTeamsPreview
+  if (!state || state.status !== "error" || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict) return
+  state.status = "loading"
+  state.attempts = 0
+  state.deadline = 0
+  updateCalendarCreateForm(form)
+  prepareCalendarMeetPreview(form, state)
+}
+
+function prepareCalendarMeetPreview(form, state) {
+  var teams = state.provider === "teams"
+  var key = teams ? "_calendarTeamsPreview" : "_calendarMeetPreview"
+  var label = teams ? "Teams" : "Google Meet"
+  var payload = new URLSearchParams({source_id: state.source, draft_id: state.id})
+  if (form.dataset.calendarEventId) payload.set("event_id", form.dataset.calendarEventId)
+  state.attempts = (state.attempts || 0) + 1
+  if (!state.deadline) state.deadline = Date.now() + 75000
+  var controller = new AbortController()
+  var timeout
+  var deadline = new Promise(function (_, reject) {
+    timeout = setTimeout(function () {
+      reject(new Error(label + " link generation timed out. Retry to check the same link again."))
+      controller.abort()
+    }, Math.max(0, Math.min(35000, state.deadline - Date.now())))
+  })
+  var request = fetch(teams ? "/api/calendar/teams/drafts" : "/api/calendar/google-meet/drafts", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}, body: payload.toString(), signal: controller.signal})
+    .then(function (response) { return response.json().then(function (data) { return {ok: response.ok, data: data} }) })
+  return Promise.race([request, deadline])
+    .finally(function () { clearTimeout(timeout) })
+    .then(function (result) {
+      if (!form.isConnected || form[key] !== state) return
+      if (!result.ok) throw new Error(result.data.error || "Could not generate the " + label + " link. Retry.")
+      if (result.data.source_id !== state.source || result.data.draft_id !== state.id) throw new Error("The meeting request changed. Retry.")
+      if (result.data.pending && state.attempts < 5) {
+        setTimeout(function () { if (form.isConnected && form[key] === state) prepareCalendarMeetPreview(form, state) }, 750)
+        return
+      }
+      var validURL = teams ? /^https:\/\/(?:teams\.microsoft\.com|teams\.live\.com|teams\.cloud\.microsoft)\/(?:meet|l\/meetup-join)\/[^\s<>"']+$/i : /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:\?[^\s]*)?$/
+      if (!validURL.test(result.data.join_url || "")) throw new Error(label + " is still preparing the link. Retry to check it again.")
+      state.status = "ready"
+      state.url = result.data.join_url
+      updateCalendarCreateForm(form)
+    })
+    .catch(function (error) {
+      if (!form.isConnected || form[key] !== state) return
+      state.status = "error"
+      state.error = error.message || "Could not generate the " + label + " link. Retry."
+      updateCalendarCreateForm(form)
+    })
+}
+
+function retryCalendarMeetPreview(form) {
+  var state = form && form._calendarMeetPreview
+  if (!state || state.status !== "error" || form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict) return
+  state.status = "loading"
+  state.attempts = 0
+  state.deadline = 0
+  updateCalendarCreateForm(form)
+  prepareCalendarMeetPreview(form, state)
+}
+
+function copyCalendarMeetLink(button) {
+  var link = button.closest("[data-calendar-meet-preview]").querySelector("[data-calendar-meet-url]")
+  if (!link || !link.href || !navigator.clipboard) return
+  navigator.clipboard.writeText(link.href).then(function () {
+    button.textContent = "Copied"
+    setTimeout(function () { if (button.isConnected) button.textContent = "Copy link" }, 1500)
+  }).catch(function () {})
 }
 
 function retryCalendarTeams(form) {
@@ -9128,11 +9369,176 @@ function updateCalendarCreateForm(form) {
     "No writable calendar is configured. Choose calendars in Accounts first." :
     "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission."
   var submit = form.querySelector("[data-calendar-create-submit]")
-  submit.disabled = editing ? locked || !allowed : busy || (!uncertain && !allowed)
+  var meetToggle = form.querySelector('[name="google_meet_meeting"]')
+  var meetDraft = form.querySelector('[name="google_meet_draft_id"]')
+  var teamsToggle = form.querySelector('[name="teams_meeting"]')
+  var teamsDraft = form.querySelector('[name="teams_draft_id"]')
+  var teamsNotReady = !!(!editing && teamsToggle && teamsToggle.checked && (!teamsDraft || !teamsDraft.value))
+  var meetNotReady = !!(meetToggle && meetToggle.checked && (!meetDraft || !meetDraft.value))
+  submit.disabled = (editing ? locked || !allowed : busy || (!uncertain && !allowed)) || (!uncertain && (meetNotReady || teamsNotReady))
   submit.setAttribute("aria-busy", busy ? "true" : "false")
   form.querySelector("[data-calendar-create-spinner]").hidden = !busy
   form.querySelector("[data-calendar-create-submit-label]").textContent = editing ? (busy ? "Saving..." : form.dataset.calendarEditSeries === "true" ? "Save series" : "Save changes") : busy ? "Creating…" : uncertain ? "Retry safely" : "Create event"
   form.setAttribute("aria-busy", busy ? "true" : "false")
+}
+
+function stopCalendarDialogResize(form) {
+  var state = form && form._calendarDialogResize
+  if (!state) return
+  form._calendarDialogResize = null
+  state.mutations.disconnect()
+  if (state.sizes) state.sizes.disconnect()
+  if (state.frame) cancelAnimationFrame(state.frame)
+  if (state.animation) state.animation.cancel()
+  state.contentAnimations.forEach(function (animation) { animation.cancel() })
+  state.dialog.style.height = state.heightStyle
+  if (state.panel) state.panel.style.height = state.panelHeightStyle
+  if (state.body) state.body.style.scrollbarGutter = state.gutter
+  if (state.transition !== null) state.dialog.style.transitionProperty = state.transition
+  state.dialog.removeEventListener("close", state.close)
+  form.removeEventListener("input", state.interact, true)
+  form.removeEventListener("change", state.interact, true)
+  form.removeEventListener("click", state.interact, true)
+  window.removeEventListener("resize", state.resize)
+}
+
+function initializeCalendarDialogResize(form) {
+  if (!form || form._calendarDialogResize || !form.closest || typeof MutationObserver === "undefined") return
+  var dialog = form.closest("dialog")
+  if (!dialog || !dialog.animate) return
+  var body = form.querySelector("[data-calendar-create-body]")
+  var panel = dialog.querySelector && dialog.querySelector("[data-tui-dialog-panel]")
+  var gutter = body && body.style.scrollbarGutter
+  // Keep field widths stable as the animated viewport gains/loses scrolling.
+  if (body) body.style.scrollbarGutter = "stable"
+  function height() { return parseFloat(getComputedStyle(dialog).height) || 0 }
+  var state = {dialog: dialog, body: body, panel: panel, panelHeightStyle: panel && panel.style.height, gutter: gutter, endsAt: 0, heightStyle: dialog.style.height, height: dialog.open ? height() : 0, transition: null, animation: null, frame: null, contentAnimations: new Map(), layout: new Map(), interacted: false}
+  form._calendarDialogResize = state
+  function layout() {
+    var positions = new Map()
+    if (!body) return positions
+    function top(node) {
+      var value = 0
+      while (node && node !== dialog) { value += node.offsetTop; node = node.offsetParent }
+      return value
+    }
+    var origin = top(body)
+    // Only whole field rows participate. Layout offsets deliberately exclude
+    // the dialog's entrance transform, scrolling, and individual input geometry.
+    Array.from(body.children).forEach(function (node) {
+      if (!node.animate || !node.offsetHeight) return
+      positions.set(node, {y: top(node) - origin})
+    })
+    return positions
+  }
+  state.layout = layout()
+  function moveContent(duration, animate) {
+    // Keep rows below an expanded/collapsed section at their previous position,
+    // then slide them to their new position with the dialog's height animation.
+    var previous = state.layout
+    state.contentAnimations.forEach(function (animation, node) {
+      var position = previous.get(node)
+      var translate = getComputedStyle(node).translate.split(/\s+/)
+      if (position) {
+        position.y += parseFloat(translate[1]) || 0
+      }
+      animation.cancel()
+    })
+    state.contentAnimations.clear()
+    var next = layout()
+    state.layout = next
+    if (!animate) return
+    next.forEach(function (position, node) {
+      var old = previous.get(node)
+      var dy = old ? old.y - position.y : 0
+      if (Math.abs(dy) < 0.5) return
+      var keyframes = [{translate: "0px " + dy + "px"}, {translate: "0px 0px"}]
+      var animation = node.animate(keyframes, {duration: duration, easing: "ease"})
+      state.contentAnimations.set(node, animation)
+      animation.onfinish = function () {
+        if (state.contentAnimations.get(node) === animation) state.contentAnimations.delete(node)
+      }
+    })
+  }
+  function restore() {
+    dialog.style.height = state.heightStyle
+    if (panel) panel.style.height = state.panelHeightStyle
+    if (state.transition !== null) dialog.style.transitionProperty = state.transition
+    state.transition = null
+  }
+  function measure() {
+    state.frame = null
+    if (form._calendarDialogResize !== state) return
+    if (!form.isConnected || !dialog.isConnected) { stopCalendarDialogResize(form); return }
+    if (!dialog.open || dialog.hasAttribute("data-tui-dialog-closing")) {
+      if (state.animation) state.animation.cancel()
+      state.animation = null
+      restore()
+      state.height = 0
+      moveContent(0, false)
+      return
+    }
+    // Read the current animated height when retargeting a rapid second change.
+    // Measuring CSS height avoids templUI's separate entrance/exit scale.
+    var active = !!state.animation
+    var previousTarget = state.height
+    var from = active ? height() : state.height
+    if (state.animation) state.animation.cancel()
+    state.animation = null
+    // Exclude height from templUI's transition-all while measuring natural
+    // layout, keeping its opacity and transform transitions intact.
+    if (state.transition === null) state.transition = dialog.style.transitionProperty
+    dialog.style.transitionProperty = "opacity, transform, scale, translate"
+    dialog.style.height = state.heightStyle
+    if (panel) panel.style.height = state.panelHeightStyle
+    var to = height()
+    state.height = to
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    var now = performance.now()
+    var duration = active && Math.abs(previousTarget - to) < 0.5 ? Math.max(1, state.endsAt - now) : 220
+    moveContent(duration, state.interacted && !!from && !!to && !reduced)
+    if (!from || !to || Math.abs(from - to) < 0.5 || reduced) {
+      restore()
+      return
+    }
+    // Animate height rather than scaling text and controls. The existing flex
+    // viewport keeps the footer visible, and max-height still caps the dialog.
+    dialog.style.height = to + "px"
+    // The panel otherwise keeps its new intrinsic height while only the outer
+    // dialog animates. Make its flex viewport follow each animated frame so
+    // the footer stays attached to the moving bottom edge.
+    if (panel) panel.style.height = "100%"
+    // Mutations that do not change the target must not keep restarting a resize
+    // (for example toolbar highlights while typing in the description).
+    state.endsAt = now + duration
+    var animation = dialog.animate([{height: from + "px"}, {height: to + "px"}], {duration: duration, easing: "ease"})
+    state.animation = animation
+    animation.onfinish = function () {
+      if (form._calendarDialogResize !== state || state.animation !== animation) return
+      state.animation = null
+      restore()
+      if (Math.abs(height() - state.height) >= 0.5) measure()
+    }
+  }
+  function schedule() {
+    if (!state.frame) state.frame = requestAnimationFrame(measure)
+  }
+  state.mutations = new MutationObserver(schedule)
+  state.mutations.observe(form, {subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "class", "style"]})
+  // Observe the intrinsic field rows, not the flex viewport whose height is
+  // changing during this animation. This also catches text wrapping/fonts.
+  if (typeof ResizeObserver !== "undefined") {
+    state.sizes = new ResizeObserver(function () { if (!state.animation) schedule() })
+    if (body) Array.from(body.children).forEach(function (row) { state.sizes.observe(row) })
+  }
+  state.close = function () { stopCalendarDialogResize(form) }
+  state.interact = function () { state.interacted = true }
+  state.resize = schedule
+  dialog.addEventListener("close", state.close)
+  form.addEventListener("input", state.interact, true)
+  form.addEventListener("change", state.interact, true)
+  form.addEventListener("click", state.interact, true)
+  window.addEventListener("resize", state.resize)
 }
 
 function initializeCalendarCreateForm() {
@@ -9154,7 +9560,15 @@ function initializeCalendarCreateForm() {
     })
     list.appendChild(fragment)
   }
+  if (!form._calendarTeamsCloseBound) {
+    var dialog = form.closest("dialog")
+    if (dialog) {
+      form._calendarTeamsCloseBound = true
+      dialog.addEventListener("close", function () { abandonCalendarTeamsPreview(form) })
+    }
+  }
   updateCalendarCreateForm(form)
+  initializeCalendarDialogResize(form)
 }
 
 function updateCalendarGuestDropdown(form) {
@@ -9256,10 +9670,26 @@ function validateCalendarCreatePickers(form) {
     teams.focus()
     return false
   }
+  var meet = form.querySelector('[name="google_meet_meeting"]')
+  if (meet && meet.checked && !meet.disabled && repeat && repeat.value !== "none") {
+    setCalendarCreateError(form, "Google Meet meetings currently support events that do not repeat. Choose Does not repeat or turn Google Meet off.")
+    meet.focus()
+    return false
+  }
   var guests = form.querySelector('[name="guests"]')
   if (guests && guests.value.trim() && repeat && repeat.value !== "none") {
     setCalendarCreateError(form, "Guest invitations currently support events that do not repeat. Remove the guests or choose Does not repeat.")
     guests.focus()
+    return false
+  }
+  var meetDraft = form.querySelector('[name="google_meet_draft_id"]')
+  if (meet && meet.checked && !meet.disabled && (!meetDraft || !meetDraft.value)) {
+    setCalendarCreateError(form, "Wait for the Google Meet link before saving, or turn Google Meet off.")
+    return false
+  }
+  var teamsDraft = form.querySelector('[name="teams_draft_id"]')
+  if (!(form.dataset && form.dataset.calendarEventId) && teams && teams.checked && !teams.disabled && (!teamsDraft || !teamsDraft.value)) {
+    setCalendarCreateError(form, "Wait for the Teams link before saving, or turn Teams off.")
     return false
   }
   var until = repeat && repeat.value !== "none" && form.querySelector('[name="repeat_end"]').value === "until"
@@ -9325,10 +9755,11 @@ function submitCalendarCreate(form) {
       }
       if (!(result.data.event_id || (!editing && result.data.series_id)) || (editing && result.data.saved !== true)) throw new Error("Event save could not be confirmed")
       if (editing && (result.data.event_id !== form.dataset.calendarEventId || (form.dataset.calendarEditOccurrence === "true" && result.data.scope !== "occurrence"))) throw new Error("Event scope could not be confirmed")
+      if (form._calendarTeamsPreview) form._calendarTeamsPreview.saved = true
       // Close only this form; a delayed save must not close a newer dialog.
       if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
-      var warning = result.data.teams_unconfirmed || result.data.refresh_pending
-      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.teams_unconfirmed ? "Event saved, but Microsoft did not confirm a Teams link. Check the event in Outlook; do not create it again." : result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.notify_guests ? "Meeting saved. Guest notifications are being delivered." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", duration: warning ? 10000 : 4500})
+      var warning = result.data.teams_unconfirmed || result.data.google_meet_unconfirmed || result.data.refresh_pending
+      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.teams_unconfirmed ? "Event saved, but Microsoft did not confirm a Teams link. Check the event in Outlook; do not create it again." : result.data.google_meet_unconfirmed ? "Event saved, but its Google Meet link is not ready. Refresh the calendar or check Google Calendar; do not create it again." : result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.notify_guests ? "Meeting saved. Guest notifications are being delivered." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", duration: warning ? 10000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {

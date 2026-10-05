@@ -43,6 +43,7 @@
   }
 
   function clearFromTrigger(trigger) {
+    if (trigger.getAttribute('data-tui-selectbox-required') === 'true') return;
     const hiddenInput = trigger.querySelector('input[type="hidden"]');
     if (!hiddenInput || !hiddenInput.value) return;
 
@@ -143,7 +144,19 @@
     const showPills = trigger.getAttribute('data-tui-selectbox-show-pills') === 'true';
     const placeholder = valueEl.getAttribute('data-tui-selectbox-placeholder') || 'Select...';
     
-    const selectedItems = content.querySelectorAll('.select-item[data-tui-selectbox-selected="true"]');
+    let selectedItems = content.querySelectorAll('.select-item[data-tui-selectbox-selected="true"]');
+
+    // Required single-selects retain a value during initialization and reset.
+    if (!isMultiple && trigger.getAttribute('data-tui-selectbox-required') === 'true' && selectedItems.length === 0) {
+      const items = Array.from(content.querySelectorAll('.select-item'));
+      const initialValue = hiddenInput?.value || hiddenInput?.defaultValue;
+      const item = items.find(item => item.getAttribute('data-tui-selectbox-value') === initialValue) ||
+        items.find(item => item.getAttribute('data-tui-selectbox-disabled') !== 'true') || items[0];
+      if (item) {
+        item.setAttribute('data-tui-selectbox-selected', 'true');
+        selectedItems = [item];
+      }
+    }
     
     if (selectedItems.length === 0) {
       valueEl.textContent = placeholder;
@@ -270,6 +283,7 @@
     
     const isMultiple = trigger.getAttribute('data-tui-selectbox-multiple') === 'true';
     const isSelected = item.getAttribute('data-tui-selectbox-selected') === 'true';
+    const required = !isMultiple && trigger.getAttribute('data-tui-selectbox-required') === 'true';
     
     if (!isMultiple) {
       // Single selection - deselect all others
@@ -279,7 +293,7 @@
     }
     
     // Toggle this item
-    item.setAttribute('data-tui-selectbox-selected', (!isSelected).toString());
+    item.setAttribute('data-tui-selectbox-selected', (required || !isSelected).toString());
     
     // Update display
     updateDisplayValue(trigger);

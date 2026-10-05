@@ -39,6 +39,7 @@ type CalendarCreateData struct {
 	AllDay          bool
 	SourceID        string
 	TeamsState      string
+	MeetingJoinURL  string
 	Sources         []CalendarCreateSource
 	Date            string
 	StartTime       string
@@ -50,7 +51,7 @@ type CalendarCreateData struct {
 }
 
 type CalendarTeamsData struct {
-	State, SourceID string
+	State, SourceID, Provider, JoinURL, EventID string
 }
 
 // calendarDialogClass sizes a calendar dialog as a bounded column: header and

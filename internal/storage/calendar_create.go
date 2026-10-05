@@ -135,12 +135,14 @@ func (db *DB) CompleteCalendarCreate(ctx context.Context, userID, sourceID, requ
 	if _, err := tx.ExecContext(ctx, `INSERT INTO calendar_events (
 		id, user_id, source_id, remote_id, ical_uid, etag, status, summary, description, location,
 		organizer_name, organizer_email, all_day, start_date, end_date, start_at, end_at,
-		start_timezone, end_timezone, html_link, provider_created_at, provider_updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		start_timezone, end_timezone, html_link, provider_created_at, provider_updated_at,
+		response_status, attendees_json, online_meeting_json
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(source_id, remote_id) DO NOTHING`, result.EventID, userID, sourceID, event.RemoteID,
 		event.ICalUID, event.ETag, normalizeCalendarEventStatus(event.Status, false), event.Summary, event.Description, event.Location,
 		event.OrganizerName, event.OrganizerEmail, calendarBoolInt(event.AllDay), startDate, endDate, startAt, endAt,
-		event.StartTimeZone, event.EndTimeZone, event.HTMLLink, calendarEventTimeValue(event.ProviderCreatedAt), calendarEventTimeValue(event.ProviderUpdatedAt)); err != nil {
+		event.StartTimeZone, event.EndTimeZone, event.HTMLLink, calendarEventTimeValue(event.ProviderCreatedAt), calendarEventTimeValue(event.ProviderUpdatedAt),
+		event.ResponseStatus, calendarJSON(event.AttendeesJSON, "[]"), calendarJSON(event.OnlineMeetingJSON, "{}")); err != nil {
 		return CalendarCreateRequest{}, err
 	}
 	updated, err := tx.ExecContext(ctx, `UPDATE calendar_create_requests SET event_id = ?, remote_id = ? WHERE user_id = ? AND request_id = ? AND source_id = ? AND request_hash = ?`, result.EventID, result.RemoteID, userID, requestID, sourceID, hash)

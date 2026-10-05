@@ -36,6 +36,13 @@ type outlookCalendarEventsResponse struct {
 }
 
 type outlookCalendarEvent struct {
+	SingleValueExtendedProperties []struct {
+		ID    string `json:"id"`
+		Value string `json:"value"`
+	} `json:"singleValueExtendedProperties"`
+	Sensitivity           string                    `json:"sensitivity"`
+	ShowAs                string                    `json:"showAs"`
+	IsReminderOn          *bool                     `json:"isReminderOn"`
 	ID                    string                    `json:"id"`
 	ICalUID               string                    `json:"iCalUId"`
 	ChangeKey             string                    `json:"changeKey"`
@@ -185,12 +192,13 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 	values.Set("startDateTime", query.WindowStart.Format(time.RFC3339))
 	values.Set("endDateTime", query.WindowEnd.Format(time.RFC3339))
 	values.Set("$top", "1000")
+	values.Set("$expand", calendarTeamsDraftExpand())
 	values.Set("$orderby", "start/dateTime")
 	values.Set("$select", strings.Join([]string{
 		"id", "iCalUId", "changeKey", "subject", "bodyPreview", "body", "start", "end",
 		"isAllDay", "isCancelled", "webLink", "createdDateTime", "lastModifiedDateTime",
 		"organizer", "attendees", "location", "onlineMeetingUrl", "onlineMeetingProvider",
-		"onlineMeeting", "isOnlineMeeting", "seriesMasterId", "recurrence", "isOrganizer", "responseStatus",
+		"onlineMeeting", "isOnlineMeeting", "seriesMasterId", "recurrence", "isOrganizer", "responseStatus", "sensitivity", "showAs", "isReminderOn",
 	}, ","))
 
 	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/calendarView?" + values.Encode()
@@ -202,6 +210,9 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 			return calendar.EventPage{}, err
 		}
 		for _, remote := range page.Events {
+			if marker := calendarTeamsDraftMarker(remote); strings.HasPrefix(marker, "draft:") && calendarTeamsDraftPrivate(outlookCalendarUpdateEvent{outlookCalendarEvent: remote}, storage.CalendarTeamsDraft{RemoteID: remote.ID, DraftID: strings.TrimPrefix(marker, "draft:")}) {
+				continue
+			}
 			normalized, err := normalizeOutlookCalendarEvent(remote)
 			if err != nil {
 				return calendar.EventPage{}, err

@@ -20,7 +20,7 @@ import (
 )
 
 func calendarStoredEditRestriction(event storage.CalendarEvent) string {
-	if calendarStoredOutlookOnline(event) {
+	if calendarStoredEditableOnline(event) {
 		event.OnlineMeetingJSON = "{}"
 	}
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
@@ -38,10 +38,10 @@ func calendarStoredEditRestriction(event storage.CalendarEvent) string {
 }
 
 func (h *Handler) calendarEventEditAccess(ctx context.Context, event storage.CalendarEvent) (storage.CalendarSource, string, error) {
-	if calendarStoredOutlookOnline(event) && !calendarCachedOrganizer(event) {
+	if calendarStoredEditableOnline(event) && !calendarCachedOrganizer(event) {
 		return storage.CalendarSource{}, "Only the organizer can edit an online meeting.", nil
 	}
-	if calendarStoredOutlookOnline(event) && calendarEventIsSeries(event) {
+	if calendarStoredEditableOnline(event) && calendarEventIsSeries(event) {
 		return storage.CalendarSource{}, "Recurring online meetings cannot be edited in Gofer yet.", nil
 	}
 	return h.calendarEventMutationAccess(ctx, event, h.calendarUpdateEvent != nil, calendarEventIsSeries(event))
@@ -173,6 +173,9 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 		if calendarOutlookTeamsJSON(calendarOutlookCachedMeetingJSON(event)) {
 			data.TeamsState = "existing"
 		}
+	} else if calendarStoredGoogleMeet(event) {
+		data.TeamsState = "existing"
+		data.MeetingJoinURL = calendar.MeetingJoinURL(event.OnlineMeetingJSON)
 	} else if series || occurrence {
 		data.TeamsState = "recurring"
 	}
@@ -258,6 +261,10 @@ func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storag
 
 func (h *Handler) calendarUpdateCredentials(ctx context.Context, source storage.CalendarSource) calendarCredentials {
 	credentials := calendarCredentials{}
+	if (source.Provider == providers.ProviderGmail || source.Provider == providers.ProviderOutlook) && h.mailCredentials() == nil {
+		credentials.err = fmt.Errorf("Calendar OAuth is not configured")
+		return credentials
+	}
 	switch source.Provider {
 	case providers.ProviderGmail:
 		credentials.token, credentials.err = h.mailCredentials().GetGoogleCalendarWriteTokenForAccount(ctx, source.AccountID)
@@ -278,6 +285,10 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		calendarUpdateFailure(w, http.StatusBadRequest, err.Error(), false, false)
 		return
 	}
+	if draft.TeamsDraftID != "" {
+		calendarUpdateFailure(w, 400, "Prepared Teams links can only be used for new events.", false, false)
+		return
+	}
 	userID := h.userID(r.Context())
 	event, err := h.db.GetCalendarEvent(r.Context(), userID, r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -286,6 +297,10 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	if err != nil {
 		calendarUpdateFailure(w, http.StatusInternalServerError, "Could not load this event.", false, false)
+		return
+	}
+	if draft.GoogleMeetMeeting && event.SourceProvider != providers.ProviderGmail {
+		calendarUpdateFailure(w, 400, "Google Meet meetings require a supported Google calendar.", false, false)
 		return
 	}
 	if draft.TeamsMeeting && event.SourceProvider != providers.ProviderOutlook {
@@ -355,6 +370,10 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			draft.EndAt = event.EndAt
 		}
 	}
+	if err := h.attachCalendarMeetDraft(ctx, source, &draft, "event:"+event.ID); err != nil {
+		calendarUpdateFailure(w, 409, "The Google Meet link could not be loaded. Toggle Google Meet off and on to prepare it again.", false, false)
+		return
+	}
 	remote, err := h.updateCalendarProviderEvent(ctx, source, event, draft, series, instance)
 	if err != nil {
 		var provider calendarCreateProviderError
@@ -382,7 +401,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	confirmed := remote
-	if source.Provider == providers.ProviderOutlook && calendarUpdateHasDetails(remote.OnlineMeeting) {
+	if (source.Provider == providers.ProviderOutlook || (source.Provider == providers.ProviderGmail && calendarGoogleMeetJSON(remote.OnlineMeeting))) && calendarUpdateHasDetails(remote.OnlineMeeting) {
 		confirmed.OnlineMeeting = nil
 	}
 	restriction := calendarUpdateSavedRestriction(confirmed, draft)
@@ -400,6 +419,8 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		err = h.db.CompleteCalendarOccurrenceUpdate(ctx, userID, event.ID, source.ID, version, stored)
 	} else if draft.Recurrence != nil {
 		err = h.db.CompleteCalendarSeriesConversion(ctx, userID, event.ID, source.ID, version, stored)
+	} else if source.Provider == providers.ProviderGmail && (calendarStoredGoogleMeet(event) || calendarGoogleMeetJSON(remote.OnlineMeeting)) {
+		err = h.db.CompleteCalendarOnlineUpdate(ctx, event, stored)
 	} else if source.Provider == providers.ProviderOutlook && (calendarStoredOutlookOnline(event) || calendarUpdateHasDetails(remote.OnlineMeeting)) {
 		err = h.db.CompleteCalendarOutlookOnlineUpdate(ctx, event, stored)
 	} else {
@@ -415,6 +436,9 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	response := map[string]any{"saved": true, "event_id": event.ID, "source_id": source.ID, "hidden": source.IsHidden, "notify_guests": len(draft.Guests) > 0 || calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON))}
 	if draft.TeamsMeeting && source.Provider == providers.ProviderOutlook {
 		response["teams_unconfirmed"] = !calendarTeamsLinkConfirmed(remote.OnlineMeeting)
+	}
+	if draft.GoogleMeetMeeting && source.Provider == providers.ProviderGmail {
+		response["google_meet_unconfirmed"] = !calendarGoogleMeetConfirmed(remote.OnlineMeeting)
 	}
 	if instance {
 		response["scope"] = "occurrence"

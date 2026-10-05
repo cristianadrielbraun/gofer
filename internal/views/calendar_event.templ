@@ -105,6 +105,8 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 						<div class="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3" data-calendar-meeting-section>
 							if calendar.TeamsJoinURL(joinURL) != "" {
 								<p class="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">This is a Microsoft Teams meeting</p>
+							} else if calendar.GoogleMeetJoinURL(joinURL) != "" {
+								<p class="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">This is a Google Meet meeting</p>
 							}
 							@button.Button(button.Props{Href: joinURL, Target: "_blank", Variant: button.VariantOutline, Size: button.SizeSm, Class: "shrink-0 font-semibold", Attributes: templ.Attributes{"rel": "noopener noreferrer", "data-calendar-join-meeting": ""}}) {
 								Join meeting
@@ -325,4 +327,38 @@ templ CalendarParticipantIdentity(person CalendarEventParticipant) {
 	if person.Name != "" && person.Email != "" && person.Name != person.Email {
 		<p class="mt-0.5 break-all text-xs text-muted-foreground">{ person.Email }</p>
 	}
+}
+
+// The pending dialog is installed only for slow detail requests. Its panel is
+// replaced in place so the native dialog and backdrop stay open.
+templ CalendarEventLoadingDialog() {
+ @dialog.Dialog(dialog.Props{ID: "calendar-event-details-dialog"}) {
+  @dialog.Content(dialog.ContentProps{
+   HideCloseButton: true,
+   Class: calendarDialogClass("sm:max-w-lg"),
+   Attributes: templ.Attributes{"id": "calendar-event-details-content", "aria-labelledby": "calendar-event-details-title", "aria-busy": "true"},
+  }) {
+   <header class="flex shrink-0 items-start gap-3 px-5 pt-5 pb-4 sm:px-6">
+    <span class="mt-2 size-3 shrink-0 rounded-[3px] bg-muted-foreground/40" aria-hidden="true"></span>
+    <div class="min-w-0 flex-1">
+     @dialog.Title(dialog.TitleProps{ID: "calendar-event-details-title", Class: "break-words text-xl font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]", Attributes: templ.Attributes{"style": "font-family: var(--font-serif)"}}) {
+      Event
+     }
+    </div>
+    <div class="-mt-1 -mr-2 shrink-0">
+     @button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-tui-dialog-close": "", "aria-label": "Close event details", "title": "Close"}}) {
+      @icon.X(icon.Props{Class: "size-4"})
+     }
+    </div>
+   </header>
+   <div data-calendar-event-loading class="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-6 text-sm sm:px-6">
+    <p role="status" aria-live="polite" class="text-muted-foreground">Loading event details…</p>
+    <div aria-hidden="true" class="space-y-5 motion-safe:animate-pulse">
+     <div class="space-y-2"><div class="h-4 w-3/4 rounded bg-muted"></div><div class="h-3 w-1/2 rounded bg-muted"></div></div>
+     <div class="h-4 w-1/2 rounded bg-muted"></div>
+     <div class="space-y-2"><div class="h-3 w-full rounded bg-muted"></div><div class="h-3 w-3/4 rounded bg-muted"></div></div>
+    </div>
+   </div>
+  }
+ }
 }

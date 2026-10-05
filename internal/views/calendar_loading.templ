@@ -5,6 +5,9 @@ import "github.com/cristianadrielbraun/gofer/internal/models"
 // Inert templates reuse the real layout, including saved widths and timezone.
 // They stay outside the HTMX/history targets so switching apps needs no fetch.
 templ CalendarLoadingTemplates(accounts []models.Account, uiSettings map[string]string) {
+	<template id="calendar-event-loading">
+		@CalendarEventLoadingDialog()
+	</template>
 	for _, view := range []string{"month", "week"} {
 		{{ data := calendarLoadingData(view, uiSettings) }}
 		<template id={ "calendar-loading-" + view }>

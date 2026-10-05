@@ -254,15 +254,12 @@ visibleEvents := calendarVisibleEventCount(dayEvents) }}
 													{{ event := candidate.Event
 continuesBefore := event.AllDay && event.StartDate < day.ISODate
 continuesAfter := event.AllDay && event.EndDate > day.Date.AddDate(0, 0, 1).Format("2006-01-02") }}
-													<button type="button" hidden?={ !candidate.Visible } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } data-calendar-month-event={ event.ID } data-calendar-event-all-day={ strconv.FormatBool(event.AllDay) } data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-continues-before?={ continuesBefore } data-calendar-continues-after?={ continuesAfter } class="group pointer-events-auto relative flex w-full min-w-0 items-center gap-1.5 truncate rounded bg-primary/[0.06] px-1.5 py-1 text-left text-[10px] leading-tight text-foreground transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70" title={ calendarEventResponseSummary(event) } aria-label={ "Open event: " + calendarEventResponseSummary(event) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" data-calendar-event-trigger>
+													<button type="button" hidden?={ !candidate.Visible } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } data-calendar-month-event={ event.ID } data-calendar-event-all-day={ strconv.FormatBool(event.AllDay) } data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-continues-before?={ continuesBefore } data-calendar-continues-after?={ continuesAfter } class="group pointer-events-auto relative flex w-full min-w-0 items-center gap-1.5 truncate rounded bg-primary/[0.06] px-1.5 py-1 text-left text-[10px] leading-tight text-foreground transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ calendarEventResponseSummary(event) } aria-label={ "Open event: " + calendarEventResponseSummary(event) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" data-calendar-event-trigger>
 														<span class={ "flex min-w-0 flex-1 items-center gap-1.5", templ.KV("invisible", continuesBefore && dayIndex > 0) }>
 															<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
 															<span class="shrink-0 font-semibold text-primary">{ calendarEventTimeLabel(event, day.Date.Location()) }</span>
 															<span class="min-w-0 flex-1 truncate" data-calendar-event-summary><span data-calendar-event-text>{ calendarEventSummary(event) }</span></span>
 															@CalendarEventResponseIndicator(event, true)
-														</span>
-														<span class="absolute inset-y-0 right-1 hidden items-center bg-card px-1 group-[.htmx-request]:flex" aria-hidden="true">
-															@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})
 														</span>
 													</button>
 												}
@@ -361,7 +358,7 @@ templ CalendarAgendaPane(month CalendarMonthData) {
 				<div id="calendar-agenda-list" hidden?={ len(agendaEvents) == 0 } class="min-h-0 flex-1 overflow-y-auto p-5">
 					<div class="space-y-2">
 						for _, event := range month.Events {
-							<button type="button" hidden?={ event.SourceHidden || !calendarAgendaEventIsUpcoming(event, time.Now().In(month.Month.Location())) } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } data-calendar-agenda-event data-calendar-event-all-day={ strconv.FormatBool(event.AllDay) } data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-event-start={ calendarEventTimestamp(event.StartAt) } data-calendar-event-end={ calendarEventTimestamp(event.EndAt) } class="group relative w-full rounded-xl border border-border bg-card px-3.5 py-3 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70" aria-label={ "Open event: " + calendarEventResponseSummary(event) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" data-calendar-event-trigger>
+							<button type="button" hidden?={ event.SourceHidden || !calendarAgendaEventIsUpcoming(event, time.Now().In(month.Month.Location())) } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } data-calendar-agenda-event data-calendar-event-all-day={ strconv.FormatBool(event.AllDay) } data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-event-start={ calendarEventTimestamp(event.StartAt) } data-calendar-event-end={ calendarEventTimestamp(event.EndAt) } class="group relative w-full rounded-xl border border-border bg-card px-3.5 py-3 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={ "Open event: " + calendarEventResponseSummary(event) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" data-calendar-event-trigger>
 								<div class="flex items-start gap-3">
 									<div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
 										if event.AllDay {
@@ -387,9 +384,6 @@ templ CalendarAgendaPane(month CalendarMonthData) {
 										}
 									</div>
 								</div>
-								<span class="absolute right-3 top-3 hidden items-center rounded bg-card p-1 group-[.htmx-request]:flex" aria-hidden="true">
-									@icon.LoaderCircle(icon.Props{Class: "size-3.5 animate-spin"})
-								</span>
 							</button>
 						}
 					</div>

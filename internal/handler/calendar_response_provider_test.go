@@ -147,7 +147,7 @@ func exerciseCalendarResponseProvider(t *testing.T, provider, scope, response, m
 			case "all-day":
 				remote["start"], remote["end"], remote["originalStartTime"] = map[string]string{"date": "2026-10-03"}, map[string]string{"date": "2026-10-04"}, map[string]string{"date": "2026-10-03"}
 			case "meeting":
-				remote["conferenceData"] = map[string]string{"conferenceId": "keep-this"}
+				remote["conferenceData"] = json.RawMessage(testGoogleMeet)
 			case "hidden-guests":
 				remote["attendeesOmitted"] = true
 			}

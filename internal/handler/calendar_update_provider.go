@@ -71,7 +71,7 @@ func calendarUpdateUnsupported(reason string) error {
 }
 
 func calendarUpdateExistingRestriction(existing storage.CalendarEvent) error {
-	if calendarStoredOutlookOnline(existing) {
+	if calendarStoredEditableOnline(existing) {
 		existing.OnlineMeetingJSON = "{}"
 	}
 	if strings.TrimSpace(existing.RemoteID) == "" || strings.TrimSpace(existing.ETag) == "" {
@@ -210,9 +210,16 @@ type googleCalendarUpdateEvent struct {
 
 func (remote googleCalendarUpdateEvent) restriction() string {
 	recurrence, _ := json.Marshal(remote.Recurrence)
+	meeting := calendarGoogleMeetingJSON(remote.googleCalendarEvent)
+	if calendarGoogleMeetJSON(meeting) {
+		if calendarGoogleOrganizerStatus(remote.googleCalendarEvent) != "organizer" {
+			return "Only the organizer can edit an online meeting."
+		}
+		meeting = nil
+	}
 	if reason := calendarUpdateRestriction(calendar.RemoteEvent{
 		Status: remote.Status, SeriesRemoteID: remote.RecurringEventID,
-		Recurrence: recurrence, Attendees: remote.Attendees, OnlineMeeting: remote.ConferenceData,
+		Recurrence: recurrence, Attendees: remote.Attendees, OnlineMeeting: meeting,
 		ResponseStatus: calendarGoogleOrganizerStatus(remote.googleCalendarEvent),
 	}); reason != "" {
 		return reason
@@ -222,9 +229,6 @@ func (remote googleCalendarUpdateEvent) restriction() string {
 	}
 	if remote.AttendeesOmitted {
 		return "Events with hidden guest details cannot be edited in Gofer."
-	}
-	if strings.TrimSpace(remote.HangoutLink) != "" {
-		return "Online meetings cannot be edited in Gofer yet."
 	}
 	if remote.Locked || (remote.EventType != "" && remote.EventType != "default") {
 		return "Only regular appointments can be edited in Gofer."
@@ -264,6 +268,35 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 	}
 	if current.ETag != version {
 		return calendar.RemoteEvent{}, errCalendarUpdateConflict
+	}
+	online := calendarUpdateHasDetails(calendarGoogleMeetingJSON(current.googleCalendarEvent))
+	meet := calendarGoogleMeetJSON(calendarGoogleMeetingJSON(current.googleCalendarEvent))
+	addingMeet := draft.GoogleMeetMeeting && !online
+	if online || addingMeet {
+		if calendarGoogleOrganizerStatus(current.googleCalendarEvent) != "organizer" {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported("Only the organizer can edit or add a Google Meet meeting.")
+		}
+		if series || occurrence || draft.Recurrence != nil || len(current.Recurrence) > 0 || current.RecurringEventID != "" || current.OriginalStartTime != nil {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported("Recurring online meetings are not supported yet.")
+		}
+		if current.ICalUID == "" || (existing.ICalUID != "" && existing.ICalUID != current.ICalUID) {
+			return calendar.RemoteEvent{}, errCalendarUpdateConflict
+		}
+	}
+	if online && draft.GoogleMeetMeetingSet && !draft.GoogleMeetMeeting {
+		return calendar.RemoteEvent{}, calendarUpdateUnsupported("Removing an existing Google Meet conference is not supported in Gofer yet.")
+	}
+	if online && draft.GoogleMeetMeeting && !meet {
+		return calendar.RemoteEvent{}, calendarUpdateUnsupported("Changing an existing conference provider is not supported in Gofer yet.")
+	}
+	if addingMeet {
+		supported, err := googleCalendarMeetSupported(ctx, token, remoteCalendarID)
+		if err != nil {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{err}
+		}
+		if !supported {
+			return calendar.RemoteEvent{}, calendarUpdateUnsupported(calendarGoogleMeetUnavailableMessage)
+		}
 	}
 	if err := calendarMeetingScopeRestriction(calendarGoogleOrganizerStatus(current.googleCalendarEvent), current.Attendees, draft, series || occurrence || draft.Recurrence != nil); err != nil {
 		return calendar.RemoteEvent{}, err
@@ -309,15 +342,31 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 	if calendarDescriptionChanged(existing.Description, draft) {
 		payload["description"] = calendar.DraftDescription(draft)
 	}
+	if addingMeet {
+		if len(draft.GoogleMeetConference) > 0 {
+			payload["conferenceData"] = draft.GoogleMeetConference
+		} else {
+			payload["conferenceData"] = calendarGoogleMeetRequest(draft.RequestID)
+		}
+	}
+	// PATCH leaves the existing conference intact. Always read the full current
+	// event first, and never reconstruct conferencing data from an old cache.
 	var updated googleCalendarUpdateEvent
 	writeEndpoint := endpoint
+	params := url.Values{}
+	if online || addingMeet {
+		params.Set("conferenceDataVersion", "1")
+	}
 	if len(draft.Guests) > 0 || calendarUpdateHasDetails(current.Attendees) {
-		writeEndpoint += "?sendUpdates=all"
+		params.Set("sendUpdates", "all")
+	}
+	if len(params) > 0 {
+		writeEndpoint += "?" + params.Encode()
 	}
 	if err := calendarUpdateJSON(ctx, writeEndpoint, token, current.ETag, payload, &updated); err != nil {
 		return calendar.RemoteEvent{}, err
 	}
-	needsConfirmation := strings.TrimSpace(updated.ETag) == ""
+	needsConfirmation := online || addingMeet || strings.TrimSpace(updated.ETag) == ""
 	if needsConfirmation {
 		if updated.ID != "" && updated.ID != existing.RemoteID {
 			return calendar.RemoteEvent{}, fmt.Errorf("Google returned a different event identity after the update")
@@ -340,6 +389,20 @@ func updateGoogleCalendarEventScope(ctx context.Context, token, remoteCalendarID
 	event, err := normalizeGoogleCalendarEvent(updated.googleCalendarEvent)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
+	}
+	if online || addingMeet {
+		if event.ICalUID != current.ICalUID || event.ResponseStatus != "organizer" {
+			return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the same meeting identity and organizer")
+		}
+		if online {
+			before := calendarGoogleMeetingJSON(current.googleCalendarEvent)
+			if !calendarGoogleMeetJSON(event.OnlineMeeting) || !calendarGoogleMeetIdentityMatches(before, event.OnlineMeeting) {
+				return calendar.RemoteEvent{}, fmt.Errorf("Google did not preserve the existing Meet conference")
+			}
+		}
+	}
+	if len(draft.GoogleMeetConference) > 0 && !calendarGoogleMeetIdentityMatches(draft.GoogleMeetConference, event.OnlineMeeting) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Google did not retain the prepared Meet link")
 	}
 	if draft.GuestsSet && !calendarMeetingGuestsMatch(event.Attendees, draft.Guests, event.OrganizerEmail) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the submitted guests")

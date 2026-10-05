@@ -20,20 +20,26 @@ const root = {
   closest() { return form },
 }
 const form = {
-  isConnected: true,
+  isConnected: true, dataset: {},
   querySelector(selector) {
     if (selector === '[data-calendar-teams-options]') return root
     if (selector === '[name="source_id"]') return sourceInput
     if (selector === '[name="teams_meeting"]') return toggle
     if (selector === '[name="repeat_frequency"]') return repeat
     if (selector === '[name="all_day"]') return {checked: true}
+    if (selector === '[data-calendar-meet-checking]') return {content: {cloneNode() { return {} }}}
     if (selector === '[data-calendar-teams-checking]') return {content: {cloneNode() { return {} }}}
   },
 }
 let message = ''
 const context = vm.createContext({
-  window: {htmx: {trigger(root, name) { requests.push({source: sourceInput.value, name}) }}},
+  window: {htmx: {process(root) { root.processed = true }, trigger(root, name) {
+    if (name === 'calendar-teams-source-changed') assert.equal(root.processed, true, 'Fresh options must be processed before requesting capabilities')
+    requests.push({source: sourceInput.value, name})
+  }}},
   updateCalendarCreateForm(form) { context.updateCalendarTeamsForm(form, selected, false) },
+  updateCalendarMeetPreview() {},
+  updateCalendarTeamsPreview() {},
   adjustCalendarCreateAllDayRange() {},
   setCalendarCreateError(form, value) { message = value },
 })
@@ -66,7 +72,7 @@ for (const lock of ['_calendarCreateBusy', '_calendarCreateUncertain', '_calenda
   form[lock] = false
 }
 context.updateCalendarTeamsForm(form, selected, false)
-selected.dataset.calendarSourceProvider = 'gmail'
+selected.dataset.calendarSourceProvider = 'caldav'
 context.updateCalendarTeamsForm(form, selected, false)
 assert.equal(root.hidden, true)
 assert.equal(toggle.checked, false, 'No Teams flag on non-Outlook event')
@@ -89,6 +95,18 @@ toggle.focus = () => {}
 repeat.value = 'weekly'
 assert.equal(context.validateCalendarCreatePickers(form), false)
 assert.match(message, /Teams meetings.*do not repeat/)
+selected.dataset.calendarSourceProvider = 'gmail'
+sourceInput.value = 'google'
+context.updateCalendarTeamsForm(form, selected, false)
+assert.equal(root.hidden, false, 'Meet option shown for Google')
+assert.equal(requests.at(-1).source, 'google')
+assert.equal(toggle.checked, false, 'Switching provider clears Teams opt-in')
+assert.equal(context.calendarTeamsSwapAllowed(detail), false, 'Late Outlook response rejected')
+const originalQuery = form.querySelector.bind(form)
+const meet = {checked: true, disabled: false, focus() {}}
+form.querySelector = selector => selector === '[name="google_meet_meeting"]' ? meet : selector === '[name="teams_meeting"]' ? null : originalQuery(selector)
+assert.equal(context.validateCalendarCreatePickers(form), false)
+assert.match(message, /Google Meet meetings.*do not repeat/)
 form.isConnected = false
 assert.equal(context.calendarTeamsSwapAllowed(detail), false)
 console.log('Calendar Teams capability, source switching, locking, and recurrence checks passed')

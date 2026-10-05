@@ -26,6 +26,7 @@ type TriggerProps struct {
 	Form              string
 	Disabled          bool
 	DisableClear      bool
+	Required          bool // Keep one option selected in a single-select control.
 	HasError          bool
 	Multiple          bool
 	ShowPills         bool
@@ -202,6 +203,7 @@ templ Trigger(props ...TriggerProps) {
 			Attributes: utils.MergeAttributes(
 				templ.Attributes{
 					"data-tui-selectbox-multiple":            strconv.FormatBool(p.Multiple),
+					"data-tui-selectbox-required":            utils.If(p.Required, "true"),
 					"data-tui-selectbox-show-pills":          strconv.FormatBool(p.ShowPills),
 					"data-tui-selectbox-selected-count-text": p.SelectedCountText,
 					"tabindex":                               "0",
@@ -221,7 +223,7 @@ templ Trigger(props ...TriggerProps) {
 				{ p.Attributes... }
 			/>
 			{ children... }
-			if !p.DisableClear {
+			if !p.DisableClear && !p.Required {
 				<span
 					class="ml-1 hidden cursor-pointer text-muted-foreground hover:text-foreground"
 					data-tui-selectbox-clear-trigger

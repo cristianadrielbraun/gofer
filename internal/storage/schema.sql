@@ -1529,5 +1529,30 @@ CREATE TABLE IF NOT EXISTS calendar_incoming_responses (
     PRIMARY KEY(source_id,ical_uid,attendee)
 );
 
+-- Prepared Meet conferences are private temporary provider resources, never cached appointments.
+CREATE TABLE IF NOT EXISTS calendar_meet_drafts (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ source_id TEXT NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+ draft_id TEXT NOT NULL,
+ remote_id TEXT NOT NULL,
+ conference_json TEXT NOT NULL DEFAULT '',
+ used_by TEXT NOT NULL DEFAULT '',
+ cleanup_pending INTEGER NOT NULL DEFAULT 1,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(user_id,source_id,draft_id)
+);
+
+CREATE TABLE IF NOT EXISTS calendar_teams_drafts (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ source_id TEXT NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+ draft_id TEXT NOT NULL,
+ remote_id TEXT NOT NULL DEFAULT '',
+ meeting_json TEXT NOT NULL DEFAULT '',
+ used_by TEXT NOT NULL DEFAULT '',
+ state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','saving','saved','abandoned','cleaned')),
+ updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(user_id,source_id,draft_id)
+);
+
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (103);
+INSERT OR REPLACE INTO schema_version (version) VALUES (105);

@@ -89,6 +89,18 @@ func calendarCreateJSON(ctx context.Context, method, endpoint, token string, pay
 }
 
 func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID string, draft calendar.EventDraft) (calendar.RemoteEvent, error) {
+	if draft.GoogleMeetMeeting {
+		if draft.Recurrence != nil {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{calendarUpdateUnsupported("Adding Google Meet to recurring events is not supported in Gofer yet.")}
+		}
+		supported, err := googleCalendarMeetSupported(ctx, token, remoteCalendarID)
+		if err != nil {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{err}
+		}
+		if !supported {
+			return calendar.RemoteEvent{}, calendarDeletePreflightError{calendarUpdateUnsupported(calendarGoogleMeetUnavailableMessage)}
+		}
+	}
 	id := strings.ReplaceAll(draft.RequestID, "-", "") // UUID hex is valid Calendar base32hex.
 	start, end := map[string]string{}, map[string]string{}
 	if draft.AllDay {
@@ -99,6 +111,13 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 	}
 	payload := map[string]any{"id": id, "summary": draft.Summary, "description": calendar.DraftDescription(draft), "location": draft.Location,
 		"start": start, "end": end, "extendedProperties": map[string]any{"private": map[string]string{"goferCreateHash": calendarDraftHash(draft)}}}
+	if draft.GoogleMeetMeeting {
+		if len(draft.GoogleMeetConference) > 0 {
+			payload["conferenceData"] = draft.GoogleMeetConference
+		} else {
+			payload["conferenceData"] = calendarGoogleMeetRequest(draft.RequestID)
+		}
+	}
 	if draft.Recurrence != nil {
 		payload["recurrence"] = []string{"RRULE:" + calendarRecurrenceRule(draft)}
 	}
@@ -113,8 +132,15 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 		} `json:"extendedProperties"`
 	}
 	writeEndpoint := endpoint
+	params := url.Values{}
+	if draft.GoogleMeetMeeting {
+		params.Set("conferenceDataVersion", "1")
+	}
 	if len(draft.Guests) > 0 {
-		writeEndpoint += "?sendUpdates=all"
+		params.Set("sendUpdates", "all")
+	}
+	if len(params) > 0 {
+		writeEndpoint += "?" + params.Encode()
 	}
 	err := calendarCreateJSON(ctx, http.MethodPost, writeEndpoint, token, payload, &remote)
 	var conflict calendarCreateProviderError
@@ -131,11 +157,29 @@ func createGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 	if remote.ID != id {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the requested event identity")
 	}
+	if draft.GoogleMeetMeeting && !calendarGoogleMeetConfirmed(calendarGoogleMeetingJSON(remote.googleCalendarEvent)) {
+		var confirmed googleCalendarEvent
+		if err := calendarCreateJSON(ctx, http.MethodGet, endpoint+"/"+id, token, nil, &confirmed); err == nil {
+			if confirmed.ID != id {
+				return calendar.RemoteEvent{}, fmt.Errorf("Google returned a different meeting identity")
+			}
+			remote.googleCalendarEvent = confirmed
+		}
+	}
+	if draft.GoogleMeetMeeting {
+		confirmed, err := normalizeGoogleCalendarEvent(remote.googleCalendarEvent)
+		if err != nil || !calendarUpdateMatchesDraft(confirmed, draft) || confirmed.Deleted {
+			return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the submitted event details")
+		}
+	}
 	if draft.Recurrence != nil && len(remote.Recurrence) == 0 {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the recurring series")
 	}
 	if len(draft.Guests) > 0 && (calendarGoogleOrganizerStatus(remote.googleCalendarEvent) != "organizer" || !calendarMeetingGuestsMatch(remote.Attendees, draft.Guests, remote.Organizer.Email)) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Google did not confirm the invited guests and organizer")
+	}
+	if len(draft.GoogleMeetConference) > 0 && !calendarGoogleMeetIdentityMatches(draft.GoogleMeetConference, calendarGoogleMeetingJSON(remote.googleCalendarEvent)) {
+		return calendar.RemoteEvent{}, fmt.Errorf("Google did not retain the prepared Meet link")
 	}
 	return normalizeGoogleCalendarEvent(remote.googleCalendarEvent)
 }

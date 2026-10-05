@@ -87,6 +87,9 @@ func (h *Handler) handleNewCalendarEvent(w http.ResponseWriter, r *http.Request)
 			data.SourceID = choice.ID
 		}
 	}
+	if data.SourceID == "" && len(data.Sources) > 0 {
+		data.SourceID = data.Sources[0].ID
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	if err := views.CalendarCreateDialog(data).Render(ctx, w); err != nil {
@@ -99,7 +102,7 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 		return calendar.EventDraft{}, fmt.Errorf("invalid event form")
 	}
 	allowed := map[string]bool{"request_id": true, "source_id": true, "summary": true, "description": true, "location": true, "timezone": true, "all_day": true, "start_date": true, "end_date": true, "start_time": true, "end_time": true,
-		"repeat_frequency": true, "repeat_interval": true, "repeat_end": true, "repeat_until": true, "repeat_count": true, "guests": true, "description_html": true, "teams_meeting": true}
+		"repeat_frequency": true, "repeat_interval": true, "repeat_end": true, "repeat_until": true, "repeat_count": true, "guests": true, "description_html": true, "teams_meeting": true, "teams_draft_id": true, "google_meet_meeting": true, "google_meet_draft_id": true}
 	for name, values := range r.PostForm {
 		if !allowed[name] || len(values) != 1 {
 			return calendar.EventDraft{}, fmt.Errorf("this form contains unsupported or duplicate event fields")
@@ -117,6 +120,36 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 		if frequency != "" && frequency != "none" {
 			return draft, fmt.Errorf("Teams meetings currently support events that do not repeat in Gofer")
 		}
+	}
+	draft.TeamsDraftID = strings.TrimSpace(r.PostForm.Get("teams_draft_id"))
+	if draft.TeamsDraftID != "" {
+		id, err := uuid.Parse(draft.TeamsDraftID)
+		if err != nil || id == uuid.Nil || !draft.TeamsMeeting {
+			return draft, fmt.Errorf("invalid Teams draft")
+		}
+		draft.TeamsDraftID = id.String()
+	}
+	draft.GoogleMeetMeetingSet = r.PostForm.Has("google_meet_meeting")
+	if value := r.PostForm.Get("google_meet_meeting"); value != "" && value != "true" && value != "false" {
+		return draft, fmt.Errorf("invalid Google Meet meeting setting")
+	}
+	draft.GoogleMeetMeeting = r.PostForm.Get("google_meet_meeting") == "true"
+	if draft.GoogleMeetMeeting && draft.TeamsMeeting {
+		return draft, fmt.Errorf("choose one meeting provider")
+	}
+	if draft.GoogleMeetMeeting {
+		frequency := r.PostForm.Get("repeat_frequency")
+		if frequency != "" && frequency != "none" {
+			return draft, fmt.Errorf("Google Meet meetings currently support events that do not repeat in Gofer")
+		}
+	}
+	draft.GoogleMeetDraftID = strings.TrimSpace(r.PostForm.Get("google_meet_draft_id"))
+	if draft.GoogleMeetDraftID != "" {
+		id, err := uuid.Parse(draft.GoogleMeetDraftID)
+		if err != nil || id == uuid.Nil || !draft.GoogleMeetMeeting {
+			return draft, fmt.Errorf("invalid Google Meet draft")
+		}
+		draft.GoogleMeetDraftID = id.String()
 	}
 	if r.PostForm.Has("description_html") {
 		raw := r.PostForm.Get("description_html")
@@ -269,12 +302,22 @@ func (h *Handler) createCalendarProviderEvent(ctx context.Context, source storag
 		credentials = h.calendarCredentialsForSource(ctx, source.UserID, source)
 	}
 	if credentials.err != nil {
+		if draft.TeamsRemoteID != "" {
+			return calendar.RemoteEvent{}, fmt.Errorf("Could not confirm the prepared Teams meeting credentials: %v", credentials.err)
+		}
 		return calendar.RemoteEvent{}, calendarCreateAuthError{credentials.err}
 	}
 	switch source.Provider {
 	case providers.ProviderGmail:
 		return createGoogleCalendarEvent(ctx, credentials.token, source.RemoteID, draft)
 	case providers.ProviderOutlook:
+		if draft.TeamsRemoteID != "" {
+			remote, err := finalizeCalendarTeamsDraft(ctx, source, credentials.token, draft)
+			if err != nil {
+				return remote, fmt.Errorf("Could not confirm the prepared Teams event: %v", err)
+			}
+			return remote, nil
+		}
 		return createOutlookCalendarEvent(ctx, credentials.token, source.RemoteID, draft)
 	case storage.CalendarSourceProviderCalDAV:
 		if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
@@ -325,6 +368,10 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	if source.ID == "" {
 		calendarCreateFailure(w, 404, "This calendar is no longer configured.", false)
+		return
+	}
+	if draft.GoogleMeetMeeting && source.Provider != providers.ProviderGmail {
+		calendarCreateFailure(w, 400, "Google Meet meetings require a supported Google calendar.", false)
 		return
 	}
 	if draft.TeamsMeeting && source.Provider != providers.ProviderOutlook {
@@ -389,6 +436,14 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	}
 	replayed := result.RemoteID != ""
 	if !replayed {
+		if err := h.attachCalendarTeamsDraft(ctx, source, &draft); err != nil {
+			calendarCreateFailure(w, 409, "The Teams link could not be loaded. Toggle Teams off and on to prepare it again.", false)
+			return
+		}
+		if err := h.attachCalendarMeetDraft(ctx, source, &draft, "create:"+draft.RequestID); err != nil {
+			calendarCreateFailure(w, 409, "The Google Meet link could not be loaded. Toggle Google Meet off and on to prepare it again.", false)
+			return
+		}
 		remote, createErr := h.createCalendarProviderEvent(ctx, source, draft)
 		if createErr != nil {
 			message := "Could not create the event. Check the calendar permissions and try again."
@@ -428,6 +483,11 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: userID, Payload: map[string]any{"source_id": source.ID, "event_id": result.EventID}})
 		}
 	}
+	if draft.TeamsDraftID != "" && source.Provider == providers.ProviderOutlook {
+		if d, err := h.db.GetCalendarTeamsDraft(ctx, userID, source.ID, draft.TeamsDraftID); err == nil && d.UsedBy == "create:"+draft.RequestID && d.RemoteID == result.RemoteID {
+			_ = h.db.FinishCalendarTeamsDraft(ctx, d, "saved")
+		}
+	}
 	response := map[string]any{"event_id": result.EventID, "source_id": source.ID, "replayed": replayed, "hidden": source.IsHidden, "notify_guests": len(draft.Guests) > 0}
 	if draft.TeamsMeeting && source.Provider == providers.ProviderOutlook {
 		// Derive this from the durable result on both create and replay. Microsoft
@@ -435,6 +495,10 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		// cache that confirmed event instead of inviting a duplicate POST retry.
 		saved, readErr := h.db.GetCalendarEvent(ctx, userID, result.EventID)
 		response["teams_unconfirmed"] = readErr != nil || !calendarTeamsLinkConfirmed(calendarOutlookCachedMeetingJSON(saved))
+	}
+	if draft.GoogleMeetMeeting && source.Provider == providers.ProviderGmail {
+		saved, readErr := h.db.GetCalendarEvent(ctx, userID, result.EventID)
+		response["google_meet_unconfirmed"] = readErr != nil || !calendarGoogleMeetConfirmed(json.RawMessage(saved.OnlineMeetingJSON))
 	}
 	if draft.Recurrence != nil {
 		response["series_id"] = result.RemoteID

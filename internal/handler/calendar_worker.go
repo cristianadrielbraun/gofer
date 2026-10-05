@@ -30,6 +30,8 @@ func (h *Handler) StartCalendarSync(ctx context.Context) {
 		go func() {
 			h.runCalendarSyncTick(ctx, time.Now())
 			h.runCalendarIncomingTick(ctx)
+			h.runCalendarMeetDraftCleanupTick(ctx)
+			h.runCalendarTeamsDraftCleanupTick(ctx)
 			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
 			for {
@@ -39,6 +41,8 @@ func (h *Handler) StartCalendarSync(ctx context.Context) {
 				case now := <-ticker.C:
 					h.runCalendarSyncTick(ctx, now)
 					h.runCalendarIncomingTick(ctx)
+					h.runCalendarMeetDraftCleanupTick(ctx)
+					h.runCalendarTeamsDraftCleanupTick(ctx)
 				}
 			}
 		}()

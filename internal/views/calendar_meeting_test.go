@@ -44,3 +44,15 @@ func TestCalendarEventTeamsLabelAndResponsiveJoinButton(t *testing.T) {
 		}
 	}
 }
+
+func TestCalendarEventGoogleMeetLabel(t *testing.T) {
+	var out bytes.Buffer
+	if err := CalendarEventDialog(CalendarEventDetails{JoinURL: "https://meet.google.com/abc-defg-hij"}, nil).Render(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"This is a Google Meet meeting", `href="https://meet.google.com/abc-defg-hij"`, "data-calendar-join-meeting"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+}

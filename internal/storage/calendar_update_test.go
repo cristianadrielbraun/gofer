@@ -88,3 +88,54 @@ func TestCalendarUpdateStorageScopedConditionalAndInPlace(t *testing.T) {
 		t.Fatal("series conversion was replayed over its tombstone")
 	}
 }
+
+func TestCalendarGoogleOnlineUpdateRetainsMetadataAtomically(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "meet.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('owner','owner','owner'); INSERT INTO accounts(id,user_id,provider,email_address) VALUES('account','owner','gmail','owner@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceCalendarSources(t.Context(), "owner", "account", "gmail", []CalendarSource{{ID: "source", RemoteID: "primary", IsSelected: true}}); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	original := CalendarEvent{ID: "event", RemoteID: "remote", ETag: `"v1"`, ICalUID: "uid", Summary: "Original", StartAt: &start, EndAt: &end, ResponseStatus: "organizer", OrganizerEmail: "owner@example.com", AttendeesJSON: `[]`, OnlineMeetingJSON: `{}`}
+	if err := db.ReplaceCalendarEvents(t.Context(), "owner", "source", []CalendarEvent{original}, start.Add(-time.Hour), end.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	existing, err := db.GetCalendarEvent(t.Context(), "owner", "event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := existing
+	updated.Summary = "Meet meeting"
+	updated.ETag = `"v2"`
+	updated.OnlineMeetingJSON = `{"conferenceId":"abc-defg-hij","signature":"keep-me"}`
+	updated.AttendeesJSON = `[{"email":"guest@example.com","responseStatus":"accepted"}]`
+	stale := existing
+	stale.ETag = `"stale"`
+	if err := db.CompleteCalendarOnlineUpdate(t.Context(), stale, updated); !errors.Is(err, ErrCalendarUpdateConflict) {
+		t.Fatalf("stale update: %v", err)
+	}
+	// A mismatching source provider must roll back the field update too.
+	mismatch := existing
+	mismatch.SourceProvider = "outlook"
+	if err := db.CompleteCalendarOnlineUpdate(t.Context(), mismatch, updated); !errors.Is(err, ErrCalendarUpdateConflict) {
+		t.Fatalf("provider mismatch: %v", err)
+	}
+	saved, _ := db.GetCalendarEvent(t.Context(), "owner", "event")
+	if saved.ETag != existing.ETag || saved.Summary != existing.Summary || saved.OnlineMeetingJSON != existing.OnlineMeetingJSON {
+		t.Fatal("failed metadata update partially committed")
+	}
+	if err := db.CompleteCalendarOnlineUpdate(t.Context(), existing, updated); err != nil {
+		t.Fatal(err)
+	}
+	saved, err = db.GetCalendarEvent(t.Context(), "owner", "event")
+	if err != nil || saved.ETag != updated.ETag || saved.OnlineMeetingJSON != updated.OnlineMeetingJSON || saved.AttendeesJSON != updated.AttendeesJSON || saved.Summary != updated.Summary || saved.ICalUID != "uid" {
+		t.Fatalf("saved=%#v err=%v", saved, err)
+	}
+}

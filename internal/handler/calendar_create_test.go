@@ -278,3 +278,32 @@ func TestCalendarNewEventPrefillsSelectedDateWithoutProviderReads(t *testing.T) 
 		t.Fatal("dialog showed an unowned or unselected source")
 	}
 }
+
+func TestCalendarNewEventAlwaysSelectsOneConfiguredCalendar(t *testing.T) {
+	for _, provider := range []string{"gmail", "outlook"} {
+		for _, role := range []string{"writer", "reader"} {
+			t.Run(provider+"/"+role, func(t *testing.T) {
+				h := calendarCreateFixture(t)
+				if _, err := h.db.Write().Exec(`UPDATE accounts SET provider=? WHERE id='one-account'; UPDATE calendar_sources SET provider=?,access_role=? WHERE account_id='one-account'`, provider, provider, role); err != nil {
+					t.Fatal(err)
+				}
+				h.calendarCreateEvent = func(context.Context, storage.CalendarSource, calendar.EventDraft) (calendar.RemoteEvent, error) {
+					t.Fatal("opening the dialog must not create anything")
+					return calendar.RemoteEvent{}, nil
+				}
+				r := httptest.NewRequest("GET", "/api/calendar/events/new", nil)
+				r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "one"}))
+				w := httptest.NewRecorder()
+				h.handleNewCalendarEvent(w, r)
+				if w.Code != 200 {
+					t.Fatal(w.Body.String())
+				}
+				for _, want := range []string{`name="source_id" data-tui-selectbox-hidden-input value="one-source"`, `data-tui-selectbox-required="true"`, `data-tui-selectbox-value="one-source" data-tui-selectbox-selected="true"`} {
+					if !strings.Contains(w.Body.String(), want) {
+						t.Errorf("default calendar missing: %s", want)
+					}
+				}
+			})
+		}
+	}
+}

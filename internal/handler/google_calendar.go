@@ -42,24 +42,27 @@ type googleCalendarEventsResponse struct {
 }
 
 type googleCalendarEvent struct {
-	ID               string                      `json:"id"`
-	ICalUID          string                      `json:"iCalUID"`
-	ETag             string                      `json:"etag"`
-	Status           string                      `json:"status"`
-	Summary          string                      `json:"summary"`
-	Description      string                      `json:"description"`
-	Location         string                      `json:"location"`
-	HTMLLink         string                      `json:"htmlLink"`
-	Created          string                      `json:"created"`
-	Updated          string                      `json:"updated"`
-	RecurringEventID string                      `json:"recurringEventId"`
-	Recurrence       []string                    `json:"recurrence"`
-	Attendees        json.RawMessage             `json:"attendees"`
-	Organizer        googleCalendarPerson        `json:"organizer"`
-	Start            googleCalendarEventDateTime `json:"start"`
-	End              googleCalendarEventDateTime `json:"end"`
-	ConferenceData   json.RawMessage             `json:"conferenceData"`
-	HangoutLink      string                      `json:"hangoutLink"`
+	ID                 string                      `json:"id"`
+	ICalUID            string                      `json:"iCalUID"`
+	ETag               string                      `json:"etag"`
+	Status             string                      `json:"status"`
+	Summary            string                      `json:"summary"`
+	Description        string                      `json:"description"`
+	Location           string                      `json:"location"`
+	HTMLLink           string                      `json:"htmlLink"`
+	Created            string                      `json:"created"`
+	Updated            string                      `json:"updated"`
+	RecurringEventID   string                      `json:"recurringEventId"`
+	Recurrence         []string                    `json:"recurrence"`
+	Attendees          json.RawMessage             `json:"attendees"`
+	Organizer          googleCalendarPerson        `json:"organizer"`
+	Start              googleCalendarEventDateTime `json:"start"`
+	End                googleCalendarEventDateTime `json:"end"`
+	ConferenceData     json.RawMessage             `json:"conferenceData"`
+	ExtendedProperties struct {
+		Private map[string]string `json:"private"`
+	} `json:"extendedProperties"`
+	HangoutLink string `json:"hangoutLink"`
 }
 
 type googleCalendarPerson struct {
@@ -161,6 +164,9 @@ func listGoogleCalendarEvents(ctx context.Context, accessToken, remoteCalendarID
 			return calendar.EventPage{}, err
 		}
 		for _, remote := range page.Items {
+			if remote.ExtendedProperties.Private["goferMeetDraft"] == "true" {
+				continue
+			}
 			normalized, err := normalizeGoogleCalendarEvent(remote)
 			if err != nil {
 				return calendar.EventPage{}, err
@@ -227,13 +233,7 @@ func normalizeGoogleCalendarEvent(remote googleCalendarEvent) (calendar.RemoteEv
 	if remote.Organizer.Self != nil && *remote.Organizer.Self {
 		event.ResponseStatus = "organizer"
 	}
-	if len(remote.ConferenceData) > 0 && json.Valid(remote.ConferenceData) {
-		event.OnlineMeeting = append(json.RawMessage(nil), remote.ConferenceData...)
-	} else if strings.TrimSpace(remote.HangoutLink) != "" {
-		event.OnlineMeeting = json.RawMessage(fmt.Sprintf(`{"url":%q}`, strings.TrimSpace(remote.HangoutLink)))
-	} else {
-		event.OnlineMeeting = json.RawMessage("{}")
-	}
+	event.OnlineMeeting = calendarGoogleMeetingJSON(remote)
 
 	var err error
 	event.ProviderCreatedAt, err = parseGoogleCalendarTimestamp(remote.Created)

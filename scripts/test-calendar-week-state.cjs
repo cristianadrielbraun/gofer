@@ -21,10 +21,11 @@ const calendar = {
   dataset: {calendarMonth: '2026-10', calendarDate: '2026-10-01', calendarView: 'week', calendarPeriod: 'week:2026-09-28'},
   querySelector(selector) { return selector === '[data-calendar-week-scroll]' ? scroller : null },
   querySelectorAll() { return [] },
+  hasAttribute() { return false },
 }
-const context = vm.createContext({document: {getElementById() { return calendar }}})
+const context = vm.createContext({clearTimeout() {}, document: {getElementById() { return calendar }}})
 vm.runInContext('var _calendarWeekScrollState = null; var _calendarWeekZoom = 0; var _calendarVisibility = new Map();\n' +
-  ['_calendarSourceIsVisible', '_calendarWeekAxis', '_calendarWeekMinutePosition', '_calendarWeekMinuteAtPosition', '_calendarWeekBlockLayout', '_calendarAllDayEventRows', 'layoutCalendarWeekAllDay', 'cancelCalendarWeekZoom', 'initializeCalendarWeekScroll', 'configureCalendarSyncRequest'].map(helper).join('\n'), context)
+  ['_calendarSourceIsVisible', '_calendarWeekAxis', '_calendarWeekMinutePosition', '_calendarWeekMinuteAtPosition', '_calendarWeekBlockLayout', '_calendarAllDayEventRows', 'layoutCalendarWeekAllDay', 'cancelCalendarWeekZoom', 'initializeCalendarWeekScroll', 'configureCalendarSyncRequest', 'calendarEventRequestCurrent', 'clearCalendarEventLoading'].map(helper).join('\n'), context)
 
 const event = {detail: {parameters: {}}}
 context.configureCalendarSyncRequest(event)

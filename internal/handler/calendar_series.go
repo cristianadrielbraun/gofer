@@ -296,6 +296,9 @@ func (h *Handler) readCalendarProviderSeries(ctx context.Context, source storage
 }
 
 func calendarUpdateExistingScopeRestriction(existing storage.CalendarEvent, series bool, occurrenceScope ...bool) error {
+	if calendarStoredGoogleMeet(existing) && (series || calendarOccurrenceScope(occurrenceScope)) {
+		return calendarUpdateUnsupported("Recurring online meetings are not supported yet.")
+	}
 	if calendarOccurrenceScope(occurrenceScope) {
 		if series {
 			return errCalendarUpdateUnsupported

@@ -326,3 +326,69 @@ func TestCalendarGuestSummaryAndInitials(t *testing.T) {
 		t.Error("organizer listed among guests should be tagged there, not repeated")
 	}
 }
+
+func TestCalendarEventLoadingDialogIsAccessibleAndPassive(t *testing.T) {
+	var output bytes.Buffer
+	if err := CalendarEventLoadingDialog().Render(t.Context(), &output); err != nil {
+		t.Fatal(err)
+	}
+	markup := output.String()
+	for _, want := range []string{`id="calendar-event-details-dialog"`, `id="calendar-event-details-content"`, `aria-labelledby="calendar-event-details-title"`, `aria-busy="true"`, `role="status"`, `aria-live="polite"`, "Loading event details…", `data-tui-dialog-close`, "motion-safe:animate-pulse"} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("pending dialog missing %s", want)
+		}
+	}
+	for _, unwanted := range []string{"hx-get", "hx-post", "hx-delete", "data-calendar-edit-trigger", "animate-spin"} {
+		if strings.Contains(markup, unwanted) {
+			t.Errorf("pending dialog contains an active action or spinner: %s", unwanted)
+		}
+	}
+	output.Reset()
+	if err := CalendarLoadingTemplates(nil, nil).Render(t.Context(), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `<template id="calendar-event-loading">`) {
+		t.Fatal("slow-dialog template is not available across application navigation")
+	}
+}
+
+func TestCalendarEventTriggersHaveNoRequestSpinner(t *testing.T) {
+	start := time.Now().UTC().Add(24 * time.Hour)
+	end := start.Add(time.Hour)
+	for _, data := range []CalendarMonthData{NewCalendarMonthData(start), NewCalendarWeekData(start)} {
+		data.Events = []CalendarEvent{{ID: "timed", Summary: "Planning", StartAt: &start, EndAt: &end}, {ID: "all-day", Summary: "Holiday", AllDay: true, StartDate: start.Format("2006-01-02"), EndDate: start.AddDate(0, 0, 1).Format("2006-01-02")}}
+		var output bytes.Buffer
+		if err := CalendarPage(data, nil).Render(t.Context(), &output); err != nil {
+			t.Fatal(err)
+		}
+		doc, err := htmlnode.Parse(strings.NewReader(output.String()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		triggers := 0
+		var visit func(*htmlnode.Node)
+		visit = func(node *htmlnode.Node) {
+			for _, attr := range node.Attr {
+				if attr.Key == "data-calendar-event-trigger" {
+					triggers++
+					var button bytes.Buffer
+					if err := htmlnode.Render(&button, node); err != nil {
+						t.Fatal(err)
+					}
+					for _, bad := range []string{"animate-spin", "htmx-request", "cursor-wait", "disabled:opacity"} {
+						if strings.Contains(button.String(), bad) {
+							t.Errorf("%s event button flashes request feedback: %s", data.View, bad)
+						}
+					}
+				}
+			}
+			for child := node.FirstChild; child != nil; child = child.NextSibling {
+				visit(child)
+			}
+		}
+		visit(doc)
+		if triggers < 4 {
+			t.Fatalf("%s must exercise timed and all-day grid and Upcoming events", data.View)
+		}
+	}
+}

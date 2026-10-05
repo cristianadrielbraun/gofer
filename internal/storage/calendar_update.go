@@ -19,9 +19,18 @@ func (db *DB) CompleteCalendarUpdate(ctx context.Context, userID, eventID, sourc
 // Keep the newly confirmed Outlook guest list and conferencing metadata on the
 // same version as its editable fields. Never attach a new ETag to old guests.
 func (db *DB) CompleteCalendarOutlookOnlineUpdate(ctx context.Context, existing CalendarEvent, event CalendarEvent) error {
-	if existing.SourceProvider != "outlook" || event.ResponseStatus != "organizer" || event.ICalUID == "" || (existing.ICalUID != "" && existing.ICalUID != event.ICalUID) || !json.Valid([]byte(event.AttendeesJSON)) || !json.Valid([]byte(event.OnlineMeetingJSON)) {
+	if existing.SourceProvider != "outlook" {
 		return ErrCalendarUpdateConflict
 	}
+	return db.CompleteCalendarOnlineUpdate(ctx, existing, event)
+}
+
+// Atomically retain conferencing and guest metadata with the confirmed version.
+func (db *DB) CompleteCalendarOnlineUpdate(ctx context.Context, existing CalendarEvent, event CalendarEvent) error {
+	if (existing.SourceProvider != "outlook" && existing.SourceProvider != "gmail") || event.ResponseStatus != "organizer" || event.ICalUID == "" || (existing.ICalUID != "" && existing.ICalUID != event.ICalUID) || !json.Valid([]byte(event.AttendeesJSON)) || !json.Valid([]byte(event.OnlineMeetingJSON)) {
+		return ErrCalendarUpdateConflict
+	}
+	event.SourceProvider = existing.SourceProvider
 	return db.completeCalendarUpdate(ctx, existing.UserID, existing.ID, existing.SourceID, existing.ETag, event, false, false, true)
 }
 
@@ -101,7 +110,7 @@ func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourc
 	}
 	if onlineMeeting {
 		result, err := tx.ExecContext(ctx, `UPDATE calendar_events SET ical_uid=?,organizer_name=?,organizer_email=?,response_status=?,attendees_json=?,online_meeting_json=?
- WHERE id=? AND user_id=? AND source_id=? AND etag=? AND EXISTS(SELECT 1 FROM calendar_sources s WHERE s.id=calendar_events.source_id AND s.provider='outlook')`, event.ICalUID, event.OrganizerName, event.OrganizerEmail, event.ResponseStatus, event.AttendeesJSON, event.OnlineMeetingJSON, eventID, userID, sourceID, event.ETag)
+ WHERE id=? AND user_id=? AND source_id=? AND etag=? AND EXISTS(SELECT 1 FROM calendar_sources s WHERE s.id=calendar_events.source_id AND s.provider=?)`, event.ICalUID, event.OrganizerName, event.OrganizerEmail, event.ResponseStatus, event.AttendeesJSON, event.OnlineMeetingJSON, eventID, userID, sourceID, event.ETag, event.SourceProvider)
 		if err != nil {
 			return err
 		}

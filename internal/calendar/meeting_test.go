@@ -63,3 +63,37 @@ func TestTeamsJoinURLFromDescription(t *testing.T) {
 		}
 	}
 }
+
+func TestGoogleMeetJoinLinks(t *testing.T) {
+	link := "https://meet.google.com/abc-defg-hij?authuser=1"
+	for _, tc := range []struct{ raw, body, want string }{
+		{`{"entryPoints":[{"entryPointType":"phone","uri":"tel:+420123456789"},{"entryPointType":"video","uri":"` + link + `"}]}`, "", link},
+		{`{"entryPoints":[{"entryPointType":"phone","uri":"tel:+420123456789"},{"entryPointType":"more","uri":"https://example.com"}]}`, "", ""},
+		{`{"entryPoints":[{"entryPointType":"video","uri":"javascript:alert(1)"}]}`, "", ""},
+		{`{}`, `<p><a href="` + link + `">Join Google Meet</a></p>`, link},
+		{`{}`, "Join " + link + ".", link},
+		{`{}`, `<template><a href="` + link + `">Join</a></template>`, ""},
+		{`{}`, `<script>"` + link + `"</script>`, ""},
+		{`{}`, `<a href="https://meet.google.com.evil.example/abc-defg-hij">Join</a>`, ""},
+		{`{}`, `<a href="https://user@meet.google.com/abc-defg-hij">Join</a>`, ""},
+		{`{}`, "https://meet.google.com/landing", ""},
+		{`{}`, "http://meet.google.com/abc-defg-hij", ""},
+		{`{"isOnlineMeeting":false}`, link, ""},
+		{`{"joinUrl":"https://teams.live.com/meet/123"}`, link, "https://teams.live.com/meet/123"},
+	} {
+		if got := MeetingJoinURLWithDescription(tc.raw, tc.body); got != tc.want {
+			t.Errorf("metadata=%s body=%q got=%q want=%q", tc.raw, tc.body, got, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		url   string
+		valid bool
+	}{
+		{link, true}, {"https://meet.google.com/lookup/team_sync", true}, {"https://meet.google.com/abc-defg-hij?x=1&y=2", true},
+		{"https://meet.google.com:8443/abc-defg-hij", false}, {"https://meet.google.com/landing", false}, {"https://meet.google.com/abc-defg-hij/other", false},
+	} {
+		if (GoogleMeetJoinURL(tc.url) != "") != tc.valid {
+			t.Errorf("incorrect join recognition for %q", tc.url)
+		}
+	}
+}

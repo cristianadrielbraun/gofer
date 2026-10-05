@@ -26,7 +26,7 @@ const endCalendar = {dataset: {}, setAttribute(name, value) { this[name] = value
 endDate.closest = () => ({querySelector() { return endCalendar }})
 times.forEach((node, i) => { node.querySelector = selector => selector === 'input' ? inputs.find(input => input.name === ['start_time', 'end_time'][i]) : pickerTriggers[i + 2] })
 const form = {
-  dataset: {}, action: '/api/calendar/events',
+  closest(){return null}, dataset: {}, action: '/api/calendar/events',
   isConnected: true, reportValidity() { return true }, setAttribute(name, value) { this[name] = value },
   querySelector(selector) {
     const name = selector.match(/^\[name="([^"]+)"\]$/)?.[1]
@@ -45,7 +45,7 @@ const requests = [], toasts = [], closed = []
 let refreshes = 0
 const calendar = {dataset: {calendarPeriod: 'week:2026-09-28', calendarView: 'week', calendarDate: '2026-10-02', calendarTodayDate: '2026-10-02', calendarMonth: '2026-10'}}
 const formListeners = {}
-const context = vm.createContext({
+const context = vm.createContext({initializeCalendarDialogResize(){},
   document: {getElementById() { return calendar }, querySelector() { return form }, addEventListener(type, listener) { formListeners[type] = listener }}, URLSearchParams, Event: class {constructor(type) { this.type = type }},
   FormData: class {constructor() { this.entries = inputs.filter(input => !input.disabled && (input.name !== 'all_day' || input.checked) && (input.name !== 'version' || form.dataset.calendarEventId)).map(input => [input.name, input.value]) } [Symbol.iterator]() { return this.entries[Symbol.iterator]() }},
   window: {crypto: {randomUUID() { return 'fresh-request' }}, tui: {dialog: {close(id) { closed.push(id) }}}},
@@ -272,6 +272,19 @@ async function main() {
   context.updateCalendarCreateForm(form)
   assert.equal(submit.disabled, false)
   assert.equal(sourceTrigger.disabled, false)
+  const meetToggle = {name: 'google_meet_meeting', value: 'true', checked: true, disabled: false}
+  const meetDraft = {name: 'google_meet_draft_id', value: '', disabled: false}
+  inputs.push(meetToggle, meetDraft)
+  context.updateCalendarCreateForm(form)
+  assert.equal(submit.disabled, true, 'Save waits for a generated Meet link')
+  meetDraft.value = 'ready-meeting'
+  context.updateCalendarCreateForm(form)
+  assert.equal(submit.disabled, false, 'A ready Meet link enables Save')
+  meetToggle.checked = false
+  meetDraft.value = ''
+  context.updateCalendarCreateForm(form)
+  assert.equal(submit.disabled, false, 'Turning Meet off allows an ordinary event')
+  inputs.splice(-2)
   sourceChoice.dataset.calendarSourceAuthorized = 'false'
   context.updateCalendarCreateForm(form)
   assert.equal(submit.disabled, true, 'A read-only OAuth grant must not be writable')

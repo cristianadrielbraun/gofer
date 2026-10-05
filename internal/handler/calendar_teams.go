@@ -119,10 +119,14 @@ func (h *Handler) handleCalendarTeamsOptions(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("X-Gofer-Calendar-Source", source.ID)
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if source.Provider == "gmail" {
+		h.renderCalendarGoogleMeetOptions(w, r.WithContext(ctx), source)
+		return
+	}
 	if source.Provider != "outlook" {
 		return
 	}
-	data := views.CalendarTeamsData{State: "unsupported", SourceID: source.ID}
+	data := views.CalendarTeamsData{State: "unsupported", SourceID: source.ID, EventID: r.URL.Query().Get("event_id")}
 	if eventID := r.URL.Query().Get("event_id"); eventID != "" {
 		event, err := h.db.GetCalendarEvent(ctx, userID, eventID)
 		if err != nil || event.SourceID != source.ID {
