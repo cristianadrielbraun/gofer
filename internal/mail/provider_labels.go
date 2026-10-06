@@ -1165,7 +1165,7 @@ func outlookImmutableIDHeaders() map[string]string {
 }
 
 func (o *SyncOrchestrator) replayGmailLabelMutationQueue(ctx context.Context, accountID, token string) {
-	entries, err := o.db.ListDueLabelMutations(ctx, accountID, storage.LabelProviderGmail, providerLabelMutationReplayLimit)
+	entries, err := o.gmailRepository().ListDueLabelMutations(ctx, accountID, storage.LabelProviderGmail, providerLabelMutationReplayLimit)
 	if err != nil {
 		log.Printf("gmail label mutation queue list account=%s: %v", accountID, err)
 		return
@@ -1173,12 +1173,12 @@ func (o *SyncOrchestrator) replayGmailLabelMutationQueue(ctx context.Context, ac
 	for _, entry := range entries {
 		if err := o.applyQueuedGmailLabelMutation(ctx, token, entry); err != nil {
 			log.Printf("gmail label mutation replay account=%s message=%d label=%q op=%s: %v", entry.AccountID, entry.MessageID, entry.LabelName, entry.Operation, err)
-			if markErr := o.db.MarkLabelMutationError(ctx, entry.ID, entry.Attempts, err); markErr != nil {
+			if markErr := o.gmailRepository().MarkLabelMutationError(ctx, entry.ID, entry.Attempts, err); markErr != nil {
 				log.Printf("gmail label mutation queue mark error id=%d: %v", entry.ID, markErr)
 			}
 			continue
 		}
-		if err := o.db.MarkLabelMutationSuccess(ctx, entry.ID); err != nil {
+		if err := o.gmailRepository().MarkLabelMutationSuccess(ctx, entry.ID); err != nil {
 			log.Printf("gmail label mutation queue mark success id=%d: %v", entry.ID, err)
 		}
 	}
@@ -1188,6 +1188,9 @@ func (o *SyncOrchestrator) applyQueuedGmailLabelMutation(ctx context.Context, to
 	info, err := o.queuedMessageMutationInfo(ctx, entry)
 	if err != nil || info == nil {
 		return err
+	}
+	if info.AccountID != entry.AccountID || info.AccountProvider != providers.ProviderGmail {
+		return errors.New("queued Gmail message identity does not match its account")
 	}
 	providerMessageID, err := o.queuedGmailMessageID(ctx, token, entry.MessageID, info)
 	if err != nil {
@@ -1204,7 +1207,7 @@ func (o *SyncOrchestrator) applyQueuedGmailLabelMutation(ctx context.Context, to
 		if err := providerJSON(ctx, http.MethodPost, endpoint, token, nil, map[string][]string{"addLabelIds": []string{label.ID}}, nil); err != nil {
 			return err
 		}
-		if _, err := o.db.AddMessageLabel(ctx, entry.MessageID, entry.AccountID, storage.LabelInput{
+		if _, err := o.gmailRepository().AddMessageLabel(ctx, entry.MessageID, entry.AccountID, storage.LabelInput{
 			AccountID:    entry.AccountID,
 			Name:         label.Name,
 			ProviderID:   label.ID,
@@ -1213,7 +1216,7 @@ func (o *SyncOrchestrator) applyQueuedGmailLabelMutation(ctx context.Context, to
 		}); err != nil {
 			return err
 		}
-		return o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
+		return o.gmailRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
 	case storage.LabelMutationRemove:
 		label, ok, err := findGmailProviderLabel(ctx, token, entry.LabelName)
 		if err != nil {
@@ -1224,13 +1227,13 @@ func (o *SyncOrchestrator) applyQueuedGmailLabelMutation(ctx context.Context, to
 			if err := providerJSON(ctx, http.MethodPost, endpoint, token, nil, map[string][]string{"removeLabelIds": []string{label.ID}}, nil); err != nil {
 				return err
 			}
-			if err := o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderGmail, label.ID, label.Name); err != nil {
+			if err := o.gmailRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderGmail, label.ID, label.Name); err != nil {
 				return err
 			}
-		} else if err := o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderGmail, "", entry.LabelName); err != nil {
+		} else if err := o.gmailRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderGmail, "", entry.LabelName); err != nil {
 			return err
 		}
-		return o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
+		return o.gmailRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
 	default:
 		return fmt.Errorf("unsupported label mutation operation %q", entry.Operation)
 	}
@@ -1245,7 +1248,7 @@ func (o *SyncOrchestrator) queuedGmailMessageID(ctx context.Context, token strin
 	if err != nil {
 		return "", err
 	}
-	if err := o.db.SetMessageProviderMessageID(ctx, messageID, resolved); err != nil {
+	if err := o.gmailRepository().SetMessageProviderMessageID(ctx, messageID, resolved); err != nil {
 		log.Printf("cache gmail message id failed: %v", err)
 	}
 	return resolved, nil
@@ -1490,12 +1493,12 @@ func (o *SyncOrchestrator) applyQueuedIMAPLabelMutation(ctx context.Context, cli
 
 func (o *SyncOrchestrator) queuedMessageMutationInfo(ctx context.Context, entry storage.LabelMutationQueueEntry) (*storage.MessageMutationInfo, error) {
 	if strings.TrimSpace(entry.FolderID) != "" {
-		info, err := o.db.GetMessageMutationInfoForFolder(ctx, entry.MessageID, entry.FolderID)
+		info, err := o.gmailRepository().GetMessageMutationInfoForFolder(ctx, entry.MessageID, entry.FolderID)
 		if err != nil || info != nil {
 			return info, err
 		}
 	}
-	return o.db.GetMessageMutationInfoInternal(ctx, entry.MessageID)
+	return o.gmailRepository().GetMessageMutationInfoInternal(ctx, entry.MessageID)
 }
 
 func (o *SyncOrchestrator) markLabelMutationBatchError(ctx context.Context, entries []storage.LabelMutationQueueEntry, err error) {

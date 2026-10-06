@@ -146,6 +146,20 @@ func (r *AccountRouting) WithUser(ctx context.Context, userID string, fn func(*D
 	return r.withUser(ctx, userID, false, fn)
 }
 
+// WithExistingUser authorizes local maintenance without creating an unused
+// owner's store. Missing files remain errors, including for owners with accounts.
+func (r *AccountRouting) WithExistingUser(ctx context.Context, userID string, fn func(*DB) error) error {
+	if err := r.requireActiveOwner(ctx, userID); err != nil {
+		return err
+	}
+	// An hourly sweep may encounter many registered owners with no store yet.
+	// Do not evict a useful cache entry just to attempt opening a missing file.
+	if _, err := os.Lstat(r.stores.userPath(userID)); err != nil {
+		return fmt.Errorf("%w: %w", ErrAccountRoute, err)
+	}
+	return r.withUser(ctx, userID, true, fn)
+}
+
 func (r *AccountRouting) withUser(ctx context.Context, userID string, existing bool, fn func(*DB) error) error {
 	if err := r.requireActiveOwner(ctx, userID); err != nil {
 		return err

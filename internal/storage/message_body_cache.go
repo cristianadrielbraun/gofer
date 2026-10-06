@@ -14,6 +14,7 @@ type MessageBodyCache struct {
 	Parsed                               *mailmessage.ParsedMessage
 	FetchInfo                            *MessageFetchInfo
 	UIDValidity                          uint32
+	ProviderMessageID, ProviderAccountID string
 	TextPath, HTMLPath, OriginalHTMLPath string
 }
 
@@ -21,7 +22,7 @@ func (db *DB) SaveMessageBodyCache(ctx context.Context, id int64, accountID stri
 	if c.Parsed == nil {
 		return fmt.Errorf("parsed body required")
 	}
-	if c.FetchInfo == nil || c.FetchInfo.AccountID != accountID {
+	if c.ProviderMessageID == "" && (c.FetchInfo == nil || c.FetchInfo.AccountID != accountID) {
 		return fmt.Errorf("message fetch identity required")
 	}
 	p := c.Parsed
@@ -31,8 +32,20 @@ func (db *DB) SaveMessageBodyCache(ctx context.Context, id int64, accountID stri
 	}
 	defer tx.Rollback()
 	var matches int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages m JOIN message_folder_state ms ON ms.message_id=m.id JOIN folders f ON f.id=ms.folder_id WHERE m.id=? AND m.account_id=? AND f.account_id=? AND f.remote_id=? AND ms.remote_uid=? AND f.uid_validity=?`, id, accountID, accountID, c.FetchInfo.FolderRemoteID, c.FetchInfo.RemoteUID, c.UIDValidity).Scan(&matches); err != nil {
-		return err
+	if c.ProviderMessageID != "" {
+		if c.ProviderAccountID == "" {
+			return fmt.Errorf("provider account identity required")
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages m JOIN accounts a ON a.id=m.account_id
+		 WHERE m.id=? AND m.account_id=? AND m.remote_message_id=? AND a.provider='gmail' AND a.auth_method='oauth2'
+		 AND a.provider_account_id=? AND COALESCE(a.is_deleting,0)=0
+		 AND EXISTS(SELECT 1 FROM message_folder_state ms JOIN folders f ON f.id=ms.folder_id WHERE ms.message_id=m.id AND ms.is_deleted=0 AND f.account_id=a.id)`, id, accountID, c.ProviderMessageID, c.ProviderAccountID).Scan(&matches); err != nil {
+			return err
+		}
+	} else {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages m JOIN message_folder_state ms ON ms.message_id=m.id JOIN folders f ON f.id=ms.folder_id WHERE m.id=? AND m.account_id=? AND f.account_id=? AND f.remote_id=? AND ms.remote_uid=? AND f.uid_validity=?`, id, accountID, accountID, c.FetchInfo.FolderRemoteID, c.FetchInfo.RemoteUID, c.UIDValidity).Scan(&matches); err != nil {
+			return err
+		}
 	}
 	if matches == 0 {
 		return fmt.Errorf("message identity changed before body publication")

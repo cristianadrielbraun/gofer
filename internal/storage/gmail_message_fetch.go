@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,6 +15,23 @@ type GmailMessageFetchQueueEntry struct {
 	HistoryID         string
 	Attempts          int
 	LastError         string
+}
+
+// NextGmailQueueAttempt exposes durable retry deadlines to paged central
+// discovery, without reopening every owner's database on every timer tick.
+func (db *DB) NextGmailQueueAttempt(ctx context.Context, accountID string) (time.Time, error) {
+	if strings.TrimSpace(accountID) == "" {
+		return time.Time{}, fmt.Errorf("Gmail account is required")
+	}
+	var next time.Time
+	err := db.Read().QueryRowContext(ctx, `SELECT next_attempt_at FROM (
+		SELECT next_attempt_at FROM gmail_message_fetch_queue WHERE account_id=?
+		UNION ALL SELECT next_attempt_at FROM label_mutation_queue WHERE account_id=? AND provider_type=?
+	) ORDER BY julianday(next_attempt_at),next_attempt_at LIMIT 1`, accountID, accountID, LabelProviderGmail).Scan(&next)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	return next, err
 }
 
 func (db *DB) EnqueueGmailMessageFetch(ctx context.Context, accountID, providerMessageID, historyID string, fetchErr error) error {

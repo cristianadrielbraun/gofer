@@ -353,6 +353,10 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 			db.Close()
 			return nil, err
 		}
+		if err := ensureUserOAuthBoundary(ctx, db); err != nil {
+			db.Close()
+			return nil, err
+		}
 		return db, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {

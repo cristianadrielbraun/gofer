@@ -14,6 +14,7 @@ var centralAuthenticationTables = []string{
 	"sessions", "auth_identities", "password_credentials", "webauthn_credentials",
 	"webauthn_users", "totp_credentials", "recovery_codes", "auth_challenges",
 	"auth_throttle", "auth_events", "user_enrollment_tokens", "auth_system_state",
+	"oauth_accounts", "oauth_account_flows",
 }
 
 func initializeUserStore(ctx context.Context, db *DB, owner userStoreOwner) error {
@@ -56,13 +57,8 @@ func initializeUserStore(ctx context.Context, db *DB, owner userStoreOwner) erro
 
 	centralTables := append(append([]string(nil), centralAuthenticationTables...), "web_push_subscriptions")
 	for _, table := range centralTables {
-		for _, action := range []string{"INSERT", "UPDATE", "DELETE"} {
-			sql := fmt.Sprintf(`CREATE TRIGGER %s BEFORE %s ON %s
-				BEGIN SELECT RAISE(ABORT, 'system records belong in the system database'); END`,
-				quoteStoreIdentifier("gofer_store_central_"+table+"_"+strings.ToLower(action)), action, quoteStoreIdentifier(table))
-			if _, err := tx.ExecContext(ctx, sql); err != nil {
-				return err
-			}
+		if err := guardSystemTable(ctx, tx, table); err != nil {
+			return err
 		}
 	}
 	// Guard direct ownership columns as well as foreign keys. This also rejects
@@ -80,6 +76,49 @@ func initializeUserStore(ctx context.Context, db *DB, owner userStoreOwner) erro
 			if _, err := tx.ExecContext(ctx, sql); err != nil {
 				return err
 			}
+		}
+	}
+	return tx.Commit()
+}
+
+func guardSystemTable(ctx context.Context, tx *sql.Tx, table string) error {
+	for _, action := range []string{"INSERT", "UPDATE", "DELETE"} {
+		query := fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s BEFORE %s ON %s
+			BEGIN SELECT RAISE(ABORT, 'system records belong in the system database'); END`,
+			quoteStoreIdentifier("gofer_store_central_"+table+"_"+strings.ToLower(action)), action, quoteStoreIdentifier(table))
+		if _, err := tx.ExecContext(ctx, query); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Older opt-in user stores did not guard mailbox OAuth tables. Add the guards
+// when reopening an empty store; unexpected local grants require an explicit
+// migration and are never silently deleted or copied.
+func ensureUserOAuthBoundary(ctx context.Context, db *DB) error {
+	var credentials, flows, guards int
+	if err := db.Read().QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM oauth_accounts), (SELECT COUNT(*) FROM oauth_account_flows),
+		(SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND name IN (
+		 'gofer_store_central_oauth_accounts_insert','gofer_store_central_oauth_accounts_update','gofer_store_central_oauth_accounts_delete',
+		 'gofer_store_central_oauth_account_flows_insert','gofer_store_central_oauth_account_flows_update','gofer_store_central_oauth_account_flows_delete'))`).Scan(&credentials, &flows, &guards); err != nil {
+		return err
+	}
+	if credentials != 0 || flows != 0 {
+		return fmt.Errorf("%w: mailbox OAuth records require central migration", ErrUserStoreIdentity)
+	}
+	if guards == 6 {
+		return nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, table := range []string{"oauth_accounts", "oauth_account_flows"} {
+		if err := guardSystemTable(ctx, tx, table); err != nil {
+			return err
 		}
 	}
 	return tx.Commit()

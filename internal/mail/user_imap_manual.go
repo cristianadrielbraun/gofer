@@ -43,7 +43,7 @@ func (s *UserIMAP) StartManualSync(ctx context.Context, owner string, ids []stri
 			if err != nil {
 				return err
 			}
-			if cfg.Provider != "imap" || cfg.AuthMethod != "plain" || !db.IsEmailSyncEnabled(ctx, id) {
+			if !s.SupportsAccount(cfg) || !db.IsEmailSyncEnabled(ctx, id) {
 				return storage.ErrAccountRoute
 			}
 			return nil

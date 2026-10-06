@@ -5,11 +5,13 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -31,6 +33,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	var option UserStorageOptions
 	if len(options) == 1 {
 		option = options[0]
+	}
+	if option.Credentials != nil && (option.IMAP == nil || option.Credentials.Routing() != routing) {
+		return errors.New("mailbox credentials require an IMAP lifecycle service with the same routing coordinator")
 	}
 
 	if option.IMAP != nil {
@@ -63,6 +68,11 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			return errors.New("routed compose must use the IMAP blob store")
 		}
 		routed.blobStore = option.IMAP.Blobs()
+		if option.Credentials != nil {
+			if err := option.IMAP.SetCredentials(option.Credentials); err != nil {
+				return err
+			}
+		}
 		if err := option.IMAP.SetMailQueue(&userMailDelivery{h: routed}); err != nil {
 			return err
 		}
@@ -72,6 +82,21 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			if err := routing.ValidateUser(r.Context(), routed.userID(r.Context())); err != nil {
 				http.Error(w, "user storage unavailable", http.StatusForbidden)
 				return
+			}
+			// Protect copied file paths for local reads and compose publication.
+			// SSE holds no file paths and can stay open indefinitely.
+			if routed.blobStore != nil && pattern != "GET /api/events" {
+				release, err := routed.blobStore.PinUserFiles(r.Context(), routed.userID(r.Context()))
+				if err != nil {
+					http.Error(w, "user files unavailable", 503)
+					return
+				}
+				defer func() {
+					release()
+					if routed.userIMAP != nil && (strings.HasPrefix(r.URL.Path, "/compose") || strings.HasPrefix(r.URL.Path, "/api/drafts/")) {
+						routed.userIMAP.MaybeCleanupUserFiles(r.Context(), routed.userID(r.Context()))
+					}
+				}()
 			}
 			handler(w, r)
 		})
@@ -136,9 +161,10 @@ type UserAccountHooks struct {
 }
 
 type UserStorageOptions struct {
-	Accounts *config.UserAccountStore
-	Hooks    UserAccountHooks
-	IMAP     *mail.UserIMAP
+	Accounts    *config.UserAccountStore
+	Hooks       UserAccountHooks
+	IMAP        *mail.UserIMAP
+	Credentials *mailauth.UserCredentials
 }
 
 func (h *Handler) withUserDB(ctx context.Context, userID string, fn func(*storage.DB) error) error {

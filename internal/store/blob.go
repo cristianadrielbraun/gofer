@@ -16,10 +16,11 @@ import (
 type BlobStore struct {
 	basePath       string
 	messageVersion string
+	activity       *userFileActivities
 }
 
 func NewBlobStore(basePath string) *BlobStore {
-	return &BlobStore{basePath: basePath}
+	return &BlobStore{basePath: basePath, activity: &userFileActivities{owners: make(map[string]*userFileActivity)}}
 }
 
 func (s *BlobStore) msgDir(accountID string, localID int64) string {
@@ -33,7 +34,7 @@ func (s *BlobStore) NewMessageVersion() (*BlobStore, error) {
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return nil, err
 	}
-	return &BlobStore{basePath: s.basePath, messageVersion: hex.EncodeToString(nonce[:])}, nil
+	return &BlobStore{basePath: s.basePath, messageVersion: hex.EncodeToString(nonce[:]), activity: s.activity}, nil
 }
 
 func (s *BlobStore) ensureDir(dir string) error {

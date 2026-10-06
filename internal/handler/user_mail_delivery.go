@@ -70,6 +70,9 @@ func (q *userMailDelivery) Run(ctx context.Context, owner, id string) error {
 	if err != nil || !hasWork {
 		return err
 	}
+	// Empty mailbox/IDLE passes keep their single-lease fast path. Housekeeping
+	// has its own timer and follows actual delivery work, not every notification.
+	defer q.h.userIMAP.MaybeCleanupUserFiles(ctx, owner)
 	var failures error
 	for _, run := range []func(context.Context) (bool, error){s.send, s.sentCopy, s.draft} {
 		for i := 0; i < 5; i++ {
@@ -271,9 +274,14 @@ func (s *userMailDeliveryScope) copySent(ctx context.Context, send storage.Outgo
 }
 
 func (s *userMailDeliveryScope) cacheSent(ctx context.Context, send storage.OutgoingSend, folder string, snapshot outgoingMessageSnapshot) error {
+	release, err := s.runner.h.blobStore.PinUserFiles(ctx, s.owner)
+	if err != nil {
+		return err
+	}
+	defer release()
 	msg := snapshot.outgoingMessage()
 	var id int64
-	err := s.call(ctx, func(db *storage.DB) error {
+	err = s.call(ctx, func(db *storage.DB) error {
 		var to, cc []storage.Recipient
 		for _, a := range msg.To {
 			to = append(to, storage.Recipient{Name: a.Name, Email: a.Address})

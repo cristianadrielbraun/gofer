@@ -14,10 +14,11 @@ import (
 var errUserIMAPQueueFull = errors.New("IMAP sync queue is full")
 
 type UserIMAPBackgroundOptions struct {
-	PollInterval    time.Duration
-	ScanInterval    time.Duration
-	MaxIdleWatchers int
-	DisableIDLE     bool
+	PollInterval        time.Duration
+	ScanInterval        time.Duration
+	FileCleanupInterval time.Duration
+	MaxIdleWatchers     int
+	DisableIDLE         bool
 }
 type userIMAPQueueState struct{ running, dirty bool }
 type userIMAPWatchKey struct{ account, folder string }
@@ -33,7 +34,7 @@ type userIMAPWatch struct {
 // Start enables background discovery, periodic reconciliation and bounded IDLE.
 // It is explicit: constructing the service alone still starts no discovery.
 func (s *UserIMAP) Start(options UserIMAPBackgroundOptions) error {
-	if options.PollInterval < 0 || options.ScanInterval < 0 || options.MaxIdleWatchers < 0 || options.MaxIdleWatchers > 4096 {
+	if options.PollInterval < 0 || options.ScanInterval < 0 || options.FileCleanupInterval < 0 || options.MaxIdleWatchers < 0 || options.MaxIdleWatchers > 4096 {
 		return errors.New("IMAP background limits must be nonnegative and at most 4096 watchers")
 	}
 	if options.PollInterval == 0 {
@@ -44,6 +45,9 @@ func (s *UserIMAP) Start(options UserIMAPBackgroundOptions) error {
 	}
 	if options.MaxIdleWatchers == 0 {
 		options.MaxIdleWatchers = 64
+	}
+	if options.FileCleanupInterval == 0 {
+		options.FileCleanupInterval = time.Hour
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -58,6 +62,8 @@ func (s *UserIMAP) Start(options UserIMAPBackgroundOptions) error {
 	s.backgroundOptions = options
 	s.workers.Add(1)
 	go s.backgroundLoop(options)
+	s.workers.Add(1)
+	go s.runFileCleanup(options.FileCleanupInterval)
 	return nil
 }
 
@@ -281,6 +287,11 @@ func (s *UserIMAP) stopAllWatches() {
 // Copy folder/configuration data, then start watchers with no retained DB lease.
 func (s *UserIMAP) reconcileWatches(ctx context.Context, scope *userIMAPScope) error {
 	s.mu.Lock()
+	if scope.config.Provider != "imap" || scope.config.AuthMethod != "plain" {
+		s.stopWatchesLocked(scope.id)
+		s.mu.Unlock()
+		return nil
+	}
 	enabled := s.background && !s.backgroundOptions.DisableIDLE
 	s.mu.Unlock()
 	if !enabled {

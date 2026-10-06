@@ -55,7 +55,7 @@ func (h *Handler) handleUserSaveSyncSettings(w http.ResponseWriter, r *http.Requ
 			if err != nil {
 				return err
 			}
-			if cfg.Provider != "imap" || cfg.AuthMethod != "plain" {
+			if !h.userIMAP.SupportsAccount(cfg) || (cfg.Provider != "imap" && len(updates[id]) > 0) {
 				return storage.ErrAccountRoute
 			}
 			return nil
@@ -102,7 +102,7 @@ func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request)
 			if err != nil {
 				return err
 			}
-			if cfg.Provider != "imap" || cfg.AuthMethod != "plain" {
+			if !h.userIMAP.SupportsAccount(cfg) {
 				return storage.ErrAccountRoute
 			}
 		}

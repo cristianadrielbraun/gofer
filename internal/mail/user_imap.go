@@ -16,12 +16,14 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
-// UserIMAP is an opt-in, bounded plain-IMAP worker. Main does not start it yet.
+// UserIMAP is an opt-in, bounded IMAP/Gmail worker. Main does not start it yet.
 // A session holds an account activity guard, but leases user storage only for
 // snapshots and commits. Background discovery/IDLE require explicit Start.
 type UserIMAP struct {
@@ -40,6 +42,8 @@ type UserIMAP struct {
 	rescan            bool
 	manualRuns        map[string]*userIMAPManualRun
 	mailQueue         UserMailQueue
+	credentials       *mailauth.UserCredentials
+	fileCleanup       map[string]time.Time
 	watches           map[userIMAPWatchKey]*userIMAPWatch
 	idleCount         int
 	watchRuns         sync.WaitGroup
@@ -63,11 +67,23 @@ type userIMAPScope struct {
 	owner, id, password string
 	config              *models.AccountConfig
 	account             *models.Account
+	tokens              TokenProvider
 	pollInterval        time.Duration
 }
 
 func (r *userIMAPScope) call(ctx context.Context, fn func(*storage.DB) error) error {
-	return r.accounts.Routing().WithAccountForUser(ctx, r.owner, r.id, fn)
+	return r.accounts.Routing().WithAccountForUser(ctx, r.owner, r.id, func(db *storage.DB) error {
+		if r.config != nil && r.config.Provider == providers.ProviderGmail {
+			var provider, subject, method string
+			if err := db.Read().QueryRowContext(ctx, `SELECT provider,provider_account_id,auth_method FROM accounts WHERE id=?`, r.id).Scan(&provider, &subject, &method); err != nil {
+				return err
+			}
+			if provider != r.config.Provider || subject != r.config.ProviderAccountID || method != r.config.AuthMethod {
+				return errors.New("mailbox identity changed during Gmail work")
+			}
+		}
+		return fn(db)
+	})
 }
 
 func NewUserIMAP(ctx context.Context, accounts *config.UserAccountStore, blobs *store.BlobStore, events *EventBus) (*UserIMAP, error) {
@@ -83,6 +99,20 @@ func NewUserIMAP(ctx context.Context, accounts *config.UserAccountStore, blobs *
 }
 func (s *UserIMAP) Routing() *storage.AccountRouting { return s.accounts.Routing() }
 func (s *UserIMAP) Blobs() *store.BlobStore          { return s.blobs }
+
+// SupportsAccount reports providers configured for the routed receive service.
+// Ownership and current authorization are checked separately for every call.
+func (s *UserIMAP) SupportsAccount(cfg *models.AccountConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.Provider == providers.ProviderIMAP && cfg.AuthMethod == "plain" {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cfg.Provider == providers.ProviderGmail && cfg.AuthMethod == "oauth2" && s.credentials != nil
+}
 
 // Wait joins workers and request sessions after cancelling the lifecycle context.
 func (s *UserIMAP) Wait() {
@@ -241,6 +271,9 @@ func (s *UserIMAP) operation(ctx context.Context, owner, id string, messageID in
 }
 func (s *UserIMAP) snapshot(ctx context.Context, owner, id string) (*userIMAPScope, error) {
 	r := &userIMAPScope{accounts: s.accounts, owner: owner, id: id, pollInterval: s.defaultPollInterval()}
+	s.mu.Lock()
+	credentials := s.credentials
+	s.mu.Unlock()
 	err := s.accounts.WithAccountForUser(ctx, owner, id, func(local *config.AccountStore, db *storage.DB) error {
 		var err error
 		interval, err := db.GetSetting(ctx, owner, "sync_interval_minutes")
@@ -254,14 +287,18 @@ func (s *UserIMAP) snapshot(ctx context.Context, owner, id string) (*userIMAPSco
 		if err != nil {
 			return err
 		}
-		if r.config.Provider != "imap" || r.config.AuthMethod != "plain" {
-			return errors.New("routed worker currently supports plain IMAP accounts only")
+		if r.config.Provider == providers.ProviderGmail && r.config.AuthMethod == "oauth2" && credentials != nil {
+			r.tokens = credentials.Account(owner, id)
+		} else if r.config.Provider != providers.ProviderIMAP || r.config.AuthMethod != "plain" {
+			return errors.New("routed worker supports plain IMAP and configured Gmail OAuth accounts only")
 		}
 		r.account, err = local.GetAccountByIDForUser(ctx, owner, id)
 		if err != nil {
 			return err
 		}
-		r.password, err = local.DecryptPassword(ctx, id)
+		if r.tokens == nil {
+			r.password, err = local.DecryptPassword(ctx, id)
+		}
 		return err
 	})
 	return r, err
@@ -287,6 +324,10 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 				var queued time.Time
 				err := scope.call(ctx, func(db *storage.DB) error {
 					var err error
+					if scope.config.Provider == providers.ProviderGmail {
+						queued, err = db.NextGmailQueueAttempt(ctx, id)
+						return err
+					}
 					queued, err = db.NextMessageMutationAttempt(ctx, id)
 					if err == nil && queue != nil {
 						mailNext, mailErr := db.NextAccountMailQueueAttempt(ctx, id)
@@ -336,9 +377,12 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 			return err
 		}
 		interval = scope.pollInterval
-		mutationErr := s.replayMutations(ctx, scope)
-		if queue != nil {
-			mutationErr = errors.Join(mutationErr, queue.Run(ctx, owner, id))
+		var mutationErr error
+		if scope.config.Provider == providers.ProviderIMAP {
+			mutationErr = s.replayMutations(ctx, scope)
+			if queue != nil {
+				mutationErr = errors.Join(mutationErr, queue.Run(ctx, owner, id))
+			}
 		}
 		queueFailed = mutationErr != nil
 		var enabled int
@@ -357,7 +401,7 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 			return mutationErr
 		}
 		// Fresh orchestration state for one bounded session, sharing only services.
-		o := NewSyncOrchestrator(nil, nil, s.blobs, nil)
+		o := NewSyncOrchestrator(nil, nil, s.blobs, scope.tokens)
 		o.imapScope = scope
 		o.events = s.events
 		err = o.syncAccount(ctx, id, true)
@@ -387,8 +431,13 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 // EnsureBody fetches and persists synchronously, so errors are visible and retry
 // never mistakes a partial cache for success. The account gate coalesces readers.
 func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) error {
+	release, err := s.blobs.PinUserFiles(ctx, owner)
+	if err != nil {
+		return err
+	}
+	defer release()
 	var id string
-	err := s.Routing().WithUser(ctx, owner, func(db *storage.DB) error {
+	err = s.Routing().WithUser(ctx, owner, func(db *storage.DB) error {
 		info, err := db.GetMessageStorageInfoForUser(ctx, msgID, owner)
 		if err != nil {
 			return err
@@ -407,6 +456,7 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 		var info *storage.MessageFetchInfo
 		var rawPath string
 		var validity uint32
+		var providerID string
 		err := s.Routing().WithAccountForUser(ctx, owner, id, func(db *storage.DB) error {
 			stored, err := db.GetMessageStorageInfoForUser(ctx, msgID, owner)
 			if err != nil {
@@ -418,6 +468,20 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 			rawPath = stored.RawPath
 			fetched = db.IsBodyFetchedInternal(ctx, msgID)
 			if fetched {
+				return nil
+			}
+			provider, err := db.GetMessageMutationInfoForUser(ctx, msgID, owner)
+			if err != nil {
+				return err
+			}
+			if provider == nil || provider.AccountID != id {
+				return sql.ErrNoRows
+			}
+			if provider.AccountProvider == providers.ProviderGmail {
+				providerID = provider.RemoteMessageID
+				if providerID == "" {
+					return errors.New("Gmail message identity is unavailable")
+				}
 				return nil
 			}
 			info, err = db.GetMessageFetchInfoForUser(ctx, msgID, owner)
@@ -441,17 +505,24 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 			raw, _ = os.ReadFile(rawPath)
 		}
 		if len(raw) == 0 {
-			if validity == 0 || info.RemoteUID == 0 {
-				return errors.New("message has no verified IMAP body identity")
-			}
-			client, err := imap.NewContextClient(ctx, scope.config, scope.password)
-			if err != nil {
-				return err
-			}
-			defer client.Close()
-			raw, err = client.FetchBodyWithValidity(ctx, info.FolderRemoteID, info.RemoteUID, validity)
-			if err != nil {
-				return err
+			if scope.config.Provider == providers.ProviderGmail {
+				raw, err = s.fetchGmailRaw(ctx, scope, providerID)
+				if err != nil {
+					return err
+				}
+			} else {
+				if info == nil || validity == 0 || info.RemoteUID == 0 {
+					return errors.New("message has no verified IMAP body identity")
+				}
+				client, err := imap.NewContextClient(ctx, scope.config, scope.password)
+				if err != nil {
+					return err
+				}
+				defer client.Close()
+				raw, err = client.FetchBodyWithValidity(ctx, info.FolderRemoteID, info.RemoteUID, validity)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		if ctx.Err() != nil {
@@ -475,10 +546,16 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 		}
 		cache, err := prepareUserIMAPBody(ctx, candidate, id, msgID, parsed)
 		cache.FetchInfo, cache.UIDValidity = info, validity
+		if scope.config.Provider == providers.ProviderGmail {
+			cache.ProviderMessageID, cache.ProviderAccountID = providerID, scope.config.ProviderAccountID
+		}
 		if err != nil {
 			return err
 		}
 		err = scope.call(ctx, func(db *storage.DB) error {
+			if scope.config.Provider == providers.ProviderGmail {
+				return db.SaveMessageBodyCache(ctx, msgID, id, cache)
+			}
 			current, err := db.GetMessageFetchInfoForUser(ctx, msgID, owner)
 			if err != nil {
 				return err
@@ -533,7 +610,30 @@ func (s *UserIMAP) Cleanup(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	credentials := s.credentials
+	s.mu.Unlock()
+	if credentials != nil {
+		if err := credentials.CleanupAccount(ctx, id); err != nil {
+			return err
+		}
+	}
 	return s.blobs.DeleteAccount(id)
+}
+
+// SetCredentials installs account-bound provider tokens and central credential
+// cleanup before work starts.
+func (s *UserIMAP) SetCredentials(credentials *mailauth.UserCredentials) error {
+	if credentials == nil || credentials.Routing() != s.Routing() {
+		return errors.New("mailbox credentials must use the same account router")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.credentials != nil || s.background || len(s.gates) != 0 || len(s.queued) != 0 || s.closing || s.ctx.Err() != nil {
+		return errors.New("mailbox credentials must be configured once before IMAP work starts")
+	}
+	s.credentials = credentials
+	return nil
 }
 
 func (s *UserIMAP) Accounts() *config.UserAccountStore { return s.accounts }
