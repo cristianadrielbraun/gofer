@@ -60,7 +60,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	// Share immutable services, not Handler mutexes or mutable worker state.
 	routed := &Handler{db: h.db, auth: h.auth, syncer: h.syncer, userStorage: routing,
 		blobStore: h.blobStore,
-		userIMAP:  option.IMAP, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
+		userIMAP:  option.IMAP, userCredentials: option.Credentials, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
 		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
 		userBackfills: make(map[string]struct{})}
 	if option.IMAP != nil {
@@ -136,6 +136,11 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/edit", routed.handleUserUpdateAccount)
 		private("POST /api/accounts/{id}/color", routed.handleUserAccountColor)
 		private("DELETE /api/accounts/{id}", routed.handleUserDeleteAccount)
+		if option.Credentials != nil {
+			private("POST /api/accounts/oauth2/authorize", routed.handleUserAccountOAuthAuthorize)
+			private("GET /auth/google/mailbox/callback", func(w http.ResponseWriter, r *http.Request) { routed.handleUserAccountOAuthCallback(w, r, "gmail") })
+			private("GET /auth/microsoft/mailbox/callback", func(w http.ResponseWriter, r *http.Request) { routed.handleUserAccountOAuthCallback(w, r, "outlook") })
+		}
 	}
 	if option.IMAP != nil {
 		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)

@@ -45,6 +45,7 @@ type Handler struct {
 	db                         *storage.DB
 	userStorage                *storage.AccountRouting
 	userIMAP                   *mail.UserIMAP
+	userCredentials            *mailauth.UserCredentials
 	userMutationState          *userMessageMutationState
 	userIdleStatuses           map[string]map[string]mail.IDLEFolderRuntimeStatus
 	userAccounts               *config.UserAccountStore

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -116,8 +117,7 @@ func (h *Handler) handleUserCreateAccount(w http.ResponseWriter, r *http.Request
 		http.Error(w, "all required fields must be filled in", http.StatusBadRequest)
 		return
 	}
-	// OAuth callbacks still depend on the shared credential/account integration.
-	// Do not accept an apparently working mailbox through that unconverted path.
+	// OAuth mailboxes must come through the session-bound authorization callback.
 	if (req.Provider != "" && req.Provider != "imap") || (req.AuthMethod != "" && req.AuthMethod != "plain") {
 		http.Error(w, "this account connection method is not available yet", http.StatusNotImplemented)
 		return
@@ -165,6 +165,21 @@ func (h *Handler) handleUserUpdateAccount(w http.ResponseWriter, r *http.Request
 	}
 	if req.AuthMethod == "" {
 		req.AuthMethod = existing.AuthMethod
+	}
+	if existing.AuthMethod == "oauth2" && (existing.Provider == "gmail" || existing.Provider == "outlook") {
+		if req.Provider != existing.Provider || req.AuthMethod != "oauth2" || (req.EmailAddress != "" && !strings.EqualFold(req.EmailAddress, existing.EmailAddress)) {
+			http.Error(w, "authorize this mailbox again to change its connection", http.StatusBadRequest)
+			return
+		}
+		req.EmailAddress, req.ProviderAccountID = existing.EmailAddress, existing.ProviderAccountID
+		if err := h.userAccounts.UpdateOAuthMetadata(r.Context(), owner, id, &req); err != nil {
+			userAccountError(w, r, err)
+			return
+		}
+		w.Header().Set("X-Gofer-Account-ID", id)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = views.WizardStepSuccess("Account updated", id, "edit").Render(r.Context(), w)
+		return
 	}
 	if req.Provider != "imap" || req.Provider != existing.Provider || req.AuthMethod != "plain" || existing.AuthMethod != "plain" {
 		http.Error(w, "this account connection method is not available yet", http.StatusNotImplemented)

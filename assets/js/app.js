@@ -3156,25 +3156,42 @@ document.addEventListener("DOMContentLoaded", function () {
     var params = new URLSearchParams(window.location.search)
     var added = params.get("account_added") === "1"
     var reconnected = params.get("account_reconnected") === "1"
-    if (!added && !reconnected) return
+    var errors = {
+      oauth_invalid_state: "This authorization link is no longer valid. Start connecting the account again.",
+      oauth_expired_state: "Account authorization expired. Start connecting the account again.",
+      oauth_session_mismatch: "Finish authorization in the same browser session that started it.",
+      oauth_no_code: "The provider did not complete authorization. Please try again.",
+      oauth_exchange_failed: "Gofer could not complete authorization with the provider. Please try again.",
+      oauth_userinfo_failed: "Gofer could not identify the authorized mailbox. Please try again.",
+      oauth_email_mismatch: "The authorized email address differs from the mailbox you chose. Choose the matching account and try again.",
+      oauth_identity_mismatch: "The authorized provider account differs from this mailbox. Reconnect using its original provider account.",
+      oauth_store_failed: "Gofer could not save the mailbox authorization. Reconnect the account to try again.",
+      oauth_metadata_failed: "Authorization was saved, but account details could not be updated. Reconnect the account to try again.",
+      oauth_sync_failed: "Authorization was saved, but synchronization could not start. Try syncing the account again.",
+      create_failed: "Gofer could not save this account. Review your existing accounts and try again.",
+    }
+    var errorCode = params.get("error")
+    var errorMessage = Object.prototype.hasOwnProperty.call(errors, errorCode) ? errors[errorCode] : ""
+    if (!added && !reconnected && !errorMessage) return
 
     if (typeof showGoferToast === "function") {
       showGoferToast({
         id: "account-connection-toast",
-        title: added ? "Account added" : "Account reconnected",
-        description: added
+        title: errorMessage ? "Could not connect account" : (added ? "Account added" : "Account reconnected"),
+        description: errorMessage || (added
           ? "The account was added successfully. Initial synchronization has started."
-          : "The account was reconnected successfully. Synchronization has resumed.",
-        variant: "success",
-        icon: "success",
+          : "The account was reconnected successfully. Synchronization has resumed."),
+        variant: errorMessage ? "error" : "success",
+        icon: errorMessage ? "error" : "success",
         position: "bottom-right",
-        duration: 5000,
+        duration: errorMessage ? 9000 : 5000,
         dismissible: true,
       })
     }
 
     params.delete("account_added")
     params.delete("account_reconnected")
+    if (errorMessage) params.delete("error")
     var query = params.toString()
     var cleanURL = window.location.pathname + (query ? "?" + query : "") + window.location.hash
     window.history.replaceState(window.history.state, "", cleanURL)

@@ -34,6 +34,18 @@ func (db *DB) NextGmailQueueAttempt(ctx context.Context, accountID string) (time
 	return next, err
 }
 
+func (db *DB) NextProviderLabelQueueAttempt(ctx context.Context, accountID, provider string) (time.Time, error) {
+	if strings.TrimSpace(accountID) == "" || (provider != LabelProviderGmail && provider != LabelProviderOutlook) {
+		return time.Time{}, fmt.Errorf("provider account is required")
+	}
+	var next time.Time
+	err := db.Read().QueryRowContext(ctx, `SELECT next_attempt_at FROM label_mutation_queue WHERE account_id=? AND provider_type=? ORDER BY julianday(next_attempt_at),next_attempt_at LIMIT 1`, accountID, provider).Scan(&next)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	return next, err
+}
+
 func (db *DB) EnqueueGmailMessageFetch(ctx context.Context, accountID, providerMessageID, historyID string, fetchErr error) error {
 	accountID = strings.TrimSpace(accountID)
 	providerMessageID = strings.TrimSpace(providerMessageID)

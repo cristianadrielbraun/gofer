@@ -129,6 +129,8 @@ type graphMailTokenProvider interface {
 
 type SyncOrchestrator struct {
 	imapScope           *userIMAPScope
+	userGraphToken      string
+	userGraphRetryErr   error
 	db                  *storage.DB
 	accountStore        *config.AccountStore
 	blobStore           *store.BlobStore

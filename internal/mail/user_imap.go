@@ -23,7 +23,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
-// UserIMAP is an opt-in, bounded IMAP/Gmail worker. Main does not start it yet.
+// UserIMAP is an opt-in, bounded IMAP/Gmail/Outlook worker. Main does not start it yet.
 // A session holds an account activity guard, but leases user storage only for
 // snapshots and commits. Background discovery/IDLE require explicit Start.
 type UserIMAP struct {
@@ -69,17 +69,18 @@ type userIMAPScope struct {
 	account             *models.Account
 	tokens              TokenProvider
 	pollInterval        time.Duration
+	retryAt             time.Time
 }
 
 func (r *userIMAPScope) call(ctx context.Context, fn func(*storage.DB) error) error {
 	return r.accounts.Routing().WithAccountForUser(ctx, r.owner, r.id, func(db *storage.DB) error {
-		if r.config != nil && r.config.Provider == providers.ProviderGmail {
+		if r.config != nil && (r.config.Provider == providers.ProviderGmail || r.config.Provider == providers.ProviderOutlook) {
 			var provider, subject, method string
 			if err := db.Read().QueryRowContext(ctx, `SELECT provider,provider_account_id,auth_method FROM accounts WHERE id=?`, r.id).Scan(&provider, &subject, &method); err != nil {
 				return err
 			}
 			if provider != r.config.Provider || subject != r.config.ProviderAccountID || method != r.config.AuthMethod {
-				return errors.New("mailbox identity changed during Gmail work")
+				return errors.New("mailbox identity changed during provider work")
 			}
 		}
 		return fn(db)
@@ -111,7 +112,7 @@ func (s *UserIMAP) SupportsAccount(cfg *models.AccountConfig) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return cfg.Provider == providers.ProviderGmail && cfg.AuthMethod == "oauth2" && s.credentials != nil
+	return (cfg.Provider == providers.ProviderGmail || cfg.Provider == providers.ProviderOutlook) && cfg.AuthMethod == "oauth2" && s.credentials != nil
 }
 
 // Wait joins workers and request sessions after cancelling the lifecycle context.
@@ -287,10 +288,10 @@ func (s *UserIMAP) snapshot(ctx context.Context, owner, id string) (*userIMAPSco
 		if err != nil {
 			return err
 		}
-		if r.config.Provider == providers.ProviderGmail && r.config.AuthMethod == "oauth2" && credentials != nil {
+		if (r.config.Provider == providers.ProviderGmail || r.config.Provider == providers.ProviderOutlook) && r.config.AuthMethod == "oauth2" && credentials != nil {
 			r.tokens = credentials.Account(owner, id)
 		} else if r.config.Provider != providers.ProviderIMAP || r.config.AuthMethod != "plain" {
-			return errors.New("routed worker supports plain IMAP and configured Gmail OAuth accounts only")
+			return errors.New("routed worker supports plain IMAP and configured Gmail/Outlook OAuth accounts only")
 		}
 		r.account, err = local.GetAccountByIDForUser(ctx, owner, id)
 		if err != nil {
@@ -315,17 +316,26 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 		s.mu.Unlock()
 		var scope *userIMAPScope
 		queueFailed := false
+		var receiveErr error
 		defer func() {
 			if ctx.Err() != nil {
 				return
 			}
 			next := time.Now().Add(interval)
+			if receiveErr != nil && scope != nil && scope.config.Provider == providers.ProviderOutlook {
+				next = minTime(next, time.Now().Add(30*time.Second))
+				queueFailed = true
+			}
 			if scope != nil {
 				var queued time.Time
 				err := scope.call(ctx, func(db *storage.DB) error {
 					var err error
 					if scope.config.Provider == providers.ProviderGmail {
 						queued, err = db.NextGmailQueueAttempt(ctx, id)
+						return err
+					}
+					if scope.config.Provider == providers.ProviderOutlook {
+						queued, err = db.NextProviderLabelQueueAttempt(ctx, id, storage.LabelProviderOutlook)
 						return err
 					}
 					queued, err = db.NextMessageMutationAttempt(ctx, id)
@@ -354,6 +364,9 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 				// spinning on persistent local storage failure; a new wake still
 				// wins through the polling revision check below.
 				next = time.Now().Add(30 * time.Second)
+			}
+			if scope != nil && scope.config.Provider == providers.ProviderOutlook && scope.retryAt.After(next) {
+				next = scope.retryAt
 			}
 			updated, err := s.Routing().DeferAccountPoll(ctx, owner, id, revision, next)
 			if err != nil {
@@ -405,6 +418,7 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 		o.imapScope = scope
 		o.events = s.events
 		err = o.syncAccount(ctx, id, true)
+		receiveErr = err
 		if err == nil {
 			err = s.reconcileWatches(ctx, scope)
 		}
@@ -477,10 +491,10 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 			if provider == nil || provider.AccountID != id {
 				return sql.ErrNoRows
 			}
-			if provider.AccountProvider == providers.ProviderGmail {
+			if provider.AccountProvider == providers.ProviderGmail || provider.AccountProvider == providers.ProviderOutlook {
 				providerID = provider.RemoteMessageID
 				if providerID == "" {
-					return errors.New("Gmail message identity is unavailable")
+					return errors.New("provider message identity is unavailable")
 				}
 				return nil
 			}
@@ -505,7 +519,12 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 			raw, _ = os.ReadFile(rawPath)
 		}
 		if len(raw) == 0 {
-			if scope.config.Provider == providers.ProviderGmail {
+			if scope.config.Provider == providers.ProviderOutlook {
+				raw, err = s.fetchOutlookRaw(ctx, scope, providerID)
+				if err != nil {
+					return err
+				}
+			} else if scope.config.Provider == providers.ProviderGmail {
 				raw, err = s.fetchGmailRaw(ctx, scope, providerID)
 				if err != nil {
 					return err
@@ -546,14 +565,14 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 		}
 		cache, err := prepareUserIMAPBody(ctx, candidate, id, msgID, parsed)
 		cache.FetchInfo, cache.UIDValidity = info, validity
-		if scope.config.Provider == providers.ProviderGmail {
-			cache.ProviderMessageID, cache.ProviderAccountID = providerID, scope.config.ProviderAccountID
+		if scope.config.Provider == providers.ProviderGmail || scope.config.Provider == providers.ProviderOutlook {
+			cache.ProviderMessageID, cache.ProviderAccountID, cache.ProviderType = providerID, scope.config.ProviderAccountID, scope.config.Provider
 		}
 		if err != nil {
 			return err
 		}
 		err = scope.call(ctx, func(db *storage.DB) error {
-			if scope.config.Provider == providers.ProviderGmail {
+			if scope.config.Provider == providers.ProviderGmail || scope.config.Provider == providers.ProviderOutlook {
 				return db.SaveMessageBodyCache(ctx, msgID, id, cache)
 			}
 			current, err := db.GetMessageFetchInfoForUser(ctx, msgID, owner)

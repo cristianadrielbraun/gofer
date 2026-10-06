@@ -15,6 +15,7 @@ type MessageBodyCache struct {
 	FetchInfo                            *MessageFetchInfo
 	UIDValidity                          uint32
 	ProviderMessageID, ProviderAccountID string
+	ProviderType                         string
 	TextPath, HTMLPath, OriginalHTMLPath string
 }
 
@@ -33,13 +34,20 @@ func (db *DB) SaveMessageBodyCache(ctx context.Context, id int64, accountID stri
 	defer tx.Rollback()
 	var matches int
 	if c.ProviderMessageID != "" {
+		provider := c.ProviderType
+		if provider == "" {
+			provider = "gmail"
+		} // Compatibility with the original Gmail cache contract.
+		if provider != "gmail" && provider != "outlook" {
+			return fmt.Errorf("unsupported provider body identity")
+		}
 		if c.ProviderAccountID == "" {
 			return fmt.Errorf("provider account identity required")
 		}
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages m JOIN accounts a ON a.id=m.account_id
-		 WHERE m.id=? AND m.account_id=? AND m.remote_message_id=? AND a.provider='gmail' AND a.auth_method='oauth2'
+		 WHERE m.id=? AND m.account_id=? AND m.remote_message_id=? AND a.provider=? AND a.auth_method='oauth2'
 		 AND a.provider_account_id=? AND COALESCE(a.is_deleting,0)=0
-		 AND EXISTS(SELECT 1 FROM message_folder_state ms JOIN folders f ON f.id=ms.folder_id WHERE ms.message_id=m.id AND ms.is_deleted=0 AND f.account_id=a.id)`, id, accountID, c.ProviderMessageID, c.ProviderAccountID).Scan(&matches); err != nil {
+		 AND EXISTS(SELECT 1 FROM message_folder_state ms JOIN folders f ON f.id=ms.folder_id WHERE ms.message_id=m.id AND ms.is_deleted=0 AND f.account_id=a.id)`, id, accountID, c.ProviderMessageID, provider, c.ProviderAccountID).Scan(&matches); err != nil {
 			return err
 		}
 	} else {

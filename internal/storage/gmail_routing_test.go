@@ -47,11 +47,20 @@ func TestGmailQueueDeadlineCombinesOwnedQueuesAndTimeFormats(t *testing.T) {
 }
 
 func TestGmailBodyPublicationValidatesIdentityAndRollsBackAllRows(t *testing.T) {
-	db, id := seedMessageMutationTest(t, "gmail", []UpsertFolderInput{{ID: "inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}})
+	testProviderBodyPublication(t, "gmail")
+}
+
+func TestOutlookBodyPublicationValidatesIdentityAndRollsBackAllRows(t *testing.T) {
+	testProviderBodyPublication(t, "outlook")
+}
+
+func testProviderBodyPublication(t *testing.T, provider string) {
+	t.Helper()
+	db, id := seedMessageMutationTest(t, provider, []UpsertFolderInput{{ID: "inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}})
 	if _, err := db.Write().Exec(`UPDATE accounts SET auth_method='oauth2',provider_account_id='subject' WHERE id='acc'; UPDATE messages SET remote_message_id='m1' WHERE id=?`, id); err != nil {
 		t.Fatal(err)
 	}
-	cache := MessageBodyCache{ProviderMessageID: "m1", ProviderAccountID: "subject", TextPath: "candidate-text", Parsed: &mailmessage.ParsedMessage{Subject: "published body", FromEmail: "sender@mail.test", RawPath: "candidate-raw", Attachments: []mailmessage.AttachmentMeta{{Filename: "report.txt", BlobPath: "candidate-attachment"}}, To: []mailmessage.Recipient{{Email: "recipient@mail.test"}}}}
+	cache := MessageBodyCache{ProviderMessageID: "m1", ProviderAccountID: "subject", ProviderType: provider, TextPath: "candidate-text", Parsed: &mailmessage.ParsedMessage{Subject: "published body", FromEmail: "sender@mail.test", RawPath: "candidate-raw", Attachments: []mailmessage.AttachmentMeta{{Filename: "report.txt", BlobPath: "candidate-attachment"}}, To: []mailmessage.Recipient{{Email: "recipient@mail.test"}}}}
 	assertUnpublished := func() {
 		t.Helper()
 		var count int
@@ -68,7 +77,7 @@ func TestGmailBodyPublicationValidatesIdentityAndRollsBackAllRows(t *testing.T) 
 			case "provider-subject":
 				candidate.ProviderAccountID = "other"
 			case "provider":
-				if _, err := db.Write().Exec(`UPDATE accounts SET provider='outlook' WHERE id='acc'`); err != nil {
+				if _, err := db.Write().Exec(`UPDATE accounts SET provider=? WHERE id='acc'`, map[string]string{"gmail": "outlook", "outlook": "gmail"}[provider]); err != nil {
 					t.Fatal(err)
 				}
 			case "method":
@@ -84,7 +93,10 @@ func TestGmailBodyPublicationValidatesIdentityAndRollsBackAllRows(t *testing.T) 
 				t.Fatal("stale provider body accepted")
 			}
 			assertUnpublished()
-			if _, err := db.Write().Exec(`UPDATE accounts SET provider='gmail',auth_method='oauth2' WHERE id='acc'; UPDATE message_folder_state SET is_deleted=0 WHERE message_id=?`, id); err != nil {
+			if _, err := db.Write().Exec(`UPDATE accounts SET provider=?,auth_method='oauth2' WHERE id='acc'`, provider); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Write().Exec(`UPDATE message_folder_state SET is_deleted=0 WHERE message_id=?`, id); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -105,5 +117,44 @@ func TestGmailBodyPublicationValidatesIdentityAndRollsBackAllRows(t *testing.T) 
 	var count int
 	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_search WHERE message_search MATCH 'published'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("successful body not searchable: %d %v", count, err)
+	}
+}
+
+func TestOutlookLabelQueueDeadlineIsAccountAndProviderScoped(t *testing.T) {
+	db, id := seedMessageMutationTest(t, "outlook", []UpsertFolderInput{{ID: "inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}})
+	if next, err := db.NextProviderLabelQueueAttempt(t.Context(), "acc", LabelProviderOutlook); err != nil || !next.IsZero() {
+		t.Fatalf("empty queue: %v %v", next, err)
+	}
+	if _, err := db.NextProviderLabelQueueAttempt(t.Context(), "", LabelProviderOutlook); err == nil {
+		t.Fatal("empty account exposed global queue")
+	}
+	if _, err := db.NextProviderLabelQueueAttempt(t.Context(), "acc", "imap_keyword"); err == nil {
+		t.Fatal("unsupported provider accepted")
+	}
+	if _, err := db.Write().Exec(`INSERT INTO accounts(id,user_id,provider,email_address) VALUES('other','default','outlook','other@mail.test')`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := db.Write().Exec(`INSERT INTO messages(account_id,internet_message_id) VALUES('other','<other@mail.test>')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
+	if _, err := db.Write().Exec(`INSERT INTO label_mutation_queue(account_id,message_id,provider_type,operation,label_name,next_attempt_at) VALUES
+	 ('acc',?,'outlook','add','Work',?), ('acc',?,'gmail','add','Work',datetime('now','-1 minute')), ('other',?,'outlook','add','Work',datetime('now','-1 minute'))`, id, at.Format(time.RFC3339), id, otherID); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := db.NextProviderLabelQueueAttempt(t.Context(), "acc", LabelProviderOutlook); err != nil || !next.Equal(at) {
+		t.Fatalf("owned Outlook deadline: %v %v", next, err)
+	}
+	earlier := at.Add(-10 * time.Second)
+	if _, err := db.Write().Exec(`INSERT INTO label_mutation_queue(account_id,message_id,provider_type,operation,label_name,next_attempt_at) VALUES('acc',?,'outlook','remove','Other',?)`, id, earlier.Format("2006-01-02 15:04:05")); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := db.NextProviderLabelQueueAttempt(t.Context(), "acc", LabelProviderOutlook); err != nil || !next.Equal(earlier) {
+		t.Fatalf("mixed-format minimum: %v %v", next, err)
 	}
 }

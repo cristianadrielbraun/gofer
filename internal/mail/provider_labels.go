@@ -17,6 +17,7 @@ import (
 
 	mailimap "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/retry"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	goimap "github.com/emersion/go-imap/v2"
 )
@@ -35,6 +36,7 @@ var errProviderLabelAuth = errors.New("provider label auth failed")
 type providerAPIError struct {
 	StatusCode int
 	Body       string
+	RetryAt    time.Time
 }
 
 func (e *providerAPIError) Error() string {
@@ -904,7 +906,7 @@ func (o *SyncOrchestrator) syncOutlookCategories(ctx context.Context, accountID 
 
 func (o *SyncOrchestrator) syncOutlookCategoryCatalog(ctx context.Context, accountID, token string) (map[string]outlookCategory, error) {
 	var response outlookCategoriesResponse
-	if err := providerJSON(ctx, http.MethodGet, outlookGraphBaseURL+"/me/outlook/masterCategories", token, outlookImmutableIDHeaders(), nil, &response); err != nil {
+	if err := o.outlookJSON(ctx, http.MethodGet, outlookGraphBaseURL+"/me/outlook/masterCategories", token, outlookImmutableIDHeaders(), nil, &response); err != nil {
 		return nil, err
 	}
 	categoriesByName := make(map[string]outlookCategory, len(response.Value))
@@ -918,7 +920,7 @@ func (o *SyncOrchestrator) syncOutlookCategoryCatalog(ctx context.Context, accou
 		inputs = append(inputs, outlookCategoryLabelInput(accountID, category.DisplayName))
 	}
 	if len(inputs) > 0 {
-		if err := o.db.UpsertLabels(ctx, inputs); err != nil {
+		if err := o.outlookRepository().UpsertLabels(ctx, inputs); err != nil {
 			return nil, err
 		}
 	}
@@ -1293,7 +1295,7 @@ func findGmailProviderLabel(ctx context.Context, token, labelName string) (gmail
 }
 
 func (o *SyncOrchestrator) replayOutlookLabelMutationQueue(ctx context.Context, accountID, token string) {
-	entries, err := o.db.ListDueLabelMutations(ctx, accountID, storage.LabelProviderOutlook, providerLabelMutationReplayLimit)
+	entries, err := o.outlookRepository().ListDueLabelMutations(ctx, accountID, storage.LabelProviderOutlook, providerLabelMutationReplayLimit)
 	if err != nil {
 		log.Printf("outlook label mutation queue list account=%s: %v", accountID, err)
 		return
@@ -1301,12 +1303,12 @@ func (o *SyncOrchestrator) replayOutlookLabelMutationQueue(ctx context.Context, 
 	for _, entry := range entries {
 		if err := o.applyQueuedOutlookLabelMutation(ctx, token, entry); err != nil {
 			log.Printf("outlook label mutation replay account=%s message=%d label=%q op=%s: %v", entry.AccountID, entry.MessageID, entry.LabelName, entry.Operation, err)
-			if markErr := o.db.MarkLabelMutationError(ctx, entry.ID, entry.Attempts, err); markErr != nil {
+			if markErr := o.outlookRepository().MarkLabelMutationError(ctx, entry.ID, entry.Attempts, err); markErr != nil {
 				log.Printf("outlook label mutation queue mark error id=%d: %v", entry.ID, markErr)
 			}
 			continue
 		}
-		if err := o.db.MarkLabelMutationSuccess(ctx, entry.ID); err != nil {
+		if err := o.outlookRepository().MarkLabelMutationSuccess(ctx, entry.ID); err != nil {
 			log.Printf("outlook label mutation queue mark success id=%d: %v", entry.ID, err)
 		}
 	}
@@ -1317,19 +1319,27 @@ func (o *SyncOrchestrator) applyQueuedOutlookLabelMutation(ctx context.Context, 
 	if err != nil || info == nil {
 		return err
 	}
+	if info.AccountID != entry.AccountID || info.AccountProvider != providers.ProviderOutlook {
+		return errors.New("queued Graph message identity does not match its account")
+	}
 	providerMessageID, err := o.queuedOutlookMessageID(ctx, token, entry.MessageID, info)
 	if err != nil {
 		return err
 	}
 
-	state, err := getOutlookMessageState(ctx, token, providerMessageID)
+	var state outlookMessageState
+	err = o.outlookRequest(ctx, token, func(access string) error {
+		var err error
+		state, err = getOutlookMessageState(ctx, access, providerMessageID)
+		return err
+	})
 	if err != nil {
 		return err
 	}
 	categories := append([]string(nil), state.Categories...)
 	switch entry.Operation {
 	case storage.LabelMutationAdd:
-		if err := ensureOutlookProviderCategory(ctx, token, entry.LabelName); err != nil {
+		if err := o.outlookRequest(ctx, token, func(access string) error { return ensureOutlookProviderCategory(ctx, access, entry.LabelName) }); err != nil {
 			return err
 		}
 		categories = appendUniqueFold(categories, entry.LabelName)
@@ -1340,29 +1350,29 @@ func (o *SyncOrchestrator) applyQueuedOutlookLabelMutation(ctx context.Context, 
 		var removed bool
 		categories, removed = removeFold(categories, entry.LabelName)
 		if !removed {
-			if err := o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderOutlook, "", entry.LabelName); err != nil {
+			if err := o.outlookRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderOutlook, "", entry.LabelName); err != nil {
 				return err
 			}
-			return o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
+			return o.outlookRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
 		}
 	default:
 		return fmt.Errorf("unsupported label mutation operation %q", entry.Operation)
 	}
 
 	endpoint := outlookGraphBaseURL + "/me/messages/" + url.PathEscape(providerMessageID)
-	if err := providerJSON(ctx, http.MethodPatch, endpoint, token, outlookImmutableIDHeaders(), map[string][]string{"categories": categories}, nil); err != nil {
+	if err := o.outlookJSON(ctx, http.MethodPatch, endpoint, token, outlookImmutableIDHeaders(), map[string][]string{"categories": categories}, nil); err != nil {
 		return err
 	}
 	if entry.Operation == storage.LabelMutationAdd {
-		if _, err := o.db.AddMessageLabel(ctx, entry.MessageID, entry.AccountID, outlookCategoryLabelInput(entry.AccountID, entry.LabelName)); err != nil {
+		if _, err := o.outlookRepository().AddMessageLabel(ctx, entry.MessageID, entry.AccountID, outlookCategoryLabelInput(entry.AccountID, entry.LabelName)); err != nil {
 			return err
 		}
-		return o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
+		return o.outlookRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
 	}
-	if err := o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderOutlook, entry.LabelName, entry.LabelName); err != nil {
+	if err := o.outlookRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderOutlook, entry.LabelName, entry.LabelName); err != nil {
 		return err
 	}
-	return o.db.RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
+	return o.outlookRepository().RemoveMessageLabelForProvider(ctx, entry.MessageID, entry.AccountID, storage.LabelProviderLocal, "", entry.LabelName)
 }
 
 func (o *SyncOrchestrator) queuedOutlookMessageID(ctx context.Context, token string, messageID int64, info *storage.MessageMutationInfo) (string, error) {
@@ -1370,11 +1380,16 @@ func (o *SyncOrchestrator) queuedOutlookMessageID(ctx context.Context, token str
 	if providerMessageID != "" {
 		return providerMessageID, nil
 	}
-	resolved, err := outlookMessageIDForInternetID(ctx, token, info.InternetMessageID)
+	var resolved string
+	err := o.outlookRequest(ctx, token, func(access string) error {
+		var err error
+		resolved, err = outlookMessageIDForInternetID(ctx, access, info.InternetMessageID)
+		return err
+	})
 	if err != nil {
 		return "", err
 	}
-	if err := o.db.SetMessageProviderMessageID(ctx, messageID, resolved); err != nil {
+	if err := o.outlookRepository().SetMessageProviderMessageID(ctx, messageID, resolved); err != nil {
 		log.Printf("cache outlook message id failed: %v", err)
 	}
 	return resolved, nil
@@ -1586,7 +1601,8 @@ func providerJSON(ctx context.Context, method, endpoint, token string, headers m
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return &providerAPIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
+		retryAt, _ := retry.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now().UTC())
+		return &providerAPIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw)), RetryAt: retryAt}
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
