@@ -54,10 +54,11 @@ func initializeUserStore(ctx context.Context, db *DB, owner userStoreOwner) erro
 		return err
 	}
 
-	for _, table := range centralAuthenticationTables {
+	centralTables := append(append([]string(nil), centralAuthenticationTables...), "web_push_subscriptions")
+	for _, table := range centralTables {
 		for _, action := range []string{"INSERT", "UPDATE", "DELETE"} {
 			sql := fmt.Sprintf(`CREATE TRIGGER %s BEFORE %s ON %s
-				BEGIN SELECT RAISE(ABORT, 'authentication belongs in the system database'); END`,
+				BEGIN SELECT RAISE(ABORT, 'system records belong in the system database'); END`,
 				quoteStoreIdentifier("gofer_store_central_"+table+"_"+strings.ToLower(action)), action, quoteStoreIdentifier(table))
 			if _, err := tx.ExecContext(ctx, sql); err != nil {
 				return err

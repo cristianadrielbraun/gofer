@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"html/template"
@@ -7599,6 +7600,54 @@ func (db *DB) SetUISettings(ctx context.Context, userID string, settings map[str
 		return err
 	}
 	return db.SetSetting(ctx, userID, "ui_settings", string(val))
+}
+
+// MergeUISettings serializes partial updates in the writer transaction so
+// simultaneous requests cannot overwrite each other's unrelated preferences.
+func (db *DB) MergeUISettings(ctx context.Context, userID string, updates map[string]string) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var value string
+	err = tx.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE user_id = ? AND key = 'ui_settings'`, userID).Scan(&value)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	current := defaultUISettings()
+	var stored map[string]string
+	if value != "" && json.Unmarshal([]byte(value), &stored) == nil {
+		for key, value := range stored {
+			current[key] = value
+		}
+	}
+	if legacy := current["default_compose_view"]; legacy != "" {
+		if stored["default_new_compose_view"] == "" {
+			current["default_new_compose_view"] = legacy
+		}
+		if stored["default_reply_compose_view"] == "" {
+			current["default_reply_compose_view"] = legacy
+		}
+	}
+	// Match GetUISettings: an empty stored preference resolves to its default
+	// before applying this request's explicit updates.
+	for key, value := range defaultUISettings() {
+		if current[key] == "" {
+			current[key] = value
+		}
+	}
+	for key, value := range updates {
+		current[key] = value
+	}
+	payload, err := json.Marshal(current)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO app_settings (key, user_id, value, updated_at) VALUES ('ui_settings', ?, ?, CURRENT_TIMESTAMP)`, userID, string(payload)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) ListSignatures(ctx context.Context, userID string) ([]models.Signature, error) {

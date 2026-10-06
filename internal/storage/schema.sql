@@ -1387,6 +1387,7 @@ CREATE TABLE IF NOT EXISTS web_push_subscriptions (
     auth TEXT NOT NULL,
     user_agent TEXT NOT NULL DEFAULT '',
     last_error TEXT NOT NULL DEFAULT '',
+    revision TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -1555,4 +1556,4 @@ CREATE TABLE IF NOT EXISTS calendar_teams_drafts (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (105);
+INSERT OR REPLACE INTO schema_version (version) VALUES (106);

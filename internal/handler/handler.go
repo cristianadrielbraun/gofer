@@ -42,6 +42,9 @@ import (
 
 type Handler struct {
 	db                         *storage.DB
+	userStorage                *storage.AccountRouting
+	userBackfillQueue          chan userContactBackfillJob
+	userBackfills              map[string]struct{}
 	accountStore               *config.AccountStore
 	syncer                     *mail.SyncOrchestrator
 	blobStore                  *store.BlobStore
@@ -737,6 +740,10 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ensureContactsBackfilled(ctx context.Context) {
+	if h.userStorage != nil {
+		h.ensureUserContactsBackfilled(ctx)
+		return
+	}
 	userID := h.userID(ctx)
 	settings := h.db.GetContactSettings(ctx, userID)
 	if !settings.AutoCreateObserved || (!settings.ObserveSenders && !settings.ObserveRecipients) {
@@ -1218,7 +1225,13 @@ func (h *Handler) contactSaveTargets(ctx context.Context, raw string) []string {
 }
 
 func (h *Handler) handleExportContacts(w http.ResponseWriter, r *http.Request) {
-	contacts, err := h.db.ListContactsForExport(r.Context(), h.userID(r.Context()))
+	userID := h.userID(r.Context())
+	var contacts []models.Contact
+	err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
+		var err error
+		contacts, err = db.ListContactsForExport(r.Context(), userID)
+		return err
+	})
 	if err != nil {
 		http.Error(w, "failed to export contacts", http.StatusInternalServerError)
 		return
@@ -1227,7 +1240,13 @@ func (h *Handler) handleExportContacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleExportContact(w http.ResponseWriter, r *http.Request) {
-	contact, err := h.db.GetContact(r.Context(), h.userID(r.Context()), r.PathValue("id"))
+	userID := h.userID(r.Context())
+	var contact *models.Contact
+	err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
+		var err error
+		contact, err = db.GetContact(r.Context(), userID, r.PathValue("id"))
+		return err
+	})
 	if err != nil {
 		http.Error(w, "failed to export contact", http.StatusInternalServerError)
 		return
@@ -1364,7 +1383,13 @@ func (h *Handler) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleContactSearch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.ensureContactsBackfilled(ctx)
-	contacts, err := h.db.SearchContacts(ctx, h.userID(ctx), r.URL.Query().Get("q"), 12)
+	userID := h.userID(ctx)
+	var contacts []models.Contact
+	err := h.withUserDB(ctx, userID, func(db *storage.DB) error {
+		var err error
+		contacts, err = db.SearchContacts(ctx, userID, r.URL.Query().Get("q"), 12)
+		return err
+	})
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -3606,7 +3631,15 @@ func (h *Handler) handleSaveSyncSettings(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleGetUISettings(w http.ResponseWriter, r *http.Request) {
-	settings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
+	userID := h.userID(r.Context())
+	var settings map[string]string
+	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
+		settings = db.GetUISettings(r.Context(), userID)
+		return nil
+	}); err != nil {
+		http.Error(w, "settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(settings)
 }
@@ -3618,12 +3651,10 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-	for k, v := range updates {
-		current[k] = v
-	}
-
-	if err := h.db.SetUISettings(r.Context(), h.userID(r.Context()), current); err != nil {
+	userID := h.userID(r.Context())
+	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
+		return db.MergeUISettings(r.Context(), userID, updates)
+	}); err != nil {
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
 	}

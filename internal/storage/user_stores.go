@@ -47,6 +47,7 @@ type UserStores struct {
 	wake        chan struct{}
 	done        chan struct{}
 	closing     bool
+	routing     *AccountRouting
 	closeErr    error
 	now         func() time.Time
 }
@@ -113,6 +114,16 @@ func NewUserStores(system *DB, options UserStoreOptions) (*UserStores, error) {
 }
 
 func (m *UserStores) Acquire(ctx context.Context, userID string) (*UserStoreLease, error) {
+	return m.acquire(ctx, userID, true)
+}
+
+// AcquireExisting never substitutes a new empty file for a missing user store.
+// Account routes use it once local creation has been committed.
+func (m *UserStores) AcquireExisting(ctx context.Context, userID string) (*UserStoreLease, error) {
+	return m.acquire(ctx, userID, false)
+}
+
+func (m *UserStores) acquire(ctx context.Context, userID string, create bool) (*UserStoreLease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -165,7 +176,7 @@ func (m *UserStores) Acquire(ctx context.Context, userID string) (*UserStoreLeas
 		m.entries[userID] = entry
 		m.mu.Unlock()
 
-		db, err := m.openUserStore(ctx, owner)
+		db, err := m.openUserStore(ctx, owner, create)
 		m.mu.Lock()
 		if err == nil {
 			err = ctx.Err()
@@ -324,7 +335,7 @@ func (m *UserStores) userPath(userID string) string {
 	return filepath.Join(m.directory, hex.EncodeToString(hash[:])+".db")
 }
 
-func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner) (*DB, error) {
+func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, create bool) (*DB, error) {
 	path := m.userPath(owner.id)
 	info, err := os.Lstat(path)
 	if err == nil {
@@ -346,6 +357,9 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner) (*
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	}
+	if !create {
+		return nil, fmt.Errorf("existing user database is missing: %w", err)
 	}
 
 	// Initialize privately, close/checkpoint every connection, then publish

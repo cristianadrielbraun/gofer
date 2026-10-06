@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -15,21 +16,33 @@ import (
 )
 
 type Service struct {
-	db              *storage.DB
-	events          *mail.EventBus
-	vapidPublicKey  string
-	vapidPrivateKey string
-	vapidSubject    string
+	db               *storage.DB
+	userStorage      *storage.AccountRouting
+	sendNotification func(context.Context, []byte, *webpush.Subscription, *webpush.Options) (*http.Response, error)
+	events           *mail.EventBus
+	vapidPublicKey   string
+	vapidPrivateKey  string
+	vapidSubject     string
 }
 
 func New(db *storage.DB, events *mail.EventBus, vapidPublicKey, vapidPrivateKey, vapidSubject string) *Service {
 	return &Service{
-		db:              db,
-		events:          events,
-		vapidPublicKey:  vapidPublicKey,
-		vapidPrivateKey: vapidPrivateKey,
-		vapidSubject:    vapidSubject,
+		db:               db,
+		events:           events,
+		vapidPublicKey:   vapidPublicKey,
+		vapidPrivateKey:  vapidPrivateKey,
+		vapidSubject:     vapidSubject,
+		sendNotification: webpush.SendNotificationWithContext,
 	}
+}
+
+func NewWithUserStorage(routing *storage.AccountRouting, events *mail.EventBus, vapidPublicKey, vapidPrivateKey, vapidSubject string) (*Service, error) {
+	if routing == nil {
+		return nil, errors.New("user routing is required")
+	}
+	s := New(routing.System(), events, vapidPublicKey, vapidPrivateKey, vapidSubject)
+	s.userStorage = routing
+	return s, nil
 }
 
 func (s *Service) Start(ctx context.Context) {
@@ -66,7 +79,30 @@ func (s *Service) handleNewMail(ctx context.Context, event mail.Event) {
 		return
 	}
 
-	userID, err := s.db.GetAccountUserID(ctx, event.AccountID)
+	var userID string
+	var settings map[string]string
+	var err error
+	if s.userStorage != nil {
+		err = s.userStorage.WithAccount(ctx, event.AccountID, func(db *storage.DB, owner string) error {
+			if event.AdminOnly || (event.UserID != "" && event.UserID != owner) {
+				return storage.ErrAccountRoute
+			}
+			var role string
+			if err := db.Read().QueryRowContext(ctx, `SELECT role FROM folders WHERE id = ? AND account_id = ?`, event.FolderID, event.AccountID).Scan(&role); err != nil {
+				return err
+			}
+			if roleSuppressesNotification(role) {
+				return storage.ErrAccountRoute
+			}
+			userID, settings = owner, db.GetUISettings(ctx, owner)
+			return nil
+		})
+	} else {
+		userID, err = s.db.GetAccountUserID(ctx, event.AccountID)
+		if err == nil {
+			settings = s.db.GetUISettings(ctx, userID)
+		}
+	}
 	if err != nil || userID == "" {
 		if err != nil {
 			log.Printf("notifications: account user lookup failed: %v", err)
@@ -74,7 +110,6 @@ func (s *Service) handleNewMail(ctx context.Context, event mail.Event) {
 		return
 	}
 	title, message := newMailNotificationText(event.Payload, unreadCount)
-	settings := s.db.GetUISettings(ctx, userID)
 	if settings["desktop_notifications"] != "true" {
 		return
 	}
@@ -123,6 +158,11 @@ func (s *Service) sendWebPush(ctx context.Context, userID string, event mail.Eve
 	}
 
 	for _, sub := range subs {
+		if s.userStorage != nil {
+			if err := s.userStorage.WithAccountForUser(ctx, userID, event.AccountID, func(*storage.DB) error { return nil }); err != nil {
+				return
+			}
+		}
 		pushSub := &webpush.Subscription{
 			Endpoint: sub.Endpoint,
 			Keys: webpush.Keys{
@@ -131,7 +171,7 @@ func (s *Service) sendWebPush(ctx context.Context, userID string, event mail.Eve
 			},
 		}
 		pushCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		resp, err := webpush.SendNotificationWithContext(pushCtx, payload, pushSub, &webpush.Options{
+		resp, err := s.sendNotification(pushCtx, payload, pushSub, &webpush.Options{
 			Subscriber:      s.vapidSubject,
 			VAPIDPublicKey:  s.vapidPublicKey,
 			VAPIDPrivateKey: s.vapidPrivateKey,
@@ -145,15 +185,28 @@ func (s *Service) sendWebPush(ctx context.Context, userID string, event mail.Eve
 		}
 		if err != nil {
 			log.Printf("notifications: web push failed: %v", err)
-			_ = s.db.SetWebPushSubscriptionError(ctx, sub.Endpoint, err.Error())
+			_ = s.recordDelivery(ctx, userID, event.AccountID, sub, false, err.Error())
 			continue
 		}
 		if resp != nil && (resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound) {
-			_ = s.db.DeleteWebPushSubscriptionEndpoint(ctx, sub.Endpoint)
+			_ = s.recordDelivery(ctx, userID, event.AccountID, sub, true, "")
 		} else if resp != nil && resp.StatusCode >= 400 {
-			_ = s.db.SetWebPushSubscriptionError(ctx, sub.Endpoint, resp.Status)
+			_ = s.recordDelivery(ctx, userID, event.AccountID, sub, false, resp.Status)
 		}
 	}
+}
+
+func (s *Service) recordDelivery(ctx context.Context, userID, accountID string, sub storage.WebPushSubscription, remove bool, message string) error {
+	update := func(*storage.DB) error {
+		if remove {
+			return s.db.DeleteWebPushSubscriptionIfCurrent(ctx, sub)
+		}
+		return s.db.SetWebPushSubscriptionErrorIfCurrent(ctx, sub, message)
+	}
+	if s.userStorage != nil {
+		return s.userStorage.WithAccountForUser(ctx, userID, accountID, update)
+	}
+	return update(nil)
 }
 
 func roleSuppressesNotification(role string) bool {

@@ -17,8 +17,10 @@ import (
 )
 
 type AccountStore struct {
-	db  *storage.DB
-	aes cipher.AEAD
+	db *storage.DB
+	// Account configuration is local; transport exceptions are instance policy.
+	policyDB *storage.DB
+	aes      cipher.AEAD
 }
 
 const accountDeletionBatchSize int64 = 5000
@@ -38,7 +40,7 @@ func NewAccountStore(db *storage.DB, secretKey []byte) (*AccountStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create gcm: %w", err)
 	}
-	return &AccountStore{db: db, aes: gcm}, nil
+	return &AccountStore{db: db, policyDB: db, aes: gcm}, nil
 }
 
 func (s *AccountStore) encrypt(plaintext string) ([]byte, error) {
@@ -107,7 +109,7 @@ func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models
 		return nil, fmt.Errorf("query account config: %w", err)
 	}
 	if !accountProviderUsesGraphMail(cfg.Provider) {
-		cfg.IMAPAllowPlaintext, err = s.db.IsPlaintextTransportAllowed(ctx, "imap", cfg.IMAPHost, cfg.IMAPPort)
+		cfg.IMAPAllowPlaintext, err = s.policyDB.IsPlaintextTransportAllowed(ctx, "imap", cfg.IMAPHost, cfg.IMAPPort)
 		if err != nil {
 			return nil, fmt.Errorf("account %s: check IMAP security exception: %w", accountID, err)
 		}
@@ -115,7 +117,7 @@ func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models
 		if err != nil {
 			return nil, fmt.Errorf("account %s: %w", accountID, err)
 		}
-		cfg.SMTPAllowPlaintext, err = s.db.IsPlaintextTransportAllowed(ctx, "smtp", cfg.SMTPHost, cfg.SMTPPort)
+		cfg.SMTPAllowPlaintext, err = s.policyDB.IsPlaintextTransportAllowed(ctx, "smtp", cfg.SMTPHost, cfg.SMTPPort)
 		if err != nil {
 			return nil, fmt.Errorf("account %s: check SMTP security exception: %w", accountID, err)
 		}
@@ -521,7 +523,7 @@ func (s *AccountStore) normalizeAccountMailTLSModes(ctx context.Context, req *mo
 		req.SMTPTLSMode = mailtransport.TLSModeImplicit
 	}
 	if strings.TrimSpace(req.IMAPTLSMode) != "" {
-		allowPlaintext, err := s.db.IsPlaintextTransportAllowed(ctx, "imap", req.IMAPHost, req.IMAPPort)
+		allowPlaintext, err := s.policyDB.IsPlaintextTransportAllowed(ctx, "imap", req.IMAPHost, req.IMAPPort)
 		if err != nil {
 			return fmt.Errorf("check IMAP security exception: %w", err)
 		}
@@ -532,7 +534,7 @@ func (s *AccountStore) normalizeAccountMailTLSModes(ctx context.Context, req *mo
 		req.IMAPTLSMode = mode
 	}
 	if strings.TrimSpace(req.SMTPTLSMode) != "" {
-		allowPlaintext, err := s.db.IsPlaintextTransportAllowed(ctx, "smtp", req.SMTPHost, req.SMTPPort)
+		allowPlaintext, err := s.policyDB.IsPlaintextTransportAllowed(ctx, "smtp", req.SMTPHost, req.SMTPPort)
 		if err != nil {
 			return fmt.Errorf("check SMTP security exception: %w", err)
 		}
@@ -558,6 +560,10 @@ func isBuiltinContactProvider(provider string) bool {
 }
 
 func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *models.CreateAccountRequest) (*models.Account, error) {
+	return s.createAccountWithID(ctx, userID, generateAccountID(req.EmailAddress), req, true)
+}
+
+func (s *AccountStore) prepareAccountCreation(ctx context.Context, req *models.CreateAccountRequest) error {
 	if req.Provider == "" {
 		req.Provider = "imap"
 	}
@@ -584,12 +590,19 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 		}
 	}
 	if err := s.normalizeAccountMailTLSModes(ctx, req, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id string, req *models.CreateAccountRequest, purgeDeleting bool) (*models.Account, error) {
+	if err := s.prepareAccountCreation(ctx, req); err != nil {
 		return nil, err
 	}
-
-	id := generateAccountID(req.EmailAddress)
-	if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
-		return nil, fmt.Errorf("purge deleting account: %w", err)
+	if purgeDeleting {
+		if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
+			return nil, fmt.Errorf("purge deleting account: %w", err)
+		}
 	}
 
 	encrypted, err := s.encrypt(req.Password)
@@ -608,20 +621,32 @@ func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *mo
 	initials := extractInitials(req.DisplayName)
 	color := generateColor(id)
 
-	_, err = s.db.Write().ExecContext(ctx,
-		`INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, display_name, color, initials,
+	query := `INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, display_name, color, initials,
 		  imap_host, imap_port, imap_tls_mode,
 		  smtp_host, smtp_port, smtp_tls_mode,
 		  username, encrypted_password, auth_method,
 		  smtp_username, encrypted_smtp_password)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
+	args := []any{
 		id, userID, req.Provider, req.ProviderAccountID, req.EmailAddress, req.DisplayName, color, initials,
 		req.IMAPHost, req.IMAPPort, req.IMAPTLSMode,
 		req.SMTPHost, req.SMTPPort, req.SMTPTLSMode,
 		req.Username, encrypted, req.AuthMethod,
-		req.SmtpUsername, encryptedSmtpPw)
+		req.SmtpUsername, encryptedSmtpPw}
+	if !purgeDeleting {
+		// The single local writer makes this check/insert atomic for concurrent
+		// UUID reservations. The same email may belong to different user stores.
+		query += ` WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE user_id = ? AND email_address = ? COLLATE NOCASE)`
+		args = append(args, userID, req.EmailAddress)
+	}
+	result, err := s.db.Write().ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("insert account: %w", err)
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return nil, err
+	} else if n != 1 {
+		return nil, fmt.Errorf("mailbox already exists for this user")
 	}
 
 	return &models.Account{
