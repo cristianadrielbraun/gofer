@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -16,15 +17,33 @@ import (
 // integration testing. It is deliberately not a complete application router.
 // Production startup still calls RegisterRoutes until migration/worker routing
 // is complete. Authentication middleware must wrap this mux as usual.
-func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.ServeMux, routing *storage.AccountRouting) error {
+func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.ServeMux, routing *storage.AccountRouting, options ...UserStorageOptions) error {
 	if routing == nil || routing.System() != h.db {
 		return errors.New("user routing must use the handler's central database")
 	}
 	if h.auth == nil || !h.auth.IsEnabled() || h.auth.Config().AuthenticationMode() != auth.ModeManaged {
 		return errors.New("user storage routes require managed authentication")
 	}
+	if len(options) > 1 {
+		return errors.New("only one user storage options value is supported")
+	}
+	var option UserStorageOptions
+	if len(options) == 1 {
+		option = options[0]
+	}
+	if option.Accounts != nil {
+		if option.Accounts.Routing() != routing {
+			return errors.New("account repository must use the same routing coordinator")
+		}
+		if option.Hooks.Created == nil || option.Hooks.Updated == nil || option.Hooks.Cleanup == nil {
+			return errors.New("routed account management requires create, update and cleanup lifecycle hooks")
+		}
+	} else if option.Hooks.Created != nil || option.Hooks.Updated != nil || option.Hooks.Cleanup != nil {
+		return errors.New("account lifecycle hooks require a scoped account repository")
+	}
 	// Share immutable services, not Handler mutexes or mutable worker state.
 	routed := &Handler{db: h.db, auth: h.auth, syncer: h.syncer, userStorage: routing,
+		userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
 		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
 		userBackfills: make(map[string]struct{})}
 	private := func(pattern string, handler http.HandlerFunc) {
@@ -46,8 +65,44 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/contacts/search", routed.handleContactSearch)
 	private("GET /api/contacts/export", routed.handleExportContacts)
 	private("GET /api/contacts/{id}/export", routed.handleExportContact)
+	private("GET /{$}", routed.handleIndex)
+	private("GET /folder/{id}", routed.handleFolderPartial)
+	private("GET /folder/{id}/full", routed.handleFolderFull)
+	private("GET /folder/{id}/{email}", routed.handleFolderWithEmail)
+	private("GET /mail/folder/{id}/items", routed.handleMailItems)
+	private("GET /mail/thread/{threadId}/subitems", routed.handleThreadSubItems)
+	private("GET /email/{id}", routed.handleEmailPartial)
+	private("GET /email/{id}/body", routed.handleUserEmailBody)
+	private("GET /search", routed.handleSearch)
+	private("GET /api/folders/unread", routed.handleFolderUnreadCounts)
+	private("GET /api/sidebar/mail", routed.handleMailSidebar)
+	private("GET /api/sidebar/accounts/{id}", routed.handleSidebarAccount)
+	private("GET /api/accounts", routed.handleUserAccounts)
+	private("GET /settings/accounts", routed.handleUserAccountSettings)
+	private("GET /api/accounts/{id}/deletion-status", routed.handleUserAccountDeletionStatus)
+	if option.Accounts != nil {
+		private("POST /api/accounts", routed.handleUserCreateAccount)
+		private("GET /api/accounts/{id}/edit", routed.handleUserEditAccount)
+		private("POST /api/accounts/{id}/edit", routed.handleUserUpdateAccount)
+		private("POST /api/accounts/{id}/color", routed.handleUserAccountColor)
+		private("DELETE /api/accounts/{id}", routed.handleUserDeleteAccount)
+	}
 	go routed.runUserContactBackfills(ctx)
 	return nil
+}
+
+// UserAccountHooks bridge persistence to converted provider workers and external
+// cleanup. They run without a database lease. Cleanup must stop/join account
+// workers and remove blobs and central OAuth credentials, and be idempotent.
+type UserAccountHooks struct {
+	Created func(context.Context, string) error
+	Updated func(context.Context, string) error
+	Cleanup func(context.Context, string) error
+}
+
+type UserStorageOptions struct {
+	Accounts *config.UserAccountStore
+	Hooks    UserAccountHooks
 }
 
 func (h *Handler) withUserDB(ctx context.Context, userID string, fn func(*storage.DB) error) error {

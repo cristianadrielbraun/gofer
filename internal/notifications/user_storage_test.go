@@ -22,16 +22,18 @@ import (
 )
 
 type userStorageFixture struct {
-	system   *storage.DB
-	routing  *storage.AccountRouting
-	service  *Service
-	http     http.Handler
-	sessions map[string]*auth.Session
-	accounts map[string]*models.Account
-	events   *mail.EventBus
+	system       *storage.DB
+	routing      *storage.AccountRouting
+	service      *Service
+	http         http.Handler
+	sessions     map[string]*auth.Session
+	accounts     map[string]*models.Account
+	accountStore *config.UserAccountStore
+	base         *handler.Handler
+	events       *mail.EventBus
 }
 
-func newUserStorageFixture(t *testing.T) *userStorageFixture {
+func newUserStorageFixture(t *testing.T, hooks ...handler.UserAccountHooks) *userStorageFixture {
 	t.Helper()
 	system, err := storage.New(filepath.Join(t.TempDir(), "system.db"))
 	if err != nil {
@@ -69,6 +71,7 @@ func newUserStorageFixture(t *testing.T) *userStorageFixture {
 		t.Fatal(err)
 	}
 	f := &userStorageFixture{system: system, routing: routing, sessions: make(map[string]*auth.Session), accounts: make(map[string]*models.Account)}
+	f.accountStore = accountStore
 	for _, owner := range []string{"alice", "bob"} {
 		f.sessions[owner], err = manager.CreateSession(t.Context(), owner, "integration test")
 		if err != nil {
@@ -95,10 +98,15 @@ func newUserStorageFixture(t *testing.T) *userStorageFixture {
 	syncer := mail.NewSyncOrchestrator(system, nil, nil, nil)
 	f.events = syncer.Events()
 	base := handler.New(system, nil, syncer, nil, manager, "test-vapid-public")
+	f.base = base
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	mux := http.NewServeMux()
-	if err := base.RegisterUserStorageRoutes(ctx, mux, routing); err != nil {
+	var options []handler.UserStorageOptions
+	if len(hooks) > 0 {
+		options = append(options, handler.UserStorageOptions{Accounts: accountStore, Hooks: hooks[0]})
+	}
+	if err := base.RegisterUserStorageRoutes(ctx, mux, routing, options...); err != nil {
 		t.Fatal(err)
 	}
 	f.http = manager.Middleware(mux)
@@ -112,6 +120,9 @@ func newUserStorageFixture(t *testing.T) *userStorageFixture {
 func (f *userStorageFixture) request(owner, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	if body != "" && !strings.HasPrefix(body, "{") {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 	if session := f.sessions[owner]; session != nil {
 		req.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
 	}

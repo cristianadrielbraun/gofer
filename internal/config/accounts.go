@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -24,6 +25,8 @@ type AccountStore struct {
 }
 
 const accountDeletionBatchSize int64 = 5000
+
+var ErrMailboxExists = errors.New("mailbox already exists for this user")
 
 type AccountDeletionProgress struct {
 	Step                  string
@@ -646,7 +649,7 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 	if n, err := result.RowsAffected(); err != nil {
 		return nil, err
 	} else if n != 1 {
-		return nil, fmt.Errorf("mailbox already exists for this user")
+		return nil, ErrMailboxExists
 	}
 
 	return &models.Account{
@@ -659,6 +662,10 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 }
 
 func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req *models.CreateAccountRequest) error {
+	return s.updateAccount(ctx, accountID, "", req)
+}
+
+func (s *AccountStore) updateAccount(ctx context.Context, accountID, userID string, req *models.CreateAccountRequest) error {
 	if err := s.normalizeAccountMailTLSModes(ctx, req, false); err != nil {
 		return err
 	}
@@ -751,8 +758,28 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 	args = append(args, accountID)
 
 	query := fmt.Sprintf("UPDATE accounts SET %s WHERE id = ? AND COALESCE(is_deleting, 0) = 0", strings.Join(setClauses, ", "))
-	_, err := s.db.Write().ExecContext(ctx, query, args...)
-	return err
+	if userID != "" {
+		query += ` AND user_id = ?`
+		args = append(args, userID)
+		if req.EmailAddress != "" {
+			query += ` AND NOT EXISTS (SELECT 1 FROM accounts other WHERE other.user_id = ? AND other.id != ? AND other.email_address = ? COLLATE NOCASE)`
+			args = append(args, userID, accountID, req.EmailAddress)
+		}
+	}
+	result, err := s.db.Write().ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if userID != "" {
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrMailboxExists
+		}
+	}
+	return nil
 }
 
 func (s *AccountStore) FindProviderAccountID(ctx context.Context, userID, provider, providerAccountID, email string) (string, error) {

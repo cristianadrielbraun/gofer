@@ -18,6 +18,19 @@ type UserAccountStore struct {
 	base    *AccountStore
 }
 
+// Routing identifies the coordinator used by this scoped repository facade.
+func (s *UserAccountStore) Routing() *storage.AccountRouting { return s.routing }
+
+func (s *UserAccountStore) UpdateAccount(ctx context.Context, userID, accountID string, req *models.CreateAccountRequest) error {
+	if req == nil {
+		return errors.New("account request is required")
+	}
+	copy := *req
+	return s.WithAccountForUser(ctx, userID, accountID, func(local *AccountStore, _ *storage.DB) error {
+		return local.updateAccount(ctx, accountID, userID, &copy)
+	})
+}
+
 func NewUserAccountStore(routing *storage.AccountRouting, secretKey []byte) (*UserAccountStore, error) {
 	if routing == nil {
 		return nil, errors.New("account routing is required")

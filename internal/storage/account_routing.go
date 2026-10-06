@@ -111,6 +111,20 @@ func (r *AccountRouting) ValidateUser(ctx context.Context, userID string) error 
 	return r.requireActiveOwner(ctx, userID)
 }
 
+// AccountStateForUser includes durable deletion tombstones without consulting
+// a potentially removed user file. Unknown/foreign IDs do not disclose state.
+func (r *AccountRouting) AccountStateForUser(ctx context.Context, userID, accountID string) (AccountRouteState, error) {
+	if userID == "" || accountID == "" {
+		return "", ErrAccountRoute
+	}
+	var state AccountRouteState
+	err := r.System().Read().QueryRowContext(ctx, `SELECT state FROM gofer_account_directory WHERE account_id = ? AND user_id = ?`, accountID, userID).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrAccountRoute
+	}
+	return state, err
+}
+
 func (r *AccountRouting) requireActiveOwner(ctx context.Context, userID string) error {
 	var present int
 	err := r.System().Read().QueryRowContext(ctx, `SELECT 1 FROM users
@@ -129,6 +143,15 @@ func (r *AccountRouting) WithUser(ctx context.Context, userID string, fn func(*D
 func (r *AccountRouting) withUser(ctx context.Context, userID string, existing bool, fn func(*DB) error) error {
 	if err := r.requireActiveOwner(ctx, userID); err != nil {
 		return err
+	}
+	if !existing {
+		// Owner-wide reads/creation must not recreate a lost store containing
+		// active mailboxes merely because they do not name a particular account.
+		var active bool
+		if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id = ? AND state = 'active')`, userID).Scan(&active); err != nil {
+			return err
+		}
+		existing = active
 	}
 	acquire := r.stores.Acquire
 	if existing {
@@ -170,27 +193,53 @@ func (r *AccountRouting) WithAccount(ctx context.Context, accountID string, fn f
 	return r.withAccount(ctx, "", accountID, fn)
 }
 
-func (r *AccountRouting) withAccount(ctx context.Context, userID, accountID string, fn func(*DB, string) error) error {
+// WithAccountActivityForUser protects an already persisted account's external
+// work from deletion cleanup without opening or leasing its database. It shares
+// the account callback drain. The callback must not delete its own account.
+func (r *AccountRouting) WithAccountActivityForUser(ctx context.Context, userID, accountID string, fn func() error) error {
+	if userID == "" {
+		return ErrAccountRoute
+	}
+	entry, release, err := r.startAccountActivity(ctx, userID, accountID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := r.requireActiveOwner(ctx, entry.UserID); err != nil {
+		return err
+	}
+	return fn()
+}
+
+func (r *AccountRouting) startAccountActivity(ctx context.Context, userID, accountID string) (AccountRoute, func(), error) {
 	r.mu.Lock()
 	entry, err := r.route(ctx, accountID, userID, AccountActive)
 	if err != nil {
 		r.mu.Unlock()
-		return err
+		return AccountRoute{}, nil, err
 	}
 	scope := r.scopeLocked(accountID)
 	if scope.transitioning {
 		r.mu.Unlock()
-		return ErrAccountRoute
+		return AccountRoute{}, nil, ErrAccountRoute
 	}
 	scope.refs++
 	scope.running++
 	r.mu.Unlock()
-	defer func() {
+	return entry, func() {
 		r.mu.Lock()
 		scope.running--
 		r.releaseScopeLocked(accountID, scope)
 		r.mu.Unlock()
-	}()
+	}, nil
+}
+
+func (r *AccountRouting) withAccount(ctx context.Context, userID, accountID string, fn func(*DB, string) error) error {
+	entry, release, err := r.startAccountActivity(ctx, userID, accountID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	return r.withUser(ctx, entry.UserID, true, func(db *DB) error {
 		if _, err := r.route(ctx, accountID, entry.UserID, AccountActive); err != nil {
 			return err
@@ -295,6 +344,31 @@ func (r *AccountRouting) CancelAccountCreation(ctx context.Context, userID, acco
 			_, err := r.System().Write().ExecContext(ctx, `UPDATE gofer_account_directory SET state = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND state = 'creating'`, accountID)
 			return err
 		})
+	})
+}
+
+// RequestAccountDeletion commits an authenticated owner's deletion intent
+// without waiting for running callbacks. BeginAccountDeletion must drain them
+// before any external or local cleanup occurs.
+func (r *AccountRouting) RequestAccountDeletion(ctx context.Context, userID, accountID string) error {
+	if err := r.requireActiveOwner(ctx, userID); err != nil {
+		return err
+	}
+	return r.transition(ctx, accountID, func(*accountRouteScope) error {
+		result, err := r.System().Write().ExecContext(ctx, `UPDATE gofer_account_directory
+			SET state = CASE WHEN state = 'deleted' THEN 'deleted' ELSE 'deleting' END,
+			updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND user_id = ?`, accountID, userID)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrAccountRoute
+		}
+		return nil
 	})
 }
 
