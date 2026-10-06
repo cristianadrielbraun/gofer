@@ -1,9 +1,13 @@
 package imap
 
 import (
+	"context"
 	"crypto/tls"
+	"net"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap/v2/imapclient"
 
@@ -80,5 +84,54 @@ func TestSecureClientOptionsEnforcesCertificateChecksAndTLS12(t *testing.T) {
 	}
 	if originalTLS.ServerName != "wrong.example.com" || originalTLS.MinVersion != tls.VersionTLS10 || !originalTLS.InsecureSkipVerify {
 		t.Fatal("secureClientOptions modified the caller's TLS config")
+	}
+}
+
+func TestContextClientCancellationInterruptsConnectionSetup(t *testing.T) {
+	for _, mode := range []string{"plaintext", "tls", "starttls"} {
+		t.Run(mode, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			accepted := make(chan net.Conn, 1)
+			go func() {
+				conn, err := listener.Accept()
+				if err == nil {
+					accepted <- conn
+				}
+			}()
+			host, portText, _ := net.SplitHostPort(listener.Addr().String())
+			port, _ := strconv.Atoi(portText)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			result := make(chan error, 1)
+			go func() {
+				client, err := NewContextClient(ctx, &models.AccountConfig{IMAPHost: host, IMAPPort: port, IMAPTLSMode: mode, IMAPAllowPlaintext: true, AuthMethod: "plain", Username: "test"}, "synthetic-only")
+				if client != nil {
+					client.Close()
+				}
+				result <- err
+			}()
+			var conn net.Conn
+			select {
+			case conn = <-accepted:
+				defer conn.Close()
+			case <-time.After(3 * time.Second):
+				t.Fatal("connection not established")
+			}
+			// The server intentionally sends no greeting/TLS handshake. Cancellation
+			// must interrupt setup, before a high-level Client can be returned.
+			cancel()
+			select {
+			case err := <-result:
+				if err == nil {
+					t.Fatal("cancelled setup succeeded")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("cancellation did not interrupt connection setup")
+			}
+		})
 	}
 }

@@ -12,9 +12,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-// This first routed body path serves the local cache only. Cold provider fetch,
-// asynchronous persistence and shared fetch-deduplication maps require worker
-// conversion before they can be enabled here.
+// Body reads use the local cache, optionally populated by the routed IMAP worker.
 func (h *Handler) handleUserEmailBody(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	owner, id := h.userID(ctx), r.PathValue("id")
@@ -24,10 +22,16 @@ func (h *Handler) handleUserEmailBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	original := r.URL.Query().Get("mode") == "original"
-	remote := r.URL.Query().Get("remote") == "true"
+	requestedRemote := r.URL.Query().Get("remote") == "true"
+	remote := requestedRemote
 	var body, cached []byte
 	var rawPath string
-	cidURLs := make(map[string]string)
+	attempted := false
+	var cidURLs map[string]string
+load:
+	body, cached, rawPath = nil, nil, ""
+	remote = requestedRemote
+	cidURLs = make(map[string]string)
 	err = h.withUserDB(ctx, owner, func(db *storage.DB) error {
 		info, err := db.GetMessageStorageInfoForUser(ctx, number, owner)
 		if err != nil {
@@ -93,6 +97,14 @@ func (h *Handler) handleUserEmailBody(w http.ResponseWriter, r *http.Request) {
 	}
 	if body == nil {
 		body = cached
+	}
+	if body == nil && h.userIMAP != nil && !attempted {
+		attempted = true
+		if err := h.userIMAP.EnsureBody(ctx, owner, number); err != nil {
+			userAccountError(w, r, err)
+			return
+		}
+		goto load
 	}
 	if body == nil {
 		http.Error(w, "message body is not cached yet", http.StatusServiceUnavailable)

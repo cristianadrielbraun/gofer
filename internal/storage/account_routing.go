@@ -86,6 +86,12 @@ func NewAccountRouting(stores *UserStores) (*AccountRouting, error) {
 		);
 		CREATE INDEX IF NOT EXISTS gofer_account_directory_state ON gofer_account_directory(state, account_id);
 		CREATE INDEX IF NOT EXISTS gofer_account_directory_owner ON gofer_account_directory(user_id, state, account_id);
+		CREATE TABLE IF NOT EXISTS gofer_account_poll_schedule (
+			account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
+			next_due_ms INTEGER NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS gofer_account_poll_due ON gofer_account_poll_schedule(next_due_ms, account_id);
 		CREATE TRIGGER IF NOT EXISTS gofer_account_directory_identity BEFORE UPDATE OF account_id, user_id ON gofer_account_directory
 		WHEN NEW.account_id IS NOT OLD.account_id OR NEW.user_id IS NOT OLD.user_id
 		BEGIN SELECT RAISE(ABORT, 'account ownership is immutable'); END;

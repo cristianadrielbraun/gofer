@@ -44,6 +44,8 @@ import (
 type Handler struct {
 	db                         *storage.DB
 	userStorage                *storage.AccountRouting
+	userIMAP                   *mail.UserIMAP
+	userIdleStatuses           map[string]map[string]mail.IDLEFolderRuntimeStatus
 	userAccounts               *config.UserAccountStore
 	userAccountHooks           UserAccountHooks
 	userStorageContext         context.Context
@@ -3412,7 +3414,9 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 
 		idleFolderIDs := h.db.GetIdleFolderIDsForAccount(ctx, h.userID(ctx), account.ID)
 		var idleRuntime map[string]mail.IDLEFolderRuntimeStatus
-		if h.syncer != nil {
+		if h.userIdleStatuses != nil {
+			idleRuntime = h.userIdleStatuses[account.ID]
+		} else if h.syncer != nil {
 			idleRuntime = h.syncer.IDLEFolderStatuses(account.ID)
 		}
 
@@ -3440,6 +3444,10 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 
 			configuredIDLE := idleFolderIDs[f.ID]
 			runtime, hasRuntime := idleRuntime[f.ID]
+			if h.userIdleStatuses != nil && configuredIDLE && !hasRuntime {
+				runtime.Reason = "Real-time notifications are unavailable; periodic polling is active."
+				hasRuntime = true
+			}
 			effectiveIDLE, fallbackReason, retryAt := effectiveIDLEFolderStatus(configuredIDLE, runtime, hasRuntime)
 
 			folderStatuses = append(folderStatuses, models.FolderSyncStatus{
@@ -4211,44 +4219,7 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		if !sseEventVisible(event, userID, accountSet, isAdmin) {
 			return false
 		}
-		m := map[string]any{
-			"type":       string(event.Type),
-			"account_id": event.AccountID,
-			"folder_id":  event.FolderID,
-		}
-		for key, value := range event.Payload {
-			m[key] = value
-		}
-		if event.FolderRole != "" {
-			m["folder_role"] = event.FolderRole
-		}
-		if event.Status != "" {
-			m["status"] = event.Status
-		}
-		if event.Error != "" {
-			m["error"] = event.Error
-		}
-		includeProgress := event.Type == mail.EventSyncStarted || event.Type == mail.EventSyncProgress || event.Type == mail.EventSyncComplete ||
-			event.Type == mail.EventManualSyncStarted || event.Type == mail.EventManualSyncProgress || event.Type == mail.EventManualSyncComplete ||
-			event.Type == mail.EventScheduledSyncStarted || event.Type == mail.EventScheduledSyncProgress || event.Type == mail.EventScheduledSyncComplete
-		if event.Current > 0 || includeProgress {
-			m["current"] = event.Current
-		}
-		if event.Total > 0 || includeProgress {
-			m["total"] = event.Total
-		}
-		if event.AvatarHash != "" {
-			m["avatar_hash"] = event.AvatarHash
-		}
-		if event.AvatarURL != "" {
-			m["avatar_url"] = event.AvatarURL
-		}
-		if event.AvatarDataURL != "" {
-			m["avatar_data_url"] = event.AvatarDataURL
-		}
-		data, _ := json.Marshal(m)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
-		flusher.Flush()
+		writeSSEEvent(w, flusher, event)
 		return true
 	}
 

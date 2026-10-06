@@ -128,6 +128,7 @@ type graphMailTokenProvider interface {
 }
 
 type SyncOrchestrator struct {
+	imapScope           *userIMAPScope
 	db                  *storage.DB
 	accountStore        *config.AccountStore
 	blobStore           *store.BlobStore
@@ -217,10 +218,10 @@ func accountSyncProgressPayload(ctx context.Context, fallbackKind accountSyncKin
 
 func (o *SyncOrchestrator) accountSyncStatusPayload(ctx context.Context, accountID string, fallbackKind accountSyncKind, payload map[string]any) map[string]any {
 	payload = accountSyncProgressPayload(ctx, fallbackKind, payload)
-	if accountID == "" || o.accountStore == nil {
+	if accountID == "" || (o.accountStore == nil && o.imapScope == nil) {
 		return payload
 	}
-	account, err := o.accountStore.GetAccountByID(context.Background(), accountID)
+	account, err := o.imapAccount(ctx, accountID)
 	if err != nil || account == nil {
 		return payload
 	}
@@ -419,7 +420,7 @@ func (o *SyncOrchestrator) publishFolderReconciliationChange(accountID string, r
 	if o == nil || o.events == nil || !result.Changed() {
 		return
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
+	o.publishEvent(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: map[string]any{
 		"status":            "folders_changed",
 		"folders_changed":   true,
 		"folders_missing":   len(result.MissingIDs),
@@ -548,7 +549,7 @@ func (o *SyncOrchestrator) updateIDLEFolderStatus(accountID, folderID, remoteNam
 	statuses[folderID] = status
 	o.mu.Unlock()
 
-	o.events.Publish(idleFolderStatusEvent(status))
+	o.publishEvent(idleFolderStatusEvent(status))
 }
 
 func idleFolderStatusEvent(status IDLEFolderRuntimeStatus) Event {
@@ -786,6 +787,9 @@ func (o *SyncOrchestrator) accountLifecycleContext(fallback context.Context) con
 }
 
 func (o *SyncOrchestrator) resolvePassword(ctx context.Context, cfg *models.AccountConfig, accountID string) (string, error) {
+	if o.imapScope != nil {
+		return o.imapScope.password, nil
+	}
 	if strings.TrimSpace(cfg.Provider) == providers.ProviderOutlook {
 		return "", fmt.Errorf("outlook mail uses Microsoft Graph; IMAP credential resolution is disabled")
 	}
@@ -807,7 +811,7 @@ func (o *SyncOrchestrator) markAccountSyncError(ctx context.Context, accountID s
 	if storeErr := o.db.MarkEmailSyncError(context.Background(), accountID, message, failedAt); storeErr != nil {
 		log.Printf("sync %s: store account error: %v", accountID, storeErr)
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: o.accountSyncStatusPayload(ctx, accountID, "", map[string]any{
+	o.publishEvent(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: o.accountSyncStatusPayload(ctx, accountID, "", map[string]any{
 		"status":    "error",
 		"error":     message,
 		"failed_at": failedAt.Format(time.RFC3339),
@@ -821,7 +825,7 @@ func (o *SyncOrchestrator) clearAccountSyncError(ctx context.Context, accountID 
 	if err := o.db.ClearEmailSyncError(context.Background(), accountID); err != nil {
 		log.Printf("sync %s: clear account error: %v", accountID, err)
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: o.accountSyncStatusPayload(ctx, accountID, "", map[string]any{
+	o.publishEvent(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: o.accountSyncStatusPayload(ctx, accountID, "", map[string]any{
 		"status": "ok",
 	})})
 }
@@ -894,7 +898,7 @@ func (o *SyncOrchestrator) publishAutomaticSyncScope(ctx context.Context, accoun
 	if idleExcluded > 0 {
 		payload["idle_folders_excluded"] = idleExcluded
 	}
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: payload})
+	o.publishEvent(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: payload})
 }
 
 func (o *SyncOrchestrator) Start(ctx context.Context) {
@@ -1070,7 +1074,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 	failures := 0
 	cancelled := 0
 
-	o.events.Publish(Event{Type: EventScheduledSyncStarted, UserID: userID, Payload: map[string]any{
+	o.publishEvent(Event{Type: EventScheduledSyncStarted, UserID: userID, Payload: map[string]any{
 		"user_id":        userID,
 		"run_id":         runID,
 		"accounts_total": total,
@@ -1098,7 +1102,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 				currentCancelled := cancelled
 				progressMu.Unlock()
 
-				o.events.Publish(Event{Type: EventScheduledSyncProgress, AccountID: job.accountID, Payload: map[string]any{
+				o.publishEvent(Event{Type: EventScheduledSyncProgress, AccountID: job.accountID, Payload: map[string]any{
 					"user_id":        userID,
 					"run_id":         runID,
 					"account_ids":    append([]string(nil), runAccountIDs...),
@@ -1179,7 +1183,7 @@ func (o *SyncOrchestrator) runScheduledSyncForUser(ctx context.Context, userID s
 				if errorText != "" {
 					payload["error"] = errorText
 				}
-				o.events.Publish(Event{Type: EventScheduledSyncProgress, AccountID: job.accountID, Payload: payload})
+				o.publishEvent(Event{Type: EventScheduledSyncProgress, AccountID: job.accountID, Payload: payload})
 			}
 		}()
 	}
@@ -1215,7 +1219,7 @@ queueLoop:
 	finalSkipped := skipped
 	progressMu.Unlock()
 
-	o.events.Publish(Event{Type: EventScheduledSyncComplete, UserID: userID, Payload: map[string]any{
+	o.publishEvent(Event{Type: EventScheduledSyncComplete, UserID: userID, Payload: map[string]any{
 		"user_id":        userID,
 		"run_id":         runID,
 		"account_ids":    append([]string(nil), runAccountIDs...),
@@ -1250,7 +1254,7 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 		return
 	}
 
-	folderRole, _ := o.db.GetFolderRole(ctx, folderID)
+	folderRole, _ := o.imapRepository().GetFolderRole(ctx, folderID)
 	payload := map[string]any{
 		"count":        summary.Count,
 		"unread_count": summary.UnreadCount,
@@ -1260,7 +1264,7 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 		payload["subject"] = summary.Latest.Subject
 		payload["from_name"] = summary.Latest.FromName
 		payload["from_email"] = summary.Latest.FromEmail
-		if avatarURL := o.senderAvatarURL(ctx, summary.Latest.FromEmail); avatarURL != "" {
+		if avatarURL := o.imapSenderAvatarURL(ctx, summary.Latest.FromEmail); avatarURL != "" {
 			payload["avatar_url"] = avatarURL
 		}
 		if summary.Latest.RemoteUID > 0 {
@@ -1268,7 +1272,7 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 		}
 	}
 
-	o.events.Publish(Event{
+	o.publishEvent(Event{
 		Type:       EventNewMail,
 		AccountID:  accountID,
 		FolderID:   folderID,
@@ -1278,6 +1282,15 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 }
 
 func (o *SyncOrchestrator) recordFolderSyncError(ctx context.Context, folderID string, syncErr error) {
+	if o.imapScope != nil {
+		if syncErr != nil && ctx.Err() == nil {
+			_ = o.imapScope.call(ctx, func(db *storage.DB) error {
+				_, err := db.Write().ExecContext(ctx, `UPDATE folders SET sync_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, syncErr.Error(), folderID)
+				return err
+			})
+		}
+		return
+	}
 	if syncErr == nil || ctx.Err() != nil {
 		return
 	}
@@ -1295,7 +1308,7 @@ func (o *SyncOrchestrator) resetFolderUIDStateAndSync(ctx context.Context, clien
 	}()
 
 	log.Printf("UIDVALIDITY changed for %s/%s: %d -> %d, rebuilding local folder state", accountID, folder.RemoteID, oldUIDValidity, newUIDValidity)
-	if err := o.db.ResetFolderUIDState(ctx, folder.ID, newUIDValidity); err != nil {
+	if err := o.imapRepository().ResetFolderUIDState(ctx, folder.ID, newUIDValidity); err != nil {
 		return err
 	}
 	return o.syncFolderMessages(ctx, client, accountID, accountProvider, folder.ID, folder.RemoteID)
@@ -1333,7 +1346,7 @@ func (o *SyncOrchestrator) senderAvatarURL(ctx context.Context, email string) st
 }
 
 func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Client, accountID, accountProvider string, folder storage.FolderSyncInfo, folderIndex, folderTotal, idleExcluded int) (syncErr error) {
-	totalHint, _ := o.db.GetFolderEmailCount(ctx, folder.ID)
+	totalHint, _ := o.imapRepository().GetFolderEmailCount(ctx, folder.ID)
 	folderName := displayName(folder.RemoteID, folder.Role)
 	startPayload := map[string]any{
 		"account_folders_total": folderTotal,
@@ -1343,7 +1356,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		startPayload["idle_folders_excluded"] = idleExcluded
 	}
 	startPayload = o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, startPayload)
-	o.events.Publish(Event{
+	o.publishEvent(Event{
 		Type:       EventSyncStarted,
 		AccountID:  accountID,
 		FolderID:   folder.ID,
@@ -1367,7 +1380,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 			completePayload["idle_folders_excluded"] = idleExcluded
 		}
 		completePayload = o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, completePayload)
-		o.events.Publish(Event{
+		o.publishEvent(Event{
 			Type:       EventSyncComplete,
 			AccountID:  accountID,
 			FolderID:   folder.ID,
@@ -1375,11 +1388,11 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 			Payload:    completePayload,
 		})
 	}()
-	storedValidity, err := o.db.GetStoredUIDValidity(ctx, folder.ID)
+	storedValidity, err := o.imapRepository().GetStoredUIDValidity(ctx, folder.ID)
 	if err != nil {
 		return err
 	}
-	highestUID, err := o.db.GetHighestSeenUID(ctx, folder.ID)
+	highestUID, err := o.imapRepository().GetHighestSeenUID(ctx, folder.ID)
 	if err != nil {
 		return err
 	}
@@ -1402,7 +1415,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		var summary newMailSummary
 		result, err := client.SyncFolderIncremental(ctx, folder.ID, folder.RemoteID, highestUID, expectedUIDValidity, func(msgs []storage.SyncMessage) error {
 			summary.Add(msgs)
-			return o.db.UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, folder.RemoteID, folder.Role))
+			return o.imapRepository().UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, folder.RemoteID, folder.Role))
 		})
 		if err != nil {
 			return fmt.Errorf("incremental %s/%s: %w", accountID, folder.RemoteID, err)
@@ -1414,7 +1427,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 			return o.resetFolderUIDStateAndSync(ctx, client, accountID, accountProvider, folder, expectedUIDValidity, result.UIDValidity)
 		}
 		expectedUIDValidity = result.UIDValidity
-		if err := o.db.UpdateFolderIncrementalSync(ctx, folder.ID, result.HighestUID, result.UIDValidity, int(result.NumMessages)); err != nil {
+		if err := o.imapRepository().UpdateFolderIncrementalSync(ctx, folder.ID, result.HighestUID, result.UIDValidity, int(result.NumMessages)); err != nil {
 			return fmt.Errorf("save incremental state %s/%s: %w", accountID, folder.RemoteID, err)
 		}
 		if result.TotalFetched > 0 {
@@ -1433,7 +1446,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		return o.resetFolderUIDStateAndSync(ctx, client, accountID, accountProvider, folder, expectedUIDValidity, currentValidity)
 	}
 
-	if _, err := o.db.RefreshFolderUnreadCount(ctx, folder.ID); err != nil {
+	if _, err := o.imapRepository().RefreshFolderUnreadCount(ctx, folder.ID); err != nil {
 		return fmt.Errorf("refresh unread count %s/%s: %w", accountID, folder.RemoteID, err)
 	}
 
@@ -1449,7 +1462,7 @@ func (o *SyncOrchestrator) reconcileFolder(ctx context.Context, client *imap.Cli
 		return currentUIDValidity, true, nil
 	}
 
-	localUIDs, err := o.db.GetLocalUIDs(ctx, folder.ID)
+	localUIDs, err := o.imapRepository().GetLocalUIDs(ctx, folder.ID)
 	if err != nil {
 		return currentUIDValidity, false, fmt.Errorf("reconcile %s/%s: local uids: %w", accountID, folder.RemoteID, err)
 	}
@@ -1467,7 +1480,7 @@ func (o *SyncOrchestrator) reconcileFolder(ctx context.Context, client *imap.Cli
 	}
 
 	if len(expunged) > 0 {
-		removed, err := o.db.RemoveExpungedUIDs(ctx, folder.ID, expunged)
+		removed, err := o.imapRepository().RemoveExpungedUIDs(ctx, folder.ID, expunged)
 		if err != nil {
 			return currentUIDValidity, false, fmt.Errorf("reconcile %s/%s: remove: %w", accountID, folder.RemoteID, err)
 		} else {
@@ -1478,7 +1491,7 @@ func (o *SyncOrchestrator) reconcileFolder(ctx context.Context, client *imap.Cli
 }
 
 func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client, accountID string, folder storage.FolderSyncInfo, expectedUIDValidity uint32) (uint32, bool, error) {
-	localUIDs, err := o.db.GetLocalUIDs(ctx, folder.ID)
+	localUIDs, err := o.imapRepository().GetLocalUIDs(ctx, folder.ID)
 	if err != nil {
 		return expectedUIDValidity, false, fmt.Errorf("flags %s/%s: local uids: %w", accountID, folder.RemoteID, err)
 	}
@@ -1504,15 +1517,15 @@ func (o *SyncOrchestrator) refreshFlags(ctx context.Context, client *imap.Client
 	converted := convertFlagUpdates(result.Updates)
 	var changedCount int
 	if result.CheckpointValid {
-		changedCount, err = o.db.ApplyIMAPFlagChanges(ctx, folder.ID, result.UIDValidity, converted, result.HighestModSeq)
+		changedCount, err = o.imapRepository().ApplyIMAPFlagChanges(ctx, folder.ID, result.UIDValidity, converted, result.HighestModSeq)
 	} else {
-		changedCount, err = o.db.BatchUpdateFlags(ctx, folder.ID, converted)
+		changedCount, err = o.imapRepository().BatchUpdateFlags(ctx, folder.ID, converted)
 	}
 	if err != nil {
 		return result.UIDValidity, false, fmt.Errorf("flags %s/%s: update: %w", accountID, folder.RemoteID, err)
 	} else if changedCount > 0 {
 		log.Printf("flags %s/%s: %d changed", accountID, folder.RemoteID, changedCount)
-		if _, err := o.db.RefreshFolderUnreadCount(ctx, folder.ID); err != nil {
+		if _, err := o.imapRepository().RefreshFolderUnreadCount(ctx, folder.ID); err != nil {
 			return result.UIDValidity, false, fmt.Errorf("flags %s/%s: refresh unread count: %w", accountID, folder.RemoteID, err)
 		}
 	}
@@ -1566,7 +1579,7 @@ func (o *SyncOrchestrator) beginAccountSyncWithMode(ctx context.Context, account
 	o.running[accountID] = run
 	o.mu.Unlock()
 
-	o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, kind, map[string]any{
+	o.publishEvent(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: accountSyncProgressPayload(ctx, kind, map[string]any{
 		"status": "syncing",
 	})})
 
@@ -1843,7 +1856,7 @@ func (o *SyncOrchestrator) syncAccountsWithOperation(ctx context.Context, userID
 		failures := 0
 		cancelled := 0
 
-		o.events.Publish(Event{Type: EventManualSyncStarted, UserID: userID, Payload: map[string]any{
+		o.publishEvent(Event{Type: EventManualSyncStarted, UserID: userID, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         runID,
 			"mode":           mode,
@@ -1871,7 +1884,7 @@ func (o *SyncOrchestrator) syncAccountsWithOperation(ctx context.Context, userID
 					currentCancelled := cancelled
 					progressMu.Unlock()
 
-					o.events.Publish(Event{Type: EventManualSyncProgress, AccountID: job.accountID, Payload: map[string]any{
+					o.publishEvent(Event{Type: EventManualSyncProgress, AccountID: job.accountID, Payload: map[string]any{
 						"user_id":        userID,
 						"run_id":         runID,
 						"mode":           mode,
@@ -1964,7 +1977,7 @@ func (o *SyncOrchestrator) syncAccountsWithOperation(ctx context.Context, userID
 					if errorText != "" {
 						payload["error"] = errorText
 					}
-					o.events.Publish(Event{Type: EventManualSyncProgress, AccountID: job.accountID, Payload: payload})
+					o.publishEvent(Event{Type: EventManualSyncProgress, AccountID: job.accountID, Payload: payload})
 				}
 			}()
 		}
@@ -2000,7 +2013,7 @@ func (o *SyncOrchestrator) syncAccountsWithOperation(ctx context.Context, userID
 		finalSkipped := skipped
 		progressMu.Unlock()
 
-		o.events.Publish(Event{Type: EventManualSyncComplete, UserID: userID, Payload: map[string]any{
+		o.publishEvent(Event{Type: EventManualSyncComplete, UserID: userID, Payload: map[string]any{
 			"user_id":        userID,
 			"run_id":         runID,
 			"mode":           mode,
@@ -2057,10 +2070,10 @@ func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) bo
 }
 
 func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, includeIDLEFolders bool) error {
-	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
+	if o.imapScope == nil && !o.db.IsEmailSyncEnabled(ctx, accountID) {
 		return nil
 	}
-	cfg, err := o.accountStore.GetConfig(ctx, accountID)
+	cfg, err := o.imapAccountConfig(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -2083,7 +2096,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		return err
 	}
 
-	client, err := imap.NewClient(ctx, cfg, password)
+	client, err := o.newIMAPSyncClient(ctx, cfg, password)
 	if err != nil {
 		return err
 	}
@@ -2135,7 +2148,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		})
 	}
 	if len(folderInputs) > 0 {
-		if err := o.db.UpsertFolders(ctx, folderInputs); err != nil {
+		if err := o.imapRepository().UpsertFolders(ctx, folderInputs); err != nil {
 			return fmt.Errorf("save IMAP folders for %s: %w", accountID, err)
 		}
 	}
@@ -2145,17 +2158,19 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 			seenRemoteNames = append(seenRemoteNames, f.Name)
 		}
 	}
-	reconcileResult, err := o.db.ReconcileDiscoveredFolders(ctx, accountID, storage.FolderDiscoveryIMAP, seenRemoteNames, time.Now().UTC())
+	reconcileResult, err := o.imapRepository().ReconcileDiscoveredFolders(ctx, accountID, storage.FolderDiscoveryIMAP, seenRemoteNames, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("reconcile IMAP folders for %s: %w", accountID, err)
 	}
 	if reconcileResult.Changed() {
 		log.Printf("reconciled IMAP folders %s: missing=%d removed=%d recovered=%d", accountID, len(reconcileResult.MissingIDs), len(reconcileResult.RemovedIDs), len(reconcileResult.RecoveredIDs))
 		o.publishFolderReconciliationChange(accountID, reconcileResult)
-		o.restartIDLEWatchersAfterFolderReconciliation(accountID)
+		if o.imapScope == nil {
+			o.restartIDLEWatchersAfterFolderReconciliation(accountID)
+		}
 	}
 
-	folderInfos, err := o.db.GetFoldersForAccount(ctx, accountID)
+	folderInfos, err := o.imapRepository().GetFoldersForAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -2179,6 +2194,9 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		syncFolders, idleExcluded = pollingIMAPFoldersForAutomaticSync(syncFolders, idleRemoteNames)
 	}
 	if len(syncFolders) == 0 {
+		if o.imapScope != nil {
+			return nil
+		}
 		if err := o.syncProviderLabelChanges(ctx, accountID, cfg.Provider); err != nil {
 			return err
 		}
@@ -2189,7 +2207,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		if idleExcluded > 0 {
 			payload["idle_folders_excluded"] = idleExcluded
 		}
-		o.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: payload})
+		o.publishEvent(Event{Type: EventAccountSyncStatus, AccountID: accountID, Payload: payload})
 		return nil
 	}
 
@@ -2216,6 +2234,12 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		}
 	}
 
+	if o.imapScope != nil {
+		if failedFolders > 0 {
+			return fmt.Errorf("%d IMAP folder sync(s) failed: %w", failedFolders, firstFolderErr)
+		}
+		return nil
+	}
 	var labelSyncErr error
 	if includeIDLEFolders {
 		labelSyncErr = o.syncProviderLabels(ctx, accountID, cfg.Provider)
@@ -2236,17 +2260,17 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client folder
 		}
 	}()
 
-	folderRole, err := o.db.GetFolderRole(ctx, folderID)
+	folderRole, err := o.imapRepository().GetFolderRole(ctx, folderID)
 	if err != nil {
 		return fmt.Errorf("load folder role %s/%s: %w", accountID, remoteName, err)
 	}
-	totalHint, _ := o.db.GetFolderEmailCount(ctx, folderID)
+	totalHint, _ := o.imapRepository().GetFolderEmailCount(ctx, folderID)
 	folderName := displayName(remoteName, folderRole)
 	fetched := 0
 	total := totalHint
 	started := false
 	publishStarted := func() {
-		o.events.Publish(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
+		o.publishEvent(Event{Type: EventSyncStarted, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 		started = true
 	}
 	result, err := client.SyncFolder(ctx, folderID, remoteName, imap.FolderSyncOptions{
@@ -2257,8 +2281,8 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client folder
 		},
 	}, func(msgs []storage.SyncMessage) error {
 		fetched += len(msgs)
-		o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
-		return o.db.UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, remoteName, folderRole))
+		o.publishEvent(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: fetched, Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
+		return o.imapRepository().UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, remoteName, folderRole))
 	})
 	if err != nil {
 		if !started {
@@ -2276,16 +2300,16 @@ func (o *SyncOrchestrator) syncFolderMessages(ctx context.Context, client folder
 		total = int(result.NumMessages)
 		publishStarted()
 	}
-	if err := o.db.UpdateFolderSyncState(ctx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages)); err != nil {
+	if err := o.imapRepository().UpdateFolderSyncState(ctx, folderID, result.HighestUID, result.UIDValidity, int(result.NumMessages)); err != nil {
 		return fmt.Errorf("save sync state %s/%s: %w", accountID, remoteName, err)
 	}
 	total = int(result.NumMessages)
-	o.events.Publish(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
-	if _, err := o.db.RefreshFolderUnreadCount(ctx, folderID); err != nil {
+	o.publishEvent(Event{Type: EventSyncProgress, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Current: int(result.TotalFetched), Total: total, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
+	if _, err := o.imapRepository().RefreshFolderUnreadCount(ctx, folderID); err != nil {
 		return fmt.Errorf("refresh unread count %s/%s: %w", accountID, remoteName, err)
 	}
 	log.Printf("synced %s/%s: %d messages", accountID, remoteName, result.TotalFetched)
-	o.events.Publish(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
+	o.publishEvent(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, FolderRole: folderRole, Payload: o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, nil)})
 	return nil
 }
 

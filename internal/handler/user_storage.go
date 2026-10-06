@@ -9,6 +9,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -31,6 +32,16 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	if len(options) == 1 {
 		option = options[0]
 	}
+
+	if option.IMAP != nil {
+		if option.IMAP.Routing() != routing || option.Accounts != option.IMAP.Accounts() || h.syncer == nil || option.IMAP.Events() != h.syncer.Events() {
+			return errors.New("IMAP service must use the same account repository, router and event bus")
+		}
+		if option.Hooks.Created != nil || option.Hooks.Updated != nil || option.Hooks.Cleanup != nil {
+			return errors.New("IMAP lifecycle hooks cannot be overridden")
+		}
+		option.Hooks = UserAccountHooks{Created: option.IMAP.QueueAccount, Updated: option.IMAP.RestartAccount, Cleanup: option.IMAP.Cleanup}
+	}
 	if option.Accounts != nil {
 		if option.Accounts.Routing() != routing {
 			return errors.New("account repository must use the same routing coordinator")
@@ -43,7 +54,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	}
 	// Share immutable services, not Handler mutexes or mutable worker state.
 	routed := &Handler{db: h.db, auth: h.auth, syncer: h.syncer, userStorage: routing,
-		userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
+		userIMAP: option.IMAP, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
 		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
 		userBackfills: make(map[string]struct{})}
 	private := func(pattern string, handler http.HandlerFunc) {
@@ -73,12 +84,16 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /mail/thread/{threadId}/subitems", routed.handleThreadSubItems)
 	private("GET /email/{id}", routed.handleEmailPartial)
 	private("GET /email/{id}/body", routed.handleUserEmailBody)
+	private("GET /api/inline-content/{messageID}/{contentID}", routed.handleUserInlineContent)
+	private("GET /api/attachments/{id}/download", routed.handleUserAttachmentDownload)
+	private("GET /api/attachments/{id}/preview", routed.handleUserAttachmentPreview)
 	private("GET /search", routed.handleSearch)
 	private("GET /api/folders/unread", routed.handleFolderUnreadCounts)
 	private("GET /api/sidebar/mail", routed.handleMailSidebar)
 	private("GET /api/sidebar/accounts/{id}", routed.handleSidebarAccount)
 	private("GET /api/accounts", routed.handleUserAccounts)
 	private("GET /settings/accounts", routed.handleUserAccountSettings)
+	private("GET /settings/sync", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "sync") })
 	private("GET /api/accounts/{id}/deletion-status", routed.handleUserAccountDeletionStatus)
 	if option.Accounts != nil {
 		private("POST /api/accounts", routed.handleUserCreateAccount)
@@ -86,6 +101,14 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/edit", routed.handleUserUpdateAccount)
 		private("POST /api/accounts/{id}/color", routed.handleUserAccountColor)
 		private("DELETE /api/accounts/{id}", routed.handleUserDeleteAccount)
+	}
+	if option.IMAP != nil {
+		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)
+		private("POST /api/accounts/{id}/service", routed.handleUserEmailService)
+		private("POST /api/mail/sync", routed.handleUserManualSync)
+		private("POST /api/mail/sync/accounts/{id}", routed.handleUserManualSync)
+		private("POST /api/mail/sync/cancel", routed.handleUserCancelSync)
+		private("GET /api/events", routed.handleUserSSE)
 	}
 	go routed.runUserContactBackfills(ctx)
 	return nil
@@ -103,6 +126,7 @@ type UserAccountHooks struct {
 type UserStorageOptions struct {
 	Accounts *config.UserAccountStore
 	Hooks    UserAccountHooks
+	IMAP     *mail.UserIMAP
 }
 
 func (h *Handler) withUserDB(ctx context.Context, userID string, fn func(*storage.DB) error) error {

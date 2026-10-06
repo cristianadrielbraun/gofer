@@ -19,6 +19,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
 type userStorageFixture struct {
@@ -31,9 +32,15 @@ type userStorageFixture struct {
 	accountStore *config.UserAccountStore
 	base         *handler.Handler
 	events       *mail.EventBus
+	imap         *mail.UserIMAP
+	blobs        *store.BlobStore
+	stopIMAP     context.CancelFunc
 }
 
 func newUserStorageFixture(t *testing.T, hooks ...handler.UserAccountHooks) *userStorageFixture {
+	return newUserStorageFixtureMode(t, false, hooks...)
+}
+func newUserStorageFixtureMode(t *testing.T, enableIMAP bool, hooks ...handler.UserAccountHooks) *userStorageFixture {
 	t.Helper()
 	system, err := storage.New(filepath.Join(t.TempDir(), "system.db"))
 	if err != nil {
@@ -105,6 +112,16 @@ func newUserStorageFixture(t *testing.T, hooks ...handler.UserAccountHooks) *use
 	var options []handler.UserStorageOptions
 	if len(hooks) > 0 {
 		options = append(options, handler.UserStorageOptions{Accounts: accountStore, Hooks: hooks[0]})
+	}
+	if enableIMAP {
+		f.blobs = store.NewBlobStore(t.TempDir())
+		f.stopIMAP = cancel
+		f.imap, err = mail.NewUserIMAP(ctx, accountStore, f.blobs, f.events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cancel(); f.imap.Wait() })
+		options = []handler.UserStorageOptions{{Accounts: accountStore, IMAP: f.imap}}
 	}
 	if err := base.RegisterUserStorageRoutes(ctx, mux, routing, options...); err != nil {
 		t.Fatal(err)

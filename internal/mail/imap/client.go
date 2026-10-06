@@ -28,26 +28,42 @@ type FolderInfo struct {
 }
 
 type Client struct {
-	accountID string
-	config    *models.AccountConfig
-	client    *imapclient.Client
-	mu        sync.Mutex
-	closed    bool
+	accountID   string
+	config      *models.AccountConfig
+	client      *imapclient.Client
+	mu          sync.Mutex
+	closed      bool
+	stopContext func() bool
 }
 
 func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) (*Client, error) {
-	c, err := ConnectWithConfig(cfg, password, nil)
+	// Legacy callers cache sessions across request contexts.
+	return NewContextClient(context.Background(), cfg, password)
+}
+
+// NewContextClient owns a session for this operation only. Cancellation closes
+// the protocol connection directly, without waiting for the command mutex.
+func NewContextClient(ctx context.Context, cfg *models.AccountConfig, password string) (*Client, error) {
+	c, err := connectWithContext(ctx, cfg, password, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
+	client := &Client{
 		accountID: cfg.AccountID,
 		config:    cfg,
 		client:    c,
-	}, nil
+	}
+	client.stopContext = context.AfterFunc(ctx, func() { _ = c.Close() })
+	return client, nil
 }
 
 func ConnectWithConfig(cfg *models.AccountConfig, password string, options *imapclient.Options) (*imapclient.Client, error) {
+	return connectWithContext(context.Background(), cfg, password, options)
+}
+func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password string, options *imapclient.Options) (*imapclient.Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	tlsMode, err := mailtransport.RequireTLSModeWithPlaintext("IMAP", cfg.IMAPTLSMode, cfg.IMAPAllowPlaintext)
 	if err != nil {
 		return nil, err
@@ -59,23 +75,38 @@ func ConnectWithConfig(cfg *models.AccountConfig, password string, options *imap
 
 	addr := net.JoinHostPort(cfg.IMAPHost, strconv.Itoa(cfg.IMAPPort))
 
-	var c *imapclient.Client
-
+	var conn net.Conn
 	switch tlsMode {
 	case mailtransport.TLSModeImplicit:
-		c, err = imapclient.DialTLS(addr, options)
-	case mailtransport.TLSModeStartTLS:
-		c, err = imapclient.DialStartTLS(addr, options)
-	case mailtransport.TLSModePlaintext:
-		c, err = imapclient.DialInsecure(addr, options)
+		tlsOptions := options.TLSConfig.Clone()
+		if tlsOptions.NextProtos == nil {
+			tlsOptions.NextProtos = []string{"imap"}
+		}
+		dialer := &tls.Dialer{NetDialer: options.Dialer, Config: tlsOptions}
+		conn, err = dialer.DialContext(ctx, "tcp", addr)
+	case mailtransport.TLSModeStartTLS, mailtransport.TLSModePlaintext:
+		conn, err = options.Dialer.DialContext(ctx, "tcp", addr)
 	default:
 		return nil, fmt.Errorf("unsupported IMAP TLS mode %q", tlsMode)
 	}
-
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
-
+	// This callback also covers the greeting and STARTTLS handshake, before the
+	// high-level client is available. Closing the underlying connection interrupts
+	// commands without acquiring Client.mu.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	var c *imapclient.Client
+	if tlsMode == mailtransport.TLSModeStartTLS {
+		c, err = imapclient.NewStartTLS(conn, options)
+	} else {
+		c = imapclient.New(conn, options)
+	}
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	if err := c.WaitGreeting(); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("wait for greeting: %w", err)
@@ -130,6 +161,9 @@ func (c *Client) Close() error {
 		return nil
 	}
 	c.closed = true
+	if c.stopContext != nil {
+		c.stopContext()
+	}
 	return c.client.Close()
 }
 

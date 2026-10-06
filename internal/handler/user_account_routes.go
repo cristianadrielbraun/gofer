@@ -11,6 +11,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -45,8 +46,27 @@ func (h *Handler) handleUserAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUserAccountSettings(w http.ResponseWriter, r *http.Request) {
+	h.handleUserSyncSettingsView(w, r, "accounts")
+}
+
+func (h *Handler) handleUserSyncSettingsView(w http.ResponseWriter, r *http.Request, tab string) {
 	ctx := r.Context()
+	statuses := make(map[string]map[string]mail.IDLEFolderRuntimeStatus)
+	if h.userIMAP != nil {
+		snapshot, err := h.userIMAP.IdleStatusesForUser(ctx, h.userID(ctx))
+		if err != nil {
+			userAccountError(w, r, err)
+			return
+		}
+		for _, status := range snapshot {
+			if statuses[status.AccountID] == nil {
+				statuses[status.AccountID] = make(map[string]mail.IDLEFolderRuntimeStatus)
+			}
+			statuses[status.AccountID][status.FolderID] = status
+		}
+	}
 	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
+		local.userIdleStatuses = statuses
 		userID := local.userID(ctx)
 		accounts, err := local.db.GetAccounts(ctx, userID)
 		if err != nil {
@@ -60,9 +80,9 @@ func (h *Handler) handleUserAccountSettings(w http.ResponseWriter, r *http.Reque
 		syncSettings := local.buildSyncSettings(ctx, accounts)
 		signatures := local.buildAccountSignatureData(ctx, accounts)
 		if r.Header.Get("HX-Request") == "true" {
-			return views.SettingsPartial(display, syncSettings, "accounts", settings, signatures), nil
+			return views.SettingsPartial(display, syncSettings, tab, settings, signatures), nil
 		}
-		return views.SettingsLayout(display, syncSettings, "accounts", settings, signatures), nil
+		return views.SettingsLayout(display, syncSettings, tab, settings, signatures), nil
 	})
 }
 

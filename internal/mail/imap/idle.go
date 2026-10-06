@@ -70,7 +70,6 @@ func NewIdleWatcher(cfg *models.AccountConfig, password, remoteName string, onNo
 		onNotify:   onNotify,
 		onStatus:   onStatus,
 		refreshIn:  idleRefreshInterval,
-		connect:    ConnectWithConfig,
 	}
 }
 
@@ -154,13 +153,18 @@ func (w *IdleWatcher) run(ctx context.Context, onHealthy func()) error {
 
 	connect := w.connect
 	if connect == nil {
-		connect = ConnectWithConfig
+		connect = func(cfg *models.AccountConfig, password string, options *imapclient.Options) (*imapclient.Client, error) {
+			return connectWithContext(ctx, cfg, password, options)
+		}
 	}
 	c, err := connect(w.config, w.password, options)
 	if err != nil {
 		return &idleRunError{code: "connection_error", reason: "the IDLE connection could not be established", err: fmt.Errorf("connect: %w", err)}
 	}
 
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	defer stop()
+	defer c.Close()
 	w.mu.Lock()
 	if w.closed {
 		w.mu.Unlock()

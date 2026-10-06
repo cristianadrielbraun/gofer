@@ -14,7 +14,8 @@ import (
 )
 
 type BlobStore struct {
-	basePath string
+	basePath       string
+	messageVersion string
 }
 
 func NewBlobStore(basePath string) *BlobStore {
@@ -22,7 +23,17 @@ func NewBlobStore(basePath string) *BlobStore {
 }
 
 func (s *BlobStore) msgDir(accountID string, localID int64) string {
-	return filepath.Join(s.basePath, accountID, "messages", fmt.Sprintf("%d", localID))
+	return filepath.Join(s.basePath, accountID, "messages", fmt.Sprintf("%d", localID), s.messageVersion)
+}
+
+// NewMessageVersion keeps candidate body files separate from published paths.
+// Discard the version with DeleteMessage if database publication fails.
+func (s *BlobStore) NewMessageVersion() (*BlobStore, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, err
+	}
+	return &BlobStore{basePath: s.basePath, messageVersion: hex.EncodeToString(nonce[:])}, nil
 }
 
 func (s *BlobStore) ensureDir(dir string) error {

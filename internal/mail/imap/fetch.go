@@ -10,6 +10,11 @@ import (
 )
 
 func (c *Client) FetchBody(ctx context.Context, folderRemoteName string, uid uint32) ([]byte, error) {
+	return c.FetchBodyWithValidity(ctx, folderRemoteName, uid, 0)
+}
+
+// FetchBodyWithValidity refuses to fetch a reused UID from a rebuilt mailbox.
+func (c *Client) FetchBodyWithValidity(ctx context.Context, folderRemoteName string, uid uint32, expectedValidity uint32) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -17,11 +22,14 @@ func (c *Client) FetchBody(ctx context.Context, folderRemoteName string, uid uin
 		return nil, fmt.Errorf("client is closed")
 	}
 
-	_, err := c.client.Select(folderRemoteName, nil).Wait()
+	selected, err := c.client.Select(folderRemoteName, nil).Wait()
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
 	defer c.client.Unselect()
+	if expectedValidity != 0 && selected.UIDValidity != expectedValidity {
+		return nil, fmt.Errorf("IMAP UIDVALIDITY changed during body fetch")
+	}
 
 	var uidSet imap.UIDSet
 	uidSet.AddNum(imap.UID(uid))

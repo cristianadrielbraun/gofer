@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -211,5 +212,39 @@ func TestIdleWatcherRefreshesLongRunningSession(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("refreshed IDLE watcher did not stop")
+	}
+}
+
+func TestIdleWatcherCancellationDuringGreeting(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+	host, portText, _ := net.SplitHostPort(listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	watcher := NewIdleWatcher(&models.AccountConfig{IMAPHost: host, IMAPPort: port, IMAPTLSMode: "plaintext", IMAPAllowPlaintext: true, AuthMethod: "plain"}, "synthetic-only", "INBOX", nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { watcher.Run(ctx); close(done) }()
+	select {
+	case conn := <-accepted:
+		defer conn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("IDLE connection did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("IDLE connection setup ignored cancellation")
 	}
 }
