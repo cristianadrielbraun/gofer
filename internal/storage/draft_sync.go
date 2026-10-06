@@ -52,24 +52,35 @@ type QueueIMAPDraftUpsertInput struct {
 }
 
 func (db *DB) QueueIMAPDraftUpsert(ctx context.Context, input QueueIMAPDraftUpsertInput) (IMAPDraftOperation, error) {
-	if input.State.AccountID == "" || input.State.DraftKey == "" || input.State.FolderRemoteName == "" || input.RevisionToken == "" || len(input.MIMEData) == 0 {
-		return IMAPDraftOperation{}, fmt.Errorf("missing IMAP draft upsert payload")
-	}
-	if input.MessageDate.IsZero() {
-		input.MessageDate = time.Now().UTC()
-	}
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return IMAPDraftOperation{}, err
 	}
 	defer tx.Rollback()
-	if err := upsertIMAPDraftStateTx(ctx, tx, input.State); err != nil {
+	id, err := queueIMAPDraftUpsertTx(ctx, tx, input)
+	if err != nil {
 		return IMAPDraftOperation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return IMAPDraftOperation{}, err
+	}
+	return db.GetIMAPDraftOperation(ctx, id)
+}
+
+func queueIMAPDraftUpsertTx(ctx context.Context, tx *sql.Tx, input QueueIMAPDraftUpsertInput) (string, error) {
+	if input.State.AccountID == "" || input.State.DraftKey == "" || input.State.FolderRemoteName == "" || input.RevisionToken == "" || len(input.MIMEData) == 0 {
+		return "", fmt.Errorf("missing IMAP draft upsert payload")
+	}
+	if input.MessageDate.IsZero() {
+		input.MessageDate = time.Now().UTC()
+	}
+	if err := upsertIMAPDraftStateTx(ctx, tx, input.State); err != nil {
+		return "", err
 	}
 
 	id, err := coalescibleIMAPDraftOperationIDTx(ctx, tx, input.State.AccountID, input.State.DraftKey)
 	if err != nil {
-		return IMAPDraftOperation{}, err
+		return "", err
 	}
 	if id == "" {
 		id = uuid.NewString()
@@ -90,29 +101,36 @@ func (db *DB) QueueIMAPDraftUpsert(ctx context.Context, input QueueIMAPDraftUpse
 			input.MessageDate.UTC(), IMAPDraftStatusPending, id)
 	}
 	if err != nil {
-		return IMAPDraftOperation{}, fmt.Errorf("queue IMAP draft upsert: %w", err)
+		return "", fmt.Errorf("queue IMAP draft upsert: %w", err)
+	}
+	return id, nil
+}
+
+func (db *DB) QueueIMAPDraftDelete(ctx context.Context, state IMAPDraftState) (IMAPDraftOperation, error) {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return IMAPDraftOperation{}, err
+	}
+	defer tx.Rollback()
+	id, err := queueIMAPDraftDeleteTx(ctx, tx, state)
+	if err != nil {
+		return IMAPDraftOperation{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return IMAPDraftOperation{}, err
 	}
 	return db.GetIMAPDraftOperation(ctx, id)
 }
-
-func (db *DB) QueueIMAPDraftDelete(ctx context.Context, state IMAPDraftState) (IMAPDraftOperation, error) {
+func queueIMAPDraftDeleteTx(ctx context.Context, tx *sql.Tx, state IMAPDraftState) (string, error) {
 	if state.AccountID == "" || state.DraftKey == "" || state.FolderRemoteName == "" {
-		return IMAPDraftOperation{}, fmt.Errorf("missing IMAP draft delete identity")
+		return "", fmt.Errorf("missing IMAP draft delete identity")
 	}
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return IMAPDraftOperation{}, err
-	}
-	defer tx.Rollback()
 	if err := upsertIMAPDraftStateTx(ctx, tx, state); err != nil {
-		return IMAPDraftOperation{}, err
+		return "", err
 	}
 	id, err := coalescibleIMAPDraftOperationIDTx(ctx, tx, state.AccountID, state.DraftKey)
 	if err != nil {
-		return IMAPDraftOperation{}, err
+		return "", err
 	}
 	if id == "" {
 		id = uuid.NewString()
@@ -131,12 +149,9 @@ func (db *DB) QueueIMAPDraftDelete(ctx context.Context, state IMAPDraftState) (I
 			WHERE id = ?`, IMAPDraftOperationDelete, IMAPDraftStatusPending, id)
 	}
 	if err != nil {
-		return IMAPDraftOperation{}, fmt.Errorf("queue IMAP draft delete: %w", err)
+		return "", fmt.Errorf("queue IMAP draft delete: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return IMAPDraftOperation{}, err
-	}
-	return db.GetIMAPDraftOperation(ctx, id)
+	return id, nil
 }
 
 func upsertIMAPDraftStateTx(ctx context.Context, tx *sql.Tx, state IMAPDraftState) error {
@@ -152,8 +167,8 @@ func upsertIMAPDraftStateTx(ctx context.Context, tx *sql.Tx, state IMAPDraftStat
 			local_message_id = COALESCE(excluded.local_message_id, imap_draft_states.local_message_id),
 			folder_id = CASE WHEN excluded.folder_id != '' THEN excluded.folder_id ELSE imap_draft_states.folder_id END,
 			folder_remote_name = excluded.folder_remote_name,
-			remote_uid = CASE WHEN excluded.remote_uid > 0 THEN excluded.remote_uid ELSE imap_draft_states.remote_uid END,
-			uid_validity = CASE WHEN excluded.uid_validity > 0 THEN excluded.uid_validity ELSE imap_draft_states.uid_validity END,
+			remote_uid = CASE WHEN excluded.remote_uid > 0 THEN excluded.remote_uid WHEN excluded.folder_remote_name != imap_draft_states.folder_remote_name THEN 0 ELSE imap_draft_states.remote_uid END,
+			uid_validity = CASE WHEN excluded.remote_uid > 0 THEN excluded.uid_validity WHEN excluded.folder_remote_name != imap_draft_states.folder_remote_name THEN 0 ELSE imap_draft_states.uid_validity END,
 			updated_at = CURRENT_TIMESTAMP`,
 		state.AccountID, state.DraftKey, localMessageID, state.FolderID, state.FolderRemoteName, state.RemoteUID, state.UIDValidity)
 	return err
@@ -205,6 +220,15 @@ func (db *DB) GetIMAPDraftState(ctx context.Context, accountID, draftKey string)
 // establish ownership before queueing; this claim also excludes deleting
 // accounts and accounts whose user is not active.
 func (db *DB) ClaimDueIMAPDraftOperations(ctx context.Context, now time.Time, limit int) ([]IMAPDraftOperation, error) {
+	return db.claimDueIMAPDraftOperations(ctx, "", now, limit)
+}
+func (db *DB) ClaimDueIMAPDraftOperationsForAccount(ctx context.Context, accountID string, now time.Time, limit int) ([]IMAPDraftOperation, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("account is required")
+	}
+	return db.claimDueIMAPDraftOperations(ctx, accountID, now, limit)
+}
+func (db *DB) claimDueIMAPDraftOperations(ctx context.Context, accountID string, now time.Time, limit int) ([]IMAPDraftOperation, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -214,7 +238,7 @@ func (db *DB) ClaimDueIMAPDraftOperations(ctx context.Context, now time.Time, li
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, imapDraftOperationSelect+`
-		WHERE o.status IN (?, ?, ?)
+		WHERE (? = '' OR o.account_id = ?) AND o.status IN (?, ?, ?)
 		  AND o.next_attempt_at <= ?
 		  AND EXISTS (
 			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
@@ -231,7 +255,7 @@ func (db *DB) ClaimDueIMAPDraftOperations(ctx context.Context, now time.Time, li
 			  AND active.status = ? AND active.id != o.id
 		  )
 		ORDER BY o.created_at ASC
-		LIMIT ?`, IMAPDraftStatusPending, IMAPDraftStatusFailed, IMAPDraftStatusAmbiguous, now.UTC(), IMAPDraftStatusSyncing, limit)
+		LIMIT ?`, accountID, accountID, IMAPDraftStatusPending, IMAPDraftStatusFailed, IMAPDraftStatusAmbiguous, now.UTC(), IMAPDraftStatusSyncing, limit)
 	if err != nil {
 		return nil, err
 	}

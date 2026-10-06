@@ -45,6 +45,7 @@ type Handler struct {
 	db                         *storage.DB
 	userStorage                *storage.AccountRouting
 	userIMAP                   *mail.UserIMAP
+	userMutationState          *userMessageMutationState
 	userIdleStatuses           map[string]map[string]mail.IDLEFolderRuntimeStatus
 	userAccounts               *config.UserAccountStore
 	userAccountHooks           UserAccountHooks
@@ -279,6 +280,11 @@ func (h *Handler) userID(ctx context.Context) string {
 }
 
 func (h *Handler) ownedAccount(ctx context.Context, accountID string) (*models.Account, error) {
+	if h.userMutationState != nil {
+		if err := h.checkUserMessageMutation(ctx, &storage.MessageMutationInfo{AccountID: accountID, AccountProvider: "imap"}); err != nil {
+			return nil, err
+		}
+	}
 	return h.accountStore.GetAccountByIDForUser(ctx, h.userID(ctx), accountID)
 }
 
@@ -3802,7 +3808,9 @@ func (h *Handler) handleAttachmentPreview(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleComposeAttachmentUpload(w http.ResponseWriter, r *http.Request) {
-	h.cleanupUnreferencedComposeAttachments(r.Context())
+	if h.userMutationState == nil {
+		h.cleanupUnreferencedComposeAttachments(r.Context())
+	}
 	if err := r.ParseMultipartForm(composeAttachmentMaxBytes); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -4547,6 +4555,9 @@ func writeComposeJSONError(w http.ResponseWriter, status int, message string) {
 }
 
 func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request) (composeDraftSaveResult, *composeRequestError) {
+	if h.userMutationState != nil {
+		return h.saveUserComposeDraft(ctx, r)
+	}
 	accountID := r.FormValue("account_id")
 	if accountID == "" {
 		accountID = h.accountStore.GetFirstAccountID(ctx, h.userID(ctx))
@@ -5358,6 +5369,9 @@ func (h *Handler) getMessageInfo(ctx context.Context, idStr string) (int64, *sto
 	if info == nil {
 		return 0, nil, errMessageTargetNotFound
 	}
+	if err := h.checkUserMessageMutation(ctx, info); err != nil {
+		return 0, nil, err
+	}
 	return msgID, info, nil
 }
 
@@ -5382,6 +5396,9 @@ func (h *Handler) getMessageInfoForFolder(ctx context.Context, idStr, folderID s
 	if info == nil {
 		return 0, nil, errMessageTargetNotFound
 	}
+	if err := h.checkUserMessageMutation(ctx, info); err != nil {
+		return 0, nil, err
+	}
 	return msgID, info, nil
 }
 
@@ -5391,6 +5408,8 @@ func writeMessageTargetError(w http.ResponseWriter, r *http.Request, err error) 
 		http.Error(w, "invalid message id", http.StatusBadRequest)
 	case errors.Is(err, errMessageTargetNotFound), errors.Is(err, sql.ErrNoRows):
 		http.NotFound(w, r)
+	case errors.Is(err, errUserMessageMutationUnsupported):
+		http.Error(w, "Mail changes for this account are not available yet.", http.StatusNotImplemented)
 	default:
 		log.Printf("message target lookup failed: %v", err)
 		http.Error(w, "failed to load message", http.StatusInternalServerError)
@@ -5410,6 +5429,12 @@ func (h *Handler) connectIMAP(ctx context.Context, accountID string) (*imap.Clie
 }
 
 func (h *Handler) publishMutation(accountID, folderID string) {
+	if h.userMutationState != nil {
+		h.userMutationState.events = append(h.userMutationState.events, mail.Event{
+			Type: mail.EventMutation, UserID: h.userMutationState.owner, AccountID: accountID, FolderID: folderID,
+		})
+		return
+	}
 	h.syncer.Events().Publish(mail.Event{
 		Type:      mail.EventMutation,
 		AccountID: accountID,
@@ -5458,6 +5483,9 @@ type ownedMessageTarget struct {
 
 func (h *Handler) resolveOwnedMessageTargets(ctx context.Context, targets []messageBulkTarget, sourceFolderID string, wholeThread bool) ([]ownedMessageTarget, error) {
 	if len(targets) == 0 {
+		return nil, errInvalidMessageTarget
+	}
+	if h.userMutationState != nil && len(targets) > 256 {
 		return nil, errInvalidMessageTarget
 	}
 
@@ -5572,7 +5600,7 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), true)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
@@ -5609,7 +5637,7 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	targetStarred := payload.State != "unstarred" && payload.State != "false"
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), true)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
@@ -5646,7 +5674,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
@@ -5683,7 +5711,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	sourceFolderID := strings.TrimSpace(payload.FolderID)
 	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), sourceFolderID, false)
 	if err != nil {
@@ -5730,7 +5758,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "folder_id required", http.StatusBadRequest)
 		return
 	}
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	destFolderID, err = h.resolveFolderID(ctx, h.userID(ctx), destFolderID)
 	if err != nil {
 		http.Error(w, "destination folder not found", http.StatusBadRequest)

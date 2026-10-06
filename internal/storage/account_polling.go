@@ -48,6 +48,25 @@ func (r *AccountRouting) ResetUserPolling(ctx context.Context, owner string) err
 	return err
 }
 
+// ResetAccountPolling makes a saved outbound operation discoverable, including
+// when a running receive copied an older deadline or the memory queue is full.
+func (r *AccountRouting) ResetAccountPolling(ctx context.Context, owner, id string) error {
+	if err := r.ValidateUser(ctx, owner); err != nil {
+		return err
+	}
+	result, err := r.System().Write().ExecContext(ctx, `INSERT INTO gofer_account_poll_schedule(account_id, next_due_ms, revision)
+		SELECT account_id,0,1 FROM gofer_account_directory WHERE account_id=? AND user_id=? AND state='active'
+		ON CONFLICT(account_id) DO UPDATE SET next_due_ms=0, revision=revision+1`, id, owner)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err == nil && count != 1 {
+		return ErrAccountRoute
+	}
+	return err
+}
+
 // ListDueAccounts pages only central metadata, including unscheduled accounts.
 func (r *AccountRouting) ListDueAccounts(ctx context.Context, after string, now time.Time, limit int) ([]AccountRoute, error) {
 	if limit < 1 || limit > 1000 {

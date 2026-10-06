@@ -1071,6 +1071,27 @@ func compactMessageIDs(messageIDs []int64) []int64 {
 }
 
 func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (int64, error) {
+	if draft.Date.IsZero() {
+		draft.Date = time.Now().UTC()
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	msgID, err := db.saveDraftMessageTx(ctx, tx, draft)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	db.UpsertObservedContactsForMessage(ctx, draft.AccountID, draft.FromName, draft.FromEmail, draft.ToRecipients, draft.CCRecipients, draft.BCCRecipients, draft.Date)
+	db.RefreshFolderUnreadCount(ctx, draft.FolderID)
+	return msgID, nil
+}
+
+func (db *DB) saveDraftMessageTx(ctx context.Context, tx *sql.Tx, draft DraftMessageInput) (int64, error) {
 	if draft.AccountID == "" || draft.FolderID == "" || draft.InternetMessageID == "" {
 		return 0, fmt.Errorf("missing draft identity")
 	}
@@ -1079,12 +1100,6 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 	}
 	draft.Date = draft.Date.UTC()
 	draftDBDate := formatDBTime(draft.Date)
-
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
 
 	messageIDNorm := mailmessage.NormalizeMessageID(draft.InternetMessageID)
 	if messageIDNorm == "" {
@@ -1159,11 +1174,6 @@ func (db *DB) SaveDraftMessage(ctx context.Context, draft DraftMessageInput) (in
 	if err := db.reindexMessagesSearchTx(ctx, tx, []int64{msgID}); err != nil {
 		return 0, err
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	db.UpsertObservedContactsForMessage(ctx, draft.AccountID, draft.FromName, draft.FromEmail, draft.ToRecipients, draft.CCRecipients, draft.BCCRecipients, draft.Date)
-	db.RefreshFolderUnreadCount(ctx, draft.FolderID)
 	return msgID, nil
 }
 

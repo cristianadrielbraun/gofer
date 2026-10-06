@@ -54,9 +54,19 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	}
 	// Share immutable services, not Handler mutexes or mutable worker state.
 	routed := &Handler{db: h.db, auth: h.auth, syncer: h.syncer, userStorage: routing,
-		userIMAP: option.IMAP, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
+		blobStore: h.blobStore,
+		userIMAP:  option.IMAP, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
 		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
 		userBackfills: make(map[string]struct{})}
+	if option.IMAP != nil {
+		if h.blobStore != nil && h.blobStore != option.IMAP.Blobs() {
+			return errors.New("routed compose must use the IMAP blob store")
+		}
+		routed.blobStore = option.IMAP.Blobs()
+		if err := option.IMAP.SetMailQueue(&userMailDelivery{h: routed}); err != nil {
+			return err
+		}
+	}
 	private := func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			if err := routing.ValidateUser(r.Context(), routed.userID(r.Context())); err != nil {
@@ -109,6 +119,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/mail/sync/accounts/{id}", routed.handleUserManualSync)
 		private("POST /api/mail/sync/cancel", routed.handleUserCancelSync)
 		private("GET /api/events", routed.handleUserSSE)
+		routed.registerUserMessageMutations(private)
+		routed.registerUserCompose(private)
 	}
 	go routed.runUserContactBackfills(ctx)
 	return nil

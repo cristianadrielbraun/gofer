@@ -40,6 +40,19 @@ func TestAccountPollingMetadataAndSettingsResetRejectStaleDeadline(t *testing.T)
 	if updated, err := r.DeferAccountPoll(t.Context(), "bob", alice.AccountID, revision, time.Now().Add(time.Hour)); err != nil || updated {
 		t.Fatalf("foreign deadline: %v %v", updated, err)
 	}
+	if err := r.ResetAccountPolling(t.Context(), "bob", alice.AccountID); err != ErrAccountRoute {
+		t.Fatalf("foreign account reset: %v", err)
+	}
+	revision, err = r.PollRevision(t.Context(), "alice", alice.AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ResetAccountPolling(t.Context(), "alice", alice.AccountID); err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := r.DeferAccountPoll(t.Context(), "alice", alice.AccountID, revision, time.Now().Add(time.Hour)); err != nil || updated {
+		t.Fatalf("stale completion overwrote account wake: %v %v", updated, err)
+	}
 	if _, err := system.Write().Exec("UPDATE users SET status='disabled' WHERE id='bob'"); err != nil {
 		t.Fatal(err)
 	}

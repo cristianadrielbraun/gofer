@@ -165,6 +165,19 @@ func buildOutgoingMIME(transport string, msg *message.OutgoingMessage) ([]byte, 
 }
 
 func (h *Handler) queueOutgoingMessage(ctx context.Context, accountID string, localMessageID int64, draftID string, msg *message.OutgoingMessage, sendAfter time.Time, scheduled bool) (storage.OutgoingSend, error) {
+	if h.userMutationState != nil && localMessageID > 0 {
+		draft, err := h.db.GetEmailByIDForUser(ctx, fmt.Sprint(localMessageID), h.userMutationState.owner)
+		if err != nil || draft == nil || !draft.IsDraft || draft.AccountID != accountID {
+			return storage.OutgoingSend{}, errors.New("draft not found")
+		}
+		existing, err := h.db.OutgoingSendForMessageInternal(ctx, localMessageID)
+		if err != nil {
+			return storage.OutgoingSend{}, err
+		}
+		if existing != nil && (existing.Status == storage.OutgoingSendSending || existing.Status == storage.OutgoingSendSent || existing.Status == storage.OutgoingSendAmbiguous) {
+			return storage.OutgoingSend{}, errors.New("use outgoing recovery controls for this message")
+		}
+	}
 	cfg, err := h.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
 		return storage.OutgoingSend{}, fmt.Errorf("account not found")
@@ -182,7 +195,7 @@ func (h *Handler) queueOutgoingMessage(ctx context.Context, accountID string, lo
 	if len(recipients) == 0 {
 		return storage.OutgoingSend{}, fmt.Errorf("no recipients")
 	}
-	return h.db.QueueOutgoingSend(ctx, storage.QueueOutgoingSendInput{
+	queued, err := h.db.QueueOutgoingSend(ctx, storage.QueueOutgoingSendInput{
 		AccountID:          accountID,
 		MessageID:          localMessageID,
 		DraftID:            strings.TrimSpace(draftID),
@@ -194,6 +207,10 @@ func (h *Handler) queueOutgoingMessage(ctx context.Context, accountID string, lo
 		SendAfter:          sendAfter,
 		IsScheduled:        scheduled,
 	})
+	if err == nil && h.userMutationState != nil {
+		h.userMutationState.wake[accountID] = true
+	}
+	return queued, err
 }
 
 func (h *Handler) signalOutgoingWorker() {
@@ -802,6 +819,9 @@ func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID i
 }
 
 func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeDraftSaveResult) error {
+	if h.userMutationState != nil {
+		return nil // The routed draft publication updates its waiting snapshot atomically.
+	}
 	existing, err := h.db.OutgoingSendForMessageInternal(ctx, saved.MessageID)
 	if err != nil || existing == nil || existing.Status != storage.OutgoingSendPending {
 		return err

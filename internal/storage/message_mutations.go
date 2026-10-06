@@ -496,6 +496,19 @@ func uniquePositiveInt64s(values []int64) []int64 {
 // handlers may enqueue only through user-scoped mutation methods. Claims
 // require both a non-deleting account and an active owning user.
 func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit int) ([]MessageMutation, error) {
+	return db.claimDueMessageMutations(ctx, "", now, limit)
+}
+
+// ClaimDueMessageMutationsForAccount keeps a routed worker inside its account
+// activity guard. A user's other accounts can be executing concurrently.
+func (db *DB) ClaimDueMessageMutationsForAccount(ctx context.Context, accountID string, now time.Time, limit int) ([]MessageMutation, error) {
+	if strings.TrimSpace(accountID) == "" {
+		return nil, fmt.Errorf("account is required")
+	}
+	return db.claimDueMessageMutations(ctx, accountID, now, limit)
+}
+
+func (db *DB) claimDueMessageMutations(ctx context.Context, accountID string, now time.Time, limit int) ([]MessageMutation, error) {
 	if limit <= 0 {
 		limit = 25
 	}
@@ -504,13 +517,20 @@ func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit
 		return nil, err
 	}
 	defer tx.Rollback()
+	accountClause := ""
+	args := []any{MessageMutationPending, MessageMutationFailed, now.UTC()}
+	if accountID != "" {
+		accountClause = " AND account_id = ?"
+		args = append(args, accountID)
+	}
+	args = append(args, limit)
 	rows, err := tx.QueryContext(ctx, messageMutationSelect+`
-		WHERE status IN (?, ?) AND next_attempt_at <= ?
+		WHERE status IN (?, ?) AND next_attempt_at <= ?`+accountClause+`
 		  AND EXISTS (
 			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
 			WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
 		  )
-		ORDER BY created_at ASC LIMIT ?`, MessageMutationPending, MessageMutationFailed, now.UTC(), limit)
+		ORDER BY created_at ASC, id ASC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -550,14 +570,40 @@ func (db *DB) ClaimDueMessageMutations(ctx context.Context, now time.Time, limit
 }
 
 func (db *DB) MarkInterruptedMessageMutationsPending(ctx context.Context) (int64, error) {
+	return db.markInterruptedMessageMutationsPending(ctx, "")
+}
+
+// RecoverMessageMutationsForAccount must be called while serialized with that
+// account's replay. It does not reset another account's live claims.
+func (db *DB) RecoverMessageMutationsForAccount(ctx context.Context, accountID string) (int64, error) {
+	if strings.TrimSpace(accountID) == "" {
+		return 0, fmt.Errorf("account is required")
+	}
+	return db.markInterruptedMessageMutationsPending(ctx, accountID)
+}
+
+func (db *DB) markInterruptedMessageMutationsPending(ctx context.Context, accountID string) (int64, error) {
 	result, err := db.Write().ExecContext(ctx, `
 		UPDATE message_mutations
 		SET status = ?, locked_at = NULL, next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-		WHERE status = ?`, MessageMutationPending, MessageMutationProcessing)
+		WHERE status = ? AND (? = '' OR account_id = ?)`, MessageMutationPending, MessageMutationProcessing, accountID, accountID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// NextMessageMutationAttempt allows central discovery to wake a queued retry
+// without reopening every user's file. Processing rows are crash-recoverable.
+func (db *DB) NextMessageMutationAttempt(ctx context.Context, accountID string) (time.Time, error) {
+	var next time.Time
+	err := db.Read().QueryRowContext(ctx, `SELECT next_attempt_at FROM message_mutations
+		WHERE account_id=? AND status IN (?, ?, ?) ORDER BY next_attempt_at LIMIT 1`,
+		accountID, MessageMutationPending, MessageMutationFailed, MessageMutationProcessing).Scan(&next)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	return next, err
 }
 
 func (db *DB) CompleteMessageMutation(ctx context.Context, id string) error {

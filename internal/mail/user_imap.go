@@ -23,8 +23,7 @@ import (
 
 // UserIMAP is an opt-in, bounded plain-IMAP worker. Main does not start it yet.
 // A session holds an account activity guard, but leases user storage only for
-// snapshots and commits. Background discovery/IDLE require explicit Start; outbound mutations remain
-// separate from this receive/read integration.
+// snapshots and commits. Background discovery/IDLE require explicit Start.
 type UserIMAP struct {
 	accounts          *config.UserAccountStore
 	blobs             *store.BlobStore
@@ -40,6 +39,7 @@ type UserIMAP struct {
 	backgroundWake    chan struct{}
 	rescan            bool
 	manualRuns        map[string]*userIMAPManualRun
+	mailQueue         UserMailQueue
 	watches           map[userIMAPWatchKey]*userIMAPWatch
 	idleCount         int
 	watchRuns         sync.WaitGroup
@@ -82,6 +82,7 @@ func NewUserIMAP(ctx context.Context, accounts *config.UserAccountStore, blobs *
 	return s, nil
 }
 func (s *UserIMAP) Routing() *storage.AccountRouting { return s.accounts.Routing() }
+func (s *UserIMAP) Blobs() *store.BlobStore          { return s.blobs }
 
 // Wait joins workers and request sessions after cancelling the lifecycle context.
 func (s *UserIMAP) Wait() {
@@ -272,11 +273,48 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 			return err
 		}
 		interval := s.defaultPollInterval()
+		s.mu.Lock()
+		queue := s.mailQueue
+		s.mu.Unlock()
+		var scope *userIMAPScope
+		queueFailed := false
 		defer func() {
 			if ctx.Err() != nil {
 				return
 			}
-			updated, err := s.Routing().DeferAccountPoll(ctx, owner, id, revision, time.Now().Add(interval))
+			next := time.Now().Add(interval)
+			if scope != nil {
+				var queued time.Time
+				err := scope.call(ctx, func(db *storage.DB) error {
+					var err error
+					queued, err = db.NextMessageMutationAttempt(ctx, id)
+					if err == nil && queue != nil {
+						mailNext, mailErr := db.NextAccountMailQueueAttempt(ctx, id)
+						if mailErr != nil {
+							return mailErr
+						}
+						if !mailNext.IsZero() && (queued.IsZero() || mailNext.Before(queued)) {
+							queued = mailNext
+						}
+					}
+					return err
+				})
+				if err != nil {
+					// Retry a failed queue read rather than hiding durable outbound work
+					// behind a potentially day-long receive interval.
+					log.Printf("user IMAP mutation deadline %s: %v", id, err)
+					next = minTime(next, time.Now().Add(30*time.Second))
+				} else if !queued.IsZero() {
+					next = minTime(next, queued)
+				}
+			}
+			if queueFailed && next.Before(time.Now().Add(30*time.Second)) {
+				// A failed claim/finalization can leave a due processing row. Avoid
+				// spinning on persistent local storage failure; a new wake still
+				// wins through the polling revision check below.
+				next = time.Now().Add(30 * time.Second)
+			}
+			updated, err := s.Routing().DeferAccountPoll(ctx, owner, id, revision, next)
 			if err != nil {
 				log.Printf("user IMAP polling deadline %s: %v", id, err)
 			}
@@ -289,14 +327,20 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 				s.requestDiscovery()
 			}
 		}()
-		scope, err := s.snapshot(ctx, owner, id)
+		scope, err = s.snapshot(ctx, owner, id)
 		if err != nil {
+			scope = nil
 			s.mu.Lock()
 			s.stopWatchesLocked(id)
 			s.mu.Unlock()
 			return err
 		}
 		interval = scope.pollInterval
+		mutationErr := s.replayMutations(ctx, scope)
+		if queue != nil {
+			mutationErr = errors.Join(mutationErr, queue.Run(ctx, owner, id))
+		}
+		queueFailed = mutationErr != nil
 		var enabled int
 		if err := scope.call(ctx, func(db *storage.DB) error {
 			return db.Read().QueryRowContext(ctx, `SELECT COALESCE(email_sync_enabled,1) FROM accounts WHERE id=?`, id).Scan(&enabled)
@@ -310,7 +354,7 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 			if progress, ok := ctx.Value(accountSyncProgressScopeKey{}).(accountSyncProgressScope); ok && progress.kind == string(accountSyncManual) {
 				return errUserIMAPDisabled
 			}
-			return nil
+			return mutationErr
 		}
 		// Fresh orchestration state for one bounded session, sharing only services.
 		o := NewSyncOrchestrator(nil, nil, s.blobs, nil)
@@ -320,6 +364,7 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 		if err == nil {
 			err = s.reconcileWatches(ctx, scope)
 		}
+		err = errors.Join(err, mutationErr)
 		if ctx.Err() == nil {
 			statusErr := scope.call(ctx, func(db *storage.DB) error {
 				if err != nil {

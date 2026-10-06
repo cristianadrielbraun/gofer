@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	stdmail "net/mail"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -49,6 +51,11 @@ type routedIMAPServer struct {
 	idleSupported            bool
 	idleClients              map[net.Conn]*routedIdleClient
 	ownerUIDs                map[string][]uint32
+	mutationMode             bool
+	mutationMailboxes        map[string]*routedMutationMailbox
+	failStore                bool
+	deliveryMode             bool
+	loseAppendAck            bool
 }
 
 func newRoutedIMAPServer(t *testing.T) *routedIMAPServer {
@@ -122,14 +129,20 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 	s.mu.Lock()
 	s.idleClients[conn] = entry
 	supported := s.idleSupported
+	mutations := s.mutationMode
+	delivery := s.deliveryMode
 	s.mu.Unlock()
 	caps := "IMAP4rev1 AUTH=PLAIN SASL-IR UNSELECT"
 	if supported {
 		caps += " IDLE"
 	}
+	if mutations {
+		caps += " MOVE UIDPLUS"
+	}
 	fmt.Fprintf(writer, "* OK [CAPABILITY %s] test mail server\r\n", caps)
 	writer.Flush()
 	owner := ""
+	selected := "INBOX"
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -149,6 +162,9 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 		}
 		tag := parts[0]
 		upper := strings.ToUpper(line)
+		if strings.Contains(upper, " SELECT ") {
+			selected = strings.Trim(parts[2], `"`)
+		}
 		s.mu.Lock()
 		s.commands = append(s.commands, owner+": "+strings.TrimSpace(line))
 		uids := append([]uint32(nil), s.uids...)
@@ -156,11 +172,32 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 			uids = append([]uint32(nil), owned...)
 		}
 		validity, seen := s.validity, s.seen
+		origins := make(map[uint32]uint32)
+		mailFlags := make(map[uint32]string)
+		rawMessages := make(map[uint32]string)
+		if mutations && owner != "" {
+			box := s.mutationMailboxLocked(owner, selected)
+			uids = append([]uint32(nil), box.uids...)
+			validity = box.validity
+			for uid, origin := range box.origins {
+				origins[uid] = origin
+			}
+			for uid, flags := range box.flags {
+				for _, flag := range []string{`\Seen`, `\Flagged`, `\Deleted`, `\Draft`} {
+					if flags[flag] {
+						mailFlags[uid] += flag + " "
+					}
+				}
+			}
+			for uid, raw := range box.raw {
+				rawMessages[uid] = raw
+			}
+		}
 		body := strings.Contains(upper, " UID FETCH ") && strings.Contains(upper, "BODY.PEEK[]")
 		if body {
 			s.bodyCount[owner]++
 		}
-		block := owner == s.blockOwner && s.blockCommand != "" && (s.blockCommand == "body" && body || s.blockCommand == "list" && strings.Contains(upper, " LIST ") || s.blockCommand == "headers" && strings.Contains(upper, "ENVELOPE"))
+		block := owner == s.blockOwner && s.blockCommand != "" && (s.blockCommand == "body" && body || s.blockCommand == "list" && strings.Contains(upper, " LIST ") || s.blockCommand == "headers" && strings.Contains(upper, "ENVELOPE") || s.blockCommand == "store" && strings.Contains(upper, " UID STORE ") || s.blockCommand == "move" && strings.Contains(upper, " UID MOVE ") || s.blockCommand == "append" && strings.Contains(upper, " APPEND "))
 		blocked, release, reject := s.blocked, s.release, s.rejectBody
 		bodyOverride := s.bodyOverride
 		if block {
@@ -197,6 +234,12 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 				fmt.Fprintf(writer, "%s OK authenticated\r\n", tag)
 			}
 		case strings.Contains(upper, " LIST "):
+			if delivery {
+				fmt.Fprint(writer, "* LIST (\\Drafts) \"/\" Drafts\r\n* LIST (\\Sent) \"/\" Sent\r\n")
+			}
+			if mutations {
+				fmt.Fprint(writer, "* LIST (\\Archive) \"/\" Archive\r\n* LIST (\\Trash) \"/\" Trash\r\n")
+			}
 			fmt.Fprintf(writer, "* LIST (\\Inbox) \"/\" INBOX\r\n%s OK list\r\n", tag)
 		case strings.Contains(upper, " SELECT "):
 			next := uint32(1)
@@ -209,6 +252,33 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 		case strings.Contains(upper, " UID SEARCH "):
 			fmt.Fprint(writer, "* SEARCH")
 			for _, uid := range uids {
+				if raw := rawMessages[uid]; raw != "" && strings.Contains(upper, "HEADER ") {
+					msg, e := stdmail.ReadMessage(strings.NewReader(raw))
+					if e != nil {
+						continue
+					}
+					header := "Message-ID"
+					if strings.Contains(upper, "X-GOFER-DRAFT-REVISION") {
+						header = "X-Gofer-Draft-Revision"
+					}
+					if !strings.Contains(line, msg.Header.Get(header)) || msg.Header.Get(header) == "" {
+						continue
+					}
+					fmt.Fprintf(writer, " %d", uid)
+					continue
+				}
+				if strings.Contains(upper, "X-GOFER-DRAFT-REVISION") {
+					continue
+				}
+				if strings.Contains(upper, "HEADER MESSAGE-ID") {
+					origin := uid
+					if origins[uid] != 0 {
+						origin = origins[uid]
+					}
+					if !strings.Contains(line, fmt.Sprintf("<%s-%d@example.com>", owner, origin)) {
+						continue
+					}
+				}
 				fmt.Fprintf(writer, " %d", uid)
 			}
 			fmt.Fprintf(writer, "\r\n%s OK search\r\n", tag)
@@ -225,19 +295,77 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 				if seen && uid == uids[0] {
 					flags = "\\Seen"
 				}
+				if mutations {
+					flags = strings.TrimSpace(mailFlags[uid])
+				}
+				origin := uid
+				if origins[uid] != 0 {
+					origin = origins[uid]
+				}
 				if body {
-					raw := testUserMIME(owner, uid)
+					raw := testUserMIME(owner, origin)
+					if rawMessages[uid] != "" {
+						raw = rawMessages[uid]
+					}
 					if bodyOverride != "" {
 						raw = bodyOverride
 					}
 					fmt.Fprintf(writer, "* %d FETCH (UID %d BODY[] {%d}\r\n%s)\r\n", index+1, uid, len(raw), raw)
 				} else if strings.Contains(upper, "ENVELOPE") {
-					fmt.Fprintf(writer, `* %d FETCH (UID %d FLAGS (%s) INTERNALDATE "06-Oct-2026 10:00:00 +0000" RFC822.SIZE 900 ENVELOPE ("Tue, 6 Oct 2026 10:00:00 +0000" "%s private subject %d" (("Sender" NIL "%s" "example.com")) NIL NIL ((NIL NIL "%s" "example.com")) NIL NIL NIL "<%s-%d@example.com>"))`+"\r\n", index+1, uid, flags, owner, uid, owner, owner, owner, uid)
+					if rawMessages[uid] != "" {
+						msg, err := stdmail.ReadMessage(strings.NewReader(rawMessages[uid]))
+						if err != nil {
+							continue
+						}
+						fmt.Fprintf(writer, `* %d FETCH (UID %d FLAGS (%s) INTERNALDATE "06-Oct-2026 10:00:00 +0000" RFC822.SIZE %d ENVELOPE ("Tue, 6 Oct 2026 10:00:00 +0000" %s (("Sender" NIL "%s" "example.com")) NIL NIL ((NIL NIL "recipient" "example.com")) NIL NIL NIL %s))`+"\r\n", index+1, uid, flags, len(rawMessages[uid]), strconv.Quote(msg.Header.Get("Subject")), owner, strconv.Quote(msg.Header.Get("Message-ID")))
+						continue
+					}
+					fmt.Fprintf(writer, `* %d FETCH (UID %d FLAGS (%s) INTERNALDATE "06-Oct-2026 10:00:00 +0000" RFC822.SIZE 900 ENVELOPE ("Tue, 6 Oct 2026 10:00:00 +0000" "%s private subject %d" (("Sender" NIL "%s" "example.com")) NIL NIL ((NIL NIL "%s" "example.com")) NIL NIL NIL "<%s-%d@example.com>"))`+"\r\n", index+1, uid, flags, owner, origin, owner, owner, owner, origin)
 				} else {
 					fmt.Fprintf(writer, "* %d FETCH (UID %d FLAGS (%s))\r\n", index+1, uid, flags)
 				}
 			}
 			fmt.Fprintf(writer, "%s OK fetch\r\n", tag)
+		case mutations && (strings.Contains(upper, " UID STORE ") || strings.Contains(upper, " UID MOVE ") || strings.Contains(upper, " UID EXPUNGE ")):
+			s.serveMutation(writer, owner, selected, tag, parts, upper)
+		case delivery && strings.Contains(upper, " APPEND "):
+			literal := strings.Trim(parts[len(parts)-1], "{}+\r\n")
+			size, e := strconv.Atoi(literal)
+			if e != nil || size < 0 || size > 64<<20 {
+				entry.mu.Unlock()
+				return
+			}
+			if !strings.HasSuffix(strings.TrimSpace(line), "+}") {
+				fmt.Fprint(writer, "+ ready\r\n")
+				writer.Flush()
+			}
+			raw := make([]byte, size)
+			if _, e := io.ReadFull(reader, raw); e != nil {
+				entry.mu.Unlock()
+				return
+			}
+			reader.ReadString('\n')
+			s.mu.Lock()
+			box := s.mutationMailboxLocked(owner, strings.Trim(parts[2], `"`))
+			uid := uint32(10)
+			for _, n := range box.uids {
+				uid = max(uid, n+1)
+			}
+			box.uids = append(box.uids, uid)
+			if box.raw == nil {
+				box.raw = make(map[uint32]string)
+			}
+			box.raw[uid] = string(raw)
+			box.flags[uid] = map[string]bool{`\Seen`: true, `\Draft`: strings.Contains(upper, `\DRAFT`)}
+			lose := s.loseAppendAck
+			s.loseAppendAck = false
+			validity := box.validity
+			s.mu.Unlock()
+			if lose {
+				entry.mu.Unlock()
+				return
+			}
+			fmt.Fprintf(writer, "%s OK [APPENDUID %d %d] appended\r\n", tag, validity, uid)
 		case strings.Contains(upper, " IDLE"):
 			entry.idle = true
 			entry.tag = tag

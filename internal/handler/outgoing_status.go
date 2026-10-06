@@ -171,6 +171,9 @@ func (h *Handler) handleOutgoingSendRetry(w http.ResponseWriter, r *http.Request
 		return
 	}
 	h.signalOutgoingWorker()
+	if h.userMutationState != nil {
+		h.userMutationState.wake[send.AccountID] = true
+	}
 	h.writeOutgoingSendResponse(w, r, send)
 }
 
@@ -194,6 +197,9 @@ func (h *Handler) handleOutgoingSendRetryNow(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	h.signalOutgoingWorker()
+	if h.userMutationState != nil {
+		h.userMutationState.wake[send.AccountID] = true
+	}
 	h.writeOutgoingSendResponse(w, r, send)
 }
 

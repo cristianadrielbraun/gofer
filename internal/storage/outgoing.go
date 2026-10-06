@@ -286,6 +286,15 @@ func (db *DB) OutgoingSendForMessageInternal(ctx context.Context, messageID int6
 // its trusted caller; browser retry routes only move owned rows back to pending.
 // Claims require both a non-deleting account and an active owning user.
 func (db *DB) ClaimDueOutgoingSends(ctx context.Context, now time.Time, limit int) ([]OutgoingSend, error) {
+	return db.claimDueOutgoingSends(ctx, "", now, limit)
+}
+func (db *DB) ClaimDueOutgoingSendsForAccount(ctx context.Context, accountID string, now time.Time, limit int) ([]OutgoingSend, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("account is required")
+	}
+	return db.claimDueOutgoingSends(ctx, accountID, now, limit)
+}
+func (db *DB) claimDueOutgoingSends(ctx context.Context, accountID string, now time.Time, limit int) ([]OutgoingSend, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -297,13 +306,13 @@ func (db *DB) ClaimDueOutgoingSends(ctx context.Context, now time.Time, limit in
 	defer tx.Rollback()
 
 	rows, err := tx.QueryContext(ctx, outgoingSendSelect+`
-		WHERE status = ? AND send_after <= ? AND next_attempt_at <= ? AND mime_data IS NOT NULL AND length(mime_data) > 0
+		WHERE (? = '' OR account_id = ?) AND status = ? AND send_after <= ? AND next_attempt_at <= ? AND mime_data IS NOT NULL AND length(mime_data) > 0
 		  AND EXISTS (
 			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
 			WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
 		  )
 		ORDER BY next_attempt_at ASC, send_after ASC, created_at ASC
-		LIMIT ?`, OutgoingSendPending, now, now, limit)
+		LIMIT ?`, accountID, accountID, OutgoingSendPending, now, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("select due outgoing sends: %w", err)
 	}
@@ -374,6 +383,15 @@ func (db *DB) CompleteOutgoingSend(ctx context.Context, id, sentMessageID string
 // worker after an owned send has reached its durable sent state. Claims require
 // both a non-deleting account and an active owning user.
 func (db *DB) ClaimDueSentCopies(ctx context.Context, now time.Time, limit int) ([]OutgoingSend, error) {
+	return db.claimDueSentCopies(ctx, "", now, limit)
+}
+func (db *DB) ClaimDueSentCopiesForAccount(ctx context.Context, accountID string, now time.Time, limit int) ([]OutgoingSend, error) {
+	if accountID == "" {
+		return nil, fmt.Errorf("account is required")
+	}
+	return db.claimDueSentCopies(ctx, accountID, now, limit)
+}
+func (db *DB) claimDueSentCopies(ctx context.Context, accountID string, now time.Time, limit int) ([]OutgoingSend, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -385,7 +403,7 @@ func (db *DB) ClaimDueSentCopies(ctx context.Context, now time.Time, limit int) 
 	defer tx.Rollback()
 
 	rows, err := tx.QueryContext(ctx, outgoingSendSelect+`
-		WHERE status = ?
+		WHERE (? = '' OR account_id = ?) AND status = ?
 		  AND sent_copy_status IN (?, ?, ?)
 		  AND sent_copy_next_attempt_at <= ?
 		  AND mime_data IS NOT NULL AND length(mime_data) > 0
@@ -394,7 +412,7 @@ func (db *DB) ClaimDueSentCopies(ctx context.Context, now time.Time, limit int) 
 			WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
 		  )
 		ORDER BY sent_copy_next_attempt_at ASC, updated_at ASC
-		LIMIT ?`, OutgoingSendSent, SentCopyPending, SentCopyFailed, SentCopyAmbiguous, now, limit)
+		LIMIT ?`, accountID, accountID, OutgoingSendSent, SentCopyPending, SentCopyFailed, SentCopyAmbiguous, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("select due sent copies: %w", err)
 	}
