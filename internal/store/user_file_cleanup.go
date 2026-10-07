@@ -21,8 +21,12 @@ type userFileActivities struct {
 type userFileActivity struct {
 	readers  int
 	cleaning bool
+	removing bool
 	done     chan struct{}
+	drained  chan struct{}
 }
+
+var ErrUserFilesRemoving = errors.New("user files are being removed")
 
 // PinUserFiles protects copied paths and unpublished candidates, without a
 // database lease. Acquire before leasing storage; nested pins are allowed.
@@ -41,6 +45,10 @@ func (s *BlobStore) PinUserFiles(ctx context.Context, owner string) (func(), err
 			a = &userFileActivity{}
 			s.activity.owners[owner] = a
 		}
+		if a.removing {
+			s.activity.mu.Unlock()
+			return nil, ErrUserFilesRemoving
+		}
 		if !a.cleaning {
 			a.readers++
 			s.activity.mu.Unlock()
@@ -51,7 +59,11 @@ func (s *BlobStore) PinUserFiles(ctx context.Context, owner string) (func(), err
 					defer s.activity.mu.Unlock()
 					a.readers--
 					if a.readers == 0 {
-						delete(s.activity.owners, owner)
+						if a.removing {
+							close(a.drained)
+						} else {
+							delete(s.activity.owners, owner)
+						}
 					}
 				})
 			}, nil
@@ -62,6 +74,68 @@ func (s *BlobStore) PinUserFiles(ctx context.Context, owner string) (func(), err
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-done:
+		}
+	}
+}
+
+// BeginUserFileRemoval closes file admission and waits for existing pins. New
+// pins fail rather than wait: an admitted request can take nested pins, and
+// waiting would prevent its outer pin from draining. The caller must first
+// persist deletion intent and drain account/provider work, without holding a
+// database lease. Release on every exit; central intent guards later admission.
+func (s *BlobStore) BeginUserFileRemoval(ctx context.Context, owner string) (func(), error) {
+	if _, err := composeOwnerKey(owner); err != nil {
+		return nil, err
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		s.activity.mu.Lock()
+		a := s.activity.owners[owner]
+		if a != nil && a.cleaning {
+			done := a.done
+			s.activity.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-done:
+				continue
+			}
+		}
+		if a == nil {
+			a = &userFileActivity{}
+			s.activity.owners[owner] = a
+		}
+		a.cleaning, a.removing = true, true
+		a.done, a.drained = make(chan struct{}), make(chan struct{})
+		if a.readers == 0 {
+			close(a.drained)
+		}
+		drained := a.drained
+		s.activity.mu.Unlock()
+		var once sync.Once
+		release := func() {
+			once.Do(func() {
+				s.activity.mu.Lock()
+				defer s.activity.mu.Unlock()
+				a.cleaning, a.removing = false, false
+				close(a.done)
+				if a.readers == 0 {
+					delete(s.activity.owners, owner)
+				}
+			})
+		}
+		select {
+		case <-ctx.Done():
+			release()
+			return nil, ctx.Err()
+		case <-drained:
+			if err := ctx.Err(); err != nil {
+				release()
+				return nil, err
+			}
+			return release, nil
 		}
 	}
 }

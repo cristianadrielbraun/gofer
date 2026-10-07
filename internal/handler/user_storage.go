@@ -170,6 +170,13 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 						routed.userIMAP.MaybeCleanupUserFiles(r.Context(), routed.userID(r.Context()))
 					}
 				}()
+				// A retention/deletion pass may have held file admission while
+				// this request waited. Recheck before file-only writes as well as
+				// database operations; the earlier check is no longer sufficient.
+				if err := routing.ValidateUser(r.Context(), routed.userID(r.Context())); err != nil {
+					http.Error(w, "user storage unavailable", http.StatusForbidden)
+					return
+				}
 			}
 			handler(w, r)
 		})

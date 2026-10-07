@@ -188,3 +188,171 @@ func TestUserFilePinsSkipBusyOwnersAndBoundWaits(t *testing.T) {
 		t.Fatalf("activity entries leaked: %d", len(s.activity.owners))
 	}
 }
+
+func waitUserFileRemoval(t *testing.T, s *BlobStore, owner string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		s.activity.mu.Lock()
+		a := s.activity.owners[owner]
+		removing := a != nil && a.removing
+		s.activity.mu.Unlock()
+		if removing {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("file removal did not close admission")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+func TestUserFileRemovalDrainsPinsAndRejectsNestedAdmission(t *testing.T) {
+	s := NewBlobStore(t.TempDir())
+	first, err := s.PinUserFiles(t.Context(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first()
+	v, err := s.NewMessageVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := v.PinUserFiles(t.Context(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second()
+	result := make(chan func(), 1)
+	go func() {
+		release, err := s.BeginUserFileRemoval(t.Context(), "alice")
+		if err != nil {
+			t.Error(err)
+		}
+		result <- release
+	}()
+	waitUserFileRemoval(t, s, "alice")
+	if release, err := v.PinUserFiles(t.Context(), "alice"); !errors.Is(err, ErrUserFilesRemoving) {
+		if release != nil {
+			release()
+		}
+		t.Fatal("nested pin must fail instead of waiting on its outer pin", err)
+	}
+	bob, err := s.PinUserFiles(t.Context(), "bob")
+	if err != nil {
+		t.Fatal("other owner unavailable", err)
+	}
+	bob()
+	first()
+	first()
+	select {
+	case release := <-result:
+		if release != nil {
+			release()
+		}
+		t.Fatal("removal ignored remaining version pin")
+	default:
+	}
+	second()
+	select {
+	case release := <-result:
+		if release == nil {
+			t.Fatal("removal failed")
+		}
+		defer release()
+		if end, ok := s.TryUserFileCleanup("alice"); ok {
+			end()
+			t.Fatal("retention entered during removal")
+		}
+		release()
+		release()
+	case <-time.After(5 * time.Second):
+		t.Fatal("removal did not drain")
+	}
+	s.activity.mu.Lock()
+	defer s.activity.mu.Unlock()
+	if len(s.activity.owners) != 0 {
+		t.Fatal("file removal leaked activity entries")
+	}
+}
+
+func TestUserFileRemovalCancellationPreservesExistingPins(t *testing.T) {
+	s := NewBlobStore(t.TempDir())
+	first, err := s.PinUserFiles(t.Context(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { _, err := s.BeginUserFileRemoval(ctx, "alice"); result <- err }()
+	waitUserFileRemoval(t, s, "alice")
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	second, err := s.PinUserFiles(t.Context(), "alice")
+	if err != nil {
+		t.Fatal("canceled removal retained admission gate", err)
+	}
+	defer second()
+	first()
+	if end, ok := s.TryUserFileCleanup("alice"); ok {
+		end()
+		t.Fatal("cancellation lost a retained pin")
+	}
+	second()
+	end, err := s.BeginUserFileRemoval(t.Context(), "alice")
+	if err != nil {
+		t.Fatal("retry removal", err)
+	}
+	end()
+}
+
+func TestUserFileRemovalWaitsForCleanupAndOtherRemoval(t *testing.T) {
+	s := NewBlobStore(t.TempDir())
+	cleanup, ok := s.TryUserFileCleanup("alice")
+	if !ok {
+		t.Fatal("cleanup not acquired")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if end, err := s.BeginUserFileRemoval(ctx, "alice"); !errors.Is(err, context.DeadlineExceeded) {
+		if end != nil {
+			end()
+		}
+		t.Fatal("removal did not wait for cleanup", err)
+	}
+	cleanup()
+	end, err := s.BeginUserFileRemoval(t.Context(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer end()
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel2()
+	if other, err := s.BeginUserFileRemoval(ctx2, "alice"); !errors.Is(err, context.DeadlineExceeded) {
+		if other != nil {
+			other()
+		}
+		t.Fatal("concurrent removal entered", err)
+	}
+	if pin, err := s.PinUserFiles(t.Context(), "alice"); !errors.Is(err, ErrUserFilesRemoving) {
+		if pin != nil {
+			pin()
+		}
+		t.Fatal("canceled waiter released another removal", err)
+	}
+	end()
+	if other, err := s.BeginUserFileRemoval(t.Context(), "alice"); err != nil {
+		t.Fatal(err)
+	} else {
+		other()
+	}
+	if end, err := s.BeginUserFileRemoval(t.Context(), ""); err == nil {
+		end()
+		t.Fatal("invalid owner admitted")
+	}
+}

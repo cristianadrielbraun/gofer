@@ -1,16 +1,24 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -184,5 +192,108 @@ func TestOwnedUserStatusRetriesFailedPostcommitWake(t *testing.T) {
 	var due int64
 	if err := f.system.Read().QueryRow(`SELECT next_due_ms FROM gofer_account_poll_schedule WHERE account_id=?`, id).Scan(&due); err != nil || due != 0 {
 		t.Fatal("unchanged status retry did not repair wake", due, err)
+	}
+}
+
+// Observe the route's file-pin wait after its first authority check. Installed
+// downstream of real authentication middleware, this context counts only route
+// identity lookups; SQL cancellation checks before that point cannot release
+// the test barrier. No sleeps decide when access is revoked.
+type userFileWaitContext struct {
+	context.Context
+	lookups atomic.Int32
+	waiting chan struct{}
+	once    sync.Once
+}
+
+func (c *userFileWaitContext) Value(key any) any {
+	v := c.Context.Value(key)
+	if _, ok := v.(*auth.User); ok {
+		c.lookups.Add(1)
+	}
+	return v
+}
+func (c *userFileWaitContext) Done() <-chan struct{} {
+	if c.lookups.Load() >= 2 {
+		c.once.Do(func() { close(c.waiting) })
+	}
+	return c.Context.Done()
+}
+
+func TestOwnedComposeUploadRechecksAuthorityAfterFilePinWait(t *testing.T) {
+	f := verifiedOwnedStatusFixture(t)
+	alice, err := f.manager.CreateAuthenticatedSession(t.Context(), "alice", "upload browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, cancel := context.WithCancel(t.Context())
+	syncer := mail.NewSyncOrchestrator(f.system, nil, nil, nil)
+	imap, err := mail.NewUserIMAP(root, f.h.userAccounts, f.h.blobStore, syncer.Events())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(f.system, nil, syncer, f.h.blobStore, f.manager, "")
+	t.Cleanup(func() { cancel(); imap.Wait(); h.WaitAvatarWorkers() })
+	mux := http.NewServeMux()
+	if err := h.RegisterUserStorageRoutes(root, mux, f.h.userStorage, UserStorageOptions{Accounts: f.h.userAccounts, IMAP: imap}); err != nil {
+		t.Fatal(err)
+	}
+	waiting := make(chan struct{})
+	browser := f.manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := &userFileWaitContext{Context: r.Context(), waiting: waiting}
+		mux.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	_, retained, err := f.h.blobStore.StoreComposeAttachment(t.Context(), "alice", "retained.txt", strings.NewReader("retained"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup, ok := f.h.blobStore.TryUserFileCleanup("alice")
+	if !ok {
+		t.Fatal("could not reserve Alice files")
+	}
+	defer cleanup()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("attachment", "pending.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(part, "private pending upload"); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/compose/attachments", &body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: "gofer_session", Value: alice.Token})
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { w := httptest.NewRecorder(); browser.ServeHTTP(w, req); done <- w }()
+	select {
+	case <-waiting:
+	case w := <-done:
+		t.Fatal("upload did not wait for file cleanup", w.Code, w.Body.String())
+	case <-time.After(30 * time.Second):
+		t.Fatal("upload did not reach file-pin wait")
+	}
+	if w := ownedStatusPost(t, f, "alice", "disabled", true); w.Code != http.StatusSeeOther {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	cleanup()
+	select {
+	case w := <-done:
+		if w.Code != http.StatusForbidden {
+			t.Fatal("revoked upload resumed", w.Code, w.Body.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("upload did not resume after cleanup")
+	}
+	if entries, err := os.ReadDir(filepath.Dir(retained)); err == nil && len(entries) != 1 {
+		t.Fatal("revoked upload left private files", entries)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(retained); err != nil || string(data) != "retained" {
+		t.Fatal("status transition damaged existing upload", string(data), err)
 	}
 }
