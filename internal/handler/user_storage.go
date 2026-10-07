@@ -68,7 +68,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		blobStore: h.blobStore,
 		userIMAP:  option.IMAP, userCredentials: option.Credentials, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
 		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
-		userBackfills: make(map[string]struct{}), contactSyncRunning: make(map[string]struct{})}
+		googleTranslator:         h.googleTranslator,
+		remoteResourceDownloader: h.remoteResourceDownloader,
+		userBackfills:            make(map[string]struct{}), contactSyncRunning: make(map[string]struct{})}
 	if option.IMAP != nil {
 		if h.blobStore != nil && h.blobStore != option.IMAP.Blobs() {
 			return errors.New("routed compose must use the IMAP blob store")
@@ -213,6 +215,10 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	}
 	if option.IMAP != nil {
 		private("POST /api/messages/{id}/prefetch-body", routed.handleUserPrefetchBody)
+		private("POST /api/messages/{id}/translate", routed.handleUserTranslateMessage)
+		private("GET /email/{id}/body/translated", routed.handleUserTranslatedEmailBody)
+		private("POST /api/remote-content/{id}/allow", routed.handleUserAllowRemoteContent)
+		private("GET /api/remote-assets/{messageID}/{filename}", routed.handleUserRemoteAsset)
 		private("POST /api/messages/{id}/refetch", routed.handleUserRefetchBody)
 		private("GET /api/mail/{id}/calendar", routed.handleUserMailCalendarFooter)
 		private("GET /api/calendar/events/new", routed.handleUserNewCalendarEvent)

@@ -104,7 +104,7 @@ type Handler struct {
 	sentCopyIMAPFactory        sentCopyIMAPClientFactory
 	messageMutationWake        chan struct{}
 	messageMutationIMAPFactory messageMutationIMAPClientFactory
-	remoteResourceDownloader   func(string) ([]byte, error)
+	remoteResourceDownloader   func(context.Context, string) ([]byte, error)
 	providerAvatarHTTPClient   *http.Client
 	retentionMu                sync.RWMutex
 	retentionState             models.MailRetentionDiagnostics
@@ -4060,7 +4060,7 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 		if download == nil {
 			download = downloadRemoteResource
 		}
-		data, err := download(remoteURL)
+		data, err := download(ctx, remoteURL)
 		if err != nil || len(data) == 0 {
 			continue
 		}
@@ -4112,9 +4112,13 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func downloadRemoteResource(url string) ([]byte, error) {
+func downloadRemoteResource(ctx context.Context, url string) ([]byte, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -4122,7 +4126,11 @@ func downloadRemoteResource(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024+1))
+	if err == nil && len(data) > 5*1024*1024 {
+		return nil, errors.New("remote resource is too large")
+	}
+	return data, err
 }
 
 func validRemoteAssetFilename(filename string) bool {

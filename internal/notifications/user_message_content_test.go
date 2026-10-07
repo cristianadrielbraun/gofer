@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -170,5 +171,87 @@ func TestUserProviderPrefetchAndRefetchHTTP(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestUserMessageTranslationAndRemoteContentRoutes(t *testing.T) {
+	f := newUserStorageFixtureMode(t, true)
+	server := newRoutedIMAPServer(t)
+	image := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("remote image")) }))
+	t.Cleanup(image.Close)
+	server.mu.Lock()
+	server.bodyOverride = "From: sender@example.com\r\nSubject: Private content\r\nContent-Type: text/html\r\n\r\n<p>private body</p><img src=\"" + image.URL + "/image.png\">"
+	server.mu.Unlock()
+	f.useIMAPServer(t, server)
+	for _, owner := range []string{"alice", "bob"} {
+		if err := f.imap.Sync(t.Context(), owner, f.accounts[owner].ID); err != nil {
+			t.Fatal(err)
+		}
+		if r := f.request(owner, "POST", "/api/messages/1/translate", `{"provider":"unsupported"}`); r.Code != 400 {
+			t.Fatal("translation route missing", owner, r.Code)
+		}
+		if r := f.request(owner, "GET", "/email/1/body/translated?provider=unsupported", ""); r.Code != 400 {
+			t.Fatal("translated document route missing", owner, r.Code)
+		}
+	}
+	if r := f.request("alice", "POST", "/api/remote-content/1/allow", `{"mode":"sender"}`); r.Code != 200 {
+		t.Fatal("approval route", r.Code, r.Body.String())
+	}
+	var filename string
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		s, err := db.GetMessageContentSnapshotForUser(t.Context(), "alice", 1)
+		if err != nil {
+			return err
+		}
+		files, err := filepath.Glob(filepath.Join(filepath.Dir(s.BodyHTMLPath), "remote_assets", "*"))
+		if err != nil {
+			return err
+		}
+		if len(files) != 1 {
+			return fmt.Errorf("missing local image")
+		}
+		filename = filepath.Base(files[0])
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.request("alice", "GET", "/api/remote-assets/1/"+filename, ""); r.Code != 200 || r.Body.String() != "remote image" {
+		t.Fatal("asset route", r.Code, r.Body.String())
+	}
+	if r := f.request("bob", "GET", "/api/remote-assets/1/"+filename, ""); r.Code != 404 {
+		t.Fatal("foreign image", r.Code)
+	}
+}
+
+func TestUserRemoteContentDownloadCancellation(t *testing.T) {
+	f := newUserStorageFixtureMode(t, true)
+	server := newRoutedIMAPServer(t)
+	entered := make(chan struct{})
+	image := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(entered); <-r.Context().Done() }))
+	t.Cleanup(image.Close)
+	t.Cleanup(f.stopIMAP)
+	server.mu.Lock()
+	server.bodyOverride = "From: sender@example.com\r\nSubject: private\r\nContent-Type: text/html\r\n\r\n<p>private</p><img src=\"" + image.URL + "/image.png\">"
+	server.mu.Unlock()
+	f.useIMAPServer(t, server)
+	if err := f.imap.Sync(t.Context(), "alice", f.accounts["alice"].ID); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan int, 1)
+	go func() { result <- f.request("alice", "POST", "/api/remote-content/1/allow", `{"mode":"email"}`).Code }()
+	awaitIMAP(t, entered)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := f.routing.WithUser(ctx, "bob", func(*storage.DB) error { return nil }); err != nil {
+		t.Fatal("image download held store", err)
+	}
+	f.stopIMAP()
+	select {
+	case code := <-result:
+		if code == 200 {
+			t.Fatal("canceled approval succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("image download did not cancel")
 	}
 }

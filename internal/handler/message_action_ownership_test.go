@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -93,7 +94,7 @@ func newMessageActionOwnershipFixture(t *testing.T) messageActionOwnershipFixtur
 		remoteCalls:      &atomic.Int32{},
 		translationCalls: translationTransport,
 	}
-	h.remoteResourceDownloader = func(string) ([]byte, error) {
+	h.remoteResourceDownloader = func(context.Context, string) ([]byte, error) {
 		result.remoteCalls.Add(1)
 		return []byte("remote image"), nil
 	}

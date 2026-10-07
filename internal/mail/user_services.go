@@ -2,9 +2,59 @@ package mail
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
+
+// RunMessageWork joins external work on cached message content to the same
+// bounded gate and lifecycle as body fetching. The callback must lease separately
+// for snapshots/publication and must not recursively fetch this message's body.
+func (s *UserIMAP) RunMessageWork(ctx context.Context, owner string, messageID int64, fn func(context.Context, string) error) error {
+	if fn == nil || messageID <= 0 {
+		return errors.New("message work needs a valid message and operation")
+	}
+	var account string
+	if err := s.Routing().WithUser(ctx, owner, func(db *storage.DB) error {
+		info, err := db.GetMessageStorageInfoForUser(ctx, messageID, owner)
+		if err == nil && info == nil {
+			return sql.ErrNoRows
+		}
+		if err == nil {
+			account = info.AccountID
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	return s.operation(ctx, owner, account, messageID, 2*time.Minute, func(ctx context.Context) error {
+		scope, err := s.snapshot(ctx, owner, account)
+		if err != nil {
+			return err
+		}
+		validate := func() error {
+			return scope.call(ctx, func(db *storage.DB) error {
+				info, err := db.GetMessageStorageInfoForUser(ctx, messageID, owner)
+				if err != nil {
+					return err
+				}
+				if info == nil || info.AccountID != account {
+					return sql.ErrNoRows
+				}
+				return ctx.Err()
+			})
+		}
+		if err := validate(); err != nil {
+			return err
+		}
+		if err := fn(ctx, account); err != nil {
+			return err
+		}
+		return validate()
+	})
+}
 
 // AccountService names independent contacts/calendar operation gates. Service
 // identity is a separate key field, so every migrated message ID remains usable.
