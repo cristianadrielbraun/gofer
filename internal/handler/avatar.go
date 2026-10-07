@@ -1474,12 +1474,7 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		emails = append(emails, row.Email)
 	}
-	var providerContactAvatars map[string]string
-	if scope.SelectedUserID == "" {
-		providerContactAvatars, err = h.db.GetInstanceProviderContactAvatarsByEmail(read.ctx, emails)
-	} else {
-		providerContactAvatars, err = h.db.GetProviderContactAvatarsByEmail(read.ctx, scope.SelectedUserID, emails)
-	}
+	providerContactAvatars, err := h.adminProviderContactAvatars(read.ctx, scope, emails)
 	if err != nil {
 		http.Error(w, "failed to get provider contact avatars", http.StatusInternalServerError)
 		return

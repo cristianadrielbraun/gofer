@@ -75,25 +75,7 @@ func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor Diagnost
 	if kind != UserDiagnosticsContacts && kind != UserDiagnosticsLabels && kind != UserDiagnosticsMail && kind != UserDiagnosticsAvatars {
 		return result, errors.New("unknown user diagnostics kind")
 	}
-	if err = r.ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
-		return result, err
-	}
-	if _, statErr := os.Lstat(r.stores.userPath(owner)); errors.Is(statErr, os.ErrNotExist) {
-		var known bool
-		if err = r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id=?)`, owner).Scan(&known); err != nil {
-			return result, err
-		}
-		if known {
-			return result, errors.Join(ErrAccountRoute, statErr)
-		}
-		return result, r.ValidateDiagnosticsAccess(ctx, actor, owner)
-	} else if statErr != nil {
-		return result, statErr
-	}
-	err = r.withUserStore(ctx, owner, true, func(db *DB) error {
-		if err := r.ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
-			return err
-		}
+	err = r.withDiagnosticsStore(ctx, actor, owner, func(db *DB) error {
 		var err error
 		switch kind {
 		case UserDiagnosticsContacts:
@@ -111,10 +93,40 @@ func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor Diagnost
 		if err != nil {
 			return err
 		}
-		return r.ValidateDiagnosticsAccess(ctx, actor, owner)
+		return nil
 	})
 	if err != nil {
 		return UserDiagnostics{}, err
 	}
 	return result, nil
+}
+
+// withDiagnosticsStore is private: callers receive copied typed results, never a
+// database capability. Every diagnostic path shares existing-file admission and
+// administrator/owner checks around waits and local reads.
+func (r *AccountRouting) withDiagnosticsStore(ctx context.Context, actor DiagnosticsActor, owner string, read func(*DB) error) error {
+	if err := r.ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
+		return err
+	}
+	if _, statErr := os.Lstat(r.stores.userPath(owner)); errors.Is(statErr, os.ErrNotExist) {
+		var known bool
+		if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id=?)`, owner).Scan(&known); err != nil {
+			return err
+		}
+		if known {
+			return errors.Join(ErrAccountRoute, statErr)
+		}
+		return r.ValidateDiagnosticsAccess(ctx, actor, owner)
+	} else if statErr != nil {
+		return statErr
+	}
+	return r.withUserStore(ctx, owner, true, func(db *DB) error {
+		if err := r.ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
+			return err
+		}
+		if err := read(db); err != nil {
+			return err
+		}
+		return r.ValidateDiagnosticsAccess(ctx, actor, owner)
+	})
 }
