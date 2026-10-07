@@ -7720,6 +7720,12 @@ func (db *DB) ListSignatures(ctx context.Context, userID string) ([]models.Signa
 }
 
 func (db *DB) SaveSignature(ctx context.Context, userID string, sig models.Signature) (models.Signature, error) {
+	return db.SaveSignatureGuarded(ctx, userID, sig, nil)
+}
+
+// SaveSignatureGuarded rechecks routed ownership after acquiring the writer
+// and before commit. The shared repository uses the same operation without a guard.
+func (db *DB) SaveSignatureGuarded(ctx context.Context, userID string, sig models.Signature, guard func(*sql.Tx) error) (models.Signature, error) {
 	sig.Name = strings.TrimSpace(sig.Name)
 	if sig.Name == "" {
 		return models.Signature{}, fmt.Errorf("signature name is required")
@@ -7731,7 +7737,17 @@ func (db *DB) SaveSignature(ctx context.Context, userID string, sig models.Signa
 		sig.ID = "sig_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	}
 
-	res, err := db.Write().ExecContext(ctx,
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return models.Signature{}, err
+	}
+	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return models.Signature{}, err
+		}
+	}
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO signatures (id, user_id, name, html_body, text_body)
 		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
@@ -7743,24 +7759,58 @@ func (db *DB) SaveSignature(ctx context.Context, userID string, sig models.Signa
 	if err != nil {
 		return models.Signature{}, fmt.Errorf("save signature: %w", err)
 	}
-	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return models.Signature{}, err
+	}
+	if rows == 0 {
 		return models.Signature{}, sql.ErrNoRows
 	}
 
-	return db.GetSignature(ctx, userID, sig.ID)
+	sig, err = signatureFromRow(tx.QueryRowContext(ctx, `SELECT id, name, html_body, text_body, created_at, updated_at
+ FROM signatures WHERE user_id = ? AND id = ?`, userID, sig.ID))
+	if err != nil {
+		return models.Signature{}, err
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return models.Signature{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Signature{}, err
+	}
+	return sig, nil
 }
 
 func (db *DB) GetSignature(ctx context.Context, userID, signatureID string) (models.Signature, error) {
-	var sig models.Signature
-	err := db.Read().QueryRowContext(ctx,
+	return signatureFromRow(db.Read().QueryRowContext(ctx,
 		`SELECT id, name, html_body, text_body, created_at, updated_at
-		 FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID).
-		Scan(&sig.ID, &sig.Name, &sig.HTMLBody, &sig.TextBody, &sig.CreatedAt, &sig.UpdatedAt)
+		 FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID))
+}
+
+func signatureFromRow(row *sql.Row) (models.Signature, error) {
+	var sig models.Signature
+	err := row.Scan(&sig.ID, &sig.Name, &sig.HTMLBody, &sig.TextBody, &sig.CreatedAt, &sig.UpdatedAt)
 	return sig, err
 }
 
 func (db *DB) DeleteSignature(ctx context.Context, userID, signatureID string) error {
-	result, err := db.Write().ExecContext(ctx, `DELETE FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID)
+	return db.DeleteSignatureGuarded(ctx, userID, signatureID, nil)
+}
+
+func (db *DB) DeleteSignatureGuarded(ctx context.Context, userID, signatureID string, guard func(*sql.Tx) error) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID)
 	if err != nil {
 		return err
 	}
@@ -7769,7 +7819,12 @@ func (db *DB) DeleteSignature(ctx context.Context, userID, signatureID string) e
 	} else if affected != 1 {
 		return sql.ErrNoRows
 	}
-	return nil
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (db *DB) GetAccountSignatureSettings(ctx context.Context, userID, accountID string) (models.AccountSignatureSettings, error) {
@@ -7801,6 +7856,10 @@ func (db *DB) GetAccountSignatureSettings(ctx context.Context, userID, accountID
 }
 
 func (db *DB) SaveAccountSignatureSettings(ctx context.Context, userID string, settings models.AccountSignatureSettings) error {
+	return db.SaveAccountSignatureSettingsGuarded(ctx, userID, settings, nil)
+}
+
+func (db *DB) SaveAccountSignatureSettingsGuarded(ctx context.Context, userID string, settings models.AccountSignatureSettings, guard func(*sql.Tx) error) error {
 	if settings.AccountID == "" {
 		return fmt.Errorf("account id is required")
 	}
@@ -7812,8 +7871,18 @@ func (db *DB) SaveAccountSignatureSettings(ctx context.Context, userID string, s
 	settings.NewEnabled = settings.NewEnabled && settings.NewSignatureID != ""
 	settings.ReplyEnabled = settings.ReplyEnabled && settings.ReplySignatureID != ""
 	settings.ForwardEnabled = settings.ForwardEnabled && settings.ForwardSignatureID != ""
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return err
+		}
+	}
 	var exists int
-	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE user_id = ? AND id = ?`, userID, settings.AccountID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE user_id = ? AND id = ?`, userID, settings.AccountID).Scan(&exists); err != nil {
 		return err
 	}
 	if exists == 0 {
@@ -7825,7 +7894,7 @@ func (db *DB) SaveAccountSignatureSettings(ctx context.Context, userID string, s
 			continue
 		}
 		var owned int
-		if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID).Scan(&owned); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM signatures WHERE user_id = ? AND id = ?`, userID, signatureID).Scan(&owned); err != nil {
 			return err
 		}
 		if owned == 0 {
@@ -7840,7 +7909,7 @@ func (db *DB) SaveAccountSignatureSettings(ctx context.Context, userID string, s
 		}
 		return id
 	}
-	_, err := db.Write().ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO account_signature_settings (
 			account_id, new_signature_id, reply_signature_id, forward_signature_id,
 			new_enabled, reply_enabled, forward_enabled, reply_placement, forward_placement, updated_at
@@ -7861,7 +7930,20 @@ func (db *DB) SaveAccountSignatureSettings(ctx context.Context, userID string, s
 		normalizeSignatureID(settings.ForwardSignatureID, settings.ForwardEnabled),
 		boolInt(settings.NewEnabled), boolInt(settings.ReplyEnabled), boolInt(settings.ForwardEnabled),
 		settings.ReplyPlacement, settings.ForwardPlacement)
-	return err
+	if err != nil {
+		return err
+	}
+	if count, err := result.RowsAffected(); err != nil {
+		return err
+	} else if count != 1 {
+		return sql.ErrNoRows
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func normalizeSignaturePlacement(v string) string {

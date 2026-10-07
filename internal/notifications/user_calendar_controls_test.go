@@ -37,7 +37,7 @@ func TestUserCalendarControlsHTTPSelectionVisibilityAndEnablement(t *testing.T) 
 		t.Fatal("select calendar", response.Code, response.Body.String())
 	}
 	for _, enabled := range []string{"false", "true"} {
-		if response := f.request("alice", "POST", "/api/accounts/"+alice+"/service", "service=calendar&enabled="+enabled); response.Code != 200 {
+		if response := f.request("alice", "POST", "/api/accounts/"+alice+"/services", "service=calendar&enabled="+enabled); response.Code != 200 {
 			t.Fatal("calendar enablement", enabled, response.Code, response.Body.String())
 		}
 	}

@@ -186,6 +186,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /settings/contacts", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "contacts") })
 	private("GET /api/accounts/{id}/deletion-status", routed.handleUserAccountDeletionStatus)
 	if option.Accounts != nil {
+		routed.registerUserSignatures(private)
 		private("POST /api/accounts", routed.handleUserCreateAccount)
 		private("GET /api/settings/contacts/suppressed", routed.handleUserSuppressedContactsSettings)
 		private("GET /api/accounts/{id}/edit", routed.handleUserEditAccount)
@@ -241,6 +242,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("GET /api/contacts/{id}/sync-setup/findings", routed.handleUserContactSyncSetupFindings)
 		private("POST /api/contacts/{id}/sync-setup/preview", routed.handleUserPreviewContactSyncSetup)
 		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)
+		private("POST /api/accounts/{id}/services", routed.handleUserEmailService)
+		// Retain the earlier opt-in URL while the application uses /services.
 		private("POST /api/accounts/{id}/service", routed.handleUserEmailService)
 		private("POST /api/mail/sync", routed.handleUserManualSync)
 		private("POST /api/mail/sync/accounts/{id}", routed.handleUserManualSync)

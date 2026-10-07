@@ -239,7 +239,7 @@ func TestUserIMAPControlsSettingsAtomicOwnedModesAndEmailToggle(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, enabled := range []string{"false", "true"} {
-		rec := f.request("alice", http.MethodPost, "/api/accounts/"+alice+"/service", "service=email&enabled="+enabled)
+		rec := f.request("alice", http.MethodPost, "/api/accounts/"+alice+"/services", "service=email&enabled="+enabled)
 		if rec.Code != 200 {
 			t.Fatalf("email toggle: %d %s", rec.Code, rec.Body.String())
 		}
@@ -249,10 +249,10 @@ func TestUserIMAPControlsSettingsAtomicOwnedModesAndEmailToggle(t *testing.T) {
 		}
 		waitUserIMAP(t, func() bool { return len(server.idlePeers("alice")) == want })
 	}
-	if rec := f.request("bob", http.MethodPost, "/api/accounts/"+alice+"/service", "service=email&enabled=false"); rec.Code != 404 {
+	if rec := f.request("bob", http.MethodPost, "/api/accounts/"+alice+"/services", "service=email&enabled=false"); rec.Code != 404 {
 		t.Fatal("foreign email toggle accepted")
 	}
-	if rec := f.request("alice", http.MethodPost, "/api/accounts/"+alice+"/service", "service=contacts&enabled=true"); rec.Code != 409 {
+	if rec := f.request("alice", http.MethodPost, "/api/accounts/"+alice+"/services", "service=contacts&enabled=true"); rec.Code != 409 {
 		t.Fatal("unconfigured contact service was silently enabled")
 	}
 	if err := f.routing.WithUser(t.Context(), "bob", func(db *storage.DB) error {

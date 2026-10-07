@@ -49,6 +49,7 @@ type Handler struct {
 	userMutationState          *userMessageMutationState
 	userIdleStatuses           map[string]map[string]mail.IDLEFolderRuntimeStatus
 	userAccounts               *config.UserAccountStore
+	signatureGuard             func(*sql.Tx) error
 	userAccountHooks           UserAccountHooks
 	userStorageContext         context.Context
 	userDeletions              map[string]*userAccountDeletionJob
@@ -2806,12 +2807,12 @@ func (h *Handler) handleSaveSignature(w http.ResponseWriter, r *http.Request) {
 	if textBody == "" {
 		textBody = signatureHTMLToText(htmlBody)
 	}
-	sig, err := h.db.SaveSignature(r.Context(), h.userID(r.Context()), models.Signature{
+	sig, err := h.db.SaveSignatureGuarded(r.Context(), h.userID(r.Context()), models.Signature{
 		ID:       strings.TrimSpace(r.FormValue("id")),
 		Name:     r.FormValue("name"),
 		HTMLBody: htmlBody,
 		TextBody: textBody,
-	})
+	}, h.signatureGuard)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
@@ -2832,7 +2833,7 @@ func (h *Handler) handleDeleteSignature(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "signature id required", http.StatusBadRequest)
 		return
 	}
-	if err := h.db.DeleteSignature(r.Context(), h.userID(r.Context()), signatureID); err != nil {
+	if err := h.db.DeleteSignatureGuarded(r.Context(), h.userID(r.Context()), signatureID, h.signatureGuard); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
@@ -2865,7 +2866,7 @@ func (h *Handler) handleSaveAccountSignatureSettings(w http.ResponseWriter, r *h
 		ReplyPlacement:     r.FormValue("reply_placement"),
 		ForwardPlacement:   r.FormValue("forward_placement"),
 	}
-	if err := h.db.SaveAccountSignatureSettings(r.Context(), h.userID(r.Context()), settings); err != nil {
+	if err := h.db.SaveAccountSignatureSettingsGuarded(r.Context(), h.userID(r.Context()), settings, h.signatureGuard); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return

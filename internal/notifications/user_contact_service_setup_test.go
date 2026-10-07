@@ -113,7 +113,7 @@ func TestUserContactServiceSetupSaveAndToggleOwnedStateAndWake(t *testing.T) {
 		if err != nil || !reserved || revision == 0 {
 			t.Fatal("reserve", err)
 		}
-		response := f.request("alice", "POST", "/api/accounts/"+id+"/service", "service=contacts&enabled="+enabled)
+		response := f.request("alice", "POST", "/api/accounts/"+id+"/services", "service=contacts&enabled="+enabled)
 		if response.Code != 200 {
 			t.Fatalf("toggle: %d %s", response.Code, response.Body.String())
 		}
@@ -132,9 +132,9 @@ func TestUserContactServiceSetupSaveAndToggleOwnedStateAndWake(t *testing.T) {
 		}
 	}
 	calls := fake.calls.Load()
-	for _, path := range []string{"/contacts/sync", "/service"} {
+	for _, path := range []string{"/contacts/sync", "/service", "/services"} {
 		body := ownedDAVForm(server, "alice")
-		if path == "/service" {
+		if path == "/service" || path == "/services" {
 			body = "service=contacts&enabled=false"
 		}
 		if response := f.request("bob", "POST", "/api/accounts/"+id+path, body); response.Code != 404 {
