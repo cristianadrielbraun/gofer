@@ -108,7 +108,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			}
 			// Protect copied file paths for local reads and compose publication.
 			// SSE holds no file paths and can stay open indefinitely.
-			needsFiles := pattern != "GET /api/events" &&
+			needsFiles := !strings.HasPrefix(r.URL.Path, "/settings/security") && pattern != "GET /api/events" &&
 				pattern != "GET /api/calendar/events/new" &&
 				pattern != "POST /api/calendar/events" &&
 				pattern != "PATCH /api/calendar/events/{id}" &&
@@ -181,6 +181,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/sidebar/mail", routed.handleMailSidebar)
 	private("GET /api/sidebar/accounts/{id}", routed.handleSidebarAccount)
 	private("GET /api/accounts", routed.handleUserAccounts)
+	private("GET /settings", routed.handleSettings)
+	private("GET /settings/{tab}", routed.handleSettingsTab)
+	routed.registerSecuritySettingsRoutes(private)
 	private("GET /settings/accounts", routed.handleUserAccountSettings)
 	private("GET /settings/sync", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "sync") })
 	private("GET /settings/contacts", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "contacts") })

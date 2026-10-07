@@ -508,30 +508,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/accounts/{id}/deletion-status", h.handleAccountDeletionStatus)
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
-	mux.HandleFunc("GET "+securityActivityPath, h.handleSecurityActivityPage)
-	mux.HandleFunc("GET /settings/security/sessions/history", h.handleSecuritySessionHistory)
-	mux.HandleFunc("POST /settings/security/password", h.handleChangePassword)
-	mux.HandleFunc("POST "+securityStepUpPath, h.handleSecurityStepUp)
-	mux.HandleFunc("POST "+securityTOTPStartPath, h.handleSecurityTOTPStart)
-	mux.HandleFunc("POST "+securityTOTPConfirmPath, h.handleSecurityTOTPConfirm)
-	mux.HandleFunc("POST "+securityTOTPDisablePath, h.handleSecurityTOTPDisable)
-	mux.HandleFunc("POST "+securityRecoveryStartPath, h.handleSecurityRecoveryStart)
-	mux.HandleFunc("POST "+securityRecoveryCompletePath, h.handleSecurityRecoveryComplete)
-	mux.HandleFunc("POST "+securityRecoveryRevokePath, h.handleSecurityRecoveryRevoke)
-	mux.HandleFunc("POST "+securityManagementCancelPath, h.handleSecurityManagementCancel)
-	mux.HandleFunc("POST "+securityPasskeyStartPath, h.handleSecurityPasskeyStart)
-	mux.HandleFunc("POST "+securityPasskeyFinishPath, h.handleSecurityPasskeyFinish)
-	mux.HandleFunc("POST "+securityPasskeyStepUpStartPath, h.handleSecurityPasskeyStepUpStart)
-	mux.HandleFunc("POST "+securityPasskeyStepUpFinishPath, h.handleSecurityPasskeyStepUpFinish)
-	mux.HandleFunc("POST "+securityGoogleIdentityLinkPath, h.handleSecurityGoogleIdentityLink)
-	mux.HandleFunc("POST /settings/security/identities/google/{id}/unlink", h.handleSecurityGoogleIdentityUnlink)
-	mux.HandleFunc("POST "+securityMicrosoftIdentityLinkPath, h.handleSecurityMicrosoftIdentityLink)
-	mux.HandleFunc("POST /settings/security/identities/microsoft/{id}/unlink", h.handleSecurityMicrosoftIdentityUnlink)
-	mux.HandleFunc("POST "+securityOIDCIdentityLinkPath, h.handleSecurityOIDCIdentityLink)
-	mux.HandleFunc("POST /settings/security/identities/oidc/{id}/unlink", h.handleSecurityOIDCIdentityUnlink)
-	mux.HandleFunc("POST "+securitySessionRevokeOthersPath, h.handleSecuritySessionRevokeOthers)
-	mux.HandleFunc("POST /settings/security/sessions/{reference}/revoke", h.handleSecuritySessionRevoke)
-	mux.HandleFunc("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
+	h.registerSecuritySettingsRoutes(func(pattern string, handler http.HandlerFunc) {
+		mux.HandleFunc(pattern, handler)
+	})
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
@@ -3082,6 +3061,10 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 		h.renderPasswordSecurityTab(w, r, http.StatusOK, nil)
 		return
 	}
+	if h.userStorage != nil {
+		h.handleUserSyncSettingsView(w, r, tab)
+		return
+	}
 	ctx := r.Context()
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	displayAccounts := accounts
@@ -3150,7 +3133,12 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 			data.MessageIsError = true
 		}
 
-		uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+		uiSettings, err := h.securityUISettings(ctx, h.userID(ctx))
+		if err != nil {
+			log.Printf("load security display preferences: %v", err)
+			http.Error(w, "user settings unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		var page bytes.Buffer
 		if managementSurface {
 			err = views.ManagementSecurityLayout(uiSettings, views.PasswordSecurityVerification(data)).Render(ctx, &page)
@@ -3362,7 +3350,12 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	uiSettings, err := h.securityUISettings(ctx, h.userID(ctx))
+	if err != nil {
+		log.Printf("load security display preferences: %v", err)
+		http.Error(w, "user settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	var page bytes.Buffer
 	if managementSurface {
 		err = views.ManagementSecurityLayout(uiSettings, views.PasswordSecuritySettings(data)).Render(ctx, &page)
