@@ -2553,10 +2553,33 @@ func (db *DB) UpsertObservedContact(ctx context.Context, userID, name, email str
 }
 
 func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email string, seenAt time.Time, count int, settings ContactSettings) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	created, err := db.upsertObservedContactTx(ctx, tx, userID, name, email, seenAt, count, settings)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if created {
+		db.notifyObservedContact(userID, email)
+	}
+	return nil
+}
+
+func (db *DB) notifyObservedContact(owner, email string) {
+	db.notifyContactActivity(ContactActivityNotification{UserID: owner, EventType: "observed_contact_added", Email: strings.TrimSpace(email), Message: "Observed contact added", Count: 1, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+}
+
+func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, name, email string, seenAt time.Time, count int, settings ContactSettings) (bool, error) {
 	email = strings.TrimSpace(email)
 	normalized := normalizeContactEmail(email)
 	if userID == "" || normalized == "" {
-		return nil
+		return false, nil
 	}
 	if seenAt.IsZero() {
 		seenAt = time.Now().UTC()
@@ -2568,39 +2591,38 @@ func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email str
 
 	var observationID, profileID string
 	var isSuppressed, suppressAuto int
-	err := db.Read().QueryRowContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		SELECT id, profile_id, is_suppressed, suppress_auto_create
 		FROM contact_observations
 		WHERE user_id = ? AND normalized_email = ?`, userID, normalized).Scan(&observationID, &profileID, &isSuppressed, &suppressAuto)
 	if err != nil && err != sql.ErrNoRows {
-		return err
+		return false, err
 	}
 	observationCreated := err == sql.ErrNoRows
 
 	if isSuppressed == 1 {
 		if settings.PreventRecreateDeleted && suppressAuto == 1 {
-			return nil
+			return false, nil
 		}
 		if !settings.AutoCreateObserved {
-			return nil
+			return false, nil
 		}
 	}
 
 	if profileID == "" {
-		profile, err := db.FindContactProfileByIdentity(ctx, userID, "email", normalized)
-		if err != nil {
-			return err
-		}
-		if profile != nil {
-			profileID = profile.ID
+		err := tx.QueryRowContext(ctx, `SELECT ci.profile_id FROM contact_identities ci
+ JOIN contact_profiles cp ON cp.id=ci.profile_id AND cp.user_id=ci.user_id
+ WHERE ci.user_id=? AND ci.kind='email' AND ci.normalized_value=? AND cp.is_deleted=0`, userID, normalized).Scan(&profileID)
+		if err != nil && err != sql.ErrNoRows {
+			return false, err
 		}
 	}
 
 	if profileID == "" {
 		if !settings.AutoCreateObserved {
-			return nil
+			return false, nil
 		}
-		profile, err := db.SaveContactProfile(ctx, userID, models.ContactProfile{
+		profile, err := saveContactProfileTx(ctx, tx, userID, models.ContactProfile{
 			DisplayName:  display,
 			SortName:     display,
 			PrimaryEmail: email,
@@ -2615,25 +2637,28 @@ func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email str
 			}},
 		})
 		if err != nil {
-			return err
+			return false, err
 		}
 		profileID = profile.ID
 	} else {
 		if !settings.AutoCreateObserved && isSuppressed == 1 {
-			return nil
+			return false, nil
 		}
-		if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`, userID, profileID); err != nil {
-			return err
+		if _, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`, userID, profileID); err != nil {
+			return false, err
 		}
 		var manualCount int
 		var currentDisplay string
-		_ = db.Read().QueryRowContext(ctx, `
+		err := tx.QueryRowContext(ctx, `
 			SELECT p.display_name, (SELECT COUNT(*) FROM contact_fields cf WHERE cf.user_id = p.user_id AND cf.profile_id = p.id AND cf.source = 'manual')
 			FROM contact_profiles p
 			WHERE p.user_id = ? AND p.id = ?`, userID, profileID).Scan(&currentDisplay, &manualCount)
+		if err != nil {
+			return false, err
+		}
 		if manualCount == 0 && (strings.TrimSpace(currentDisplay) == "" || normalizeContactEmail(currentDisplay) == normalized) {
-			if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET display_name = ?, sort_name = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`, display, display, userID, profileID); err != nil {
-				return err
+			if _, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET display_name = ?, sort_name = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`, display, display, userID, profileID); err != nil {
+				return false, err
 			}
 		}
 	}
@@ -2641,7 +2666,7 @@ func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email str
 	if observationID == "" {
 		observationID = uuid.NewString()
 	}
-	_, err = db.Write().ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO contact_observations (id, user_id, profile_id, email, normalized_email, observed_name, message_count, last_seen_at, is_suppressed, suppress_auto_create)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
 		ON CONFLICT(user_id, normalized_email) DO UPDATE SET
@@ -2654,12 +2679,15 @@ func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email str
 			suppress_auto_create = 0,
 			updated_at = CURRENT_TIMESTAMP`, observationID, userID, profileID, email, normalized, strings.TrimSpace(name), count, seenAt)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if observationCreated {
-		_ = db.LogContactActivity(ctx, userID, "observed_contact_added", email, "Observed contact added", 1)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO contact_activity_events(user_id,event_type,email,message,event_count)
+ VALUES (?,'observed_contact_added',?,'Observed contact added',1)`, userID, email); err != nil {
+			return false, err
+		}
 	}
-	return nil
+	return observationCreated, nil
 }
 
 func (db *DB) BackfillObservedContacts(ctx context.Context, userID string) error {

@@ -293,7 +293,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		routed.registerUserMessageMutations(private)
 		routed.registerUserCompose(private)
 	}
-	go routed.runUserContactBackfills(ctx)
+	if err := routed.startUserContactBackfills(ctx); err != nil {
+		return err
+	}
 	h.ownedMailbox = routed
 	return nil
 }
@@ -323,9 +325,16 @@ func (h *Handler) withUserDB(ctx context.Context, userID string, fn func(*storag
 	return h.userStorage.WithUser(ctx, userID, fn)
 }
 
-type userContactBackfillJob struct{ userID, sourceKey string }
+type userContactBackfillJob struct {
+	userID, sourceKey string
+	owners            []string
+	actor             *storage.DiagnosticsActor
+}
 
 func (h *Handler) ensureUserContactsBackfilled(ctx context.Context) {
+	if h.userBackfillContext == nil || h.userBackfillContext.Err() != nil {
+		return
+	}
 	userID := h.userID(ctx)
 	var job userContactBackfillJob
 	err := h.withUserDB(ctx, userID, func(db *storage.DB) error {
@@ -333,22 +342,13 @@ func (h *Handler) ensureUserContactsBackfilled(ctx context.Context) {
 		if !settings.AutoCreateObserved || (!settings.ObserveSenders && !settings.ObserveRecipients) {
 			return nil
 		}
-		key := ""
-		if settings.ObserveSenders {
-			key = "senders"
-		}
-		if settings.ObserveRecipients {
-			if key != "" {
-				key += ","
-			}
-			key += "recipients"
-		}
+		key := storage.ContactBackfillSourceKey(settings)
 		done, err := db.GetSetting(ctx, userID, "contacts_observed_backfilled_v1")
 		if err != nil {
 			return err
 		}
 		if done != key {
-			job = userContactBackfillJob{userID, key}
+			job = userContactBackfillJob{userID: userID, sourceKey: key}
 		}
 		return nil
 	})
@@ -361,6 +361,9 @@ func (h *Handler) ensureUserContactsBackfilled(ctx context.Context) {
 	}
 	h.contactBackfillMu.Lock()
 	defer h.contactBackfillMu.Unlock()
+	if h.userBackfillContext == nil || h.userBackfillContext.Err() != nil {
+		return
+	}
 	if _, exists := h.userBackfills[userID]; exists {
 		return
 	}
@@ -371,24 +374,62 @@ func (h *Handler) ensureUserContactsBackfilled(ctx context.Context) {
 	}
 }
 
+func (h *Handler) startUserContactBackfills(ctx context.Context) error {
+	if ctx == nil || h.userStorage == nil || h.userBackfillQueue == nil {
+		return errors.New("contact backfill requires owned routing, queue and lifecycle")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	h.contactBackfillMu.Lock()
+	defer h.contactBackfillMu.Unlock()
+	if h.userBackfillDone != nil {
+		return errors.New("contact backfill dispatcher already started")
+	}
+	workCtx, cancel := context.WithCancel(ctx)
+	h.userBackfillContext, h.userBackfillCancel, h.userBackfillDone = workCtx, cancel, make(chan struct{})
+	if h.userIMAP != nil {
+		if err := h.userIMAP.StartBackgroundService(workCtx, h.runUserContactBackfills); err != nil {
+			cancel()
+			close(h.userBackfillDone)
+			return err
+		}
+	} else {
+		go h.runUserContactBackfills(workCtx)
+	}
+	return nil
+}
+
 func (h *Handler) runUserContactBackfills(ctx context.Context) {
+	defer close(h.userBackfillDone)
+	defer h.userBackfillCancel()
+	defer func() {
+		h.contactBackfillMu.Lock()
+		defer h.contactBackfillMu.Unlock()
+		clear(h.userBackfills)
+		if h.contactBackfillState.InProgress {
+			h.contactBackfillState.InProgress = false
+			h.contactBackfillState.FinishedAt = time.Now().UTC()
+			h.contactBackfillState.LastError = context.Canceled.Error()
+		}
+	}()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case job := <-h.userBackfillQueue:
+			if ctx.Err() != nil {
+				return
+			}
 			workCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			if job.actor != nil {
+				h.runAdminContactBackfill(workCtx, job)
+				cancel()
+				continue
+			}
 			state := models.ContactBackfillState{InProgress: true, StartedAt: time.Now().UTC()}
 			h.publishContactBackfill(job.userID, state)
-			err := h.withUserDB(workCtx, job.userID, func(db *storage.DB) error {
-				if err := db.BackfillObservedContactsWithProgress(workCtx, job.userID, func(processed int) {
-					state.Processed = processed
-					h.publishContactBackfill(job.userID, state)
-				}); err != nil {
-					return err
-				}
-				return db.SetSetting(workCtx, job.userID, "contacts_observed_backfilled_v1", job.sourceKey)
-			})
+			err := h.userStorage.BackfillUserContacts(workCtx, job.userID, nil, job.sourceKey, func(processed int) { state.Processed = processed; h.publishContactBackfill(job.userID, state) })
 			cancel()
 			state.InProgress, state.FinishedAt = false, time.Now().UTC()
 			if err != nil {
@@ -400,5 +441,18 @@ func (h *Handler) runUserContactBackfills(ctx context.Context) {
 			delete(h.userBackfills, job.userID)
 			h.contactBackfillMu.Unlock()
 		}
+	}
+}
+
+// WaitUserContactBackfills stops admission and joins all automatic and manual
+// contact maintenance. It is also joined by the owned IMAP runtime when present.
+func (h *Handler) WaitUserContactBackfills() {
+	if h.ownedMailbox != nil {
+		h.ownedMailbox.WaitUserContactBackfills()
+		return
+	}
+	if h.userBackfillCancel != nil {
+		h.userBackfillCancel()
+		<-h.userBackfillDone
 	}
 }

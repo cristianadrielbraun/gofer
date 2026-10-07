@@ -576,7 +576,12 @@ func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
 		return
 	}
-	started := h.startContactBackfill(context.WithoutCancel(r.Context()), scope.SelectedUserID)
+	started := false
+	if h.ownedMailbox != nil {
+		started = h.startOwnedContactBackfill(r.Context(), scope)
+	} else {
+		started = h.startContactBackfill(context.WithoutCancel(r.Context()), scope.SelectedUserID)
+	}
 	if r.Header.Get("Accept") == "application/json" {
 		w.Header().Set("Content-Type", "application/json")
 		if !started {

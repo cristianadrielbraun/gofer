@@ -14,6 +14,15 @@ func TestUserMailSecurityStopClosesNativeIDLEAndPreservesStores(t *testing.T) {
 	server.idleSupported = true
 	startBackgroundIMAP(t, f, server, mail.UserIMAPBackgroundOptions{PollInterval: time.Hour, MaxIdleWatchers: 2})
 	waitUserIMAP(t, func() bool { return len(server.idlePeers("alice")) == 1 && len(server.idlePeers("bob")) == 1 })
+
+	f.imap.StopAccount(f.accounts["alice"].ID)
+	waitUserIMAP(t, func() bool { return len(server.idlePeers("alice")) == 0 })
+	if len(server.idlePeers("bob")) != 1 {
+		t.Fatal("selective stop closed another owner's native IDLE")
+	}
+	// Both accounts use the same endpoint exception. Check selective current-
+	// session cancellation while that policy remains valid; a queued startup
+	// receive must not independently fail Bob's snapshot during this assertion.
 	policies, err := f.system.ListMailSecurityPolicies(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -24,11 +33,6 @@ func TestUserMailSecurityStopClosesNativeIDLEAndPreservesStores(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-	}
-	f.imap.StopAccount(f.accounts["alice"].ID)
-	waitUserIMAP(t, func() bool { return len(server.idlePeers("alice")) == 0 })
-	if len(server.idlePeers("bob")) != 1 {
-		t.Fatal("selective stop closed another owner's native IDLE")
 	}
 	f.imap.StopMailSecuritySessions()
 	waitUserIMAP(t, func() bool { return len(server.idlePeers("bob")) == 0 })

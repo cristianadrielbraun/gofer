@@ -56,6 +56,9 @@ type Handler struct {
 	userDeletions              map[string]*userAccountDeletionJob
 	userBackfillQueue          chan userContactBackfillJob
 	userBackfills              map[string]struct{}
+	userBackfillDone           chan struct{}
+	userBackfillContext        context.Context
+	userBackfillCancel         context.CancelFunc
 	accountStore               *config.AccountStore
 	syncer                     *mail.SyncOrchestrator
 	blobStore                  *store.BlobStore
