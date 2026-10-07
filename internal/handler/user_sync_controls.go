@@ -77,17 +77,27 @@ func (h *Handler) handleUserSaveSyncSettings(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "settings saved; worker refresh failed, retry saving", http.StatusServiceUnavailable)
 		return
 	}
+	if err := h.WakeUserContactAccount(ctx, owner, ""); err != nil {
+		http.Error(w, "settings saved; contact worker refresh failed, retry saving", http.StatusServiceUnavailable)
+		return
+	}
+	if err := h.WakeUserCalendarAccount(ctx, owner, ""); err != nil {
+		http.Error(w, "settings saved; calendar worker refresh failed, retry saving", http.StatusServiceUnavailable)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
 
 func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	if r.FormValue("service") != "email" {
-		http.Error(w, "This service is not available yet.", http.StatusNotImplemented)
+	service := r.FormValue("service")
+	if service != "email" && service != "contacts" && service != "calendar" {
+		http.Error(w, "unknown service", http.StatusBadRequest)
 		return
 	}
 	if value := r.FormValue("enabled"); value != "true" && value != "false" {
@@ -95,6 +105,14 @@ func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")
+	if service == "calendar" {
+		h.handleUserCalendarService(w, r, owner, id)
+		return
+	}
+	if service == "contacts" {
+		h.handleUserContactService(w, r, owner, id)
+		return
+	}
 	var account *models.Account
 	err := h.userAccounts.WithAccountForUser(r.Context(), owner, id, func(local *config.AccountStore, _ *storage.DB) error {
 		if r.FormValue("enabled") == "true" {
@@ -123,6 +141,41 @@ func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "text/html")
 	_ = views.SettingsAccountCard(*account).Render(r.Context(), w)
+}
+
+func (h *Handler) handleUserContactService(w http.ResponseWriter, r *http.Request, owner, id string) {
+	ctx := r.Context()
+	snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
+	if err == nil {
+		err = h.userAccounts.SetContactServicesEnabled(ctx, snapshot, r.FormValue("enabled") == "true")
+	}
+	if err != nil {
+		if errors.Is(err, config.ErrContactServicesNotConfigured) {
+			http.Error(w, "Configure contact sync before enabling Contacts.", http.StatusConflict)
+		} else {
+			userContactSetupError(w, r, err)
+		}
+		return
+	}
+	if err := h.WakeUserContactAccount(ctx, owner, id); err != nil {
+		http.Error(w, "contact setting saved; worker refresh failed, retry", http.StatusServiceUnavailable)
+		return
+	}
+	var account *models.Account
+	err = h.userAccounts.WithAccountForUser(ctx, owner, id, func(local *config.AccountStore, _ *storage.DB) error {
+		var err error
+		account, err = local.GetAccountByIDForUser(ctx, owner, id)
+		if err == nil && account == nil {
+			return storage.ErrAccountRoute
+		}
+		return err
+	})
+	if err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	_ = views.SettingsAccountCard(*account).Render(ctx, w)
 }
 
 func (h *Handler) handleUserManualSync(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,8 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/a-h/templ"
+
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -23,12 +25,14 @@ func (h *Handler) handleCalendarGuestSuggestions(w http.ResponseWriter, r *http.
 	if len(query) < 2 || len(query) > 255 {
 		return
 	}
-	contacts, err := h.db.SearchContacts(r.Context(), h.userID(r.Context()), query, 8)
-	if err != nil {
-		http.Error(w, "Could not search contacts.", 500)
-		return
-	}
-	_ = views.CalendarGuestSuggestions(contacts).Render(r.Context(), w)
+	ctx := r.Context()
+	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
+		contacts, err := local.db.SearchContacts(ctx, local.userID(ctx), query, 8)
+		if err != nil {
+			return nil, err
+		}
+		return views.CalendarGuestSuggestions(contacts), nil
+	})
 }
 
 // Ignore commas inside quoted display names when completing the last address.

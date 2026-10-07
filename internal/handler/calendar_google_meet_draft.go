@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,8 +15,7 @@ import (
 )
 
 func calendarMeetDraftRemoteID(user, source, id string) string {
-	sum := sha256.Sum256([]byte(user + "\x00" + source + "\x00" + id))
-	return "gofermeetdraft" + hex.EncodeToString(sum[:])
+	return storage.CalendarMeetDraftRemoteID(user, source, id)
 }
 
 func calendarMeetDraftEndpoint(source storage.CalendarSource, d storage.CalendarMeetDraft) string {
@@ -120,13 +117,24 @@ func cleanupGoogleMeetDraft(ctx context.Context, source storage.CalendarSource, 
 		return err
 	}
 	if remote.Status == "cancelled" {
+		if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned && p.cleanup != nil && remote.ID != d.RemoteID {
+			return fmt.Errorf("temporary meeting identity changed")
+		}
 		return nil
 	}
 	if !calendarMeetDraftIdentity(remote, d) {
 		return fmt.Errorf("temporary meeting identity changed")
 	}
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned && p.cleanup != nil && (calendarUpdateHasDetails(remote.Attendees) || remote.RecurringEventID != "" || len(remote.Recurrence) != 0) {
+		return fmt.Errorf("temporary meeting is no longer guest-free")
+	}
 	if !calendarUpdateValidETag(remote.ETag, false) {
 		return fmt.Errorf("temporary meeting has no strong version")
+	}
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned && p.cleanup != nil {
+		if err := p.allowMeetingCleanupDelete(ctx, source, d.DraftID, remote.ID, remote.ETag); err != nil {
+			return err
+		}
 	}
 	return calendarDeleteJSON(ctx, endpoint+"?sendUpdates=none", token, remote.ETag)
 }
@@ -248,6 +256,12 @@ func (h *Handler) attachCalendarMeetDraft(ctx context.Context, source storage.Ca
 	if !draft.GoogleMeetMeeting || draft.GoogleMeetDraftID == "" {
 		return nil
 	} // Older clients retain the provider createRequest path.
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned {
+		if p == nil || p.h != h {
+			return storage.ErrCalendarCreateConflict
+		}
+		return p.attachMeetingDraft(ctx, source, draft, target, "gmail")
+	}
 	d, err := h.db.GetCalendarMeetDraft(ctx, source.UserID, source.ID, draft.GoogleMeetDraftID)
 	if err != nil {
 		return err

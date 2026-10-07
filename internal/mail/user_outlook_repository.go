@@ -140,12 +140,20 @@ func (o *SyncOrchestrator) outlookRequest(ctx context.Context, token string, req
 	if o.userGraphRetryErr != nil {
 		return o.userGraphRetryErr
 	}
+	until, retryErr := o.imapScope.accounts.Routing().ProviderRetryUntil(ctx, o.imapScope.owner, o.imapScope.id)
+	if retryErr != nil {
+		return retryErr
+	}
+	if until.After(time.Now()) {
+		o.imapScope.retryAt = until
+		return fmt.Errorf("provider retry is deferred until %s", until.Format(time.RFC3339))
+	}
 	if o.userGraphToken != "" {
 		token = o.userGraphToken
 	}
 	err := request(token)
 	if !providerAPIUnauthorized(err) {
-		return o.recordOutlookRetry(err)
+		return o.recordOutlookRetry(ctx, err)
 	}
 	refresh, ok := o.tokenProvider.(refreshingTokenProvider)
 	if !ok {
@@ -153,13 +161,13 @@ func (o *SyncOrchestrator) outlookRequest(ctx context.Context, token string, req
 	}
 	token, err = refresh.RefreshOAuthTokenForAccount(ctx, o.imapScope.id)
 	if err != nil {
-		return o.recordOutlookRetry(err)
+		return o.recordOutlookRetry(ctx, err)
 	}
 	o.userGraphToken = token
-	return o.recordOutlookRetry(request(token))
+	return o.recordOutlookRetry(ctx, request(token))
 }
 
-func (o *SyncOrchestrator) recordOutlookRetry(err error) error {
+func (o *SyncOrchestrator) recordOutlookRetry(ctx context.Context, err error) error {
 	if o.imapScope == nil {
 		return err
 	}
@@ -177,6 +185,9 @@ func (o *SyncOrchestrator) recordOutlookRetry(err error) error {
 	if at.After(time.Now()) {
 		o.imapScope.retryAt = at
 		o.userGraphRetryErr = err
+		if saveErr := o.imapScope.accounts.Routing().DeferProviderRetry(ctx, o.imapScope.owner, o.imapScope.id, at); saveErr != nil {
+			return errors.Join(err, saveErr)
+		}
 	}
 	return err
 }

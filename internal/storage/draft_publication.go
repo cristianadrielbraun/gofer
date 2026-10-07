@@ -16,6 +16,7 @@ type DraftPublication struct {
 	TextPath, HTMLPath, RawPath string
 	Attachments                 []AttachmentRow
 	Sync                        QueueIMAPDraftUpsertInput
+	ProviderSync                *QueueUserProviderDraftInput
 	Pending                     *QueueOutgoingSendInput
 }
 
@@ -53,23 +54,37 @@ func (db *DB) PublishDraft(ctx context.Context, draft DraftMessageInput, stage f
 	if err != nil {
 		return 0, err
 	}
-	if c.Sync.State.AccountID != draft.AccountID || c.Sync.State.DraftKey != draft.InternetMessageID || c.Sync.State.FolderID != draft.FolderID {
-		return 0, errors.New("draft sync identity mismatch")
-	}
-	c.Sync.State.LocalMessageID = id
-	// Seed remote identity when editing a draft originally received by IMAP.
-	// Existing tracked state wins, including a revision completed just before
-	// this transaction; never overwrite it with a stale request snapshot.
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(s.remote_uid,0),COALESCE(f.uid_validity,0) FROM message_folder_state s JOIN folders f ON f.id=s.folder_id WHERE s.message_id=? AND s.folder_id=?`, id, draft.FolderID).Scan(&c.Sync.State.RemoteUID, &c.Sync.State.UIDValidity); err != nil {
-		return 0, err
-	}
-	var trackedUID, trackedValidity uint32
-	trackedErr := tx.QueryRowContext(ctx, `SELECT remote_uid,uid_validity FROM imap_draft_states WHERE account_id=? AND draft_key=?`, draft.AccountID, draft.InternetMessageID).Scan(&trackedUID, &trackedValidity)
-	if trackedErr == nil {
-		c.Sync.State.RemoteUID = trackedUID
-		c.Sync.State.UIDValidity = trackedValidity
-	} else if trackedErr != sql.ErrNoRows {
-		return 0, trackedErr
+	if c.ProviderSync != nil {
+		p := c.ProviderSync
+		if !db.userMailDelivery || p.State.AccountID != draft.AccountID || p.State.DraftKey != draft.InternetMessageID || p.State.FolderID != draft.FolderID {
+			return 0, errors.New("provider draft sync identity mismatch")
+		}
+		p.State.LocalMessageID = id
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(remote_message_id,'') FROM messages WHERE id=?`, id).Scan(&p.State.RemoteMessageID); err != nil {
+			return 0, err
+		}
+		if p.State.Provider == "outlook" {
+			p.State.RemoteID = p.State.RemoteMessageID
+		}
+	} else {
+		if c.Sync.State.AccountID != draft.AccountID || c.Sync.State.DraftKey != draft.InternetMessageID || c.Sync.State.FolderID != draft.FolderID {
+			return 0, errors.New("draft sync identity mismatch")
+		}
+		c.Sync.State.LocalMessageID = id
+		// Seed remote identity when editing a draft originally received by IMAP.
+		// Existing tracked state wins, including a revision completed just before
+		// this transaction; never overwrite it with a stale request snapshot.
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(s.remote_uid,0),COALESCE(f.uid_validity,0) FROM message_folder_state s JOIN folders f ON f.id=s.folder_id WHERE s.message_id=? AND s.folder_id=?`, id, draft.FolderID).Scan(&c.Sync.State.RemoteUID, &c.Sync.State.UIDValidity); err != nil {
+			return 0, err
+		}
+		var trackedUID, trackedValidity uint32
+		trackedErr := tx.QueryRowContext(ctx, `SELECT remote_uid,uid_validity FROM imap_draft_states WHERE account_id=? AND draft_key=?`, draft.AccountID, draft.InternetMessageID).Scan(&trackedUID, &trackedValidity)
+		if trackedErr == nil {
+			c.Sync.State.RemoteUID = trackedUID
+			c.Sync.State.UIDValidity = trackedValidity
+		} else if trackedErr != sql.ErrNoRows {
+			return 0, trackedErr
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE messages SET body_text_path=?,body_html_path=?,body_html_original_path='',raw_path=?,has_attachments=? WHERE id=?`, c.TextPath, c.HTMLPath, c.RawPath, len(c.Attachments) > 0, id); err != nil {
 		return 0, err
@@ -82,8 +97,14 @@ func (db *DB) PublishDraft(ctx context.Context, draft DraftMessageInput, stage f
 			return 0, err
 		}
 	}
-	if _, err := queueIMAPDraftUpsertTx(ctx, tx, c.Sync); err != nil {
-		return 0, err
+	if c.ProviderSync != nil {
+		if err := queueUserProviderDraftTx(ctx, tx, *c.ProviderSync, "upsert"); err != nil {
+			return 0, err
+		}
+	} else {
+		if _, err := queueIMAPDraftUpsertTx(ctx, tx, c.Sync); err != nil {
+			return 0, err
+		}
 	}
 	if p := c.Pending; p != nil {
 		if p.AccountID != draft.AccountID || p.ID == "" || p.DraftID != draft.InternetMessageID || len(p.MIMEData) == 0 || len(p.MessageJSON) == 0 || len(p.EnvelopeRecipients) == 0 {
@@ -118,23 +139,37 @@ func (db *DB) DiscardIMAPDraft(ctx context.Context, accountID, draftKey string) 
 	defer tx.Rollback()
 	var id int64
 	var folder, remote string
+	var provider, subject, providerID string
 	var uid, validity uint32
-	err = tx.QueryRowContext(ctx, `SELECT m.id,f.id,f.remote_id,COALESCE(s.remote_uid,0),COALESCE(f.uid_validity,0) FROM messages m JOIN message_folder_state s ON s.message_id=m.id JOIN folders f ON f.id=s.folder_id WHERE m.account_id=? AND m.internet_message_id=? AND s.is_draft=1 LIMIT 1`, accountID, draftKey).Scan(&id, &folder, &remote, &uid, &validity)
+	err = tx.QueryRowContext(ctx, `SELECT m.id,f.id,f.remote_id,COALESCE(s.remote_uid,0),COALESCE(f.uid_validity,0),a.provider,COALESCE(a.provider_account_id,''),COALESCE(m.remote_message_id,'') FROM messages m JOIN accounts a ON a.id=m.account_id JOIN message_folder_state s ON s.message_id=m.id JOIN folders f ON f.id=s.folder_id WHERE m.account_id=? AND m.internet_message_id=? AND s.is_draft=1 LIMIT 1`, accountID, draftKey).Scan(&id, &folder, &remote, &uid, &validity, &provider, &subject, &providerID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
-	var trackedUID, trackedValidity uint32
-	trackedErr := tx.QueryRowContext(ctx, `SELECT remote_uid,uid_validity FROM imap_draft_states WHERE account_id=? AND draft_key=?`, accountID, draftKey).Scan(&trackedUID, &trackedValidity)
-	if trackedErr == nil {
-		uid, validity = trackedUID, trackedValidity
-	} else if trackedErr != sql.ErrNoRows {
-		return "", trackedErr
-	}
-	if _, err := queueIMAPDraftDeleteTx(ctx, tx, IMAPDraftState{AccountID: accountID, DraftKey: draftKey, LocalMessageID: id, FolderID: folder, FolderRemoteName: remote, RemoteUID: uid, UIDValidity: validity}); err != nil {
-		return "", err
+	if provider != "imap" {
+		if !db.userMailDelivery {
+			return "", errors.New("provider draft discard requires a marked user store")
+		}
+		state := UserProviderDraftState{AccountID: accountID, DraftKey: draftKey, LocalMessageID: id, FolderID: folder, Provider: provider, MailboxSubject: subject, RemoteMessageID: providerID}
+		if provider == "outlook" {
+			state.RemoteID = providerID
+		}
+		if err := queueUserProviderDraftTx(ctx, tx, QueueUserProviderDraftInput{State: state}, "delete"); err != nil {
+			return "", err
+		}
+	} else {
+		var trackedUID, trackedValidity uint32
+		trackedErr := tx.QueryRowContext(ctx, `SELECT remote_uid,uid_validity FROM imap_draft_states WHERE account_id=? AND draft_key=?`, accountID, draftKey).Scan(&trackedUID, &trackedValidity)
+		if trackedErr == nil {
+			uid, validity = trackedUID, trackedValidity
+		} else if trackedErr != sql.ErrNoRows {
+			return "", trackedErr
+		}
+		if _, err := queueIMAPDraftDeleteTx(ctx, tx, IMAPDraftState{AccountID: accountID, DraftKey: draftKey, LocalMessageID: id, FolderID: folder, FolderRemoteName: remote, RemoteUID: uid, UIDValidity: validity}); err != nil {
+			return "", err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE outgoing_sends SET status='canceled',locked_at=NULL,envelope_recipients='[]',mime_data=NULL,message_json='',updated_at=CURRENT_TIMESTAMP WHERE message_id=? AND status IN ('pending','failed','ambiguous')`, id); err != nil {
 		return "", err

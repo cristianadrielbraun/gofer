@@ -37,23 +37,49 @@ func calendarStoredEditRestriction(event storage.CalendarEvent) string {
 	return ""
 }
 
-func (h *Handler) calendarEventEditAccess(ctx context.Context, event storage.CalendarEvent) (storage.CalendarSource, string, error) {
+func calendarEventEditRestriction(event storage.CalendarEvent) string {
 	if calendarStoredEditableOnline(event) && !calendarCachedOrganizer(event) {
-		return storage.CalendarSource{}, "Only the organizer can edit an online meeting.", nil
+		return "Only the organizer can edit an online meeting."
 	}
 	if calendarStoredEditableOnline(event) && calendarEventIsSeries(event) {
-		return storage.CalendarSource{}, "Recurring online meetings cannot be edited in Gofer yet.", nil
+		return "Recurring online meetings cannot be edited in Gofer yet."
+	}
+	return ""
+}
+
+func (h *Handler) calendarEventEditAccess(ctx context.Context, event storage.CalendarEvent) (storage.CalendarSource, string, error) {
+	if reason := calendarEventEditRestriction(event); reason != "" {
+		return storage.CalendarSource{}, reason, nil
 	}
 	return h.calendarEventMutationAccess(ctx, event, h.calendarUpdateEvent != nil, calendarEventIsSeries(event))
 }
 
-func (h *Handler) calendarEventMutationAccess(ctx context.Context, event storage.CalendarEvent, injectedWriter bool, seriesScope ...bool) (storage.CalendarSource, string, error) {
-	series := len(seriesScope) == 1 && seriesScope[0]
+func calendarEventMutationRestriction(event storage.CalendarEvent, source storage.CalendarSource, series bool) string {
 	if series {
 		// Occurrences do not carry the master's version or repeat rule. Both are
 		// fetched and verified before opening the editor and before writing.
 		event.SeriesRemoteID, event.RecurrenceJSON, event.ETag = "", "[]", `"master-read-required"`
 	}
+	if !calendarSourceWritable(source) {
+		return "This calendar is read-only."
+	}
+	if series && calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON)) {
+		return "Recurring meetings with guests cannot be edited yet."
+	}
+	if reason := calendarStoredEditRestriction(event); reason != "" {
+		return reason
+	}
+	if source.Provider != providers.ProviderOutlook && !calendarUpdateValidETag(event.ETag, false) {
+		return "This provider must supply a strong event version before safe editing is available."
+	}
+	if source.Provider == storage.CalendarSourceProviderCalDAV && (event.OrganizerName != "" || event.OrganizerEmail != "") && !calendarCachedOrganizer(event) {
+		return "Invitations cannot be edited in Gofer yet."
+	}
+	return ""
+}
+
+func (h *Handler) calendarEventMutationAccess(ctx context.Context, event storage.CalendarEvent, injectedWriter bool, seriesScope ...bool) (storage.CalendarSource, string, error) {
+	series := len(seriesScope) == 1 && seriesScope[0]
 	sources, err := h.db.ListSelectedCalendarSources(ctx, event.UserID)
 	if err != nil {
 		return storage.CalendarSource{}, "", err
@@ -62,20 +88,8 @@ func (h *Handler) calendarEventMutationAccess(ctx context.Context, event storage
 		if source.ID != event.SourceID {
 			continue
 		}
-		if !calendarSourceWritable(source) {
-			return source, "This calendar is read-only.", nil
-		}
-		if series && calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON)) {
-			return source, "Recurring meetings with guests cannot be edited yet.", nil
-		}
-		if reason := calendarStoredEditRestriction(event); reason != "" {
+		if reason := calendarEventMutationRestriction(event, source, series); reason != "" {
 			return source, reason, nil
-		}
-		if source.Provider != providers.ProviderOutlook && !calendarUpdateValidETag(event.ETag, false) {
-			return source, "This provider must supply a strong event version before safe editing is available.", nil
-		}
-		if source.Provider == storage.CalendarSourceProviderCalDAV && (event.OrganizerName != "" || event.OrganizerEmail != "") && !calendarCachedOrganizer(event) {
-			return source, "Invitations cannot be edited in Gofer yet.", nil
 		}
 		if !injectedWriter && !h.calendarWriteAuthorized(ctx, source) {
 			return source, "Reconnect this account from Accounts to grant Calendar write access.", nil
@@ -154,6 +168,18 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 		}
 	}
 	location := viewsCalendarLocation(h.db.GetUISettings(r.Context(), userID))
+	data, err := calendarEditData(event, source, accountName, location, series, occurrence, repeat)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.CalendarCreateDialog(data).Render(r.Context(), w); err != nil {
+		http.Error(w, "Could not open the event editor.", http.StatusInternalServerError)
+	}
+}
+
+func calendarEditData(event storage.CalendarEvent, source storage.CalendarSource, accountName string, location *time.Location, series, occurrence bool, repeat *calendar.RecurrenceDraft) (views.CalendarCreateData, error) {
 	if zone, err := time.LoadLocation(event.StartTimeZone); err == nil && event.StartTimeZone != "" && event.StartTimeZone != "Local" {
 		location = zone
 	}
@@ -182,8 +208,7 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 	if event.AllDay {
 		end, err := time.Parse("2006-01-02", event.EndDate)
 		if err != nil {
-			http.Error(w, "This event's dates are unavailable. Refresh the calendar.", http.StatusConflict)
-			return
+			return views.CalendarCreateData{}, fmt.Errorf("This event's dates are unavailable. Refresh the calendar.")
 		}
 		data.Date, data.EndDate = event.StartDate, end.AddDate(0, 0, -1).Format("2006-01-02")
 	} else if event.StartAt != nil && event.EndAt != nil {
@@ -191,13 +216,9 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 		data.Date, data.EndDate = start.Format("2006-01-02"), end.Format("2006-01-02")
 		data.StartTime, data.EndTime = start.Format("15:04"), end.Format("15:04")
 	} else {
-		http.Error(w, "This event's times are unavailable. Refresh the calendar.", http.StatusConflict)
-		return
+		return views.CalendarCreateData{}, fmt.Errorf("This event's times are unavailable. Refresh the calendar.")
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.CalendarCreateDialog(data).Render(r.Context(), w); err != nil {
-		http.Error(w, "Could not open the event editor.", http.StatusInternalServerError)
-	}
+	return data, nil
 }
 
 func parseCalendarUpdateDraft(r *http.Request) (calendar.EventDraft, string, error) {
@@ -233,7 +254,7 @@ func calendarUpdateFailure(w http.ResponseWriter, status int, message string, un
 
 func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, event storage.CalendarEvent, draft calendar.EventDraft, series bool, occurrenceScope ...bool) (calendar.RemoteEvent, error) {
 	occurrence := calendarOccurrenceScope(occurrenceScope)
-	if h.calendarUpdateEvent != nil {
+	if _, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); !owned && h.calendarUpdateEvent != nil {
 		return h.calendarUpdateEvent(ctx, source, event, draft)
 	}
 	credentials := h.calendarUpdateCredentials(ctx, source)
@@ -260,6 +281,11 @@ func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storag
 }
 
 func (h *Handler) calendarUpdateCredentials(ctx context.Context, source storage.CalendarSource) calendarCredentials {
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned {
+		credentials, err := p.credentialsForSource(ctx, h, source)
+		credentials.err = err
+		return credentials
+	}
 	credentials := calendarCredentials{}
 	if (source.Provider == providers.ProviderGmail || source.Provider == providers.ProviderOutlook) && h.mailCredentials() == nil {
 		credentials.err = fmt.Errorf("Calendar OAuth is not configured")

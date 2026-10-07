@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -21,7 +22,18 @@ func (h *Handler) handleCalendarVisibility(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid calendar visibility", http.StatusBadRequest)
 		return
 	}
-	err := h.db.SetCalendarSourceVisibility(r.Context(), h.userID(r.Context()), sourceID, *request.Visible)
+	var err error
+	if h.userStorage == nil {
+		err = h.db.SetCalendarSourceVisibility(r.Context(), h.userID(r.Context()), sourceID, *request.Visible)
+	} else {
+		err = h.userIMAP.RunUserServiceWork(r.Context(), h.userID(r.Context()), func(ctx context.Context) error {
+			return h.userAccounts.SetCalendarSourceVisible(ctx, h.userID(r.Context()), sourceID, *request.Visible)
+		})
+		if err != nil {
+			userAccountError(w, r, err)
+			return
+		}
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return

@@ -74,9 +74,11 @@ func (r *AccountRouting) ListDueAccounts(ctx context.Context, after string, now 
 	}
 	rows, err := r.System().Read().QueryContext(ctx, `SELECT d.account_id,d.user_id,d.state FROM gofer_account_directory d
 		JOIN users u ON u.id=d.user_id LEFT JOIN gofer_account_poll_schedule p ON p.account_id=d.account_id
+		LEFT JOIN gofer_account_provider_retry retry ON retry.account_id=d.account_id
 		WHERE d.state='active' AND d.account_id>? AND COALESCE(p.next_due_ms,0)<=?
+		AND COALESCE(retry.retry_until_ms,0)<=?
 		AND u.status='active' AND u.deletion_pending=0 AND u.user_type='webmail' AND u.is_admin=0
-		ORDER BY d.account_id LIMIT ?`, after, now.UnixMilli(), limit)
+		ORDER BY d.account_id LIMIT ?`, after, now.UnixMilli(), now.UnixMilli(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -90,4 +92,37 @@ func (r *AccountRouting) ListDueAccounts(ctx context.Context, after string, now 
 		accounts = append(accounts, account)
 	}
 	return accounts, rows.Err()
+}
+
+// Provider retry deadlines are independent of browser/settings wake revisions.
+// A newly saved action remains durable without bypassing a provider cooldown.
+func (r *AccountRouting) ProviderRetryUntil(ctx context.Context, owner, id string) (time.Time, error) {
+	var millis int64
+	err := r.System().Read().QueryRowContext(ctx, `SELECT COALESCE(p.retry_until_ms,0) FROM gofer_account_directory d
+		LEFT JOIN gofer_account_provider_retry p ON p.account_id=d.account_id
+		JOIN users u ON u.id=d.user_id WHERE d.account_id=? AND d.user_id=? AND d.state='active'
+		AND u.status='active' AND u.deletion_pending=0 AND u.user_type='webmail' AND u.is_admin=0`, id, owner).Scan(&millis)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, ErrAccountRoute
+	}
+	if err != nil || millis == 0 {
+		return time.Time{}, err
+	}
+	return time.UnixMilli(millis).UTC(), nil
+}
+
+func (r *AccountRouting) DeferProviderRetry(ctx context.Context, owner, id string, until time.Time) error {
+	result, err := r.System().Write().ExecContext(ctx, `INSERT INTO gofer_account_provider_retry(account_id,retry_until_ms)
+		SELECT d.account_id,? FROM gofer_account_directory d JOIN users u ON u.id=d.user_id
+		WHERE d.account_id=? AND d.user_id=? AND d.state='active' AND u.status='active'
+		AND u.deletion_pending=0 AND u.user_type='webmail' AND u.is_admin=0
+		ON CONFLICT(account_id) DO UPDATE SET retry_until_ms=max(retry_until_ms,excluded.retry_until_ms)`, until.UnixMilli(), id, owner)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err == nil && count != 1 {
+		return ErrAccountRoute
+	}
+	return err
 }

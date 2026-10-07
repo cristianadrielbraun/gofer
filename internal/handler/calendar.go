@@ -8,61 +8,57 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a-h/templ"
+
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	userID := h.userID(ctx)
-	uiSettings := h.db.GetUISettings(ctx, userID)
-	accounts, _ := h.db.GetAccounts(ctx, userID)
-	month := calendarDataFromRequest(r, uiSettings)
-	sources, sourceErr := h.db.ListSelectedCalendarSources(ctx, userID)
-	if sourceErr != nil {
-		month.SyncError = true
-		month.SyncMessage = "Could not load configured calendars."
-	} else {
-		applyCalendarSyncSummary(&month, sources)
-		windowStart, windowEnd := calendarVisibleWindow(month)
-		if r.URL.Query().Get("cache") != "1" {
-			for _, source := range sources {
-				if calendarSourceNeedsRefresh(source, windowStart, windowEnd, time.Now(), h.calendarSyncInterval(ctx, userID)) {
-					month.AutoSync = true
-					break
+	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
+		userID := local.userID(ctx)
+		uiSettings := local.db.GetUISettings(ctx, userID)
+		accounts, _ := local.db.GetAccounts(ctx, userID)
+		month := calendarDataFromRequest(r, uiSettings)
+		sources, sourceErr := local.db.ListSelectedCalendarSources(ctx, userID)
+		if sourceErr != nil {
+			month.SyncError = true
+			month.SyncMessage = "Could not load configured calendars."
+		} else {
+			applyCalendarSyncSummary(&month, sources)
+			windowStart, windowEnd := calendarVisibleWindow(month)
+			if r.URL.Query().Get("cache") != "1" {
+				for _, source := range sources {
+					if calendarSourceNeedsRefresh(source, windowStart, windowEnd, time.Now(), local.calendarSyncInterval(ctx, userID)) {
+						month.AutoSync = true
+						break
+					}
 				}
 			}
 		}
-	}
-	windowStart, windowEnd := calendarVisibleWindow(month)
-	if events, eventsErr := h.db.ListCalendarEvents(ctx, userID, windowStart, windowEnd); eventsErr != nil {
-		month.SyncError = true
-		month.SyncMessage = "Calendar cache failed: " + eventsErr.Error()
-	} else {
-		month.Events = calendarViewEvents(events)
-	}
-
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		switch r.Header.Get("HX-Target") {
-		case "main-content":
-			_ = views.CalendarPage(month, uiSettings).Render(ctx, w)
-			return
-		case "calendar-main":
-			_ = views.CalendarMainPartial(month).Render(ctx, w)
-			return
-		case "mail-list":
-			_ = views.CalendarAppPartial(accounts, month, uiSettings).Render(ctx, w)
-			return
-		case "app-shell":
-			_ = views.CalendarShell(accounts, month, uiSettings).Render(ctx, w)
-			return
+		windowStart, windowEnd := calendarVisibleWindow(month)
+		if events, eventsErr := local.db.ListCalendarEvents(ctx, userID, windowStart, windowEnd); eventsErr != nil {
+			month.SyncError = true
+			month.SyncMessage = "Calendar cache failed: " + eventsErr.Error()
+		} else {
+			month.Events = calendarViewEvents(events)
 		}
-	}
 
-	if err := views.CalendarLayout(accounts, month, uiSettings).Render(ctx, w); err != nil {
-		http.Error(w, "failed to render calendar", http.StatusInternalServerError)
-	}
+		if r.Header.Get("HX-Request") == "true" {
+			switch r.Header.Get("HX-Target") {
+			case "main-content":
+				return views.CalendarPage(month, uiSettings), nil
+			case "calendar-main":
+				return views.CalendarMainPartial(month), nil
+			case "mail-list":
+				return views.CalendarAppPartial(accounts, month, uiSettings), nil
+			case "app-shell":
+				return views.CalendarShell(accounts, month, uiSettings), nil
+			}
+		}
+		return views.CalendarLayout(accounts, month, uiSettings), nil
+	})
 }
 
 func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {

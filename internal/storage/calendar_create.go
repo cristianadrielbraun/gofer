@@ -95,22 +95,41 @@ func (db *DB) BeginCalendarCreate(ctx context.Context, userID, sourceID, request
 
 // CompleteCalendarCreate inserts only the confirmed event, never reconciles a
 // window or claims a full sync. The durable result and cache commit together.
-func (db *DB) CompleteCalendarCreate(ctx context.Context, userID, sourceID, requestID, hash string, event CalendarEvent) (CalendarCreateRequest, error) {
+func validateCalendarCreateEvent(event CalendarEvent) error {
 	if strings.TrimSpace(event.RemoteID) == "" || event.IsDeleted || event.SeriesRemoteID != "" {
-		return CalendarCreateRequest{}, fmt.Errorf("provider did not confirm a single event")
+		return fmt.Errorf("provider did not confirm a single event")
 	}
 	if event.AllDay {
 		if event.StartDate == "" || event.EndDate <= event.StartDate {
-			return CalendarCreateRequest{}, fmt.Errorf("invalid all-day event")
+			return fmt.Errorf("invalid all-day event")
 		}
 	} else if event.StartAt == nil || event.EndAt == nil || !event.EndAt.After(*event.StartAt) {
-		return CalendarCreateRequest{}, fmt.Errorf("invalid timed event")
+		return fmt.Errorf("invalid timed event")
+	}
+	return nil
+
+}
+
+func (db *DB) CompleteCalendarCreate(ctx context.Context, userID, sourceID, requestID, hash string, event CalendarEvent) (CalendarCreateRequest, error) {
+	if err := validateCalendarCreateEvent(event); err != nil {
+		return CalendarCreateRequest{}, err
 	}
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return CalendarCreateRequest{}, err
 	}
 	defer tx.Rollback()
+	result, err := completeCalendarCreateTx(ctx, tx, userID, sourceID, requestID, hash, event)
+	if err != nil {
+		return CalendarCreateRequest{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CalendarCreateRequest{}, err
+	}
+	return result, nil
+}
+
+func completeCalendarCreateTx(ctx context.Context, tx *sql.Tx, userID, sourceID, requestID, hash string, event CalendarEvent) (CalendarCreateRequest, error) {
 	var confirmed int
 	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM calendar_sources source
 		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
@@ -120,7 +139,7 @@ func (db *DB) CompleteCalendarCreate(ctx context.Context, userID, sourceID, requ
 	}
 	result := CalendarCreateRequest{EventID: uuid.NewString(), RemoteID: event.RemoteID}
 	var previousID string
-	err = tx.QueryRowContext(ctx, `SELECT id FROM calendar_events WHERE user_id = ? AND source_id = ? AND remote_id = ?`, userID, sourceID, event.RemoteID).Scan(&previousID)
+	err := tx.QueryRowContext(ctx, `SELECT id FROM calendar_events WHERE user_id = ? AND source_id = ? AND remote_id = ?`, userID, sourceID, event.RemoteID).Scan(&previousID)
 	if err == nil {
 		result.EventID = previousID
 	} else if err != sql.ErrNoRows {
@@ -151,9 +170,6 @@ func (db *DB) CompleteCalendarCreate(ctx context.Context, userID, sourceID, requ
 	}
 	if n, _ := updated.RowsAffected(); n != 1 {
 		return CalendarCreateRequest{}, ErrCalendarCreateConflict
-	}
-	if err := tx.Commit(); err != nil {
-		return CalendarCreateRequest{}, err
 	}
 	return result, nil
 }

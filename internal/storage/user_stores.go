@@ -45,7 +45,11 @@ type UserStores struct {
 	entries     map[string]*userStoreEntry
 	changed     chan struct{}
 	wake        chan struct{}
+	closeWake   chan struct{}
+	closerDone  chan struct{}
 	done        chan struct{}
+	closeStore  func(*DB) error
+	openStore   func(context.Context, userStoreOwner, bool) (*DB, error)
 	closing     bool
 	routing     *AccountRouting
 	closeErr    error
@@ -55,6 +59,7 @@ type UserStores struct {
 type userStoreEntry struct {
 	db        *DB
 	opening   bool
+	closing   bool
 	refs      int
 	idleSince time.Time
 }
@@ -107,8 +112,11 @@ func NewUserStores(system *DB, options UserStoreOptions) (*UserStores, error) {
 		system: system, directory: directory, maxOpen: options.MaxOpen,
 		idleTimeout: options.IdleTimeout, lock: lock,
 		entries: make(map[string]*userStoreEntry), changed: make(chan struct{}),
-		wake: make(chan struct{}, 1), done: make(chan struct{}), now: time.Now,
+		wake: make(chan struct{}, 1), closeWake: make(chan struct{}, 1),
+		closerDone: make(chan struct{}), done: make(chan struct{}),
+		closeStore: (*DB).Close, now: time.Now,
 	}
+	go m.closePending()
 	go m.reap()
 	return m, nil
 }
@@ -146,7 +154,7 @@ func (m *UserStores) acquire(ctx context.Context, userID string, create bool) (*
 			m.mu.Unlock()
 			return nil, ErrUserStoresClosed
 		}
-		if entry, ok := m.entries[userID]; ok && !entry.opening {
+		if entry, ok := m.entries[userID]; ok && !entry.opening && !entry.closing {
 			entry.refs++
 			m.mu.Unlock()
 			return &UserStoreLease{manager: m, owner: userID, entry: entry}, nil
@@ -161,22 +169,27 @@ func (m *UserStores) acquire(ctx context.Context, userID string, create bool) (*
 			}
 		}
 		if len(m.entries) >= m.maxOpen {
-			if !m.evictOldestLocked() {
-				changed := m.changed
-				m.mu.Unlock()
-				select {
-				case <-changed:
-					continue
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
+			// Scheduling eviction does not free capacity: its physical close
+			// may still be checkpointing. Wait without holding the cache lock.
+			m.evictOldestLocked()
+			changed := m.changed
+			m.mu.Unlock()
+			select {
+			case <-changed:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
 		}
 		entry := &userStoreEntry{opening: true, refs: 1}
 		m.entries[userID] = entry
+		openStore := m.openStore
+		if openStore == nil {
+			openStore = m.openUserStore
+		}
 		m.mu.Unlock()
 
-		db, err := m.openUserStore(ctx, owner, create)
+		db, err := openStore(ctx, owner, create)
 		m.mu.Lock()
 		if err == nil {
 			err = ctx.Err()
@@ -186,10 +199,14 @@ func (m *UserStores) acquire(ctx context.Context, userID string, create bool) (*
 		}
 		if err != nil {
 			if db != nil {
-				m.closeErr = errors.Join(m.closeErr, db.Close())
+				// A canceled successful open still owns a physical handle.
+				// Keep its slot and owner reserved until the closer finishes.
+				entry.db, entry.opening, entry.refs = db, false, 0
+				m.closeEntryLocked(userID, entry)
+			} else {
+				delete(m.entries, userID)
+				m.signalLocked()
 			}
-			delete(m.entries, userID)
-			m.signalLocked()
 			m.mu.Unlock()
 			m.wakeReaper()
 			return nil, err
@@ -240,7 +257,12 @@ func (m *UserStores) Close(ctx context.Context) error {
 	m.wakeReaper()
 	select {
 	case <-m.done:
-		return m.closeErr
+		select {
+		case <-m.closerDone:
+			return m.closeErr
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -258,17 +280,70 @@ func (m *UserStores) wakeReaper() {
 	}
 }
 
-func (m *UserStores) closeEntryLocked(owner string, entry *userStoreEntry) {
-	m.closeErr = errors.Join(m.closeErr, entry.db.Close())
-	delete(m.entries, owner)
+// Called with mu held. Closing entries retain their cache slot and cannot be
+// leased or reopened until their physical SQLite close has completed.
+func (m *UserStores) closeEntryLocked(_ string, entry *userStoreEntry) {
+	if entry.opening || entry.closing || entry.refs != 0 || entry.db == nil {
+		return
+	}
+	entry.closing = true
 	m.signalLocked()
+	select {
+	case m.closeWake <- struct{}{}:
+	default:
+	}
+}
+
+// One closer bounds checkpoint work and goroutines. SQLite fsync never holds
+// the cache mutex; already cached other owners remain independently usable.
+func (m *UserStores) closePending() {
+	defer close(m.closerDone)
+	for {
+		select {
+		case <-m.done:
+			return
+		case <-m.closeWake:
+		}
+		for {
+			m.mu.Lock()
+			var owner string
+			var entry *userStoreEntry
+			for id, candidate := range m.entries {
+				if candidate.closing {
+					owner, entry = id, candidate
+					break
+				}
+			}
+			if entry == nil {
+				m.mu.Unlock()
+				break
+			}
+			closeStore := m.closeStore
+			m.mu.Unlock()
+
+			err := closeStore(entry.db)
+			m.mu.Lock()
+			m.closeErr = errors.Join(m.closeErr, err)
+			delete(m.entries, owner)
+			m.signalLocked()
+			m.mu.Unlock()
+			m.wakeReaper()
+		}
+	}
 }
 
 func (m *UserStores) evictOldestLocked() bool {
+	// A scheduled close will free capacity. Waiting requests must not keep
+	// evicting other idle owners while that checkpoint is still running.
+	for _, entry := range m.entries {
+		if entry.closing {
+			return false
+		}
+	}
 	var oldest *userStoreEntry
 	var owner string
 	for id, entry := range m.entries {
-		if entry.opening || entry.refs != 0 {
+		if entry.opening || entry.closing || entry.refs != 0 {
 			continue
 		}
 		if oldest == nil || entry.idleSince.Before(oldest.idleSince) {
@@ -287,7 +362,7 @@ func (m *UserStores) reapIdle() bool {
 	defer m.mu.Unlock()
 	now := m.now()
 	for owner, entry := range m.entries {
-		if entry.opening || entry.refs != 0 {
+		if entry.opening || entry.closing || entry.refs != 0 {
 			continue
 		}
 		if m.closing || now.Sub(entry.idleSince) >= m.idleTimeout {
@@ -345,7 +420,7 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 		if err := checkUserStoreIdentity(path, owner.id); err != nil {
 			return nil, err
 		}
-		db, err := New(path)
+		db, err := OpenExisting(path)
 		if err != nil {
 			return nil, err
 		}
@@ -354,6 +429,10 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 			return nil, err
 		}
 		if err := ensureUserOAuthBoundary(ctx, db); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := ensureUserMailDeliverySchema(ctx, db); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -388,6 +467,9 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 		return nil, err
 	}
 	err = initializeUserStore(ctx, db, owner)
+	if err == nil {
+		err = ensureUserMailDeliverySchema(ctx, db)
+	}
 	err = errors.Join(err, db.Close())
 	if err != nil {
 		return nil, err
@@ -398,7 +480,11 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 	if err := os.Link(temporary, path); err != nil {
 		return nil, fmt.Errorf("publish user database: %w", err)
 	}
-	return New(path)
+	opened, err := New(path)
+	if err == nil {
+		opened.userMailDelivery = true
+	}
+	return opened, err
 }
 
 func checkUserStoreIdentity(path, owner string) error {
@@ -407,6 +493,11 @@ func checkUserStoreIdentity(path, owner string) error {
 		return err
 	}
 	defer db.Close()
+	// Reject incompatible schemas before any writer changes journal settings or
+	// runs migrations. Existing owned files need an explicit offline upgrade.
+	if err := (&DB{read: db}).requireCurrentSchema(); err != nil {
+		return err
+	}
 	var version int
 	var actual string
 	if err := db.QueryRow(`SELECT layout_version, user_id FROM gofer_user_store WHERE singleton = 1`).Scan(&version, &actual); err != nil {

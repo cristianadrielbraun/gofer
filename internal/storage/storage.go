@@ -23,13 +23,14 @@ import (
 var schemaFS embed.FS
 
 type DB struct {
-	write          *sql.DB
-	read           *sql.DB
-	path           string
-	threadingState ThreadingState
-	threadingMu    sync.RWMutex
-	contactHookMu  sync.RWMutex
-	contactHook    func(ContactActivityNotification)
+	write            *sql.DB
+	read             *sql.DB
+	path             string
+	threadingState   ThreadingState
+	threadingMu      sync.RWMutex
+	contactHookMu    sync.RWMutex
+	contactHook      func(ContactActivityNotification)
+	userMailDelivery bool
 }
 
 type ContactActivityNotification struct {
@@ -50,7 +51,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 106
+const CurrentSchemaVersion = 107
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -932,6 +933,12 @@ func (db *DB) migrate() error {
 	if currentVersion <= 105 {
 		if err := migrateV105ToV106(db.write); err != nil {
 			return fmt.Errorf("migrate v105 to v106: %w", err)
+		}
+	}
+
+	if currentVersion <= 106 {
+		if err := migrateV106ToV107(db.write); err != nil {
+			return fmt.Errorf("migrate v106 to v107: %w", err)
 		}
 	}
 

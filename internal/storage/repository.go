@@ -975,7 +975,14 @@ func (db *DB) ReindexMessagesSearch(ctx context.Context, messageIDs []int64) err
 
 // Keep search documents in the same transaction as the mail they describe.
 // Callers must not commit mail changes before this succeeds.
-func (db *DB) reindexMessagesSearchTx(ctx context.Context, tx *sql.Tx, messageIDs []int64) error {
+func (db *DB) reindexMessagesSearchTx(ctx context.Context, tx *sql.Tx, messageIDs []int64) (err error) {
+	defer func() {
+		// Cancellation can close prepared statements during automatic rollback
+		// before their next Exec reports the context error. Retain both causes.
+		if err != nil && ctx.Err() != nil {
+			err = errors.Join(err, ctx.Err())
+		}
+	}()
 	messageIDs = compactMessageIDs(messageIDs)
 	if len(messageIDs) == 0 {
 		return nil
@@ -1647,6 +1654,15 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		if m.InternetMessageID == "" {
 			m.InternetMessageID = syntheticProviderMessageID(m.ProviderMessageID)
 		}
+		if m.IsDraft {
+			protected, _, err := db.protectUserProviderDraftTx(ctx, tx, m.AccountID, m.InternetMessageID)
+			if err != nil {
+				return nil, err
+			}
+			if protected {
+				continue
+			}
+		}
 		messageIDNorm := mailmessage.NormalizeMessageID(m.InternetMessageID)
 		if messageIDNorm == "" {
 			m.InternetMessageID = syntheticProviderMessageID(m.ProviderMessageID)
@@ -2052,7 +2068,7 @@ func (db *DB) ReconcileProviderFolderSeen(ctx context.Context, accountID, folder
 		        SELECT 1 FROM message_mutations mm
 		        WHERE mm.message_id = m.id AND mm.kind = 'move' AND mm.destination_folder_id = ?
 		      )
-		  )`, time.Now().UTC(), folderID, accountID, folderID)
+		  `+db.userProviderDraftProtectionSQL("m")+`)`, time.Now().UTC(), folderID, accountID, folderID)
 	if err != nil {
 		return fmt.Errorf("mark unseen provider folder messages deleted: %w", err)
 	}
@@ -2288,11 +2304,13 @@ func (db *DB) resolveProviderLabelAliasTx(ctx context.Context, tx *sql.Tx, label
 
 	originalName := label.Name
 	var displayName, color string
+	var providerID string
 	err := tx.QueryRowContext(ctx, `
-		SELECT display_name, color
+		SELECT provider_id, display_name, color
 		FROM label_aliases
-		WHERE account_id = ? AND provider_type = ? AND provider_id = ?
-		LIMIT 1`, label.AccountID, label.ProviderType, label.ProviderID).Scan(&displayName, &color)
+		WHERE account_id = ? AND provider_type = ? AND provider_id = ? COLLATE NOCASE
+		ORDER BY CASE source WHEN 'user' THEN 0 WHEN 'default' THEN 1 ELSE 2 END,provider_id
+		LIMIT 1`, label.AccountID, label.ProviderType, label.ProviderID).Scan(&providerID, &displayName, &color)
 	if err == sql.ErrNoRows {
 		displayName = firstNonEmpty(label.Name, label.ProviderID)
 		color = label.Color
@@ -2308,6 +2326,10 @@ func (db *DB) resolveProviderLabelAliasTx(ctx context.Context, tx *sql.Tx, label
 		}
 	} else if err != nil {
 		return label, err
+	} else {
+		// IMAP keywords are case-insensitive; use the selected alias's identity
+		// so server casing cannot create a second label or lose its display name.
+		label.ProviderID = providerID
 	}
 
 	if strings.TrimSpace(displayName) != "" {
@@ -2546,7 +2568,16 @@ func (db *DB) replaceMessageLabelsForProviderTx(ctx context.Context, tx *sql.Tx,
 			labels[i].ProviderType = providerType
 		}
 	}
-	return db.addMessageLabelsTx(ctx, tx, messageID, accountID, labels)
+	if err := db.addMessageLabelsTx(ctx, tx, messageID, accountID, labels); err != nil {
+		return err
+	}
+	// Routed removals remain optimistic during retries. Receiving older metadata
+	// must not resurrect a label while its removal is still durable in the queue.
+	_, err := tx.ExecContext(ctx, `DELETE FROM message_labels WHERE message_id=? AND label_id IN (
+		SELECT l.id FROM labels l JOIN label_mutation_queue q ON q.account_id=l.account_id AND q.provider_type=l.provider_type
+		WHERE q.message_id=? AND l.account_id=? AND l.provider_type=? AND q.operation='remove' AND lower(q.label_name)=lower(l.name))
+		AND EXISTS(SELECT 1 FROM sqlite_schema WHERE name='gofer_user_store')`, messageID, messageID, accountID, providerType)
+	return err
 }
 
 func (db *DB) ReplaceMessageLabelsForProvider(ctx context.Context, messageID int64, accountID, providerType string, labels []LabelInput) error {
@@ -2958,6 +2989,14 @@ func (db *DB) GetGmailPollState(ctx context.Context, accountID string) (GmailPol
 }
 
 func (db *DB) MarkGmailPollCheck(ctx context.Context, state GmailPollState, changed bool, pollErr error) error {
+	return markGmailPollCheck(ctx, db.Write(), state, changed, pollErr)
+}
+
+type gmailPollWriter interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func markGmailPollCheck(ctx context.Context, writer gmailPollWriter, state GmailPollState, changed bool, pollErr error) error {
 	state.AccountID = strings.TrimSpace(state.AccountID)
 	state.ProfileHistoryID = strings.TrimSpace(state.ProfileHistoryID)
 	if state.AccountID == "" {
@@ -2985,7 +3024,7 @@ func (db *DB) MarkGmailPollCheck(ctx context.Context, state GmailPollState, chan
 			changedAt = formatDBTime(checkedAt)
 		}
 	}
-	_, err := db.Write().ExecContext(ctx, `
+	_, err := writer.ExecContext(ctx, `
 		INSERT INTO gmail_poll_state (
 			account_id, profile_history_id, last_checked_at, last_changed_at, last_error, consecutive_errors, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -3638,9 +3677,9 @@ func (db *DB) MarkProviderMessageRemovedFromFolder(ctx context.Context, accountI
 		SET is_deleted = 1, synced_at = CURRENT_TIMESTAMP
 		WHERE folder_id = ?
 		  AND message_id = (
-			SELECT id FROM messages
-			WHERE account_id = ? AND remote_message_id = ?
-			LIMIT 1
+			SELECT m.id FROM messages m
+			WHERE m.account_id = ? AND m.remote_message_id = ?
+			`+db.userProviderDraftProtectionSQL("m")+`LIMIT 1
 		  )
 		  AND NOT EXISTS (
 			SELECT 1 FROM message_mutations mm
@@ -3709,7 +3748,7 @@ func (db *DB) MarkProviderMessagesMissingFromFolder(ctx context.Context, account
 				SELECT 1 FROM message_mutations mm
 				WHERE mm.message_id = m.id AND mm.kind = 'move' AND mm.destination_folder_id = ?
 			  )
-		  )`, folderID, accountID, folderID)
+		  `+db.userProviderDraftProtectionSQL("m")+`)`, folderID, accountID, folderID)
 	if err != nil {
 		return 0, fmt.Errorf("mark missing provider messages: %w", err)
 	}

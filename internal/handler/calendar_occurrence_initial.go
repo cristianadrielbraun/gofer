@@ -42,7 +42,7 @@ func identifyCalDAVInitialOccurrences(ctx context.Context, source storage.Calend
 			return err
 		}
 		for _, response := range multi.Responses {
-			href, err := resolveCalDAVHref(source.RemoteID, response.Href)
+			href, err := calendarSyncDAVResource(ctx, source.RemoteID, response.Href)
 			if err != nil {
 				return err
 			}

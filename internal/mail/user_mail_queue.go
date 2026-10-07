@@ -9,7 +9,7 @@ import (
 // session bound. Implementations must lease only for local work, never network
 // calls, and must not recursively Sync this account.
 type UserMailQueue interface {
-	Run(context.Context, string, string) error
+	Run(context.Context, string, string, *UserProviderMail) error
 }
 
 func (s *UserIMAP) SetMailQueue(queue UserMailQueue) error {

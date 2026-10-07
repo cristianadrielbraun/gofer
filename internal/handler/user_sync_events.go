@@ -18,6 +18,12 @@ func (h *Handler) handleUserSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
+	releaseActive, err := h.userIMAP.BeginActiveUserSession(ctx, owner)
+	if err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	defer releaseActive()
 	ch := h.userIMAP.Events().Subscribe()
 	defer h.userIMAP.Events().Unsubscribe(ch)
 	manual, err := h.userIMAP.ManualSyncSnapshot(ctx, owner)

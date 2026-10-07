@@ -47,7 +47,7 @@ func calDAVResponseCapabilities(ctx context.Context, source storage.CalendarSour
 	if err != nil {
 		return false, nil, err
 	}
-	res, err := calendarDeleteClient(calDAVHTTPTransport).Do(req)
+	res, err := calendarProviderDo(calendarDeleteClient(calDAVHTTPTransport), req)
 	if err != nil {
 		return false, nil, err
 	}
@@ -457,7 +457,7 @@ func putCalDAVResponse(ctx context.Context, target calendarResponseTarget, desir
 		req.Header.Set("If-Schedule-Tag-Match", target.CalDAV.ScheduleTag)
 	}
 	client := calendarDeleteClient(calDAVHTTPTransport)
-	res, err := client.Do(req)
+	res, err := calendarProviderDo(client, req)
 	if err != nil {
 		return calendarResponseResult{}, err
 	}

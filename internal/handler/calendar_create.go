@@ -58,13 +58,26 @@ func (h *Handler) handleNewCalendarEvent(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	location := viewsCalendarLocation(h.db.GetUISettings(ctx, userID))
-	now := time.Now().In(location)
+	data, err := calendarNewEventData(r.URL.Query().Get("date"), time.Now(), location, sources, accountNames, func(source storage.CalendarSource) bool { return h.calendarWriteAuthorized(ctx, source) })
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "private, no-store")
+	if err := views.CalendarCreateDialog(data).Render(ctx, w); err != nil {
+		http.Error(w, "could not open new event", 500)
+	}
+}
+
+func calendarNewEventData(selectedDate string, currentTime time.Time, location *time.Location, sources []storage.CalendarSource, accountNames map[string]string, authorized func(storage.CalendarSource) bool) (views.CalendarCreateData, error) {
+	now := currentTime.In(location)
 	date := now
-	if value := r.URL.Query().Get("date"); value != "" {
-		date, err = time.ParseInLocation("2006-01-02", value, location)
+	if selectedDate != "" {
+		var err error
+		date, err = time.ParseInLocation("2006-01-02", selectedDate, location)
 		if err != nil {
-			http.Error(w, "invalid selected date", 400)
-			return
+			return views.CalendarCreateData{}, errors.New("invalid selected date")
 		}
 	}
 	start := time.Date(date.Year(), date.Month(), date.Day(), 9, 0, 0, 0, location)
@@ -78,7 +91,7 @@ func (h *Handler) handleNewCalendarEvent(w http.ResponseWriter, r *http.Request)
 	}
 	data := views.CalendarCreateData{RequestID: uuid.NewString(), Date: start.Format("2006-01-02"), StartTime: start.Format("15:04"), EndDate: end.Format("2006-01-02"), EndTime: end.Format("15:04"), TimeZone: zone}
 	for _, source := range sources {
-		choice := views.CalendarCreateSource{ID: source.ID, Name: source.Name, AccountName: accountNames[source.AccountID], Writable: calendarSourceWritable(source), Authorized: h.calendarWriteAuthorized(ctx, source), Provider: source.Provider}
+		choice := views.CalendarCreateSource{ID: source.ID, Name: source.Name, AccountName: accountNames[source.AccountID], Writable: calendarSourceWritable(source), Authorized: authorized(source), Provider: source.Provider}
 		if choice.Name == "" {
 			choice.Name = "Calendar"
 		}
@@ -90,11 +103,7 @@ func (h *Handler) handleNewCalendarEvent(w http.ResponseWriter, r *http.Request)
 	if data.SourceID == "" && len(data.Sources) > 0 {
 		data.SourceID = data.Sources[0].ID
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "private, no-store")
-	if err := views.CalendarCreateDialog(data).Render(ctx, w); err != nil {
-		http.Error(w, "could not open new event", 500)
-	}
+	return data, nil
 }
 
 func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
@@ -289,18 +298,10 @@ func (h *Handler) lockCalendarCreate(ctx context.Context, source storage.Calenda
 }
 
 func (h *Handler) createCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, draft calendar.EventDraft) (calendar.RemoteEvent, error) {
-	if h.calendarCreateEvent != nil {
+	if _, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); !owned && h.calendarCreateEvent != nil {
 		return h.calendarCreateEvent(ctx, source, draft)
 	}
-	credentials := calendarCredentials{}
-	switch source.Provider {
-	case providers.ProviderGmail:
-		credentials.token, credentials.err = h.mailCredentials().GetGoogleCalendarWriteTokenForAccount(ctx, source.AccountID)
-	case providers.ProviderOutlook:
-		credentials.token, credentials.err = h.mailCredentials().GetMicrosoftGraphCalendarWriteTokenForAccount(ctx, source.AccountID)
-	case storage.CalendarSourceProviderCalDAV:
-		credentials = h.calendarCredentialsForSource(ctx, source.UserID, source)
-	}
+	credentials := h.calendarUpdateCredentials(ctx, source)
 	if credentials.err != nil {
 		if draft.TeamsRemoteID != "" {
 			return calendar.RemoteEvent{}, fmt.Errorf("Could not confirm the prepared Teams meeting credentials: %v", credentials.err)

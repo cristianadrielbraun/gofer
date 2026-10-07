@@ -34,6 +34,19 @@ func calendarResponseScopeValid(event storage.CalendarEvent, scope string) bool 
 	return scope == "series" || (scope == "occurrence" && event.SeriesRemoteID != "")
 }
 
+func calendarResponseRestriction(event storage.CalendarEvent, source storage.CalendarSource) string {
+	if event.IsDeleted || event.Status == "cancelled" {
+		return "this invitation is no longer active"
+	}
+	if source.Provider != providers.ProviderGmail && source.Provider != providers.ProviderOutlook && source.Provider != storage.CalendarSourceProviderCalDAV {
+		return "this calendar provider does not support invitation responses"
+	}
+	if !calendarSourceWritable(source) {
+		return "this calendar is read-only"
+	}
+	return ""
+}
+
 func (h *Handler) calendarResponseAccess(ctx context.Context, event storage.CalendarEvent) (storage.CalendarSource, error) {
 	if event.IsDeleted || event.Status == "cancelled" {
 		return storage.CalendarSource{}, fmt.Errorf("this invitation is no longer active")
@@ -46,11 +59,8 @@ func (h *Handler) calendarResponseAccess(ctx context.Context, event storage.Cale
 		if source.ID != event.SourceID {
 			continue
 		}
-		if source.Provider != providers.ProviderGmail && source.Provider != providers.ProviderOutlook && source.Provider != storage.CalendarSourceProviderCalDAV {
-			return source, fmt.Errorf("this calendar provider does not support invitation responses")
-		}
-		if !calendarSourceWritable(source) {
-			return source, fmt.Errorf("this calendar is read-only")
+		if reason := calendarResponseRestriction(event, source); reason != "" {
+			return source, errors.New(reason)
 		}
 		if !h.calendarWriteAuthorized(ctx, source) {
 			return source, fmt.Errorf("reconnect this account from Accounts to grant Calendar write access")

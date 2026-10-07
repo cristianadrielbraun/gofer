@@ -310,6 +310,47 @@ func (h *Handler) matchMailCalendarEvent(ctx context.Context, accountID string, 
 	if err != nil {
 		return storage.CalendarEvent{}, false
 	}
+	return matchMailCalendarEvents(events, item)
+}
+
+func (h *Handler) handleMailCalendarFooter(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	items, accountID, err := h.readMailCalendarEvents(ctx, r.PathValue("id"))
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.URL.Query().Get("refresh") == "1" && len(items) > 0 {
+		start := time.Now()
+		if items[0].Start != nil {
+			start = *items[0].Start
+		}
+		month := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, start.Location())
+		_, _ = h.syncCalendarScopedWindow(ctx, h.userID(ctx), month.AddDate(0, 0, -7), month.AddDate(0, 1, 7), "", accountID)
+	}
+	location := time.UTC
+	if zone, err := time.LoadLocation(h.db.GetUISettings(ctx, h.userID(ctx))["timezone"]); err == nil {
+		location = zone
+	}
+	var cards []views.MailCalendarEventData
+	for _, item := range items {
+		event, matched := h.matchMailCalendarEvent(ctx, accountID, item)
+		card := mailCalendarEventCard(item, event, matched, location, r.PathValue("id"), func(event storage.CalendarEvent) bool {
+			_, err := h.calendarResponseAccess(ctx, event)
+			return err == nil
+		})
+		cards = append(cards, card)
+	}
+	_ = views.MailCalendarFooter(r.PathValue("id"), cards).Render(ctx, w)
+}
+
+func matchMailCalendarEvents(events []storage.CalendarEvent, item mailCalendarEvent) (storage.CalendarEvent, bool) {
+	if item.HasRecurrence && item.Recurrence == nil {
+		return storage.CalendarEvent{}, false
+	}
 	var matches []storage.CalendarEvent
 	for _, event := range events {
 		if item.Organizer != "" && !strings.EqualFold(item.Organizer, event.OrganizerEmail) {
@@ -340,79 +381,53 @@ func (h *Handler) matchMailCalendarEvent(ctx context.Context, accountID string, 
 	return matches[0], true
 }
 
-func (h *Handler) handleMailCalendarFooter(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	items, accountID, err := h.readMailCalendarEvents(ctx, r.PathValue("id"))
-	if err != nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.URL.Query().Get("refresh") == "1" && len(items) > 0 {
-		start := time.Now()
-		if items[0].Start != nil {
-			start = *items[0].Start
+func mailCalendarEventCard(item mailCalendarEvent, event storage.CalendarEvent, matched bool, location *time.Location, mailID string, authorized func(storage.CalendarEvent) bool) views.MailCalendarEventData {
+	card := mailCalendarCard(item, location)
+	if matched {
+		card.EventID = event.ID
+		if card.Organizer == "" {
+			card.Organizer, card.OrganizerName = event.OrganizerEmail, event.OrganizerName
 		}
-		month := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, start.Location())
-		_, _ = h.syncCalendarScopedWindow(ctx, h.userID(ctx), month.AddDate(0, 0, -7), month.AddDate(0, 1, 7), "", accountID)
-	}
-	location := time.UTC
-	if zone, err := time.LoadLocation(h.db.GetUISettings(ctx, h.userID(ctx))["timezone"]); err == nil {
-		location = zone
-	}
-	var cards []views.MailCalendarEventData
-	for _, item := range items {
-		card := mailCalendarCard(item, location)
-		event, matched := h.matchMailCalendarEvent(ctx, accountID, item)
-		if matched {
+		if card.Date == "" && card.Time == "" {
+			current := item
+			current.Start, current.End, current.AllDay, current.StartDate, current.EndDate = event.StartAt, event.EndAt, event.AllDay, event.StartDate, event.EndDate
+			info := mailCalendarCard(current, location)
+			card.Date, card.Time = info.Date, info.Time
+		}
+		if item.Method == "REQUEST" {
+			current := item
+			current.Summary, current.Location, current.Start, current.End = event.Summary, event.Location, event.StartAt, event.EndAt
+			current.AllDay, current.StartDate, current.EndDate = event.AllDay, event.StartDate, event.EndDate
+			current.Cancelled = item.Cancelled || event.Status == "cancelled"
+			current.Organizer, current.OrganizerName = event.OrganizerEmail, event.OrganizerName
+			current.WallStart, current.WallEnd = "", ""
+			card = mailCalendarCard(current, location)
 			card.EventID = event.ID
-			if card.Organizer == "" {
-				card.Organizer, card.OrganizerName = event.OrganizerEmail, event.OrganizerName
-			}
-			if card.Date == "" && card.Time == "" {
-				current := item
-				current.Start, current.End, current.AllDay, current.StartDate, current.EndDate = event.StartAt, event.EndAt, event.AllDay, event.StartDate, event.EndDate
-				info := mailCalendarCard(current, location)
-				card.Date, card.Time = info.Date, info.Time
-			}
-			if item.Method == "REQUEST" {
-				current := item
-				current.Summary, current.Location, current.Start, current.End = event.Summary, event.Location, event.StartAt, event.EndAt
-				current.AllDay, current.StartDate, current.EndDate = event.AllDay, event.StartDate, event.EndDate
-				current.Cancelled = item.Cancelled || event.Status == "cancelled"
-				current.Organizer, current.OrganizerName = event.OrganizerEmail, event.OrganizerName
-				current.WallStart, current.WallEnd = "", ""
-				card = mailCalendarCard(current, location)
-				card.EventID = event.ID
-				if link := calendar.MeetingJoinURLWithDescription(event.OnlineMeetingJSON, event.Description); link != "" && !current.Cancelled {
-					card.JoinURL = link
-				}
+			if link := calendar.MeetingJoinURLWithDescription(event.OnlineMeetingJSON, event.Description); link != "" && !current.Cancelled {
+				card.JoinURL = link
 			}
 		}
-		if item.Method == "REQUEST" && item.Invited && !item.Cancelled && (!matched || event.Status != "cancelled") {
-			card.Note = "This invitation could not be matched to an event in this account's selected calendars. Refresh to try again."
-			if matched && item.Organizer == "" {
-				card.Note = "This invitation is missing organizer details."
-			} else if matched && event.ResponseStatus == "organizer" {
-				card.Note = "You organize this event."
-			}
-			if matched && item.Organizer != "" && event.ResponseStatus != "organizer" {
-				if _, err := h.calendarResponseAccess(ctx, event); err == nil {
-					data := calendarResponseData(event)
-					data.Ready = false
-					data.MailMessageID = r.PathValue("id")
-					if item.Recurring && item.Recurrence == nil {
-						data.Scope = "series"
-					}
-					card.Response, card.Note = &data, ""
-				} else {
-					card.Note = "Responding requires Calendar write access for this account."
-				}
-			}
-		}
-		cards = append(cards, card)
 	}
-	_ = views.MailCalendarFooter(r.PathValue("id"), cards).Render(ctx, w)
+	if item.Method == "REQUEST" && item.Invited && !item.Cancelled && (!matched || event.Status != "cancelled") {
+		card.Note = "This invitation could not be matched to an event in this account's selected calendars. Refresh to try again."
+		if matched && item.Organizer == "" {
+			card.Note = "This invitation is missing organizer details."
+		} else if matched && event.ResponseStatus == "organizer" {
+			card.Note = "You organize this event."
+		}
+		if matched && item.Organizer != "" && event.ResponseStatus != "organizer" {
+			if authorized(event) {
+				data := calendarResponseData(event)
+				data.Ready = false
+				data.MailMessageID = mailID
+				if item.Recurring && item.Recurrence == nil {
+					data.Scope = "series"
+				}
+				card.Response, card.Note = &data, ""
+			} else {
+				card.Note = "Responding requires Calendar write access for this account."
+			}
+		}
+	}
+	return card
 }

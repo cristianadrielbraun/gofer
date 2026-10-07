@@ -364,3 +364,110 @@ func TestAccountRoutingNeverReplacesMissingActiveStoreWithEmptyDatabase(t *testi
 		t.Fatal(err)
 	}
 }
+
+func TestAccountRoutingNeverReplacesMissingHistoricalStore(t *testing.T) {
+	for _, state := range []AccountRouteState{AccountActive, AccountDeleting, AccountDeleted} {
+		t.Run(string(state), func(t *testing.T) {
+			system, stores, routing := newAccountRoutingTest(t, 1)
+			entry := createRoutingTestAccount(t, routing, "alice")
+			if err := routing.WithUser(t.Context(), "alice", func(db *DB) error {
+				return db.SetSetting(t.Context(), "alice", "retained-contact-preference", "retained")
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if state == AccountDeleting {
+				if err := routing.RequestAccountDeletion(t.Context(), "alice", entry.AccountID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state == AccountDeleted {
+				if err := routing.BeginAccountDeletion(t.Context(), "alice", entry.AccountID); err != nil {
+					t.Fatal(err)
+				}
+				if err := routing.CompleteAccountDeletion(t.Context(), "alice", entry.AccountID, func(db *DB) error {
+					_, err := db.Write().Exec(`DELETE FROM accounts WHERE id=?`, entry.AccountID)
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Eviction checkpoints/closes Alice before deleting only her disposable DB.
+			if err := routing.WithUser(t.Context(), "bob", func(*DB) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			path := stores.userPath("alice")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := routing.WithUser(t.Context(), "alice", func(*DB) error { t.Error("missing historical owner store routed"); return nil }); !errors.Is(err, ErrAccountRoute) || !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("lost historical store accepted", state, err)
+			}
+			if state != AccountDeleted {
+				if err := routing.BeginAccountDeletion(t.Context(), "alice", entry.AccountID); !errors.Is(err, ErrAccountRoute) || !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("deletion recreated store", err)
+				}
+				if err := routing.CompleteAccountDeletion(t.Context(), "alice", entry.AccountID, func(*DB) error { t.Error("lost store cleanup invoked"); return nil }); !errors.Is(err, ErrAccountRoute) || !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("lost store reported deleted", err)
+				}
+				var current AccountRouteState
+				if err := system.Read().QueryRow(`SELECT state FROM gofer_account_directory WHERE account_id=?`, entry.AccountID).Scan(&current); err != nil || current != AccountDeleting {
+					t.Fatal("failed deletion erased recoverable intent", current, err)
+				}
+			}
+			// A new intent cannot bypass a historical owner's lost-store requirement.
+			fresh, err := routing.ReserveAccount(t.Context(), "alice")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := routing.CompleteAccountCreation(t.Context(), "alice", fresh.AccountID, func(*DB) error { t.Error("new creation bypassed missing historical storage"); return nil }); !errors.Is(err, ErrAccountRoute) {
+				t.Fatal(err)
+			}
+			if err := routing.CancelAccountCreation(t.Context(), "alice", fresh.AccountID); !errors.Is(err, ErrAccountRoute) {
+				t.Fatal("cancellation created empty historical storage", err)
+			}
+			if _, err := routing.route(t.Context(), fresh.AccountID, "alice", AccountCreating); err != nil {
+				t.Fatal("failed cancellation discarded recoverable intent", err)
+			}
+			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("replacement database created", err)
+			}
+		})
+	}
+}
+
+func TestAccountRoutingDisabledOwnerDeletionUsesExistingStore(t *testing.T) {
+	system, _, routing := newAccountRoutingTest(t, 1)
+	entry := createRoutingTestAccount(t, routing, "alice")
+	if err := routing.WithUser(t.Context(), "alice", func(db *DB) error { return db.SetSetting(t.Context(), "alice", "retained-preference", "kept") }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := system.Write().Exec(`UPDATE users SET status='disabled' WHERE id='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := routing.WithUser(t.Context(), "alice", func(*DB) error { t.Error("disabled owner browsed store"); return nil }); !errors.Is(err, ErrUserStoreOwner) {
+		t.Fatal(err)
+	}
+	if err := routing.BeginAccountDeletion(t.Context(), "alice", entry.AccountID); err != nil {
+		t.Fatal("disabled owner maintenance rejected", err)
+	}
+	if err := routing.CompleteAccountDeletion(t.Context(), "alice", entry.AccountID, func(db *DB) error {
+		value, err := db.GetSetting(t.Context(), "alice", "retained-preference")
+		if err != nil {
+			return err
+		}
+		if value != "kept" {
+			t.Error("cleanup lost unrelated owner data")
+		}
+		_, err = db.Write().Exec(`DELETE FROM accounts WHERE id=?`, entry.AccountID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routing.route(t.Context(), entry.AccountID, "alice", AccountDeleted); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := system.Read().QueryRow(`SELECT status FROM users WHERE id='alice'`).Scan(&status); err != nil || status != "disabled" {
+		t.Fatal("maintenance reactivated owner", status, err)
+	}
+}

@@ -785,6 +785,35 @@ func (db *DB) GetContactWithProfile(ctx context.Context, userID, contactID strin
 }
 
 func (db *DB) contactFromProfile(ctx context.Context, userID string, profile models.ContactProfile) (models.Contact, error) {
+	contact := contactValuesFromProfile(ctx, profile)
+	if strings.TrimSpace(contact.AvatarURL) == "" {
+		contact.AvatarURL = db.providerContactAvatarFallback(ctx, userID, profile, contact.Email)
+	}
+	var messageCount int
+	var lastSeen sql.NullString
+	if err := db.Read().QueryRowContext(ctx, `
+		SELECT
+			COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0), 0),
+			(SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0)`,
+		userID, profile.ID, userID, profile.ID).Scan(&messageCount, &lastSeen); err != nil {
+		return contact, err
+	}
+	contact.MessageCount = messageCount
+	if lastSeen.Valid {
+		contact.LastSeenAt = formatContactTime(lastSeen.String, timezoneLocationFromContext(ctx))
+	}
+	contact.Initials = initials(contactDisplayName(contact.Name, contact.Email))
+	contact.AvatarHash = avatarresolver.GravatarHash(contact.Email)
+	if strings.TrimSpace(contact.AvatarURL) != "" {
+		contact.AvatarSource = "provider_contact"
+	}
+	return contact, nil
+}
+
+// contactValuesFromProfile projects provider-writable fields without opening a
+// database. UI hydration is performed by contactFromProfile; an outbound worker
+// can project the same canonical fields inside its snapshot transaction.
+func contactValuesFromProfile(ctx context.Context, profile models.ContactProfile) models.Contact {
 	effectiveFields := profile.Fields
 	if profile.SyncEnabled {
 		canonicalFields := make([]models.ContactField, 0, len(profile.Fields))
@@ -818,9 +847,6 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 	if contact.Email == "" {
 		contact.Email = strings.TrimSpace(emailField.Value)
 	}
-	if strings.TrimSpace(contact.AvatarURL) == "" {
-		contact.AvatarURL = db.providerContactAvatarFallback(ctx, userID, profile, contact.Email)
-	}
 	contact.EmailLabel = contactStoredFieldLabel(emailField.Label, "primary")
 	phoneField := bestContactProfileField(effectiveFields, "phone")
 	contact.Phone = strings.TrimSpace(phoneField.Value)
@@ -851,25 +877,7 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 			}
 		}
 	}
-	var messageCount int
-	var lastSeen sql.NullString
-	if err := db.Read().QueryRowContext(ctx, `
-		SELECT
-			COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0), 0),
-			(SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0)`,
-		userID, profile.ID, userID, profile.ID).Scan(&messageCount, &lastSeen); err != nil {
-		return contact, err
-	}
-	contact.MessageCount = messageCount
-	if lastSeen.Valid {
-		contact.LastSeenAt = formatContactTime(lastSeen.String, timezoneLocationFromContext(ctx))
-	}
-	contact.Initials = initials(contactDisplayName(contact.Name, contact.Email))
-	contact.AvatarHash = avatarresolver.GravatarHash(contact.Email)
-	if strings.TrimSpace(contact.AvatarURL) != "" {
-		contact.AvatarSource = "provider_contact"
-	}
-	return contact, nil
+	return contact
 }
 
 func (db *DB) providerContactAvatarFallback(ctx context.Context, userID string, profile models.ContactProfile, email string) string {
@@ -1187,6 +1195,21 @@ func (db *DB) UpsertContactSource(ctx context.Context, source ContactSource) err
 }
 
 func (db *DB) upsertContactCard(ctx context.Context, card models.ContactCard) error {
+	if strings.TrimSpace(card.UserID) == "" || strings.TrimSpace(card.ProfileID) == "" || strings.TrimSpace(card.Kind) == "" {
+		return nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := upsertContactCardTx(ctx, tx, card); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func upsertContactCardTx(ctx context.Context, tx *sql.Tx, card models.ContactCard) error {
 	card.UserID = strings.TrimSpace(card.UserID)
 	card.ProfileID = strings.TrimSpace(card.ProfileID)
 	card.Kind = strings.TrimSpace(card.Kind)
@@ -1198,11 +1221,6 @@ func (db *DB) upsertContactCard(ctx context.Context, card models.ContactCard) er
 	if card.UserID == "" || card.ProfileID == "" || card.Kind == "" {
 		return nil
 	}
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	card.ID = strings.TrimSpace(card.ID)
 	if card.ID == "" {
 		query := `
@@ -1251,7 +1269,7 @@ func (db *DB) upsertContactCard(ctx context.Context, card models.ContactCard) er
 		card.ID, card.UserID, card.ProfileID, card.Kind, card.Provider, card.AccountID, card.AddressBookID, card.RemoteID, card.Etag, card.RawPayload, card.RawPayloadType, card.SyncStatus, card.LastError); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (db *DB) GetContactSource(ctx context.Context, userID, contactID, provider, accountID string) (*ContactSource, error) {
@@ -1352,6 +1370,14 @@ func (db *DB) EnqueueContactSyncOperation(ctx context.Context, userID string, co
 }
 
 func (db *DB) EnqueueContactSyncOperationFromAccount(ctx context.Context, userID string, contact models.Contact, previous *models.Contact, excludedAccountID string) (string, error) {
+	return enqueueContactSyncOperation(ctx, db.Write(), userID, contact, previous, excludedAccountID)
+}
+
+type contactSyncWriter interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func enqueueContactSyncOperation(ctx context.Context, writer contactSyncWriter, userID string, contact models.Contact, previous *models.Contact, excludedAccountID string) (string, error) {
 	if userID == "" || strings.TrimSpace(contact.ID) == "" || normalizeContactEmail(contact.Email) == "" {
 		return "", nil
 	}
@@ -1360,7 +1386,7 @@ func (db *DB) EnqueueContactSyncOperationFromAccount(ctx context.Context, userID
 		return "", err
 	}
 	id := uuid.NewString()
-	_, err = db.Write().ExecContext(ctx, `
+	_, err = writer.ExecContext(ctx, `
 		INSERT INTO contact_sync_operations (id, user_id, contact_id, email, payload_json, status, next_attempt_at)
 		VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)`, id, userID, contact.ID, strings.TrimSpace(contact.Email), string(payload))
 	if err != nil {
@@ -1630,6 +1656,39 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		}
 	}
 
+	contact.ID = contactID
+	profile, targets := contactProfileForSave(userID, contact, existingProfile)
+	savedProfile, err := db.SaveContactProfile(ctx, userID, profile)
+	if err != nil {
+		return models.Contact{}, err
+	}
+	if err := db.ReplaceContactSyncMemberships(ctx, userID, savedProfile.ID, targets); err != nil {
+		return models.Contact{}, err
+	}
+	if contact.GoferSyncEnabled {
+		contact.ID = savedProfile.ID
+		contact.Name = name
+		contact.Email = email
+		if err := db.ReplaceCanonicalContact(ctx, userID, savedProfile.ID, contact); err != nil {
+			return models.Contact{}, err
+		}
+	}
+	saved, err := db.GetContact(ctx, userID, savedProfile.ID)
+	if err != nil || saved == nil {
+		return models.Contact{}, err
+	}
+	if created {
+		_ = db.LogContactActivity(ctx, userID, "manual_contact_added", email, "Manual contact added", 1)
+	}
+	return *saved, nil
+}
+
+// contactProfileForSave keeps the shared and owned editor's field/avatar rules
+// identical. The copied old cards are never mutated in a retained snapshot.
+func contactProfileForSave(userID string, contact models.Contact, existingProfile *models.ContactProfile) (models.ContactProfile, []string) {
+	email := strings.TrimSpace(contact.Email)
+	name := contactDisplayName(contact.Name, email)
+	contactID := strings.TrimSpace(contact.ID)
 	profile := models.ContactProfile{
 		ID:           contactID,
 		UserID:       userID,
@@ -1657,7 +1716,7 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		}
 	}
 	if existingProfile != nil {
-		profile.Cards = existingProfile.Cards
+		profile.Cards = append([]models.ContactCard(nil), existingProfile.Cards...)
 		foundLocal := false
 		for i := range profile.Cards {
 			if profile.Cards[i].Kind == "local" {
@@ -1717,29 +1776,7 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 			profile.Fields = append(profile.Fields, field)
 		}
 	}
-	savedProfile, err := db.SaveContactProfile(ctx, userID, profile)
-	if err != nil {
-		return models.Contact{}, err
-	}
-	if err := db.ReplaceContactSyncMemberships(ctx, userID, savedProfile.ID, targets); err != nil {
-		return models.Contact{}, err
-	}
-	if contact.GoferSyncEnabled {
-		contact.ID = savedProfile.ID
-		contact.Name = name
-		contact.Email = email
-		if err := db.ReplaceCanonicalContact(ctx, userID, savedProfile.ID, contact); err != nil {
-			return models.Contact{}, err
-		}
-	}
-	saved, err := db.GetContact(ctx, userID, savedProfile.ID)
-	if err != nil || saved == nil {
-		return models.Contact{}, err
-	}
-	if created {
-		_ = db.LogContactActivity(ctx, userID, "manual_contact_added", email, "Manual contact added", 1)
-	}
-	return *saved, nil
+	return profile, targets
 }
 
 func (db *DB) UpsertSyncedContact(ctx context.Context, userID, accountID, name, email string) (string, bool, error) {
@@ -1763,6 +1800,25 @@ func (db *DB) UpsertSyncedContactForProfileWithChange(ctx context.Context, userI
 }
 
 func (db *DB) upsertSyncedContactFromContactWithChange(ctx context.Context, userID, accountID, preferredProfileID string, contact models.Contact) (string, bool, bool, error) {
+	if userID == "" || strings.TrimSpace(accountID) == "" || normalizeContactEmail(strings.TrimSpace(contact.Email)) == "" {
+		return "", false, false, nil
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, false, err
+	}
+	defer tx.Rollback()
+	id, created, canonicalChanged, err := upsertSyncedContactTx(ctx, tx, userID, accountID, preferredProfileID, contact)
+	if err != nil {
+		return "", false, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, false, err
+	}
+	return id, created, canonicalChanged, nil
+}
+
+func upsertSyncedContactTx(ctx context.Context, tx *sql.Tx, userID, accountID, preferredProfileID string, contact models.Contact) (string, bool, bool, error) {
 	name := strings.TrimSpace(contact.Name)
 	email := strings.TrimSpace(contact.Email)
 	email = strings.TrimSpace(email)
@@ -1775,11 +1831,7 @@ func (db *DB) upsertSyncedContactFromContactWithChange(ctx context.Context, user
 	avatarURL := strings.TrimSpace(contact.AvatarURL)
 	source := "synced:" + accountID
 
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return "", false, false, err
-	}
-	defer tx.Rollback()
+	var err error
 
 	contactID := strings.TrimSpace(preferredProfileID)
 	var currentDisplay string
@@ -1883,9 +1935,6 @@ func (db *DB) upsertSyncedContactFromContactWithChange(ctx context.Context, user
 				}
 			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return "", false, false, err
 	}
 	return contactID, created, canonicalChanged, nil
 }
@@ -2110,6 +2159,16 @@ func (db *DB) InitializeContactCanonicalFields(ctx context.Context, userID, prof
 	if profile == nil {
 		return fmt.Errorf("contact profile not found")
 	}
+	canonical, err := contactSetupCanonicalValues(*profile, selectedFieldIDs)
+	if err != nil {
+		return err
+	}
+	return db.ReplaceCanonicalContact(ctx, userID, profileID, canonical)
+}
+
+// contactSetupCanonicalValues preserves setup's primary choices, deduplication,
+// secondary labels and manual-field preference without reading or writing SQL.
+func contactSetupCanonicalValues(profile models.ContactProfile, selectedFieldIDs map[string]string) (models.Contact, error) {
 	selectedByKind := map[string]string{}
 	for kind, fieldID := range selectedFieldIDs {
 		kind = strings.ToLower(strings.TrimSpace(kind))
@@ -2125,11 +2184,11 @@ func (db *DB) InitializeContactCanonicalFields(ctx context.Context, userID, prof
 			}
 		}
 		if !found {
-			return fmt.Errorf("selected %s value is not part of this contact", kind)
+			return models.Contact{}, fmt.Errorf("selected %s value is not part of this contact", kind)
 		}
 		selectedByKind[kind] = fieldID
 	}
-	canonical := models.Contact{ID: profileID, AvatarURL: profile.AvatarURL}
+	canonical := models.Contact{ID: profile.ID, AvatarURL: profile.AvatarURL}
 	for _, kind := range []string{"name", "email", "phone", "organization", "title", "notes"} {
 		groups := canonicalContactValueGroups(profile.Fields, kind)
 		primaryIndex := canonicalContactPrimaryGroup(groups, selectedByKind[kind])
@@ -2171,9 +2230,9 @@ func (db *DB) InitializeContactCanonicalFields(ctx context.Context, userID, prof
 		}
 	}
 	if strings.TrimSpace(canonical.Email) == "" {
-		return fmt.Errorf("contact email is required")
+		return models.Contact{}, fmt.Errorf("contact email is required")
 	}
-	return db.ReplaceCanonicalContact(ctx, userID, profileID, canonical)
+	return canonical, nil
 }
 
 func (db *DB) ReplaceSyncedContactFieldsForProfile(ctx context.Context, userID, profileID, accountID string, contact models.Contact) error {
@@ -2415,10 +2474,14 @@ func stringsToAny(values []string) []any {
 }
 
 func (db *DB) ListSuppressedContacts(ctx context.Context, userID string, limit int) ([]models.Contact, error) {
+	return listSuppressedContacts(ctx, db.Read(), userID, limit)
+}
+
+func listSuppressedContacts(ctx context.Context, query contactProfileQuery, userID string, limit int) ([]models.Contact, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	rows, err := db.Read().QueryContext(ctx, `
+	rows, err := query.QueryContext(ctx, `
 		SELECT COALESCE(NULLIF(co.profile_id, ''), co.id), COALESCE(NULLIF(p.display_name, ''), NULLIF(co.observed_name, ''), co.email),
 		       co.email, 'observed', 0, 1, co.message_count, co.last_seen_at, co.created_at, co.updated_at
 		FROM contact_observations co

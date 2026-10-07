@@ -3,7 +3,9 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -18,12 +20,13 @@ var errUserMessageMutationUnsupported = errors.New("routed message mutation prov
 // This state exists only during one leased local request. Events and worker wakes
 // are delivered after the lease is released; no shared provider worker is used.
 type userMessageMutationState struct {
-	owner    string
-	routing  *storage.AccountRouting
-	accounts *config.AccountStore
-	events   []mail.Event
-	checked  map[string]bool
-	wake     map[string]bool
+	owner       string
+	routing     *storage.AccountRouting
+	accounts    *config.AccountStore
+	events      []mail.Event
+	checked     map[string]bool
+	wake        map[string]bool
+	credentials bool
 }
 
 func (h *Handler) checkUserMessageMutation(ctx context.Context, info *storage.MessageMutationInfo) error {
@@ -35,14 +38,11 @@ func (h *Handler) checkUserMessageMutation(ctx context.Context, info *storage.Me
 	if err != nil || state != storage.AccountActive {
 		return errMessageTargetNotFound
 	}
-	if info.AccountProvider != "imap" {
-		return errUserMessageMutationUnsupported
-	}
 	cfg, err := s.accounts.GetConfig(ctx, info.AccountID)
 	if err != nil {
 		return err
 	}
-	if cfg.Provider != "imap" || cfg.AuthMethod != "plain" {
+	if !((cfg.Provider == "imap" && cfg.AuthMethod == "plain") || (s.credentials && (cfg.Provider == "gmail" || cfg.Provider == "outlook") && cfg.AuthMethod == "oauth2")) {
 		return errUserMessageMutationUnsupported
 	}
 	s.checked[info.AccountID] = true
@@ -80,10 +80,17 @@ func (h *Handler) userMessageMutationHandler(selectHandler func(*Handler) http.H
 		stop := context.AfterFunc(h.userStorageContext, cancel)
 		defer stop()
 		r = r.WithContext(ctx)
-		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-		state := &userMessageMutationState{owner: h.userID(ctx), routing: h.userStorage, checked: make(map[string]bool)}
+		// Read the bounded payload before leasing storage. A stalled browser
+		// upload must not occupy the owner's store or a shared cache slot.
+		payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+		if err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(payload))
+		state := &userMessageMutationState{owner: h.userID(ctx), routing: h.userStorage, checked: make(map[string]bool), credentials: h.userCredentials != nil}
 		response := &userMutationResponse{header: make(http.Header)}
-		err := h.userAccounts.WithUser(ctx, state.owner, func(accounts *config.AccountStore, db *storage.DB) error {
+		err = h.userAccounts.WithUser(ctx, state.owner, func(accounts *config.AccountStore, db *storage.DB) error {
 			state.accounts = accounts
 			defer func() { state.accounts = nil }()
 			local := &Handler{db: db, auth: h.auth, userMutationState: state}
@@ -126,6 +133,12 @@ func (h *Handler) registerUserMessageMutations(private func(string, http.Handler
 		pattern string
 		handler func(*Handler) http.HandlerFunc
 	}{
+		{"POST /api/messages/label", func(h *Handler) http.HandlerFunc { return h.handleLabelMessages }},
+		{"POST /api/messages/unlabel", func(h *Handler) http.HandlerFunc { return h.handleUnlabelMessages }},
+		{"POST /api/messages/{id}/label", func(h *Handler) http.HandlerFunc { return h.handleLabelMessage }},
+		{"POST /api/messages/{id}/unlabel", func(h *Handler) http.HandlerFunc { return h.handleUnlabelMessage }},
+		{"POST /api/messages/spam", func(h *Handler) http.HandlerFunc { return h.handleMarkMessagesSpam }},
+		{"POST /api/messages/not-spam", func(h *Handler) http.HandlerFunc { return h.handleMarkMessagesNotSpam }},
 		{"POST /api/messages/read", func(h *Handler) http.HandlerFunc { return h.handleMarkMessagesRead }},
 		{"POST /api/messages/star", func(h *Handler) http.HandlerFunc { return h.handleMarkMessagesStarred }},
 		{"POST /api/messages/archive", func(h *Handler) http.HandlerFunc { return h.handleArchiveMessages }},
@@ -141,4 +154,46 @@ func (h *Handler) registerUserMessageMutations(private func(string, http.Handler
 	} {
 		private(route.pattern, h.userMessageMutationHandler(route.handler))
 	}
+}
+
+func (h *Handler) queueUserSpamTargets(w http.ResponseWriter, r *http.Request, targets []ownedMessageTarget, disposition spamDisposition) {
+	updated, messages, failed := 0, 0, 0
+	for _, target := range targets {
+		destination, _, err := h.spamDestinationFolder(r.Context(), target.Infos[0].AccountID, disposition)
+		if err != nil {
+			log.Printf("user spam destination %s: %v", target.Infos[0].AccountID, err)
+			failed += len(target.Infos)
+			continue
+		}
+		if target.Infos[0].AccountProvider == "imap" {
+			if err := h.db.QueueUserIMAPSpam(r.Context(), h.userMutationState.owner, target.Infos, destination, disposition == spamDispositionSpam); err != nil {
+				log.Printf("queue user IMAP spam %s: %v", target.Infos[0].AccountID, err)
+				failed += len(target.Infos)
+				continue
+			}
+		} else {
+			var moving []storage.ThreadMessageMutationInfo
+			for _, info := range target.Infos {
+				if info.FolderID != destination {
+					moving = append(moving, info)
+				}
+			}
+			if len(moving) == 0 {
+				continue
+			}
+			if err := h.queueMessageMoves(r.Context(), moving, destination); err != nil {
+				failed += len(moving)
+				continue
+			}
+		}
+		updated++
+		messages += len(target.Infos)
+		h.publishSpamMutation(target.Infos, destination)
+	}
+	if messages == 0 && failed > 0 {
+		http.Error(w, "spam action could not be saved", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]int{"updated": updated, "messages": messages, "failed": failed, "remote_failed": 0})
 }

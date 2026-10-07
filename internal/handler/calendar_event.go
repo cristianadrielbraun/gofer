@@ -10,6 +10,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
@@ -30,16 +31,7 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not load calendar event", http.StatusInternalServerError)
 		return
 	}
-	details := views.CalendarEventDetails{
-		Event:           calendarViewEvent(event),
-		Description:     calendarDescriptionText(event.Description),
-		DescriptionHTML: calendar.DescriptionHTML(event.Description),
-		JoinURL:         calendar.MeetingJoinURLWithDescription(string(calendarOutlookCachedMeetingJSON(event)), event.Description),
-		Organizer: views.CalendarEventParticipant{
-			Name: strings.TrimSpace(event.OrganizerName), Email: strings.TrimSpace(event.OrganizerEmail),
-		},
-		Attendees: calendarEventParticipants(event.AttendeesJSON),
-	}
+	details := calendarEventDetails(event)
 	if calendarDeliveryAvailable(event) {
 		data, err := h.calendarDeliveryData(ctx, event)
 		if err != nil {
@@ -56,14 +48,7 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	_, deleteReason, deleteErr := h.calendarEventDeleteAccess(ctx, event)
 	details.CanDelete = deleteErr == nil && deleteReason == ""
-	details.DeleteSeries = details.CanDelete && calendarEventIsSeries(event)
-	if details.CanDelete && !details.DeleteSeries {
-		details.DeleteVersion = event.ETag
-	}
-	details.HasOccurrence = event.SeriesRemoteID != "" && calendarOccurrenceExistingRestriction(event) == nil
-	if details.HasOccurrence {
-		details.DeleteVersion = event.ETag
-	}
+	calendarEventDetailActions(&details, event)
 	if event.ResponseStatus != "organizer" && (event.ResponseStatus != "" || len(details.Attendees) > 0) {
 		if source, err := h.calendarResponseAccess(ctx, event); err == nil {
 			data := calendarResponseData(event)
@@ -78,6 +63,28 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	location := viewsCalendarLocation(h.db.GetUISettings(ctx, userID))
 	if err := views.CalendarEventDialog(details, location).Render(ctx, w); err != nil {
 		http.Error(w, "could not render calendar event", http.StatusInternalServerError)
+	}
+}
+
+func calendarEventDetails(event storage.CalendarEvent) views.CalendarEventDetails {
+	return views.CalendarEventDetails{
+		Event:           calendarViewEvent(event),
+		Description:     calendarDescriptionText(event.Description),
+		DescriptionHTML: calendar.DescriptionHTML(event.Description),
+		JoinURL:         calendar.MeetingJoinURLWithDescription(string(calendarOutlookCachedMeetingJSON(event)), event.Description),
+		Organizer:       views.CalendarEventParticipant{Name: strings.TrimSpace(event.OrganizerName), Email: strings.TrimSpace(event.OrganizerEmail)},
+		Attendees:       calendarEventParticipants(event.AttendeesJSON),
+	}
+}
+
+func calendarEventDetailActions(details *views.CalendarEventDetails, event storage.CalendarEvent) {
+	details.DeleteSeries = details.CanDelete && calendarEventIsSeries(event)
+	if details.CanDelete && !details.DeleteSeries {
+		details.DeleteVersion = event.ETag
+	}
+	details.HasOccurrence = event.SeriesRemoteID != "" && calendarOccurrenceExistingRestriction(event) == nil
+	if details.HasOccurrence {
+		details.DeleteVersion = event.ETag
 	}
 }
 

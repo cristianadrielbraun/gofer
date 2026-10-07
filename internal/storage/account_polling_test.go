@@ -68,3 +68,51 @@ func TestAccountPollingMetadataAndSettingsResetRejectStaleDeadline(t *testing.T)
 		t.Fatalf("deleting account discovered: %#v %v", due, err)
 	}
 }
+
+func TestAccountProviderRetrySurvivesWakeAndUsesCentralMetadata(t *testing.T) {
+	_, stores, r := newAccountRoutingTest(t, 1)
+	alice := createRoutingTestAccount(t, r, "alice")
+	bob := createRoutingTestAccount(t, r, "bob")
+	until := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Millisecond)
+	if err := r.DeferProviderRetry(t.Context(), "alice", alice.AccountID, until); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DeferProviderRetry(t.Context(), "alice", alice.AccountID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ResetAccountPolling(t.Context(), "alice", alice.AccountID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ResetUserPolling(t.Context(), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := stores.AcquireExisting(t.Context(), "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	got, err := r.ProviderRetryUntil(t.Context(), "alice", alice.AccountID)
+	if err != nil || !got.Equal(until) {
+		t.Fatalf("deadline lost: %s %v", got, err)
+	}
+	due, err := r.ListDueAccounts(t.Context(), "", time.Now(), 64)
+	if err != nil || len(due) != 1 || due[0].AccountID != bob.AccountID {
+		t.Fatalf("cooldown discovery: %#v %v", due, err)
+	}
+	due, err = r.ListDueAccounts(t.Context(), "", until.Add(time.Second), 64)
+	if err != nil || len(due) != 2 {
+		t.Fatalf("deadline expiry: %#v %v", due, err)
+	}
+	if err := r.DeferProviderRetry(t.Context(), "bob", alice.AccountID, until); err != ErrAccountRoute {
+		t.Fatalf("foreign retry write: %v", err)
+	}
+	if _, err := r.ProviderRetryUntil(t.Context(), "bob", alice.AccountID); err != ErrAccountRoute {
+		t.Fatalf("foreign retry read: %v", err)
+	}
+	if err := r.RequestAccountDeletion(t.Context(), "alice", alice.AccountID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DeferProviderRetry(t.Context(), "alice", alice.AccountID, until); err != ErrAccountRoute {
+		t.Fatalf("deleting retry write: %v", err)
+	}
+}

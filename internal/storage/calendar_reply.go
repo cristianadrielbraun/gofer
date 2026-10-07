@@ -104,29 +104,37 @@ func (db *DB) QueueCalendarReply(ctx context.Context, job CalendarReplyJob, inpu
 		return "", err
 	}
 	defer tx.Rollback()
-	var accountID string
-	if err := tx.QueryRowContext(ctx, `SELECT source.account_id FROM calendar_sources source
-		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
-		WHERE source.id = ? AND source.user_id = ? AND source.is_selected = 1 AND source.is_deleted = 0
-		AND source.provider = 'caldav' AND COALESCE(account.is_deleting,0) = 0`, job.SourceID, job.UserID).Scan(&accountID); err != nil {
-		return "", err
-	}
-	if accountID != input.AccountID {
-		return "", ErrCalendarUpdateConflict
-	}
-	recipients, _ := json.Marshal(input.EnvelopeRecipients)
-	now := time.Now().UTC()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO outgoing_sends(id,account_id,transport,envelope_from,envelope_recipients,mime_data,message_json,send_after,next_attempt_at,status)
-		VALUES(?,?,?,?,?,?,?,?,?,'pending')`, job.ID, input.AccountID, input.Transport, input.EnvelopeFrom, string(recipients), input.MIMEData, string(input.MessageJSON), now, now); err != nil {
-		return "", err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO calendar_reply_jobs(id,user_id,source_id,resource_id,remote_id,version,response,payload) VALUES(?,?,?,?,?,?,?,?)`, job.ID, job.UserID, job.SourceID, job.ResourceID, job.RemoteID, job.Version, job.Response, job.Payload); err != nil {
+	if err := queueCalendarReplyTx(ctx, tx, job, input); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
 		return "", err
 	}
 	return job.ID, nil
+}
+
+// Call within the caller's transaction so MIME and followup remain atomic.
+func queueCalendarReplyTx(ctx context.Context, tx *sql.Tx, job CalendarReplyJob, input QueueOutgoingSendInput) error {
+	var accountID string
+	if err := tx.QueryRowContext(ctx, `SELECT source.account_id FROM calendar_sources source
+		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
+		WHERE source.id = ? AND source.user_id = ? AND source.is_selected = 1 AND source.is_deleted = 0
+		AND source.provider = 'caldav' AND COALESCE(account.is_deleting,0) = 0`, job.SourceID, job.UserID).Scan(&accountID); err != nil {
+		return err
+	}
+	if accountID != input.AccountID {
+		return ErrCalendarUpdateConflict
+	}
+	recipients, _ := json.Marshal(input.EnvelopeRecipients)
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO outgoing_sends(id,account_id,transport,envelope_from,envelope_recipients,mime_data,message_json,send_after,next_attempt_at,status)
+		VALUES(?,?,?,?,?,?,?,?,?,'pending')`, job.ID, input.AccountID, input.Transport, input.EnvelopeFrom, string(recipients), input.MIMEData, string(input.MessageJSON), now, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO calendar_reply_jobs(id,user_id,source_id,resource_id,remote_id,version,response,payload) VALUES(?,?,?,?,?,?,?,?)`, job.ID, job.UserID, job.SourceID, job.ResourceID, job.RemoteID, job.Version, job.Response, job.Payload); err != nil {
+		return err
+	}
+	return nil
 }
 
 const calendarReplySelect = `SELECT j.id,j.user_id,j.source_id,j.resource_id,j.remote_id,j.version,j.response,j.payload,j.state,s.status FROM calendar_reply_jobs j JOIN outgoing_sends s ON s.id=j.id `

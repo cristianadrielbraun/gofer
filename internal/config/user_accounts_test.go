@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"runtime/pprof"
 	"testing"
 	"time"
 
@@ -26,7 +28,9 @@ func newUserAccountTestStore(t *testing.T) (*storage.DB, *storage.AccountRouting
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := stores.Close(ctx); err != nil {
-			t.Error(err)
+			var profile bytes.Buffer
+			_ = pprof.Lookup("goroutine").WriteTo(&profile, 2)
+			t.Errorf("user store cleanup: %v\n%s", err, profile.String())
 		}
 	})
 	routing, err := storage.NewAccountRouting(stores)

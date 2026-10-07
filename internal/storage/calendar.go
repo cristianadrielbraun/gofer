@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,9 @@ import (
 )
 
 const CalendarSourceProviderCalDAV = "caldav"
+
+var ErrCalendarSourceSelection = errors.New("calendar source does not belong to account")
+var ErrCalendarSourcesNotConfigured = errors.New("no live calendar sources configured")
 
 // CalendarSource is the local representation of one provider calendar. A
 // source is kept even when it is not selected so a later discovery can
@@ -98,6 +102,16 @@ func (db *DB) ReplaceCalendarSources(ctx context.Context, userID, accountID, pro
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := replaceCalendarSourcesTx(ctx, tx, userID, accountID, provider, sources); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit calendar source reconciliation: %w", err)
+	}
+	return nil
+}
+
+func replaceCalendarSourcesTx(ctx context.Context, tx *sql.Tx, userID, accountID, provider string, sources []CalendarSource) error {
 	var accountProvider string
 	if err := tx.QueryRowContext(ctx, `
 		SELECT provider
@@ -190,9 +204,6 @@ func (db *DB) ReplaceCalendarSources(ctx context.Context, userID, accountID, pro
 		return fmt.Errorf("mark missing calendar sources: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit calendar source reconciliation: %w", err)
-	}
 	return nil
 }
 
@@ -232,6 +243,10 @@ func (db *DB) ListCalendarSourcesForAccount(ctx context.Context, userID, account
 // account. Source IDs are validated inside the same transaction so callers
 // cannot select a calendar belonging to another account.
 func (db *DB) SetCalendarSourceSelection(ctx context.Context, userID, accountID string, selectedSourceIDs []string) error {
+	return db.setCalendarSourceSelection(ctx, userID, accountID, selectedSourceIDs, nil)
+}
+
+func (db *DB) setCalendarSourceSelection(ctx context.Context, userID, accountID string, selectedSourceIDs []string, guard func(*sql.Tx) error) error {
 	userID = strings.TrimSpace(userID)
 	accountID = strings.TrimSpace(accountID)
 	if userID == "" || accountID == "" {
@@ -251,6 +266,11 @@ func (db *DB) SetCalendarSourceSelection(ctx context.Context, userID, accountID 
 		return fmt.Errorf("begin calendar source selection: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return err
+		}
+	}
 
 	var accountExists int
 	if err := tx.QueryRowContext(ctx, `
@@ -288,7 +308,7 @@ func (db *DB) SetCalendarSourceSelection(ctx context.Context, userID, accountID 
 	}
 	for sourceID := range selected {
 		if _, ok := available[sourceID]; !ok {
-			return fmt.Errorf("calendar source %q does not belong to account", sourceID)
+			return fmt.Errorf("calendar source %q does not belong to account: %w", sourceID, ErrCalendarSourceSelection)
 		}
 	}
 
@@ -403,7 +423,15 @@ func (db *DB) ScheduleCalendarSync(ctx context.Context, userID, sourceID string,
 // SetCalendarSourceVisibility changes presentation only. It deliberately leaves
 // source selection, cached events, and sync state untouched.
 func (db *DB) SetCalendarSourceVisibility(ctx context.Context, userID, sourceID string, visible bool) error {
-	result, err := db.Write().ExecContext(ctx, `
+	return setCalendarSourceVisibility(ctx, db.Write(), userID, sourceID, visible)
+}
+
+type calendarControlExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func setCalendarSourceVisibility(ctx context.Context, tx calendarControlExecutor, userID, sourceID string, visible bool) error {
+	result, err := tx.ExecContext(ctx, `
 		UPDATE calendar_sources SET is_hidden = ?
 		WHERE id = ? AND user_id = ? AND is_selected = 1 AND is_deleted = 0
 		  AND EXISTS (
@@ -487,6 +515,17 @@ func (db *DB) ReplaceCalendarEvents(ctx context.Context, userID, sourceID string
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := replaceCalendarEventsTx(ctx, tx, userID, sourceID, events, windowStart, windowEnd); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit calendar event reconciliation: %w", err)
+	}
+	return nil
+}
+
+func replaceCalendarEventsTx(ctx context.Context, tx *sql.Tx, userID, sourceID string, events []CalendarEvent, windowStart, windowEnd time.Time) error {
 	var sourceExists int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT 1
@@ -555,7 +594,7 @@ func (db *DB) ReplaceCalendarEvents(ctx context.Context, userID, sourceID string
 			}
 		}
 
-		if _, err := tx.ExecContext(ctx, `
+		result, err := tx.ExecContext(ctx, `
 			INSERT INTO calendar_events (
 				id, user_id, source_id, remote_id, ical_uid, series_remote_id, etag,
 				status, summary, description, location, organizer_name, organizer_email,
@@ -598,17 +637,15 @@ func (db *DB) ReplaceCalendarEvents(ctx context.Context, userID, sourceID string
 			strings.TrimSpace(event.StartTimeZone), strings.TrimSpace(event.EndTimeZone),
 			calendarJSON(event.RecurrenceJSON, "[]"), calendarJSON(event.AttendeesJSON, "[]"),
 			calendarJSON(event.OnlineMeetingJSON, "{}"), strings.TrimSpace(event.HTMLLink),
-			calendarEventTimeValue(event.ProviderCreatedAt), calendarEventTimeValue(event.ProviderUpdatedAt), calendarBoolInt(event.IsDeleted), event.ResponseStatus); err != nil {
+			calendarEventTimeValue(event.ProviderCreatedAt), calendarEventTimeValue(event.ProviderUpdatedAt), calendarBoolInt(event.IsDeleted), event.ResponseStatus)
+		if err := calendarSyncOneRow(result, err); err != nil {
 			return fmt.Errorf("upsert calendar event %q: %w", remoteID, err)
 		}
 	}
 
 	windowStartDate := windowStart.Format("2006-01-02")
 	windowEndDate := windowEnd.Format("2006-01-02")
-	markMissingQuery := `
-		UPDATE calendar_events
-		SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = ? AND source_id = ? AND is_deleted = 0
+	missingPredicate := `WHERE user_id = ? AND source_id = ? AND is_deleted = 0
 		  AND (
 			(all_day = 1 AND start_date < ? AND end_date > ?)
 			OR (all_day = 0 AND start_at < ? AND (end_at > ? OR (start_at = end_at AND start_at >= ?)))
@@ -619,32 +656,42 @@ func (db *DB) ReplaceCalendarEvents(ctx context.Context, userID, sourceID string
 		formatDBTime(windowStart.UTC()),
 	}
 	if len(remoteIDs) > 0 {
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(remoteIDs)), ",")
-		markMissingQuery += ` AND remote_id NOT IN (` + placeholders + `)`
-		for _, remoteID := range remoteIDs {
-			markMissingArgs = append(markMissingArgs, remoteID)
+		// A complete window can exceed SQLite's bound-variable limit. Keep the
+		// identity set in one JSON parameter, rather than one parameter per event.
+		identities, err := json.Marshal(remoteIDs)
+		if err != nil {
+			return err
 		}
+		missingPredicate += ` AND remote_id NOT IN (SELECT value FROM json_each(?))`
+		markMissingArgs = append(markMissingArgs, string(identities))
 	}
-	if _, err := tx.ExecContext(ctx, markMissingQuery, markMissingArgs...); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE calendar_events SET is_deleted=1,updated_at=CURRENT_TIMESTAMP `+missingPredicate, markMissingArgs...); err != nil {
 		return fmt.Errorf("mark missing calendar events: %w", err)
 	}
+	var stillMissing int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events `+missingPredicate, markMissingArgs...).Scan(&stillMissing); err != nil {
+		return fmt.Errorf("verify missing calendar events: %w", err)
+	}
+	if stillMissing != 0 {
+		return ErrCalendarSyncChanged
+	}
 
-	if _, err := tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE calendar_sync_state
 		SET state = 'ok', window_start = ?, window_end = ?, full_sync_required = 0,
 			last_success_at = CURRENT_TIMESTAMP, next_attempt_at = CURRENT_TIMESTAMP,
 			last_error = '', updated_at = CURRENT_TIMESTAMP
-		WHERE source_id = ?`, formatDBTime(windowStart.UTC()), formatDBTime(windowEnd.UTC()), sourceID); err != nil {
+		WHERE source_id = ?`, formatDBTime(windowStart.UTC()), formatDBTime(windowEnd.UTC()), sourceID)
+	if err := calendarSyncOneRow(result, err); err != nil {
 		return fmt.Errorf("update calendar sync state: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit calendar event reconciliation: %w", err)
-	}
 	return nil
 }
 
-const calendarEventSelect = `
+const calendarEventSelect = calendarEventColumns + calendarEventFrom + ` AND event.is_deleted = 0`
+
+const calendarEventColumns = `
 		SELECT event.id, event.user_id, event.source_id, event.remote_id,
 		       event.ical_uid, event.series_remote_id, event.etag, event.status,
 		       event.summary, event.description, event.location, event.organizer_name,
@@ -653,7 +700,9 @@ const calendarEventSelect = `
 		       event.recurrence_json, event.attendees_json, event.online_meeting_json,
 		       event.html_link, event.provider_created_at, event.provider_updated_at,
 		       event.is_deleted, source.name, source.color, source.is_hidden, event.response_status,
-		       source.provider, account.email_address
+		       source.provider, account.email_address`
+
+const calendarEventFrom = `
 		FROM calendar_events event
 		JOIN calendar_sources source ON source.id = event.source_id
 		JOIN accounts account ON account.id = source.account_id
@@ -662,8 +711,7 @@ const calendarEventSelect = `
 		  AND account.user_id = event.user_id
 		  AND source.is_deleted = 0
 		  AND source.is_selected = 1
-		  AND COALESCE(account.is_deleting, 0) = 0
-		  AND event.is_deleted = 0`
+		  AND COALESCE(account.is_deleting, 0) = 0`
 
 // GetCalendarEvent returns one owned cached event on a selected calendar.
 // UI visibility is not an access restriction; deselected/deleted sources are.

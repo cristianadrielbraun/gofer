@@ -439,7 +439,17 @@ func (c *Client) FindUIDByMessageIDWithValidity(ctx context.Context, remoteName,
 	return c.FindUIDByHeaderWithValidity(ctx, remoteName, "Message-ID", messageID)
 }
 
+// FindUniqueUIDByMessageIDWithValidity refuses an ambiguous header match before
+// a caller mutates mail whose cached UID/epoch is unavailable.
+func (c *Client) FindUniqueUIDByMessageIDWithValidity(ctx context.Context, remoteName, messageID string) (uint32, uint32, error) {
+	return c.findUIDByHeaderWithValidity(ctx, remoteName, "Message-ID", messageID, true)
+}
+
 func (c *Client) FindUIDByHeaderWithValidity(ctx context.Context, remoteName, headerName, headerValue string) (uint32, uint32, error) {
+	return c.findUIDByHeaderWithValidity(ctx, remoteName, headerName, headerValue, false)
+}
+
+func (c *Client) findUIDByHeaderWithValidity(ctx context.Context, remoteName, headerName, headerValue string, unique bool) (uint32, uint32, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -471,6 +481,9 @@ func (c *Client) FindUIDByHeaderWithValidity(ctx context.Context, remoteName, he
 	}
 
 	uids := searchData.AllUIDs()
+	if unique && len(uids) > 1 {
+		return 0, uidValidity, fmt.Errorf("ambiguous IMAP %s match in %s", headerName, remoteName)
+	}
 	if len(uids) == 0 {
 		return 0, uidValidity, nil
 	}

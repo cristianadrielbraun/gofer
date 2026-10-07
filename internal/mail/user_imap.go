@@ -32,6 +32,8 @@ type UserIMAP struct {
 	events            *EventBus
 	ctx               context.Context
 	slots             chan struct{}
+	contactSlots      chan struct{}
+	calendarSlots     chan struct{}
 	queue             chan userIMAPJob
 	mu                sync.Mutex
 	gates             map[userIMAPKey]*userIMAPGate
@@ -39,6 +41,10 @@ type UserIMAP struct {
 	background        bool
 	backgroundOptions UserIMAPBackgroundOptions
 	backgroundWake    chan struct{}
+	activePollQueue   chan userActivePollJob
+	activePollWake    chan struct{}
+	activePollUsers   map[string]*userActivePollSession
+	activePollPending map[string]*userActivePollSession
 	rescan            bool
 	manualRuns        map[string]*userIMAPManualRun
 	mailQueue         UserMailQueue
@@ -55,6 +61,7 @@ type userIMAPJob struct{ owner, account string }
 type userIMAPKey struct {
 	account string
 	message int64
+	service AccountService
 }
 type userIMAPOperation struct{ cancel context.CancelFunc }
 type userIMAPGate struct {
@@ -91,7 +98,7 @@ func NewUserIMAP(ctx context.Context, accounts *config.UserAccountStore, blobs *
 	if ctx == nil || accounts == nil || blobs == nil || events == nil {
 		return nil, errors.New("user IMAP requires lifecycle context, accounts, blobs and events")
 	}
-	s := &UserIMAP{accounts: accounts, blobs: blobs, events: events, ctx: ctx, slots: make(chan struct{}, 4), queue: make(chan userIMAPJob, 32), gates: make(map[userIMAPKey]*userIMAPGate), queued: make(map[string]*userIMAPQueueState), backgroundWake: make(chan struct{}, 1), watches: make(map[userIMAPWatchKey]*userIMAPWatch)}
+	s := &UserIMAP{accounts: accounts, blobs: blobs, events: events, ctx: ctx, slots: make(chan struct{}, 4), contactSlots: make(chan struct{}, 2), calendarSlots: make(chan struct{}, 2), queue: make(chan userIMAPJob, 32), gates: make(map[userIMAPKey]*userIMAPGate), queued: make(map[string]*userIMAPQueueState), backgroundWake: make(chan struct{}, 1), activePollQueue: make(chan userActivePollJob, 32), activePollWake: make(chan struct{}, 1), activePollUsers: make(map[string]*userActivePollSession), activePollPending: make(map[string]*userActivePollSession), watches: make(map[userIMAPWatchKey]*userIMAPWatch)}
 	for i := 0; i < 4; i++ {
 		s.workers.Add(1)
 		go s.work()
@@ -157,6 +164,10 @@ func (s *UserIMAP) RestartAccount(ctx context.Context, id string) error {
 		}
 	}
 	s.mu.Unlock()
+	if err := s.Routing().ResetActivePollingForAccount(ctx, id); err != nil {
+		return err
+	}
+	s.wakeActivePoll()
 	return s.QueueAccount(ctx, id)
 }
 
@@ -193,6 +204,10 @@ func (s *UserIMAP) work() {
 // a message need not wait for a full mailbox sync. Publication rechecks the
 // message/folder identity in its SQL transaction if sync resets the mailbox.
 func (s *UserIMAP) operation(ctx context.Context, owner, id string, messageID int64, timeout time.Duration, fn func(context.Context) error) error {
+	return s.operationWithSlots(ctx, owner, id, messageID, 0, timeout, s.slots, fn)
+}
+
+func (s *UserIMAP) operationWithSlots(ctx context.Context, owner, id string, messageID int64, service AccountService, timeout time.Duration, slots chan struct{}, fn func(context.Context) error) error {
 	if err := s.Routing().ValidateUser(ctx, owner); err != nil {
 		return err
 	}
@@ -214,7 +229,7 @@ func (s *UserIMAP) operation(ctx context.Context, owner, id string, messageID in
 	}
 	s.operations.Add(1)
 	defer s.operations.Done()
-	key := userIMAPKey{id, messageID}
+	key := userIMAPKey{account: id, message: messageID, service: service}
 	g := s.gates[key]
 	if g == nil {
 		g = &userIMAPGate{token: make(chan struct{}, 1), runs: make(map[*userIMAPOperation]struct{})}
@@ -240,8 +255,8 @@ func (s *UserIMAP) operation(ctx context.Context, owner, id string, messageID in
 		return workCtx.Err()
 	}
 	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
 	case <-workCtx.Done():
 		return workCtx.Err()
 	}
@@ -332,13 +347,26 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 					var err error
 					if scope.config.Provider == providers.ProviderGmail {
 						queued, err = db.NextGmailQueueAttempt(ctx, id)
-						return err
-					}
-					if scope.config.Provider == providers.ProviderOutlook {
+					} else if scope.config.Provider == providers.ProviderOutlook {
 						queued, err = db.NextProviderLabelQueueAttempt(ctx, id, storage.LabelProviderOutlook)
+					}
+					if err != nil {
 						return err
 					}
-					queued, err = db.NextMessageMutationAttempt(ctx, id)
+					labelNext, labelErr := db.NextUserLabelMutationAttempt(ctx, id)
+					if labelErr != nil {
+						return labelErr
+					}
+					if !labelNext.IsZero() && (queued.IsZero() || labelNext.Before(queued)) {
+						queued = labelNext
+					}
+					mutationNext, mutationErr := db.NextMessageMutationAttempt(ctx, id)
+					if mutationErr != nil {
+						return mutationErr
+					}
+					if !mutationNext.IsZero() && (queued.IsZero() || mutationNext.Before(queued)) {
+						queued = mutationNext
+					}
 					if err == nil && queue != nil {
 						mailNext, mailErr := db.NextAccountMailQueueAttempt(ctx, id)
 						if mailErr != nil {
@@ -365,7 +393,7 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 				// wins through the polling revision check below.
 				next = time.Now().Add(30 * time.Second)
 			}
-			if scope != nil && scope.config.Provider == providers.ProviderOutlook && scope.retryAt.After(next) {
+			if scope != nil && scope.retryAt.After(next) {
 				next = scope.retryAt
 			}
 			updated, err := s.Routing().DeferAccountPoll(ctx, owner, id, revision, next)
@@ -390,14 +418,33 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 			return err
 		}
 		interval = scope.pollInterval
-		var mutationErr error
-		if scope.config.Provider == providers.ProviderIMAP {
-			mutationErr = s.replayMutations(ctx, scope)
-			if queue != nil {
-				mutationErr = errors.Join(mutationErr, queue.Run(ctx, owner, id))
+		if scope.tokens != nil {
+			scope.retryAt, err = s.Routing().ProviderRetryUntil(ctx, owner, id)
+			if err != nil {
+				return err
+			}
+			if scope.retryAt.After(time.Now()) {
+				return fmt.Errorf("provider retry is deferred until %s", scope.retryAt.Format(time.RFC3339))
 			}
 		}
+		var mutationErr error
+		mutationErr = s.replayLabelMutations(ctx, scope)
+		if mutationErr != nil && scope.retryAt.After(time.Now()) {
+			queueFailed = true
+			return mutationErr
+		}
+		mutationErr = errors.Join(mutationErr, s.replayMutations(ctx, scope))
+		if queue != nil && !scope.retryAt.After(time.Now()) {
+			var providerMail *UserProviderMail
+			if scope.tokens != nil {
+				providerMail = &UserProviderMail{scope: scope, lifetime: ctx}
+			}
+			mutationErr = errors.Join(mutationErr, queue.Run(ctx, owner, id, providerMail))
+		}
 		queueFailed = mutationErr != nil
+		if mutationErr != nil && scope.retryAt.After(time.Now()) {
+			return mutationErr
+		}
 		var enabled int
 		if err := scope.call(ctx, func(db *storage.DB) error {
 			return db.Read().QueryRowContext(ctx, `SELECT COALESCE(email_sync_enabled,1) FROM accounts WHERE id=?`, id).Scan(&enabled)

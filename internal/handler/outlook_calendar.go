@@ -94,12 +94,24 @@ func discoverOutlookCalendars(ctx context.Context, accessToken string) ([]calend
 		return nil, fmt.Errorf("Microsoft Calendar access token is empty")
 	}
 
+	return discoverOutlookCalendarsWithFetch(ctx, func(endpoint string, out any) error {
+		return (&Handler{}).doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, out)
+	})
+}
+
+func discoverOutlookCalendarsWithFetch(ctx context.Context, fetch func(string, any) error) ([]calendar.RemoteCalendar, error) {
 	endpoint := outlookGraphBaseURL + "/me/calendars?$top=100"
 	seenLinks := map[string]bool{}
 	var calendars []calendar.RemoteCalendar
-	for endpoint != "" {
+	for pageNumber := 0; endpoint != ""; pageNumber++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if pageNumber >= calendarDiscoveryMaxPages {
+			return nil, fmt.Errorf("Microsoft Calendar discovery exceeded its page limit")
+		}
 		var page outlookCalendarListResponse
-		if err := (&Handler{}).doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &page); err != nil {
+		if err := fetch(endpoint, &page); err != nil {
 			return nil, err
 		}
 		for _, remote := range page.Calendars {
@@ -122,6 +134,9 @@ func discoverOutlookCalendars(ctx context.Context, accessToken string) ([]calend
 			})
 		}
 
+		if len(calendars) > calendarDiscoveryMaxSources {
+			return nil, fmt.Errorf("Microsoft Calendar discovery exceeded its source limit")
+		}
 		next := strings.TrimSpace(page.NextLink)
 		if next == "" {
 			break
@@ -130,7 +145,11 @@ func discoverOutlookCalendars(ctx context.Context, accessToken string) ([]calend
 			return nil, fmt.Errorf("Microsoft Calendar returned a repeated pagination link")
 		}
 		seenLinks[next] = true
-		endpoint = next
+		var err error
+		endpoint, err = calendarDiscoveryPageURL(outlookGraphBaseURL+"/me/calendars", next)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return calendars, nil
 }
@@ -188,6 +207,15 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 		return calendar.EventPage{}, fmt.Errorf("Microsoft Calendar event window is invalid")
 	}
 
+	return listOutlookCalendarEventsWithFetch(ctx, remoteCalendarID, query, func(endpoint string, out any) error {
+		return (&Handler{}).doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, out)
+	})
+}
+
+func listOutlookCalendarEventsWithFetch(ctx context.Context, remoteCalendarID string, query calendar.EventQuery, fetch func(string, any) error) (calendar.EventPage, error) {
+	if strings.TrimSpace(remoteCalendarID) == "" || query.WindowStart.IsZero() || query.WindowEnd.IsZero() || !query.WindowEnd.After(query.WindowStart) || fetch == nil {
+		return calendar.EventPage{}, fmt.Errorf("invalid calendar event request")
+	}
 	values := url.Values{}
 	values.Set("startDateTime", query.WindowStart.Format(time.RFC3339))
 	values.Set("endDateTime", query.WindowEnd.Format(time.RFC3339))
@@ -201,15 +229,28 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 		"onlineMeeting", "isOnlineMeeting", "seriesMasterId", "recurrence", "isOrganizer", "responseStatus", "sensitivity", "showAs", "isReminderOn",
 	}, ","))
 
-	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/calendarView?" + values.Encode()
+	collection := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/calendarView"
+	endpoint := collection + "?" + values.Encode()
 	seenLinks := map[string]bool{}
 	var events []calendar.RemoteEvent
-	for endpoint != "" {
+	for pageNumber := 0; endpoint != ""; pageNumber++ {
+		if err := ctx.Err(); err != nil {
+			return calendar.EventPage{}, err
+		}
+		if pageNumber >= calendarSyncMaxPages {
+			return calendar.EventPage{}, fmt.Errorf("Microsoft Calendar event traversal exceeded its page limit")
+		}
 		var page outlookCalendarEventsResponse
-		if err := (&Handler{}).doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &page); err != nil {
+		if err := fetch(endpoint, &page); err != nil {
+			return calendar.EventPage{}, err
+		}
+		if err := ctx.Err(); err != nil {
 			return calendar.EventPage{}, err
 		}
 		for _, remote := range page.Events {
+			if err := ctx.Err(); err != nil {
+				return calendar.EventPage{}, err
+			}
 			if marker := calendarTeamsDraftMarker(remote); strings.HasPrefix(marker, "draft:") && calendarTeamsDraftPrivate(outlookCalendarUpdateEvent{outlookCalendarEvent: remote}, storage.CalendarTeamsDraft{RemoteID: remote.ID, DraftID: strings.TrimPrefix(marker, "draft:")}) {
 				continue
 			}
@@ -219,6 +260,9 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 			}
 			if strings.TrimSpace(normalized.RemoteID) != "" {
 				events = append(events, normalized)
+				if len(events) > calendarSyncMaxEvents {
+					return calendar.EventPage{}, fmt.Errorf("calendar event traversal exceeded its event limit")
+				}
 			}
 		}
 
@@ -230,7 +274,11 @@ func listOutlookCalendarEvents(ctx context.Context, accessToken, remoteCalendarI
 			return calendar.EventPage{}, fmt.Errorf("Microsoft Calendar returned a repeated event pagination link")
 		}
 		seenLinks[next] = true
-		endpoint = next
+		var err error
+		endpoint, err = calendarDiscoveryPageURL(collection, next)
+		if err != nil {
+			return calendar.EventPage{}, err
+		}
 	}
 	return calendar.EventPage{Events: events}, nil
 }

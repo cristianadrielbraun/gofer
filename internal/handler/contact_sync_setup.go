@@ -163,13 +163,7 @@ func (h *Handler) handleConfirmContactSyncSetup(w http.ResponseWriter, r *http.R
 		http.Error(w, "Invalid conflict choices", http.StatusBadRequest)
 		return
 	}
-	selectedFields := map[string]string{}
-	for name, values := range r.Form {
-		if !strings.HasPrefix(name, "preferred_") || len(values) == 0 || strings.TrimSpace(values[0]) == "" {
-			continue
-		}
-		selectedFields[strings.TrimPrefix(name, "preferred_")] = strings.TrimSpace(values[0])
-	}
+	selectedFields := contactSetupPreferredFields(r)
 	if err := h.db.InitializeContactCanonicalFields(ctx, userID, contactID, selectedFields); err != nil {
 		http.Error(w, "Could not initialize synchronized contact values: "+err.Error(), http.StatusBadRequest)
 		return

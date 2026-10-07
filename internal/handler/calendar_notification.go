@@ -15,6 +15,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	ical "github.com/emersion/go-ical"
 	"github.com/google/uuid"
@@ -76,6 +77,12 @@ func calendarNotificationICS(source *ical.Calendar, method string, guests []cale
 // Queue before writing DAV. Source serialization plus a fresh pre-SMTP read
 // makes this durable across a lost provider response or a process restart.
 func (h *Handler) queueCalendarNotification(ctx context.Context, source storage.CalendarSource, endpoint, key, method string, cal, expected *ical.Calendar, guests []calendar.GuestDraft, deleted bool) error {
+	if p, ok := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); ok {
+		if p == nil || p.h != h {
+			return storage.ErrCalendarSourceChanged
+		}
+		return p.queueNotification(ctx, source, endpoint, key, method, cal, expected, guests, deleted)
+	}
 	account, err := h.calendarReplyAccount(ctx, source)
 	if err != nil {
 		return err
@@ -151,21 +158,41 @@ func (h *Handler) beforeCalendarNotificationSend(ctx context.Context, send stora
 	if err != nil {
 		return noop, markOutgoingSendRetryable(fmt.Errorf("calendar is busy"))
 	}
-	sources, err := h.db.ListSelectedCalendarSources(ctx, note.UserID)
-	if err != nil {
-		return unlock, markOutgoingSendRetryable(err)
-	}
+	p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest)
 	var source storage.CalendarSource
-	for _, candidate := range sources {
-		if candidate.ID == note.SourceID {
-			source = candidate
-			break
+	if owned {
+		if p == nil || p.h != h || p.notification == nil || p.source == nil {
+			return unlock, storage.ErrCalendarSourceChanged
+		}
+		if err := p.validate(ctx); err != nil {
+			return unlock, err
+		}
+		source = p.source.Source()
+		if source.UserID != note.UserID || source.ID != note.SourceID {
+			return unlock, storage.ErrCalendarSourceChanged
+		}
+	} else {
+		sources, err := h.db.ListSelectedCalendarSources(ctx, note.UserID)
+		if err != nil {
+			return unlock, markOutgoingSendRetryable(err)
+		}
+		for _, candidate := range sources {
+			if candidate.ID == note.SourceID {
+				source = candidate
+				break
+			}
 		}
 	}
 	if source.ID == "" || source.Provider != storage.CalendarSourceProviderCalDAV || source.AccountID != send.AccountID || !calendarSourceWritable(source) {
 		return unlock, fmt.Errorf("meeting notification access changed")
 	}
-	account, err := h.calendarReplyAccount(ctx, source)
+	var account models.Account
+	if owned {
+		identity := p.service().Identity()
+		account = models.Account{ID: source.AccountID, Email: identity.EmailAddress, Name: identity.DisplayName}
+	} else {
+		account, err = h.calendarReplyAccount(ctx, source)
+	}
 	if err != nil || !strings.EqualFold(send.EnvelopeFrom, account.Email) || !strings.EqualFold(msg.FromEmail, account.Email) {
 		return unlock, fmt.Errorf("meeting sending identity changed")
 	}
@@ -189,7 +216,12 @@ func (h *Handler) beforeCalendarNotificationSend(ctx context.Context, send stora
 			return unlock, fmt.Errorf("meeting recipients changed")
 		}
 	}
-	credentials := h.calendarCredentialsForSource(ctx, note.UserID, source)
+	var credentials calendarCredentials
+	if owned {
+		credentials, credentials.err = p.actionCredentials()
+	} else {
+		credentials = h.calendarCredentialsForSource(ctx, note.UserID, source)
+	}
 	if credentials.err != nil {
 		return unlock, credentials.err
 	}

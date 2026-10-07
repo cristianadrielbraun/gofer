@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 )
@@ -28,6 +29,16 @@ func (db *DB) completeCalendarDelete(ctx context.Context, userID, eventID, sourc
 		return err
 	}
 	defer tx.Rollback()
+	if err := completeCalendarDeleteTx(ctx, tx, userID, eventID, sourceID, expectedETag, occurrence); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func completeCalendarDeleteTx(ctx context.Context, tx *sql.Tx, userID, eventID, sourceID, expectedETag string, occurrence *CalendarEvent) error {
+	if strings.TrimSpace(expectedETag) == "" {
+		return fmt.Errorf("calendar deletion requires an event version")
+	}
 	if occurrence != nil {
 		var matches bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM calendar_events WHERE user_id=? AND source_id=? AND id=? AND remote_id=? AND series_remote_id=?)`, userID, sourceID, eventID, occurrence.RemoteID, occurrence.SeriesRemoteID).Scan(&matches); err != nil {
@@ -61,5 +72,5 @@ func (db *DB) completeCalendarDelete(ctx context.Context, userID, eventID, sourc
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }

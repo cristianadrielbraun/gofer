@@ -36,7 +36,7 @@ func (h *Handler) handleLabelMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
@@ -70,7 +70,7 @@ func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
@@ -123,7 +123,7 @@ func (h *Handler) handleLabelMessage(w http.ResponseWriter, r *http.Request) {
 		ID:     strings.TrimSpace(r.PathValue("id")),
 		Thread: r.FormValue("thread") == "1" || strings.EqualFold(r.FormValue("thread"), "true"),
 	}
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{target}, strings.TrimSpace(r.FormValue("folder_id")), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
@@ -176,7 +176,7 @@ func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 		ID:     strings.TrimSpace(r.PathValue("id")),
 		Thread: r.FormValue("thread") == "1" || strings.EqualFold(r.FormValue("thread"), "true"),
 	}
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{target}, strings.TrimSpace(r.FormValue("folder_id")), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
@@ -199,6 +199,9 @@ func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) applyLabelToTargets(ctx context.Context, targets []ownedMessageTarget, labelName string) labelMutationResult {
+	if h.userMutationState != nil {
+		return h.queueUserLabels(ctx, targets, labelName, storage.LabelMutationAdd)
+	}
 	var result labelMutationResult
 	for _, target := range targets {
 		infos := target.Infos
@@ -233,6 +236,9 @@ func (h *Handler) applyLabelToTargets(ctx context.Context, targets []ownedMessag
 }
 
 func (h *Handler) removeLabelFromTargets(ctx context.Context, targets []ownedMessageTarget, labelName string) labelMutationResult {
+	if h.userMutationState != nil {
+		return h.queueUserLabels(ctx, targets, labelName, storage.LabelMutationRemove)
+	}
 	var result labelMutationResult
 	for _, target := range targets {
 		infos := target.Infos

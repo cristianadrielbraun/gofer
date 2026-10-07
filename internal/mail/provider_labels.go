@@ -1167,6 +1167,9 @@ func outlookImmutableIDHeaders() map[string]string {
 }
 
 func (o *SyncOrchestrator) replayGmailLabelMutationQueue(ctx context.Context, accountID, token string) {
+	if o.imapScope != nil {
+		return
+	} // UserIMAP replays the owned queue before receiving.
 	entries, err := o.gmailRepository().ListDueLabelMutations(ctx, accountID, storage.LabelProviderGmail, providerLabelMutationReplayLimit)
 	if err != nil {
 		log.Printf("gmail label mutation queue list account=%s: %v", accountID, err)
@@ -1295,6 +1298,9 @@ func findGmailProviderLabel(ctx context.Context, token, labelName string) (gmail
 }
 
 func (o *SyncOrchestrator) replayOutlookLabelMutationQueue(ctx context.Context, accountID, token string) {
+	if o.imapScope != nil {
+		return
+	} // UserIMAP replays the owned queue before receiving.
 	entries, err := o.outlookRepository().ListDueLabelMutations(ctx, accountID, storage.LabelProviderOutlook, providerLabelMutationReplayLimit)
 	if err != nil {
 		log.Printf("outlook label mutation queue list account=%s: %v", accountID, err)

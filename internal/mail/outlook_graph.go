@@ -128,7 +128,7 @@ func (o *SyncOrchestrator) syncOutlookGraphAccount(ctx context.Context, accountI
 	}
 	token, err := graphTokens.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	if err != nil {
-		return o.recordOutlookRetry(err)
+		return o.recordOutlookRetry(ctx, err)
 	}
 
 	if o.imapScope != nil {

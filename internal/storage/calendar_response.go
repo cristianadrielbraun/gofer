@@ -79,28 +79,51 @@ func (db *DB) CompleteCalendarIncomingResponse(ctx context.Context, existing Cal
 	return db.completeCalendarResponse(ctx, existing, event, true)
 }
 
-func (db *DB) completeCalendarResponse(ctx context.Context, existing CalendarEvent, event CalendarEvent, organizer bool) error {
+func calendarResponseValues(existing, event CalendarEvent, organizer bool) (calendarMutationValues, error) {
 	validResponse := event.ResponseStatus == "accepted" || event.ResponseStatus == "tentative" || event.ResponseStatus == "declined"
 	if organizer {
 		validResponse = existing.SourceProvider == CalendarSourceProviderCalDAV && event.ResponseStatus == "organizer" && existing.AccountEmail != "" && strings.EqualFold(event.OrganizerEmail, existing.AccountEmail) && event.ICalUID == existing.ICalUID && event.SeriesRemoteID == ""
 	}
 	if event.RemoteID != existing.RemoteID || event.SeriesRemoteID != existing.SeriesRemoteID || event.ETag == "" || event.IsDeleted || event.Status == "cancelled" || !json.Valid([]byte(event.AttendeesJSON)) ||
 		!validResponse {
-		return ErrCalendarUpdateConflict
+		return calendarMutationValues{}, ErrCalendarUpdateConflict
 	}
 	var startDate, endDate, startAt, endAt any
 	if event.AllDay {
 		if event.StartDate == "" || event.EndDate <= event.StartDate {
-			return ErrCalendarUpdateConflict
+			return calendarMutationValues{}, ErrCalendarUpdateConflict
 		}
 		startDate, endDate = event.StartDate, event.EndDate
 	} else {
 		if event.StartAt == nil || event.EndAt == nil || !event.EndAt.After(*event.StartAt) {
-			return ErrCalendarUpdateConflict
+			return calendarMutationValues{}, ErrCalendarUpdateConflict
 		}
 		startAt, endAt = calendarEventTimeValue(event.StartAt), calendarEventTimeValue(event.EndAt)
 	}
-	result, err := db.Write().ExecContext(ctx, `UPDATE calendar_events SET etag = ?, response_status = ?, attendees_json = ?, provider_updated_at = ?,
+	return calendarMutationValues{startDate: startDate, endDate: endDate, startAt: startAt, endAt: endAt}, nil
+}
+
+func (db *DB) completeCalendarResponse(ctx context.Context, existing CalendarEvent, event CalendarEvent, organizer bool) error {
+	if _, err := calendarResponseValues(existing, event, organizer); err != nil {
+		return err
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := completeCalendarResponseTx(ctx, tx, existing, event, organizer); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func completeCalendarResponseTx(ctx context.Context, tx *sql.Tx, existing CalendarEvent, event CalendarEvent, organizer bool) error {
+	values, err := calendarResponseValues(existing, event, organizer)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE calendar_events SET etag = ?, response_status = ?, attendees_json = ?, provider_updated_at = ?,
 		status = ?, summary = ?, description = ?, location = ?, organizer_name = ?, organizer_email = ?,
 		all_day = ?, start_date = ?, end_date = ?, start_at = ?, end_at = ?, start_timezone = ?, end_timezone = ?,
 		recurrence_json = ?, online_meeting_json = ?, html_link = ?, updated_at = CURRENT_TIMESTAMP
@@ -109,7 +132,7 @@ func (db *DB) completeCalendarResponse(ctx context.Context, existing CalendarEve
 		WHERE source.id = calendar_events.source_id AND source.user_id = calendar_events.user_id AND source.is_selected = 1 AND source.is_deleted = 0 AND COALESCE(account.is_deleting, 0) = 0)`,
 		event.ETag, event.ResponseStatus, event.AttendeesJSON, calendarEventTimeValue(event.ProviderUpdatedAt),
 		normalizeCalendarEventStatus(event.Status, false), event.Summary, event.Description, event.Location, event.OrganizerName, event.OrganizerEmail,
-		calendarBoolInt(event.AllDay), startDate, endDate, startAt, endAt, event.StartTimeZone, event.EndTimeZone,
+		calendarBoolInt(event.AllDay), values.startDate, values.endDate, values.startAt, values.endAt, event.StartTimeZone, event.EndTimeZone,
 		calendarJSON(event.RecurrenceJSON, "[]"), calendarJSON(event.OnlineMeetingJSON, "{}"), event.HTMLLink,
 		existing.UserID, existing.ID, existing.SourceID, existing.RemoteID, existing.ETag, existing.SeriesRemoteID)
 	if err != nil {

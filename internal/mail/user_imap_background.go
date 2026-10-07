@@ -60,6 +60,9 @@ func (s *UserIMAP) Start(options UserIMAPBackgroundOptions) error {
 	s.background = true
 	s.rescan = false // Startup always refreshes all accounts, including pre-start manual receives.
 	s.backgroundOptions = options
+	if gmailAPIPollEnabled() {
+		s.startActiveGmailPollingLocked()
+	}
 	s.workers.Add(1)
 	go s.backgroundLoop(options)
 	s.workers.Add(1)
@@ -89,6 +92,10 @@ func (s *UserIMAP) RefreshUserSettings(ctx context.Context, owner string) error 
 	if err := s.Routing().ResetUserPolling(ctx, owner); err != nil {
 		return err
 	}
+	if err := s.Routing().ResetActivePolling(ctx, owner, ""); err != nil {
+		return err
+	}
+	s.wakeActivePoll()
 	s.mu.Lock()
 	for key, w := range s.watches {
 		if w.owner == owner {

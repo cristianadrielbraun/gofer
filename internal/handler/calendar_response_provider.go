@@ -202,10 +202,11 @@ func sendCalendarResponse(ctx context.Context, source storage.CalendarSource, ca
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Prefer", `IdType="ImmutableId"`)
 		// Keep the freshly read validator, but do not assume action endpoints
-		// guarantee PATCH-style concurrency. Never retry a response action.
+		// guarantee PATCH-style concurrency. Never retry an ambiguous response
+		// action; owned dispatch may refresh a definitively rejected 401 once.
 		req.Header.Set("If-Match", target.HTTPETag)
 		client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		result, err := client.Do(req)
+		result, err := calendarProviderDo(client, req)
 		if err != nil {
 			return calendarResponseResult{}, err
 		}

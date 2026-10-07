@@ -37,6 +37,12 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	if option.Credentials != nil && (option.IMAP == nil || option.Credentials.Routing() != routing) {
 		return errors.New("mailbox credentials require an IMAP lifecycle service with the same routing coordinator")
 	}
+	if option.ContactSync != nil && option.IMAP == nil {
+		return errors.New("owned contact scheduling requires an IMAP lifecycle service")
+	}
+	if option.CalendarSync != nil && option.IMAP == nil {
+		return errors.New("owned calendar scheduling requires an IMAP lifecycle service")
+	}
 
 	if option.IMAP != nil {
 		if option.IMAP.Routing() != routing || option.Accounts != option.IMAP.Accounts() || h.syncer == nil || option.IMAP.Events() != h.syncer.Events() {
@@ -62,7 +68,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		blobStore: h.blobStore,
 		userIMAP:  option.IMAP, userCredentials: option.Credentials, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
 		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
-		userBackfills: make(map[string]struct{})}
+		userBackfills: make(map[string]struct{}), contactSyncRunning: make(map[string]struct{})}
 	if option.IMAP != nil {
 		if h.blobStore != nil && h.blobStore != option.IMAP.Blobs() {
 			return errors.New("routed compose must use the IMAP blob store")
@@ -76,6 +82,23 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		if err := option.IMAP.SetMailQueue(&userMailDelivery{h: routed}); err != nil {
 			return err
 		}
+		created, updated := routed.userAccountHooks.Created, routed.userAccountHooks.Updated
+		routed.userAccountHooks.Created = func(ctx context.Context, id string) error {
+			return errors.Join(created(ctx, id), routed.wakeUserContactAccountID(ctx, id), routed.wakeUserCalendarAccountID(ctx, id))
+		}
+		routed.userAccountHooks.Updated = func(ctx context.Context, id string) error {
+			return errors.Join(updated(ctx, id), routed.wakeUserContactAccountID(ctx, id), routed.wakeUserCalendarAccountID(ctx, id))
+		}
+		if option.ContactSync != nil {
+			if err := routed.StartUserContactSync(ctx, *option.ContactSync); err != nil {
+				return err
+			}
+		}
+		if option.CalendarSync != nil {
+			if err := routed.StartUserCalendarSync(ctx, *option.CalendarSync); err != nil {
+				return err
+			}
+		}
 	}
 	private := func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +108,34 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			}
 			// Protect copied file paths for local reads and compose publication.
 			// SSE holds no file paths and can stay open indefinitely.
-			if routed.blobStore != nil && pattern != "GET /api/events" {
+			needsFiles := pattern != "GET /api/events" &&
+				pattern != "GET /api/calendar/events/new" &&
+				pattern != "POST /api/calendar/events" &&
+				pattern != "PATCH /api/calendar/events/{id}" &&
+				pattern != "POST /api/calendar/google-meet/drafts" &&
+				pattern != "POST /api/calendar/teams/drafts" &&
+				pattern != "POST /api/calendar/teams/drafts/discard" &&
+				pattern != "GET /api/calendar/meeting-options" &&
+				pattern != "GET /api/calendar/teams-options" &&
+				pattern != "GET /api/calendar/events/{id}" &&
+				pattern != "DELETE /api/calendar/events/{id}" &&
+				pattern != "GET /api/calendar/events/{id}/delivery" &&
+				pattern != "POST /api/calendar/events/{id}/delivery/{sendID}/retry" &&
+				pattern != "GET /api/calendar/events/{id}/edit" &&
+				pattern != "GET /api/calendar/events/{id}/delete-series-confirmation" &&
+				pattern != "GET /api/calendar/events/{id}/delete-occurrence-confirmation" &&
+				pattern != "POST /api/calendar/sync" &&
+				pattern != "POST /api/accounts/{id}/calendar/discover" &&
+				pattern != "POST /api/accounts/{id}/contacts/sync/test" &&
+				pattern != "POST /api/accounts/{id}/contacts/sync/discover" &&
+				pattern != "POST /api/settings/contacts/accounts/sync" &&
+				pattern != "POST /api/settings/contacts/providers/gmail/sync"
+				// A standalone RSVP preflight reads metadata/provider state only.
+			// Email-backed preflights retain the owner file pin for raw MIME.
+			if pattern == "GET /api/calendar/events/{id}/response" && r.URL.Query().Get("mail_id") == "" {
+				needsFiles = false
+			}
+			if routed.blobStore != nil && needsFiles {
 				release, err := routed.blobStore.PinUserFiles(r.Context(), routed.userID(r.Context()))
 				if err != nil {
 					http.Error(w, "user files unavailable", 503)
@@ -111,6 +161,10 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/contacts/search", routed.handleContactSearch)
 	private("GET /api/contacts/export", routed.handleExportContacts)
 	private("GET /api/contacts/{id}/export", routed.handleExportContact)
+	private("GET /calendar", routed.handleCalendar)
+	private("GET /api/calendar/guest-suggestions", routed.handleCalendarGuestSuggestions)
+	private("GET /contacts", routed.handleContacts)
+	private("GET /contacts/items", routed.handleContactItems)
 	private("GET /{$}", routed.handleIndex)
 	private("GET /folder/{id}", routed.handleFolderPartial)
 	private("GET /folder/{id}/full", routed.handleFolderFull)
@@ -129,9 +183,11 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/accounts", routed.handleUserAccounts)
 	private("GET /settings/accounts", routed.handleUserAccountSettings)
 	private("GET /settings/sync", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "sync") })
+	private("GET /settings/contacts", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "contacts") })
 	private("GET /api/accounts/{id}/deletion-status", routed.handleUserAccountDeletionStatus)
 	if option.Accounts != nil {
 		private("POST /api/accounts", routed.handleUserCreateAccount)
+		private("GET /api/settings/contacts/suppressed", routed.handleUserSuppressedContactsSettings)
 		private("GET /api/accounts/{id}/edit", routed.handleUserEditAccount)
 		private("POST /api/accounts/{id}/edit", routed.handleUserUpdateAccount)
 		private("POST /api/accounts/{id}/color", routed.handleUserAccountColor)
@@ -143,6 +199,47 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		}
 	}
 	if option.IMAP != nil {
+		private("GET /api/mail/{id}/calendar", routed.handleUserMailCalendarFooter)
+		private("GET /api/calendar/events/new", routed.handleUserNewCalendarEvent)
+		private("POST /api/calendar/events", routed.handleUserCreateCalendarEvent)
+		private("PATCH /api/calendar/events/{id}", routed.handleUserUpdateCalendarEvent)
+		private("POST /api/calendar/google-meet/drafts", routed.handleUserCalendarGoogleMeetDraft)
+		private("POST /api/calendar/teams/drafts", routed.handleUserCalendarTeamsDraft)
+		private("POST /api/calendar/teams/drafts/discard", routed.handleUserCalendarTeamsDraftDiscard)
+		private("GET /api/calendar/meeting-options", routed.handleUserCalendarMeetingOptions)
+		private("GET /api/calendar/teams-options", routed.handleUserCalendarMeetingOptions)
+		private("GET /api/calendar/events/{id}", routed.handleUserCalendarEvent)
+		private("DELETE /api/calendar/events/{id}", routed.handleUserDeleteCalendarEvent)
+		private("GET /api/calendar/events/{id}/delivery", routed.handleUserCalendarDeliveryStatus)
+		private("POST /api/calendar/events/{id}/delivery/{sendID}/retry", routed.handleUserCalendarDeliveryRetry)
+		private("GET /api/calendar/events/{id}/response", routed.handleUserCalendarResponseForm)
+		private("POST /api/calendar/events/{id}/response", routed.handleUserCalendarResponse)
+		private("GET /api/calendar/replies/{id}", routed.handleUserCalendarReplyStatus)
+		private("POST /api/calendar/replies/{id}", routed.handleUserCalendarReplyAction)
+		private("GET /api/calendar/events/{id}/edit", routed.handleUserEditCalendarEvent)
+		private("GET /api/calendar/events/{id}/delete-series-confirmation", routed.handleUserCalendarSeriesDeleteConfirmation)
+		private("GET /api/calendar/events/{id}/delete-occurrence-confirmation", routed.handleUserCalendarOccurrenceDeleteConfirmation)
+		private("POST /api/calendar/sync", routed.handleUserCalendarSync)
+		private("POST /api/calendar/sources/{id}/visibility", routed.handleCalendarVisibility)
+		private("POST /api/accounts/{id}/calendar/sources", routed.handleUserSaveCalendarSources)
+		private("POST /api/accounts/{id}/calendar/discover", routed.handleUserDiscoverCalendars)
+		private("POST /api/accounts/{id}/contacts/sync", routed.handleUserSaveAccountContactSync)
+		private("POST /api/accounts/{id}/contacts/sync/test", routed.handleUserTestAccountContactSync)
+		private("POST /api/accounts/{id}/contacts/sync/discover", routed.handleUserDiscoverAccountContactSync)
+		private("POST /api/settings/contacts/accounts/sync", routed.handleUserSyncAccountContacts)
+		private("POST /api/settings/contacts/providers/gmail/sync", routed.handleUserSyncAccountContacts)
+		private("POST /api/contacts/{id}/sync-now", routed.handleUserSyncContactNow)
+		private("POST /api/contacts", routed.handleUserSaveContact)
+		private("POST /api/contacts/import", routed.handleUserImportContacts)
+		private("POST /api/contacts/{id}/unify", routed.handleUserUnifyContact)
+		private("POST /api/contacts/{id}/delete", routed.handleUserDeleteContact)
+		private("POST /api/settings/contacts/suppressed/clear", routed.handleUserClearSuppressedContacts)
+		private("POST /api/settings/contacts/suppressed/{id}/clear", routed.handleUserClearSuppressedContact)
+		private("POST /api/settings/contacts/delete-observed", routed.handleUserDeleteObservedContacts)
+		private("POST /api/contacts/{id}/sync-setup/confirm", routed.handleUserConfirmContactSyncSetup)
+		private("GET /api/contacts/{id}/sync-setup", routed.handleUserContactSyncSetup)
+		private("GET /api/contacts/{id}/sync-setup/findings", routed.handleUserContactSyncSetupFindings)
+		private("POST /api/contacts/{id}/sync-setup/preview", routed.handleUserPreviewContactSyncSetup)
 		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)
 		private("POST /api/accounts/{id}/service", routed.handleUserEmailService)
 		private("POST /api/mail/sync", routed.handleUserManualSync)
@@ -166,10 +263,12 @@ type UserAccountHooks struct {
 }
 
 type UserStorageOptions struct {
-	Accounts    *config.UserAccountStore
-	Hooks       UserAccountHooks
-	IMAP        *mail.UserIMAP
-	Credentials *mailauth.UserCredentials
+	Accounts     *config.UserAccountStore
+	Hooks        UserAccountHooks
+	IMAP         *mail.UserIMAP
+	Credentials  *mailauth.UserCredentials
+	ContactSync  *UserContactSyncOptions
+	CalendarSync *UserCalendarSyncOptions
 }
 
 func (h *Handler) withUserDB(ctx context.Context, userID string, fn func(*storage.DB) error) error {

@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/retry"
 )
 
 const userOutlookRawMessageMaxBytes = 64 << 20
@@ -54,7 +57,8 @@ func getUserOutlookRaw(ctx context.Context, token, providerID string) ([]byte, e
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, &providerAPIError{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(body))}
+		at, _ := retry.ParseRetryAfter(response.Header.Get("Retry-After"), time.Now().UTC())
+		return nil, &providerAPIError{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(body)), RetryAt: at}
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, userOutlookRawMessageMaxBytes+1))
 	if err != nil {

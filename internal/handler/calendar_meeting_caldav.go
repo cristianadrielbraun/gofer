@@ -43,6 +43,12 @@ func (h *Handler) calendarMeetingAgent(ctx context.Context, source storage.Calen
 	if !auto && oldAgent == "SERVER" {
 		return "", "", "", calendarUpdateUnsupported("Automatic scheduling is no longer available; refresh this account before changing the meeting.")
 	}
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned {
+		if !p.service().SMTPConfigured() {
+			return "", "", "", calendarReplyConfigurationError("This calendar server needs invitations by email. Configure SMTP for this account first.")
+		}
+		return "CLIENT", organizer, account.Name, nil
+	}
 	if h.accountStore == nil {
 		return "", "", "", fmt.Errorf("configure SMTP before inviting guests")
 	}
@@ -141,7 +147,7 @@ func (h *Handler) createCalDAVMeeting(ctx context.Context, source storage.Calend
 		}
 	}
 	event, err := createCalDAVCalendarEvent(ctx, source, credentials.username, credentials.password, draft)
-	h.signalOutgoingWorker()
+	h.wakeCalendarNotificationWorker(ctx, source)
 	return event, err
 }
 
@@ -314,7 +320,7 @@ func (h *Handler) updateCalDAVMeeting(ctx context.Context, source storage.Calend
 		}
 		req.Header.Set("If-Schedule-Tag-Match", tag)
 	}
-	res, err := calendarDeleteClient(calDAVHTTPTransport).Do(req)
+	res, err := calendarProviderDo(calendarDeleteClient(calDAVHTTPTransport), req)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}
@@ -334,7 +340,7 @@ func (h *Handler) updateCalDAVMeeting(ctx context.Context, source storage.Calend
 	if err != nil || updated.ICalUID != before.ICalUID || !calendarUpdateMatchesDraft(updated, draft) || !calendarMeetingGuestsMatch(updated.Attendees, draft.Guests, email) {
 		return calendar.RemoteEvent{}, fmt.Errorf("CalDAV did not confirm the saved meeting")
 	}
-	h.signalOutgoingWorker()
+	h.wakeCalendarNotificationWorker(ctx, source)
 	return updated, nil
 }
 
@@ -373,7 +379,7 @@ func (h *Handler) deleteCalDAVMeeting(ctx context.Context, source storage.Calend
 		req.Header.Set("If-Schedule-Tag-Match", tag)
 	}
 	err = calendarDeleteHTTP(calendarDeleteClient(calDAVHTTPTransport), req, true)
-	h.signalOutgoingWorker()
+	h.wakeCalendarNotificationWorker(ctx, source)
 	return err
 }
 

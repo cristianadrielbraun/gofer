@@ -289,6 +289,7 @@ func TestUserStoresIdleExpiryNeverClosesAnActiveLease(t *testing.T) {
 	alice.Release()
 	now.Add(int64(2 * time.Hour))
 	m.reapIdle()
+	waitUserStorePhysicalClose(t, m, "alice")
 	if err := alice.DB().Read().Ping(); err == nil {
 		t.Fatal("idle store remained open")
 	}
@@ -329,6 +330,7 @@ func TestUserStoresRejectUnmarkedOrWrongIdentityWithoutChangingFiles(t *testing.
 	m.mu.Lock()
 	m.evictOldestLocked()
 	m.mu.Unlock()
+	waitUserStorePhysicalClose(t, m, "alice")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

@@ -62,7 +62,7 @@ func (s *routedIMAPServer) serveMutation(w *bufio.Writer, owner, folder, tag str
 			if box.flags[uid] == nil {
 				box.flags[uid] = make(map[string]bool)
 			}
-			for _, flag := range []string{`\Seen`, `\Flagged`, `\Deleted`} {
+			for _, flag := range []string{`\Seen`, `\Flagged`, `\Deleted`, `$Label1`, `$Label2`, `$Junk`, `$NotJunk`, `Projects`, `Later`} {
 				if strings.Contains(strings.ToLower(upper), strings.ToLower(flag)) {
 					box.flags[uid][flag] = strings.HasPrefix(parts[4], "+")
 				}
@@ -116,6 +116,14 @@ func newUserMutationFixture(t *testing.T) (*userStorageFixture, *routedIMAPServe
 	f.useIMAPServer(t, server)
 	for _, owner := range []string{"alice", "bob"} {
 		if err := f.imap.Sync(t.Context(), owner, f.accounts[owner].ID); err != nil {
+			t.Fatal(err)
+		}
+		// The generic HTTP fixture's placeholder is not a remote mailbox. Once
+		// receiving discovers INBOX, retain only the actual provider folders.
+		if err := f.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			_, err := db.Write().Exec(`DELETE FROM folders WHERE account_id=? AND COALESCE(remote_id,'')=''`, f.accounts[owner].ID)
+			return err
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}

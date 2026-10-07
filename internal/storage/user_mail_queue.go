@@ -23,6 +23,11 @@ func (db *DB) RecoverAccountMailQueue(ctx context.Context, accountID string) err
 			return err
 		}
 	}
+	if db.userMailDelivery {
+		if _, err := tx.ExecContext(ctx, `UPDATE gofer_provider_draft_operations SET status='ambiguous',last_error='Gofer stopped during provider draft sync.',next_attempt_at=CURRENT_TIMESTAMP WHERE account_id=? AND status='syncing'`, accountID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
@@ -37,8 +42,15 @@ func (db *DB) NextAccountMailQueueAttempt(ctx context.Context, accountID string)
 		AND sent_copy_status IN ('pending','failed','ambiguous','copying') AND length(mime_data)>0
 		UNION ALL SELECT next_attempt_at FROM imap_draft_operations WHERE account_id=?
 	) ORDER BY julianday(replace(due,' +0000 UTC','')) LIMIT 1`, accountID, accountID, accountID).Scan(&next)
-	if err == sql.ErrNoRows {
-		return time.Time{}, nil
+	if err != nil && err != sql.ErrNoRows {
+		return time.Time{}, err
 	}
-	return next.Time, err
+	providerNext, providerErr := db.NextUserProviderDraftAttempt(ctx, accountID)
+	if providerErr != nil {
+		return time.Time{}, providerErr
+	}
+	if !providerNext.IsZero() && (next.Time.IsZero() || providerNext.Before(next.Time)) {
+		return providerNext, nil
+	}
+	return next.Time, nil
 }

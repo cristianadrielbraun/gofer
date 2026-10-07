@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,14 +27,26 @@ type userMailDeliveryScope struct {
 	owner, id              string
 	cfg                    *models.AccountConfig
 	password, smtpPassword string
+	providerMail           *mail.UserProviderMail
 }
 
 func (s *userMailDeliveryScope) call(ctx context.Context, fn func(*storage.DB) error) error {
-	return s.runner.h.userStorage.WithAccountForUser(ctx, s.owner, s.id, fn)
+	return s.runner.h.userStorage.WithAccountForUser(ctx, s.owner, s.id, func(db *storage.DB) error {
+		if s.cfg != nil && s.cfg.Provider != "imap" {
+			var provider, subject, method string
+			if err := db.Read().QueryRowContext(ctx, `SELECT provider,COALESCE(provider_account_id,''),auth_method FROM accounts WHERE id=?`, s.id).Scan(&provider, &subject, &method); err != nil {
+				return err
+			}
+			if provider != s.cfg.Provider || subject != s.cfg.ProviderAccountID || method != s.cfg.AuthMethod {
+				return errors.New("mail delivery mailbox identity changed")
+			}
+		}
+		return fn(db)
+	})
 }
 
-func (q *userMailDelivery) Run(ctx context.Context, owner, id string) error {
-	s := &userMailDeliveryScope{runner: q, owner: owner, id: id}
+func (q *userMailDelivery) Run(ctx context.Context, owner, id string, providerMail *mail.UserProviderMail) error {
+	s := &userMailDeliveryScope{runner: q, owner: owner, id: id, providerMail: providerMail}
 	hasWork := false
 	err := q.h.userAccounts.WithAccountForUser(ctx, owner, id, func(accounts *config.AccountStore, db *storage.DB) error {
 		next, err := db.NextAccountMailQueueAttempt(ctx, id)
@@ -48,22 +61,23 @@ func (q *userMailDelivery) Run(ctx context.Context, owner, id string) error {
 		if err != nil {
 			return err
 		}
-		if s.cfg.Provider != "imap" || s.cfg.AuthMethod != "plain" {
-			return errors.New("routed mail delivery requires plain IMAP")
-		}
-		s.password, err = accounts.DecryptPassword(ctx, id)
-		if err != nil {
-			return err
-		}
-		s.smtpPassword = s.password
-		if s.cfg.SmtpUsername != "" {
-			password, err := accounts.DecryptSmtpPassword(ctx, id)
+		if s.cfg.Provider == "imap" && s.cfg.AuthMethod == "plain" {
+			s.password, err = accounts.DecryptPassword(ctx, id)
 			if err != nil {
 				return err
 			}
-			if password != "" {
-				s.smtpPassword = password
+			s.smtpPassword = s.password
+			if s.cfg.SmtpUsername != "" {
+				password, err := accounts.DecryptSmtpPassword(ctx, id)
+				if err != nil {
+					return err
+				}
+				if password != "" {
+					s.smtpPassword = password
+				}
 			}
+		} else if s.cfg.AuthMethod != "oauth2" || (s.cfg.Provider != "gmail" && s.cfg.Provider != "outlook") || providerMail == nil {
+			return errors.New("routed mail delivery provider is unavailable")
 		}
 		return db.RecoverAccountMailQueue(ctx, id)
 	})
@@ -75,6 +89,9 @@ func (q *userMailDelivery) Run(ctx context.Context, owner, id string) error {
 	defer q.h.userIMAP.MaybeCleanupUserFiles(ctx, owner)
 	var failures error
 	for _, run := range []func(context.Context) (bool, error){s.send, s.sentCopy, s.draft} {
+		if s.cfg.Provider != "imap" && s.providerMail.RetryAt().After(time.Now()) {
+			return failures
+		}
 		for i := 0; i < 5; i++ {
 			more, err := run(ctx)
 			failures = errors.Join(failures, err)
@@ -84,6 +101,9 @@ func (q *userMailDelivery) Run(ctx context.Context, owner, id string) error {
 			if !more {
 				break
 			}
+			if s.cfg.Provider != "imap" && s.providerMail.RetryAt().After(time.Now()) {
+				return failures
+			}
 		}
 	}
 	return failures
@@ -91,9 +111,17 @@ func (q *userMailDelivery) Run(ctx context.Context, owner, id string) error {
 
 func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 	var claimed []storage.OutgoingSend
+	var calendarReply bool
 	if err := s.call(ctx, func(db *storage.DB) error {
 		var err error
 		claimed, err = db.ClaimDueOutgoingSendsForAccount(ctx, s.id, time.Now(), 1)
+		if err == nil && len(claimed) != 0 {
+			_, replyErr := db.CalendarReplyForSend(ctx, claimed[0].ID)
+			calendarReply = replyErr == nil
+			if replyErr != nil && !errors.Is(replyErr, sql.ErrNoRows) {
+				return replyErr
+			}
+		}
 		return err
 	}); err != nil {
 		return false, err
@@ -102,6 +130,16 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	send := claimed[0]
+	if calendarReply {
+		return s.sendCalendarReply(ctx, send)
+	}
+	var calendarSnapshot outgoingMessageSnapshot
+	if json.Unmarshal(send.MessageJSON, &calendarSnapshot) == nil && calendarSnapshot.CalendarNotification != nil {
+		return s.sendCalendarNotification(ctx, send)
+	}
+	if s.cfg.Provider != "imap" {
+		return s.sendProvider(ctx, send)
+	}
 	var snapshot outgoingMessageSnapshot
 	err := json.Unmarshal(send.MessageJSON, &snapshot)
 	result := models.SendFailed
@@ -172,7 +210,12 @@ func (s *userMailDeliveryScope) sentCopy(ctx context.Context) (bool, error) {
 	send := claimed[0]
 	work, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	err := s.copySent(work, send)
+	var err error
+	if s.cfg.Provider == "imap" {
+		err = s.copySent(work, send)
+	} else {
+		err = s.cacheProviderSent(work, send)
+	}
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	}
@@ -335,6 +378,9 @@ func (s *userMailDeliveryScope) cacheSent(ctx context.Context, send storage.Outg
 }
 
 func (s *userMailDeliveryScope) draft(ctx context.Context) (bool, error) {
+	if s.cfg.Provider != "imap" {
+		return s.providerDraft(ctx)
+	}
 	var claimed []storage.IMAPDraftOperation
 	if err := s.call(ctx, func(db *storage.DB) error {
 		var err error

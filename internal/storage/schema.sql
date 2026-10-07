@@ -1363,6 +1363,7 @@ CREATE TABLE IF NOT EXISTS calendar_response_requests (
     remote_id TEXT NOT NULL,
     version TEXT NOT NULL,
     response TEXT NOT NULL CHECK (response IN ('accepted', 'tentative', 'declined')),
+    claim_id TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, source_id, remote_id, version)
 );
@@ -1556,4 +1557,4 @@ CREATE TABLE IF NOT EXISTS calendar_teams_drafts (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (106);
+INSERT OR REPLACE INTO schema_version (version) VALUES (107);

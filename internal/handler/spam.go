@@ -41,11 +41,15 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	ctx := context.WithoutCancel(r.Context())
+	ctx := h.messageMutationContext(r.Context())
 	sourceFolderID := strings.TrimSpace(payload.FolderID)
 	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), sourceFolderID, false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
+		return
+	}
+	if h.userMutationState != nil {
+		h.queueUserSpamTargets(w, r, targets, disposition)
 		return
 	}
 	updatedTargets := 0

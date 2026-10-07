@@ -83,10 +83,22 @@ func discoverGoogleCalendars(ctx context.Context, accessToken string) ([]calenda
 		return nil, fmt.Errorf("Google Calendar access token is empty")
 	}
 
+	return discoverGoogleCalendarsWithFetch(ctx, func(endpoint string, out any) error {
+		return doGoogleJSON(ctx, http.MethodGet, endpoint, accessToken, nil, out)
+	})
+}
+
+func discoverGoogleCalendarsWithFetch(ctx context.Context, fetch func(string, any) error) ([]calendar.RemoteCalendar, error) {
 	var calendars []calendar.RemoteCalendar
 	pageToken := ""
 	seenPageTokens := map[string]bool{}
-	for {
+	for pageNumber := 0; ; pageNumber++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if pageNumber >= calendarDiscoveryMaxPages {
+			return nil, fmt.Errorf("Google Calendar discovery exceeded its page limit")
+		}
 		values := url.Values{}
 		values.Set("maxResults", "250")
 		values.Set("showDeleted", "true")
@@ -96,7 +108,7 @@ func discoverGoogleCalendars(ctx context.Context, accessToken string) ([]calenda
 
 		var page googleCalendarListResponse
 		endpoint := googleCalendarAPIBaseURL + "/users/me/calendarList?" + values.Encode()
-		if err := doGoogleJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &page); err != nil {
+		if err := fetch(endpoint, &page); err != nil {
 			return nil, err
 		}
 		for _, entry := range page.Items {
@@ -118,6 +130,9 @@ func discoverGoogleCalendars(ctx context.Context, accessToken string) ([]calenda
 			})
 		}
 
+		if len(calendars) > calendarDiscoveryMaxSources {
+			return nil, fmt.Errorf("Google Calendar discovery exceeded its source limit")
+		}
 		pageToken = strings.TrimSpace(page.NextPageToken)
 		if pageToken == "" {
 			return calendars, nil
@@ -142,11 +157,26 @@ func listGoogleCalendarEvents(ctx context.Context, accessToken, remoteCalendarID
 		return calendar.EventPage{}, fmt.Errorf("Google Calendar event window is invalid")
 	}
 
+	return listGoogleCalendarEventsWithFetch(ctx, remoteCalendarID, query, func(endpoint string, out any) error {
+		return doGoogleJSON(ctx, http.MethodGet, endpoint, accessToken, nil, out)
+	})
+}
+
+func listGoogleCalendarEventsWithFetch(ctx context.Context, remoteCalendarID string, query calendar.EventQuery, fetch func(string, any) error) (calendar.EventPage, error) {
+	if strings.TrimSpace(remoteCalendarID) == "" || query.WindowStart.IsZero() || query.WindowEnd.IsZero() || !query.WindowEnd.After(query.WindowStart) || fetch == nil {
+		return calendar.EventPage{}, fmt.Errorf("invalid calendar event request")
+	}
 	var events []calendar.RemoteEvent
 	pageToken := ""
 	seenPageTokens := map[string]bool{}
 	var nextSyncToken string
-	for {
+	for pageNumber := 0; ; pageNumber++ {
+		if err := ctx.Err(); err != nil {
+			return calendar.EventPage{}, err
+		}
+		if pageNumber >= calendarSyncMaxPages {
+			return calendar.EventPage{}, fmt.Errorf("Google Calendar event traversal exceeded its page limit")
+		}
 		values := url.Values{}
 		values.Set("maxResults", "2500")
 		values.Set("showDeleted", "true")
@@ -160,10 +190,16 @@ func listGoogleCalendarEvents(ctx context.Context, accessToken, remoteCalendarID
 
 		var page googleCalendarEventsResponse
 		endpoint := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(remoteCalendarID) + "/events?" + values.Encode()
-		if err := doGoogleJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &page); err != nil {
+		if err := fetch(endpoint, &page); err != nil {
+			return calendar.EventPage{}, err
+		}
+		if err := ctx.Err(); err != nil {
 			return calendar.EventPage{}, err
 		}
 		for _, remote := range page.Items {
+			if err := ctx.Err(); err != nil {
+				return calendar.EventPage{}, err
+			}
 			if remote.ExtendedProperties.Private["goferMeetDraft"] == "true" {
 				continue
 			}
@@ -173,6 +209,9 @@ func listGoogleCalendarEvents(ctx context.Context, accessToken, remoteCalendarID
 			}
 			if strings.TrimSpace(normalized.RemoteID) != "" {
 				events = append(events, normalized)
+				if len(events) > calendarSyncMaxEvents {
+					return calendar.EventPage{}, fmt.Errorf("calendar event traversal exceeded its event limit")
+				}
 			}
 		}
 

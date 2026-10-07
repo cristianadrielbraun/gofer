@@ -200,6 +200,22 @@ func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 	}
 	defer tx.Rollback()
 
+	refreshFolders, err := moveMessagesAndQueueTx(ctx, tx, messageIDs, sourceFolderID, destinationFolderID, userID)
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for folderID := range refreshFolders {
+		_, _ = db.RefreshFolderUnreadCount(ctx, folderID)
+		_ = db.RefreshFolderThreadState(ctx, folderID)
+	}
+	return nil
+}
+
+func moveMessagesAndQueueTx(ctx context.Context, tx *sql.Tx, messageIDs []int64, sourceFolderID, destinationFolderID, userID string) (map[string]struct{}, error) {
 	var destinationAccountID, destinationRemoteID string
 	destinationQuery := `SELECT f.account_id, COALESCE(f.remote_id, '') FROM folders f`
 	destinationArgs := []any{destinationFolderID}
@@ -212,10 +228,10 @@ func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 		destinationArgs = append(destinationArgs, userID)
 	}
 	if err := tx.QueryRowContext(ctx, destinationQuery, destinationArgs...).Scan(&destinationAccountID, &destinationRemoteID); err != nil {
-		return fmt.Errorf("load destination folder: %w", err)
+		return nil, fmt.Errorf("load destination folder: %w", err)
 	}
 	if strings.TrimSpace(destinationRemoteID) == "" {
-		return fmt.Errorf("destination folder has no remote identity")
+		return nil, fmt.Errorf("destination folder has no remote identity")
 	}
 
 	refreshFolders := map[string]struct{}{sourceFolderID: {}, destinationFolderID: {}}
@@ -235,10 +251,10 @@ func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 		}
 		if err := tx.QueryRowContext(ctx, messageQuery, messageArgs...).
 			Scan(&accountID, &provider, &isRead, &isStarred); err != nil {
-			return fmt.Errorf("load message %d in source folder: %w", messageID, err)
+			return nil, fmt.Errorf("load message %d in source folder: %w", messageID, err)
 		}
 		if accountID != destinationAccountID {
-			return fmt.Errorf("message %d and destination folder belong to different accounts", messageID)
+			return nil, fmt.Errorf("message %d and destination folder belong to different accounts", messageID)
 		}
 
 		providerType := messageMutationProviderType(provider)
@@ -250,7 +266,7 @@ func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 			ORDER BY created_at LIMIT 1`, messageID, MessageMutationMove).
 			Scan(&mutationID, &remoteFolderID, &status)
 		if err != nil && err != sql.ErrNoRows {
-			return err
+			return nil, err
 		}
 		if err == sql.ErrNoRows {
 			mutationID = uuid.NewString()
@@ -262,11 +278,11 @@ func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP)`,
 				mutationID, accountID, messageID, remoteFolderID, providerType, MessageMutationMove,
 				destinationFolderID, MessageMutationPending); err != nil {
-				return fmt.Errorf("queue move for message %d: %w", messageID, err)
+				return nil, fmt.Errorf("queue move for message %d: %w", messageID, err)
 			}
 		} else if remoteFolderID == destinationFolderID && status != MessageMutationProcessing {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM message_mutations WHERE id = ?`, mutationID); err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			if _, err := tx.ExecContext(ctx, `
@@ -275,14 +291,14 @@ func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 				    attempt_count = 0, last_error = '', locked_at = NULL,
 				    next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 				WHERE id = ?`, accountID, providerType, destinationFolderID, MessageMutationPending, mutationID); err != nil {
-				return fmt.Errorf("update queued move for message %d: %w", messageID, err)
+				return nil, fmt.Errorf("update queued move for message %d: %w", messageID, err)
 			}
 		}
 
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE message_folder_state SET is_deleted = 1, synced_at = CURRENT_TIMESTAMP
 			WHERE message_id = ? AND folder_id = ?`, messageID, sourceFolderID); err != nil {
-			return fmt.Errorf("hide source folder for message %d: %w", messageID, err)
+			return nil, fmt.Errorf("hide source folder for message %d: %w", messageID, err)
 		}
 		preserveRemoteUID := remoteFolderID == destinationFolderID
 		if _, err := tx.ExecContext(ctx, `
@@ -296,17 +312,10 @@ func (db *DB) moveMessagesAndQueue(ctx context.Context, messageIDs []int64, sour
 				is_deleted = 0,
 				synced_at = CURRENT_TIMESTAMP`,
 			messageID, destinationFolderID, isRead, isStarred, boolInt(preserveRemoteUID)); err != nil {
-			return fmt.Errorf("show destination folder for message %d: %w", messageID, err)
+			return nil, fmt.Errorf("show destination folder for message %d: %w", messageID, err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	for folderID := range refreshFolders {
-		_, _ = db.RefreshFolderUnreadCount(ctx, folderID)
-		_ = db.RefreshFolderThreadState(ctx, folderID)
-	}
-	return nil
+	return refreshFolders, nil
 }
 
 func (db *DB) SetMessageReadAndQueue(ctx context.Context, messageID int64, read bool) error {
@@ -522,6 +531,13 @@ func (db *DB) claimDueMessageMutations(ctx context.Context, accountID string, no
 	if accountID != "" {
 		accountClause = " AND account_id = ?"
 		args = append(args, accountID)
+		// A bounded label pass may leave initial spam training behind. Train
+		// before moving its source; failed training may still use the existing
+		// folder-move fallback and remains queued for retry after that move.
+		accountClause += ` AND NOT (provider_type='imap' AND kind='move' AND EXISTS (
+			SELECT 1 FROM label_mutation_queue l WHERE l.account_id=message_mutations.account_id
+			AND l.message_id=message_mutations.message_id AND l.folder_id=message_mutations.folder_id
+			AND l.provider_type='imap_keyword' AND lower(l.label_name) IN ('$junk','$notjunk') AND l.attempts=0))`
 	}
 	args = append(args, limit)
 	rows, err := tx.QueryContext(ctx, messageMutationSelect+`
@@ -657,15 +673,22 @@ func (db *DB) ConfirmMessageDeleteMutation(ctx context.Context, id string) error
 }
 
 func (db *DB) AdvanceMessageMoveMutation(ctx context.Context, id, destinationFolderID, providerMessageID string, destinationUID uint32) error {
-	destinationFolderID = strings.TrimSpace(destinationFolderID)
-	if strings.TrimSpace(id) == "" || destinationFolderID == "" {
-		return fmt.Errorf("move mutation and destination folder are required")
-	}
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := advanceMessageMoveMutationTx(ctx, tx, id, destinationFolderID, providerMessageID, destinationUID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func advanceMessageMoveMutationTx(ctx context.Context, tx *sql.Tx, id, destinationFolderID, providerMessageID string, destinationUID uint32) error {
+	destinationFolderID = strings.TrimSpace(destinationFolderID)
+	if strings.TrimSpace(id) == "" || destinationFolderID == "" {
+		return fmt.Errorf("move mutation and destination folder are required")
+	}
 	var messageID int64
 	var providerType, previousFolderID string
 	if err := tx.QueryRowContext(ctx, `
@@ -705,7 +728,7 @@ func (db *DB) AdvanceMessageMoveMutation(ctx context.Context, id, destinationFol
 	if _, err := tx.ExecContext(ctx, `UPDATE message_mutations SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, destinationFolderID, id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (db *DB) FinishMessageMutationWithError(ctx context.Context, id, errorText string, nextAttempt time.Time) error {

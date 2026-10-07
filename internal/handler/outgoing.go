@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/mail"
@@ -776,6 +777,14 @@ func (h *Handler) deliveredSnapshotMatchesDraft(ctx context.Context, send storag
 	}
 	current.MessageID = delivered.MessageID
 	current.Date = delivered.Date
+	// Text-only compose adds a generated HTML view at delivery. That view is
+	// equivalent to the unchanged draft's text, not a newer unsent edit.
+	if current.HTMLBody == "" && current.TextBody != "" {
+		generated := "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(current.TextBody) + "</pre></body></html>"
+		if delivered.HTMLBody == generated {
+			current.HTMLBody = generated
+		}
+	}
 	currentJSON, err := json.Marshal(snapshotOutgoingMessage(current))
 	if err != nil {
 		return false

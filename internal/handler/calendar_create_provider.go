@@ -70,7 +70,7 @@ func calendarCreateJSON(ctx context.Context, method, endpoint, token string, pay
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Prefer", `IdType="ImmutableId"`)
 	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	response, err := client.Do(req)
+	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return err
 	}
@@ -375,7 +375,7 @@ func createCalDAVCalendarEvent(ctx context.Context, source storage.CalendarSourc
 	}
 	req.Header.Set("Content-Type", "text/calendar; charset=utf-8")
 	req.Header.Set("If-None-Match", "*") // Never overwrite a pre-existing event.
-	response, err := client.Do(req)
+	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}
@@ -386,7 +386,7 @@ func createCalDAVCalendarEvent(ctx context.Context, source storage.CalendarSourc
 		if err != nil {
 			return calendar.RemoteEvent{}, err
 		}
-		response, err := client.Do(req)
+		response, err := calendarProviderDo(client, req)
 		if err != nil {
 			return calendar.RemoteEvent{}, err
 		}

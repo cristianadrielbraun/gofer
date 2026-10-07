@@ -184,7 +184,7 @@ func (db *DB) MarkProviderMessageDeleted(ctx context.Context, accountID, provide
 		SELECT DISTINCT mfs.folder_id
 		FROM message_folder_state mfs
 		JOIN messages m ON m.id = mfs.message_id
-		WHERE m.account_id = ? AND m.remote_message_id = ? AND mfs.is_deleted = 0`, accountID, providerMessageID)
+		WHERE m.account_id = ? AND m.remote_message_id = ? AND mfs.is_deleted = 0`+db.userProviderDraftProtectionSQL("m"), accountID, providerMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,8 +207,8 @@ func (db *DB) MarkProviderMessageDeleted(ctx context.Context, accountID, provide
 		UPDATE message_folder_state
 		SET is_deleted = 1, synced_at = CURRENT_TIMESTAMP
 		WHERE message_id IN (
-			SELECT id FROM messages WHERE account_id = ? AND remote_message_id = ?
-		)`, accountID, providerMessageID); err != nil {
+			SELECT m.id FROM messages m WHERE m.account_id = ? AND m.remote_message_id = ?
+		`+db.userProviderDraftProtectionSQL("m")+`)`, accountID, providerMessageID); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `

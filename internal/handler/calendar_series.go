@@ -238,45 +238,59 @@ func (h *Handler) readCalendarProviderSeries(ctx context.Context, source storage
 		if credentials.err != nil {
 			return storage.CalendarEvent{}, calendarCreateAuthError{credentials.err}
 		}
-		switch source.Provider {
-		case providers.ProviderGmail:
-			var remote googleCalendarUpdateEvent
-			err = calendarCreateJSON(ctx, http.MethodGet, googleCalendarAPIBaseURL+"/calendars/"+url.PathEscape(source.RemoteID)+"/events/"+url.PathEscape(id), credentials.token, nil, &remote)
-			if err == nil {
-				event, err = calendarGoogleSeriesEvent(remote)
-			}
-		case providers.ProviderOutlook:
-			var remote outlookCalendarUpdateEvent
-			err = calendarCreateJSON(ctx, http.MethodGet, outlookGraphBaseURL+"/me/calendars/"+url.PathEscape(source.RemoteID)+"/events/"+url.PathEscape(id), credentials.token, nil, &remote)
-			if err == nil {
-				event, err = calendarOutlookSeriesEvent(remote)
-			}
-		case storage.CalendarSourceProviderCalDAV:
-			endpoint, endpointErr := calendarUpdateCalDAVEndpoint(source, storage.CalendarEvent{RemoteID: id})
-			if endpointErr != nil {
-				return storage.CalendarEvent{}, endpointErr
-			}
-			location := time.UTC
-			if source.TimeZone != "" {
-				location, err = calendarSeriesLocation(source.TimeZone)
-				if err != nil {
-					return storage.CalendarEvent{}, err
-				}
-			}
-			client := &http.Client{Transport: calDAVHTTPTransport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			cal, headers, getErr := calendarUpdateCalDAVGet(ctx, client, endpoint, credentials.username, credentials.password)
-			err = getErr
-			if err == nil {
-				if calendarOccurrenceScope(deletingScope) {
-					event, err = calendarCalDAVDeleteSeriesEvent(cal, headers, endpoint, location)
-				} else {
-					event, err = calendarCalDAVSeriesEvent(cal, headers, endpoint, location)
-				}
-			}
-		default:
-			err = errCalendarUpdateUnsupported
-		}
+		return readCalendarProviderSeriesWithCredentials(ctx, source, occurrence, credentials, deletingScope...)
 	}
+	return calendarProviderSeriesResult(source, occurrence, event, err)
+}
+
+func readCalendarProviderSeriesWithCredentials(ctx context.Context, source storage.CalendarSource, occurrence storage.CalendarEvent, credentials calendarCredentials, deletingScope ...bool) (storage.CalendarEvent, error) {
+	id := calendarSeriesID(occurrence)
+	var event calendar.RemoteEvent
+	var err error
+	switch source.Provider {
+	case providers.ProviderGmail:
+		var remote googleCalendarUpdateEvent
+		err = calendarCreateJSON(ctx, http.MethodGet, googleCalendarAPIBaseURL+"/calendars/"+url.PathEscape(source.RemoteID)+"/events/"+url.PathEscape(id), credentials.token, nil, &remote)
+		if err == nil {
+			event, err = calendarGoogleSeriesEvent(remote)
+		}
+	case providers.ProviderOutlook:
+		var remote outlookCalendarUpdateEvent
+		err = calendarCreateJSON(ctx, http.MethodGet, outlookGraphBaseURL+"/me/calendars/"+url.PathEscape(source.RemoteID)+"/events/"+url.PathEscape(id), credentials.token, nil, &remote)
+		if err == nil {
+			event, err = calendarOutlookSeriesEvent(remote)
+		}
+	case storage.CalendarSourceProviderCalDAV:
+		endpoint, endpointErr := calendarUpdateCalDAVEndpoint(source, storage.CalendarEvent{RemoteID: id})
+		if endpointErr != nil {
+			return storage.CalendarEvent{}, endpointErr
+		}
+		location := time.UTC
+		if source.TimeZone != "" {
+			location, err = calendarSeriesLocation(source.TimeZone)
+			if err != nil {
+				return storage.CalendarEvent{}, err
+			}
+		}
+		client := &http.Client{Transport: calDAVHTTPTransport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		cal, headers, getErr := calendarUpdateCalDAVGet(ctx, client, endpoint, credentials.username, credentials.password)
+		err = getErr
+		if err == nil {
+			if calendarOccurrenceScope(deletingScope) {
+				event, err = calendarCalDAVDeleteSeriesEvent(cal, headers, endpoint, location)
+			} else {
+				event, err = calendarCalDAVSeriesEvent(cal, headers, endpoint, location)
+			}
+		}
+	default:
+		err = errCalendarUpdateUnsupported
+	}
+	return calendarProviderSeriesResult(source, occurrence, event, err)
+}
+
+func calendarProviderSeriesResult(source storage.CalendarSource, occurrence storage.CalendarEvent, event calendar.RemoteEvent, err error) (storage.CalendarEvent, error) {
+	id := calendarSeriesID(occurrence)
+
 	if err != nil {
 		return storage.CalendarEvent{}, err
 	}

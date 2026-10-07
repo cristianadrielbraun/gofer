@@ -767,6 +767,13 @@ func TestUserOutlookThrottlingDefersAccountAndStopsFurtherRequests(t *testing.T)
 		t.Fatal(err)
 	}
 	f.api.change("alice", func(s *routedOutlookState) { s.throttled = false })
+	if err := f.worker.Sync(t.Context(), "alice", f.ids["alice"]); err == nil {
+		t.Fatal("manual sync bypassed durable provider cooldown")
+	}
+	// Advance the disposable store's deadline rather than waiting five minutes.
+	if _, err := f.system.Write().Exec(`UPDATE gofer_account_provider_retry SET retry_until_ms=0 WHERE account_id=?`, f.ids["alice"]); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.worker.Sync(t.Context(), "alice", f.ids["alice"]); err != nil {
 		t.Fatal(err)
 	}

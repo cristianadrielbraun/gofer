@@ -63,6 +63,11 @@ func findCalendarTeamsDraft(ctx context.Context, source storage.CalendarSource, 
 	if remote.ID == "" || calendarTeamsDraftMarker(remote) != "draft:"+d.DraftID {
 		return "", fmt.Errorf("Microsoft did not confirm the draft identity")
 	}
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned && p.cleanup != nil {
+		if err := p.allowMeetingCleanupRead(ctx, d.DraftID, remote.ID); err != nil {
+			return "", err
+		}
+	}
 	return remote.ID, nil
 }
 func calendarTeamsDraftPrivate(remote outlookCalendarUpdateEvent, d storage.CalendarTeamsDraft) bool {
@@ -97,7 +102,7 @@ func (h *Handler) prepareCalendarTeamsDraft(ctx context.Context, source storage.
 		if id == "" {
 			return false, fmt.Errorf("Microsoft did not return a draft identity")
 		}
-		if err := h.db.SetCalendarTeamsDraftRemote(ctx, *d, id); err != nil {
+		if err := h.setCalendarTeamsDraftRemote(ctx, *d, id); err != nil {
 			return false, err
 		}
 		d.RemoteID = id
@@ -120,7 +125,7 @@ func (h *Handler) prepareCalendarTeamsDraft(ctx context.Context, source storage.
 			if d.MeetingJSON != "" {
 				meeting = d.MeetingJSON
 			}
-			if err := h.db.CompleteCalendarTeamsDraft(ctx, *d, meeting); err != nil {
+			if err := h.completeCalendarTeamsDraft(ctx, *d, meeting); err != nil {
 				return false, err
 			}
 			d.MeetingJSON = meeting
@@ -242,6 +247,12 @@ func (h *Handler) attachCalendarTeamsDraft(ctx context.Context, source storage.C
 	if !draft.TeamsMeeting || draft.TeamsDraftID == "" {
 		return nil
 	}
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned {
+		if p == nil || p.h != h {
+			return storage.ErrCalendarCreateConflict
+		}
+		return p.attachMeetingDraft(ctx, source, draft, "create:"+draft.RequestID, "outlook")
+	}
 	d, err := h.db.GetCalendarTeamsDraft(ctx, source.UserID, source.ID, draft.TeamsDraftID)
 	if err != nil {
 		return err
@@ -344,6 +355,11 @@ func cleanupCalendarTeamsDraft(ctx context.Context, source storage.CalendarSourc
 	}
 	if !calendarTeamsDraftPrivate(remote, d) || !calendarUpdateValidETag(remote.ODataETag, true) {
 		return fmt.Errorf("temporary Teams event identity or version changed")
+	}
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned && p.cleanup != nil {
+		if err := p.allowMeetingCleanupDelete(ctx, source, d.DraftID, remote.ID, remote.ODataETag); err != nil {
+			return err
+		}
 	}
 	return calendarDeleteJSON(ctx, calendarTeamsDraftEndpoint(source, d.RemoteID), token, remote.ODataETag)
 }

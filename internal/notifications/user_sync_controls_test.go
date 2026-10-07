@@ -252,8 +252,8 @@ func TestUserIMAPControlsSettingsAtomicOwnedModesAndEmailToggle(t *testing.T) {
 	if rec := f.request("bob", http.MethodPost, "/api/accounts/"+alice+"/service", "service=email&enabled=false"); rec.Code != 404 {
 		t.Fatal("foreign email toggle accepted")
 	}
-	if rec := f.request("alice", http.MethodPost, "/api/accounts/"+alice+"/service", "service=contacts&enabled=true"); rec.Code != 501 {
-		t.Fatal("unconverted service was silently enabled")
+	if rec := f.request("alice", http.MethodPost, "/api/accounts/"+alice+"/service", "service=contacts&enabled=true"); rec.Code != 409 {
+		t.Fatal("unconfigured contact service was silently enabled")
 	}
 	if err := f.routing.WithUser(t.Context(), "bob", func(db *storage.DB) error {
 		if db.GetSyncInterval(t.Context(), "bob") != 5 {
@@ -433,5 +433,25 @@ func TestUserIMAPControlsManualRunSkipsAccountDisabledWhileQueued(t *testing.T) 
 		case <-timer.C:
 			t.Fatal("manual run did not complete")
 		}
+	}
+}
+
+func TestUserGmailActivePollingIsStartedByOwnedHTTPEventStream(t *testing.T) {
+	f, _ := newProviderActionFixture(t, "gmail")
+	if err := f.imap.Start(mail.UserIMAPBackgroundOptions{PollInterval: time.Hour, ScanInterval: time.Hour, DisableIDLE: true}); err != nil {
+		t.Fatal(err)
+	}
+	_ = openUserEventStream(t, f, "alice")
+	waitUserIMAP(t, func() bool {
+		var count int
+		err := f.system.Read().QueryRow(`SELECT COUNT(*) FROM gofer_account_active_poll WHERE account_id=? AND last_attempt_ns>0`, f.accounts["alice"].ID).Scan(&count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return count == 1
+	})
+	var count int
+	if err := f.system.Read().QueryRow(`SELECT COUNT(*) FROM gofer_account_active_poll WHERE account_id=?`, f.accounts["bob"].ID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("idle owner's active schedule: %d %v", count, err)
 	}
 }

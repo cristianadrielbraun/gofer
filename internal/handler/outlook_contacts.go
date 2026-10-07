@@ -396,25 +396,7 @@ func (h *Handler) searchOutlookContacts(ctx context.Context, accessToken, query 
 			return nil, err
 		}
 		for _, remote := range page.Contacts {
-			matched := strings.Contains(strings.ToLower(strings.TrimSpace(remote.DisplayName)), query)
-			for _, email := range remote.EmailAddresses {
-				if strings.Contains(strings.ToLower(strings.TrimSpace(email.Address)), query) {
-					matched = true
-					break
-				}
-			}
-			queryPhone := normalizedContactSyncPhone(query)
-			if !matched && len(queryPhone) >= 7 {
-				phones := append(append([]string{}, remote.BusinessPhones...), remote.HomePhones...)
-				phones = append(phones, remote.MobilePhone)
-				for _, phone := range phones {
-					if strings.Contains(normalizedContactSyncPhone(phone), queryPhone) {
-						matched = true
-						break
-					}
-				}
-			}
-			if matched {
+			if outlookContactMatchesSetupQuery(remote, query) {
 				matches = append(matches, remote)
 				if len(matches) == 10 {
 					break

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"errors"
 	"mime"
 	"net/http"
 	"os"
@@ -47,14 +48,27 @@ func (h *Handler) userAttachment(w http.ResponseWriter, r *http.Request, inline,
 	// Open a copied path under account activity protection, with no database
 	// lease. The open file stays readable if cleanup unlinks it during delivery.
 	var file *os.File
-	err = h.userStorage.WithAccountActivityForUser(ctx, owner, info.AccountID, func() error {
-		if info.StoragePath == "" {
-			return sql.ErrNoRows
+	open := func() error {
+		return h.userStorage.WithAccountActivityForUser(ctx, owner, info.AccountID, func() error {
+			if info.StoragePath == "" {
+				return sql.ErrNoRows
+			}
+			var err error
+			file, err = os.Open(info.StoragePath)
+			return err
+		})
+	}
+	err = open()
+	if h.userIMAP != nil && (errors.Is(err, sql.ErrNoRows) || errors.Is(err, os.ErrNotExist)) {
+		info, err = h.userIMAP.EnsureAttachment(ctx, owner, info.ID)
+		if err == nil {
+			if preview && !isPreviewableImage(info.ContentType, info.Filename) {
+				http.NotFound(w, r)
+				return
+			}
+			err = open()
 		}
-		var err error
-		file, err = os.Open(info.StoragePath)
-		return err
-	})
+	}
 	if err != nil {
 		userAccountError(w, r, err)
 		return

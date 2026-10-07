@@ -25,6 +25,30 @@ func (db *DB) SaveContactProfile(ctx context.Context, userID string, profile mod
 	if userID == "" {
 		return models.ContactProfile{}, fmt.Errorf("user is required")
 	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return models.ContactProfile{}, err
+	}
+	defer tx.Rollback()
+	profile, err = saveContactProfileTx(ctx, tx, userID, profile)
+	if err != nil {
+		return models.ContactProfile{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.ContactProfile{}, err
+	}
+	saved, err := db.GetContactProfile(ctx, userID, profile.ID)
+	if err != nil || saved == nil {
+		return models.ContactProfile{}, err
+	}
+	return *saved, nil
+}
+
+func saveContactProfileTx(ctx context.Context, tx *sql.Tx, userID string, profile models.ContactProfile) (models.ContactProfile, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return models.ContactProfile{}, fmt.Errorf("user is required")
+	}
 	profile.ID = strings.TrimSpace(profile.ID)
 	if profile.ID == "" {
 		profile.ID = uuid.NewString()
@@ -40,12 +64,6 @@ func (db *DB) SaveContactProfile(ctx context.Context, userID string, profile mod
 	if profile.Origin == "" {
 		profile.Origin = "manual"
 	}
-
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return models.ContactProfile{}, err
-	}
-	defer tx.Rollback()
 
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted)
@@ -76,14 +94,7 @@ func (db *DB) SaveContactProfile(ctx context.Context, userID string, profile mod
 	if err := replaceContactFieldsTx(ctx, tx, profile); err != nil {
 		return models.ContactProfile{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return models.ContactProfile{}, err
-	}
-	saved, err := db.GetContactProfile(ctx, userID, profile.ID)
-	if err != nil || saved == nil {
-		return models.ContactProfile{}, err
-	}
-	return *saved, nil
+	return profile, nil
 }
 
 func upsertContactCardsTx(ctx context.Context, tx *sql.Tx, profile models.ContactProfile) error {
@@ -181,9 +192,42 @@ func replaceContactFieldsTx(ctx context.Context, tx *sql.Tx, profile models.Cont
 }
 
 func (db *DB) GetContactProfile(ctx context.Context, userID, profileID string) (*models.ContactProfile, error) {
+	return contactProfileStateQuery(ctx, db.Read(), userID, profileID)
+}
+
+func contactProfileStateQuery(ctx context.Context, query contactProfileQuery, userID, profileID string) (*models.ContactProfile, error) {
+	profile, err := contactProfileRow(ctx, query, userID, profileID)
+	if err != nil || profile == nil {
+		return nil, err
+	}
+	cards, err := contactCardsQuery(ctx, query, userID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	fields, err := contactFieldsQuery(ctx, query, userID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	profile.Cards = cards
+	profile.Fields = fields
+	memberships, err := contactMembershipsQuery(ctx, query, userID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	profile.SyncMemberships = memberships
+	profile.Insights = ContactProfileInsights(*profile)
+	return profile, nil
+}
+
+type contactProfileQuery interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func contactProfileRow(ctx context.Context, query contactProfileQuery, userID, profileID string) (*models.ContactProfile, error) {
 	var profile models.ContactProfile
 	var syncEnabled, isDeleted int
-	err := db.Read().QueryRowContext(ctx, `
+	err := query.QueryRowContext(ctx, `
 		SELECT id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted, created_at, updated_at
 		FROM contact_profiles
 		WHERE user_id = ? AND id = ?`, userID, profileID).Scan(&profile.ID, &profile.UserID, &profile.DisplayName, &profile.SortName, &profile.PrimaryEmail, &profile.AvatarURL, &profile.Notes, &profile.Origin, &syncEnabled, &isDeleted, &profile.CreatedAt, &profile.UpdatedAt)
@@ -195,22 +239,6 @@ func (db *DB) GetContactProfile(ctx context.Context, userID, profileID string) (
 	}
 	profile.IsDeleted = isDeleted == 1
 	profile.SyncEnabled = syncEnabled == 1
-	cards, err := db.ListContactCards(ctx, userID, profileID)
-	if err != nil {
-		return nil, err
-	}
-	fields, err := db.ListContactFields(ctx, userID, profileID)
-	if err != nil {
-		return nil, err
-	}
-	profile.Cards = cards
-	profile.Fields = fields
-	memberships, err := db.ListContactSyncMemberships(ctx, userID, profileID)
-	if err != nil {
-		return nil, err
-	}
-	profile.SyncMemberships = memberships
-	profile.Insights = ContactProfileInsights(profile)
 	return &profile, nil
 }
 
@@ -354,7 +382,11 @@ func contactInsightFieldLabel(kind string) string {
 }
 
 func (db *DB) ListContactCards(ctx context.Context, userID, profileID string) ([]models.ContactCard, error) {
-	rows, err := db.Read().QueryContext(ctx, `
+	return contactCardsQuery(ctx, db.Read(), userID, profileID)
+}
+
+func contactCardsQuery(ctx context.Context, query contactProfileQuery, userID, profileID string) ([]models.ContactCard, error) {
+	rows, err := query.QueryContext(ctx, `
 		SELECT id, user_id, profile_id, kind, provider, account_id, address_book_id, remote_id, etag, raw_payload, raw_payload_type, sync_status, last_error, is_deleted
 		FROM contact_cards
 		WHERE user_id = ? AND profile_id = ?
@@ -377,7 +409,11 @@ func (db *DB) ListContactCards(ctx context.Context, userID, profileID string) ([
 }
 
 func (db *DB) ListContactFields(ctx context.Context, userID, profileID string) ([]models.ContactField, error) {
-	rows, err := db.Read().QueryContext(ctx, `
+	return contactFieldsQuery(ctx, db.Read(), userID, profileID)
+}
+
+func contactFieldsQuery(ctx context.Context, query contactProfileQuery, userID, profileID string) ([]models.ContactField, error) {
+	rows, err := query.QueryContext(ctx, `
 		SELECT id, user_id, profile_id, COALESCE(card_id, ''), kind, label, value, normalized_value, is_primary, ordinal, source, confidence
 		FROM contact_fields
 		WHERE user_id = ? AND profile_id = ?

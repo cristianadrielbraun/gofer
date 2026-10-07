@@ -37,8 +37,9 @@ type userCredentialGate struct {
 type userCredentialIdentity struct{ owner, account, provider, subject string }
 type userCredentialRecord struct {
 	oauthTokenRecord
-	owner    string
-	revision int64
+	owner         string
+	revision      int64
+	grantedScopes string
 }
 
 func NewUserCredentials(ctx context.Context, cfg *Config, routing *storage.AccountRouting, key []byte) (*UserCredentials, error) {
@@ -68,7 +69,7 @@ func NewUserCredentials(ctx context.Context, cfg *Config, routing *storage.Accou
 			refresh_token_ciphertext BLOB CHECK(refresh_token_ciphertext IS NULL OR length(refresh_token_ciphertext)>0),
 			key_version INTEGER NOT NULL CHECK(key_version=2),
 			token_type TEXT NOT NULL DEFAULT 'Bearer', expires_at DATETIME,
-			scopes TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0),
+			scopes TEXT NOT NULL DEFAULT '', granted_scopes TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0),
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(user_id,provider,provider_account_id)
@@ -89,6 +90,35 @@ func NewUserCredentials(ctx context.Context, cfg *Config, routing *storage.Accou
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("initialize user mailbox credentials: %w", err)
+	}
+	// Older opt-in stores have only the cached token scope. Preserve only that
+	// recorded evidence on reads; missing historical grants require reconnect.
+	columns, err := tx.QueryContext(ctx, `PRAGMA table_info(gofer_mailbox_credentials)`)
+	if err != nil {
+		return nil, err
+	}
+	hasGrants := false
+	for columns.Next() {
+		var cid, notNull, pk int
+		var name, kind string
+		var defaultValue sql.NullString
+		if err := columns.Scan(&cid, &name, &kind, &notNull, &defaultValue, &pk); err != nil {
+			columns.Close()
+			return nil, err
+		}
+		if name == "granted_scopes" {
+			hasGrants = true
+		}
+	}
+	scanErr := columns.Err()
+	columns.Close()
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if !hasGrants {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE gofer_mailbox_credentials ADD COLUMN granted_scopes TEXT NOT NULL DEFAULT ''`); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -240,9 +270,9 @@ func (s *UserCredentials) UpsertForUser(ctx context.Context, owner, id, provider
 				}
 			}
 			if existing {
-				_, err = tx.ExecContext(ctx, `UPDATE gofer_mailbox_credentials SET provider=?,provider_account_id=?,access_token_ciphertext=?,refresh_token_ciphertext=?,token_type=?,expires_at=?,scopes=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE account_id=? AND user_id=?`, provider, subject, accessBytes, refreshBytes, tokenType, expires, scopes, id, owner)
+				_, err = tx.ExecContext(ctx, `UPDATE gofer_mailbox_credentials SET provider=?,provider_account_id=?,access_token_ciphertext=?,refresh_token_ciphertext=?,token_type=?,expires_at=?,scopes=?,granted_scopes=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE account_id=? AND user_id=?`, provider, subject, accessBytes, refreshBytes, tokenType, expires, scopes, scopes, id, owner)
 			} else {
-				_, err = tx.ExecContext(ctx, `INSERT INTO gofer_mailbox_credentials(id,account_id,user_id,provider,provider_account_id,access_token_ciphertext,refresh_token_ciphertext,key_version,token_type,expires_at,scopes) VALUES(?,?,?,?,?,?,?,2,?,?,?)`, credential.ID, id, owner, provider, subject, accessBytes, refreshBytes, tokenType, expires, scopes)
+				_, err = tx.ExecContext(ctx, `INSERT INTO gofer_mailbox_credentials(id,account_id,user_id,provider,provider_account_id,access_token_ciphertext,refresh_token_ciphertext,key_version,token_type,expires_at,scopes,granted_scopes) VALUES(?,?,?,?,?,?,?,2,?,?,?,?)`, credential.ID, id, owner, provider, subject, accessBytes, refreshBytes, tokenType, expires, scopes, scopes)
 			}
 			if err != nil {
 				return fmt.Errorf("save mailbox authorization: %w", err)
@@ -256,9 +286,9 @@ func (s *UserCredentials) load(ctx context.Context, owner, id string) (record us
 	err = s.withIdentity(ctx, owner, id, false, func(identity userCredentialIdentity) error {
 		var access, refresh []byte
 		var version int
-		err := s.routing.System().Read().QueryRowContext(ctx, `SELECT c.id,c.account_id,c.provider,c.provider_account_id,c.access_token_ciphertext,c.refresh_token_ciphertext,c.key_version,c.token_type,c.expires_at,c.scopes,c.revision
+		err := s.routing.System().Read().QueryRowContext(ctx, `SELECT c.id,c.account_id,c.provider,c.provider_account_id,c.access_token_ciphertext,c.refresh_token_ciphertext,c.key_version,c.token_type,c.expires_at,c.scopes,COALESCE(NULLIF(c.granted_scopes,''),c.scopes),c.revision
 		 FROM gofer_mailbox_credentials c JOIN gofer_account_directory d ON d.account_id=c.account_id JOIN users u ON u.id=d.user_id
-		 WHERE c.account_id=? AND c.user_id=? AND c.provider=? AND c.provider_account_id=? AND d.user_id=c.user_id AND d.state='active' AND u.status='active' AND u.deletion_pending=0 AND u.user_type='webmail' AND u.is_admin=0`, id, owner, identity.provider, identity.subject).Scan(&record.ID, &record.AccountID, &record.Provider, &record.ProviderAccountID, &access, &refresh, &version, &record.TokenType, &record.ExpiresAt, &record.Scopes, &record.revision)
+		 WHERE c.account_id=? AND c.user_id=? AND c.provider=? AND c.provider_account_id=? AND d.user_id=c.user_id AND d.state='active' AND u.status='active' AND u.deletion_pending=0 AND u.user_type='webmail' AND u.is_admin=0`, id, owner, identity.provider, identity.subject).Scan(&record.ID, &record.AccountID, &record.Provider, &record.ProviderAccountID, &access, &refresh, &version, &record.TokenType, &record.ExpiresAt, &record.Scopes, &record.grantedScopes, &record.revision)
 		if err != nil {
 			return fmt.Errorf("load mailbox authorization: %w", err)
 		}
@@ -297,15 +327,25 @@ func (s *UserCredentials) publish(ctx context.Context, record userCredentialReco
 			expiry = &token.Expiry
 		}
 		scopes, _ := token.Extra("scope").(string)
-		if strings.TrimSpace(scopes) == "" {
+		granted := record.grantedScopes
+		if strings.TrimSpace(scopes) != "" {
+			if record.Provider == providers.OAuthGoogle {
+				granted = scopes
+			} else {
+				granted = mergeKnownScopes(granted, scopes)
+			}
+		}
+		if strings.TrimSpace(scopes) == "" && record.Provider == providers.OAuthGoogle {
 			scopes = record.Scopes
 		}
+		// A scoped Graph refresh can change permissions/resources. An omitted
+		// response scope cannot relabel its new token with the old cache scope.
 		tokenType := token.TokenType
 		if tokenType == "" {
 			tokenType = "Bearer"
 		}
-		result, err := s.routing.System().Write().ExecContext(ctx, `UPDATE gofer_mailbox_credentials SET access_token_ciphertext=?,refresh_token_ciphertext=CASE WHEN ? IS NULL THEN refresh_token_ciphertext ELSE ? END,token_type=?,expires_at=?,scopes=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP
-		 WHERE id=? AND account_id=? AND user_id=? AND provider=? AND provider_account_id=? AND revision=?`, access, refresh, refresh, tokenType, expiry, scopes, record.ID, record.AccountID, record.owner, record.Provider, record.ProviderAccountID, record.revision)
+		result, err := s.routing.System().Write().ExecContext(ctx, `UPDATE gofer_mailbox_credentials SET access_token_ciphertext=?,refresh_token_ciphertext=CASE WHEN ? IS NULL THEN refresh_token_ciphertext ELSE ? END,token_type=?,expires_at=?,scopes=?,granted_scopes=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP
+		 WHERE id=? AND account_id=? AND user_id=? AND provider=? AND provider_account_id=? AND revision=?`, access, refresh, refresh, tokenType, expiry, scopes, granted, record.ID, record.AccountID, record.owner, record.Provider, record.ProviderAccountID, record.revision)
 		if err != nil {
 			return err
 		}
@@ -320,11 +360,21 @@ func (s *UserCredentials) publish(ctx context.Context, record userCredentialReco
 	})
 }
 
-func (s *UserCredentials) token(ctx context.Context, owner, id string, force, graphOnly bool) (access string, err error) {
+func (s *UserCredentials) token(ctx context.Context, owner, id string, force, graphOnly bool) (string, error) {
+	authorization, err := s.mailboxAuthorizationFrom(ctx, owner, id, force, graphOnly, nil)
+	if err != nil {
+		return "", err
+	}
+	return authorization.Token(), nil
+}
+func (s *UserCredentials) mailboxAuthorizationFrom(ctx context.Context, owner, id string, force, graphOnly bool, expected *UserServiceAuthorization) (authorization *UserServiceAuthorization, err error) {
 	err = s.operation(ctx, owner, id, true, func(ctx context.Context) error {
 		record, err := s.load(ctx, owner, id)
 		if err != nil {
 			return err
+		}
+		if expected != nil && (expected.repository != s || expected.owner != owner || expected.account != id || expected.purpose != userCredentialMailbox || expected.id != record.ID || expected.provider != record.Provider || expected.subject != record.ProviderAccountID || expected.revision != record.revision) {
+			return ErrMailboxAuthorizationChanged
 		}
 		if graphOnly && record.Provider != providers.OAuthMicrosoft {
 			return errors.New("mailbox is not an Outlook account")
@@ -333,8 +383,8 @@ func (s *UserCredentials) token(ctx context.Context, owner, id string, force, gr
 		if record.Provider == providers.OAuthMicrosoft {
 			scopes = microsoftGraphMailScopes()
 		}
-		if !force && record.AccessToken != "" && record.ExpiresAt.Valid && record.ExpiresAt.Time.After(time.Now().Add(5*time.Minute)) && recordHasScopes(record.Scopes, scopes...) {
-			access = record.AccessToken
+		if !force && record.AccessToken != "" && record.ExpiresAt.Valid && record.ExpiresAt.Time.After(time.Now().Add(5*time.Minute)) && ownedGraphHasScopes(record.Scopes, scopes...) {
+			authorization = s.authorizationFor(record, userCredentialMailbox, record.AccessToken)
 			return nil
 		}
 		if record.RefreshToken == "" {
@@ -364,13 +414,14 @@ func (s *UserCredentials) token(ctx context.Context, owner, id string, force, gr
 		if err := s.publish(ctx, record, token); err != nil {
 			return err
 		}
-		access = token.AccessToken
+		record.revision++
+		authorization = s.authorizationFor(record, userCredentialMailbox, token.AccessToken)
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return access, nil
+	return authorization, nil
 }
 
 func (s *UserCredentials) GetOAuthTokenForUser(ctx context.Context, owner, id string) (string, error) {
@@ -386,23 +437,30 @@ func (s *UserCredentials) GetMicrosoftGraphMailTokenForUser(ctx context.Context,
 // Account binds the legacy provider interfaces to one authorized owner/account.
 // Each call validates current routing and never consults shared mailbox rows.
 func (s *UserCredentials) Account(owner, id string) *UserAccountCredentials {
-	return &UserAccountCredentials{s, owner, id}
+	return &UserAccountCredentials{credentials: s, owner: owner, id: id}
 }
 
 type UserAccountCredentials struct {
 	credentials *UserCredentials
 	owner, id   string
+	purpose     userCredentialPurpose
 }
 
 func (s *UserAccountCredentials) GetOAuthTokenForAccount(ctx context.Context, id string) (string, error) {
 	if id != s.id {
 		return "", storage.ErrAccountRoute
 	}
+	if s.purpose != userCredentialMailbox {
+		return s.credentials.serviceToken(ctx, s.owner, id, s.purpose, "", false)
+	}
 	return s.credentials.GetOAuthTokenForUser(ctx, s.owner, id)
 }
 func (s *UserAccountCredentials) RefreshOAuthTokenForAccount(ctx context.Context, id string) (string, error) {
 	if id != s.id {
 		return "", storage.ErrAccountRoute
+	}
+	if s.purpose != userCredentialMailbox {
+		return s.credentials.serviceToken(ctx, s.owner, id, s.purpose, "", true)
 	}
 	return s.credentials.RefreshOAuthTokenForUser(ctx, s.owner, id)
 }

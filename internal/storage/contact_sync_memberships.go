@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -9,7 +10,11 @@ import (
 )
 
 func (db *DB) ListContactSyncMemberships(ctx context.Context, userID, profileID string) ([]models.ContactSyncMembership, error) {
-	rows, err := db.Read().QueryContext(ctx, `
+	return contactMembershipsQuery(ctx, db.Read(), userID, profileID)
+}
+
+func contactMembershipsQuery(ctx context.Context, query contactProfileQuery, userID, profileID string) ([]models.ContactSyncMembership, error) {
+	rows, err := query.QueryContext(ctx, `
 		SELECT id, user_id, profile_id, account_id, address_book_id, enabled, status, last_error
 		FROM contact_sync_memberships
 		WHERE user_id = ? AND profile_id = ?
@@ -40,6 +45,13 @@ func (db *DB) ReplaceContactSyncMemberships(ctx context.Context, userID, profile
 		return err
 	}
 	defer tx.Rollback()
+	if err := replaceContactSyncMembershipsTx(ctx, tx, userID, profileID, targets); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func replaceContactSyncMembershipsTx(ctx context.Context, tx *sql.Tx, userID, profileID string, targets []string) error {
 	normalizedTargets := normalizeContactSaveTargets(targets)
 	localSelected := false
 	for _, target := range normalizedTargets {
@@ -88,5 +100,5 @@ func (db *DB) ReplaceContactSyncMemberships(ctx context.Context, userID, profile
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }

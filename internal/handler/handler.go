@@ -79,9 +79,12 @@ type Handler struct {
 	contactSyncMu              sync.Mutex
 	contactSyncRunning         map[string]struct{}
 	contactSyncQueue           chan struct{}
+	userContactWorkers         *userContactWorkers
 	calendarWorkerOnce         sync.Once
 	calendarSyncMu             sync.Mutex
 	calendarSyncRunning        map[string]*calendarSyncRun
+	calendarUserSyncRunning    map[string]*calendarSyncRun
+	userCalendarWorkers        *userCalendarWorkers
 	calendarFetchEvents        func(context.Context, storage.CalendarSource, calendar.EventQuery) (calendar.EventPage, error)
 	calendarIncomingLookupTXT  func(context.Context, string) ([]string, error)
 	calendarCreateEvent        func(context.Context, storage.CalendarSource, calendar.EventDraft) (calendar.RemoteEvent, error)
@@ -814,89 +817,71 @@ func (h *Handler) startAutomaticContactBackfill(userID, sourceKey string) {
 func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.ensureContactsBackfilled(ctx)
-	userID := h.userID(ctx)
-	ctx = h.contextWithUserTimezone(ctx, userID)
-	switch r.URL.Query().Get("partial") {
-	case "activity":
-		selected, err := h.db.GetContact(ctx, userID, strings.TrimSpace(r.URL.Query().Get("contact")))
-		if err != nil {
-			http.Error(w, "failed to load contact activity", http.StatusInternalServerError)
-			return
-		}
-		if selected == nil {
-			http.NotFound(w, r)
-			return
-		}
-		recentActivity := h.recentContactActivity(ctx, userID, selected)
-		w.Header().Set("Content-Type", "text/html")
-		views.ContactRecentActivity(*selected, recentActivity).Render(ctx, w)
-		return
-	case "detail":
-		var selected *models.Contact
-		var selectedProfile *models.ContactProfile
-		if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
-			var err error
-			selected, selectedProfile, err = h.db.GetContactWithProfile(ctx, userID, id)
+	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
+		userID := local.userID(ctx)
+		ctx = local.contextWithUserTimezone(ctx, userID)
+		switch r.URL.Query().Get("partial") {
+		case "activity":
+			selected, err := local.db.GetContact(ctx, userID, strings.TrimSpace(r.URL.Query().Get("contact")))
 			if err != nil {
-				http.Error(w, "failed to load contact", http.StatusInternalServerError)
-				return
+				return nil, err
 			}
+			if selected == nil {
+				return nil, sql.ErrNoRows
+			}
+			return views.ContactRecentActivity(*selected, local.recentContactActivity(ctx, userID, selected)), nil
+		case "detail":
+			var selected *models.Contact
+			var profile *models.ContactProfile
+			if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
+				var err error
+				selected, profile, err = local.db.GetContactWithProfile(ctx, userID, id)
+				if err != nil {
+					return nil, err
+				}
+			}
+			accounts, _ := local.db.GetAccounts(ctx, userID)
+			return views.ContactsDetail(selected, profile, false, selected != nil && r.URL.Query().Get("sync") == "queued", accounts), nil
 		}
+		settings := local.db.GetUISettings(ctx, userID)
+		filters := applyContactSortDefaults(local.parseContactFilters(r), r, settings)
+		if filters.View == "" {
+			filters.View = contactViewMode(settings["contacts_list_view"])
+		}
+		if filters.View == "" {
+			filters.View = "cards"
+		}
+		contacts, err := local.db.ListContacts(ctx, userID, filters, 100, 0)
+		if err != nil {
+			return nil, err
+		}
+		total, err := local.db.CountContacts(ctx, userID, filters)
+		if err != nil {
+			return nil, err
+		}
+		var selected *models.Contact
+		var profile *models.ContactProfile
+		if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
+			selected, profile, _ = local.db.GetContactWithProfile(ctx, userID, id)
+		}
+		showNew := selected == nil && r.URL.Query().Get("new") == "1"
 		syncQueued := selected != nil && r.URL.Query().Get("sync") == "queued"
-		accounts, _ := h.db.GetAccounts(ctx, userID)
-		w.Header().Set("Content-Type", "text/html")
-		views.ContactsDetail(selected, selectedProfile, false, syncQueued, accounts).Render(ctx, w)
-		return
-	}
-	uiSettings := h.db.GetUISettings(ctx, userID)
-	filters := applyContactSortDefaults(h.parseContactFilters(r), r, uiSettings)
-	if filters.View == "" {
-		filters.View = contactViewMode(uiSettings["contacts_list_view"])
-	}
-	if filters.View == "" {
-		filters.View = "cards"
-	}
-	contacts, err := h.db.ListContacts(ctx, userID, filters, 100, 0)
-	if err != nil {
-		http.Error(w, "failed to load contacts", http.StatusInternalServerError)
-		return
-	}
-	totalCount, err := h.db.CountContacts(ctx, userID, filters)
-	if err != nil {
-		http.Error(w, "failed to count contacts", http.StatusInternalServerError)
-		return
-	}
-	var selected *models.Contact
-	var selectedProfile *models.ContactProfile
-	if id := strings.TrimSpace(r.URL.Query().Get("contact")); id != "" {
-		selected, selectedProfile, _ = h.db.GetContactWithProfile(ctx, userID, id)
-	}
-	showNew := selected == nil && r.URL.Query().Get("new") == "1"
-	syncQueued := selected != nil && r.URL.Query().Get("sync") == "queued"
-	accounts, _ := h.db.GetAccounts(ctx, userID)
-
-	if r.Header.Get("HX-Request") == "true" {
-		width := uiSettings["mail_list_width"]
-		if width == "" {
-			width = "50%"
+		accounts, _ := local.db.GetAccounts(ctx, userID)
+		if r.Header.Get("HX-Request") == "true" {
+			switch r.Header.Get("HX-Target") {
+			case "mail-list":
+				return views.ContactsAppPartial(accounts, contacts, selected, profile, showNew, syncQueued, filters, total, settings), nil
+			case "app-shell":
+				return views.ContactsShell(accounts, contacts, selected, profile, showNew, syncQueued, filters, total, settings), nil
+			}
+			width := settings["mail_list_width"]
+			if width == "" {
+				width = "50%"
+			}
+			return views.ContactsPage(contacts, selected, profile, showNew, syncQueued, filters, total, width, accounts), nil
 		}
-		w.Header().Set("Content-Type", "text/html")
-		if r.Header.Get("HX-Target") == "mail-list" {
-			layoutAccounts, _ := h.db.GetAccounts(ctx, userID)
-			views.ContactsAppPartial(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
-			return
-		}
-		if r.Header.Get("HX-Target") == "app-shell" {
-			layoutAccounts, _ := h.db.GetAccounts(ctx, userID)
-			views.ContactsShell(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
-			return
-		}
-		views.ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, width, accounts).Render(ctx, w)
-		return
-	}
-
-	layoutAccounts, _ := h.db.GetAccounts(ctx, userID)
-	views.ContactsLayout(layoutAccounts, contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettings).Render(ctx, w)
+		return views.ContactsLayout(accounts, contacts, selected, profile, showNew, syncQueued, filters, total, settings), nil
+	})
 }
 
 func (h *Handler) recentContactActivity(ctx context.Context, userID string, contact *models.Contact) []models.Email {
@@ -914,37 +899,36 @@ func (h *Handler) recentContactActivity(ctx context.Context, userID string, cont
 func (h *Handler) handleContactItems(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.ensureContactsBackfilled(ctx)
-	userID := h.userID(ctx)
-	ctx = h.contextWithUserTimezone(ctx, userID)
-	filters := applyContactSortDefaults(h.parseContactFilters(r), r, h.db.GetUISettings(ctx, userID))
-	if filters.View == "" {
-		filters.View = "cards"
-	}
-	start := atoiDefault(r.URL.Query().Get("start"), 0)
-	if start < 0 {
-		start = 0
-	}
-	limit := atoiDefault(r.URL.Query().Get("limit"), 100)
-	if limit <= 0 || limit > 200 {
-		limit = 100
-	}
-	contacts, err := h.db.ListContacts(ctx, userID, filters, limit, start)
-	if err != nil {
-		http.Error(w, "failed to load contacts", http.StatusInternalServerError)
-		return
-	}
-	totalCount, err := h.db.CountContacts(ctx, userID, filters)
-	if err != nil {
-		http.Error(w, "failed to count contacts", http.StatusInternalServerError)
-		return
-	}
-	var selected *models.Contact
-	if id := strings.TrimSpace(r.URL.Query().Get("selected")); id != "" {
-		selected, _ = h.db.GetContact(ctx, userID, id)
-	}
-	accounts, _ := h.db.GetAccounts(ctx, userID)
-	w.Header().Set("Content-Type", "text/html")
-	views.ContactsItemsFragment(contacts, selected, filters, totalCount, start, accounts).Render(ctx, w)
+	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
+		userID := local.userID(ctx)
+		ctx = local.contextWithUserTimezone(ctx, userID)
+		filters := applyContactSortDefaults(local.parseContactFilters(r), r, local.db.GetUISettings(ctx, userID))
+		if filters.View == "" {
+			filters.View = "cards"
+		}
+		start := atoiDefault(r.URL.Query().Get("start"), 0)
+		if start < 0 {
+			start = 0
+		}
+		limit := atoiDefault(r.URL.Query().Get("limit"), 100)
+		if limit <= 0 || limit > 200 {
+			limit = 100
+		}
+		contacts, err := local.db.ListContacts(ctx, userID, filters, limit, start)
+		if err != nil {
+			return nil, err
+		}
+		total, err := local.db.CountContacts(ctx, userID, filters)
+		if err != nil {
+			return nil, err
+		}
+		var selected *models.Contact
+		if id := strings.TrimSpace(r.URL.Query().Get("selected")); id != "" {
+			selected, _ = local.db.GetContact(ctx, userID, id)
+		}
+		accounts, _ := local.db.GetAccounts(ctx, userID)
+		return views.ContactsItemsFragment(contacts, selected, filters, total, start, accounts), nil
+	})
 }
 
 func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
@@ -1014,31 +998,10 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := h.userID(ctx)
-	additionalEmails, additionalEmailLabels := contactListFields(r.Form["additional_emails"], r.Form["additional_email_labels"])
-	additionalPhones, additionalPhoneLabels := contactListFields(r.Form["additional_phones"], r.Form["additional_phone_labels"])
-	avatarURL, removeAvatar, err := contactAvatarFromForm(r.FormValue("avatar_action"), r.FormValue("avatar_data_url"))
+	contact, err := contactFromForm(r, h.contactSaveTargets(ctx, r.FormValue("save_targets")))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
-	}
-	contact := models.Contact{
-		ID:                    strings.TrimSpace(r.URL.Query().Get("id")),
-		Name:                  strings.TrimSpace(r.FormValue("name")),
-		Email:                 strings.TrimSpace(r.FormValue("email")),
-		EmailLabel:            contactFieldLabel(r.FormValue("email_label"), "primary"),
-		AdditionalEmails:      additionalEmails,
-		AdditionalEmailLabels: additionalEmailLabels,
-		Phone:                 strings.TrimSpace(r.FormValue("phone")),
-		PhoneLabel:            contactFieldLabel(r.FormValue("phone_label"), "primary"),
-		AdditionalPhones:      additionalPhones,
-		AdditionalPhoneLabels: additionalPhoneLabels,
-		Organization:          strings.TrimSpace(r.FormValue("organization")),
-		Title:                 strings.TrimSpace(r.FormValue("title")),
-		Notes:                 strings.TrimSpace(r.FormValue("notes")),
-		GoferSyncEnabled:      r.FormValue("sync_enabled") == "on",
-		SaveTargets:           h.contactSaveTargets(ctx, r.FormValue("save_targets")),
-		AvatarURL:             avatarURL,
-		RemoveAvatar:          removeAvatar,
 	}
 	var previous *models.Contact
 	if contact.ID != "" {
@@ -1089,6 +1052,35 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		location += "&sync_setup=1"
 	}
 	http.Redirect(w, r, location, http.StatusSeeOther)
+}
+
+func contactFromForm(r *http.Request, targets []string) (models.Contact, error) {
+	additionalEmails, additionalEmailLabels := contactListFields(r.Form["additional_emails"], r.Form["additional_email_labels"])
+	additionalPhones, additionalPhoneLabels := contactListFields(r.Form["additional_phones"], r.Form["additional_phone_labels"])
+	avatarURL, removeAvatar, err := contactAvatarFromForm(r.FormValue("avatar_action"), r.FormValue("avatar_data_url"))
+	if err != nil {
+		return models.Contact{}, err
+	}
+	contact := models.Contact{
+		ID:                    strings.TrimSpace(r.URL.Query().Get("id")),
+		Name:                  strings.TrimSpace(r.FormValue("name")),
+		Email:                 strings.TrimSpace(r.FormValue("email")),
+		EmailLabel:            contactFieldLabel(r.FormValue("email_label"), "primary"),
+		AdditionalEmails:      additionalEmails,
+		AdditionalEmailLabels: additionalEmailLabels,
+		Phone:                 strings.TrimSpace(r.FormValue("phone")),
+		PhoneLabel:            contactFieldLabel(r.FormValue("phone_label"), "primary"),
+		AdditionalPhones:      additionalPhones,
+		AdditionalPhoneLabels: additionalPhoneLabels,
+		Organization:          strings.TrimSpace(r.FormValue("organization")),
+		Title:                 strings.TrimSpace(r.FormValue("title")),
+		Notes:                 strings.TrimSpace(r.FormValue("notes")),
+		GoferSyncEnabled:      r.FormValue("sync_enabled") == "on",
+		SaveTargets:           targets,
+		AvatarURL:             avatarURL,
+		RemoveAvatar:          removeAvatar,
+	}
+	return contact, nil
 }
 
 func contactAvatarFromForm(action, rawDataURL string) (string, bool, error) {

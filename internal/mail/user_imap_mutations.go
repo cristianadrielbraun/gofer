@@ -71,11 +71,17 @@ func (s *UserIMAP) replayMutations(ctx context.Context, scope *userIMAPScope) er
 			attempt := min(max(mutation.AttemptCount, 1), 7)
 			next := time.Now().Add(30 * time.Second * time.Duration(1<<(attempt-1)))
 			if saveErr := scope.call(ctx, func(db *storage.DB) error {
-				return db.FinishMessageMutationWithError(ctx, mutation.ID, err.Error(), next)
+				if scope.retryAt.After(next) {
+					next = scope.retryAt
+				}
+				return db.FinishMessageMutationAttempt(ctx, mutation, err.Error(), next)
 			}); saveErr != nil {
 				return errors.Join(failures, err, saveErr)
 			}
 			failures = errors.Join(failures, fmt.Errorf("queued %s: %w", mutation.Kind, err))
+			if scope.retryAt.After(time.Now()) {
+				return failures
+			}
 		}
 	}
 	return failures
@@ -89,6 +95,8 @@ func (s *UserIMAP) applyMutation(ctx context.Context, scope *userIMAPScope, muta
 		var err error
 		if mutation.Kind == storage.MessageMutationMove || mutation.Kind == storage.MessageMutationDelete {
 			info, err = db.GetMessageMutationInfoIncludingDeletedInFolder(ctx, mutation.MessageID, mutation.FolderID)
+		} else if mutation.FolderID == "" {
+			info, err = db.GetMessageMutationInfoInternal(ctx, mutation.MessageID)
 		} else {
 			info, err = db.GetMessageMutationInfoInFolder(ctx, mutation.MessageID, mutation.FolderID)
 		}
@@ -105,6 +113,9 @@ func (s *UserIMAP) applyMutation(ctx context.Context, scope *userIMAPScope, muta
 	}
 	if info == nil {
 		return scope.call(ctx, func(db *storage.DB) error { return db.DiscardMessageMutation(ctx, mutation.ID) })
+	}
+	if scope.config.Provider == "gmail" || scope.config.Provider == "outlook" {
+		return s.applyProviderMutation(ctx, scope, mutation, *info)
 	}
 	if info.AccountID != scope.id || mutation.AccountID != scope.id || info.AccountProvider != "imap" || mutation.ProviderType != storage.MessageMutationProviderIMAP {
 		return errors.New("queued mutation account or provider changed")

@@ -92,6 +92,33 @@ func NewAccountRouting(stores *UserStores) (*AccountRouting, error) {
 			revision INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE INDEX IF NOT EXISTS gofer_account_poll_due ON gofer_account_poll_schedule(next_due_ms, account_id);
+		CREATE TABLE IF NOT EXISTS gofer_account_provider_retry (
+			account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
+			retry_until_ms INTEGER NOT NULL
+		);
+
+        CREATE TABLE IF NOT EXISTS gofer_account_active_poll (
+            account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
+            next_due_ms INTEGER NOT NULL DEFAULT 0,
+            last_attempt_ns INTEGER NOT NULL DEFAULT 0,
+            failures INTEGER NOT NULL DEFAULT 0 CHECK(failures BETWEEN 0 AND 4),
+            revision INTEGER NOT NULL DEFAULT 0
+        );
+		CREATE INDEX IF NOT EXISTS gofer_account_active_poll_due ON gofer_account_active_poll(next_due_ms,account_id);
+		CREATE TABLE IF NOT EXISTS gofer_account_service_schedule (
+			account_id TEXT NOT NULL REFERENCES gofer_account_directory(account_id),
+			service TEXT NOT NULL CHECK(service IN ('contacts','calendar')),
+			next_due_ms INTEGER NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY(account_id,service)
+		);
+		CREATE INDEX IF NOT EXISTS gofer_account_service_due ON gofer_account_service_schedule(service,next_due_ms,account_id);
+		CREATE TABLE IF NOT EXISTS gofer_contact_queue_schedule (
+			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			next_due_ms INTEGER NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS gofer_contact_queue_due ON gofer_contact_queue_schedule(next_due_ms,user_id);
 		CREATE TRIGGER IF NOT EXISTS gofer_account_directory_identity BEFORE UPDATE OF account_id, user_id ON gofer_account_directory
 		WHEN NEW.account_id IS NOT OLD.account_id OR NEW.user_id IS NOT OLD.user_id
 		BEGIN SELECT RAISE(ABORT, 'account ownership is immutable'); END;
@@ -101,6 +128,14 @@ func NewAccountRouting(stores *UserStores) (*AccountRouting, error) {
 	}
 	// Tombstone owner IDs deliberately outlive centrally deleted user rows.
 	// Future user deletion must finish every account before deleting its owner.
+	// Older opt-in layouts may predate queue hints. Seed existing mailbox owners
+	// centrally, without opening every store or rewriting established deadlines.
+	if _, err := tx.Exec(`INSERT INTO gofer_contact_queue_schedule(user_id,next_due_ms,revision)
+ SELECT DISTINCT d.user_id,0,0 FROM gofer_account_directory d JOIN users u ON u.id=d.user_id
+ WHERE d.state='active' AND u.user_type='webmail' AND u.is_admin=0
+ ON CONFLICT(user_id) DO NOTHING`); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -164,14 +199,25 @@ func (r *AccountRouting) withUser(ctx context.Context, userID string, existing b
 	if err := r.requireActiveOwner(ctx, userID); err != nil {
 		return err
 	}
-	if !existing {
-		// Owner-wide reads/creation must not recreate a lost store containing
-		// active mailboxes merely because they do not name a particular account.
-		var active bool
-		if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id = ? AND state = 'active')`, userID).Scan(&active); err != nil {
+	return r.withUserStore(ctx, userID, existing, func(db *DB) error {
+		// Acquiring a store may wait for cache capacity. Recheck lifecycle after it.
+		if err := r.requireActiveOwner(ctx, userID); err != nil {
 			return err
 		}
-		existing = active
+		return fn(db)
+	})
+}
+
+// withUserStore selects the storage lease without changing the caller's
+// authorization policy. Deletion maintenance may run for disabled owners;
+// request routing separately requires an active owner through withUser.
+func (r *AccountRouting) withUserStore(ctx context.Context, userID string, existing bool, fn func(*DB) error) error {
+	if !existing {
+		// A durable historical account means this owner already had storage.
+		// Deleting/deleted accounts must not make a lost store look unused.
+		if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id = ? AND state IN ('active','deleting','deleted'))`, userID).Scan(&existing); err != nil {
+			return err
+		}
 	}
 	acquire := r.stores.Acquire
 	if existing {
@@ -185,10 +231,6 @@ func (r *AccountRouting) withUser(ctx context.Context, userID string, existing b
 		return err
 	}
 	defer lease.Release()
-	// Acquiring a store may wait for cache capacity. Recheck lifecycle after it.
-	if err := r.requireActiveOwner(ctx, userID); err != nil {
-		return err
-	}
 	return fn(lease.DB())
 }
 
@@ -336,9 +378,33 @@ func (r *AccountRouting) CompleteAccountCreation(ctx context.Context, userID, ac
 			if err := r.requireActiveOwner(ctx, userID); err != nil {
 				return err
 			}
-			_, err = r.System().Write().ExecContext(ctx, `UPDATE gofer_account_directory
-				SET state = 'active', updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND state = 'creating'`, accountID)
-			return err
+			tx, err := r.System().Write().BeginTx(ctx, nil)
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			// A successful account activation guarantees a durable owner queue
+			// hint before any producer can accept local contact work. If its first
+			// postcommit wake fails, removing the last account cannot hide that work.
+			if _, err := tx.ExecContext(ctx, `INSERT INTO gofer_contact_queue_schedule(user_id,next_due_ms,revision)
+ SELECT id,0,0 FROM users WHERE id=? AND status='active' AND deletion_pending=0 AND user_type='webmail' AND is_admin=0
+ ON CONFLICT(user_id) DO NOTHING`, userID); err != nil {
+				return err
+			}
+			result, err := tx.ExecContext(ctx, `UPDATE gofer_account_directory
+ SET state='active',updated_at=CURRENT_TIMESTAMP WHERE account_id=? AND state='creating'
+ AND EXISTS(SELECT 1 FROM users u WHERE u.id=? AND u.status='active' AND u.deletion_pending=0 AND u.user_type='webmail' AND u.is_admin=0)`, accountID, userID)
+			if err != nil {
+				return err
+			}
+			count, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if count != 1 {
+				return ErrUserStoreOwner
+			}
+			return tx.Commit()
 		})
 	})
 }
@@ -353,7 +419,7 @@ func (r *AccountRouting) CancelAccountCreation(ctx context.Context, userID, acco
 		if _, err := r.route(ctx, accountID, userID, AccountCreating); err != nil {
 			return err
 		}
-		return r.stores.WithUser(ctx, userID, func(db *DB) error {
+		return r.withUserStore(ctx, userID, false, func(db *DB) error {
 			var count int
 			if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE id = ?`, accountID).Scan(&count); err != nil {
 				return err
@@ -430,7 +496,7 @@ func (r *AccountRouting) BeginAccountDeletion(ctx context.Context, userID, accou
 		// Hide the mailbox from owner-wide local listings before external cleanup.
 		// This runs after account callbacks drain and holds no lease over a provider
 		// call. A failed local mark leaves the durable central deletion retryable.
-		return r.stores.WithUser(ctx, userID, func(db *DB) error {
+		return r.withUserStore(ctx, userID, true, func(db *DB) error {
 			_, err := db.Write().ExecContext(ctx, `UPDATE accounts SET is_deleting = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`, accountID, userID)
 			return err
 		})
@@ -457,7 +523,7 @@ func (r *AccountRouting) CompleteAccountDeletion(ctx context.Context, userID, ac
 		if busy {
 			return ErrAccountRoute
 		}
-		return r.stores.WithUser(ctx, userID, func(db *DB) error {
+		return r.withUserStore(ctx, userID, true, func(db *DB) error {
 			if cleanup != nil {
 				if err := cleanup(db); err != nil {
 					return err

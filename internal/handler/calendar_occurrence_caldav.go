@@ -326,7 +326,7 @@ func updateCalDAVCalendarOccurrence(ctx context.Context, source storage.Calendar
 	}
 	req.Header.Set("Content-Type", "text/calendar; charset=utf-8")
 	req.Header.Set("If-Match", existing.ETag)
-	response, err := client.Do(req)
+	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}

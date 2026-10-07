@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -20,19 +21,36 @@ func (db *DB) CompleteCalendarSeriesDelete(ctx context.Context, userID, occurren
 	return db.completeCalendarSeriesMutation(ctx, userID, occurrenceID, sourceID, occurrenceETag, master, true)
 }
 
-func (db *DB) completeCalendarSeriesMutation(ctx context.Context, userID, occurrenceID, sourceID, occurrenceETag string, master CalendarEvent, deleted bool) error {
+func validateCalendarSeriesMaster(master CalendarEvent) error {
 	recurrence := strings.TrimSpace(master.RecurrenceJSON)
 	if master.RemoteID == "" || master.ETag == "" || master.IsDeleted || master.SeriesRemoteID != "" ||
 		!json.Valid([]byte(recurrence)) || recurrence == "[]" || recurrence == "{}" || recurrence == "null" {
 		return fmt.Errorf("provider did not confirm a versioned series master")
+	}
+	return nil
+}
+
+func (db *DB) completeCalendarSeriesMutation(ctx context.Context, userID, occurrenceID, sourceID, occurrenceETag string, master CalendarEvent, deleted bool) error {
+	if err := validateCalendarSeriesMaster(master); err != nil {
+		return err
 	}
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := completeCalendarSeriesMutationTx(ctx, tx, userID, occurrenceID, sourceID, occurrenceETag, master, deleted); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func completeCalendarSeriesMutationTx(ctx context.Context, tx *sql.Tx, userID, occurrenceID, sourceID, occurrenceETag string, master CalendarEvent, deleted bool) error {
+	if err := validateCalendarSeriesMaster(master); err != nil {
+		return err
+	}
 	var allowed bool
-	err = tx.QueryRowContext(ctx, `SELECT EXISTS (
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (
 		SELECT 1 FROM calendar_events e JOIN calendar_sources s ON s.id=e.source_id AND s.user_id=e.user_id
 		JOIN accounts a ON a.id=s.account_id AND a.user_id=s.user_id
 		WHERE e.id=? AND e.user_id=? AND e.source_id=? AND e.etag=? AND e.is_deleted=0
@@ -51,5 +69,5 @@ func (db *DB) completeCalendarSeriesMutation(ctx context.Context, userID, occurr
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }

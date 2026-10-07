@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,14 +57,19 @@ func (db *DB) CompleteCalendarSeriesConversion(ctx context.Context, userID, even
 	return db.completeCalendarUpdate(ctx, userID, eventID, sourceID, expectedETag, event, true, false, false)
 }
 
-func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourceID, expectedETag string, event CalendarEvent, series, occurrence, onlineMeeting bool) error {
+type calendarMutationValues struct {
+	recurrence                         string
+	startDate, endDate, startAt, endAt any
+}
+
+func calendarUpdateValues(expectedETag string, event CalendarEvent, series, occurrence bool) (calendarMutationValues, error) {
 	if expectedETag == "" || strings.TrimSpace(event.ETag) == "" || strings.TrimSpace(event.RemoteID) == "" || event.IsDeleted || (!occurrence && event.SeriesRemoteID != "") {
-		return fmt.Errorf("provider did not confirm a versioned event")
+		return calendarMutationValues{}, fmt.Errorf("provider did not confirm a versioned event")
 	}
 	recurrence := strings.TrimSpace(event.RecurrenceJSON)
 	hasRecurrence := recurrence != "" && recurrence != "[]" && recurrence != "{}" && recurrence != "null"
 	if (!occurrence && hasRecurrence != series) || ((series || hasRecurrence) && !json.Valid([]byte(recurrence))) {
-		return fmt.Errorf("provider did not confirm the expected recurrence")
+		return calendarMutationValues{}, fmt.Errorf("provider did not confirm the expected recurrence")
 	}
 	if !series && !occurrence || recurrence == "" {
 		recurrence = "[]"
@@ -71,20 +77,38 @@ func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourc
 	var startDate, endDate, startAt, endAt any
 	if event.AllDay {
 		if event.StartDate == "" || event.EndDate <= event.StartDate {
-			return fmt.Errorf("invalid all-day event")
+			return calendarMutationValues{}, fmt.Errorf("invalid all-day event")
 		}
 		startDate, endDate = event.StartDate, event.EndDate
 	} else {
 		if event.StartAt == nil || event.EndAt == nil || !event.EndAt.After(*event.StartAt) {
-			return fmt.Errorf("invalid timed event")
+			return calendarMutationValues{}, fmt.Errorf("invalid timed event")
 		}
 		startAt, endAt = calendarEventTimeValue(event.StartAt), calendarEventTimeValue(event.EndAt)
+	}
+	return calendarMutationValues{recurrence: recurrence, startDate: startDate, endDate: endDate, startAt: startAt, endAt: endAt}, nil
+}
+
+func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourceID, expectedETag string, event CalendarEvent, series, occurrence, onlineMeeting bool) error {
+	if _, err := calendarUpdateValues(expectedETag, event, series, occurrence); err != nil {
+		return err
 	}
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := completeCalendarUpdateTx(ctx, tx, userID, eventID, sourceID, expectedETag, event, series, occurrence, onlineMeeting); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func completeCalendarUpdateTx(ctx context.Context, tx *sql.Tx, userID, eventID, sourceID, expectedETag string, event CalendarEvent, series, occurrence, onlineMeeting bool) error {
+	values, err := calendarUpdateValues(expectedETag, event, series, occurrence)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE calendar_events
 		SET etag = ?, status = ?, summary = ?, description = ?, location = ?,
 		    all_day = ?, start_date = ?, end_date = ?, start_at = ?, end_at = ?,
@@ -96,8 +120,8 @@ func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourc
 		    WHERE source.id = calendar_events.source_id AND source.user_id = calendar_events.user_id
 		      AND source.is_selected = 1 AND source.is_deleted = 0 AND COALESCE(account.is_deleting, 0) = 0
 		)`, event.ETag, normalizeCalendarEventStatus(event.Status, false), event.Summary, event.Description, event.Location,
-		calendarBoolInt(event.AllDay), startDate, endDate, startAt, endAt, event.StartTimeZone, event.EndTimeZone,
-		calendarEventTimeValue(event.ProviderUpdatedAt), recurrence, calendarBoolInt(series), userID, eventID, sourceID, event.RemoteID, expectedETag, event.SeriesRemoteID)
+		calendarBoolInt(event.AllDay), values.startDate, values.endDate, values.startAt, values.endAt, event.StartTimeZone, event.EndTimeZone,
+		calendarEventTimeValue(event.ProviderUpdatedAt), values.recurrence, calendarBoolInt(series), userID, eventID, sourceID, event.RemoteID, expectedETag, event.SeriesRemoteID)
 	if err != nil {
 		return err
 	}
@@ -125,5 +149,5 @@ func (db *DB) completeCalendarUpdate(ctx context.Context, userID, eventID, sourc
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }

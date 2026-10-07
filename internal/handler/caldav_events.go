@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,9 @@ const calDAVResponseLimit = 16 << 20
 var calDAVHTTPTransport http.RoundTripper
 
 func calDAVRequest(ctx context.Context, method, endpoint, username, password, depth, body string, timeout time.Duration) (davMultiStatus, error) {
+	if err := calendarDiscoveryDAVGuard(ctx); err != nil {
+		return davMultiStatus{}, err
+	}
 	req, err := newCardDAVRequest(ctx, method, endpoint, username, password, strings.NewReader(body))
 	if err != nil {
 		return davMultiStatus{}, err
@@ -36,6 +40,9 @@ func calDAVRequest(ctx context.Context, method, endpoint, username, password, de
 		Transport: calDAVHTTPTransport,
 		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if err := calendarDiscoveryDAVGuard(ctx); err != nil {
+				return err
+			}
 			if len(via) >= 5 {
 				return fmt.Errorf("too many CalDAV redirects")
 			}
@@ -45,13 +52,13 @@ func calDAVRequest(ctx context.Context, method, endpoint, username, password, de
 			return nil
 		},
 	}
-	resp, err := client.Do(req)
+	resp, err := calendarProviderDo(client, req)
 	if err != nil {
 		return davMultiStatus{}, fmt.Errorf("CalDAV request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusMultiStatus {
-		return davMultiStatus{}, fmt.Errorf("CalDAV returned HTTP %d", resp.StatusCode)
+		return davMultiStatus{}, calendarDiscoveryDAVFailure(ctx, calDAVDiscoveryError{status: resp.StatusCode, retryAt: providerRetryAfter(resp)})
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, calDAVResponseLimit+1))
 	if err != nil {
@@ -70,6 +77,22 @@ func calDAVRequest(ctx context.Context, method, endpoint, username, password, de
 		return davMultiStatus{}, fmt.Errorf("decode CalDAV response: %w", err)
 	}
 	return multi, nil
+}
+
+func calendarSyncDAVResource(ctx context.Context, collection, href string) (string, error) {
+	resolved, err := resolveCalDAVHref(collection, href)
+	if err != nil {
+		return "", err
+	}
+	if _, owned := ctx.Value(calendarDiscoveryDAVGuardKey{}).(calendarDiscoveryDAVCallbacks); !owned {
+		return resolved, nil
+	}
+	base, baseErr := url.Parse(collection)
+	remote, remoteErr := url.Parse(resolved)
+	if baseErr != nil || remoteErr != nil || remote.User != nil || remote.RawQuery != "" || remote.Fragment != "" || !strings.HasPrefix(path.Clean(remote.Path), strings.TrimRight(path.Clean(base.Path), "/")+"/") {
+		return "", fmt.Errorf("CalDAV event resource is outside the selected calendar")
+	}
+	return resolved, nil
 }
 
 func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource, username, password string, query calendar.EventQuery) (calendar.EventPage, error) {
@@ -99,6 +122,9 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 	page := calendar.EventPage{}
 	seen := make(map[string]bool)
 	for _, response := range multi.Responses {
+		if err := ctx.Err(); err != nil {
+			return calendar.EventPage{}, err
+		}
 		if response.Status != "" && !strings.Contains(response.Status, " 200 ") {
 			return calendar.EventPage{}, fmt.Errorf("CalDAV returned an incomplete calendar result")
 		}
@@ -117,7 +143,7 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 		if strings.TrimSpace(data) == "" || strings.TrimSpace(response.Href) == "" {
 			return calendar.EventPage{}, fmt.Errorf("CalDAV returned an event without its calendar data or resource URL")
 		}
-		href, err := resolveCalDAVHref(source.RemoteID, response.Href)
+		href, err := calendarSyncDAVResource(ctx, source.RemoteID, response.Href)
 		if err != nil {
 			return calendar.EventPage{}, err
 		}
@@ -131,6 +157,9 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 			}
 			seen[event.RemoteID] = true
 			page.Events = append(page.Events, event)
+			if len(page.Events) > calendarSyncMaxEvents {
+				return calendar.EventPage{}, fmt.Errorf("CalDAV event traversal exceeded its event limit")
+			}
 		}
 	}
 	// RFC 4791 allows the initial expanded occurrence to omit RECURRENCE-ID.

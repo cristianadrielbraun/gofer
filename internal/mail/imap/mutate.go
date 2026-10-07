@@ -61,6 +61,17 @@ func (c *Client) storeFlagsBatch(ctx context.Context, folderRemoteName string, u
 }
 
 func (c *Client) StoreKeyword(ctx context.Context, folderRemoteName string, uid uint32, op imap.StoreFlagsOp, keyword string) error {
+	return c.storeKeyword(ctx, folderRemoteName, uid, op, keyword, 0)
+}
+
+func (c *Client) StoreKeywordIfUIDValidity(ctx context.Context, folder string, uid uint32, op imap.StoreFlagsOp, keyword string, validity uint32) error {
+	if validity == 0 {
+		return fmt.Errorf("IMAP UIDVALIDITY is unavailable")
+	}
+	return c.storeKeyword(ctx, folder, uid, op, keyword, validity)
+}
+
+func (c *Client) storeKeyword(ctx context.Context, folderRemoteName string, uid uint32, op imap.StoreFlagsOp, keyword string, validity uint32) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -77,6 +88,9 @@ func (c *Client) StoreKeyword(ctx context.Context, folderRemoteName string, uid 
 		return fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
 	defer c.client.Unselect()
+	if validity > 0 && uint32(selectData.UIDValidity) != validity {
+		return ErrMutationUIDValidityChanged
+	}
 
 	flag := imap.Flag(keyword)
 	if op == imap.StoreFlagsAdd && !supportsPermanentKeyword(selectData.PermanentFlags, flag) {

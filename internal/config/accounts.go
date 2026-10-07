@@ -243,6 +243,27 @@ func (s *AccountStore) CalDAVPassword(ctx context.Context, userID, accountID str
 // SaveCalDAVConfig stores the endpoint and authentication choice for an IMAP
 // mailbox. Separate CalDAV passwords are encrypted with the account secret.
 func (s *AccountStore) SaveCalDAVConfig(ctx context.Context, userID, accountID, baseURL, username, password string, useAccountCredentials bool) error {
+	return s.saveCalDAVConfig(ctx, userID, accountID, baseURL, username, password, useAccountCredentials, nil)
+}
+
+func (s *AccountStore) saveCalDAVConfig(ctx context.Context, userID, accountID, baseURL, username, password string, useAccountCredentials bool, guard func(*sql.Tx) error) error {
+	tx, err := s.db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return err
+		}
+	}
+	if err := s.saveCalDAVConfigTx(ctx, tx, userID, accountID, baseURL, username, password, useAccountCredentials); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *AccountStore) saveCalDAVConfigTx(ctx context.Context, tx *sql.Tx, userID, accountID, baseURL, username, password string, useAccountCredentials bool) error {
 	var encrypted []byte
 	if useAccountCredentials {
 		username = ""
@@ -253,11 +274,14 @@ func (s *AccountStore) SaveCalDAVConfig(ctx context.Context, userID, accountID, 
 			return fmt.Errorf("encrypt CalDAV password: %w", err)
 		}
 	} else {
-		_ = s.db.Read().QueryRowContext(ctx, `
+		err := tx.QueryRowContext(ctx, `
 			SELECT encrypted_password FROM account_caldav_configs
 			WHERE user_id = ? AND account_id = ?`, userID, accountID).Scan(&encrypted)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 	}
-	res, err := s.db.Write().ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO account_caldav_configs (account_id, user_id, base_url, username, encrypted_password, use_account_credentials)
 		SELECT id, user_id, ?, ?, ?, ?
 		FROM accounts
@@ -345,6 +369,10 @@ func (s *AccountStore) listContactAddressBooks(ctx context.Context, userID, acco
 }
 
 func (s *AccountStore) SaveContactSyncConfig(ctx context.Context, userID, accountID string, cfg models.ContactSyncConfig, password string) error {
+	return s.saveContactSyncConfig(ctx, userID, accountID, cfg, password, nil)
+}
+
+func (s *AccountStore) saveContactSyncConfig(ctx context.Context, userID, accountID string, cfg models.ContactSyncConfig, password string, guard func(*sql.Tx) error) error {
 	var exists int
 	if err := s.db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0`, accountID, userID).Scan(&exists); err != nil {
 		return err
@@ -396,6 +424,11 @@ func (s *AccountStore) SaveContactSyncConfig(ctx context.Context, userID, accoun
 		return err
 	}
 	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return err
+		}
+	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO account_contact_sync_configs (account_id, user_id, provider, enabled, base_url, addressbook_url, username, encrypted_password)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)

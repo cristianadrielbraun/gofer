@@ -30,20 +30,10 @@ func (h *Handler) calendarEventDeleteAccess(ctx context.Context, event storage.C
 
 func (h *Handler) deleteCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, event storage.CalendarEvent, series bool, occurrenceScope ...bool) (string, error) {
 	occurrence := calendarOccurrenceScope(occurrenceScope)
-	if h.calendarDeleteEvent != nil {
+	if _, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); !owned && h.calendarDeleteEvent != nil {
 		return "", h.calendarDeleteEvent(ctx, source, event)
 	}
-	credentials := calendarCredentials{}
-	switch source.Provider {
-	case providers.ProviderGmail:
-		credentials.token, credentials.err = h.mailCredentials().GetGoogleCalendarWriteTokenForAccount(ctx, source.AccountID)
-	case providers.ProviderOutlook:
-		credentials.token, credentials.err = h.mailCredentials().GetMicrosoftGraphCalendarWriteTokenForAccount(ctx, source.AccountID)
-	case storage.CalendarSourceProviderCalDAV:
-		credentials = h.calendarCredentialsForSource(ctx, source.UserID, source)
-	default:
-		return "", errCalendarUpdateUnsupported
-	}
+	credentials := h.calendarUpdateCredentials(ctx, source)
 	if credentials.err != nil {
 		return "", calendarCreateAuthError{credentials.err}
 	}

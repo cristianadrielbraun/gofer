@@ -25,7 +25,7 @@ func calendarDeleteClient(transport http.RoundTripper) *http.Client {
 }
 
 func calendarDeleteHTTP(client *http.Client, req *http.Request, allowOK bool) error {
-	response, err := client.Do(req)
+	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return err
 	}

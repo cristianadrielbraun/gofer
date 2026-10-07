@@ -45,7 +45,7 @@ func (h *Handler) userComposeHandler(selectHandler func(*Handler) http.HandlerFu
 			}
 			r.Body = io.NopCloser(bytes.NewReader(data))
 		}
-		state := &userMessageMutationState{owner: h.userID(ctx), routing: h.userStorage, checked: make(map[string]bool), wake: make(map[string]bool)}
+		state := &userMessageMutationState{owner: h.userID(ctx), routing: h.userStorage, checked: make(map[string]bool), wake: make(map[string]bool), credentials: h.userCredentials != nil}
 		response := &userMutationResponse{header: make(http.Header)}
 		err := h.userAccounts.WithUser(ctx, state.owner, func(accounts *config.AccountStore, db *storage.DB) error {
 			state.accounts = accounts
@@ -98,6 +98,10 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 	account, err := h.ownedAccount(ctx, accountID)
 	if err != nil || account == nil {
 		return fail(404, "account not found or provider unavailable")
+	}
+	cfg, err := h.accountStore.GetConfig(ctx, accountID)
+	if err != nil {
+		return fail(404, "account not found")
 	}
 	folder, remote, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
 	if err != nil || folder == "" || remote == "" {
@@ -189,7 +193,11 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 		if err != nil {
 			return c, err
 		}
-		c.Sync = storage.QueueIMAPDraftUpsertInput{State: storage.IMAPDraftState{AccountID: accountID, DraftKey: draftID, FolderID: folder, FolderRemoteName: remote}, RevisionToken: revision, MIMEData: raw, MessageDate: msg.Date}
+		if account.Provider == "imap" {
+			c.Sync = storage.QueueIMAPDraftUpsertInput{State: storage.IMAPDraftState{AccountID: accountID, DraftKey: draftID, FolderID: folder, FolderRemoteName: remote}, RevisionToken: revision, MIMEData: raw, MessageDate: msg.Date}
+		} else {
+			c.ProviderSync = &storage.QueueUserProviderDraftInput{State: storage.UserProviderDraftState{AccountID: accountID, DraftKey: draftID, FolderID: folder, Provider: cfg.Provider, MailboxSubject: cfg.ProviderAccountID}, RevisionToken: revision, MIMEData: raw, MessageDate: msg.Date}
+		}
 		if pending != nil && pending.Status == storage.OutgoingSendPending {
 			var previous outgoingMessageSnapshot
 			if err := json.Unmarshal(pending.MessageJSON, &previous); err != nil {
@@ -236,7 +244,9 @@ func (h *Handler) handleUserDiscardDraft(w http.ResponseWriter, r *http.Request)
 		}
 		accountID, draftID = email.AccountID, email.InternetMessageID
 	}
-	if !h.requireOwnedAccount(w, r, accountID) {
+	account, err := h.ownedAccount(r.Context(), accountID)
+	if err != nil || account == nil {
+		http.NotFound(w, r)
 		return
 	}
 	if draftID == "" {

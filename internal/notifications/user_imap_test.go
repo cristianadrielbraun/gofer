@@ -183,7 +183,7 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 				origins[uid] = origin
 			}
 			for uid, flags := range box.flags {
-				for _, flag := range []string{`\Seen`, `\Flagged`, `\Deleted`, `\Draft`} {
+				for _, flag := range []string{`\Seen`, `\Flagged`, `\Deleted`, `\Draft`, `$Label1`, `$Label2`, `$Junk`, `$NotJunk`, `Projects`, `Later`} {
 					if flags[flag] {
 						mailFlags[uid] += flag + " "
 					}
@@ -200,6 +200,7 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 		block := owner == s.blockOwner && s.blockCommand != "" && (s.blockCommand == "body" && body || s.blockCommand == "list" && strings.Contains(upper, " LIST ") || s.blockCommand == "headers" && strings.Contains(upper, "ENVELOPE") || s.blockCommand == "store" && strings.Contains(upper, " UID STORE ") || s.blockCommand == "move" && strings.Contains(upper, " UID MOVE ") || s.blockCommand == "append" && strings.Contains(upper, " APPEND "))
 		blocked, release, reject := s.blocked, s.release, s.rejectBody
 		bodyOverride := s.bodyOverride
+		hasJunk := s.mutationMailboxes[owner+":Junk"] != nil
 		if block {
 			s.blockOnce.Do(func() { close(blocked) })
 		}
@@ -239,9 +240,15 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 			}
 			if mutations {
 				fmt.Fprint(writer, "* LIST (\\Archive) \"/\" Archive\r\n* LIST (\\Trash) \"/\" Trash\r\n")
+				if hasJunk {
+					fmt.Fprint(writer, "* LIST (\\Junk) \"/\" Junk\r\n")
+				}
 			}
 			fmt.Fprintf(writer, "* LIST (\\Inbox) \"/\" INBOX\r\n%s OK list\r\n", tag)
 		case strings.Contains(upper, " SELECT "):
+			if mutations {
+				fmt.Fprint(writer, "* OK [PERMANENTFLAGS (\\Seen \\Flagged \\Deleted \\*)] persistent flags\r\n")
+			}
 			next := uint32(1)
 			for _, uid := range uids {
 				if uid >= next {
@@ -261,7 +268,7 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 					if strings.Contains(upper, "X-GOFER-DRAFT-REVISION") {
 						header = "X-Gofer-Draft-Revision"
 					}
-					if !strings.Contains(line, msg.Header.Get(header)) || msg.Header.Get(header) == "" {
+					if !strings.Contains(line, strings.Trim(msg.Header.Get(header), "<>")) || msg.Header.Get(header) == "" {
 						continue
 					}
 					fmt.Fprintf(writer, " %d", uid)
@@ -270,12 +277,12 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 				if strings.Contains(upper, "X-GOFER-DRAFT-REVISION") {
 					continue
 				}
-				if strings.Contains(upper, "HEADER MESSAGE-ID") {
+				if strings.Contains(strings.ReplaceAll(upper, `"`, ""), "HEADER MESSAGE-ID") {
 					origin := uid
 					if origins[uid] != 0 {
 						origin = origins[uid]
 					}
-					if !strings.Contains(line, fmt.Sprintf("<%s-%d@example.com>", owner, origin)) {
+					if !strings.Contains(line, fmt.Sprintf("%s-%d@example.com", owner, origin)) {
 						continue
 					}
 				}

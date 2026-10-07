@@ -26,6 +26,8 @@ import (
 
 type routedGmailState struct {
 	phase                       int
+	profileStatus               int
+	emptyProfile                bool
 	missing, expired, rejectOld bool
 	rawMode                     string
 }
@@ -109,6 +111,14 @@ func (a *routedGmailAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
 		_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]string{{"id": "INBOX", "name": "INBOX", "type": "system"}, {"id": "Label_Work", "name": "Work", "type": "user"}}})
 	case r.URL.Path == "/users/me/profile":
+		if state.profileStatus != 0 {
+			w.Header().Set("Retry-After", "120")
+			http.Error(w, "synthetic profile rejection", state.profileStatus)
+			return
+		}
+		if state.emptyProfile {
+			cursor = ""
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"historyId": cursor})
 	case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages":
 		messages := []map[string]string{}
@@ -158,6 +168,7 @@ func (a *routedGmailAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type userGmailFixture struct {
+	cancel      context.CancelFunc
 	system      *storage.DB
 	routing     *storage.AccountRouting
 	accounts    *config.UserAccountStore
@@ -210,6 +221,7 @@ func newUserGmailFixture(t *testing.T) *userGmailFixture {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
+	f.cancel = cancel
 	f.credentials, err = mailauth.NewUserCredentials(ctx, &mailauth.Config{GoogleClient: &oauth2.Config{ClientID: "client", ClientSecret: "secret", Endpoint: oauth2.Endpoint{TokenURL: server.URL + "/token", AuthStyle: oauth2.AuthStyleInParams}}}, f.routing, key)
 	if err != nil {
 		cancel()

@@ -38,6 +38,13 @@ func calendarReplyResource(event storage.CalendarEvent) string {
 }
 
 func (h *Handler) calendarReplyAccount(ctx context.Context, source storage.CalendarSource) (models.Account, error) {
+	if p, owned := ctx.Value(userCalendarProviderKey{}).(*userCalendarRequest); owned {
+		if _, err := p.credentialsForSource(ctx, h, source); err != nil {
+			return models.Account{}, err
+		}
+		identity := p.service().Identity()
+		return models.Account{ID: p.service().AccountID(), Name: identity.DisplayName, Email: identity.EmailAddress}, nil
+	}
 	accounts, err := h.db.GetAccounts(ctx, source.UserID)
 	if err != nil {
 		return models.Account{}, err

@@ -69,6 +69,10 @@ func (db *DB) PruneDurableMailJobs(ctx context.Context, now time.Time, batch int
 				 AND os.sent_copy_locked_at IS NULL)
 			)
 			AND NOT EXISTS (
+				SELECT 1 FROM calendar_reply_jobs reply_job
+				WHERE reply_job.id = os.id AND reply_job.state IN ('pending', 'conflict')
+			)
+			AND NOT EXISTS (
 				SELECT 1
 				FROM imap_draft_operations draft_op
 				WHERE draft_op.account_id = os.account_id

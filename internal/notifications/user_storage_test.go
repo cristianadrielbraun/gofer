@@ -17,6 +17,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/handler"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
@@ -35,12 +36,23 @@ type userStorageFixture struct {
 	imap         *mail.UserIMAP
 	blobs        *store.BlobStore
 	stopIMAP     context.CancelFunc
+	credentials  *mailauth.UserCredentials
 }
 
 func newUserStorageFixture(t *testing.T, hooks ...handler.UserAccountHooks) *userStorageFixture {
 	return newUserStorageFixtureMode(t, false, hooks...)
 }
 func newUserStorageFixtureMode(t *testing.T, enableIMAP bool, hooks ...handler.UserAccountHooks) *userStorageFixture {
+	return newUserStorageFixtureConfigured(t, enableIMAP, nil, hooks...)
+}
+func newUserStorageFixtureConfigured(t *testing.T, enableIMAP bool, oauth *mailauth.Config, hooks ...handler.UserAccountHooks) *userStorageFixture {
+	return newUserStorageFixtureContacts(t, enableIMAP, oauth, nil, hooks...)
+}
+
+func newUserStorageFixtureContacts(t *testing.T, enableIMAP bool, oauth *mailauth.Config, contacts *handler.UserContactSyncOptions, hooks ...handler.UserAccountHooks) *userStorageFixture {
+	return newUserStorageFixtureServices(t, enableIMAP, oauth, contacts, nil, hooks...)
+}
+func newUserStorageFixtureServices(t *testing.T, enableIMAP bool, oauth *mailauth.Config, contacts *handler.UserContactSyncOptions, calendar *handler.UserCalendarSyncOptions, hooks ...handler.UserAccountHooks) *userStorageFixture {
 	t.Helper()
 	system, err := storage.New(filepath.Join(t.TempDir(), "system.db"))
 	if err != nil {
@@ -121,7 +133,15 @@ func newUserStorageFixtureMode(t *testing.T, enableIMAP bool, hooks ...handler.U
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { cancel(); f.imap.Wait() })
-		options = []handler.UserStorageOptions{{Accounts: accountStore, IMAP: f.imap}}
+		options = []handler.UserStorageOptions{{Accounts: accountStore, IMAP: f.imap, ContactSync: contacts, CalendarSync: calendar}}
+		if oauth != nil {
+			f.credentials, err = mailauth.NewUserCredentials(ctx, oauth, routing, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { cancel(); f.imap.Wait(); f.credentials.Wait() })
+			options[0].Credentials = f.credentials
+		}
 	}
 	if err := base.RegisterUserStorageRoutes(ctx, mux, routing, options...); err != nil {
 		t.Fatal(err)

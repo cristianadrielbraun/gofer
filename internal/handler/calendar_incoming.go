@@ -258,7 +258,7 @@ func (h *Handler) applyCalendarIncomingReply(ctx context.Context, candidate stor
 			}
 			req.Header.Set("If-Schedule-Tag-Match", tag)
 		}
-		res, err := client.Do(req)
+		res, err := calendarProviderDo(client, req)
 		if err != nil {
 			return err
 		}

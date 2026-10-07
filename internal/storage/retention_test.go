@@ -143,3 +143,54 @@ func TestPruneDurableMailJobsUsesBoundedBatches(t *testing.T) {
 		t.Fatalf("remaining outgoing rows = %d, want zero", count)
 	}
 }
+
+func TestPruneDurableMailJobsKeepsUnresolvedCalendarReplies(t *testing.T) {
+	db := newContactsTestDB(t)
+	ctx := t.Context()
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts(id,user_id,email_address) VALUES('acc','default','user@example.com');
+ INSERT INTO calendar_sources(id,user_id,account_id,provider,remote_id,name,is_selected) VALUES('calendar','default','acc','caldav','/primary/','Calendar',1)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.October, 7, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-OutgoingSendRetentionPeriod - time.Hour)
+	for _, state := range []string{"pending", "conflict", "complete", "canceled", "dismissed"} {
+		status := OutgoingSendSent
+		if state == "canceled" {
+			status = OutgoingSendCanceled
+		}
+		insertRetentionOutgoing(t, db, state, status, SentCopyNotRequired, "", nil, old, nil, "")
+		if _, err := db.Write().ExecContext(ctx, `INSERT INTO calendar_reply_jobs(id,user_id,source_id,resource_id,remote_id,version,response,payload,state,created_at) VALUES(?,'default','calendar',?,?,'v1','accepted','{}',?,?);
+ INSERT INTO calendar_response_requests(user_id,source_id,remote_id,version,response,claim_id) VALUES('default','calendar',?,'v1','accepted',?)`, state, state, state, state, old, state, state+"-nonce"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := db.PruneDurableMailJobs(ctx, now, 100)
+	if err != nil || first.OutgoingSends != 3 {
+		t.Fatal("terminal reply retention", first, err)
+	}
+	for _, id := range []string{"pending", "conflict"} {
+		job, err := db.GetCalendarReply(ctx, "default", id)
+		if err != nil || job.State != id || job.SendStatus != OutgoingSendSent {
+			t.Fatal("unresolved reply lost", id, job, err)
+		}
+	}
+	var n int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_response_requests`).Scan(&n); err != nil || n != 5 {
+		t.Fatal("retention released response barriers", n, err)
+	}
+	second, err := db.PruneDurableMailJobs(ctx, now, 100)
+	if err != nil || second.Total() != 0 {
+		t.Fatal("unresolved prune repeated", second, err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE calendar_reply_jobs SET state='dismissed' WHERE id='conflict'; UPDATE calendar_reply_jobs SET state='complete' WHERE id='pending'`); err != nil {
+		t.Fatal(err)
+	}
+	last, err := db.PruneDurableMailJobs(ctx, now, 1)
+	if err != nil || last.OutgoingSends != 1 {
+		t.Fatal("resolved prune not bounded", last, err)
+	}
+	last, err = db.PruneDurableMailJobs(ctx, now, 1)
+	if err != nil || last.OutgoingSends != 1 {
+		t.Fatal("resolved reply stranded", last, err)
+	}
+}

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -351,6 +353,9 @@ func resolveCalDAVHref(baseURL, href string) (string, error) {
 }
 
 func calDAVPropfind(ctx context.Context, endpoint, username, password, depth, body string) (davMultiStatus, error) {
+	if err := calendarDiscoveryDAVGuard(ctx); err != nil {
+		return davMultiStatus{}, err
+	}
 	req, err := newCardDAVRequest(ctx, "PROPFIND", endpoint, username, password, strings.NewReader(body))
 	if err != nil {
 		return davMultiStatus{}, err
@@ -360,6 +365,9 @@ func calDAVPropfind(ctx context.Context, endpoint, username, password, depth, bo
 	client := &http.Client{
 		Timeout: cardDAVDiscoveryHTTPTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if err := calendarDiscoveryDAVGuard(ctx); err != nil {
+				return err
+			}
 			if len(via) >= 5 {
 				return fmt.Errorf("too many CalDAV redirects")
 			}
@@ -376,11 +384,31 @@ func calDAVPropfind(ctx context.Context, endpoint, username, password, depth, bo
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return davMultiStatus{}, fmt.Errorf("CalDAV discovery returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return davMultiStatus{}, calendarDiscoveryDAVFailure(ctx, calDAVDiscoveryError{status: resp.StatusCode,
+			body: sanitizeProviderErrorBody(strings.TrimSpace(string(data))), retryAt: providerRetryAfter(resp)})
 	}
-	multi, err := decodeDAVMultiStatus(resp.Body)
+	const bodyLimit = 32 << 20
+	wire, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
+	if err != nil {
+		return davMultiStatus{}, err
+	}
+	if len(wire) > bodyLimit {
+		return davMultiStatus{}, fmt.Errorf("CalDAV discovery response exceeds 32 MiB")
+	}
+	multi, err := decodeDAVMultiStatus(bytes.NewReader(wire))
 	if err != nil {
 		return davMultiStatus{}, fmt.Errorf("decode CalDAV response: %w", err)
 	}
 	return multi, nil
 }
+
+type calDAVDiscoveryError struct {
+	status  int
+	body    string
+	retryAt time.Time
+}
+
+func (e calDAVDiscoveryError) Error() string {
+	return fmt.Sprintf("CalDAV discovery returned %d: %s", e.status, e.body)
+}
+func (e calDAVDiscoveryError) RetryAfter() (time.Time, bool) { return e.retryAt, !e.retryAt.IsZero() }

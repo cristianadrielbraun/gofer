@@ -114,8 +114,9 @@ func calendarUpdateHTTPError(err error) error {
 }
 
 // Reads reuse the creation adapter's bounded JSON helper/default transport.
-// Writes add If-Match and never retry, redirect, or fall back to an unconditional
-// request. An invalid successful response remains an ordinary (uncertain) error.
+// Writes add If-Match and never retry ambiguous outcomes, redirect, or fall back
+// to an unconditional request. Owned dispatch may refresh a definitively rejected
+// 401 once. An invalid successful response remains an ordinary (uncertain) error.
 func calendarUpdateJSON(ctx context.Context, endpoint, token, etag string, payload, out any) error {
 	if !calendarUpdateValidETag(etag, true) {
 		return calendarUpdateUnsupported("The calendar provider did not supply a safe event version.")
@@ -134,7 +135,7 @@ func calendarUpdateJSON(ctx context.Context, endpoint, token, etag string, paylo
 	req.Header.Set("Prefer", `IdType="ImmutableId"`)
 	req.Header.Set("If-Match", etag)
 	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	response, err := client.Do(req)
+	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return err
 	}
@@ -680,7 +681,7 @@ func calendarUpdateCalDAVGet(ctx context.Context, client *http.Client, endpoint,
 		return nil, nil, err
 	}
 	req.Header.Set("Accept", "text/calendar")
-	response, err := client.Do(req)
+	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -813,7 +814,7 @@ func updateCalDAVCalendarEventScope(ctx context.Context, source storage.Calendar
 	}
 	req.Header.Set("Content-Type", "text/calendar; charset=utf-8")
 	req.Header.Set("If-Match", etag)
-	response, err := client.Do(req)
+	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return calendar.RemoteEvent{}, err
 	}
