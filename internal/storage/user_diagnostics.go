@@ -24,13 +24,15 @@ const (
 	UserDiagnosticsContacts UserDiagnosticsKind = "contacts"
 	UserDiagnosticsLabels   UserDiagnosticsKind = "labels"
 	UserDiagnosticsMail     UserDiagnosticsKind = "mail"
+	UserDiagnosticsAvatars  UserDiagnosticsKind = "avatars"
 )
 
 type UserDiagnostics struct {
-	Contacts models.ContactAdminStatus
-	Labels   models.LabelAdminStatus
-	Mail     models.MailOperationsAdminStatus
-	Idle     []ConfiguredIdleFolder
+	Contacts     models.ContactAdminStatus
+	Labels       models.LabelAdminStatus
+	Mail         models.MailOperationsAdminStatus
+	Idle         []ConfiguredIdleFolder
+	AvatarEmails []string
 }
 
 func (r *AccountRouting) ValidateDiagnosticsAdministrator(ctx context.Context, actor DiagnosticsActor) error {
@@ -70,7 +72,7 @@ func (r *AccountRouting) ValidateDiagnosticsAccess(ctx context.Context, actor Di
 // It neither creates unused owners' files nor exposes a database capability to
 // administration handlers. A missing file for a known mailbox owner is an error.
 func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor DiagnosticsActor, owner string, kind UserDiagnosticsKind) (result UserDiagnostics, err error) {
-	if kind != UserDiagnosticsContacts && kind != UserDiagnosticsLabels && kind != UserDiagnosticsMail {
+	if kind != UserDiagnosticsContacts && kind != UserDiagnosticsLabels && kind != UserDiagnosticsMail && kind != UserDiagnosticsAvatars {
 		return result, errors.New("unknown user diagnostics kind")
 	}
 	if err = r.ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
@@ -103,6 +105,8 @@ func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor Diagnost
 			if err == nil {
 				result.Idle, err = db.ListConfiguredIdleFoldersForUser(ctx, owner)
 			}
+		case UserDiagnosticsAvatars:
+			result.AvatarEmails, err = db.listAdminAvatarEmails(ctx, owner)
 		}
 		if err != nil {
 			return err

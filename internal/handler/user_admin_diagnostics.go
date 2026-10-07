@@ -15,15 +15,8 @@ import (
 // or browser write. Rebuild scope from central identities rather than local
 // profile stubs, whose usernames and lifecycle state can be stale.
 func (h *Handler) eachUserDiagnostic(parent context.Context, selected string, kind storage.UserDiagnosticsKind, visit func(context.Context, models.AdminWebmailUserOption, storage.UserDiagnostics, storage.DiagnosticsActor) error) (models.AdminWebmailScope, error) {
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	ctx, cancel := h.ownedAdminDiagnosticContext(parent)
 	defer cancel()
-	if root := h.ownedMailbox.userStorageContext; root != nil {
-		stop := context.AfterFunc(root, cancel)
-		defer stop()
-		if root.Err() != nil {
-			cancel()
-		}
-	}
 	user := auth.GetCurrentUser(ctx)
 	if user == nil {
 		return models.AdminWebmailScope{}, storage.ErrUserDiagnosticsAccess
@@ -49,6 +42,18 @@ func (h *Handler) eachUserDiagnostic(parent context.Context, selected string, ki
 		}
 	}
 	return scope, ctx.Err()
+}
+
+func (h *Handler) ownedAdminDiagnosticContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	if root := h.ownedMailbox.userStorageContext; root != nil {
+		stop := context.AfterFunc(root, cancel)
+		if root.Err() != nil {
+			cancel()
+		}
+		return ctx, func() { stop(); cancel() }
+	}
+	return ctx, cancel
 }
 
 func (h *Handler) ownedContactAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.ContactAdminStatus, error) {

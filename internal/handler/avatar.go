@@ -1365,6 +1365,12 @@ func (h *Handler) handleAvatarAttempts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
 		return
 	}
+	read, err := h.beginAdminAvatarRead(r.Context(), scope)
+	if err != nil {
+		http.Error(w, "failed to read avatar visibility", http.StatusInternalServerError)
+		return
+	}
+	defer read.close()
 	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 100 {
@@ -1378,14 +1384,15 @@ func (h *Handler) handleAvatarAttempts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	errorsOnly := r.URL.Query().Get("kind") == "errors"
-	logs, total, err := h.db.GetSenderAvatarAttemptLogs(r.Context(), storage.SenderAvatarAttemptLogFilter{
-		UserID:     scope.SelectedUserID,
-		ErrorsOnly: errorsOnly,
-		Query:      r.URL.Query().Get("q"),
-		Provider:   r.URL.Query().Get("provider"),
-		Status:     r.URL.Query().Get("status"),
-		Limit:      limit,
-		Offset:     offset,
+	logs, total, err := h.db.GetSenderAvatarAttemptLogs(read.ctx, storage.SenderAvatarAttemptLogFilter{
+		UserID:        scope.SelectedUserID,
+		VisibleEmails: read.emails,
+		ErrorsOnly:    errorsOnly,
+		Query:         r.URL.Query().Get("q"),
+		Provider:      r.URL.Query().Get("provider"),
+		Status:        r.URL.Query().Get("status"),
+		Limit:         limit,
+		Offset:        offset,
 	})
 	if err != nil {
 		http.Error(w, "failed to get avatar attempt logs", http.StatusInternalServerError)
@@ -1400,6 +1407,10 @@ func (h *Handler) handleAvatarAttempts(w http.ResponseWriter, r *http.Request) {
 			Message:   entry.Message,
 			CreatedAt: entry.CreatedAt,
 		})
+	}
+	if err := read.validate(); err != nil {
+		http.Error(w, "avatar access expired", http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1420,6 +1431,12 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
 		return
 	}
+	read, err := h.beginAdminAvatarRead(r.Context(), scope)
+	if err != nil {
+		http.Error(w, "failed to read avatar visibility", http.StatusInternalServerError)
+		return
+	}
+	defer read.close()
 	limit := 80
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 200 {
@@ -1432,21 +1449,22 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 			offset = n
 		}
 	}
-	rows, total, err := h.db.GetSenderAvatarRows(r.Context(), storage.SenderAvatarRowFilter{
-		UserID:     scope.SelectedUserID,
-		Query:      r.URL.Query().Get("q"),
-		Status:     r.URL.Query().Get("status"),
-		Source:     r.URL.Query().Get("source"),
-		Provider:   r.URL.Query().Get("provider"),
-		ErrorsOnly: r.URL.Query().Get("errors") == "true",
-		Limit:      limit,
-		Offset:     offset,
+	rows, total, err := h.db.GetSenderAvatarRows(read.ctx, storage.SenderAvatarRowFilter{
+		UserID:        scope.SelectedUserID,
+		VisibleEmails: read.emails,
+		Query:         r.URL.Query().Get("q"),
+		Status:        r.URL.Query().Get("status"),
+		Source:        r.URL.Query().Get("source"),
+		Provider:      r.URL.Query().Get("provider"),
+		ErrorsOnly:    r.URL.Query().Get("errors") == "true",
+		Limit:         limit,
+		Offset:        offset,
 	})
 	if err != nil {
 		http.Error(w, "failed to get avatar senders", http.StatusInternalServerError)
 		return
 	}
-	providers, err := h.db.GetAvatarProviderNames(r.Context())
+	providers, err := h.db.GetAvatarProviderNames(read.ctx)
 	if err != nil {
 		http.Error(w, "failed to get avatar providers", http.StatusInternalServerError)
 		return
@@ -1458,9 +1476,9 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 	}
 	var providerContactAvatars map[string]string
 	if scope.SelectedUserID == "" {
-		providerContactAvatars, err = h.db.GetInstanceProviderContactAvatarsByEmail(r.Context(), emails)
+		providerContactAvatars, err = h.db.GetInstanceProviderContactAvatarsByEmail(read.ctx, emails)
 	} else {
-		providerContactAvatars, err = h.db.GetProviderContactAvatarsByEmail(r.Context(), scope.SelectedUserID, emails)
+		providerContactAvatars, err = h.db.GetProviderContactAvatarsByEmail(read.ctx, scope.SelectedUserID, emails)
 	}
 	if err != nil {
 		http.Error(w, "failed to get provider contact avatars", http.StatusInternalServerError)
@@ -1511,6 +1529,10 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 			item.Providers = append(item.Providers, state)
 		}
 		items = append(items, item)
+	}
+	if err := read.validate(); err != nil {
+		http.Error(w, "avatar access expired", http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1573,9 +1595,16 @@ func (h *Handler) handleCancelAvatarBackfill(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) avatarStatus(ctx context.Context, scope models.AdminWebmailScope) (models.AvatarStatus, error) {
+	read, err := h.beginAdminAvatarRead(ctx, scope)
+	if err != nil {
+		return models.AvatarStatus{}, err
+	}
+	defer read.close()
+	ctx = read.ctx
 	var stats storage.SenderAvatarStats
-	var err error
-	if scope.SelectedUserID == "" {
+	if read.emails != nil {
+		stats, err = h.db.GetSenderAvatarStatsForEmails(ctx, read.emails)
+	} else if scope.SelectedUserID == "" {
 		stats, err = h.db.GetSenderAvatarStats(ctx)
 	} else {
 		stats, err = h.db.GetSenderAvatarStatsForUser(ctx, scope.SelectedUserID)
@@ -1583,11 +1612,11 @@ func (h *Handler) avatarStatus(ctx context.Context, scope models.AdminWebmailSco
 	if err != nil {
 		return models.AvatarStatus{}, err
 	}
-	recent, _, err := h.db.GetSenderAvatarAttemptLogs(ctx, storage.SenderAvatarAttemptLogFilter{UserID: scope.SelectedUserID, Limit: 50})
+	recent, _, err := h.db.GetSenderAvatarAttemptLogs(ctx, storage.SenderAvatarAttemptLogFilter{UserID: scope.SelectedUserID, VisibleEmails: read.emails, Limit: 50})
 	if err != nil {
 		return models.AvatarStatus{}, err
 	}
-	recentErrors, _, err := h.db.GetSenderAvatarAttemptLogs(ctx, storage.SenderAvatarAttemptLogFilter{UserID: scope.SelectedUserID, ErrorsOnly: true, Limit: 50})
+	recentErrors, _, err := h.db.GetSenderAvatarAttemptLogs(ctx, storage.SenderAvatarAttemptLogFilter{UserID: scope.SelectedUserID, VisibleEmails: read.emails, ErrorsOnly: true, Limit: 50})
 	if err != nil {
 		return models.AvatarStatus{}, err
 	}
@@ -1610,6 +1639,9 @@ func (h *Handler) avatarStatus(ctx context.Context, scope models.AdminWebmailSco
 			Message:   entry.Message,
 			CreatedAt: entry.CreatedAt,
 		})
+	}
+	if err := read.validate(); err != nil {
+		return models.AvatarStatus{}, err
 	}
 	return models.AvatarStatus{
 		Scope:    scope,

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,13 +72,16 @@ type SenderAvatarAttemptLog struct {
 }
 
 type SenderAvatarAttemptLogFilter struct {
-	UserID     string
-	ErrorsOnly bool
-	Query      string
-	Provider   string
-	Status     string
-	Limit      int
-	Offset     int
+	UserID string
+	// VisibleEmails replaces legacy ownership joins with an explicit snapshot.
+	// Nil keeps existing/global behavior; a non-nil empty slice selects no rows.
+	VisibleEmails []string
+	ErrorsOnly    bool
+	Query         string
+	Provider      string
+	Status        string
+	Limit         int
+	Offset        int
 }
 
 type SenderAvatarProviderState struct {
@@ -108,14 +112,15 @@ type SenderAvatarRow struct {
 }
 
 type SenderAvatarRowFilter struct {
-	UserID     string
-	Query      string
-	Status     string
-	Source     string
-	Provider   string
-	ErrorsOnly bool
-	Limit      int
-	Offset     int
+	UserID        string
+	VisibleEmails []string
+	Query         string
+	Status        string
+	Source        string
+	Provider      string
+	ErrorsOnly    bool
+	Limit         int
+	Offset        int
 }
 
 func (db *DB) EnsureSenderAvatarCandidates(ctx context.Context) (int, error) {
@@ -260,6 +265,47 @@ func senderAvatarVisibleToUserClause(emailExpression string) string {
 		  AND visible_primary.is_deleted = 0
 		  AND lower(trim(visible_primary.primary_email)) = lower(trim(` + emailExpression + `))
 	))`
+}
+
+func senderAvatarVisibility(emailExpression, userID string, emails []string) (string, []any) {
+	if emails != nil {
+		encoded, _ := json.Marshal(emails)
+		return "lower(trim(" + emailExpression + ")) IN (SELECT value FROM json_each(?))", []any{string(encoded)}
+	}
+	if userID = strings.TrimSpace(userID); userID != "" {
+		return senderAvatarVisibleToUserClause(emailExpression), []any{userID, userID, userID}
+	}
+	return "", nil
+}
+
+// listAdminAvatarEmails preserves the legacy admin visibility rule without
+// joining the central cache to mailbox tables. The result is copied before the
+// caller releases its user-store lease.
+func (db *DB) listAdminAvatarEmails(ctx context.Context, owner string) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+ SELECT lower(trim(m.from_email)) AS email FROM messages m
+ JOIN accounts a ON a.id=m.account_id WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0
+ UNION SELECT ci.normalized_value FROM contact_identities ci
+ JOIN contact_profiles cp ON cp.id=ci.profile_id AND cp.user_id=ci.user_id
+ WHERE ci.user_id=? AND ci.kind='email' AND cp.is_deleted=0
+ UNION SELECT lower(trim(primary_email)) FROM contact_profiles
+ WHERE user_id=? AND is_deleted=0
+ ORDER BY email`, owner, owner, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	emails := []string{}
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		if email != "" {
+			emails = append(emails, email)
+		}
+	}
+	return emails, rows.Err()
 }
 
 func (db *DB) IsProviderAvatarURLVisibleToUser(ctx context.Context, rawURL, userID string) (bool, error) {
@@ -650,9 +696,9 @@ func (db *DB) GetSenderAvatarAttemptLogs(ctx context.Context, filter SenderAvata
 
 	clauses := []string{}
 	args := []any{}
-	if filter.UserID = strings.TrimSpace(filter.UserID); filter.UserID != "" {
-		clauses = append(clauses, senderAvatarVisibleToUserClause("log.email"))
-		args = append(args, filter.UserID, filter.UserID, filter.UserID)
+	if clause, scopeArgs := senderAvatarVisibility("log.email", filter.UserID, filter.VisibleEmails); clause != "" {
+		clauses = append(clauses, clause)
+		args = append(args, scopeArgs...)
 	}
 	if filter.ErrorsOnly {
 		clauses = append(clauses, "log.status = 'error'")
@@ -715,9 +761,9 @@ func (db *DB) GetSenderAvatarRows(ctx context.Context, filter SenderAvatarRowFil
 
 	clauses := []string{}
 	args := []any{}
-	if filter.UserID = strings.TrimSpace(filter.UserID); filter.UserID != "" {
-		clauses = append(clauses, senderAvatarVisibleToUserClause("sa.email"))
-		args = append(args, filter.UserID, filter.UserID, filter.UserID)
+	if clause, scopeArgs := senderAvatarVisibility("sa.email", filter.UserID, filter.VisibleEmails); clause != "" {
+		clauses = append(clauses, clause)
+		args = append(args, scopeArgs...)
 	}
 	if filter.Query = strings.ToLower(strings.TrimSpace(filter.Query)); filter.Query != "" {
 		clauses = append(clauses, "lower(sa.email) LIKE ?")
@@ -978,6 +1024,17 @@ func (db *DB) GetSenderAvatarStatsForUser(ctx context.Context, userID string) (S
 }
 
 func (db *DB) getSenderAvatarStats(ctx context.Context, userID string) (SenderAvatarStats, error) {
+	return db.getSenderAvatarStatsWithVisibility(ctx, userID, nil)
+}
+
+func (db *DB) GetSenderAvatarStatsForEmails(ctx context.Context, emails []string) (SenderAvatarStats, error) {
+	if emails == nil {
+		emails = []string{}
+	}
+	return db.getSenderAvatarStatsWithVisibility(ctx, "", emails)
+}
+
+func (db *DB) getSenderAvatarStatsWithVisibility(ctx context.Context, userID string, emails []string) (SenderAvatarStats, error) {
 	var stats SenderAvatarStats
 	avatarWhere := ""
 	avatarAnd := " WHERE "
@@ -985,13 +1042,13 @@ func (db *DB) getSenderAvatarStats(ctx context.Context, userID string) (SenderAv
 	providerJoin := ""
 	providerWhere := ""
 	providerArgs := []any{}
-	if userID != "" {
-		avatarWhere = " WHERE " + senderAvatarVisibleToUserClause("sa.email")
+	if clause, args := senderAvatarVisibility("sa.email", userID, emails); clause != "" {
+		avatarWhere = " WHERE " + clause
 		avatarAnd = avatarWhere + " AND "
-		avatarArgs = []any{userID, userID, userID}
+		avatarArgs = args
 		providerJoin = " JOIN sender_avatars sa ON sa.email_hash = aps.email_hash"
-		providerWhere = " WHERE " + senderAvatarVisibleToUserClause("sa.email")
-		providerArgs = []any{userID, userID, userID}
+		providerWhere = " WHERE " + clause
+		providerArgs = args
 	}
 	providerStats := map[string]*SenderAvatarProviderStats{}
 	providerStat := func(provider string) *SenderAvatarProviderStats {
