@@ -504,6 +504,16 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair bool) erro
 // EnsureBody fetches and persists synchronously, so errors are visible and retry
 // never mistakes a partial cache for success. The account gate coalesces readers.
 func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) error {
+	return s.ensureBody(ctx, owner, msgID, false)
+}
+
+// RefetchBody bypasses saved MIME and replaces the cache only after a complete,
+// verified fetch. Failed refreshes leave the readable body and attachments intact.
+func (s *UserIMAP) RefetchBody(ctx context.Context, owner string, msgID int64) error {
+	return s.ensureBody(ctx, owner, msgID, true)
+}
+
+func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, force bool) error {
 	release, err := s.blobs.PinUserFiles(ctx, owner)
 	if err != nil {
 		return err
@@ -539,7 +549,7 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 				return sql.ErrNoRows
 			}
 			rawPath = stored.RawPath
-			fetched = db.IsBodyFetchedInternal(ctx, msgID)
+			fetched = !force && db.IsBodyFetchedInternal(ctx, msgID)
 			if fetched {
 				return nil
 			}
@@ -574,7 +584,7 @@ func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) er
 			return err
 		}
 		var raw []byte
-		if rawPath != "" {
+		if rawPath != "" && !force {
 			raw, _ = os.ReadFile(rawPath)
 		}
 		if len(raw) == 0 {

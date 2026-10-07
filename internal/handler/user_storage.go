@@ -212,6 +212,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		}
 	}
 	if option.IMAP != nil {
+		private("POST /api/messages/{id}/prefetch-body", routed.handleUserPrefetchBody)
+		private("POST /api/messages/{id}/refetch", routed.handleUserRefetchBody)
 		private("GET /api/mail/{id}/calendar", routed.handleUserMailCalendarFooter)
 		private("GET /api/calendar/events/new", routed.handleUserNewCalendarEvent)
 		private("POST /api/calendar/events", routed.handleUserCreateCalendarEvent)
