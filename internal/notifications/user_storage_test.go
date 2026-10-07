@@ -148,6 +148,7 @@ func newUserStorageFixtureServices(t *testing.T, enableIMAP bool, oauth *mailaut
 	if err := base.RegisterUserStorageRoutes(ctx, mux, routing, options...); err != nil {
 		t.Fatal(err)
 	}
+	base.RegisterAuthenticationRoutes(mux)
 	f.http = manager.Middleware(mux)
 	f.service, err = NewWithUserStorage(routing, f.events, "test-vapid-public", "test-vapid-private", "mailto:test@example.com")
 	if err != nil {
