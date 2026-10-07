@@ -16,6 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
@@ -140,7 +141,7 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	exceptions, err := h.db.ListMailSecurityExceptions(ctx)
+	exceptions, err := h.mailSecurityExceptions(ctx)
 	if err != nil {
 		http.Error(w, "failed to load mail security exceptions", http.StatusInternalServerError)
 		return
@@ -173,6 +174,11 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http.Request) {
+	if h.ownedMailbox != nil {
+		ctx, cancel := h.ownedAdminDiagnosticContext(r.Context())
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	if !h.requireRecentAdminSecurityStepUp(w, r) {
 		return
 	}
@@ -190,6 +196,10 @@ func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http
 		return
 	}
 	user := h.userID(r.Context())
+	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
+		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		return
+	}
 	if err := h.db.AddHTTPDiscoveryException(r.Context(), domain, user); err != nil {
 		redirectAdminSecurity(w, r, "", "Could not add the HTTP discovery exception.")
 		return
@@ -198,6 +208,11 @@ func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r *http.Request) {
+	if h.ownedMailbox != nil {
+		ctx, cancel := h.ownedAdminDiagnosticContext(r.Context())
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	if !h.requireRecentAdminSecurityStepUp(w, r) {
 		return
 	}
@@ -216,6 +231,10 @@ func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r 
 		redirectAdminSecurity(w, r, "", "Enter IMAP or SMTP with an exact host and a port between 1 and 65535.")
 		return
 	}
+	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
+		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		return
+	}
 	if err := h.db.AddPlaintextTransportException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
 		redirectAdminSecurity(w, r, "", "Could not add the plaintext transport exception.")
 		return
@@ -225,6 +244,11 @@ func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r 
 }
 
 func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http.Request) {
+	if h.ownedMailbox != nil {
+		ctx, cancel := h.ownedAdminDiagnosticContext(r.Context())
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	if !h.requireRecentAdminSecurityStepUp(w, r) {
 		return
 	}
@@ -243,6 +267,10 @@ func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http
 		redirectAdminSecurity(w, r, "", "Enter HTTP, HTTPS, IMAP, or SMTP with an exact host and a port between 1 and 65535.")
 		return
 	}
+	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
+		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		return
+	}
 	if err := h.db.AddPrivateTargetException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
 		redirectAdminSecurity(w, r, "", "Could not add the private target exception.")
 		return
@@ -251,10 +279,10 @@ func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) restartAccountsUsingPlaintextException(ctx context.Context, protocol, host string, port int) {
-	if h.syncer == nil {
+	if h.syncer == nil && h.ownedMailbox == nil {
 		return
 	}
-	items, err := h.db.ListMailSecurityExceptions(ctx)
+	items, err := h.mailSecurityExceptions(ctx)
 	if err != nil {
 		log.Printf("mail security: list accounts after adding %s %s:%d: %v", protocol, host, port, err)
 		return
@@ -264,6 +292,14 @@ func (h *Handler) restartAccountsUsingPlaintextException(ctx context.Context, pr
 			continue
 		}
 		for _, account := range item.Accounts {
+			if h.ownedMailbox != nil {
+				if h.ownedMailbox.userIMAP != nil {
+					if err := h.ownedMailbox.userIMAP.RestartAccount(ctx, account.ID); err != nil {
+						log.Printf("mail security: restart owned account %s: %v", account.ID, err)
+					}
+				}
+				continue
+			}
 			h.closeBodyClient(account.ID)
 			h.syncer.RestartAccount(account.ID)
 		}
@@ -272,11 +308,22 @@ func (h *Handler) restartAccountsUsingPlaintextException(ctx context.Context, pr
 }
 
 func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *http.Request) {
+	if h.ownedMailbox != nil {
+		ctx, cancel := h.ownedAdminDiagnosticContext(r.Context())
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	if !h.requireRecentAdminSecurityStepUp(w, r) {
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	item, err := h.db.GetMailSecurityException(r.Context(), id)
+	var item *models.MailSecurityException
+	var err error
+	if h.ownedMailbox == nil {
+		item, err = h.db.GetMailSecurityException(r.Context(), id)
+	} else {
+		item, err = h.db.GetMailSecurityPolicy(r.Context(), id)
+	}
 	if err != nil {
 		redirectAdminSecurity(w, r, "", "Could not load the security exception.")
 		return
@@ -285,15 +332,40 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 		http.NotFound(w, r)
 		return
 	}
+	stopAll := false
+	if h.ownedMailbox != nil && item.Kind == models.MailSecurityExceptionPlaintextTransport {
+		items, readErr := h.mailSecurityExceptions(r.Context())
+		if readErr != nil {
+			if r.Context().Err() != nil || errors.Is(readErr, storage.ErrUserDiagnosticsAccess) {
+				redirectAdminSecurity(w, r, "", "Could not verify administrator access.")
+				return
+			}
+			// Missing/damaged stores must not prevent revoking central policy.
+			// Cancel all current owned sessions when matching cannot be trusted.
+			stopAll = true
+			log.Printf("mail security: cannot enumerate owned accounts for revocation: %v", readErr)
+		} else {
+			for _, candidate := range items {
+				if candidate.ID == id {
+					item.Accounts = candidate.Accounts
+					break
+				}
+			}
+		}
+	}
+	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
+		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		return
+	}
 	if err := h.db.DeleteMailSecurityException(r.Context(), id); err != nil {
 		redirectAdminSecurity(w, r, "", "Could not revoke the security exception.")
 		return
 	}
 	for _, account := range item.Accounts {
-		h.closeBodyClient(account.ID)
-		if h.syncer != nil {
-			h.syncer.StopAccount(account.ID)
-		}
+		h.stopMailSecurityAccount(account.ID)
+	}
+	if stopAll && h.ownedMailbox.userIMAP != nil {
+		h.ownedMailbox.userIMAP.StopMailSecuritySessions()
 	}
 	redirectAdminSecurity(w, r, "Security exception revoked.", "")
 }

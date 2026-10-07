@@ -23,12 +23,13 @@ type UserIMAPBackgroundOptions struct {
 type userIMAPQueueState struct{ running, dirty bool }
 type userIMAPWatchKey struct{ account, folder string }
 type userIMAPWatch struct {
-	owner   string
-	remote  string
-	cancel  context.CancelFunc
-	watcher *imap.IdleWatcher
-	dirty   bool
-	status  IDLEFolderRuntimeStatus
+	owner          string
+	remote         string
+	cancel         context.CancelFunc
+	watcher        *imap.IdleWatcher
+	dirty          bool
+	suppressResync bool
+	status         IDLEFolderRuntimeStatus
 }
 
 // Start enables background discovery, periodic reconciliation and bounded IDLE.
@@ -397,7 +398,7 @@ func (s *UserIMAP) runWatch(ctx context.Context, key userIMAPWatchKey, w *userIM
 		// A fresh sync may finish before a cancelled watcher releases the last
 		// available slot. Revisit its account after joining the old connection.
 		// Saturation is covered by the next discovery pass; never block a watcher.
-		if s.ctx.Err() == nil && !s.closing {
+		if s.ctx.Err() == nil && !s.closing && !w.suppressResync {
 			_ = s.enqueueLocked(userIMAPJob{w.owner, key.account}, true)
 		}
 		s.mu.Unlock()

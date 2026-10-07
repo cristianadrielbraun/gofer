@@ -111,6 +111,16 @@ func (db *DB) IsPrivateTargetAllowed(ctx context.Context, protocol, host string,
 }
 
 func (db *DB) GetMailSecurityException(ctx context.Context, id string) (*models.MailSecurityException, error) {
+	return db.getMailSecurityException(ctx, id, true)
+}
+
+// GetMailSecurityPolicy reads only installation policy, without joining mailbox
+// configuration. Owned administration resolves affected accounts separately.
+func (db *DB) GetMailSecurityPolicy(ctx context.Context, id string) (*models.MailSecurityException, error) {
+	return db.getMailSecurityException(ctx, id, false)
+}
+
+func (db *DB) getMailSecurityException(ctx context.Context, id string, accounts bool) (*models.MailSecurityException, error) {
 	var item models.MailSecurityException
 	err := db.read.QueryRowContext(ctx, `
 		SELECT id, kind, protocol, host, port, created_by, created_at
@@ -122,13 +132,23 @@ func (db *DB) GetMailSecurityException(ctx context.Context, id string) (*models.
 	if err != nil {
 		return nil, err
 	}
-	if err := db.loadMailSecurityExceptionAccounts(ctx, &item); err != nil {
-		return nil, err
+	if accounts {
+		if err := db.loadMailSecurityExceptionAccounts(ctx, &item); err != nil {
+			return nil, err
+		}
 	}
 	return &item, nil
 }
 
 func (db *DB) ListMailSecurityExceptions(ctx context.Context) ([]models.MailSecurityException, error) {
+	return db.listMailSecurityExceptions(ctx, true)
+}
+
+func (db *DB) ListMailSecurityPolicies(ctx context.Context) ([]models.MailSecurityException, error) {
+	return db.listMailSecurityExceptions(ctx, false)
+}
+
+func (db *DB) listMailSecurityExceptions(ctx context.Context, accounts bool) ([]models.MailSecurityException, error) {
 	rows, err := db.read.QueryContext(ctx, `
 		SELECT id, kind, protocol, host, port, created_by, created_at
 		FROM mail_security_exceptions
@@ -150,8 +170,10 @@ func (db *DB) ListMailSecurityExceptions(ctx context.Context) ([]models.MailSecu
 		return nil, err
 	}
 	for i := range items {
-		if err := db.loadMailSecurityExceptionAccounts(ctx, &items[i]); err != nil {
-			return nil, err
+		if accounts {
+			if err := db.loadMailSecurityExceptionAccounts(ctx, &items[i]); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return items, nil

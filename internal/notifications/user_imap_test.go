@@ -430,9 +430,14 @@ func (f *userStorageFixture) useIMAPServer(t *testing.T, s *routedIMAPServer) {
 }
 func awaitIMAP(t *testing.T, ch <-chan struct{}) {
 	t.Helper()
+	awaitIMAPFor(t, ch, 5*time.Second)
+}
+
+func awaitIMAPFor(t *testing.T, ch <-chan struct{}, timeout time.Duration) {
+	t.Helper()
 	select {
 	case <-ch:
-	case <-time.After(5 * time.Second):
+	case <-time.After(timeout):
 		t.Fatal("IMAP operation did not reach block")
 	}
 }

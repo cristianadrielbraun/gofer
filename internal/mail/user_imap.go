@@ -155,6 +155,32 @@ func (s *UserIMAP) QueueAccount(ctx context.Context, id string) error {
 // queuing a fresh snapshot. It is called with a trusted, routed account ID.
 func (s *UserIMAP) RestartAccount(ctx context.Context, id string) error {
 	s.mu.Lock()
+	s.stopAccountLocked(id, true)
+	s.mu.Unlock()
+	if err := s.Routing().ResetActivePollingForAccount(ctx, id); err != nil {
+		return err
+	}
+	s.wakeActivePoll()
+	return s.QueueAccount(ctx, id)
+}
+
+// StopAccount cancels current sessions and IDLE for a trusted global account ID.
+// It never deletes account data or queues a replacement. Future work snapshots
+// current configuration and installation transport policy again.
+func (s *UserIMAP) StopAccount(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopAccountLocked(id, false)
+}
+
+func (s *UserIMAP) stopAccountLocked(id string, resync bool) {
+	if !resync {
+		for key, w := range s.watches {
+			if key.account == id {
+				w.suppressResync = true
+			}
+		}
+	}
 	s.stopWatchesLocked(id)
 	for key, g := range s.gates {
 		if key.account == id {
@@ -163,12 +189,24 @@ func (s *UserIMAP) RestartAccount(ctx context.Context, id string) error {
 			}
 		}
 	}
-	s.mu.Unlock()
-	if err := s.Routing().ResetActivePollingForAccount(ctx, id); err != nil {
-		return err
+}
+
+// StopMailSecuritySessions fails closed after a policy revocation when damaged
+// storage prevents enumerating affected accounts. It only cancels sessions;
+// discovery and later requests must read the now-revoked central policy.
+func (s *UserIMAP) StopMailSecuritySessions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, w := range s.watches {
+		w.suppressResync = true
+		delete(s.watches, key)
+		w.cancel()
 	}
-	s.wakeActivePoll()
-	return s.QueueAccount(ctx, id)
+	for _, gate := range s.gates {
+		for run := range gate.runs {
+			run.cancel()
+		}
+	}
 }
 
 func (s *UserIMAP) work() {

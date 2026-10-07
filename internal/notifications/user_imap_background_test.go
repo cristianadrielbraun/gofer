@@ -45,7 +45,12 @@ func (s *routedIMAPServer) notifyIdle(owner, line string) {
 }
 func waitUserIMAP(t *testing.T, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	waitUserIMAPFor(t, 20*time.Second, condition)
+}
+
+func waitUserIMAPFor(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
 	for !condition() {
 		if time.Now().After(deadline) {
 			t.Fatal("background IMAP condition did not become true")
@@ -267,7 +272,7 @@ func TestUserIMAPBackgroundBurstDuringBlockedSyncPreservesFollowUp(t *testing.T)
 	s.mu.Unlock()
 	blocked, release := s.setBlock("alice", "headers")
 	s.notifyIdle("alice", "* 3 EXISTS")
-	awaitIMAP(t, blocked)
+	awaitIMAPFor(t, blocked, time.Minute)
 	s.mu.Lock()
 	s.ownerUIDs["alice"] = []uint32{2, 1000000, 1000001, 1000002}
 	s.mu.Unlock()
@@ -283,7 +288,7 @@ func TestUserIMAPBackgroundBurstDuringBlockedSyncPreservesFollowUp(t *testing.T)
 	}
 	wg.Wait()
 	close(release)
-	waitUserIMAP(t, func() bool { return f.messageCount(t, "alice") == 4 })
+	waitUserIMAPFor(t, 2*time.Minute, func() bool { return f.messageCount(t, "alice") == 4 })
 	if f.messageCount(t, "bob") != 2 {
 		t.Fatal("notification burst crossed ownership")
 	}
@@ -348,7 +353,10 @@ func TestUserIMAPBackgroundFullQueueRetainsDiscoveryAndFollowUps(t *testing.T) {
 		return full
 	})
 	close(release)
-	waitUserIMAP(t, func() bool {
+	// Completion of 37 instrumented SQLite accounts exceeds the ordinary
+	// fixture deadline under -race. This checks eventual queue correctness;
+	// application latency is measured separately by the workload benchmark.
+	waitUserIMAPFor(t, 2*time.Minute, func() bool {
 		count := 0
 		if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
 			return db.Read().QueryRow("SELECT COUNT(DISTINCT account_id) FROM messages").Scan(&count)

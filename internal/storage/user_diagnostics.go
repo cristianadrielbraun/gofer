@@ -21,11 +21,18 @@ type DiagnosticsActor struct {
 type UserDiagnosticsKind string
 
 const (
-	UserDiagnosticsContacts UserDiagnosticsKind = "contacts"
-	UserDiagnosticsLabels   UserDiagnosticsKind = "labels"
-	UserDiagnosticsMail     UserDiagnosticsKind = "mail"
-	UserDiagnosticsAvatars  UserDiagnosticsKind = "avatars"
+	UserDiagnosticsContacts   UserDiagnosticsKind = "contacts"
+	UserDiagnosticsLabels     UserDiagnosticsKind = "labels"
+	UserDiagnosticsMail       UserDiagnosticsKind = "mail"
+	UserDiagnosticsAvatars    UserDiagnosticsKind = "avatars"
+	UserDiagnosticsTransports UserDiagnosticsKind = "transports"
 )
+
+type DiagnosticTransportAccount struct {
+	ID, Email                                    string
+	IMAPHost, IMAPTLSMode, SMTPHost, SMTPTLSMode string
+	IMAPPort, SMTPPort                           int
+}
 
 type UserDiagnostics struct {
 	Contacts     models.ContactAdminStatus
@@ -33,6 +40,7 @@ type UserDiagnostics struct {
 	Mail         models.MailOperationsAdminStatus
 	Idle         []ConfiguredIdleFolder
 	AvatarEmails []string
+	Transports   []DiagnosticTransportAccount
 }
 
 func (r *AccountRouting) ValidateDiagnosticsAdministrator(ctx context.Context, actor DiagnosticsActor) error {
@@ -72,7 +80,7 @@ func (r *AccountRouting) ValidateDiagnosticsAccess(ctx context.Context, actor Di
 // It neither creates unused owners' files nor exposes a database capability to
 // administration handlers. A missing file for a known mailbox owner is an error.
 func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor DiagnosticsActor, owner string, kind UserDiagnosticsKind) (result UserDiagnostics, err error) {
-	if kind != UserDiagnosticsContacts && kind != UserDiagnosticsLabels && kind != UserDiagnosticsMail && kind != UserDiagnosticsAvatars {
+	if kind != UserDiagnosticsContacts && kind != UserDiagnosticsLabels && kind != UserDiagnosticsMail && kind != UserDiagnosticsAvatars && kind != UserDiagnosticsTransports {
 		return result, errors.New("unknown user diagnostics kind")
 	}
 	err = r.withDiagnosticsStore(ctx, actor, owner, func(db *DB) error {
@@ -89,6 +97,8 @@ func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor Diagnost
 			}
 		case UserDiagnosticsAvatars:
 			result.AvatarEmails, err = db.listAdminAvatarEmails(ctx, owner)
+		case UserDiagnosticsTransports:
+			result.Transports, err = db.listDiagnosticTransports(ctx, owner)
 		}
 		if err != nil {
 			return err
@@ -99,6 +109,26 @@ func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor Diagnost
 		return UserDiagnostics{}, err
 	}
 	return result, nil
+}
+
+func (db *DB) listDiagnosticTransports(ctx context.Context, owner string) ([]DiagnosticTransportAccount, error) {
+	rows, err := db.Read().QueryContext(ctx, `SELECT id,email_address,
+ lower(trim(COALESCE(imap_host,''))),COALESCE(imap_port,0),lower(trim(COALESCE(imap_tls_mode,''))),
+ lower(trim(COALESCE(smtp_host,''))),COALESCE(smtp_port,0),lower(trim(COALESCE(smtp_tls_mode,'')))
+ FROM accounts WHERE user_id=? AND COALESCE(is_deleting,0)=0`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []DiagnosticTransportAccount
+	for rows.Next() {
+		var account DiagnosticTransportAccount
+		if err := rows.Scan(&account.ID, &account.Email, &account.IMAPHost, &account.IMAPPort, &account.IMAPTLSMode, &account.SMTPHost, &account.SMTPPort, &account.SMTPTLSMode); err != nil {
+			return nil, err
+		}
+		result = append(result, account)
+	}
+	return result, rows.Err()
 }
 
 // withDiagnosticsStore is private: callers receive copied typed results, never a
