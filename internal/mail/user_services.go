@@ -101,8 +101,15 @@ func (s *UserIMAP) RunUserServiceWork(ctx context.Context, owner string, fn func
 		return context.Canceled
 	}
 	s.operations.Add(1)
+	run := &userIMAPOperation{cancel: cancel}
+	s.trackUserRunLocked(run, owner)
 	s.mu.Unlock()
 	defer s.operations.Done()
+	defer func() {
+		s.mu.Lock()
+		delete(s.userRuns, run)
+		s.mu.Unlock()
+	}()
 	if err := s.Routing().ValidateUser(workCtx, owner); err != nil {
 		return err
 	}

@@ -55,6 +55,7 @@ type UserIMAP struct {
 	watchRuns         sync.WaitGroup
 	workers           sync.WaitGroup
 	operations        sync.WaitGroup
+	userRuns          map[*userIMAPOperation]string
 	closing           bool
 }
 type userIMAPJob struct{ owner, account string }
@@ -276,11 +277,13 @@ func (s *UserIMAP) operationWithSlots(ctx context.Context, owner, id string, mes
 	g.refs++
 	run := &userIMAPOperation{cancel: cancel}
 	g.runs[run] = struct{}{}
+	s.trackUserRunLocked(run, owner)
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		g.refs--
 		delete(g.runs, run)
+		delete(s.userRuns, run)
 		if g.refs == 0 {
 			delete(s.gates, key)
 		}

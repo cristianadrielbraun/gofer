@@ -147,7 +147,7 @@ func (r *AccountRouting) withRetainedExistingStore(ctx context.Context, owner st
 	}
 	if _, statErr := os.Lstat(r.stores.userPath(owner)); errors.Is(statErr, os.ErrNotExist) {
 		var known bool
-		if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id=?)`, owner).Scan(&known); err != nil {
+		if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id=?) OR EXISTS(SELECT 1 FROM gofer_user_store_directory WHERE user_id=?)`, owner, owner).Scan(&known); err != nil {
 			return err
 		}
 		if known {

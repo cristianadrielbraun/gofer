@@ -379,3 +379,26 @@ func TestUserIMAPBackgroundFullQueueRetainsDiscoveryAndFollowUps(t *testing.T) {
 		return count >= len(ids)+4
 	})
 }
+
+func TestUserIMAPUserStopCancelsOnlyOwnedIDLE(t *testing.T) {
+	f := newUserStorageFixtureMode(t, true)
+	s := newRoutedIMAPServer(t)
+	s.idleSupported = true
+	startBackgroundIMAP(t, f, s, mail.UserIMAPBackgroundOptions{PollInterval: time.Hour, MaxIdleWatchers: 2})
+	waitUserIMAP(t, func() bool { return len(s.idlePeers("alice")) == 1 && len(s.idlePeers("bob")) == 1 })
+	if _, err := f.system.Write().Exec(`UPDATE users SET status='disabled' WHERE id='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	f.imap.StopUser("alice")
+	waitUserIMAP(t, func() bool { return len(s.idlePeers("alice")) == 0 })
+	if len(s.idlePeers("bob")) != 1 {
+		t.Fatal("user stop closed foreign IDLE")
+	}
+	if _, err := f.system.Write().Exec(`UPDATE users SET status='active' WHERE id='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.imap.RefreshUserSettings(t.Context(), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	waitUserIMAP(t, func() bool { return len(s.idlePeers("alice")) == 1 && len(s.idlePeers("bob")) == 1 })
+}

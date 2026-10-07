@@ -36,24 +36,25 @@ type UserStoreOptions struct {
 // This foundation does not select the layout for the application or split an
 // existing shared database; those require the explicit migration and routing.
 type UserStores struct {
-	system      *DB
-	directory   string
-	maxOpen     int
-	idleTimeout time.Duration
-	lock        *runtimeguard.Lock
-	mu          sync.Mutex
-	entries     map[string]*userStoreEntry
-	changed     chan struct{}
-	wake        chan struct{}
-	closeWake   chan struct{}
-	closerDone  chan struct{}
-	done        chan struct{}
-	closeStore  func(*DB) error
-	openStore   func(context.Context, userStoreOwner, bool) (*DB, error)
-	closing     bool
-	routing     *AccountRouting
-	closeErr    error
-	now         func() time.Time
+	system          *DB
+	directory       string
+	maxOpen         int
+	idleTimeout     time.Duration
+	lock            *runtimeguard.Lock
+	mu              sync.Mutex
+	entries         map[string]*userStoreEntry
+	changed         chan struct{}
+	wake            chan struct{}
+	closeWake       chan struct{}
+	closerDone      chan struct{}
+	done            chan struct{}
+	closeStore      func(*DB) error
+	openStore       func(context.Context, userStoreOwner, bool) (*DB, error)
+	removeStoreFile func(string) error
+	closing         bool
+	routing         *AccountRouting
+	closeErr        error
+	now             func() time.Time
 }
 
 type userStoreEntry struct {
@@ -62,6 +63,7 @@ type userStoreEntry struct {
 	closing   bool
 	refs      int
 	idleSince time.Time
+	closeErr  error
 }
 
 // UserStoreLease pins a database until Release. DB and any rows/transactions
@@ -107,6 +109,9 @@ func NewUserStores(system *DB, options UserStoreOptions) (*UserStores, error) {
 	lock, err := runtimeguard.Acquire(filepath.Join(directory, "manager"))
 	if err != nil {
 		return nil, err
+	}
+	if err := ensureUserStoreDirectory(system); err != nil {
+		return nil, errors.Join(err, lock.Close())
 	}
 	m := &UserStores{
 		system: system, directory: directory, maxOpen: options.MaxOpen,
@@ -157,7 +162,14 @@ func (m *UserStores) acquire(ctx context.Context, userID string, create bool) (*
 		if entry, ok := m.entries[userID]; ok && !entry.opening && !entry.closing {
 			entry.refs++
 			m.mu.Unlock()
-			return &UserStoreLease{manager: m, owner: userID, entry: entry}, nil
+			lease := &UserStoreLease{manager: m, owner: userID, entry: entry}
+			// Removal may commit after the first lookup but before this lease.
+			// Register it first so a remover must wait for this recheck/release.
+			if _, err := m.lookupOwner(ctx, userID); err != nil {
+				lease.Release()
+				return nil, err
+			}
+			return lease, nil
 		} else if ok {
 			changed := m.changed
 			m.mu.Unlock()
@@ -189,7 +201,16 @@ func (m *UserStores) acquire(ctx context.Context, userID string, create bool) (*
 		}
 		m.mu.Unlock()
 
-		db, err := openStore(ctx, owner, create)
+		// The opening entry fences a concurrent removal before any file is
+		// created. Recheck after registering it, including after cache waits.
+		_, err = m.lookupOwner(ctx, userID)
+		var db *DB
+		if err == nil {
+			db, err = openStore(ctx, owner, create)
+		}
+		if err == nil {
+			err = m.recordOpenedStore(ctx, userID)
+		}
 		m.mu.Lock()
 		if err == nil {
 			err = ctx.Err()
@@ -323,6 +344,7 @@ func (m *UserStores) closePending() {
 
 			err := closeStore(entry.db)
 			m.mu.Lock()
+			entry.closeErr = err
 			m.closeErr = errors.Join(m.closeErr, err)
 			delete(m.entries, owner)
 			m.signalLocked()
@@ -397,7 +419,8 @@ type userStoreOwner struct{ id, username, normalized, name, avatar string }
 func (m *UserStores) lookupOwner(ctx context.Context, userID string) (userStoreOwner, error) {
 	var owner userStoreOwner
 	err := m.system.Read().QueryRowContext(ctx, `SELECT id, username, username_normalized, name, avatar_url
-		FROM users WHERE id = ? AND user_type = 'webmail' AND is_admin = 0`, userID).
+		FROM users WHERE id = ? AND user_type = 'webmail' AND is_admin = 0
+ AND NOT EXISTS(SELECT 1 FROM gofer_user_store_directory d WHERE d.user_id=users.id AND d.state<>'present')`, userID).
 		Scan(&owner.id, &owner.username, &owner.normalized, &owner.name, &owner.avatar)
 	if errors.Is(err, sql.ErrNoRows) {
 		return owner, ErrUserStoreOwner
@@ -444,6 +467,13 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 	}
 	if !create {
 		return nil, fmt.Errorf("existing user database is missing: %w", err)
+	}
+	var known bool
+	if queryErr := m.system.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_user_store_directory WHERE user_id=?)`, owner.id).Scan(&known); queryErr != nil {
+		return nil, queryErr
+	}
+	if known {
+		return nil, errors.Join(ErrAccountRoute, err)
 	}
 
 	// Initialize privately, close/checkpoint every connection, then publish

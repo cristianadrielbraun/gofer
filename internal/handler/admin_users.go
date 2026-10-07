@@ -287,6 +287,12 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if h.ownedMailbox != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = h.ownedAdminDiagnosticContext(ctx)
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
@@ -328,6 +334,11 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 			log.Printf("set administrator user status: %v", err)
 			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to change the user's access right now.")
 		}
+		return
+	}
+	if err := h.refreshOwnedUserStatus(ctx, r.PathValue("userID"), result.Status); err != nil {
+		log.Printf("refresh user status services: %v", err)
+		h.renderAdminUsers(w, r, http.StatusServiceUnavailable, views.AdminUserInvitationFormData{}, nil, "User access changed, but background services could not be refreshed. Retry this action.")
 		return
 	}
 	if !result.Changed {
