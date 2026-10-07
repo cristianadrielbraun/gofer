@@ -320,7 +320,15 @@ func (s *UserIMAP) snapshot(ctx context.Context, owner, id string) (*userIMAPSco
 	return r, err
 }
 func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
-	return s.operation(ctx, owner, id, 0, manualSyncTimeout, func(ctx context.Context) error {
+	return s.sync(ctx, owner, id, false)
+}
+
+func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair bool) error {
+	timeout := manualSyncTimeout
+	if repair {
+		timeout = manualRepairSyncTimeout
+	}
+	return s.operation(ctx, owner, id, 0, timeout, func(ctx context.Context) error {
 		revision, err := s.Routing().PollRevision(ctx, owner, id)
 		if err != nil {
 			return err
@@ -464,7 +472,11 @@ func (s *UserIMAP) Sync(ctx context.Context, owner, id string) error {
 		o := NewSyncOrchestrator(nil, nil, s.blobs, scope.tokens)
 		o.imapScope = scope
 		o.events = s.events
-		err = o.syncAccount(ctx, id, true)
+		if repair {
+			err = o.repairGmailAPIAccount(ctx, id)
+		} else {
+			err = o.syncAccount(ctx, id, true)
+		}
 		receiveErr = err
 		if err == nil {
 			err = s.reconcileWatches(ctx, scope)

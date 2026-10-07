@@ -14,6 +14,44 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
+func TestConnectionProbeCancellationInterruptsGreeting(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+	host, portText, _ := net.SplitHostPort(listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- TestConnection(ctx, &models.AccountConfig{IMAPHost: host, IMAPPort: port, IMAPTLSMode: "plaintext", IMAPAllowPlaintext: true, AuthMethod: "plain", Username: "test"}, "synthetic-only")
+	}()
+	select {
+	case conn := <-accepted:
+		defer conn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("probe did not connect")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("cancelled probe succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("probe ignored cancellation during greeting")
+	}
+}
+
 func TestConnectWithConfigRejectsUnencryptedTLSModes(t *testing.T) {
 	for _, mode := range []string{"none", "", "optional", "plaintext"} {
 		t.Run(mode, func(t *testing.T) {

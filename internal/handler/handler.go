@@ -2418,6 +2418,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "Invalid discovery request.")
 		return

@@ -12,9 +12,10 @@ import (
 
 var ErrUserIMAPManualCapacity = errors.New("manual mail sync capacity is full")
 var errUserIMAPDisabled = errors.New("email sync was disabled")
+var ErrUserGmailRepairUnsupported = errors.New("full mail repair is only available for Gmail accounts")
 
 type userIMAPManualRun struct {
-	id                                 string
+	id, mode                           string
 	accounts                           []string
 	cancel                             context.CancelFunc
 	done, failures, cancelled, skipped int
@@ -25,6 +26,16 @@ type userIMAPManualRun struct {
 // At most four owners can run; accounts run sequentially within each owner's run
 // and share the receive/body service's global four-session limit.
 func (s *UserIMAP) StartManualSync(ctx context.Context, owner string, ids []string) (string, bool, error) {
+	return s.startManual(ctx, owner, ids, "sync")
+}
+
+// StartGmailRepair shares manual-run admission, cancellation and progress while
+// forcing the existing Gmail historical import, even for an imported mailbox.
+func (s *UserIMAP) StartGmailRepair(ctx context.Context, owner, id string) (string, bool, error) {
+	return s.startManual(ctx, owner, []string{id}, "repair")
+}
+
+func (s *UserIMAP) startManual(ctx context.Context, owner string, ids []string, mode string) (string, bool, error) {
 	if len(ids) == 0 || len(ids) > 256 {
 		return "", false, errors.New("manual sync requires between 1 and 256 accounts")
 	}
@@ -42,6 +53,9 @@ func (s *UserIMAP) StartManualSync(ctx context.Context, owner string, ids []stri
 			cfg, err := local.GetConfig(ctx, id)
 			if err != nil {
 				return err
+			}
+			if mode == "repair" && cfg.Provider != "gmail" {
+				return ErrUserGmailRepairUnsupported
 			}
 			if !s.SupportsAccount(cfg) || !db.IsEmailSyncEnabled(ctx, id) {
 				return storage.ErrAccountRoute
@@ -68,8 +82,12 @@ func (s *UserIMAP) StartManualSync(ctx context.Context, owner string, ids []stri
 	if s.manualRuns == nil {
 		s.manualRuns = make(map[string]*userIMAPManualRun)
 	}
-	workCtx, cancel := context.WithTimeout(s.ctx, manualSyncTimeout)
-	run := &userIMAPManualRun{id: uuid.NewString(), accounts: accounts, cancel: cancel}
+	timeout := manualSyncTimeout
+	if mode == "repair" {
+		timeout = manualRepairSyncTimeout
+	}
+	workCtx, cancel := context.WithTimeout(s.ctx, timeout)
+	run := &userIMAPManualRun{id: uuid.NewString(), mode: mode, accounts: accounts, cancel: cancel}
 	s.manualRuns[owner] = run
 	s.operations.Add(1)
 	go s.runManual(workCtx, owner, run)
@@ -79,7 +97,7 @@ func (s *UserIMAP) StartManualSync(ctx context.Context, owner string, ids []stri
 // Caller holds mu. Every payload owns a copy of its account identities.
 func (s *UserIMAP) manualEventLocked(owner string, run *userIMAPManualRun, kind EventType, status, errorText string) Event {
 	payload := map[string]any{
-		"user_id": owner, "run_id": run.id, "mode": "sync",
+		"user_id": owner, "run_id": run.id, "mode": run.mode,
 		"account_ids": append([]string(nil), run.accounts...), "accounts_total": len(run.accounts),
 		"accounts_done": run.done, "parallelism": 1, "failures": run.failures, "skipped": run.skipped,
 		"cancelled": run.cancelled, "not_done": len(run.accounts) - run.done, "status": status,
@@ -125,10 +143,10 @@ func (s *UserIMAP) runManual(ctx context.Context, owner string, run *userIMAPMan
 		s.mu.Unlock()
 		s.events.Publish(event)
 		accountCtx := withAccountSyncProgressScope(ctx, accountSyncProgressScope{
-			kind: string(accountSyncManual), mode: "sync", userID: owner, runID: run.id,
+			kind: string(accountSyncManual), mode: run.mode, userID: owner, runID: run.id,
 			accountIDs: run.accounts, accountsTotal: len(run.accounts), accountIndex: index + 1, parallelism: 1,
 		})
-		err := s.Sync(accountCtx, owner, id)
+		err := s.sync(accountCtx, owner, id, run.mode == "repair")
 		status, errorText := "synced", ""
 		s.mu.Lock()
 		run.done++

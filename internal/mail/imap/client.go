@@ -252,7 +252,7 @@ func isExistingMailbox(attrs []imap.MailboxAttr) bool {
 }
 
 func TestConnection(ctx context.Context, cfg *models.AccountConfig, password string) error {
-	c, err := ConnectWithConfig(cfg, password, nil)
+	c, err := NewContextClient(ctx, cfg, password)
 	if err != nil {
 		return err
 	}
