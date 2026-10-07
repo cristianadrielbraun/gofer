@@ -124,6 +124,10 @@ func NewAccountRouting(stores *UserStores) (*AccountRouting, error) {
 			revision INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE INDEX IF NOT EXISTS gofer_contact_queue_due ON gofer_contact_queue_schedule(next_due_ms,user_id);
+		CREATE TABLE IF NOT EXISTS gofer_user_cleanup_receipts (
+			user_id TEXT PRIMARY KEY CHECK(user_id<>''),
+			completed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
 		CREATE TRIGGER IF NOT EXISTS gofer_account_directory_identity BEFORE UPDATE OF account_id, user_id ON gofer_account_directory
 		WHEN NEW.account_id IS NOT OLD.account_id OR NEW.user_id IS NOT OLD.user_id
 		BEGIN SELECT RAISE(ABORT, 'account ownership is immutable'); END;
