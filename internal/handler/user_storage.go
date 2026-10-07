@@ -294,6 +294,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		routed.registerUserCompose(private)
 	}
 	go routed.runUserContactBackfills(ctx)
+	h.ownedMailbox = routed
 	return nil
 }
 

@@ -457,6 +457,9 @@ func (h *Handler) adminWebmailScope(ctx context.Context, selectedUserID string) 
 }
 
 func (h *Handler) labelAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.LabelAdminStatus, error) {
+	if h.ownedMailbox != nil {
+		return h.ownedLabelAdminStatus(ctx, scope)
+	}
 	var status models.LabelAdminStatus
 	var err error
 	if scope.SelectedUserID == "" {
@@ -469,6 +472,9 @@ func (h *Handler) labelAdminStatus(ctx context.Context, scope models.AdminWebmai
 }
 
 func (h *Handler) contactAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.ContactAdminStatus, error) {
+	if h.ownedMailbox != nil {
+		return h.ownedContactAdminStatus(ctx, scope)
+	}
 	var status models.ContactAdminStatus
 	var err error
 	if scope.SelectedUserID == "" {

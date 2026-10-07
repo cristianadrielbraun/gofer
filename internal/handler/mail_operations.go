@@ -207,6 +207,9 @@ func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) mailOperationsAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.MailOperationsAdminStatus, error) {
+	if h.ownedMailbox != nil {
+		return h.ownedMailOperationsAdminStatus(ctx, scope)
+	}
 	var status models.MailOperationsAdminStatus
 	var err error
 	if scope.SelectedUserID == "" {

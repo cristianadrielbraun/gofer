@@ -410,6 +410,23 @@ func (s *UserIMAP) IdleStatusesForUser(ctx context.Context, owner string) ([]IDL
 	if err := s.Routing().ValidateUser(ctx, owner); err != nil {
 		return nil, err
 	}
+	return s.idleStatuses(owner), nil
+}
+
+// IdleStatusesForDiagnostics includes disabled owners for centrally authorized
+// administrators, without retaining a local database lease.
+func (s *UserIMAP) IdleStatusesForDiagnostics(ctx context.Context, actor storage.DiagnosticsActor, owner string) ([]IDLEFolderRuntimeStatus, error) {
+	if err := s.Routing().ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
+		return nil, err
+	}
+	states := s.idleStatuses(owner)
+	if err := s.Routing().ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
+		return nil, err
+	}
+	return states, nil
+}
+
+func (s *UserIMAP) idleStatuses(owner string) []IDLEFolderRuntimeStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var states []IDLEFolderRuntimeStatus
@@ -418,8 +435,13 @@ func (s *UserIMAP) IdleStatusesForUser(ctx context.Context, owner string) ([]IDL
 			states = append(states, w.status)
 		}
 	}
-	sort.Slice(states, func(i, j int) bool { return states[i].FolderID < states[j].FolderID })
-	return states, nil
+	sort.Slice(states, func(i, j int) bool {
+		if states[i].AccountID != states[j].AccountID {
+			return states[i].AccountID < states[j].AccountID
+		}
+		return states[i].FolderID < states[j].FolderID
+	})
+	return states
 }
 
 func (s *UserIMAP) IdleEventsForUser(ctx context.Context, owner string) ([]Event, error) {

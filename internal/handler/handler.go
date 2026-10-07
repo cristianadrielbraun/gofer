@@ -44,6 +44,7 @@ import (
 type Handler struct {
 	db                         *storage.DB
 	userStorage                *storage.AccountRouting
+	ownedMailbox               *Handler
 	userIMAP                   *mail.UserIMAP
 	userCredentials            *mailauth.UserCredentials
 	userMutationState          *userMessageMutationState
