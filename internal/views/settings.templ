@@ -5212,7 +5212,7 @@ func mailOperationTypeLabel(operationType string) string {
 		return "Message change"
 	case models.MailOperationLabelMutation:
 		return "Label change"
-	case models.MailOperationIMAPDraft:
+	case models.MailOperationIMAPDraft, models.MailOperationProviderDraft:
 		return "Draft sync"
 	case models.MailOperationSentCopy:
 		return "Sent copy"
@@ -5222,6 +5222,9 @@ func mailOperationTypeLabel(operationType string) string {
 }
 
 func mailOperationStateLabel(operation models.MailOperationSummary) string {
+	if operation.State == "blocked" {
+		return "Blocked"
+	}
 	if operation.Ambiguous {
 		return "Needs reconciliation"
 	}
@@ -5229,6 +5232,8 @@ func mailOperationStateLabel(operation models.MailOperationSummary) string {
 		return "Failed"
 	}
 	switch operation.State {
+	case "failed":
+		return "Failed"
 	case "pending":
 		return "Queued"
 	case "processing", "syncing", "sent_copy_copying":

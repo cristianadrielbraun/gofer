@@ -110,6 +110,7 @@ func (h *Handler) handleMailOperations(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSettingsMailOperationsContent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	status, err := h.mailOperationsStatus(r.Context())
 	if err != nil {
 		http.Error(w, "failed to load mail operations", http.StatusInternalServerError)
@@ -122,13 +123,18 @@ func (h *Handler) handleSettingsMailOperationsContent(w http.ResponseWriter, r *
 }
 
 func (h *Handler) mailOperationsStatus(ctx context.Context) (models.MailOperationsStatus, error) {
-	operations, err := h.db.ListMailOperationsForUser(ctx, h.userID(ctx))
+	var operations []models.MailOperationSummary
+	err := h.withUserDB(ctx, h.userID(ctx), func(db *storage.DB) error {
+		var err error
+		operations, err = db.ListMailOperationsForUser(ctx, h.userID(ctx))
+		return err
+	})
 	if err != nil {
 		return models.MailOperationsStatus{}, err
 	}
 	status := models.MailOperationsStatus{Operations: operations, Total: len(operations)}
 	for _, operation := range operations {
-		if operation.CanRetry || operation.CanReconcile || operation.CanCancel {
+		if operation.CanRetry || operation.CanReconcile || operation.CanCancel || operation.State == "blocked" {
 			status.ActionRequired++
 		}
 	}

@@ -256,11 +256,14 @@ func TestUserProviderDraftLostCreateAckReconcilesWithoutDuplicate(t *testing.T) 
 			if err := f.imap.Sync(t.Context(), "alice", f.accounts["alice"].ID); err != nil {
 				t.Fatal(err)
 			}
+			var id int64
 			if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
-				_, err := db.Write().Exec(`UPDATE gofer_provider_draft_operations SET next_attempt_at=CURRENT_TIMESTAMP`)
-				return err
+				return db.Read().QueryRow(`SELECT id FROM gofer_provider_draft_operations WHERE account_id=?`, f.accounts["alice"].ID).Scan(&id)
 			}); err != nil {
 				t.Fatal(err)
+			}
+			if response := f.request("alice", "POST", fmt.Sprintf("/api/mail-operations/provider_draft:%d/retry", id), ""); response.Code != 200 {
+				t.Fatal("owned draft reconciliation retry", response.Code, response.Body.String())
 			}
 			if err := f.imap.Sync(t.Context(), "alice", f.accounts["alice"].ID); err != nil {
 				t.Fatal(err)

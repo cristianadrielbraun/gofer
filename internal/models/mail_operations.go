@@ -6,6 +6,7 @@ const (
 	MailOperationMessageMutation = "message_mutation"
 	MailOperationLabelMutation   = "label_mutation"
 	MailOperationIMAPDraft       = "imap_draft"
+	MailOperationProviderDraft   = "provider_draft"
 	MailOperationSentCopy        = "sent_copy"
 )
 

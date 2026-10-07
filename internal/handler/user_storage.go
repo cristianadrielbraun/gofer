@@ -109,6 +109,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			// Protect copied file paths for local reads and compose publication.
 			// SSE holds no file paths and can stay open indefinitely.
 			needsFiles := !strings.HasPrefix(r.URL.Path, "/settings/security") && pattern != "GET /api/events" &&
+				pattern != "GET /api/mail-operations" &&
+				pattern != "GET /settings/operations/content" &&
+				pattern != "POST /api/mail-operations/{id}/retry" &&
 				pattern != "GET /api/calendar/events/new" &&
 				pattern != "POST /api/calendar/events" &&
 				pattern != "PATCH /api/calendar/events/{id}" &&
@@ -181,6 +184,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/sidebar/mail", routed.handleMailSidebar)
 	private("GET /api/sidebar/accounts/{id}", routed.handleSidebarAccount)
 	private("GET /api/accounts", routed.handleUserAccounts)
+	private("GET /api/mail-operations", routed.handleMailOperations)
+	private("GET /settings/operations/content", routed.handleSettingsMailOperationsContent)
 	private("GET /settings", routed.handleSettings)
 	private("GET /settings/{tab}", routed.handleSettingsTab)
 	routed.registerSecuritySettingsRoutes(private)
@@ -244,6 +249,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("GET /api/contacts/{id}/sync-setup", routed.handleUserContactSyncSetup)
 		private("GET /api/contacts/{id}/sync-setup/findings", routed.handleUserContactSyncSetupFindings)
 		private("POST /api/contacts/{id}/sync-setup/preview", routed.handleUserPreviewContactSyncSetup)
+		private("POST /api/mail-operations/{id}/retry", routed.handleUserRetryMailOperation)
 		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)
 		private("POST /api/accounts/{id}/services", routed.handleUserEmailService)
 		// Retain the earlier opt-in URL while the application uses /services.

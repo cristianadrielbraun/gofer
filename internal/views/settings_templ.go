@@ -14546,7 +14546,7 @@ func mailOperationTypeLabel(operationType string) string {
 		return "Message change"
 	case models.MailOperationLabelMutation:
 		return "Label change"
-	case models.MailOperationIMAPDraft:
+	case models.MailOperationIMAPDraft, models.MailOperationProviderDraft:
 		return "Draft sync"
 	case models.MailOperationSentCopy:
 		return "Sent copy"
@@ -14556,6 +14556,9 @@ func mailOperationTypeLabel(operationType string) string {
 }
 
 func mailOperationStateLabel(operation models.MailOperationSummary) string {
+	if operation.State == "blocked" {
+		return "Blocked"
+	}
 	if operation.Ambiguous {
 		return "Needs reconciliation"
 	}
@@ -14563,6 +14566,8 @@ func mailOperationStateLabel(operation models.MailOperationSummary) string {
 		return "Failed"
 	}
 	switch operation.State {
+	case "failed":
+		return "Failed"
 	case "pending":
 		return "Queued"
 	case "processing", "syncing", "sent_copy_copying":
@@ -14674,7 +14679,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 		var templ_7745c5c3_Var620 string
 		templ_7745c5c3_Var620, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d operation(s) currently retained locally", status.Total))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5302, Col: 123}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5307, Col: 123}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var620))
 		if templ_7745c5c3_Err != nil {
@@ -14696,7 +14701,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 			var templ_7745c5c3_Var621 string
 			templ_7745c5c3_Var621, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d need attention", status.ActionRequired))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5307, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5312, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var621))
 			if templ_7745c5c3_Err != nil {
@@ -14750,7 +14755,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 				var templ_7745c5c3_Var624 string
 				templ_7745c5c3_Var624, templ_7745c5c3_Err = templ.JoinStringErrs(operation.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5320, Col: 44}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5325, Col: 44}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var624))
 				if templ_7745c5c3_Err != nil {
@@ -14763,7 +14768,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 				var templ_7745c5c3_Var625 string
 				templ_7745c5c3_Var625, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTypeLabel(operation.Type))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5324, Col: 101}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5329, Col: 101}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var625))
 				if templ_7745c5c3_Err != nil {
@@ -14801,7 +14806,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 				var templ_7745c5c3_Var628 string
 				templ_7745c5c3_Var628, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationStateLabel(operation))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5329, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5334, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var628))
 				if templ_7745c5c3_Err != nil {
@@ -14814,7 +14819,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 				var templ_7745c5c3_Var629 string
 				templ_7745c5c3_Var629, templ_7745c5c3_Err = templ.JoinStringErrs(operation.AccountEmail)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5332, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5337, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var629))
 				if templ_7745c5c3_Err != nil {
@@ -14832,7 +14837,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 					var templ_7745c5c3_Var630 string
 					templ_7745c5c3_Var630, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTargetLabel(operation))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5334, Col: 57}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5339, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var630))
 					if templ_7745c5c3_Err != nil {
@@ -14855,7 +14860,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 					var templ_7745c5c3_Var631 string
 					templ_7745c5c3_Var631, templ_7745c5c3_Err = templ.JoinStringErrs(operation.LastError)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5338, Col: 163}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5343, Col: 163}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var631))
 					if templ_7745c5c3_Err != nil {
@@ -14873,7 +14878,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 				var templ_7745c5c3_Var632 string
 				templ_7745c5c3_Var632, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Attempt %d", operation.Attempts))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5341, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5346, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var632))
 				if templ_7745c5c3_Err != nil {
@@ -14886,7 +14891,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 				var templ_7745c5c3_Var633 string
 				templ_7745c5c3_Var633, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTimeLabel(operation.NextRetryAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5341, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5346, Col: 120}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var633))
 				if templ_7745c5c3_Err != nil {
@@ -14904,7 +14909,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 					var templ_7745c5c3_Var634 string
 					templ_7745c5c3_Var634, templ_7745c5c3_Err = templ.JoinStringErrs(operation.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5346, Col: 94}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5351, Col: 94}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var634))
 					if templ_7745c5c3_Err != nil {
@@ -14921,7 +14926,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 					var templ_7745c5c3_Var635 string
 					templ_7745c5c3_Var635, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationActionLabel(operation))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5348, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5353, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var635))
 					if templ_7745c5c3_Err != nil {

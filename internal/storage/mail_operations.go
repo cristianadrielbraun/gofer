@@ -149,6 +149,39 @@ FROM (
       AND os.sent_copy_status IN ('pending', 'copying', 'failed', 'ambiguous')
 ) operations`
 
+// Provider draft tables exist only in marked user stores. Keep the shared
+// layout query independent of those extensions. These older queue rows have
+// no creation/update timestamps, so diagnostics leave those fields unset.
+func (db *DB) mailOperationProjection() string {
+	if !db.userMailDelivery {
+		return mailOperationProjection
+	}
+	return strings.TrimSuffix(mailOperationProjection, ") operations") + userProviderDraftOperationProjection + ") operations"
+}
+
+const userProviderDraftOperationProjection = `
+    UNION ALL
+    SELECT 'provider_draft:' || o.id, 'provider_draft', o.account_id,
+           COALESCE(a.email_address, ''), s.provider,
+           COALESCE(s.local_message_id, 0), s.folder_id,
+           COALESCE(NULLIF(f.remote_id, ''), NULLIF(f.role, ''), s.folder_id),
+           '', '', '', o.kind, o.draft_key, o.status, o.attempt_count,
+           o.last_error, o.next_attempt_at, NULL, NULL,
+           CASE WHEN o.status IN ('failed', 'blocked') AND
+                a.provider=s.provider AND a.auth_method='oauth2' AND
+                COALESCE(a.provider_account_id,'')=s.mailbox_subject AND
+                COALESCE(a.is_deleting,0)=0 THEN 1 ELSE 0 END,
+           CASE WHEN o.status='ambiguous' AND
+                a.provider=s.provider AND a.auth_method='oauth2' AND
+                COALESCE(a.provider_account_id,'')=s.mailbox_subject AND
+                COALESCE(a.is_deleting,0)=0 THEN 1 ELSE 0 END,
+           0, CASE WHEN o.status='ambiguous' THEN 1 ELSE 0 END
+    FROM gofer_provider_draft_operations o
+    JOIN gofer_provider_draft_states s ON s.account_id=o.account_id AND s.draft_key=o.draft_key
+    JOIN accounts a ON a.id=o.account_id
+    LEFT JOIN folders f ON f.id=s.folder_id
+`
+
 func sanitizeMailOperationError(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -198,9 +231,9 @@ func scanMailOperation(row mailOperationRowScanner) (models.MailOperationSummary
 }
 
 func (db *DB) ListMailOperationsForUser(ctx context.Context, userID string) ([]models.MailOperationSummary, error) {
-	rows, err := db.Read().QueryContext(ctx, mailOperationProjection+`
+	rows, err := db.Read().QueryContext(ctx, db.mailOperationProjection()+`
 WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?)
-ORDER BY (can_retry OR can_reconcile OR can_cancel) DESC, updated_at DESC
+ORDER BY (can_retry OR can_reconcile OR can_cancel OR state = 'blocked') DESC, updated_at DESC
 LIMIT 200`,
 		models.MailOperationMessageMutation, models.MailOperationLabelMutation,
 		models.MailOperationIMAPDraft, models.MailOperationSentCopy, strings.TrimSpace(userID))
@@ -220,7 +253,7 @@ LIMIT 200`,
 }
 
 func (db *DB) GetMailOperationForUser(ctx context.Context, userID, operationID string) (models.MailOperationSummary, error) {
-	return scanMailOperation(db.Read().QueryRowContext(ctx, mailOperationProjection+`
+	return scanMailOperation(db.Read().QueryRowContext(ctx, db.mailOperationProjection()+`
 WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND operation_id = ?`,
 		models.MailOperationMessageMutation, models.MailOperationLabelMutation,
 		models.MailOperationIMAPDraft, models.MailOperationSentCopy, strings.TrimSpace(userID), strings.TrimSpace(operationID)))
@@ -244,7 +277,7 @@ func (db *DB) listMailOperationsAdminStatus(ctx context.Context, userID string) 
 		where = "\nWHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?)"
 		args = append(args, userID)
 	}
-	rows, err := db.Read().QueryContext(ctx, mailOperationProjection+where+`
+	rows, err := db.Read().QueryContext(ctx, db.mailOperationProjection()+where+`
 ORDER BY updated_at DESC`, args...)
 	if err != nil {
 		return models.MailOperationsAdminStatus{}, err
@@ -265,7 +298,7 @@ ORDER BY updated_at DESC`, args...)
 			return models.MailOperationsAdminStatus{}, err
 		}
 		status.Total++
-		actionRequired := operation.CanRetry || operation.CanReconcile || operation.CanCancel
+		actionRequired := operation.CanRetry || operation.CanReconcile || operation.CanCancel || operation.State == "blocked"
 		if actionRequired {
 			status.ActionRequired++
 		}
@@ -340,16 +373,32 @@ func maskMailOperationAccount(email string) string {
 }
 
 func (db *DB) RetryMailOperationForUser(ctx context.Context, userID, operationID string) (models.MailOperationSummary, error) {
+	return db.RetryMailOperationForUserGuarded(ctx, userID, operationID, nil)
+}
+
+// Retry scheduling and its returned diagnostic snapshot use one transaction.
+// The routed guard runs after waiting for the writer and before committing;
+// reconciliation identifiers and attempt counts are never reset by a retry.
+func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, operationID string, guard func(*sql.Tx) error) (models.MailOperationSummary, error) {
 	kind, rawID, ok := strings.Cut(strings.TrimSpace(operationID), ":")
 	if !ok || strings.TrimSpace(rawID) == "" {
 		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
 	}
 	userID = strings.TrimSpace(userID)
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return models.MailOperationSummary{}, err
+	}
+	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return models.MailOperationSummary{}, err
+		}
+	}
 	var result sql.Result
-	var err error
 	switch kind {
 	case models.MailOperationMessageMutation:
-		result, err = db.Write().ExecContext(ctx, `
+		result, err = tx.ExecContext(ctx, `
 			UPDATE message_mutations
 			SET status = ?, locked_at = NULL, next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND status = ? AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`,
@@ -359,22 +408,39 @@ func (db *DB) RetryMailOperationForUser(ctx context.Context, userID, operationID
 		if parseErr != nil || id <= 0 {
 			return models.MailOperationSummary{}, ErrMailOperationNotRetryable
 		}
-		result, err = db.Write().ExecContext(ctx, `
+		result, err = tx.ExecContext(ctx, `
 			UPDATE label_mutation_queue
 			SET next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`, id, userID)
 	case models.MailOperationIMAPDraft:
-		result, err = db.Write().ExecContext(ctx, `
+		result, err = tx.ExecContext(ctx, `
 			UPDATE imap_draft_operations
 			SET locked_at = NULL, next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND status IN (?, ?) AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`,
 			rawID, IMAPDraftStatusFailed, IMAPDraftStatusAmbiguous, userID)
 	case models.MailOperationSentCopy:
-		result, err = db.Write().ExecContext(ctx, `
+		result, err = tx.ExecContext(ctx, `
 			UPDATE outgoing_sends
 			SET sent_copy_locked_at = NULL, sent_copy_next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND status = ? AND sent_copy_status IN (?, ?) AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`,
 			rawID, OutgoingSendSent, SentCopyFailed, SentCopyAmbiguous, userID)
+	case models.MailOperationProviderDraft:
+		if !db.userMailDelivery {
+			return models.MailOperationSummary{}, ErrMailOperationNotRetryable
+		}
+		id, parseErr := strconv.ParseInt(rawID, 10, 64)
+		if parseErr != nil || id <= 0 {
+			return models.MailOperationSummary{}, ErrMailOperationNotRetryable
+		}
+		result, err = tx.ExecContext(ctx, `
+			UPDATE gofer_provider_draft_operations AS o
+			SET status=CASE WHEN status='blocked' THEN 'failed' ELSE status END,
+			    next_attempt_at=CURRENT_TIMESTAMP
+			WHERE id=? AND status IN ('failed','ambiguous','blocked') AND EXISTS(
+			 SELECT 1 FROM gofer_provider_draft_states s JOIN accounts a ON a.id=s.account_id
+			 WHERE s.account_id=o.account_id AND s.draft_key=o.draft_key AND a.user_id=?
+			 AND a.provider=s.provider AND a.auth_method='oauth2'
+			 AND COALESCE(a.provider_account_id,'')=s.mailbox_subject AND COALESCE(a.is_deleting,0)=0)`, id, userID)
 	default:
 		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
 	}
@@ -385,11 +451,29 @@ func (db *DB) RetryMailOperationForUser(ctx context.Context, userID, operationID
 	if err != nil {
 		return models.MailOperationSummary{}, err
 	}
+	lookup := func() (models.MailOperationSummary, error) {
+		return scanMailOperation(tx.QueryRowContext(ctx, db.mailOperationProjection()+`
+WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND operation_id = ?`,
+			models.MailOperationMessageMutation, models.MailOperationLabelMutation,
+			models.MailOperationIMAPDraft, models.MailOperationSentCopy, userID, strings.TrimSpace(operationID)))
+	}
 	if changed != 1 {
-		if _, lookupErr := db.GetMailOperationForUser(ctx, userID, operationID); lookupErr != nil {
+		if _, lookupErr := lookup(); lookupErr != nil {
 			return models.MailOperationSummary{}, lookupErr
 		}
 		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
 	}
-	return db.GetMailOperationForUser(ctx, userID, operationID)
+	operation, err := lookup()
+	if err != nil {
+		return models.MailOperationSummary{}, err
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return models.MailOperationSummary{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return models.MailOperationSummary{}, err
+	}
+	return operation, nil
 }
