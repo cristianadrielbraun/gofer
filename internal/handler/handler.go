@@ -73,7 +73,7 @@ type Handler struct {
 	bodyFetches                map[int64]chan struct{}
 	accountDeleteMu            sync.Mutex
 	userDeleteMu               sync.Mutex
-	avatarWarmupQueue          chan storage.SenderAvatarCandidate
+	avatarWarmupQueue          chan avatarWarmupJob
 	avatarWarmupOwner          *Handler
 	avatarRouting              *storage.AccountRouting
 	avatarWorkersOnce          sync.Once
@@ -158,7 +158,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		avatar:                 avatarresolver.NewResolver(),
 		bodyClients:            make(map[string]*imap.Client),
 		bodyFetches:            make(map[int64]chan struct{}),
-		avatarWarmupQueue:      make(chan storage.SenderAvatarCandidate, avatarWarmupQueueSize),
+		avatarWarmupQueue:      make(chan avatarWarmupJob, avatarWarmupQueueSize),
 		avatarWarmupQueued:     make(map[string]struct{}),
 		avatarWarmupForced:     make(map[string]time.Time),
 		contactSyncRunning:     make(map[string]struct{}),
