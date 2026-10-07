@@ -86,6 +86,11 @@ func NewAccountRouting(stores *UserStores) (*AccountRouting, error) {
 		);
 		CREATE INDEX IF NOT EXISTS gofer_account_directory_state ON gofer_account_directory(state, account_id);
 		CREATE INDEX IF NOT EXISTS gofer_account_directory_owner ON gofer_account_directory(user_id, state, account_id);
+		CREATE TABLE IF NOT EXISTS gofer_avatar_interests (
+			email_hash TEXT NOT NULL REFERENCES sender_avatars(email_hash) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			PRIMARY KEY(email_hash,user_id)
+		);
 		CREATE TABLE IF NOT EXISTS gofer_account_poll_schedule (
 			account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
 			next_due_ms INTEGER NOT NULL DEFAULT 0,

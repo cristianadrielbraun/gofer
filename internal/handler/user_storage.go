@@ -70,6 +70,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
 		googleTranslator:         h.googleTranslator,
 		remoteResourceDownloader: h.remoteResourceDownloader,
+		providerAvatarHTTPClient: h.providerAvatarHTTPClient,
+		avatarWarmupOwner:        h,
 		userBackfills:            make(map[string]struct{}), contactSyncRunning: make(map[string]struct{})}
 	if option.IMAP != nil {
 		if h.blobStore != nil && h.blobStore != option.IMAP.Blobs() {
@@ -102,6 +104,18 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			}
 		}
 	}
+	// Avatar bytes/attempts and worker bounds are installation-wide; the routed
+	// handler authorizes visibility through local stores before using that cache.
+	h.avatarRouting = routing
+	if h.blobStore == nil {
+		h.blobStore = routed.blobStore
+	}
+	h.startAvatarWarmupWorkers(ctx)
+	if option.IMAP != nil {
+		if err := option.IMAP.StartBackgroundService(ctx, func(ctx context.Context) { <-ctx.Done(); h.WaitAvatarWorkers() }); err != nil {
+			return err
+		}
+	}
 	private := func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			if err := routing.ValidateUser(r.Context(), routed.userID(r.Context())); err != nil {
@@ -111,6 +125,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			// Protect copied file paths for local reads and compose publication.
 			// SSE holds no file paths and can stay open indefinitely.
 			needsFiles := !strings.HasPrefix(r.URL.Path, "/settings/security") && pattern != "GET /api/events" &&
+				pattern != "GET /api/avatars/{hash}" && pattern != "GET /api/provider-avatar" && pattern != "POST /api/avatars/warmup" &&
 				pattern != "POST /api/accounts/discover" &&
 				pattern != "POST /api/accounts/{id}/test" &&
 				pattern != "POST /api/mail/sync/accounts/{id}/repair" &&
@@ -160,6 +175,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		})
 	}
 	private("GET /api/settings/ui", routed.handleGetUISettings)
+	private("GET /api/avatars/{hash}", routed.handleAvatarImage)
+	private("GET /api/provider-avatar", routed.handleProviderAvatarImage)
+	private("POST /api/avatars/warmup", routed.handleAvatarWarmup)
 	private("PATCH /api/settings/ui", routed.handleSaveUISettings)
 	private("GET /api/push/vapid-public-key", routed.handlePushVAPIDPublicKey)
 	// Browser endpoints need one owner across the entire installation. Their

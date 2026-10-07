@@ -676,7 +676,11 @@ func (db *DB) hydrateContactAvatars(ctx context.Context, contacts []models.Conta
 	if len(hashes) == 0 {
 		return
 	}
-	rows, err := db.Read().QueryContext(ctx, `
+	cache := db
+	if db.senderAvatarCache != nil {
+		cache = db.senderAvatarCache
+	}
+	rows, err := cache.Read().QueryContext(ctx, `
 		SELECT email_hash, source, status, storage_path, image_data IS NOT NULL, expires_at
 		FROM sender_avatars
 		WHERE email_hash IN (`+sqlPlaceholders(len(hashes))+`)`, stringsToAny(hashes)...)

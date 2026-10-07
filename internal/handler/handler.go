@@ -68,6 +68,14 @@ type Handler struct {
 	accountDeleteMu            sync.Mutex
 	userDeleteMu               sync.Mutex
 	avatarWarmupQueue          chan storage.SenderAvatarCandidate
+	avatarWarmupOwner          *Handler
+	avatarRouting              *storage.AccountRouting
+	avatarWorkersOnce          sync.Once
+	avatarSchedulerOnce        sync.Once
+	avatarWorkers              sync.WaitGroup
+	avatarWorkerContext        context.Context
+	avatarWorkerCancel         context.CancelFunc
+	avatarClosed               bool
 	avatarWarmupMu             sync.Mutex
 	avatarWarmupQueued         map[string]struct{}
 	avatarWarmupForced         map[string]time.Time
@@ -186,7 +194,6 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 			Payload:   map[string]any{"event_type": event.EventType},
 		})
 	})
-	h.startAvatarWarmupWorkers()
 	return h
 }
 

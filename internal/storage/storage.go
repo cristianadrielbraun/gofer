@@ -23,14 +23,15 @@ import (
 var schemaFS embed.FS
 
 type DB struct {
-	write            *sql.DB
-	read             *sql.DB
-	path             string
-	threadingState   ThreadingState
-	threadingMu      sync.RWMutex
-	contactHookMu    sync.RWMutex
-	contactHook      func(ContactActivityNotification)
-	userMailDelivery bool
+	write             *sql.DB
+	read              *sql.DB
+	path              string
+	threadingState    ThreadingState
+	threadingMu       sync.RWMutex
+	contactHookMu     sync.RWMutex
+	contactHook       func(ContactActivityNotification)
+	userMailDelivery  bool
+	senderAvatarCache *DB // immutable installation cache reference on owned stores
 }
 
 type ContactActivityNotification struct {

@@ -159,6 +159,9 @@ func (db *DB) UpsertSenderAvatarCandidate(ctx context.Context, email string) err
 }
 
 func (db *DB) GetSenderAvatarByHash(ctx context.Context, hash string) (*SenderAvatarRecord, error) {
+	if db.senderAvatarCache != nil {
+		return db.senderAvatarCache.GetSenderAvatarByHash(ctx, hash)
+	}
 	var rec SenderAvatarRecord
 	var expiresAt, nextRetryAt sql.NullTime
 	err := db.Read().QueryRowContext(ctx,
@@ -264,6 +267,14 @@ func (db *DB) IsProviderAvatarURLVisibleToUser(ctx context.Context, rawURL, user
 	userID = strings.TrimSpace(userID)
 	if rawURL == "" || userID == "" {
 		return false, nil
+	}
+	if db.senderAvatarCache != nil {
+		var visible bool
+		if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM contact_profiles WHERE user_id=? AND is_deleted=0 AND avatar_url=?)`, userID, rawURL).Scan(&visible); err != nil || visible {
+			return visible, err
+		}
+		err := db.senderAvatarCache.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=? AND avatar_url=? AND status='active' AND deletion_pending=0)`, userID, rawURL).Scan(&visible)
+		return visible, err
 	}
 	var visible int
 	err := db.Read().QueryRowContext(ctx, `

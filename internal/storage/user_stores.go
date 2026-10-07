@@ -424,6 +424,7 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 		if err != nil {
 			return nil, err
 		}
+		db.senderAvatarCache = m.system
 		if err := db.requireCurrentSchema(); err != nil {
 			db.Close()
 			return nil, err
@@ -483,6 +484,7 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 	opened, err := New(path)
 	if err == nil {
 		opened.userMailDelivery = true
+		opened.senderAvatarCache = m.system
 	}
 	return opened, err
 }
