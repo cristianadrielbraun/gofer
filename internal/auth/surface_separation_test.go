@@ -56,6 +56,7 @@ func TestMiddlewareSeparatesWebmailAndManagementSurfaces(t *testing.T) {
 		assertSurfaceResponse(t, manager, "webmail-token", http.MethodGet, "/", http.StatusNoContent, "", "")
 		assertSurfaceResponse(t, manager, "webmail-token", http.MethodGet, "/admin/users", http.StatusSeeOther, "/", "<a href=\"/\">See Other</a>.\n\n")
 		assertSurfaceResponse(t, manager, "webmail-token", http.MethodGet, "/api/admin/mail-operations/status", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
+		assertSurfaceResponse(t, manager, "webmail-token", http.MethodGet, "/api/system/processing", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
 	})
 
 	t.Run("management administrator cannot access webmail routes", func(t *testing.T) {
@@ -66,6 +67,8 @@ func TestMiddlewareSeparatesWebmailAndManagementSurfaces(t *testing.T) {
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/admin/users", http.StatusNoContent, "", "")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/admin/avatars/status", http.StatusNoContent, "", "")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/admin/events", http.StatusNoContent, "", "")
+		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/system/processing", http.StatusNoContent, "", "")
+		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/system/processing/private", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/", http.StatusSeeOther, "/admin", "<a href=\"/admin\">See Other</a>.\n\n")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/folders/unread", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/avatars/status", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
@@ -90,4 +93,22 @@ func TestMiddlewareSeparatesWebmailAndManagementSurfaces(t *testing.T) {
 		assertSurfaceResponse(t, manager, "pending-token", http.MethodGet, "/admin/users", http.StatusSeeOther, "/admin/login", "<a href=\"/admin/login\">See Other</a>.\n\n")
 		assertSurfaceResponse(t, manager, "pending-token", http.MethodGet, "/", http.StatusSeeOther, "/login", "<a href=\"/login\">See Other</a>.\n\n")
 	})
+}
+
+func TestProcessingSurfacePreservesPersonalAndOpenModes(t *testing.T) {
+	for _, mode := range []Mode{ModePersonal, ModeOpen} {
+		t.Run(string(mode), func(t *testing.T) {
+			manager, now := newSurfaceTestManager(t)
+			manager.config.Mode = mode
+			manager.config.Enabled = mode != ModeOpen
+			insertActiveUser(t, manager, "default", false, now)
+			if mode == ModePersonal {
+				if _, err := manager.db.Write().Exec(`INSERT INTO auth_system_state(id,initialized,owner_user_id,mfa_policy) VALUES(1,1,'default','all_users')`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			insertSurfaceSession(t, manager, "personal-session", "default", "personal-token", now)
+			assertSurfaceResponse(t, manager, "personal-token", http.MethodGet, "/api/system/processing", http.StatusNoContent, "", "")
+		})
+	}
 }

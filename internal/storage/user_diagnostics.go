@@ -135,7 +135,14 @@ func (db *DB) listDiagnosticTransports(ctx context.Context, owner string) ([]Dia
 // database capability. Every diagnostic path shares existing-file admission and
 // administrator/owner checks around waits and local reads.
 func (r *AccountRouting) withDiagnosticsStore(ctx context.Context, actor DiagnosticsActor, owner string, read func(*DB) error) error {
-	if err := r.ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
+	return r.withRetainedExistingStore(ctx, owner, func() error { return r.ValidateDiagnosticsAccess(ctx, actor, owner) }, read)
+}
+
+// The caller supplies its authority policy. Shared existing-file admission is
+// used by administrator diagnostics and trusted startup repair, never by a
+// private request to act as a disabled owner.
+func (r *AccountRouting) withRetainedExistingStore(ctx context.Context, owner string, guard func() error, read func(*DB) error) error {
+	if err := guard(); err != nil {
 		return err
 	}
 	if _, statErr := os.Lstat(r.stores.userPath(owner)); errors.Is(statErr, os.ErrNotExist) {
@@ -146,17 +153,17 @@ func (r *AccountRouting) withDiagnosticsStore(ctx context.Context, actor Diagnos
 		if known {
 			return errors.Join(ErrAccountRoute, statErr)
 		}
-		return r.ValidateDiagnosticsAccess(ctx, actor, owner)
+		return guard()
 	} else if statErr != nil {
 		return statErr
 	}
 	return r.withUserStore(ctx, owner, true, func(db *DB) error {
-		if err := r.ValidateDiagnosticsAccess(ctx, actor, owner); err != nil {
+		if err := guard(); err != nil {
 			return err
 		}
 		if err := read(db); err != nil {
 			return err
 		}
-		return r.ValidateDiagnosticsAccess(ctx, actor, owner)
+		return guard()
 	})
 }

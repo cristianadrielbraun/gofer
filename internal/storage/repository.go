@@ -610,6 +610,34 @@ func (db *DB) updateThreadAggregatesTx(ctx context.Context, tx *sql.Tx, threadID
 	return err
 }
 
+type threadingRepairMessage struct {
+	id        int64
+	accountID string
+	msgID     string
+	inReplyTo string
+	refs      string
+	subject   string
+	sentAt    sql.NullString
+}
+
+func (db *DB) reconcileThreadingRepairMessageTx(ctx context.Context, tx *sql.Tx, m threadingRepairMessage) error {
+	messageID := mailmessage.NormalizeMessageID(m.msgID)
+	if messageID == "" {
+		messageID = fmt.Sprintf("local-%d@gofer.local", m.id)
+	}
+	inReplyTo := ""
+	if ids := mailmessage.ParseMessageIDs(m.inReplyTo); len(ids) > 0 {
+		inReplyTo = ids[0]
+	}
+	sentAt := time.Now().UTC()
+	if m.sentAt.Valid {
+		if parsed, ok := parseSQLiteDateTime(m.sentAt.String); ok {
+			sentAt = parsed
+		}
+	}
+	return db.reconcileMessageThreadTx(ctx, tx, m.id, m.accountID, messageID, inReplyTo, m.refs, m.subject, sentAt)
+}
+
 func (db *DB) EnsureThreading(ctx context.Context) error {
 	const batchSize = 500
 
@@ -635,15 +663,7 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 		return err
 	}
 
-	type row struct {
-		id        int64
-		accountID string
-		msgID     string
-		inReplyTo string
-		refs      string
-		subject   string
-		sentAt    sql.NullString
-	}
+	type row = threadingRepairMessage
 	var messages []row
 	for rows.Next() {
 		var r row
@@ -685,21 +705,7 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 				tx.Rollback()
 				return err
 			}
-			messageID := mailmessage.NormalizeMessageID(m.msgID)
-			if messageID == "" {
-				messageID = fmt.Sprintf("local-%d@gofer.local", m.id)
-			}
-			inReplyTo := ""
-			if ids := mailmessage.ParseMessageIDs(m.inReplyTo); len(ids) > 0 {
-				inReplyTo = ids[0]
-			}
-			sentAt := time.Now().UTC()
-			if m.sentAt.Valid {
-				if parsed, ok := parseSQLiteDateTime(m.sentAt.String); ok {
-					sentAt = parsed
-				}
-			}
-			if err := db.reconcileMessageThreadTx(ctx, tx, m.id, m.accountID, messageID, inReplyTo, m.refs, m.subject, sentAt); err != nil {
+			if err := db.reconcileThreadingRepairMessageTx(ctx, tx, m); err != nil {
 				tx.Rollback()
 				return err
 			}

@@ -59,6 +59,8 @@ type Handler struct {
 	userBackfillDone           chan struct{}
 	userBackfillContext        context.Context
 	userBackfillCancel         context.CancelFunc
+	userThreadingMu            sync.Mutex
+	userThreadingWorker        *userThreadingWorker
 	accountStore               *config.AccountStore
 	syncer                     *mail.SyncOrchestrator
 	blobStore                  *store.BlobStore
@@ -4419,9 +4421,40 @@ func (h *Handler) handleCancelSyncMail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleProcessingStatus(w http.ResponseWriter, r *http.Request) {
+	if h.ownedMailbox != nil {
+		ctx, cancel := h.ownedAdminDiagnosticContext(r.Context())
+		defer cancel()
+		user := auth.GetCurrentUser(ctx)
+		if user == nil {
+			http.Error(w, "admin access required", http.StatusForbidden)
+			return
+		}
+		actor := storage.DiagnosticsActor{ID: user.ID, AuthVersion: user.AuthVersion}
+		validate := func() bool {
+			if err := h.ownedMailbox.userStorage.ValidateDiagnosticsAdministrator(ctx, actor); err != nil {
+				status := http.StatusServiceUnavailable
+				if errors.Is(err, storage.ErrUserDiagnosticsAccess) {
+					status = http.StatusForbidden
+				}
+				http.Error(w, "processing status unavailable", status)
+				return false
+			}
+			return true
+		}
+		if !validate() {
+			return
+		}
+		state := h.ownedMailbox.getUserThreadingStatus()
+		if !validate() {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(state)
+		return
+	}
 	state := h.db.GetThreadingState()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(state)
+	_ = json.NewEncoder(w).Encode(state)
 }
 
 func (h *Handler) handleComposePane(w http.ResponseWriter, r *http.Request) {

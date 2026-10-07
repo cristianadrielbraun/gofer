@@ -124,9 +124,17 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// Processing is a legacy path mounted by the administration router. Classify
+// only that exact endpoint in managed mode; other /api/system paths and the
+// personal/open processing behavior retain their existing surface policy.
+func (m *Manager) isManagementRoute(path string) bool {
+	return path == "/admin" || strings.HasPrefix(path, "/admin/") || strings.HasPrefix(path, "/api/admin/") ||
+		(m.config.AuthenticationMode() == ModeManaged && path == "/api/system/processing")
+}
+
 func (m *Manager) enforceUserSurface(w http.ResponseWriter, r *http.Request, user *User) bool {
 	path := r.URL.Path
-	managementRoute := path == "/admin" || strings.HasPrefix(path, "/admin/") || strings.HasPrefix(path, "/api/admin/")
+	managementRoute := m.isManagementRoute(path)
 	sharedSecurityRoute := path == "/auth/logout" || path == "/settings/security" || strings.HasPrefix(path, "/settings/security/")
 
 	if user.IsManagement() {
@@ -172,7 +180,7 @@ func (m *Manager) rejectUnauthenticated(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Vary", "HX-Request")
 	loginPath := "/login"
-	if r.URL.Path == "/admin" || strings.HasPrefix(r.URL.Path, "/admin/") || strings.HasPrefix(r.URL.Path, "/api/admin/") {
+	if m.isManagementRoute(r.URL.Path) {
 		loginPath = "/admin/login"
 	}
 	if isHTMXRequest(r) {
