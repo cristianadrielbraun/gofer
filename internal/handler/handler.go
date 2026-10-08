@@ -124,6 +124,7 @@ type Handler struct {
 	providerAvatarHTTPClient   *http.Client
 	retentionMu                sync.RWMutex
 	retentionState             models.MailRetentionDiagnostics
+	userRetention              *userRetentionWorker
 	authEventRetentionWake     chan struct{}
 	smtpProfileMu              sync.RWMutex
 	smtpProfile                smtpDeliveryProfileState

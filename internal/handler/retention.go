@@ -18,6 +18,12 @@ const (
 // of the application. It is deliberately separate from HTTP handlers so a
 // quiet admin panel or a restarted browser cannot stop maintenance.
 func (h *Handler) StartMailRetentionWorker(ctx context.Context) {
+	if h.ownedMailbox != nil || h.userStorage != nil {
+		if err := h.StartUserMailRetention(ctx, UserMailRetentionOptions{}); err != nil {
+			log.Printf("mail-retention: start owned cleanup: %v", err)
+		}
+		return
+	}
 	go func() {
 		h.runMailRetention(ctx)
 		ticker := time.NewTicker(mailRetentionInterval)
@@ -38,6 +44,14 @@ func (h *Handler) runMailRetention(ctx context.Context) {
 }
 
 func (h *Handler) runMailRetentionAt(ctx context.Context, now time.Time) {
+	if h.ownedMailbox != nil {
+		h.ownedMailbox.runMailRetentionAt(ctx, now)
+		return
+	}
+	if h.userStorage != nil {
+		h.runUserMailRetentionAt(ctx, now, 30*time.Second)
+		return
+	}
 	now = now.UTC()
 	total := storage.DurableJobPruneResult{}
 	lastError := ""
@@ -59,6 +73,10 @@ func (h *Handler) runMailRetentionAt(ctx context.Context, now time.Time) {
 		}
 	}
 
+	h.recordMailRetention(now, total, lastError)
+}
+
+func (h *Handler) recordMailRetention(now time.Time, total storage.DurableJobPruneResult, lastError string) {
 	h.retentionMu.Lock()
 	h.retentionState = models.MailRetentionDiagnostics{
 		LastRunAt: now,
@@ -74,6 +92,9 @@ func (h *Handler) runMailRetentionAt(ctx context.Context, now time.Time) {
 }
 
 func (h *Handler) mailRetentionDiagnostics() models.MailRetentionDiagnostics {
+	if h.ownedMailbox != nil {
+		return h.ownedMailbox.mailRetentionDiagnostics()
+	}
 	h.retentionMu.RLock()
 	defer h.retentionMu.RUnlock()
 	return h.retentionState

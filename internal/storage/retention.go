@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -36,6 +37,10 @@ func (r DurableJobPruneResult) Total() int {
 // repeatedly, but no individual transaction can take an unbounded SQLite
 // writer lock.
 func (db *DB) PruneDurableMailJobs(ctx context.Context, now time.Time, batch int) (DurableJobPruneResult, error) {
+	return db.pruneDurableMailJobs(ctx, now, batch, nil)
+}
+
+func (db *DB) pruneDurableMailJobs(ctx context.Context, now time.Time, batch int, guard func(*sql.Tx) error) (DurableJobPruneResult, error) {
 	if batch <= 0 {
 		batch = RetentionBatchSize
 	}
@@ -48,6 +53,15 @@ func (db *DB) PruneDurableMailJobs(ctx context.Context, now time.Time, batch int
 		return DurableJobPruneResult{}, err
 	}
 	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return DurableJobPruneResult{}, err
+		}
+	}
+	providerDraftBarrier := ""
+	if db.userMailDelivery {
+		providerDraftBarrier = ` AND NOT EXISTS (SELECT 1 FROM gofer_provider_draft_operations draft_op WHERE draft_op.account_id=os.account_id AND draft_op.draft_key=os.draft_id)`
+	}
 
 	deleteResult, err := tx.ExecContext(ctx, `
 		DELETE FROM outgoing_sends
@@ -79,6 +93,7 @@ func (db *DB) PruneDurableMailJobs(ctx context.Context, now time.Time, batch int
 				  AND draft_op.draft_key = os.draft_id
 				  AND draft_op.status IN ('pending', 'syncing', 'failed', 'ambiguous')
 			)
+			`+providerDraftBarrier+`
 			ORDER BY os.updated_at ASC, os.id ASC
 			LIMIT ?
 		)`,
@@ -92,6 +107,12 @@ func (db *DB) PruneDurableMailJobs(ctx context.Context, now time.Time, batch int
 		return DurableJobPruneResult{}, err
 	}
 	pruneResult := DurableJobPruneResult{OutgoingSends: int(deleted)}
+
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return DurableJobPruneResult{}, err
+		}
+	}
 
 	if err := tx.Commit(); err != nil {
 		return DurableJobPruneResult{}, err
