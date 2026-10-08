@@ -94,6 +94,14 @@ func TestUserStorageMigrationPreflightReadsPopulatedSharedSourceWithoutChangingI
 	}
 }
 
+func TestUserStorageMigrationPreflightRetainsCentralLifecycleActorReferences(t *testing.T) {
+	db := sharedMigrationFixture(t)
+	migrationFixtureSQL(t, db, `UPDATE users SET disabled_by='admin',deletion_pending=1,deletion_started_by='admin' WHERE id='bob'`)
+	if _, err := InspectUserStorageMigration(t.Context(), db.Path()); err != nil {
+		t.Fatal("central administrative actor treated as mailbox ownership", err)
+	}
+}
+
 func TestUserStorageMigrationPreflightRejectsAmbiguousSchemaAndCrossOwnerData(t *testing.T) {
 	cases := map[string]string{
 		"unknown-table":                 `CREATE TABLE forgotten_mail_data(id TEXT)`,

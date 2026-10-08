@@ -422,6 +422,11 @@ func migrationCheckLink(ctx context.Context, tx *sql.Tx, link migrationLink, pre
 		}
 	}
 	child, parent := userStorageMigrationTables[link.child], userStorageMigrationTables[link.parent]
+	// User lifecycle actor links stay central. An administrator disabling or
+	// deleting another user is expected; local profile stubs omit these links.
+	if child.destination == migrationUsers && parent.destination == migrationUsers {
+		return nil
+	}
 	if child.owner == "" || parent.owner == "" {
 		return nil
 	}
