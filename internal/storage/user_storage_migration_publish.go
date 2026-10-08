@@ -517,3 +517,38 @@ func migrationSyncFile(path string) error {
 	}
 	return errors.Join(file.Sync(), file.Close())
 }
+
+// MigrateUserStorage prepares and publishes a new layout. Explicit retry starts
+// a fresh copy for an interrupted preparation, or resumes the recorded closed
+// files once publication began. It never guesses which arbitrary files to reuse.
+func MigrateUserStorage(ctx context.Context, options UserStorageMigrationOptions) (UserStorageLayout, error) {
+	if ctx == nil || options.ValidateSource == nil || options.ImportCredentials == nil || options.VerifyCredentials == nil {
+		return UserStorageLayout{}, errors.New("migration requires source and credential adapters")
+	}
+	if err := ctx.Err(); err != nil {
+		return UserStorageLayout{}, err
+	}
+	destination, err := canonicalMigrationPath(options.DestinationPath)
+	if err != nil {
+		return UserStorageLayout{}, err
+	}
+	journal, err := readMigrationPreparationJournal(destination + ".migration.json")
+	if err == nil {
+		if !options.Retry {
+			return UserStorageLayout{}, errors.New("migration already has recorded work; explicit retry is required")
+		}
+		switch journal.State {
+		case "verified", "publishing", "published":
+			return PublishUserStorageMigration(ctx, options)
+		case "preparing": // Stage validates the recorded source and retains old files.
+		default:
+			return UserStorageLayout{}, errors.New("migration journal has an unrecognized state")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return UserStorageLayout{}, err
+	}
+	if _, err := StageUserStorageMigration(ctx, options); err != nil {
+		return UserStorageLayout{}, err
+	}
+	return PublishUserStorageMigration(ctx, options)
+}
