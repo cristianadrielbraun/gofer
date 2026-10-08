@@ -2,6 +2,8 @@ package storage
 
 // The inventory is explicit: adding a table, column or ownership link requires
 // a migration decision. FTS internals are rebuilt; planner statistics are metadata.
+// Optional historical tables with the retired-empty policy are recognized only
+// when empty, so provider state or search-document content is never discarded.
 var userStorageMigrationTables = map[string]migrationTableRule{
 	"gofer_storage_layout":            {migrationGenerated, ``, "singleton,layout_version,layout_id,manifest_digest"},
 	"account_caldav_configs":          {migrationLocal, `r.user_id`, "account_id,user_id,base_url,username,encrypted_password,use_account_credentials,updated_at"},
@@ -71,6 +73,14 @@ var userStorageMigrationTables = map[string]migrationTableRule{
 	"message_recipients":              {migrationLocal, `(SELECT a.user_id FROM @messages m JOIN @accounts a ON a.id=m.account_id WHERE m.id=r.message_id)`, "id,message_id,kind,name,email"},
 	"message_references":              {migrationLocal, `(SELECT a.user_id FROM @messages m JOIN @accounts a ON a.id=m.account_id WHERE m.id=r.message_id)`, "message_id,referenced_message_id,ordinal"},
 	"message_search":                  {migrationSearch, `(SELECT a.user_id FROM @accounts a WHERE a.id=r.account_id)`, "account_id,thread_key,subject,sender,recipients,snippet,body,attachment_names"},
+	"message_fts":                     {migrationRetiredSearch, ``, "subject,sender,recipients,body"},
+	"message_fts_config":              {migrationRetiredSearch, ``, "k,v"},
+	"message_fts_content":             {migrationRetiredSearch, ``, "id,c0,c1,c2,c3"},
+	"message_fts_data":                {migrationRetiredSearch, ``, "id,block"},
+	"message_fts_docsize":             {migrationRetiredSearch, ``, "id,sz"},
+	"message_fts_idx":                 {migrationRetiredSearch, ``, "segid,term,pgno"},
+	"message_search_docs":             {migrationRetiredEmpty, ``, "message_id,account_id,subject,sender,recipients,body_text,attachment_names,updated_at"},
+	"gmail_watch_state":               {migrationRetiredEmpty, ``, "account_id,topic_name,history_id,expiration_at,last_watch_at,last_notification_at,last_error,created_at,updated_at"},
 	"message_search_config":           {migrationSearchShadow, ``, "k,v"},
 	"message_search_content":          {migrationSearchShadow, ``, "id,c0,c1,c2,c3,c4,c5,c6,c7"},
 	"message_search_data":             {migrationSearchShadow, ``, "id,block"},

@@ -15,6 +15,71 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
+func TestUserStorageMigrationPublishesHistoricalSearchLayoutWithoutChangingSource(t *testing.T) {
+	options, _ := newMigrationStageFixture(t)
+	source, err := sql.Open("sqlite", options.SourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, createErr := source.Exec(`CREATE VIRTUAL TABLE message_fts USING fts5(subject,sender,recipients,body);
+ CREATE TRIGGER trg_messages_after_insert AFTER INSERT ON messages BEGIN
+ INSERT INTO message_fts(rowid,subject,sender,recipients,body)
+ VALUES(NEW.id,NEW.subject,NEW.from_name || ' <' || NEW.from_email || '>','',COALESCE(NEW.preview_text,'')); END;
+ INSERT INTO message_fts(rowid,subject,sender,recipients,body) SELECT id,subject,from_email,'',preview_text FROM messages;
+ INSERT INTO message_search(rowid,account_id,subject) VALUES(999999,'deleted-account','stale searchable');
+ CREATE TABLE message_search_docs(message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,account_id TEXT NOT NULL,subject TEXT NOT NULL DEFAULT '',sender TEXT NOT NULL DEFAULT '',recipients TEXT NOT NULL DEFAULT '',body_text TEXT NOT NULL DEFAULT '',attachment_names TEXT NOT NULL DEFAULT '',updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
+ CREATE TABLE gmail_watch_state(account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,topic_name TEXT NOT NULL DEFAULT '',history_id TEXT NOT NULL DEFAULT '',expiration_at DATETIME,last_watch_at DATETIME,last_notification_at DATETIME,last_error TEXT NOT NULL DEFAULT '',created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`)
+	if err := errors.Join(createErr, source.Close()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(options.SourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := storage.InspectUserStorageMigration(t.Context(), options.SourcePath)
+	if err != nil || report.RetiredSearchRows != 1 {
+		t.Fatal("stale search row not reported", report.RetiredSearchRows, err)
+	}
+	layout, err := storage.MigrateUserStorage(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	central, err := storage.OpenExisting(layout.CentralPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer central.Close()
+	stores, err := storage.NewUserStores(central, storage.UserStoreOptions{Directory: layout.UserDirectory, MaxOpen: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stores.Close(context.Background())
+	for _, owner := range []string{"alice", "bob", "alice"} {
+		lease, err := stores.AcquireExisting(t.Context(), owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var own, foreign, retired int
+		other := "alice"
+		if owner == "alice" {
+			other = "bob"
+		}
+		err = lease.DB().Read().QueryRow(`SELECT
+ (SELECT count(*) FROM message_search WHERE message_search MATCH ?),
+ (SELECT count(*) FROM message_search WHERE message_search MATCH ?),
+ (SELECT count(*) FROM sqlite_schema WHERE name LIKE 'message_fts%' OR name IN ('trg_messages_after_insert','message_search_docs','gmail_watch_state')) +
+ (SELECT count(*) FROM message_search WHERE rowid=999999)`, owner, other).Scan(&own, &foreign, &retired)
+		lease.Release()
+		if err != nil || own != 1 || foreign != 0 || retired != 0 {
+			t.Fatal("published search changed after reopen", owner, own, foreign, retired, err)
+		}
+	}
+	after, err := os.ReadFile(options.SourcePath)
+	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
+		t.Fatal("migration altered original database", err)
+	}
+}
+
 func TestUserStorageMigrationPublishesCompletedLayoutAndAllowsLiveWrites(t *testing.T) {
 	options, before := newMigrationStageFixture(t)
 	stage, err := storage.StageUserStorageMigration(t.Context(), options)

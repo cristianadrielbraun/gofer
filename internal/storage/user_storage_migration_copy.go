@@ -239,6 +239,9 @@ func migrationDestinationBoundaryWithGenerated(ctx context.Context, tx *sql.Tx, 
 		if !known {
 			return fmt.Errorf("migration destination has an unknown table: %s", name)
 		}
+		if rule.destination == migrationRetiredSearch || rule.destination == migrationRetiredEmpty {
+			return fmt.Errorf("migration destination contains a retired search table: %s", name)
+		}
 		if generated != nil {
 			policy := UserStorageMigrationTable{Name: name, Columns: strings.Split(rule.columns, ",")}
 			if err := migrationSourceColumns(ctx, tx, &policy, CurrentSchemaVersion); err != nil {
@@ -283,7 +286,11 @@ func migrationRowSelection(table UserStorageMigrationTable, owner string) (strin
 		return "", false
 	}
 	switch table.Destination {
-	case migrationLocal, migrationPreferences, migrationSearch:
+	case migrationSearch:
+		// Retire stale derived rows only in the destination. Existing messages'
+		// account bindings passed preflight and retain exact content comparison.
+		return `EXISTS(SELECT 1 FROM migration_source.messages m WHERE m.id=r.rowid AND m.account_id IS r.account_id) AND (` + userStorageMigrationTables[table.Name].ownerSQL("migration_source", "r") + `)=?`, true
+	case migrationLocal, migrationPreferences:
 		return `(` + userStorageMigrationTables[table.Name].ownerSQL("migration_source", "r") + `)=?`, true
 	case migrationLegacySenders:
 		// Evaluate the original shared-layout permission, before partitioning.

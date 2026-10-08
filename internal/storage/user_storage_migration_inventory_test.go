@@ -128,7 +128,7 @@ func TestUserStorageMigrationInventoryCoversActualRuntimeTablesColumnsAndForeign
 		t.Fatal(err)
 	}
 	for name := range policies {
-		if !actualTables[name] && name != "sqlite_stat1" && name != "sqlite_stat4" {
+		if !actualTables[name] && name != "sqlite_stat1" && name != "sqlite_stat4" && policies[name].Destination != "retired-search-index" && policies[name].Destination != "retired-empty-table" {
 			t.Fatal("policy not validated against actual runtime", name)
 		}
 	}

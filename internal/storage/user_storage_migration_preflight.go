@@ -22,6 +22,8 @@ const (
 	migrationGenerated     = "generated"
 	migrationSearch        = "local-rebuild-compare"
 	migrationSearchShadow  = "local-rebuild-shadow"
+	migrationRetiredSearch = "retired-search-index"
+	migrationRetiredEmpty  = "retired-empty-table"
 	migrationLegacySenders = "attributable-legacy-transform"
 	migrationSchema        = "metadata-initialize-validate"
 	migrationSequence      = "metadata-preserve-high-water"
@@ -55,6 +57,7 @@ type UserStorageMigrationPreflight struct {
 	TargetSchemaVersion int                         `json:"target_schema_version"`
 	Owners              int64                       `json:"owners"`
 	Accounts            int64                       `json:"accounts"`
+	RetiredSearchRows   int64                       `json:"retired_search_rows,omitempty"`
 	Tables              []UserStorageMigrationTable `json:"tables"`
 }
 
@@ -189,6 +192,9 @@ func inspectUserStorageMigration(ctx context.Context, source *DB) (report UserSt
 	if err := requireSharedMigrationTables(ctx, present, report.SchemaVersion); err != nil {
 		return report, err
 	}
+	if err := migrationRetiredSearchTables(ctx, tx, present); err != nil {
+		return report, err
+	}
 	for _, policy := range UserStorageMigrationInventory() {
 		if !present[policy.Name] {
 			continue
@@ -201,6 +207,9 @@ func inspectUserStorageMigration(ctx context.Context, source *DB) (report UserSt
 		}
 		if policy.Destination == migrationGenerated && policy.Rows != 0 {
 			return report, migrationSourceError(policy.Name, "source contains a mixed storage layout")
+		}
+		if policy.Destination == migrationRetiredEmpty && policy.Rows != 0 {
+			return report, migrationSourceError(policy.Name, "retired table contains data requiring a migration policy")
 		}
 		report.Tables = append(report.Tables, policy)
 	}
@@ -229,7 +238,13 @@ func inspectUserStorageMigration(ctx context.Context, source *DB) (report UserSt
 		if rule.destination == migrationPreferences {
 			allowed = `((u.user_type='webmail' AND u.is_admin=0) OR u.user_type='management')`
 		}
-		if err := migrationRejectRows(ctx, tx, table.Name, `NOT EXISTS(SELECT 1 FROM users u WHERE u.id=(`+owner+`) AND `+allowed+`)`, "row has no valid storage owner"); err != nil {
+		invalidOwner := `NOT EXISTS(SELECT 1 FROM users u WHERE u.id=(` + owner + `) AND ` + allowed + `)`
+		if rule.destination == migrationSearch {
+			// A derived index may retain rows after message/account deletion.
+			// Only rows with an authoritative message require a current owner.
+			invalidOwner = `EXISTS(SELECT 1 FROM messages m WHERE m.id=r.rowid) AND (` + invalidOwner + `)`
+		}
+		if err := migrationRejectRows(ctx, tx, table.Name, invalidOwner, "row has no valid storage owner"); err != nil {
 			return report, err
 		}
 	}
@@ -248,7 +263,10 @@ func inspectUserStorageMigration(ctx context.Context, source *DB) (report UserSt
 			}
 		}
 	}
-	if err := migrationRejectRows(ctx, tx, "message_search", `NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=r.rowid AND m.account_id IS r.account_id)`, "search row does not match its original message"); err != nil {
+	if err := migrationRejectRows(ctx, tx, "message_search", `EXISTS(SELECT 1 FROM messages m WHERE m.id=r.rowid AND m.account_id IS NOT r.account_id)`, "search row does not match its original message"); err != nil {
+		return report, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM message_search r WHERE NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=r.rowid)`).Scan(&report.RetiredSearchRows); err != nil {
 		return report, err
 	}
 	// Existing upload namespaces trim owner IDs, while store paths use the exact
@@ -297,6 +315,35 @@ func migrationRejectRows(ctx context.Context, tx *sql.Tx, table, condition, reas
 	}
 	if invalid {
 		return migrationSourceError(table, reason)
+	}
+	return nil
+}
+
+// Some upgraded installations retain the pre-v36 index and its insert trigger.
+// Only recognize the complete native FTS5 table family, never arbitrary tables
+// sharing its prefix. Current message_search rows are independently copied and
+// compared; this retired derived index and its triggers are not published.
+func migrationRetiredSearchTables(ctx context.Context, tx *sql.Tx, present map[string]bool) error {
+	for name, rule := range userStorageMigrationTables {
+		if rule.destination != migrationRetiredSearch || !present[name] {
+			continue
+		}
+		for member, memberRule := range userStorageMigrationTables {
+			if memberRule.destination == migrationRetiredSearch && !present[member] {
+				return migrationSourceError(member, "retired search index is incomplete")
+			}
+		}
+		var kind string
+		if err := tx.QueryRowContext(ctx, `SELECT type FROM pragma_table_list WHERE schema='main' AND name=?`, name).Scan(&kind); err != nil {
+			return err
+		}
+		want := "shadow"
+		if name == "message_fts" {
+			want = "virtual"
+		}
+		if kind != want {
+			return migrationSourceError(name, "retired search table is not a native FTS index")
+		}
 	}
 	return nil
 }

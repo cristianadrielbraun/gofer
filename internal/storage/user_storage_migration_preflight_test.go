@@ -42,6 +42,76 @@ func migrationFixtureSQL(t *testing.T, db *DB, query string) {
 	}
 }
 
+func TestUserStorageMigrationPreflightRetiresHistoricalTablesOnlyWhenEmpty(t *testing.T) {
+	for _, table := range []struct{ name, create, insert string }{
+		{"message_search_docs", `CREATE TABLE message_search_docs(message_id INTEGER PRIMARY KEY REFERENCES messages(id),account_id TEXT,subject TEXT,sender TEXT,recipients TEXT,body_text TEXT,attachment_names TEXT,updated_at DATETIME)`, `INSERT INTO message_search_docs(message_id,account_id) SELECT id,account_id FROM messages LIMIT 1`},
+		{"gmail_watch_state", `CREATE TABLE gmail_watch_state(account_id TEXT PRIMARY KEY REFERENCES accounts(id),topic_name TEXT,history_id TEXT,expiration_at DATETIME,last_watch_at DATETIME,last_notification_at DATETIME,last_error TEXT,created_at DATETIME,updated_at DATETIME)`, `INSERT INTO gmail_watch_state(account_id) VALUES('alice-mail')`},
+	} {
+		for _, damage := range []string{"empty", "populated", "extra-column"} {
+			t.Run(table.name+"/"+damage, func(t *testing.T) {
+				db := sharedMigrationFixture(t)
+				migrationFixtureSQL(t, db, table.create)
+				if damage == "populated" {
+					migrationFixtureSQL(t, db, table.insert)
+				} else if damage == "extra-column" {
+					migrationFixtureSQL(t, db, "ALTER TABLE "+table.name+" ADD COLUMN unrecognized_data TEXT")
+				}
+				_, err := InspectUserStorageMigration(t.Context(), db.Path())
+				if damage == "empty" && err != nil {
+					t.Fatal(err)
+				}
+				if damage != "empty" && !errors.Is(err, ErrUserStorageMigrationSource) {
+					t.Fatal("retired data accepted without a copy policy", err)
+				}
+			})
+		}
+	}
+}
+
+func TestUserStorageMigrationPreflightRecognizesOnlyNativeRetiredSearchTables(t *testing.T) {
+	for _, damage := range []string{"none", "ordinary-table", "incomplete", "extra-column", "unknown-prefix"} {
+		t.Run(damage, func(t *testing.T) {
+			db := sharedMigrationFixture(t)
+			if damage == "ordinary-table" {
+				migrationFixtureSQL(t, db, `CREATE TABLE message_fts_data(id INTEGER PRIMARY KEY,block BLOB)`)
+			} else {
+				migrationFixtureSQL(t, db, `CREATE VIRTUAL TABLE message_fts USING fts5(subject,sender,recipients,body);
+ INSERT INTO message_fts(rowid,subject,sender,recipients,body) SELECT id,subject,from_email,'',preview_text FROM messages`)
+				switch damage {
+				case "incomplete":
+					migrationFixtureSQL(t, db, `DROP TABLE message_fts_idx`)
+				case "extra-column":
+					migrationFixtureSQL(t, db, `ALTER TABLE message_fts_content ADD COLUMN unrecognized_data TEXT`)
+				case "unknown-prefix":
+					migrationFixtureSQL(t, db, `CREATE TABLE message_fts_unrecognized(id INTEGER)`)
+				}
+			}
+			report, err := InspectUserStorageMigration(t.Context(), db.Path())
+			if damage != "none" {
+				if !errors.Is(err, ErrUserStorageMigrationSource) {
+					t.Fatal("unrecognized search schema accepted", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var recognized int
+			for _, table := range report.Tables {
+				if table.Destination == migrationRetiredSearch {
+					recognized++
+					if table.Name == "message_fts" && table.Rows != 2 {
+						t.Fatal("populated retired index not inventoried", table.Rows)
+					}
+				}
+			}
+			if recognized != 6 {
+				t.Fatal("retired index family not inventoried", recognized)
+			}
+		})
+	}
+}
+
 func TestUserStorageMigrationPreflightReadsPopulatedSharedSourceWithoutChangingIt(t *testing.T) {
 	db := sharedMigrationFixture(t)
 	migrationFixtureSQL(t, db, `INSERT INTO contact_sync_operations(id,user_id,contact_id,payload_json) VALUES('pending','alice','alice-contact','{"contact":{"ID":"alice-contact","SaveTargets":["account:alice-mail"]},"excluded_account_id":"gone-original-account"}');
@@ -119,7 +189,6 @@ func TestUserStorageMigrationPreflightRejectsAmbiguousSchemaAndCrossOwnerData(t 
 		"optional-event-owner":          `INSERT INTO calendar_create_requests(user_id,request_id,source_id,request_hash,event_id) VALUES('alice','request','alice-calendar','hash','bob-event')`,
 		"contact-profile-payload-owner": `INSERT INTO contact_sync_operations(id,user_id,contact_id,payload_json) VALUES('foreign-op','alice','alice-contact','{"contact":{"ID":"bob-contact"}}')`,
 		"search-owner":                  `UPDATE message_search SET account_id='bob-mail' WHERE rowid=(SELECT id FROM messages WHERE account_id='alice-mail')`,
-		"search-orphan":                 `INSERT INTO message_search(rowid,account_id,subject) VALUES(999999,'alice-mail','orphan search')`,
 		"invalid-high-water":            `UPDATE sqlite_sequence SET seq='invalid' WHERE name='messages'`,
 		"unknown-high-water":            `INSERT INTO sqlite_sequence(name,seq) VALUES('forgotten_table',999)`,
 		"cross-owner-without-source-fk": `DROP TABLE message_labels; CREATE TABLE message_labels(message_id INTEGER,label_id TEXT); INSERT INTO labels(id,account_id,name) VALUES('foreign-label','bob-mail','Foreign'); INSERT INTO message_labels VALUES((SELECT id FROM messages WHERE account_id='alice-mail'),'foreign-label')`,
