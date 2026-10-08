@@ -27,6 +27,53 @@ type migrationCredentialFixture struct {
 	originals       map[string]legacyOAuthCredential
 }
 
+func TestUserStorageMigrationCredentialVerifierPreservesAllFormatsReadOnly(t *testing.T) {
+	for _, damage := range []string{"", "ciphertext", "original-principal", "key-version"} {
+		t.Run("damaged-"+damage, func(t *testing.T) {
+			f := newMigrationCredentialFixture(t)
+			queries := map[string]string{
+				"ciphertext":         `UPDATE oauth_accounts SET access_token_ciphertext=x'00' WHERE account_id='disabled'`,
+				"original-principal": `UPDATE oauth_accounts SET provider_account_id='changed-original-binding' WHERE account_id='deleting'`,
+				"key-version":        `UPDATE oauth_accounts SET key_version=3 WHERE account_id='refresh-only'`,
+			}
+			if damage != "" {
+				if _, err := f.source.Write().Exec(queries[damage]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := f.source.Path()
+			if err := f.source.Close(); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source, err := storage.OpenReadOnly(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer source.Close()
+			err = ValidateUserStorageMigrationCredentials(t.Context(), source, testMailboxCredentialKey)
+			if (err == nil) != (damage == "") {
+				t.Fatal("grant verification", err)
+			}
+			if err := ValidateUserStorageMigrationCredentials(t.Context(), source, []byte(strings.Repeat("x", 32))); err == nil {
+				t.Fatal("wrong grant key accepted")
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if err := ValidateUserStorageMigrationCredentials(ctx, source, testMailboxCredentialKey); !errors.Is(err, context.Canceled) {
+				t.Fatal("cancellation ignored", err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("original grants rewritten during verification", err)
+			}
+		})
+	}
+}
+
 func newMigrationCredentialFixture(t *testing.T) *migrationCredentialFixture {
 	t.Helper()
 	root := t.TempDir()

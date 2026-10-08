@@ -6,7 +6,35 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
+
+// ValidateUserStorageMigrationCredentials authenticates the original grants
+// without sealing plaintext, upgrading old formats or starting provider work.
+// The offline coordinator holds the runtime lock and supplies the existing key.
+func ValidateUserStorageMigrationCredentials(ctx context.Context, source *storage.DB, key []byte) error {
+	if ctx == nil || source == nil || len(key) != 32 {
+		return errors.New("mailbox credential verification requires source, context and application key")
+	}
+	codec := New(nil, nil, key)
+	rows, err := source.Read().QueryContext(ctx, `SELECT id,account_id,provider,provider_account_id,access_token,refresh_token,access_token_ciphertext,refresh_token_ciphertext,key_version FROM oauth_accounts ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var credential legacyOAuthCredential
+		if err := rows.Scan(&credential.Context.ID, &credential.Context.AccountID, &credential.Context.Provider, &credential.Context.ProviderAccountID,
+			&credential.AccessToken, &credential.RefreshToken, &credential.AccessCiphertext, &credential.RefreshCiphertext, &credential.KeyVersion); err != nil {
+			return err
+		}
+		if _, _, err := migrationCredentialTokens(codec, credential); err != nil {
+			return errors.New("application key or original binding cannot authenticate a retained mailbox grant")
+		}
+	}
+	return rows.Err()
+}
 
 // ImportUserStorageMigrationCredentials is an offline migration stage. The
 // coordinator must hold runtime locks, attach the inspected shared source
@@ -115,34 +143,42 @@ func requireFreshCredentialMigration(ctx context.Context, tx *sql.Tx) error {
 }
 
 func migrationCredentialCiphertext(codec *Service, row legacyOAuthCredential) ([]byte, []byte, error) {
+	accessToken, refreshToken, err := migrationCredentialTokens(codec, row)
+	if err != nil {
+		return nil, nil, err
+	}
+	if row.KeyVersion.Valid && row.KeyVersion.Int64 == mailboxCredentialKeyVersion {
+		return row.AccessCiphertext, row.RefreshCiphertext, nil
+	}
+	access, err := codec.encryptOAuthToken(row.Context, "access", accessToken)
+	if err != nil {
+		return nil, nil, err
+	}
+	refresh, err := codec.encryptOAuthToken(row.Context, "refresh", refreshToken)
+	return access, refresh, err
+}
+
+func migrationCredentialTokens(codec *Service, row legacyOAuthCredential) (string, string, error) {
 	if row.KeyVersion.Valid {
 		if row.AccessToken != "" || row.RefreshToken != "" {
-			return nil, nil, errors.New("mailbox credential mixes plaintext and ciphertext")
+			return "", "", errors.New("mailbox credential mixes plaintext and ciphertext")
 		}
 		if row.KeyVersion.Int64 != mailboxCredentialLegacyKeyVersion && row.KeyVersion.Int64 != mailboxCredentialKeyVersion {
-			return nil, nil, errors.New("unsupported mailbox credential key version")
+			return "", "", errors.New("unsupported mailbox credential key version")
 		}
 		var err error
 		row.AccessToken, err = codec.decryptOAuthToken(row.Context, "access", row.AccessCiphertext, int(row.KeyVersion.Int64))
 		if err != nil {
-			return nil, nil, err
+			return "", "", err
 		}
 		row.RefreshToken, err = codec.decryptOAuthToken(row.Context, "refresh", row.RefreshCiphertext, int(row.KeyVersion.Int64))
 		if err != nil {
-			return nil, nil, err
-		}
-		if row.KeyVersion.Int64 == mailboxCredentialKeyVersion {
-			return row.AccessCiphertext, row.RefreshCiphertext, nil
+			return "", "", err
 		}
 	} else if row.AccessCiphertext != nil || row.RefreshCiphertext != nil {
-		return nil, nil, errors.New("plaintext mailbox credential contains ciphertext")
+		return "", "", errors.New("plaintext mailbox credential contains ciphertext")
 	}
-	access, err := codec.encryptOAuthToken(row.Context, "access", row.AccessToken)
-	if err != nil {
-		return nil, nil, err
-	}
-	refresh, err := codec.encryptOAuthToken(row.Context, "refresh", row.RefreshToken)
-	return access, refresh, err
+	return row.AccessToken, row.RefreshToken, nil
 }
 
 func verifyCredentialMigration(ctx context.Context, tx *sql.Tx, codec *Service) error {
