@@ -390,6 +390,10 @@ func migrationSequences(ctx context.Context, tx *sql.Tx, report UserStorageMigra
 }
 
 func migrationVerifyCopiedDatabase(ctx context.Context, tx *sql.Tx) error {
+	return migrationVerifyDatabaseChecks(ctx, tx, true)
+}
+
+func migrationVerifyDatabaseChecks(ctx context.Context, tx *sql.Tx, checkFTS bool) error {
 	var result string
 	if err := tx.QueryRowContext(ctx, `PRAGMA main.integrity_check`).Scan(&result); err != nil {
 		return err
@@ -409,6 +413,9 @@ func migrationVerifyCopiedDatabase(ctx context.Context, tx *sql.Tx) error {
 	}
 	if invalid {
 		return errors.New("migration destination foreign-key check failed")
+	}
+	if !checkFTS {
+		return nil
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO main.message_search(message_search) VALUES('integrity-check')`)
 	return err

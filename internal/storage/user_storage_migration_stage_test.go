@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -506,5 +507,107 @@ func TestUserStorageMigrationStagePreservesUncheckpointedSourceWAL(t *testing.T)
 	walAfter, err := os.ReadFile(options.SourcePath + "-wal")
 	if err != nil || sha256.Sum256(walBefore) != sha256.Sum256(walAfter) {
 		t.Fatal("source WAL modified or removed", err)
+	}
+}
+
+func TestUserStorageMigrationStageRebuildsEligibleAvatarHintsWithoutChangingCache(t *testing.T) {
+	options, _ := newMigrationStageFixture(t)
+	source, err := storage.OpenExisting(options.SourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := avatarresolver.GravatarHash("sender@example.com")
+	if _, err := source.Write().Exec(`UPDATE messages SET from_email=' Sender@Example.COM ';
+ INSERT INTO sender_avatars(email_hash,email,status,image_data,error) VALUES(?,'original@example.com','ready',x'0001FF','retained metadata');
+ INSERT INTO accounts(id,user_id,email_address,is_deleting) VALUES('alice-deleting','alice','deleting@example.com',1),('charlie-mail','charlie','charlie@example.com',0)`, hash); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range []struct{ account, email string }{{"alice-deleting", "hidden@example.com"}, {"charlie-mail", "sender@example.com"}} {
+		folder := entry.account + "-inbox"
+		if err := source.UpsertFolders(t.Context(), []storage.UpsertFolderInput{{ID: folder, AccountID: entry.account, Name: "Inbox", Selectable: true}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := source.UpsertSyncMessages(t.Context(), []storage.SyncMessage{{AccountID: entry.account, FolderID: folder, RemoteUID: 1, MessageID: "<" + entry.account + "@fixture>", FromEmail: entry.email, DateSent: time.Now().UTC()}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := source.UpsertSyncMessages(t.Context(), []storage.SyncMessage{{AccountID: "alice-mail", FolderID: "alice-inbox", RemoteUID: 2, MessageID: "<uncached@fixture>", FromEmail: "uncached@example.com", DateSent: time.Now().UTC()}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(options.SourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := storage.StageUserStorageMigration(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	central, err := storage.OpenExisting(filepath.Join(stage.Directory, "central.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer central.Close()
+	var interests, foreign, cacheRows int
+	if err := central.Read().QueryRow(`SELECT (SELECT count(*) FROM gofer_avatar_interests),(SELECT count(*) FROM gofer_avatar_interests WHERE user_id NOT IN ('alice','charlie')),(SELECT count(*) FROM sender_avatars)`).Scan(&interests, &foreign, &cacheRows); err != nil || interests != 3 || foreign != 0 || cacheRows != 2 {
+		t.Fatal("avatar hint ownership", interests, foreign, cacheRows, err)
+	}
+	var email, status, retained string
+	var image []byte
+	if err := central.Read().QueryRow(`SELECT email,status,image_data,error FROM sender_avatars WHERE email_hash=?`, hash).Scan(&email, &status, &image, &retained); err != nil || email != "original@example.com" || status != "ready" || retained != "retained metadata" || len(image) != 3 || image[2] != 255 {
+		t.Fatal("original avatar cache replaced", err)
+	}
+	if err := central.Read().QueryRow(`SELECT status FROM sender_avatars WHERE email_hash=?`, avatarresolver.GravatarHash("uncached@example.com")).Scan(&status); err != nil || status != "pending" {
+		t.Fatal("uncached sender was not initialized", status, err)
+	}
+	after, err := os.ReadFile(options.SourcePath)
+	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
+		t.Fatal("avatar hints changed source", err)
+	}
+}
+
+func TestUserStorageMigrationStageFinalAuditRejectsLateChangesToEarlierStores(t *testing.T) {
+	for _, damage := range []string{"content", "high-water", "missing-file"} {
+		t.Run(damage, func(t *testing.T) {
+			options, _ := newMigrationStageFixture(t)
+			importCredentials := options.ImportCredentials
+			options.ImportCredentials = func(ctx context.Context, tx *sql.Tx) error {
+				if err := importCredentials(ctx, tx); err != nil {
+					return err
+				}
+				hash := sha256.Sum256([]byte("alice"))
+				path := filepath.Join(options.DestinationPath+".staging", "users", fmt.Sprintf("%x.db", hash))
+				if damage == "missing-file" {
+					return os.Remove(path)
+				}
+				local, err := storage.OpenExisting(path)
+				if err != nil {
+					return err
+				}
+				query := `UPDATE messages SET subject='changed after owner copy'`
+				if damage == "high-water" {
+					query = `UPDATE sqlite_sequence SET seq=seq+1 WHERE name='messages'`
+				}
+				_, err = local.Write().Exec(query)
+				return errors.Join(err, local.Close())
+			}
+			stage, err := storage.StageUserStorageMigration(t.Context(), options)
+			if err == nil || stage.Owners != 3 {
+				t.Fatal("late owner-store change certified", stage, err)
+			}
+			data, err := os.ReadFile(options.DestinationPath + ".migration.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var journal struct{ State string }
+			if err := json.Unmarshal(data, &journal); err != nil || journal.State != "preparing" {
+				t.Fatal("final audit failure marked verified", journal, err)
+			}
+			if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("final audit failure published", err)
+			}
+		})
 	}
 }

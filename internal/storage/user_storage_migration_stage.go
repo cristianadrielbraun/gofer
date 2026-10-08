@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 )
 
@@ -124,6 +126,9 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 	}
 	if snapshot != journal.Source {
 		return result, errors.New("migration source database changed during staging")
+	}
+	if err := migrationVerifyClosedUserStores(ctx, source, filepath.Join(result.Directory, "users"), report); err != nil {
+		return result, err
 	}
 	if err := migrationSyncPrivateStage(ctx, result.Directory); err != nil {
 		return result, err
@@ -246,6 +251,9 @@ func stageUserStorageMigration(ctx context.Context, source *DB, directory string
 		if accounts != report.Accounts || owners != report.Owners {
 			return errors.New("migration directory parity failed")
 		}
+		if err := migrationBuildAvatarInterests(ctx, tx); err != nil {
+			return err
+		}
 		if err := importCredentials(ctx, tx); err != nil {
 			return err
 		}
@@ -255,6 +263,62 @@ func stageUserStorageMigration(ctx context.Context, source *DB, directory string
 		return tx.Commit()
 	})
 	return result, err
+}
+
+func migrationBuildAvatarInterests(ctx context.Context, tx *sql.Tx) error {
+	// These are discovery hints only. Use the existing automatic sender scan's
+	// normalization and account eligibility, retaining all original cache rows.
+	// The temporary expected set keeps verification bounded by SQLite, not an
+	// in-memory set of every user/sender pair.
+	if _, err := tx.ExecContext(ctx, `CREATE TEMP TABLE gofer_migration_avatar_expected(email_hash TEXT,user_id TEXT,PRIMARY KEY(email_hash,user_id)) WITHOUT ROWID`); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT a.user_id,lower(trim(m.from_email)) email
+ FROM migration_source.messages m JOIN migration_source.accounts a ON a.id=m.account_id
+ JOIN migration_source.users u ON u.id=a.user_id
+ WHERE coalesce(a.is_deleting,0)=0 AND u.status='active' AND u.deletion_pending=0 AND u.user_type='webmail' AND u.is_admin=0
+ AND instr(m.from_email,'@')>1 ORDER BY a.user_id,email`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var owner, email string
+		if err := rows.Scan(&owner, &email); err != nil {
+			rows.Close()
+			return err
+		}
+		email = strings.ToLower(strings.TrimSpace(email))
+		hash := avatarresolver.GravatarHash(email)
+		if hash == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO main.sender_avatars(email_hash,email,status) VALUES(?,?,'pending') ON CONFLICT(email_hash) DO NOTHING`, hash, email); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO main.gofer_avatar_interests(email_hash,user_id) VALUES(?,?)`, hash, owner); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO temp.gofer_migration_avatar_expected(email_hash,user_id) VALUES(?,?)`, hash, owner); err != nil {
+			rows.Close()
+			return err
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, pair := range [][2]string{{"main.gofer_avatar_interests", "temp.gofer_migration_avatar_expected"}, {"temp.gofer_migration_avatar_expected", "main.gofer_avatar_interests"}} {
+		var invalid bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT email_hash,user_id FROM `+pair[0]+` EXCEPT SELECT email_hash,user_id FROM `+pair[1]+`)`).Scan(&invalid); err != nil {
+			return err
+		}
+		if invalid {
+			return errors.New("migration avatar discovery parity failed")
+		}
+	}
+	_, err = tx.ExecContext(ctx, `DROP TABLE temp.gofer_migration_avatar_expected`)
+	return err
 }
 
 func migrationOwnerPage(ctx context.Context, source *DB, after string) ([]string, error) {
