@@ -17,14 +17,17 @@ import (
 type UserStorageMigrationOptions struct {
 	SourcePath        string
 	DestinationPath   string
+	WorkingDirectory  string
 	ValidateSource    func(context.Context, *DB) error
 	ImportCredentials func(context.Context, *sql.Tx) error
 }
 
 type UserStorageMigrationStage struct {
-	Directory string                        `json:"directory"`
-	Source    UserStorageMigrationPreflight `json:"source"`
-	Owners    int64                         `json:"owners_copied"`
+	Directory        string                        `json:"directory"`
+	Source           UserStorageMigrationPreflight `json:"source"`
+	Owners           int64                         `json:"owners_copied"`
+	Files            UserStorageMigrationFiles     `json:"files"`
+	WorkingDirectory string                        `json:"working_directory"`
 }
 
 // StageUserStorageMigration prepares private files, not a completed layout or
@@ -79,7 +82,34 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 	if err := options.ValidateSource(ctx, source); err != nil {
 		return result, err
 	}
-	return stageUserStorageMigration(ctx, source, destinationPath+".staging", report, options.ImportCredentials)
+	workingDirectory := options.WorkingDirectory
+	if workingDirectory == "" {
+		workingDirectory, err = os.Getwd()
+		if err != nil {
+			return result, err
+		}
+	}
+	workingDirectory, err = filepath.Abs(workingDirectory)
+	if err != nil {
+		return result, err
+	}
+	files, err := InspectUserStorageMigrationFiles(ctx, source, workingDirectory)
+	if err != nil {
+		return result, err
+	}
+	result, err = stageUserStorageMigration(ctx, source, destinationPath+".staging", report, options.ImportCredentials)
+	result.Files, result.WorkingDirectory = files, workingDirectory
+	if err != nil {
+		return result, err
+	}
+	verified, err := InspectUserStorageMigrationFiles(ctx, source, workingDirectory)
+	if err != nil {
+		return result, err
+	}
+	if files != verified {
+		return result, errors.New("migration source files changed during staging")
+	}
+	return result, nil
 }
 
 func canonicalMigrationPath(path string) (string, error) {

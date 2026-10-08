@@ -15,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
 var stageCredentialKey = []byte("0123456789abcdef0123456789abcdef")
@@ -170,6 +171,77 @@ func TestUserStorageMigrationStageRetainsFailureWithoutPublishing(t *testing.T) 
 			t.Fatal("failed stage leaked a runtime/cache lock", err)
 		}
 		lock.Close()
+	}
+}
+
+func TestUserStorageMigrationStageVerifiesPreservedFilesAndRefusesChanges(t *testing.T) {
+	for _, mutate := range []bool{false, true} {
+		t.Run(fmt.Sprint("change-files-", mutate), func(t *testing.T) {
+			options, _ := newMigrationStageFixture(t)
+			options.WorkingDirectory = filepath.Dir(options.SourcePath)
+			blobs := store.NewBlobStore(filepath.Join(options.WorkingDirectory, "accounts"))
+			path, err := blobs.StoreBodyText(t.Context(), "alice-mail", 1, []byte("original body"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			relative, err := filepath.Rel(options.WorkingDirectory, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source, err := storage.OpenExisting(options.SourcePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, updateErr := source.Write().Exec(`UPDATE messages SET body_text_path=? WHERE account_id='alice-mail'`, relative)
+			if err := errors.Join(updateErr, source.Close()); err != nil {
+				t.Fatal(err)
+			}
+			if mutate {
+				importCredentials := options.ImportCredentials
+				options.ImportCredentials = func(ctx context.Context, tx *sql.Tx) error {
+					if err := importCredentials(ctx, tx); err != nil {
+						return err
+					}
+					return os.WriteFile(path, []byte("injected change"), 0644)
+				}
+			}
+			stage, err := storage.StageUserStorageMigration(t.Context(), options)
+			if (err != nil) != mutate || stage.Owners != 3 || stage.Files.Files != 1 || stage.Files.References != 1 || stage.WorkingDirectory != options.WorkingDirectory {
+				t.Fatal("staging file proof", stage, err)
+			}
+			if _, err := os.Lstat(filepath.Join(stage.Directory, "INCOMPLETE")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("file verification published a layout", err)
+			}
+			if !mutate {
+				central, err := storage.OpenExisting(filepath.Join(stage.Directory, "central.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer central.Close()
+				stores, err := storage.NewUserStores(central, storage.UserStoreOptions{Directory: filepath.Join(stage.Directory, "users"), MaxOpen: 1})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer stores.Close(context.Background())
+				lease, err := stores.AcquireExisting(t.Context(), "alice")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var preserved string
+				err = lease.DB().Read().QueryRow(`SELECT body_text_path FROM messages WHERE account_id='alice-mail'`).Scan(&preserved)
+				lease.Release()
+				if err != nil || preserved != relative {
+					t.Fatal("original relative path changed", err)
+				}
+				content, err := os.ReadFile(filepath.Join(stage.WorkingDirectory, preserved))
+				if err != nil || string(content) != "original body" {
+					t.Fatal("staged message body unavailable", err)
+				}
+			}
+		})
 	}
 }
 
