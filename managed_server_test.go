@@ -32,6 +32,7 @@ func managedTestEnvironment(t *testing.T) {
 	t.Setenv("GOFER_ALLOWED_CIDRS", "")
 	t.Setenv("GOFER_TRUSTED_PROXY_CIDRS", "")
 	t.Setenv("GOFER_ALLOW_UNAUTHENTICATED_REMOTE", "")
+	t.Setenv("GOFER_USER_DB_MAX_OPEN", "")
 }
 
 func managedRequest(app *managedApplication, method, path, token, body string) *httptest.ResponseRecorder {
@@ -147,6 +148,7 @@ func (w managedStartupWriter) Write(data []byte) (int, error) {
 
 func TestManagedServerListensAndReleasesLocksAfterCancellation(t *testing.T) {
 	managedTestEnvironment(t)
+	t.Setenv("GOFER_USER_DB_MAX_OPEN", "1")
 	reservation, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -209,6 +211,25 @@ func TestManagedServerListensAndReleasesLocksAfterCancellation(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".layout.json"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagedServerRejectsInvalidDatabaseLimitBeforeCreatingStorage(t *testing.T) {
+	for _, value := range []string{"0", "-1", "many", "1.5", "999999999999999999999999999999"} {
+		t.Run(value, func(t *testing.T) {
+			managedTestEnvironment(t)
+			path := filepath.Join(t.TempDir(), "central.db")
+			t.Setenv("GOFER_DB_PATH", path)
+			t.Setenv("GOFER_USER_DB_MAX_OPEN", value)
+			err := runManagedServer(t.Context(), io.Discard, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), "GOFER_USER_DB_MAX_OPEN") {
+				t.Fatalf("invalid limit was not rejected: %v", err)
+			}
+			entries, err := os.ReadDir(filepath.Dir(path))
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("invalid limit created storage: entries=%v error=%v", entries, err)
+			}
+		})
 	}
 }
 

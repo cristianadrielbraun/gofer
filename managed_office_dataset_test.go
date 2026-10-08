@@ -44,11 +44,15 @@ type officeWorkloadSpec struct {
 	SMTPEveryRequests       int    `json:"smtp_every_requests"`
 	DrainSeconds            int    `json:"background_drain_timeout_seconds"`
 	PerUserFirst            bool   `json:"per_user_first"`
+	UserDBMaxOpen           int    `json:"user_db_max_open"`
 	ProviderOutageStart     int    `json:"provider_outage_start_seconds"`
 	ProviderOutageSeconds   int    `json:"provider_outage_seconds"`
 }
 
 func (s officeWorkloadSpec) validate() error {
+	if s.UserDBMaxOpen < 0 || s.UserDBMaxOpen > 4096 {
+		return fmt.Errorf("invalid user database cache limit")
+	}
 	if s.ActiveUsers < 1 || s.IdleUsers < 0 || s.ActiveUsers+s.IdleUsers > 4096 {
 		return fmt.Errorf("invalid user counts")
 	}

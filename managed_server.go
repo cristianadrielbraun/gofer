@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -196,8 +197,24 @@ func (app *managedApplication) Close() error {
 	return app.storage.Close()
 }
 
+func configuredUserDatabaseLimit() (int, error) {
+	value := os.Getenv("GOFER_USER_DB_MAX_OPEN")
+	if value == "" {
+		return 0, nil // Use the storage manager's default.
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 {
+		return 0, errors.New("GOFER_USER_DB_MAX_OPEN must be a positive integer")
+	}
+	return limit, nil
+}
+
 func runManagedServer(ctx context.Context, stdout, stderr io.Writer) (err error) {
-	app, err := newManagedApplication(ctx, configuredDatabasePath(), 0)
+	maxOpen, err := configuredUserDatabaseLimit()
+	if err != nil {
+		return err
+	}
+	app, err := newManagedApplication(ctx, configuredDatabasePath(), maxOpen)
 	if err != nil {
 		return err
 	}

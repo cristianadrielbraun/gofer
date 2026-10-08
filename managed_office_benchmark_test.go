@@ -569,6 +569,12 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 	}
 	cmd := exec.Command(executable, "-test.run=^TestManagedOfficeBenchmarkProcess$", "-test.timeout=30m")
 	overrides := map[string]string{"GOFER_OFFICE_CHILD": layout, "GOFER_DB_PATH": path, "GOFER_ADDR": address, "GOFER_BASE_URL": base}
+	// Freeze the cache limit from the workload specification, including the
+	// default, rather than inheriting an operator setting from the parent.
+	overrides["GOFER_USER_DB_MAX_OPEN"] = ""
+	if spec.UserDBMaxOpen > 0 {
+		overrides["GOFER_USER_DB_MAX_OPEN"] = strconv.Itoa(spec.UserDBMaxOpen)
+	}
 	if spec.DiagnosticsAfterSeconds > 0 || spec.CaptureFirstTimeout {
 		overrides["GOFER_OFFICE_DIAGNOSTICS"] = "1"
 	}
