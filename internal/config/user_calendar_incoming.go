@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -134,4 +135,14 @@ func (s *UserAccountStore) BeginCalendarIncomingDelivery(ctx context.Context, c 
 		return nil, err
 	}
 	return next, nil
+}
+
+func (s *UserAccountStore) NextCalendarIncomingAttempt(ctx context.Context, owner, account string) (time.Time, error) {
+	var at time.Time
+	err := s.WithAccountForUser(ctx, owner, account, func(_ *AccountStore, db *storage.DB) error {
+		var err error
+		at, err = db.NextAccountCalendarIncomingAttempt(ctx, owner, account, s.calendarControlGuard(ctx, owner))
+		return err
+	})
+	return at, err
 }

@@ -40,25 +40,7 @@ func (h *Handler) runCalendarIncomingTick(ctx context.Context) {
 		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		err := h.processCalendarIncomingMessage(jobCtx, candidate)
 		cancel()
-		state, note, reason := "complete", "", "applied"
-		if err != nil {
-			note = err.Error()
-			state = "retry"
-			reason = "retry"
-			if errors.Is(err, errCalendarIncomingIgnored) || errors.Is(err, message.ErrCalendarReplyAuthentication) {
-				state = "ignored"
-				reason = "not_applied"
-			}
-			if errors.Is(err, message.ErrCalendarReplyAuthentication) {
-				reason = "unverified"
-			}
-			if errors.Is(err, message.ErrCalendarReplyAuthenticationTemporary) {
-				reason = "verification_pending"
-			}
-			if errors.Is(err, errCalendarIncomingServerManaged) {
-				reason = "server_managed"
-			}
-		}
+		state, note, reason := calendarIncomingOutcome(err)
 		finishCtx, finish := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		if err := h.db.FinishCalendarIncomingDelivery(finishCtx, candidate, state, note, reason); err != nil {
 			log.Printf("calendar incoming reply %d: could not record outcome: %v", candidate.ID, err)
@@ -174,6 +156,23 @@ func (h *Handler) applyCalendarIncomingReply(ctx context.Context, candidate stor
 	if credentials.err != nil {
 		return credentials.err
 	}
+	return applyCalendarIncomingCalDAV(ctx, source, existing, reply, credentials,
+		func(ctx context.Context) (bool, error) {
+			return h.db.ReserveCalendarIncomingResponse(ctx, existing, reply.Attendee, reply.Sequence, reply.Stamp, reply.Status)
+		}, func(ctx context.Context, updated storage.CalendarEvent) error {
+			if err := h.db.CompleteCalendarIncomingResponse(ctx, existing, updated); err != nil {
+				return err
+			}
+			if h.syncer != nil {
+				h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: existing.UserID, Payload: map[string]any{"source_id": source.ID, "event_id": existing.ID}})
+			}
+			return nil
+		})
+}
+
+// Both layouts share authentication-independent CalDAV revision checks and the
+// minimal PARTSTAT merge. The caller supplies guarded reservation/publication.
+func applyCalendarIncomingCalDAV(ctx context.Context, source storage.CalendarSource, existing storage.CalendarEvent, reply message.CalendarIncomingReply, credentials calendarCredentials, reserve func(context.Context) (bool, error), publish func(context.Context, storage.CalendarEvent) error) error {
 	if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
 		return err
 	}
@@ -229,7 +228,7 @@ func (h *Handler) applyCalendarIncomingReply(ctx context.Context, candidate stor
 	if index == -1 {
 		return errCalendarIncomingIgnored
 	}
-	allowed, err := h.db.ReserveCalendarIncomingResponse(ctx, existing, reply.Attendee, reply.Sequence, reply.Stamp, reply.Status)
+	allowed, err := reserve(ctx)
 	if err != nil {
 		return err
 	}
@@ -293,11 +292,5 @@ func (h *Handler) applyCalendarIncomingReply(ctx context.Context, candidate stor
 	if matched != 1 {
 		return fmt.Errorf("calendar server did not confirm the guest response")
 	}
-	if err := h.db.CompleteCalendarIncomingResponse(ctx, existing, calendarStorageEvent(existing.UserID, existing.SourceID, updated)); err != nil {
-		return err
-	}
-	if h.syncer != nil {
-		h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: existing.UserID, Payload: map[string]any{"source_id": source.ID, "event_id": existing.ID}})
-	}
-	return nil
+	return publish(ctx, calendarStorageEvent(existing.UserID, existing.SourceID, updated))
 }

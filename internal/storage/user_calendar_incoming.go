@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 var ErrCalendarIncomingChanged = errors.New("calendar incoming reply no longer matches current state")
@@ -24,20 +25,8 @@ func (db *DB) ListAccountCalendarIncomingMessages(ctx context.Context, owner, ac
 	if err := calendarControlOwnerTx(ctx, tx, owner, account, guard); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `WITH invited AS (
- SELECT DISTINCT a.id AS account_id,a.user_id,lower(CASE WHEN json_valid(guest.value) THEN json_extract(guest.value,'$.email') END) AS email
- FROM calendar_events e JOIN calendar_sources s ON s.id=e.source_id AND s.user_id=e.user_id
- JOIN accounts a ON a.id=s.account_id AND a.user_id=s.user_id
- JOIN json_each(CASE WHEN json_valid(e.attendees_json) THEN e.attendees_json ELSE '[]' END) guest
- WHERE a.id=? AND a.user_id=? AND a.is_deleting=0 AND a.email_sync_enabled=1
- AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0
- AND e.series_remote_id='' AND lower(e.organizer_email)=lower(a.email_address)
- ) SELECT m.id,invited.user_id,invited.account_id,lower(m.from_email)
- FROM invited JOIN messages m ON m.account_id=invited.account_id AND lower(m.from_email)=invited.email
- LEFT JOIN calendar_incoming_messages seen ON seen.message_id=m.id
- WHERE (seen.message_id IS NULL OR (seen.state='retry' AND seen.next_attempt_at<=CURRENT_TIMESTAMP))
- AND EXISTS (SELECT 1 FROM message_folder_state ms JOIN folders f ON f.id=ms.folder_id AND f.account_id=invited.account_id
- WHERE ms.message_id=m.id AND ms.is_deleted=0 AND ms.is_draft=0 AND f.role NOT IN ('sent','trash','junk','spam','drafts'))
+	rows, err := tx.QueryContext(ctx, calendarIncomingCandidatesSQL+`
+ AND (seen.message_id IS NULL OR seen.next_attempt_at<=CURRENT_TIMESTAMP)
  ORDER BY COALESCE(seen.next_attempt_at,m.created_at),m.id LIMIT ?`, account, owner, limit)
 	if err != nil {
 		return nil, err
@@ -348,4 +337,51 @@ func (db *DB) BeginUserCalendarIncomingDelivery(ctx context.Context, s *UserCale
 		return nil, err
 	}
 	return &next, nil
+}
+
+const calendarIncomingCandidatesSQL = `WITH invited AS (
+ SELECT DISTINCT a.id AS account_id,a.user_id,lower(CASE WHEN json_valid(guest.value) THEN json_extract(guest.value,'$.email') END) AS email
+ FROM calendar_events e JOIN calendar_sources s ON s.id=e.source_id AND s.user_id=e.user_id
+ JOIN accounts a ON a.id=s.account_id AND a.user_id=s.user_id
+ JOIN json_each(CASE WHEN json_valid(e.attendees_json) THEN e.attendees_json ELSE '[]' END) guest
+ WHERE a.id=? AND a.user_id=? AND a.is_deleting=0 AND a.email_sync_enabled=1
+ AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0
+ AND e.series_remote_id='' AND lower(e.organizer_email)=lower(a.email_address)
+ ) SELECT m.id,invited.user_id,invited.account_id,lower(m.from_email)
+ FROM invited JOIN messages m ON m.account_id=invited.account_id AND lower(m.from_email)=invited.email
+ LEFT JOIN calendar_incoming_messages seen ON seen.message_id=m.id
+ WHERE (seen.message_id IS NULL OR seen.state='retry')
+ AND EXISTS (SELECT 1 FROM message_folder_state ms JOIN folders f ON f.id=ms.folder_id AND f.account_id=invited.account_id
+ WHERE ms.message_id=m.id AND ms.is_deleted=0 AND ms.is_draft=0 AND f.role NOT IN ('sent','trash','junk','spam','drafts'))`
+
+// The deadline includes future retries and fresh mail, so a quiet source with a
+// distant sync deadline cannot strand an uncertain guest response.
+func (db *DB) NextAccountCalendarIncomingAttempt(ctx context.Context, owner, account string, guard func(*sql.Tx, string) error) (time.Time, error) {
+	if guard == nil {
+		return time.Time{}, ErrCalendarIncomingChanged
+	}
+	tx, err := db.Read().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer tx.Rollback()
+	if err := calendarControlOwnerTx(ctx, tx, owner, account, guard); err != nil {
+		return time.Time{}, err
+	}
+	query := strings.Replace(calendarIncomingCandidatesSQL, "SELECT m.id,invited.user_id,invited.account_id,lower(m.from_email)", "SELECT MIN(datetime(COALESCE(seen.next_attempt_at,m.created_at)))", 1)
+	var value sql.NullString
+	if err := tx.QueryRowContext(ctx, query, account, owner).Scan(&value); err != nil {
+		return time.Time{}, err
+	}
+	if err := calendarControlOwnerTx(ctx, tx, owner, account, guard); err != nil {
+		return time.Time{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, err
+	}
+	if !value.Valid {
+		return time.Time{}, nil
+	}
+	at, err := time.Parse("2006-01-02 15:04:05", value.String)
+	return at, err
 }

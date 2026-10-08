@@ -21,6 +21,7 @@ const (
 	CalendarPublishOccurrenceDelete
 	CalendarPublishSeriesDelete
 	CalendarPublishResponse
+	calendarPublishIncomingResponse
 )
 
 type calendarPublicationRecord struct {
@@ -125,7 +126,14 @@ func calendarPublicationOccurrence(event CalendarEvent) bool {
 // pass a repository-bound snapshot and a copied provider result. Both event
 // fingerprint and exact source/config/grant guards run after the writer wait.
 func (db *DB) PublishUserCalendarEvent(ctx context.Context, snapshot *UserCalendarEventSnapshot, kind CalendarEventPublicationKind, event CalendarEvent, guard func(*sql.Tx, string) error) error {
-	if snapshot == nil || guard == nil || kind < CalendarPublishUpdate || kind > CalendarPublishResponse {
+	if kind < CalendarPublishUpdate || kind > CalendarPublishResponse {
+		return ErrCalendarEventChanged
+	}
+	return db.publishUserCalendarEvent(ctx, snapshot, kind, event, guard)
+}
+
+func (db *DB) publishUserCalendarEvent(ctx context.Context, snapshot *UserCalendarEventSnapshot, kind CalendarEventPublicationKind, event CalendarEvent, guard func(*sql.Tx, string) error) error {
+	if snapshot == nil || guard == nil || kind < CalendarPublishUpdate || kind > calendarPublishIncomingResponse {
 		return ErrCalendarEventChanged
 	}
 	event = copyCalendarEvent(event)
@@ -227,8 +235,8 @@ func (db *DB) PublishUserCalendarEvent(ctx context.Context, snapshot *UserCalend
 			}
 			expected[id] = row
 		}
-	case CalendarPublishResponse:
-		err = completeCalendarResponseTx(ctx, tx, existing, event, false)
+	case CalendarPublishResponse, calendarPublishIncomingResponse:
+		err = completeCalendarResponseTx(ctx, tx, existing, event, kind == calendarPublishIncomingResponse)
 		row := expected[existing.ID]
 		row.event = calendarPublicationEditable(row.event, event, calendarJSON(event.RecurrenceJSON, "[]"), false)
 		row.event.OrganizerName, row.event.OrganizerEmail = event.OrganizerName, event.OrganizerEmail

@@ -211,6 +211,11 @@ func (w *userCalendarWorkers) process(parent context.Context, job userCalendarJo
 	if ctx.Err() != nil {
 		return
 	}
+	incomingErr := w.h.runUserCalendarIncoming(ctx, job.owner, job.account)
+	w.report(ctx, "apply verified guest replies", incomingErr)
+	if ctx.Err() != nil {
+		return
+	}
 	var start, end time.Time
 	err = w.h.userAccounts.WithAccountForUser(ctx, job.owner, job.account, func(_ *config.AccountStore, db *storage.DB) error {
 		start, end = calendarBackgroundWindow(now, viewsCalendarLocation(db.GetUISettings(ctx, job.owner)))
@@ -261,6 +266,19 @@ func (w *userCalendarWorkers) process(parent context.Context, job userCalendarJo
 		w.report(ctx, "read next source deadline", err)
 		return
 	}
+	incomingAt, err := w.h.userAccounts.NextCalendarIncomingAttempt(ctx, job.owner, job.account)
+	if err != nil {
+		w.report(ctx, "read incoming reply deadline", err)
+		return
+	}
+	if !incomingAt.IsZero() {
+		if minimum := time.Now().Add(5 * time.Second); incomingAt.Before(minimum) {
+			incomingAt = minimum
+		}
+		if incomingAt.Before(next) {
+			next = incomingAt
+		}
+	}
 	var hint interface{ RetryAfter() (time.Time, bool) }
 	if errors.As(syncErr, &hint) {
 		if at, ok := hint.RetryAfter(); ok && at.After(next) {
@@ -273,6 +291,11 @@ func (w *userCalendarWorkers) process(parent context.Context, job userCalendarJo
 		}
 	}
 	if errors.As(cleanupErr, &hint) {
+		if at, ok := hint.RetryAfter(); ok && at.After(next) {
+			next = at
+		}
+	}
+	if errors.As(incomingErr, &hint) {
 		if at, ok := hint.RetryAfter(); ok && at.After(next) {
 			next = at
 		}

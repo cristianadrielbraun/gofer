@@ -38,28 +38,30 @@ func calendarDiscoveryPageURL(collection, next string) (string, error) {
 }
 
 type userCalendarRequest struct {
-	h               *Handler
-	snapshot        *config.UserCalendarDiscoverySnapshot
-	claim           *config.UserCalendarSyncClaim
-	event           *config.UserCalendarEventSnapshot
-	source          *config.UserCalendarSourceSnapshot
-	cleanup         *config.UserCalendarMeetingCleanupSnapshot
-	cleanupReadID   string
-	cleanupDeleteID string
-	cleanupETag     string
-	reply           *config.UserCalendarReplySnapshot
-	notification    *config.UserCalendarNotificationSnapshot
-	followup        *config.UserCalendarReplyFollowupClaim
-	response        *config.UserCalendarResponseClaim
-	responseAttempt *userCalendarResponseAttempt
-	writeAttempt    *userCalendarResponseAttempt
-	meeting         *config.UserCalendarMeetingDraftSnapshot
-	meetingEvent    *config.UserCalendarEventSnapshot
-	create          *config.UserCalendarCreateClaim
-	write           bool
-	credentials     *mailauth.UserAccountCredentials
-	authorization   *mailauth.UserServiceAuthorization
-	token           string
+	h                *Handler
+	snapshot         *config.UserCalendarDiscoverySnapshot
+	claim            *config.UserCalendarSyncClaim
+	event            *config.UserCalendarEventSnapshot
+	source           *config.UserCalendarSourceSnapshot
+	cleanup          *config.UserCalendarMeetingCleanupSnapshot
+	cleanupReadID    string
+	cleanupDeleteID  string
+	cleanupETag      string
+	reply            *config.UserCalendarReplySnapshot
+	notification     *config.UserCalendarNotificationSnapshot
+	followup         *config.UserCalendarReplyFollowupClaim
+	incoming         *config.UserCalendarIncomingMessageSnapshot
+	incomingResponse *config.UserCalendarIncomingResponseClaim
+	response         *config.UserCalendarResponseClaim
+	responseAttempt  *userCalendarResponseAttempt
+	writeAttempt     *userCalendarResponseAttempt
+	meeting          *config.UserCalendarMeetingDraftSnapshot
+	meetingEvent     *config.UserCalendarEventSnapshot
+	create           *config.UserCalendarCreateClaim
+	write            bool
+	credentials      *mailauth.UserAccountCredentials
+	authorization    *mailauth.UserServiceAuthorization
+	token            string
 }
 
 func (p *userCalendarRequest) service() *config.AccountServiceSnapshot {
@@ -179,6 +181,22 @@ func (p *userCalendarRequest) validate(ctx context.Context) error {
 			return storage.ErrCalendarEventChanged
 		}
 		if err := p.h.userAccounts.ValidateCalendarResponse(ctx, p.response, guards...); err != nil {
+			return err
+		}
+	}
+	if p.incoming != nil {
+		if p.event == nil || !p.write || p.provider() != storage.CalendarSourceProviderCalDAV || p.incoming.Candidate().UserID != p.event.Service().OwnerID() || p.incoming.Candidate().AccountID != p.event.Service().AccountID() {
+			return storage.ErrCalendarIncomingChanged
+		}
+		if err := p.h.userAccounts.ValidateCalendarIncomingAssociation(ctx, p.incoming, p.event); err != nil {
+			return err
+		}
+	}
+	if p.incomingResponse != nil {
+		if p.incoming == nil || p.incomingResponse.Message() != p.incoming || p.incomingResponse.Event() != p.event {
+			return storage.ErrCalendarIncomingChanged
+		}
+		if err := p.h.userAccounts.ValidateCalendarIncomingResponse(ctx, p.incomingResponse); err != nil {
 			return err
 		}
 	}

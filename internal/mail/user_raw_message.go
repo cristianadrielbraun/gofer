@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -61,6 +62,19 @@ func (s *UserIMAP) ValidateRawMessage(ctx context.Context, raw *RawMessage) erro
 func (raw *RawMessage) AccountID() string    { return raw.snapshot.Info().AccountID }
 func (raw *RawMessage) EmailAddress() string { return raw.snapshot.Info().EmailAddress }
 func (raw *RawMessage) Bytes() []byte        { return append([]byte(nil), raw.data...) }
+
+// Bridge only MIME actually read by this runtime to a repository-bound incoming
+// claim. The raw retrieval identity remains sealed; callers cannot invent paths
+// or adopt another owner's recovery result.
+func (s *UserIMAP) RefreshCalendarIncomingRaw(ctx context.Context, candidate *config.UserCalendarIncomingMessageSnapshot, raw *RawMessage) (*config.UserCalendarIncomingMessageSnapshot, error) {
+	if candidate == nil || raw == nil || raw.runtime != s || raw.snapshot == nil || raw.owner != candidate.Candidate().UserID || raw.AccountID() != candidate.Candidate().AccountID {
+		return nil, storage.ErrCalendarIncomingChanged
+	}
+	if err := s.ValidateRawMessage(ctx, raw); err != nil {
+		return nil, err
+	}
+	return s.accounts.RefreshCalendarIncomingRaw(ctx, candidate, raw.snapshot)
+}
 
 // ReadRawMessage serializes with body/attachment recovery, joins account and
 // runtime cancellation, and never holds a store lease across file/network I/O.
