@@ -28,6 +28,35 @@ type userFileActivity struct {
 
 var ErrUserFilesRemoving = errors.New("user files are being removed")
 
+// SyncUserRemoval makes account/compose namespace unlinks durable before the
+// central final-cleanup receipt. Call with exclusive owner-file admission after
+// idempotent account and compose removal; it does not remove any files itself.
+// Windows lacks portable directory fsync through os.File, as for user DB removal.
+func (s *BlobStore) SyncUserRemoval(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	for _, path := range []string{filepath.Join(s.basePath, "_compose"), s.basePath} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		dir, err := os.Open(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := errors.Join(dir.Sync(), dir.Close()); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
 // PinUserFiles protects copied paths and unpublished candidates, without a
 // database lease. Acquire before leasing storage; nested pins are allowed.
 // Cleanup skips busy owners, and new operations wait for an existing pass.

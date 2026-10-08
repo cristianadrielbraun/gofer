@@ -111,3 +111,10 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/avatar-backfill/cancel", h.handleCancelAvatarBackfill)
 	adminRoute("POST /admin/contacts/backfill", h.handleForceContactBackfill)
 }
+
+// RegisterAdministrationRoutes mounts the central control plane after owned
+// mailbox registration. Lifecycle actions use that handler's deletion runtime;
+// a partial router without the runtime refuses owned user deletion.
+func (h *Handler) RegisterAdministrationRoutes(mux *http.ServeMux) {
+	h.registerAdministrationRoutes(mux)
+}

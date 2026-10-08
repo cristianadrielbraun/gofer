@@ -452,7 +452,8 @@ func (r *AccountRouting) RequestAccountDeletion(ctx context.Context, userID, acc
 	return r.transition(ctx, accountID, func(*accountRouteScope) error {
 		result, err := r.System().Write().ExecContext(ctx, `UPDATE gofer_account_directory
 			SET state = CASE WHEN state = 'deleted' THEN 'deleted' ELSE 'deleting' END,
-			updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND user_id = ?`, accountID, userID)
+			updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND user_id = ?
+			AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active' AND deletion_pending=0 AND user_type='webmail' AND is_admin=0)`, accountID, userID, userID)
 		if err != nil {
 			return err
 		}

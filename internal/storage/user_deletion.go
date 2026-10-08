@@ -26,18 +26,7 @@ func pendingUserDeletion(ctx context.Context, tx *sql.Tx, owner string, removed 
 // transaction after it establishes confirmed pending intent. It never opens
 // local stores; failed marking also rolls back the identity and audit changes.
 func (r *AccountRouting) PreparePendingUserDeletionTx(ctx context.Context, tx *sql.Tx, owner string) ([]string, error) {
-	var valid bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=? AND status='disabled' AND deletion_pending=1 AND user_type='webmail' AND is_admin=0)`, owner).Scan(&valid); err != nil {
-		return nil, err
-	}
-	if !valid {
-		return nil, ErrUserStoreOwner
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO gofer_user_store_directory(user_id,state) VALUES(?,'removing')
- ON CONFLICT(user_id) DO UPDATE SET state='removing',updated_at=CURRENT_TIMESTAMP WHERE gofer_user_store_directory.state='present'`, owner); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE gofer_account_directory SET state='deleting',updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND state!='deleted'`, owner); err != nil {
+	if err := markPendingUserDeletion(ctx, tx, owner); err != nil {
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT account_id FROM gofer_account_directory WHERE user_id=? AND state!='deleted' ORDER BY account_id`, owner)
@@ -54,6 +43,105 @@ func (r *AccountRouting) PreparePendingUserDeletionTx(ctx context.Context, tx *s
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func markPendingUserDeletion(ctx context.Context, tx *sql.Tx, owner string) error {
+	var valid bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=? AND status='disabled' AND deletion_pending=1 AND user_type='webmail' AND is_admin=0)`, owner).Scan(&valid); err != nil {
+		return err
+	}
+	if !valid {
+		return ErrUserStoreOwner
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO gofer_user_store_directory(user_id,state) VALUES(?,'removing')
+ ON CONFLICT(user_id) DO UPDATE SET state='removing',updated_at=CURRENT_TIMESTAMP WHERE gofer_user_store_directory.state='present'`, owner); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE gofer_account_directory SET state='deleting',updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND state!='deleted'`, owner); err != nil {
+		return err
+	}
+	return nil
+}
+
+// RecoverPendingUserDeletion reestablishes admission closure from confirmed,
+// persisted administrator intent. The initiating administrator may since have
+// lost access; that does not undo accepted cleanup. Missing users are completed
+// jobs, while incomplete/invalid intent never authorizes filesystem removal.
+func (r *AccountRouting) RecoverPendingUserDeletion(ctx context.Context, owner string) (bool, error) {
+	tx, err := r.System().Write().BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var valid bool
+	err = tx.QueryRowContext(ctx, `SELECT status='disabled' AND deletion_pending=1 AND user_type='webmail' AND is_admin=0
+ AND COALESCE(deletion_started_by,'')<>'' AND NOT EXISTS(SELECT 1 FROM auth_system_state WHERE id=1 AND owner_user_id=users.id)
+ FROM users WHERE id=?`, owner).Scan(&valid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !valid {
+		return false, ErrUserDeletionIncomplete
+	}
+	if err := markPendingUserDeletion(ctx, tx, owner); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+// PendingUserAccounts copies bounded deletion metadata without opening owner
+// files. Both deleting and historical deleted accounts remain owned namespaces;
+// their IDs are never reused. Paging stays stable as cleanup writes tombstones.
+func (r *AccountRouting) PendingUserAccounts(ctx context.Context, owner, after string, limit int) ([]AccountRoute, error) {
+	if owner == "" || limit < 1 || limit > 1000 {
+		return nil, ErrAccountRoute
+	}
+	rows, err := r.System().Read().QueryContext(ctx, `SELECT d.account_id,d.user_id,d.state FROM gofer_account_directory d
+ JOIN users u ON u.id=d.user_id JOIN gofer_user_store_directory s ON s.user_id=u.id
+ WHERE d.user_id=? AND d.account_id>? AND d.state IN ('deleting','deleted')
+ AND u.status='disabled' AND u.deletion_pending=1 AND u.user_type='webmail' AND u.is_admin=0
+ AND s.state IN ('removing','removed') ORDER BY d.account_id LIMIT ?`, owner, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []AccountRoute
+	for rows.Next() {
+		var entry AccountRoute
+		if err := rows.Scan(&entry.AccountID, &entry.UserID, &entry.State); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+// PendingAccountCleanupPage recovers individual mailbox deletion for retained
+// owners. Pending whole-user removal has its own file/database drain and is
+// excluded. Disabled owners may still finish previously accepted local cleanup.
+func (r *AccountRouting) PendingAccountCleanupPage(ctx context.Context, after string, limit int) ([]AccountRoute, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, ErrAccountRoute
+	}
+	rows, err := r.System().Read().QueryContext(ctx, `SELECT d.account_id,d.user_id,d.state FROM gofer_account_directory d JOIN users u ON u.id=d.user_id
+ WHERE d.state='deleting' AND d.account_id>? AND u.deletion_pending=0
+ AND u.user_type='webmail' AND u.is_admin=0 AND u.status IN ('active','disabled') ORDER BY d.account_id LIMIT ?`, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []AccountRoute
+	for rows.Next() {
+		var entry AccountRoute
+		if err := rows.Scan(&entry.AccountID, &entry.UserID, &entry.State); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
 }
 
 func (r *AccountRouting) pendingAccountDeletion(ctx context.Context, owner, id string, removed bool) error {

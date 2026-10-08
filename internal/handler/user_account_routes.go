@@ -293,14 +293,24 @@ func (h *Handler) handleUserDeleteAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	close(job.ready)
-	go func() {
+	cleanup := func(root context.Context) {
 		defer release()
-		ctx, cancel := context.WithTimeout(h.userStorageContext, 30*time.Minute)
+		ctx, cancel := context.WithTimeout(root, 30*time.Minute)
 		defer cancel()
 		if err := h.userAccounts.DeleteAccount(ctx, owner, id, h.userAccountHooks.Cleanup); err != nil {
 			log.Printf("routed account %s deletion remains pending: %v", id, err)
 		}
-	}()
+	}
+	if h.userIMAP != nil {
+		if err := h.userIMAP.StartBackgroundService(h.userStorageContext, cleanup); err != nil {
+			release()
+			userAccountError(w, r, err)
+			return
+		}
+	} else {
+		// Partial repository-hook fixtures have no provider runtime to join.
+		go cleanup(h.userStorageContext)
+	}
 	accepted()
 }
 

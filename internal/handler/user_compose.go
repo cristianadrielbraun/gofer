@@ -287,7 +287,7 @@ func (h *Handler) registerUserCompose(private func(string, http.HandlerFunc)) {
 	}
 	private("POST /compose/attachments", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, composeAttachmentMaxBytes+1<<20)
-		local := &Handler{auth: h.auth, blobStore: h.blobStore, userMutationState: &userMessageMutationState{}}
+		local := &Handler{auth: h.auth, blobStore: h.blobStore, userStorage: h.userStorage, userMutationState: &userMessageMutationState{}}
 		local.handleComposeAttachmentUpload(w, r)
 		if r.MultipartForm != nil {
 			_ = r.MultipartForm.RemoveAll()

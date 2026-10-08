@@ -27,6 +27,7 @@ type userStorageFixture struct {
 	auth         *auth.Manager
 	system       *storage.DB
 	routing      *storage.AccountRouting
+	stores       *storage.UserStores
 	service      *Service
 	http         http.Handler
 	sessions     map[string]*auth.Session
@@ -90,7 +91,7 @@ func newUserStorageFixtureServices(t *testing.T, enableIMAP bool, oauth *mailaut
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &userStorageFixture{system: system, routing: routing, sessions: make(map[string]*auth.Session), accounts: make(map[string]*models.Account)}
+	f := &userStorageFixture{system: system, routing: routing, stores: stores, sessions: make(map[string]*auth.Session), accounts: make(map[string]*models.Account)}
 	f.auth = manager
 	f.accountStore = accountStore
 	for _, owner := range []string{"alice", "bob"} {

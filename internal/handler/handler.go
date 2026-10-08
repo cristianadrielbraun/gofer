@@ -73,6 +73,8 @@ type Handler struct {
 	bodyFetches                map[int64]chan struct{}
 	accountDeleteMu            sync.Mutex
 	userDeleteMu               sync.Mutex
+	userRemovalMu              sync.Mutex
+	userRemoval                *userRemovalWorker
 	avatarWarmupQueue          chan avatarWarmupJob
 	avatarWarmupOwner          *Handler
 	avatarRouting              *storage.AccountRouting
@@ -214,6 +216,12 @@ func (h *Handler) mailCredentials() *mailauth.Service {
 }
 
 func (h *Handler) StartAccountDeletionCleanup(ctx context.Context) {
+	if h.ownedMailbox != nil {
+		if err := h.StartUserDeletionCleanup(ctx); err != nil {
+			log.Printf("start owned deletion recovery: %v", err)
+		}
+		return
+	}
 	go func() {
 		h.CleanupPendingAccountDeletions(ctx)
 		h.CleanupPendingUserDeletions(ctx)
@@ -257,6 +265,10 @@ func (h *Handler) CleanupPendingAccountDeletions(ctx context.Context) {
 }
 
 func (h *Handler) CleanupPendingUserDeletions(ctx context.Context) {
+	if h.ownedMailbox != nil {
+		h.ownedMailbox.wakeUserDeletionRecovery()
+		return
+	}
 	if h.auth == nil || !h.auth.IsEnabled() {
 		return
 	}
@@ -3746,6 +3758,14 @@ func (h *Handler) handleComposeAttachmentUpload(w http.ResponseWriter, r *http.R
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
+	if h.userStorage != nil {
+		// Reading a multipart body may outlive owner access. The file pin
+		// prevents removal, but does not authorize publishing new bytes.
+		if err := h.userStorage.ValidateUser(r.Context(), h.userID(r.Context())); err != nil {
+			http.Error(w, "user storage unavailable", http.StatusForbidden)
+			return
+		}
+	}
 	id, path, err := h.blobStore.StoreComposeAttachment(r.Context(), h.userID(r.Context()), header.Filename, bytes.NewReader(data))
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -6569,6 +6589,9 @@ func (h *Handler) cleanupDeletingAccountWithPolicy(ctx context.Context, accountI
 }
 
 func (h *Handler) cleanupDeletingUser(ctx context.Context, userID, actorSessionID string) error {
+	if h.ownedMailbox != nil {
+		return h.ownedMailbox.cleanupOwnedDeletingUser(ctx, userID, actorSessionID)
+	}
 	h.userDeleteMu.Lock()
 	defer h.userDeleteMu.Unlock()
 	if h.auth == nil || !h.auth.IsEnabled() {

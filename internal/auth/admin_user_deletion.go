@@ -295,3 +295,25 @@ func (m *Manager) ListPendingUserDeletionIDs(ctx context.Context) ([]string, err
 	}
 	return ids, nil
 }
+
+// PendingUserDeletionPage bounds startup/retry discovery by stable identity,
+// without loading registered users or opening any private databases.
+func (m *Manager) PendingUserDeletionPage(ctx context.Context, after string, limit int) ([]string, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, errors.New("user deletion page size must be between 1 and 1000")
+	}
+	rows, err := m.db.Read().QueryContext(ctx, `SELECT id FROM users WHERE deletion_pending=1 AND id>? ORDER BY id LIMIT ?`, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

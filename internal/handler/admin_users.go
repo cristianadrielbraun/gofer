@@ -423,6 +423,14 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid user deletion request.")
 		return
 	}
+	var owned *userRemovalWorker
+	if h.ownedMailbox != nil {
+		owned = h.removalWorker()
+		if owned == nil || owned.ctx.Err() != nil {
+			http.Error(w, "user deletion runtime unavailable; retry later", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	result, err := h.auth.PrepareAdministratorUserDeletion(ctx, auth.PrepareAdministratorUserDeletionOptions{
 		ActorUserID: currentUser.ID, ActorSessionID: currentSession.ID,
 		TargetUserID: r.PathValue("userID"), Confirmation: r.PostFormValue("confirmation"),
@@ -441,6 +449,20 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 			log.Printf("prepare administrator user deletion: %v", err)
 			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to start user deletion right now.")
 		}
+		return
+	}
+	if owned != nil {
+		owned.h.userIMAP.StopUser(result.TargetUserID)
+		err := owned.enqueue(userRemovalJob{owner: result.TargetUserID, actorSession: currentSession.ID})
+		if errors.Is(err, errUserRemovalBusy) {
+			redirectAdminUsers(w, r, "User deletion is pending. Gofer will retry the local cleanup automatically.")
+			return
+		}
+		if err != nil {
+			http.Error(w, "User deletion is pending, but cleanup stopped. Retry after the runtime restarts.", http.StatusServiceUnavailable)
+			return
+		}
+		redirectAdminUsers(w, r, "User deletion started. Gofer is permanently removing the user's local data.")
 		return
 	}
 	for _, accountID := range result.AccountIDs {

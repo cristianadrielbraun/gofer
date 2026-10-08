@@ -303,6 +303,11 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	if err := routed.startUserContactBackfills(ctx); err != nil {
 		return err
 	}
+	if option.IMAP != nil {
+		if err := routed.StartUserDeletionCleanup(ctx); err != nil {
+			return err
+		}
+	}
 	h.ownedMailbox = routed
 	return nil
 }
