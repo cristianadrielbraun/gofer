@@ -24,6 +24,7 @@ type migrationSourceSnapshot struct {
 
 type migrationPreparationJournal struct {
 	Version          int                       `json:"version"`
+	KeyFingerprint   string                    `json:"key_fingerprint,omitempty"`
 	ID               string                    `json:"id"`
 	State            string                    `json:"state"`
 	SourcePath       string                    `json:"source_path"`
@@ -51,8 +52,8 @@ func migrationSnapshotSource(ctx context.Context, path string) (result migration
 	return result, err
 }
 
-func migrationAttemptJournal(ctx context.Context, source, destination, workingDirectory string, files UserStorageMigrationFiles, retry bool) (result migrationPreparationJournal, err error) {
-	result = migrationPreparationJournal{Version: 1, State: "preparing", SourcePath: source, DestinationPath: destination, WorkingDirectory: workingDirectory, Files: files}
+func migrationAttemptJournal(ctx context.Context, source, destination, workingDirectory string, files UserStorageMigrationFiles, retry bool, keyFingerprint string) (result migrationPreparationJournal, err error) {
+	result = migrationPreparationJournal{Version: 1, State: "preparing", SourcePath: source, DestinationPath: destination, WorkingDirectory: workingDirectory, Files: files, KeyFingerprint: keyFingerprint}
 	result.Source, err = migrationSnapshotSource(ctx, source)
 	if err != nil {
 		return result, err
@@ -62,7 +63,7 @@ func migrationAttemptJournal(ctx context.Context, source, destination, workingDi
 		if !retry {
 			return result, errors.New("migration preparation already exists; explicit retry is required")
 		}
-		if previous.Version != 1 || (previous.State != "preparing" && previous.State != "verified") || previous.SourcePath != source || previous.DestinationPath != destination || previous.WorkingDirectory != workingDirectory || previous.Source != result.Source || previous.Files != files {
+		if previous.Version != 1 || (previous.State != "preparing" && previous.State != "verified") || previous.SourcePath != source || previous.DestinationPath != destination || previous.WorkingDirectory != workingDirectory || previous.Source != result.Source || previous.Files != files || previous.KeyFingerprint != keyFingerprint {
 			return result, errors.New("migration retry does not match the original source, files or working directory")
 		}
 		if !validMigrationAttemptID(previous.ID) || !validMigrationAttemptDirectory(destination, previous.Directory, previous.ID) {

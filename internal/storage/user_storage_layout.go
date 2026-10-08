@@ -19,6 +19,7 @@ import (
 // change. Startup must retain SourcePath's runtime lock alongside CentralPath's.
 type UserStorageLayout struct {
 	Version             int    `json:"version"`
+	KeyFingerprint      string `json:"key_fingerprint,omitempty"`
 	ID                  string `json:"layout_id"`
 	SourcePath          string `json:"source_path"`
 	CentralPath         string `json:"central_path"`
@@ -44,16 +45,11 @@ func LoadUserStorageLayout(ctx context.Context, path string) (layout UserStorage
 	if ctx == nil {
 		return layout, errors.New("layout verification requires a context")
 	}
-	central, err := canonicalMigrationPath(path)
+	layout, err = ReadUserStorageLayoutMetadata(path)
 	if err != nil {
 		return layout, err
 	}
-	if err := migrationReadJSON(central+".layout.json", &layout); err != nil {
-		return layout, err
-	}
-	if err := migrationValidateLayoutPaths(layout, central); err != nil {
-		return layout, err
-	}
+	central := layout.CentralPath
 	if err := migrationRequireRegular(central); err != nil {
 		return layout, err
 	}
@@ -119,6 +115,9 @@ func LoadUserStorageLayout(ctx context.Context, path string) (layout UserStorage
 }
 
 func migrationValidateLayoutPaths(layout UserStorageLayout, central string) error {
+	if layout.KeyFingerprint != "" && !migrationValidKeyFingerprint(layout.KeyFingerprint) {
+		return errors.New("completed layout has an invalid application key fingerprint")
+	}
 	if layout.Version != 1 || !validMigrationAttemptID(layout.ID) || layout.CentralPath != central || layout.SourcePath == central || !filepath.IsAbs(layout.SourcePath) || filepath.Clean(layout.SourcePath) != layout.SourcePath || filepath.Dir(layout.SourcePath) != filepath.Dir(central) || layout.UserDirectory != central+".users" || layout.BlobDirectory != filepath.Join(filepath.Dir(layout.SourcePath), "accounts") || !filepath.IsAbs(layout.WorkingDirectory) || filepath.Clean(layout.WorkingDirectory) != layout.WorkingDirectory || layout.SourceSchemaVersion < 105 || layout.SourceSchemaVersion > CurrentSchemaVersion || layout.SchemaVersion != CurrentSchemaVersion || layout.OwnersAtMigration < 0 {
 		return errors.New("completed storage layout has an invalid identity or path binding")
 	}
@@ -225,4 +224,109 @@ func migrationLayoutDigest(layout UserStorageLayout) (string, error) {
 	}
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+func migrationValidKeyFingerprint(value string) bool {
+	bytes, err := hex.DecodeString(value)
+	return err == nil && len(bytes) == 32 && value == strings.ToLower(value)
+}
+
+// VerifySharedStorageRuntime prevents the legacy server from opening an owned
+// layout. It allows older shared schemas so their normal upgrade still works.
+// The caller holds the database runtime lock; this check performs no writes.
+func VerifySharedStorageRuntime(ctx context.Context, path string) (err error) {
+	for _, metadata := range []string{path + ".layout.json", path + ".migration.json"} {
+		if _, err := os.Lstat(metadata); err == nil {
+			return errors.New("per-user storage requires managed mode and a completed layout")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	db, err := openReadOnlyDB(path)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, db.Close()) }()
+	var owned bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name IN ('gofer_storage_layout','gofer_user_store','gofer_account_directory'))`).Scan(&owned); err != nil {
+		return err
+	}
+	if owned {
+		return errors.New("per-user storage requires managed mode and a completed layout")
+	}
+	return nil
+}
+
+// ReadUserStorageLayoutMetadata resolves only metadata needed to acquire locks.
+// It does not certify the SQLite identity or authorize runtime activation.
+func ReadUserStorageLayoutMetadata(path string) (layout UserStorageLayout, err error) {
+	central, err := canonicalMigrationPath(path)
+	if err != nil {
+		return layout, err
+	}
+	if err := migrationReadJSON(central+".layout.json", &layout); err != nil {
+		return layout, err
+	}
+	return layout, migrationValidateLayoutPaths(layout, central)
+}
+
+// VerifyUserStorageRuntimeBoundary rejects private rows in a central layout,
+// including accidental shared-layout writes made after publication.
+func VerifyUserStorageRuntimeBoundary(ctx context.Context, path string) (err error) {
+	db, err := OpenReadOnly(path)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, db.Close()) }()
+	tx, err := db.Read().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var invalid bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='gofer_user_store') OR EXISTS(SELECT 1 FROM app_settings p JOIN users u ON u.id=p.user_id WHERE u.user_type<>'management')`).Scan(&invalid); err != nil {
+		return err
+	}
+	if invalid {
+		return errors.New("central layout contains local identity or preferences")
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table'`)
+	if err != nil {
+		return err
+	}
+	present := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		present[name] = true
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	if err := requireSharedMigrationTables(ctx, present, CurrentSchemaVersion); err != nil {
+		return err
+	}
+	for name, rule := range userStorageMigrationTables {
+		if rule.destination != migrationLocal && rule.destination != migrationOAuth && rule.destination != migrationSearch {
+			continue
+		}
+		if !present[name] {
+			continue
+		} // optional owned extensions need not exist centrally
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM main.`+quoteStoreIdentifier(name)+`)`).Scan(&invalid); err != nil {
+			return err
+		}
+		if invalid {
+			return errors.New("central layout contains private mailbox data")
+		}
+	}
+	return nil
 }

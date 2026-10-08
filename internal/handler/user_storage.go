@@ -16,10 +16,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-// RegisterUserStorageRoutes mounts the converted routes on a separate mux for
-// integration testing. It is deliberately not a complete application router.
-// Production startup still calls RegisterRoutes until migration/worker routing
-// is complete. Authentication middleware must wrap this mux as usual.
+// RegisterUserStorageRoutes mounts owned mailbox routes and their lifecycle.
+// Managed startup also registers the central authentication and administration
+// routes, then wraps the complete mux in authentication and HTTP middleware.
 func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.ServeMux, routing *storage.AccountRouting, options ...UserStorageOptions) error {
 	if routing == nil || routing.System() != h.db {
 		return errors.New("user routing must use the handler's central database")

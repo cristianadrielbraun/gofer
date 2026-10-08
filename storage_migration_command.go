@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 
-	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -73,15 +71,9 @@ func runStorageMigrationCommand(ctx context.Context, args []string, stdout, stde
 		fmt.Fprintf(stderr, "storage migration failed: %v\n", err)
 		return 1
 	}
-	options := storage.UserStorageMigrationOptions{SourcePath: *source, DestinationPath: *destination, WorkingDirectory: *workingDirectory, Retry: *retry,
-		ValidateSource: func(ctx context.Context, db *storage.DB) error { return validateMigrationSourceKey(ctx, db, key) },
-		ImportCredentials: func(ctx context.Context, tx *sql.Tx) error {
-			return mailauth.ImportUserStorageMigrationCredentials(ctx, tx, key)
-		},
-		VerifyCredentials: func(ctx context.Context, tx *sql.Tx) error {
-			return mailauth.VerifyUserStorageMigrationCredentials(ctx, tx, key)
-		},
-	}
+	options := migrationOptions(*source, *destination, key)
+	options.WorkingDirectory = *workingDirectory
+	options.Retry = *retry
 	layout, err := storage.MigrateUserStorage(ctx, options)
 	if err != nil {
 		fmt.Fprintf(stderr, "storage migration failed: %v\n", err)

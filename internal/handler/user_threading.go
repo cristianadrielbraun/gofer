@@ -28,8 +28,8 @@ type userThreadingWorker struct {
 	done       chan struct{}
 }
 
-// StartUserThreading performs one trusted startup sweep. It is explicit until
-// the completed per-user layout is activated by main. Only this worker snapshots
+// StartUserThreading performs one trusted sweep at managed startup. Only this
+// worker snapshots
 // message IDs, one owner at a time; discovery copies at most 64 central IDs.
 // Provider startup may await completion through AwaitUserThreading, preserving
 // the original threading-before-receive ordering. Runtime shutdown joins it.

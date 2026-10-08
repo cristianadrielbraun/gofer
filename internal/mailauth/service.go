@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -69,9 +70,10 @@ func microsoftEndpoint(tenant string) oauth2.Endpoint {
 }
 
 type Service struct {
-	config        *Config
-	db            *storage.DB
-	credentialKey []byte
+	cleanupWorkers sync.WaitGroup
+	config         *Config
+	db             *storage.DB
+	credentialKey  []byte
 }
 
 // Manager remains an alias while callers migrate to the service terminology.
@@ -89,8 +91,10 @@ func NewManager(config *Config, db *storage.DB, credentialKey []byte) *Service {
 }
 
 func (m *Service) StartCleanup(ctx context.Context) {
+	m.cleanupWorkers.Add(1)
 	ticker := time.NewTicker(time.Hour)
 	go func() {
+		defer m.cleanupWorkers.Done()
 		defer ticker.Stop()
 		for {
 			select {
@@ -219,3 +223,6 @@ func (m *Service) UpsertOAuthAccount(ctx context.Context, accountID, provider, p
 	}
 	return tx.Commit()
 }
+
+// WaitCleanup joins workers after their lifecycle contexts are canceled.
+func (m *Service) WaitCleanup() { m.cleanupWorkers.Wait() }

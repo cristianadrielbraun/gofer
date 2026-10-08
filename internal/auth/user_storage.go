@@ -9,7 +9,7 @@ import (
 // SetUserStorage configures owned lifecycle checks explicitly at managed
 // application startup. Table presence never selects a layout. The coordinator
 // must be the same one used by workers and handlers so deletion drains their
-// operations. Main and the partial integration router do not enable this yet.
+// operations. Managed startup configures it before registering routes.
 func (m *Manager) SetUserStorage(routing *storage.AccountRouting) error {
 	if routing == nil || routing.System() != m.db || m.config.AuthenticationMode() != ModeManaged {
 		return errors.New("user storage requires managed authentication on the same system database")

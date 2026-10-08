@@ -126,7 +126,8 @@ func migrationCommandFixture(t *testing.T) (storage.UserStorageMigrationOptions,
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := storage.UserStorageMigrationOptions{SourcePath: path, DestinationPath: filepath.Join(root, "owned.db"),
+	fingerprint := sha256.Sum256(key)
+	options := storage.UserStorageMigrationOptions{KeyFingerprint: hex.EncodeToString(fingerprint[:]), SourcePath: path, DestinationPath: filepath.Join(root, "owned.db"),
 		ValidateSource: func(ctx context.Context, db *storage.DB) error { return validateMigrationSourceKey(ctx, db, key) },
 		ImportCredentials: func(ctx context.Context, tx *sql.Tx) error {
 			return mailauth.ImportUserStorageMigrationCredentials(ctx, tx, key)

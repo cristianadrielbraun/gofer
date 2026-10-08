@@ -74,7 +74,7 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 	if err != nil {
 		return layout, err
 	}
-	if journal.Version != 1 || journal.SourcePath != sourcePath || journal.DestinationPath != destination || journal.WorkingDirectory != cwd || !validMigrationAttemptID(journal.ID) || !validMigrationAttemptDirectory(destination, journal.Directory, journal.ID) || journal.Owners < 0 {
+	if journal.Version != 1 || journal.SourcePath != sourcePath || journal.DestinationPath != destination || journal.WorkingDirectory != cwd || !validMigrationAttemptID(journal.ID) || !validMigrationAttemptDirectory(destination, journal.Directory, journal.ID) || journal.Owners < 0 || journal.KeyFingerprint != options.KeyFingerprint {
 		return layout, errors.New("publication does not match its recorded preparation")
 	}
 	if journal.State != "verified" && journal.State != "publishing" && journal.State != "published" {
@@ -177,7 +177,7 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 	if err := migrationVerifyClosedUserStores(ctx, source, usersPath, report); err != nil {
 		return layout, err
 	}
-	layout = UserStorageLayout{Version: 1, ID: journal.ID, SourcePath: sourcePath, CentralPath: destination, UserDirectory: destination + ".users", BlobDirectory: filepath.Join(filepath.Dir(sourcePath), "accounts"), WorkingDirectory: cwd, SourceSchemaVersion: report.SchemaVersion, SchemaVersion: CurrentSchemaVersion, OwnersAtMigration: report.Owners}
+	layout = UserStorageLayout{Version: 1, KeyFingerprint: journal.KeyFingerprint, ID: journal.ID, SourcePath: sourcePath, CentralPath: destination, UserDirectory: destination + ".users", BlobDirectory: filepath.Join(filepath.Dir(sourcePath), "accounts"), WorkingDirectory: cwd, SourceSchemaVersion: report.SchemaVersion, SchemaVersion: CurrentSchemaVersion, OwnersAtMigration: report.Owners}
 	marker, err := migrationHasLayoutIdentity(ctx, centralPath)
 	if err != nil {
 		return layout, err

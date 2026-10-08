@@ -19,8 +19,8 @@ import (
 var ErrMailboxAuthorizationChanged = errors.New("mailbox authorization changed during refresh")
 
 // UserCredentials keeps encrypted mailbox grants in the system DB, referencing
-// the central account directory instead of shared mailbox rows. It is opt-in;
-// the legacy Service and production startup retain their current layout.
+// the central account directory instead of shared mailbox rows. Managed startup
+// uses this service; personal/open mode retains the shared credential service.
 type UserCredentials struct {
 	routing    *storage.AccountRouting
 	codec      *Service

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -200,14 +201,50 @@ func runMutatingCommand(ctx context.Context, databasePath string, action func(*S
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
+	var owned bool
+	if err := probe.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name IN ('gofer_storage_layout','gofer_user_store','gofer_account_directory'))`).Scan(&owned); err != nil {
+		probe.Close()
+		return err
+	}
 	if err := probe.Close(); err != nil {
 		return fmt.Errorf("close database preflight: %w", err)
+	}
+	var layout storage.UserStorageLayout
+	if owned {
+		layout, err = storage.ReadUserStorageLayoutMetadata(databasePath)
+		if err != nil {
+			return fmt.Errorf("completed managed layout required: %w", err)
+		}
+		sourceLock, err := runtimeguard.Acquire(layout.SourcePath)
+		if err != nil {
+			return err
+		}
+		defer sourceLock.Close()
 	}
 	lock, err := runtimeguard.Acquire(databasePath)
 	if err != nil {
 		return fmt.Errorf("acquire exclusive database lock: %w", err)
 	}
 	defer lock.Close()
+	if owned {
+		managerLock, err := runtimeguard.Acquire(filepath.Join(layout.UserDirectory, "manager"))
+		if err != nil {
+			return err
+		}
+		defer managerLock.Close()
+		verified, err := storage.LoadUserStorageLayout(ctx, databasePath)
+		if err != nil {
+			return err
+		}
+		if verified != layout {
+			return fmt.Errorf("managed layout changed while acquiring operator locks")
+		}
+		if err := storage.VerifyUserStorageRuntimeBoundary(ctx, databasePath); err != nil {
+			return err
+		}
+	} else if err := storage.VerifySharedStorageRuntime(ctx, databasePath); err != nil {
+		return err
+	}
 	db, err := storage.OpenExisting(databasePath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)

@@ -16,7 +16,9 @@ const (
 // StartAuthenticationEventRetentionWorker prunes old audit rows at startup,
 // periodically, and after an administrator changes the configured window.
 func (h *Handler) StartAuthenticationEventRetentionWorker(ctx context.Context) {
+	h.authEventRetentionWorkers.Add(1)
 	go func() {
+		defer h.authEventRetentionWorkers.Done()
 		h.runAuthenticationEventRetention(ctx)
 		ticker := time.NewTicker(authenticationEventRetentionInterval)
 		defer ticker.Stop()
@@ -66,3 +68,6 @@ func (h *Handler) runAuthenticationEventRetentionAt(ctx context.Context, now tim
 		}
 	}
 }
+
+// WaitAuthenticationEventRetention joins workers after lifecycle cancellation.
+func (h *Handler) WaitAuthenticationEventRetention() { h.authEventRetentionWorkers.Wait() }

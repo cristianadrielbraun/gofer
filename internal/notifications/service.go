@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -16,6 +17,7 @@ import (
 )
 
 type Service struct {
+	workers          sync.WaitGroup
 	db               *storage.DB
 	userStorage      *storage.AccountRouting
 	sendNotification func(context.Context, []byte, *webpush.Subscription, *webpush.Options) (*http.Response, error)
@@ -50,8 +52,10 @@ func (s *Service) Start(ctx context.Context) {
 		return
 	}
 
+	s.workers.Add(1)
 	ch := s.events.Subscribe()
 	go func() {
+		defer s.workers.Done()
 		defer s.events.Unsubscribe(ch)
 		for {
 			select {
@@ -286,3 +290,6 @@ func intPayload(payload map[string]any, key string) int {
 type jsonNumber interface {
 	String() string
 }
+
+// Wait joins notification workers after their lifecycle contexts are canceled.
+func (s *Service) Wait() { s.workers.Wait() }

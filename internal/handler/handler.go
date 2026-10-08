@@ -126,6 +126,7 @@ type Handler struct {
 	retentionState             models.MailRetentionDiagnostics
 	userRetention              *userRetentionWorker
 	authEventRetentionWake     chan struct{}
+	authEventRetentionWorkers  sync.WaitGroup
 	smtpProfileMu              sync.RWMutex
 	smtpProfile                smtpDeliveryProfileState
 }

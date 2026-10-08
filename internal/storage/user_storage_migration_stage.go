@@ -21,6 +21,7 @@ type UserStorageMigrationOptions struct {
 	DestinationPath   string
 	WorkingDirectory  string
 	Retry             bool
+	KeyFingerprint    string
 	ValidateSource    func(context.Context, *DB) error
 	ImportCredentials func(context.Context, *sql.Tx) error
 	VerifyCredentials func(context.Context, *sql.Tx) error
@@ -42,6 +43,9 @@ type UserStorageMigrationStage struct {
 func StageUserStorageMigration(ctx context.Context, options UserStorageMigrationOptions) (result UserStorageMigrationStage, err error) {
 	if ctx == nil || options.ValidateSource == nil || options.ImportCredentials == nil || options.VerifyCredentials == nil {
 		return result, errors.New("migration source and credential verifiers are required")
+	}
+	if options.KeyFingerprint != "" && !migrationValidKeyFingerprint(options.KeyFingerprint) {
+		return result, errors.New("migration key fingerprint is invalid")
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -102,7 +106,7 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 	if err != nil {
 		return result, err
 	}
-	journal, err := migrationAttemptJournal(ctx, sourcePath, destinationPath, workingDirectory, files, options.Retry)
+	journal, err := migrationAttemptJournal(ctx, sourcePath, destinationPath, workingDirectory, files, options.Retry, options.KeyFingerprint)
 	if err != nil {
 		return result, err
 	}

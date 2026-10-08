@@ -21,8 +21,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/joho/godotenv"
@@ -30,7 +32,25 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-	if exitCode := runApplication(context.Background(), os.Args[1:], os.Stdout, os.Stderr, runServer); exitCode != 0 {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	serverExit := 0
+	exitCode := runApplication(ctx, os.Args[1:], os.Stdout, os.Stderr, func() {
+		if auth.LoadConfig("").AuthenticationMode() == auth.ModeManaged {
+			if err := runManagedServer(ctx, os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintf(os.Stderr, "Gofer startup or shutdown failed: %v\n", err)
+				serverExit = 1
+			}
+		} else {
+			// The shared runtime retains its existing signal behavior.
+			stop()
+			runServer()
+		}
+	})
+	if exitCode == 0 {
+		exitCode = serverExit
+	}
+	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
 }
@@ -93,6 +113,9 @@ func runServer() {
 	}
 	defer runtimeLock.Close()
 	log.Printf("boot: exclusive database lock acquired")
+	if err := storage.VerifySharedStorageRuntime(context.Background(), dbPath); err != nil {
+		log.Fatalf("incompatible storage layout: %v", err)
+	}
 
 	db, err := storage.New(dbPath)
 	if err != nil {
@@ -251,29 +274,39 @@ func provisionInitialSetupToken(ctx context.Context, manager *auth.Manager, conf
 }
 
 func loadOrGenerateVAPIDKeys(privatePath, publicPath string) (string, string) {
+	public, private, err := loadVAPIDKeys(privatePath, publicPath)
+	if err != nil {
+		log.Fatalf("web push keys: %v", err)
+	}
+	return public, private
+}
+
+func loadVAPIDKeys(privatePath, publicPath string) (string, string, error) {
 	if envPrivate, envPublic := os.Getenv("GOFER_VAPID_PRIVATE_KEY"), os.Getenv("GOFER_VAPID_PUBLIC_KEY"); envPrivate != "" && envPublic != "" {
-		return envPublic, envPrivate
+		return envPublic, envPrivate, nil
 	}
 
 	privateBytes, privateErr := os.ReadFile(privatePath)
 	publicBytes, publicErr := os.ReadFile(publicPath)
 	if privateErr == nil && publicErr == nil && len(privateBytes) > 0 && len(publicBytes) > 0 {
-		return string(publicBytes), string(privateBytes)
+		return string(publicBytes), string(privateBytes), nil
 	}
 
 	privateKey, publicKey, err := webpush.GenerateVAPIDKeys()
 	if err != nil {
-		log.Fatalf("generate VAPID keys: %v", err)
+		return "", "", fmt.Errorf("generate VAPID keys: %w", err)
 	}
-	os.MkdirAll(filepath.Dir(privatePath), 0755)
+	if err := os.MkdirAll(filepath.Dir(privatePath), 0755); err != nil {
+		return "", "", err
+	}
 	if err := os.WriteFile(privatePath, []byte(privateKey), 0600); err != nil {
-		log.Fatalf("write VAPID private key: %v", err)
+		return "", "", fmt.Errorf("write VAPID private key: %w", err)
 	}
 	if err := os.WriteFile(publicPath, []byte(publicKey), 0644); err != nil {
-		log.Fatalf("write VAPID public key: %v", err)
+		return "", "", fmt.Errorf("write VAPID public key: %w", err)
 	}
 	log.Printf("generated new VAPID key pair in %s", filepath.Dir(privatePath))
-	return publicKey, privateKey
+	return publicKey, privateKey, nil
 }
 
 func loadOrGenerateSecretKey(path string) []byte {

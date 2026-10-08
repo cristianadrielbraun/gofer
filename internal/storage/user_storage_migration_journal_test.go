@@ -10,7 +10,7 @@ import (
 )
 
 func TestUserStorageMigrationJournalRetryRequiresExactSourceAndPreservesPreviousAttempt(t *testing.T) {
-	for _, failure := range []string{"", "changed-database", "changed-wal", "changed-files", "changed-working-directory", "corrupt-journal", "foreign-binding", "symlink-stage", "before-mkdir", "before-binding"} {
+	for _, failure := range []string{"", "changed-database", "changed-wal", "changed-files", "changed-working-directory", "changed-key", "corrupt-journal", "foreign-binding", "symlink-stage", "before-mkdir", "before-binding"} {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			source, destination := filepath.Join(root, "source.db"), filepath.Join(root, "owned.db")
@@ -18,7 +18,8 @@ func TestUserStorageMigrationJournalRetryRequiresExactSourceAndPreservesPrevious
 				t.Fatal(err)
 			}
 			files := UserStorageMigrationFiles{Version: 1, TreeDigest: strings.Repeat("a", 64), ReferenceDigest: strings.Repeat("b", 64)}
-			journal, err := migrationAttemptJournal(t.Context(), source, destination, root, files, false)
+			fingerprint := strings.Repeat("a", 64)
+			journal, err := migrationAttemptJournal(t.Context(), source, destination, root, files, false, fingerprint)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,6 +44,8 @@ func TestUserStorageMigrationJournalRetryRequiresExactSourceAndPreservesPrevious
 				err = os.WriteFile(source+"-wal", []byte("new WAL"), 0600)
 			case "changed-files":
 				files.TreeDigest = strings.Repeat("c", 64)
+			case "changed-key":
+				fingerprint = strings.Repeat("b", 64)
 			case "changed-working-directory":
 				workingDirectory = t.TempDir()
 			case "corrupt-journal":
@@ -63,7 +66,7 @@ func TestUserStorageMigrationJournalRetryRequiresExactSourceAndPreservesPrevious
 			if err != nil {
 				t.Fatal(err)
 			}
-			next, err := migrationAttemptJournal(t.Context(), source, destination, workingDirectory, files, true)
+			next, err := migrationAttemptJournal(t.Context(), source, destination, workingDirectory, files, true, fingerprint)
 			valid := failure == "" || failure == "before-mkdir" || failure == "before-binding"
 			if (err == nil) != valid {
 				t.Fatal("retry decision", err)

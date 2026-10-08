@@ -42,8 +42,10 @@ func GetSessionToken(r *http.Request) string {
 }
 
 func (m *Manager) StartSessionCleanup(ctx context.Context) {
+	m.cleanupWorkers.Add(1)
 	ticker := m.clock.NewTicker(1 * time.Hour)
 	go func() {
+		defer m.cleanupWorkers.Done()
 		for {
 			select {
 			case <-ctx.Done():
@@ -66,3 +68,6 @@ func (m *Manager) StartSessionCleanup(ctx context.Context) {
 		}
 	}()
 }
+
+// WaitSessionCleanup joins workers after their lifecycle contexts are canceled.
+func (m *Manager) WaitSessionCleanup() { m.cleanupWorkers.Wait() }
