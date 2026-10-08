@@ -24,6 +24,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	imap "github.com/emersion/go-imap/v2"
+	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
 	"github.com/emersion/go-sasl"
@@ -131,6 +132,7 @@ func (a *managedIMAPActivity) idleCount(owner string) int {
 type managedMailFixture struct {
 	app              *managedApplication
 	path             string
+	imapAddress      string
 	accounts, tokens map[string]string
 	remote           map[string]*imapmemserver.User
 	smtp             *managedSMTPBackend
@@ -281,7 +283,7 @@ func newManagedMailFixtureOptions(t *testing.T, options managedMailOptions, conf
 	if _, err := storage.MigrateUserStorage(t.Context(), migrationOptions(sourcePath, destination, key)); err != nil {
 		t.Fatal(err)
 	}
-	f := &managedMailFixture{path: destination, accounts: ids, remote: remote, smtp: smtpBackend, activity: activity, initialMail: initialMail, tokens: make(map[string]string)}
+	f := &managedMailFixture{path: destination, imapAddress: imapListener.Addr().String(), accounts: ids, remote: remote, smtp: smtpBackend, activity: activity, initialMail: initialMail, tokens: make(map[string]string)}
 	t.Cleanup(func() {
 		if f.app != nil {
 			if err := f.app.Close(); err != nil {
@@ -347,7 +349,7 @@ func TestManagedApplicationNativeIMAPReceiveBodySMTPAndSentCopy(t *testing.T) {
 		for _, owner := range []string{"alice", "bob"} {
 			var id int64
 			err := f.app.storage.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
-				return db.Read().QueryRow(`SELECT id FROM messages WHERE account_id=? AND subject=?`, f.accounts[owner], owner+" native private message").Scan(&id)
+				return db.Read().QueryRow(`SELECT m.id FROM messages m JOIN message_folder_state s ON s.message_id=m.id JOIN folders f ON f.id=s.folder_id WHERE m.account_id=? AND m.subject=? AND COALESCE(f.uid_validity,0)>0`, f.accounts[owner], owner+" native private message").Scan(&id)
 			})
 			if errors.Is(err, sql.ErrNoRows) {
 				return false
@@ -546,5 +548,151 @@ func TestManagedApplicationNativeIDLEUserDisableAndCatchUp(t *testing.T) {
 	}
 	if err := storage.VerifyUserStorageRuntimeBoundary(t.Context(), f.path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagedNativeDraftLatestContentSurvivesSyncAndRestart(t *testing.T) {
+	f := newManagedMailFixture(t)
+	awaitManagedCondition(t, func() bool {
+		for _, owner := range []string{"alice", "bob"} {
+			var folders, messages int
+			if err := f.app.storage.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+				return db.Read().QueryRow(`SELECT (SELECT count(*) FROM folders WHERE account_id=? AND role='drafts'),(SELECT count(*) FROM messages WHERE account_id=?)`, f.accounts[owner], f.accounts[owner]).Scan(&folders, &messages)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if folders == 0 || messages == 0 {
+				return false
+			}
+		}
+		return true
+	})
+	for revision := 1; revision <= 5; revision++ {
+		for _, owner := range []string{"alice", "bob"} {
+			response := f.form(owner, "POST", "/compose/draft", url.Values{
+				"account_id": {f.accounts[owner]}, "draft_id": {owner + "-native-draft@example.test"},
+				"to": {"recipient@example.test"}, "subject": {fmt.Sprintf("%s draft revision %d", owner, revision)},
+				"body": {fmt.Sprintf("%s draft body revision %d", owner, revision)},
+			})
+			var receipt struct {
+				Status string `json:"status"`
+				ID     string `json:"draft_id"`
+			}
+			if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &receipt) != nil || receipt.Status != "saved" || receipt.ID != owner+"-native-draft@example.test" {
+				t.Fatal("draft acknowledgement", owner, revision, response.Code, response.Body.String())
+			}
+		}
+	}
+	assertLocal := func() bool {
+		for _, owner := range []string{"alice", "bob"} {
+			var subject, bodyPath string
+			var pending int
+			err := f.app.storage.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+				return db.Read().QueryRow(`SELECT subject,COALESCE(body_text_path,''),(SELECT count(*) FROM imap_draft_operations WHERE account_id=?) FROM messages WHERE account_id=? AND internet_message_id=?`, f.accounts[owner], f.accounts[owner], owner+"-native-draft@example.test").Scan(&subject, &bodyPath, &pending)
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return false
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pending != 0 || subject != owner+" draft revision 5" {
+				return false
+			}
+			body, err := os.ReadFile(bodyPath)
+			if err != nil || strings.TrimSpace(string(body)) != owner+" draft body revision 5" {
+				t.Fatal("latest local draft body", owner, string(body), err)
+			}
+		}
+		return true
+	}
+	awaitManagedCondition(t, assertLocal)
+	assertRemote := func() {
+		for _, owner := range []string{"alice", "bob"} {
+			conn, err := net.DialTimeout("tcp", f.imapAddress, 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				conn.Close()
+				t.Fatal(err)
+			}
+			client := imapclient.New(conn, nil)
+			func() {
+				defer client.Close()
+				if err := client.Login(owner, "synthetic-only").Wait(); err != nil {
+					t.Fatal(err)
+				}
+				selected, err := client.Select("Drafts", &imap.SelectOptions{ReadOnly: true}).Wait()
+				if err != nil || selected.NumMessages != 1 {
+					t.Fatal("remote draft count", owner, selected, err)
+				}
+				section := &imap.FetchItemBodySection{Peek: true}
+				messages, err := client.Fetch(imap.SeqSetNum(1), &imap.FetchOptions{BodySection: []*imap.FetchItemBodySection{section}}).Collect()
+				if err != nil || len(messages) != 1 {
+					t.Fatal("remote draft fetch", owner, err)
+				}
+				wire := string(messages[0].FindBodySection(section))
+				if !strings.Contains(wire, "Subject: "+owner+" draft revision 5") || !strings.Contains(wire, owner+" draft body revision 5") {
+					t.Fatal("latest remote draft content", owner, wire)
+				}
+				other := "alice"
+				if owner == other {
+					other = "bob"
+				}
+				if strings.Contains(wire, other+" draft") {
+					t.Fatal("remote draft crossed owners", owner)
+				}
+			}()
+		}
+	}
+	assertRemote()
+	if err := f.app.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.app = nil
+	app, err := newManagedApplication(t.Context(), f.path, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.app = app
+	awaitManagedCondition(t, assertLocal)
+	assertRemote()
+}
+
+func TestManagedNativeBodyRefusesUnknownFolderIdentity(t *testing.T) {
+	f := newManagedMailFixture(t, func(db *storage.DB, _ *config.AccountStore, accounts map[string]string) {
+		if _, err := db.Write().Exec(`UPDATE accounts SET email_sync_enabled=0`); err != nil {
+			t.Fatal(err)
+		}
+		for _, owner := range []string{"alice", "bob"} {
+			folder := owner + "-unknown-inbox"
+			if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{{ID: folder, AccountID: accounts[owner], RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.UpsertSyncMessages(t.Context(), []storage.SyncMessage{{AccountID: accounts[owner], FolderID: folder, RemoteUID: 1, MessageID: "<unknown-" + owner + "@example.test>", Subject: owner + " unverified body", DateSent: time.Now().UTC()}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	for _, owner := range []string{"alice", "bob"} {
+		var id int64
+		if err := f.app.storage.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			return db.Read().QueryRow(`SELECT id FROM messages WHERE account_id=? AND subject=?`, f.accounts[owner], owner+" unverified body").Scan(&id)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		err := f.app.imap.EnsureBody(t.Context(), owner, id)
+		if err == nil || !strings.Contains(err.Error(), "no verified IMAP body identity") {
+			t.Fatalf("unknown folder identity was not rejected clearly: %v", err)
+		}
+		if err := f.app.storage.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			if db.IsBodyFetchedInternal(t.Context(), id) {
+				return errors.New("unverified body was cached")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

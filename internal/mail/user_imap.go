@@ -615,7 +615,7 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, fo
 			if info == nil || info.AccountID != id {
 				return sql.ErrNoRows
 			}
-			return db.Read().QueryRowContext(ctx, `SELECT uid_validity FROM folders WHERE account_id=? AND remote_id=?`, id, info.FolderRemoteID).Scan(&validity)
+			return db.Read().QueryRowContext(ctx, `SELECT COALESCE(uid_validity,0) FROM folders WHERE account_id=? AND remote_id=?`, id, info.FolderRemoteID).Scan(&validity)
 		})
 		if err != nil || fetched {
 			return err
@@ -693,7 +693,7 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, fo
 				return errors.New("message identity changed during body fetch")
 			}
 			var currentValidity uint32
-			if err := db.Read().QueryRowContext(ctx, `SELECT uid_validity FROM folders WHERE account_id=? AND remote_id=?`, id, info.FolderRemoteID).Scan(&currentValidity); err != nil {
+			if err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(uid_validity,0) FROM folders WHERE account_id=? AND remote_id=?`, id, info.FolderRemoteID).Scan(&currentValidity); err != nil {
 				return err
 			}
 			if currentValidity != validity {
