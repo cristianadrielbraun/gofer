@@ -135,6 +135,12 @@ type managedMailFixture struct {
 	remote           map[string]*imapmemserver.User
 	smtp             *managedSMTPBackend
 	activity         *managedIMAPActivity
+	initialMail      map[string][]managedSeedMail
+}
+
+type managedSeedMail struct {
+	wire  string
+	flags []imap.Flag
 }
 
 type managedMailOptions struct {
@@ -158,6 +164,7 @@ func newManagedMailFixtureOptions(t *testing.T, options managedMailOptions, conf
 	t.Setenv("GOFER_SECRET_KEY", "")
 	activity := &managedIMAPActivity{idle: make(map[string]int)}
 	remote := make(map[string]*imapmemserver.User)
+	initialMail := make(map[string][]managedSeedMail)
 	for _, owner := range options.Owners {
 		user := imapmemserver.NewUser(owner, "synthetic-only")
 		for _, folder := range []string{"INBOX", "Sent", "Drafts", "Trash"} {
@@ -191,6 +198,7 @@ func newManagedMailFixtureOptions(t *testing.T, options managedMailOptions, conf
 			if _, err := user.Append("INBOX", managedLiteral{strings.NewReader(raw), int64(len(raw))}, &imap.AppendOptions{Flags: flags}); err != nil {
 				t.Fatal(err)
 			}
+			initialMail[owner] = append(initialMail[owner], managedSeedMail{wire: raw, flags: flags})
 		}
 	}
 	imapListener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -273,7 +281,7 @@ func newManagedMailFixtureOptions(t *testing.T, options managedMailOptions, conf
 	if _, err := storage.MigrateUserStorage(t.Context(), migrationOptions(sourcePath, destination, key)); err != nil {
 		t.Fatal(err)
 	}
-	f := &managedMailFixture{path: destination, accounts: ids, remote: remote, smtp: smtpBackend, activity: activity, tokens: make(map[string]string)}
+	f := &managedMailFixture{path: destination, accounts: ids, remote: remote, smtp: smtpBackend, activity: activity, initialMail: initialMail, tokens: make(map[string]string)}
 	t.Cleanup(func() {
 		if f.app != nil {
 			if err := f.app.Close(); err != nil {

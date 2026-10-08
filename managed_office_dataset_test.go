@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
@@ -20,22 +21,28 @@ import (
 )
 
 type officeWorkloadSpec struct {
-	Name                  string `json:"name"`
-	ActiveUsers           int    `json:"active_users"`
-	IdleUsers             int    `json:"idle_users"`
-	MessagesPerActiveUser int    `json:"messages_per_active_user"`
-	MessagesPerIdleUser   int    `json:"messages_per_idle_user"`
-	ContactsPerUser       int    `json:"contacts_per_user"`
-	CalendarEventsPerUser int    `json:"calendar_events_per_user"`
-	Seconds               int    `json:"seconds"`
-	Rate                  int    `json:"arrival_rate_per_second"`
-	Workers               int    `json:"request_workers"`
-	Queue                 int    `json:"request_queue_capacity"`
-	TimeoutSeconds        int    `json:"request_timeout_seconds"`
-	WarmupSeconds         int    `json:"warmup_timeout_seconds"`
-	StreamSeed            int64  `json:"stream_seed"`
-	Poisson               bool   `json:"poisson_arrivals"`
-	Profile               string `json:"profile"`
+	Name                    string `json:"name"`
+	ActiveUsers             int    `json:"active_users"`
+	IdleUsers               int    `json:"idle_users"`
+	MessagesPerActiveUser   int    `json:"messages_per_active_user"`
+	MessagesPerIdleUser     int    `json:"messages_per_idle_user"`
+	ContactsPerUser         int    `json:"contacts_per_user"`
+	CalendarEventsPerUser   int    `json:"calendar_events_per_user"`
+	Seconds                 int    `json:"seconds"`
+	Rate                    int    `json:"arrival_rate_per_second"`
+	Workers                 int    `json:"request_workers"`
+	Queue                   int    `json:"request_queue_capacity"`
+	TimeoutSeconds          int    `json:"request_timeout_seconds"`
+	WarmupSeconds           int    `json:"warmup_timeout_seconds"`
+	StreamSeed              int64  `json:"stream_seed"`
+	Poisson                 bool   `json:"poisson_arrivals"`
+	DiagnosticsAfterSeconds int    `json:"diagnostics_after_seconds"`
+	OnlyLayout              string `json:"only_layout,omitempty"`
+	Profile                 string `json:"profile"`
+	IncomingRate            int    `json:"incoming_messages_per_second"`
+	SMTPEveryRequests       int    `json:"smtp_every_requests"`
+	DrainSeconds            int    `json:"background_drain_timeout_seconds"`
+	PerUserFirst            bool   `json:"per_user_first"`
 }
 
 func (s officeWorkloadSpec) validate() error {
@@ -54,11 +61,23 @@ func (s officeWorkloadSpec) validate() error {
 	if s.TimeoutSeconds < 1 || s.TimeoutSeconds > 60 || s.WarmupSeconds < 1 || s.WarmupSeconds > 900 {
 		return fmt.Errorf("invalid timeout bounds")
 	}
+	if s.DiagnosticsAfterSeconds < 0 || s.DiagnosticsAfterSeconds > s.Seconds || (s.OnlyLayout != "" && s.OnlyLayout != "shared" && s.OnlyLayout != "per-user") {
+		return fmt.Errorf("invalid diagnostic/layout selection")
+	}
 	if s.Profile != "calibration" && s.Profile != "busy-office" {
 		return fmt.Errorf("unknown office profile")
 	}
 	if s.Profile == "busy-office" && (s.ContactsPerUser < 1 || s.CalendarEventsPerUser < 1) {
 		return fmt.Errorf("busy-office requires populated contacts and calendar")
+	}
+	if s.IncomingRate < 0 || s.IncomingRate > 1000 || s.SMTPEveryRequests < 0 || s.DrainSeconds < 0 || s.DrainSeconds > 600 {
+		return fmt.Errorf("invalid background workload bounds")
+	}
+	if (s.IncomingRate > 0 || s.SMTPEveryRequests > 0 || s.DrainSeconds > 0) && s.Profile != "busy-office" {
+		return fmt.Errorf("background workload requires busy-office profile")
+	}
+	if (s.IncomingRate > 0 || s.SMTPEveryRequests > 0) && s.DrainSeconds == 0 {
+		return fmt.Errorf("background workload requires bounded drain")
 	}
 	return nil
 }
@@ -89,7 +108,7 @@ func newOfficeDataset(t *testing.T, spec officeWorkloadSpec) (*officeDataset, st
 			dataset.MessageCounts[owner] = spec.MessagesPerIdleUser
 		}
 	}
-	api := &managedDAVFixture{calls: make(map[string]int), users: make(map[string]bool), calendarEvents: spec.CalendarEventsPerUser}
+	api := &managedDAVFixture{calls: make(map[string]int), users: make(map[string]bool), calendarEvents: spec.CalendarEventsPerUser, calendarAnchor: time.Now()}
 	for _, owner := range dataset.All {
 		api.users[owner] = true
 	}
@@ -160,10 +179,6 @@ func TestManagedOfficePairedWorkload(t *testing.T) {
 	}
 	dataset, baseline := newOfficeDataset(t, spec)
 	ticks := officeClockTicks(t)
-	results := []officeCalibration{
-		runOfficeWorkload(t, "shared", baseline, dataset, spec, ticks),
-		runOfficeWorkload(t, "per-user", dataset.Fixture.path, dataset, spec, ticks),
-	}
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -187,18 +202,40 @@ func TestManagedOfficePairedWorkload(t *testing.T) {
 		ExecutableSHA256 string              `json:"executable_sha256"`
 		Spec             officeWorkloadSpec  `json:"spec"`
 		Results          []officeCalibration `json:"results"`
-	}{"Populated paired native IMAP/DAV workload. Preliminary single-order run; capacity conclusions require larger/longer repeated scenarios and incoming/fault windows.", runtime.Version(), runtime.NumCPU(), runtime.GOMAXPROCS(0), ticks, fmt.Sprintf("%x", hash.Sum(nil)), spec, results}
-	data, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		t.Fatal(err)
+	}{"Populated paired native IMAP/DAV workload. One paired native workload; capacity conclusions require repeated scenarios, alternating order and fault windows.", runtime.Version(), runtime.NumCPU(), runtime.GOMAXPROCS(0), ticks, fmt.Sprintf("%x", hash.Sum(nil)), spec, nil}
+	pairs := []struct{ layout, path string }{{"shared", baseline}, {"per-user", dataset.Fixture.path}}
+	if spec.PerUserFirst {
+		pairs[0], pairs[1] = pairs[1], pairs[0]
 	}
-	if err := os.WriteFile(output, append(data, '\n'), 0600); err != nil {
-		t.Fatal(err)
+	for _, pair := range pairs {
+		if spec.OnlyLayout != "" && spec.OnlyLayout != pair.layout {
+			continue
+		}
+		report.Results = append(report.Results, runOfficeWorkload(t, pair.layout, pair.path, dataset, spec, ticks))
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		temporary := output + ".preparing"
+		if err := os.WriteFile(temporary, append(data, '\n'), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(temporary, output); err != nil {
+			t.Fatal(err)
+		}
 	}
+	results := report.Results
 	for _, result := range results {
 		t.Logf("%s users=%d active/%d idle offered=%d success=%d errors=%d drops=%d p95=%.1fms cpu=%.2fs peak_rss=%.1fMiB", result.Layout, spec.ActiveUsers, spec.IdleUsers, result.Offered, result.Successful, result.ResponseErrors+result.TransportErrors, result.Dropped, result.P95MS, result.CPUSeconds, float64(result.PeakRSSKiB)/1024)
 	}
 	for _, result := range results {
+		if result.Background != nil {
+			b := result.Background
+			t.Logf("%s background incoming=%d/%d SMTP=%d/%d drained=%v drain=%.2fs", result.Layout, b.IncomingReceived, len(b.Incoming), b.SMTPReceiptsComplete, b.SMTPReceipts, b.Drained, b.DrainSeconds)
+			if b.ObserverError != "" {
+				t.Errorf("%s background observer failed: %s; see %s", result.Layout, b.ObserverError, output)
+			}
+		}
 		if result.PayloadErrors != 0 {
 			t.Errorf("%s returned %d invalid tenant payloads; see %s", result.Layout, result.PayloadErrors, output)
 		}

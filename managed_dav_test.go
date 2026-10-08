@@ -30,6 +30,7 @@ type managedDAVFixture struct {
 	blockedCalendar *managedDAVBlock
 	users           map[string]bool
 	calendarEvents  int
+	calendarAnchor  time.Time
 }
 
 func (a *managedDAVFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -82,9 +83,13 @@ func (a *managedDAVFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusMultiStatus)
 	if calendar {
 		count := max(1, a.calendarEvents)
+		anchor := a.calendarAnchor
+		if anchor.IsZero() {
+			anchor = time.Now()
+		}
 		fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">`)
 		for index := 0; index < count; index++ {
-			start := time.Now().UTC().Add(time.Duration(index+1) * time.Hour).Truncate(time.Hour)
+			start := anchor.UTC().Add(time.Duration(index+1) * time.Hour).Truncate(time.Hour)
 			uid, summary, resource := "same-native-event", owner+" native appointment", "event.ics"
 			if index > 0 {
 				uid += fmt.Sprintf("-%08d", index)
