@@ -39,6 +39,9 @@ func runApplication(ctx context.Context, args []string, stdout, stderr io.Writer
 	if handled, exitCode := runAuthCommand(ctx, args, stdout, stderr); handled {
 		return exitCode
 	}
+	if handled, exitCode := runStorageCommand(ctx, args, stdout, stderr); handled {
+		return exitCode
+	}
 	serve()
 	return 0
 }
