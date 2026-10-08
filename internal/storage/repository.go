@@ -167,6 +167,8 @@ func (db *DB) unifiedFolderAccountFilter(ctx context.Context, userID, folderID, 
 	if folderID == "scheduled" {
 		return "", nil, nil
 	}
+	// Settings use the same reader pool, so load them before opening the cursor.
+	settings := db.GetUISettings(ctx, userID)
 
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id FROM accounts
@@ -177,7 +179,6 @@ func (db *DB) unifiedFolderAccountFilter(ctx context.Context, userID, folderID, 
 	}
 	defer rows.Close()
 
-	settings := db.GetUISettings(ctx, userID)
 	var ids []any
 	for rows.Next() {
 		var accountID string
@@ -5320,11 +5321,10 @@ func (db *DB) getThreadMessages(ctx context.Context, accountID, threadID, userID
 		if err := rows.Scan(&item.ID, &item.AccountID, &item.AccountColor, &item.Subject, &fromName, &fromEmail, &item.Preview,
 			&dateReceived, &hasAttach, &isRead, &isStarred, &item.FolderName, &item.FolderID, &item.FolderRole,
 			&internetMsgID, &refs, &bodyTextPath); err != nil {
-			continue
+			return nil, err
 		}
 		item.Preview = mailmessage.PreviewFromText(item.Preview)
 		item.From = contactFromSender(fromName, fromEmail)
-		db.hydrateContactAvatar(ctx, &item.From)
 		item.IsRead = isRead == 1
 		item.IsStarred = isStarred == 1
 		item.HasAttachment = hasAttach == 1
@@ -5348,6 +5348,15 @@ func (db *DB) getThreadMessages(ctx context.Context, accountID, threadID, userID
 			item.DateFull = formatFullDateTime(dateReceived.Time, loc)
 		}
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range items {
+		db.hydrateContactAvatar(ctx, &items[i].From)
 	}
 	if len(items) > 0 {
 		msgIDs := make([]int64, 0, len(items))
@@ -5944,7 +5953,6 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 		r.email.AccountColor = accountColor
 		r.email.Subject = subject
 		r.email.From = contactFromSender(fromName, fromEmail)
-		db.hydrateContactAvatar(ctx, &r.email.From)
 		r.email.Preview = mailmessage.PreviewFromText(snippet)
 		if r.email.Preview == "" || r.email.Preview == subject {
 			if preview := previewFromBodyPaths(nullStringValue(textPath), nullStringValue(htmlPath)); preview != "" {
@@ -5966,6 +5974,16 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 		items = append(items, r)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	// Release the result cursor before avatar lookups acquire another reader.
+	for i := range items {
+		db.hydrateContactAvatar(ctx, &items[i].email.From)
+	}
 	if len(items) > 0 {
 		msgIDs := make([]int64, len(items))
 		for i, r := range items {
@@ -6098,8 +6116,16 @@ func (db *DB) getRecipients(ctx context.Context, messageID int64, kind string) (
 		}
 		c.Initials = initials(c.Name)
 		c.AvatarHash = avatarresolver.GravatarHash(c.Email)
-		db.hydrateContactAvatar(ctx, &c)
 		contacts = append(contacts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range contacts {
+		db.hydrateContactAvatar(ctx, &contacts[i])
 	}
 	return contacts, nil
 }
@@ -6156,8 +6182,18 @@ func (db *DB) batchGetRecipients(ctx context.Context, msgIDs []int64, kind strin
 		}
 		c.Initials = initials(c.Name)
 		c.AvatarHash = avatarresolver.GravatarHash(c.Email)
-		db.hydrateContactAvatar(ctx, &c)
 		result[msgID] = append(result[msgID], c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for _, contacts := range result {
+		for i := range contacts {
+			db.hydrateContactAvatar(ctx, &contacts[i])
+		}
 	}
 	return result, nil
 }
@@ -6244,7 +6280,6 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 		r.email.AccountColor = accountColor
 		r.email.Subject = subject
 		r.email.From = contactFromSender(fromName, fromEmail)
-		db.hydrateContactAvatar(ctx, &r.email.From)
 		r.email.Preview = mailmessage.PreviewFromText(snippet)
 		if r.email.Preview == "" || r.email.Preview == subject {
 			if preview := previewFromBodyPaths(nullStringValue(textPath), nullStringValue(htmlPath)); preview != "" {
@@ -6260,6 +6295,16 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 		items = append(items, r)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	// Release the result cursor before avatar lookups acquire another reader.
+	for i := range items {
+		db.hydrateContactAvatar(ctx, &items[i].email.From)
+	}
 	if len(items) > 0 {
 		msgIDs := make([]int64, len(items))
 		for i, r := range items {

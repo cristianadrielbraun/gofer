@@ -37,6 +37,7 @@ type officeWorkloadSpec struct {
 	StreamSeed              int64  `json:"stream_seed"`
 	Poisson                 bool   `json:"poisson_arrivals"`
 	DiagnosticsAfterSeconds int    `json:"diagnostics_after_seconds"`
+	CaptureFirstTimeout     bool   `json:"capture_first_timeout"`
 	OnlyLayout              string `json:"only_layout,omitempty"`
 	Profile                 string `json:"profile"`
 	IncomingRate            int    `json:"incoming_messages_per_second"`

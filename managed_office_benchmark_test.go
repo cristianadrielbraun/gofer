@@ -70,6 +70,8 @@ func TestManagedOfficeBenchmarkProcess(t *testing.T) {
 var errOfficeApplication = errors.New("application error response")
 
 type officeAttempt struct {
+	StackRequested   bool    `json:"stack_requested,omitempty"`
+	StackSignalError string  `json:"stack_signal_error,omitempty"`
 	Owner            string  `json:"owner"`
 	SendID           string  `json:"send_id,omitempty"`
 	Operation        string  `json:"operation"`
@@ -128,6 +130,9 @@ type officeIncoming struct {
 }
 
 type officeOwnerQueues struct {
+	ObservedUnixMS    int64          `json:"observed_unix_ms"`
+	NextPollUnixMS    int64          `json:"next_poll_unix_ms,omitempty"`
+	IdleWatchers      int            `json:"idle_watchers_at_drain"`
 	Owner             string         `json:"owner"`
 	Drafts            map[string]int `json:"draft_operations"`
 	Sends             map[string]int `json:"outgoing_sends"`
@@ -159,12 +164,19 @@ func officeObserveBackground(ctx context.Context, layout, path string, dataset *
 	result := officeBackground{Incoming: append([]officeIncoming(nil), incoming...)}
 	seenReceipts := make(map[string]bool)
 	directory := ""
+	var central *sql.DB
 	if layout == "per-user" {
 		metadata, err := storage.ReadUserStorageLayoutMetadata(path)
 		if err != nil {
 			return result, err
 		}
 		directory = metadata.UserDirectory
+		central, err = sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&_pragma=busy_timeout(1000)"}).String())
+		if err != nil {
+			return result, err
+		}
+		central.SetMaxOpenConns(1)
+		defer central.Close()
 	}
 	for _, owner := range dataset.All {
 		file := path
@@ -267,6 +279,14 @@ func officeObserveBackground(ctx context.Context, layout, path string, dataset *
 		}()
 		if err != nil {
 			return result, err
+		}
+		queues.ObservedUnixMS = time.Now().UnixMilli()
+		queues.IdleWatchers = dataset.Fixture.activity.idleCount(owner)
+		if central != nil {
+			err := central.QueryRowContext(ctx, `SELECT COALESCE(p.next_due_ms,0) FROM gofer_account_directory d LEFT JOIN gofer_account_poll_schedule p ON p.account_id=d.account_id WHERE d.account_id=? AND d.user_id=?`, dataset.Accounts[owner], owner).Scan(&queues.NextPollUnixMS)
+			if err != nil {
+				return result, err
+			}
 		}
 		dataset.Fixture.smtp.mu.Lock()
 		queues.SMTPAccepted = len(dataset.Fixture.smtp.accepted[owner])
@@ -484,7 +504,7 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 	}
 	cmd := exec.Command(executable, "-test.run=^TestManagedOfficeBenchmarkProcess$", "-test.timeout=30m")
 	overrides := map[string]string{"GOFER_OFFICE_CHILD": layout, "GOFER_DB_PATH": path, "GOFER_ADDR": address, "GOFER_BASE_URL": base}
-	if spec.DiagnosticsAfterSeconds > 0 {
+	if spec.DiagnosticsAfterSeconds > 0 || spec.CaptureFirstTimeout {
 		overrides["GOFER_OFFICE_DIAGNOSTICS"] = "1"
 	}
 	if dataset.CAFile != "" {
@@ -655,6 +675,7 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 	}()
 
 	var workers sync.WaitGroup
+	var firstTimeout sync.Once
 	for worker := 0; worker < spec.Workers; worker++ {
 		workers.Add(1)
 		go func() {
@@ -676,6 +697,15 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 				if err != nil {
 					outcome.TransportFailure = !errors.Is(err, errOfficeApplication)
 					outcome.Error = err.Error()
+					var timeout net.Error
+					if spec.CaptureFirstTimeout && errors.As(err, &timeout) && timeout.Timeout() {
+						firstTimeout.Do(func() {
+							outcome.StackRequested = true
+							if err := cmd.Process.Signal(syscall.Signal(10)); err != nil {
+								outcome.StackSignalError = err.Error()
+							}
+						})
+					}
 				} else if status != 200 && !(operation == "smtp-send" && status == http.StatusAccepted) {
 					outcome.Error = fmt.Sprintf("HTTP %d", status)
 				}
@@ -814,6 +844,7 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 		deadline := drainStart.Add(time.Duration(spec.DrainSeconds) * time.Second)
 		var initial []officeOwnerQueues
 		initialReceived := 0
+		nextProgress := drainStart
 		for {
 			ctx, cancel := context.WithDeadline(t.Context(), deadline)
 			background, err := officeObserveBackground(ctx, layout, path, dataset, incoming, result.Attempts)
@@ -833,6 +864,10 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 			background.InitialOwners, background.IncomingReceivedBeforeDrain = initial, initialReceived
 			background.DrainSeconds = time.Since(drainStart).Seconds()
 			result.Background = &background
+			if time.Now().After(nextProgress) {
+				t.Logf("%s background drain incoming=%d/%d SMTP=%d/%d complete=%v elapsed=%.1fs", layout, background.IncomingReceived, len(incoming), background.SMTPReceiptsComplete, background.SMTPReceipts, background.Drained, background.DrainSeconds)
+				nextProgress = time.Now().Add(30 * time.Second)
+			}
 			if background.Drained || time.Now().Add(250*time.Millisecond).After(deadline) {
 				break
 			}

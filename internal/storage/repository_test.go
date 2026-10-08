@@ -3223,3 +3223,89 @@ func TestMigrateV75AddsGmailMessageFetchQueue(t *testing.T) {
 		t.Fatalf("migrated Gmail queue rows=%d version=%d, want 1/%d", queued, version, CurrentSchemaVersion)
 	}
 }
+
+// A bounded reader pool must be usable even when only one slot is available.
+// Nested avatar queries while a result cursor is open otherwise wait for that
+// cursor's own connection and stall until the request deadline cancels it.
+func TestMailReadsReleaseRowsBeforeAvatarHydration(t *testing.T) {
+	for _, operation := range []string{"search", "folder", "folder-local", "detail", "recipients", "batch-recipients", "thread"} {
+		t.Run(operation, func(t *testing.T) {
+			db := newContactsTestDB(t)
+			if _, err := db.Write().Exec(`INSERT INTO accounts(id,user_id,email_address) VALUES('acc','default','me@example.com')`); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.UpsertFolders(t.Context(), []UpsertFolderInput{{ID: "inbox", AccountID: "acc", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.UpsertSyncMessages(t.Context(), []SyncMessage{{AccountID: "acc", FolderID: "inbox", RemoteUID: 1, MessageID: "<reader@example.com>", Subject: "poolneedle", FromName: "Sender", FromEmail: "sender@example.com", DateSent: time.Now(), ToRecipients: []Recipient{{Name: "Recipient", Email: "recipient@example.com"}}}}); err != nil {
+				t.Fatal(err)
+			}
+			for _, email := range []string{"sender@example.com", "recipient@example.com"} {
+				if err := db.UpsertSenderAvatarCandidate(t.Context(), email); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var id int64
+			var threadID string
+			if err := db.Read().QueryRow(`SELECT id,thread_id FROM messages WHERE account_id='acc'`).Scan(&id, &threadID); err != nil {
+				t.Fatal(err)
+			}
+			db.Read().SetMaxOpenConns(1)
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			before := db.Read().Stats().WaitCount
+			var err error
+			var emails []models.Email
+			var recipients []models.Contact
+			switch operation {
+			case "search":
+				emails, err = db.SearchMessages(ctx, "default", "poolneedle", 50)
+			case "folder":
+				var page *models.EmailPage
+				page, err = db.GetEmailsRangeForUser(ctx, "default", "inbox", 0, 50)
+				if page != nil {
+					emails = page.Emails
+				}
+			case "folder-local":
+				var page *models.EmailPage
+				page, err = db.GetEmailsRange(ctx, "inbox", 0, 50)
+				if page != nil {
+					emails = page.Emails
+				}
+			case "detail":
+				var email *models.Email
+				email, err = db.GetEmailByIDForUser(ctx, strconv.FormatInt(id, 10), "default")
+				if email != nil {
+					emails = []models.Email{*email}
+				}
+			case "thread":
+				var items []models.ThreadItem
+				items, err = db.GetThreadMessagesForUser(ctx, "acc", threadID, "default")
+				for _, item := range items {
+					emails = append(emails, models.Email{Subject: item.Subject, From: item.From, To: item.To})
+				}
+			case "recipients":
+				recipients, err = db.getRecipients(ctx, id, "to")
+			case "batch-recipients":
+				var contacts map[int64][]models.Contact
+				contacts, err = db.batchGetRecipients(ctx, []int64{id}, "to")
+				recipients = contacts[id]
+			}
+			if err != nil || ctx.Err() != nil {
+				t.Fatalf("mail read stalled: result=%v context=%v", err, ctx.Err())
+			}
+			if db.Read().Stats().WaitCount != before {
+				t.Fatal("mail read tried to acquire a second reader while holding its cursor")
+			}
+			if operation != "recipients" && operation != "batch-recipients" {
+				if len(emails) != 1 || emails[0].Subject != "poolneedle" || emails[0].From.AvatarStatus != "pending" {
+					t.Fatalf("sender data missing: %#v", emails)
+				}
+				recipients = emails[0].To
+			}
+			if len(recipients) != 1 || recipients[0].Email != "recipient@example.com" || recipients[0].AvatarStatus != "pending" {
+				t.Fatalf("recipient data missing: %#v", recipients)
+			}
+		})
+	}
+}
