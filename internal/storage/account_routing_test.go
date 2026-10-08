@@ -144,6 +144,12 @@ func TestAccountRoutingEmptyCreationCanBeCancelledButNeverActivated(t *testing.T
 	if err := r.CompleteAccountCreation(t.Context(), "alice", entry.AccountID, nil); !errors.Is(err, ErrAccountRoute) {
 		t.Fatal(err)
 	}
+	if err := r.CancelAccountCreation(t.Context(), "alice", entry.AccountID); !errors.Is(err, ErrAccountRoute) || !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing store cannot prove an empty reservation", err)
+	}
+	if err := r.WithUser(t.Context(), "alice", func(*DB) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	if err := r.CancelAccountCreation(t.Context(), "alice", entry.AccountID); err != nil {
 		t.Fatal(err)
 	}

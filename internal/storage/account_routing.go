@@ -420,26 +420,10 @@ func (r *AccountRouting) CompleteAccountCreation(ctx context.Context, userID, ac
 
 // CancelAccountCreation can discard an empty reservation only. A committed
 // local row must be recovered or deleted explicitly, never silently discarded.
+// The store must already exist; a missing file cannot prove the row was empty.
 func (r *AccountRouting) CancelAccountCreation(ctx context.Context, userID, accountID string) error {
-	if userID == "" {
-		return ErrAccountRoute
-	}
-	return r.transition(ctx, accountID, func(_ *accountRouteScope) error {
-		if _, err := r.route(ctx, accountID, userID, AccountCreating); err != nil {
-			return err
-		}
-		return r.withUserStore(ctx, userID, false, func(db *DB) error {
-			var count int
-			if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE id = ?`, accountID).Scan(&count); err != nil {
-				return err
-			}
-			if count != 0 {
-				return ErrAccountRoute
-			}
-			_, err := r.System().Write().ExecContext(ctx, `UPDATE gofer_account_directory SET state = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND state = 'creating'`, accountID)
-			return err
-		})
-	})
+	_, err := r.reconcileAccountCreation(ctx, userID, accountID, true)
+	return err
 }
 
 // RequestAccountDeletion commits an authenticated owner's deletion intent
