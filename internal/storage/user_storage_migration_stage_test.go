@@ -76,6 +76,9 @@ func newMigrationStageFixture(t *testing.T) (storage.UserStorageMigrationOptions
 	options.ImportCredentials = func(ctx context.Context, tx *sql.Tx) error {
 		return mailauth.ImportUserStorageMigrationCredentials(ctx, tx, stageCredentialKey)
 	}
+	options.VerifyCredentials = func(ctx context.Context, tx *sql.Tx) error {
+		return mailauth.VerifyUserStorageMigrationCredentials(ctx, tx, stageCredentialKey)
+	}
 	return options, before
 }
 
@@ -359,6 +362,9 @@ func TestUserStorageMigrationStageCrashHelper(t *testing.T) {
 		return
 	}
 	options := storage.UserStorageMigrationOptions{SourcePath: os.Getenv("GOFER_MIGRATION_CRASH_SOURCE"), DestinationPath: os.Getenv("GOFER_MIGRATION_CRASH_DESTINATION")}
+	options.VerifyCredentials = func(ctx context.Context, tx *sql.Tx) error {
+		return mailauth.VerifyUserStorageMigrationCredentials(ctx, tx, stageCredentialKey)
+	}
 	options.ValidateSource = func(context.Context, *storage.DB) error { return nil }
 	options.ImportCredentials = func(context.Context, *sql.Tx) error { os.Exit(23); return nil }
 	_, err := storage.StageUserStorageMigration(t.Context(), options)
@@ -609,5 +615,83 @@ func TestUserStorageMigrationStageFinalAuditRejectsLateChangesToEarlierStores(t 
 				t.Fatal("final audit failure published", err)
 			}
 		})
+	}
+}
+
+func TestUserStorageMigrationStageFinalCentralAuditRejectsLateChanges(t *testing.T) {
+	for _, damage := range []struct{ name, query string }{
+		{"authentication", `UPDATE users SET status='active',deletion_pending=0 WHERE id='bob'`},
+		{"account-owner", `DROP TRIGGER gofer_account_directory_identity; UPDATE gofer_account_directory SET user_id='charlie' WHERE account_id='alice-mail'`},
+		{"directory-timestamp", `UPDATE gofer_account_directory SET updated_at='2000-01-01' WHERE account_id='alice-mail'`},
+		{"missing-store-history", `DELETE FROM gofer_user_store_directory WHERE user_id='charlie'`},
+		{"poll-deadline", `UPDATE gofer_account_poll_schedule SET next_due_ms=123`},
+		{"missing-service", `DELETE FROM gofer_account_service_schedule WHERE service='calendar'`},
+		{"private-data", `INSERT INTO contact_profiles(id,user_id,display_name) VALUES('foreign-profile','alice','must stay local')`},
+		{"avatar-hint", `INSERT INTO sender_avatars(email_hash,email) VALUES('foreign-hash','foreign@example.com'); INSERT INTO gofer_avatar_interests(email_hash,user_id) VALUES('foreign-hash','alice')`},
+		{"orphan-avatar", `INSERT INTO sender_avatars(email_hash,email) VALUES('foreign-hash','foreign@example.com')`},
+		{"credential-metadata", `UPDATE gofer_mailbox_credentials SET granted_scopes='expanded'`},
+		{"credential-token", `UPDATE gofer_mailbox_credentials SET access_token_ciphertext=x'010203'`},
+		{"credential-guard", `DROP TRIGGER gofer_mailbox_credential_owner_insert`},
+		{"credential-extra-guard", `CREATE TRIGGER extra_guard BEFORE INSERT ON gofer_mailbox_credentials BEGIN SELECT 1; END`},
+		{"unknown-column", `ALTER TABLE users ADD COLUMN unknown_private_data TEXT`},
+		{"unknown-table", `CREATE TABLE unclassified(payload TEXT)`},
+	} {
+		t.Run(damage.name, func(t *testing.T) {
+			options, before := newMigrationStageFixture(t)
+			importer := options.ImportCredentials
+			options.ImportCredentials = func(ctx context.Context, tx *sql.Tx) error {
+				if err := importer(ctx, tx); err != nil {
+					return err
+				}
+				_, err := tx.ExecContext(ctx, damage.query)
+				return err
+			}
+			stage, err := storage.StageUserStorageMigration(t.Context(), options)
+			if err == nil || stage.Owners != 3 {
+				t.Fatal("late central change certified", stage, err)
+			}
+			data, err := os.ReadFile(options.DestinationPath + ".migration.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var journal struct{ State string }
+			if err := json.Unmarshal(data, &journal); err != nil || journal.State != "preparing" {
+				t.Fatal("failed audit marked verified", err, journal.State)
+			}
+			after, err := os.ReadFile(options.SourcePath)
+			if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
+				t.Fatal("audit changed source", err)
+			}
+			if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("failed audit published layout", err)
+			}
+		})
+	}
+}
+
+func TestUserStorageMigrationStageRequiresFinalCredentialVerifier(t *testing.T) {
+	options, _ := newMigrationStageFixture(t)
+	options.VerifyCredentials = nil
+	if _, err := storage.StageUserStorageMigration(t.Context(), options); err == nil {
+		t.Fatal("missing final credential verifier accepted")
+	}
+	if _, err := os.Lstat(options.DestinationPath + ".staging"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing verifier created a stage", err)
+	}
+}
+
+func TestUserStorageMigrationStageFinalVerifierCannotRepairPersistentDatabases(t *testing.T) {
+	options, _ := newMigrationStageFixture(t)
+	verifier := options.VerifyCredentials
+	options.VerifyCredentials = func(ctx context.Context, tx *sql.Tx) error {
+		for _, query := range []string{`UPDATE main.users SET name='unexpected repair'`, `UPDATE migration_source.users SET name='unexpected repair'`} {
+			if _, err := tx.ExecContext(ctx, query); err == nil {
+				return errors.New("final verifier received a writable persistent database")
+			}
+		}
+		return verifier(ctx, tx)
+	}
+	if _, err := storage.StageUserStorageMigration(t.Context(), options); err != nil {
+		t.Fatal(err)
 	}
 }

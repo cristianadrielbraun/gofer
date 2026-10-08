@@ -182,6 +182,10 @@ func migrationFreshDestination(ctx context.Context, tx *sql.Tx, owner string) er
 }
 
 func migrationDestinationBoundary(ctx context.Context, tx *sql.Tx, owner string, copied bool) error {
+	return migrationDestinationBoundaryWithGenerated(ctx, tx, owner, copied, nil)
+}
+
+func migrationDestinationBoundaryWithGenerated(ctx context.Context, tx *sql.Tx, owner string, copied bool, generated map[string]bool) error {
 	var version int
 	if err := tx.QueryRowContext(ctx, `SELECT MAX(version) FROM main.schema_version`).Scan(&version); err != nil {
 		return err
@@ -235,6 +239,12 @@ func migrationDestinationBoundary(ctx context.Context, tx *sql.Tx, owner string,
 		if !known {
 			return fmt.Errorf("migration destination has an unknown table: %s", name)
 		}
+		if generated != nil {
+			policy := UserStorageMigrationTable{Name: name, Columns: strings.Split(rule.columns, ",")}
+			if err := migrationSourceColumns(ctx, tx, &policy, CurrentSchemaVersion); err != nil {
+				return err
+			}
+		}
 		if rule.destination == migrationSchema || rule.destination == migrationSearchShadow || rule.destination == migrationPlanner {
 			continue
 		}
@@ -244,6 +254,9 @@ func migrationDestinationBoundary(ctx context.Context, tx *sql.Tx, owner string,
 		if _, selected := migrationRowSelection(UserStorageMigrationTable{Name: name, Destination: rule.destination}, owner); copied && selected {
 			continue
 		}
+		if generated[name] {
+			continue
+		} // Verified against exact source-derived relations separately.
 		want := 0
 		if owned && (name == "users" || name == "gofer_user_store") {
 			want = 1
@@ -312,6 +325,10 @@ func migrationColumnList(columns []string, alias string) string {
 // EXCEPT alone would hide duplicate-count changes; Go scanning DATETIME values
 // would normalize historic representations. No mailbox value enters the error.
 func migrationCompareRows(ctx context.Context, tx *sql.Tx, table UserStorageMigrationTable, selection, owner string) error {
+	return migrationCompareFilteredRows(ctx, tx, table, selection, "1", owner)
+}
+
+func migrationCompareFilteredRows(ctx context.Context, tx *sql.Tx, table UserStorageMigrationTable, selection, targetSelection, owner string) error {
 	columns := append([]string(nil), table.Columns...)
 	if table.Destination == migrationSearch {
 		columns = append([]string{"rowid"}, columns...)
@@ -324,7 +341,7 @@ func migrationCompareRows(ctx context.Context, tx *sql.Tx, table UserStorageMigr
 	projection := strings.Join(expressions, ",")
 	group := projection + `,count(*)`
 	source := `SELECT ` + group + ` FROM migration_source.` + quoteStoreIdentifier(table.Name) + ` r WHERE ` + selection + ` GROUP BY ` + projection
-	target := `SELECT ` + group + ` FROM main.` + quoteStoreIdentifier(table.Name) + ` r GROUP BY ` + projection
+	target := `SELECT ` + group + ` FROM main.` + quoteStoreIdentifier(table.Name) + ` r WHERE ` + targetSelection + ` GROUP BY ` + projection
 	for _, pair := range [][2]string{{source, target}, {target, source}} {
 		var mismatch bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT * FROM (`+pair[0]+` EXCEPT `+pair[1]+`))`, migrationSelectionArguments(owner)...).Scan(&mismatch); err != nil {

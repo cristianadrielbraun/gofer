@@ -108,6 +108,9 @@ func TestMigrationSourceKeyAdapterRejectsWrongKeyOnReadOnlySource(t *testing.T) 
 		ValidateSource: func(ctx context.Context, db *storage.DB) error {
 			return validateMigrationSourceKey(ctx, db, []byte(strings.Repeat("x", 32)))
 		},
+		VerifyCredentials: func(ctx context.Context, tx *sql.Tx) error {
+			return mailauth.VerifyUserStorageMigrationCredentials(ctx, tx, key)
+		},
 		ImportCredentials: func(ctx context.Context, tx *sql.Tx) error {
 			return mailauth.ImportUserStorageMigrationCredentials(ctx, tx, key)
 		},

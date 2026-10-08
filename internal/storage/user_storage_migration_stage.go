@@ -23,6 +23,7 @@ type UserStorageMigrationOptions struct {
 	Retry             bool
 	ValidateSource    func(context.Context, *DB) error
 	ImportCredentials func(context.Context, *sql.Tx) error
+	VerifyCredentials func(context.Context, *sql.Tx) error
 }
 
 type UserStorageMigrationStage struct {
@@ -39,7 +40,7 @@ type UserStorageMigrationStage struct {
 // publication requires revalidating source/files/layout under runtime locks,
 // or using the private engine under a coordinator that retains its locks.
 func StageUserStorageMigration(ctx context.Context, options UserStorageMigrationOptions) (result UserStorageMigrationStage, err error) {
-	if ctx == nil || options.ValidateSource == nil || options.ImportCredentials == nil {
+	if ctx == nil || options.ValidateSource == nil || options.ImportCredentials == nil || options.VerifyCredentials == nil {
 		return result, errors.New("migration source and credential verifiers are required")
 	}
 	if err := ctx.Err(); err != nil {
@@ -128,6 +129,9 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 		return result, errors.New("migration source database changed during staging")
 	}
 	if err := migrationVerifyClosedUserStores(ctx, source, filepath.Join(result.Directory, "users"), report); err != nil {
+		return result, err
+	}
+	if err := migrationVerifyClosedCentral(ctx, source.Path(), filepath.Join(result.Directory, "central.db"), report, options.VerifyCredentials); err != nil {
 		return result, err
 	}
 	if err := migrationSyncPrivateStage(ctx, result.Directory); err != nil {

@@ -419,3 +419,26 @@ func TestUserStorageMigrationCredentialCodecRefusesMixedAndUnboundFormats(t *tes
 		}
 	}
 }
+
+func TestUserStorageMigrationCredentialsFinalVerifierChecksAllOriginalFormats(t *testing.T) {
+	f := newMigrationCredentialFixture(t)
+	_, tx, _ := f.begin(t)
+	if err := ImportUserStorageMigrationCredentials(t.Context(), tx, testMailboxCredentialKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyUserStorageMigrationCredentials(t.Context(), tx, testMailboxCredentialKey); err != nil {
+		t.Fatal("retained formats failed final verification", err)
+	}
+	if err := VerifyUserStorageMigrationCredentials(t.Context(), tx, []byte("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")); err == nil {
+		t.Fatal("wrong application key accepted")
+	}
+	if err := VerifyUserStorageMigrationCredentials(t.Context(), nil, testMailboxCredentialKey); err == nil {
+		t.Fatal("missing transaction accepted")
+	}
+	if _, err := tx.Exec(`DROP TRIGGER gofer_mailbox_credential_owner_update`); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyUserStorageMigrationCredentials(t.Context(), tx, testMailboxCredentialKey); err == nil {
+		t.Fatal("missing lifecycle guard accepted")
+	}
+}

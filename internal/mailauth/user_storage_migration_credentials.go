@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -34,6 +35,19 @@ func ValidateUserStorageMigrationCredentials(ctx context.Context, source *storag
 		}
 	}
 	return rows.Err()
+}
+
+// VerifyUserStorageMigrationCredentials checks the closed destination against
+// the attached read-only source, including original bindings and token contents.
+// It neither repairs grants nor contacts providers.
+func VerifyUserStorageMigrationCredentials(ctx context.Context, tx *sql.Tx, key []byte) error {
+	if ctx == nil || tx == nil || len(key) != 32 {
+		return errors.New("mailbox credential verification requires a transaction and application key")
+	}
+	if err := verifyMigrationCredentialSchema(ctx, tx); err != nil {
+		return err
+	}
+	return verifyCredentialMigration(ctx, tx, New(nil, nil, key))
 }
 
 // ImportUserStorageMigrationCredentials is an offline migration stage. The
@@ -261,4 +275,33 @@ func verifyCredentialMigration(ctx context.Context, tx *sql.Tx, codec *Service) 
 		}
 	}
 	return rows.Err()
+}
+
+// Retain the runtime constraints and lifecycle guards, not only today's rows.
+func verifyMigrationCredentialSchema(ctx context.Context, tx *sql.Tx) error {
+	expected := map[string]string{"gofer_mailbox_credentials": strings.Replace(userMailboxCredentialSchema, "CREATE TABLE IF NOT EXISTS", "CREATE TABLE", 1)}
+	for _, guard := range strings.Split(userMailboxCredentialGuards, "CREATE TRIGGER IF NOT EXISTS ")[1:] {
+		fields := strings.Fields(guard)
+		expected[fields[0]] = "CREATE TRIGGER " + guard
+	}
+	normalize := func(value string) string {
+		return strings.Join(strings.Fields(strings.TrimSuffix(strings.TrimSpace(value), ";")), " ")
+	}
+	for name, definition := range expected {
+		var actual string
+		if err := tx.QueryRowContext(ctx, `SELECT sql FROM main.sqlite_schema WHERE name=? AND tbl_name='gofer_mailbox_credentials' AND type IN ('table','trigger')`, name).Scan(&actual); err != nil {
+			return errors.New("final migration mailbox schema or lifecycle guard is missing")
+		}
+		if normalize(actual) != normalize(definition) {
+			return errors.New("final migration mailbox schema or lifecycle guard changed")
+		}
+	}
+	var guards int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM main.sqlite_schema WHERE type='trigger' AND tbl_name='gofer_mailbox_credentials'`).Scan(&guards); err != nil {
+		return err
+	}
+	if guards != 3 {
+		return errors.New("final migration mailbox lifecycle guards are unexpected")
+	}
+	return nil
 }
