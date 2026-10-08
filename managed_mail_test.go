@@ -40,6 +40,7 @@ func (r managedLiteral) Size() int64 { return r.size }
 type managedSMTPBackend struct {
 	mu       sync.Mutex
 	accepted map[string][]string
+	users    map[string]bool
 }
 type managedSMTPSession struct {
 	backend *managedSMTPBackend
@@ -74,7 +75,7 @@ func (s *managedSMTPSession) Auth(mechanism string) (sasl.Server, error) {
 		return nil, errors.New("unsupported fixture authentication")
 	}
 	return sasl.NewPlainServer(func(_, username, password string) error {
-		if (username != "alice" && username != "bob") || password != "synthetic-only" {
+		if !s.backend.users[username] || password != "synthetic-only" {
 			return errors.New("invalid fixture credentials")
 		}
 		s.owner = username
@@ -136,13 +137,28 @@ type managedMailFixture struct {
 	activity         *managedIMAPActivity
 }
 
+type managedMailOptions struct {
+	Owners          []string
+	Messages        int
+	MessageCounts   map[string]int
+	SkipApplication bool
+}
+
 func newManagedMailFixture(t *testing.T, configureSource ...func(*storage.DB, *config.AccountStore, map[string]string)) *managedMailFixture {
 	t.Helper()
+	return newManagedMailFixtureOptions(t, managedMailOptions{Owners: []string{"alice", "bob"}, Messages: 1}, configureSource...)
+}
+
+func newManagedMailFixtureOptions(t *testing.T, options managedMailOptions, configureSource ...func(*storage.DB, *config.AccountStore, map[string]string)) *managedMailFixture {
+	t.Helper()
+	if len(options.Owners) == 0 || options.Messages < 1 {
+		t.Fatal("native fixture requires owners and mail")
+	}
 	managedTestEnvironment(t)
 	t.Setenv("GOFER_SECRET_KEY", "")
 	activity := &managedIMAPActivity{idle: make(map[string]int)}
 	remote := make(map[string]*imapmemserver.User)
-	for _, owner := range []string{"alice", "bob"} {
+	for _, owner := range options.Owners {
 		user := imapmemserver.NewUser(owner, "synthetic-only")
 		for _, folder := range []string{"INBOX", "Sent", "Drafts", "Trash"} {
 			if err := user.Create(folder, nil); err != nil {
@@ -150,9 +166,31 @@ func newManagedMailFixture(t *testing.T, configureSource ...func(*storage.DB, *c
 			}
 		}
 		remote[owner] = user
-		raw := fmt.Sprintf("From: Sender <sender@example.test>\r\nTo: %s@example.test\r\nDate: %s\r\nSubject: %s native private message\r\nMessage-ID: <same-remote-id@example.test>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s native private body\r\n", owner, time.Now().Format(time.RFC1123Z), owner, owner)
-		if _, err := user.Append("INBOX", managedLiteral{strings.NewReader(raw), int64(len(raw))}, &imap.AppendOptions{}); err != nil {
-			t.Fatal(err)
+		count := options.Messages
+		if configured, ok := options.MessageCounts[owner]; ok {
+			count = configured
+		}
+		if count < 1 {
+			t.Fatal("native fixture mailbox cannot be empty")
+		}
+		for index := 0; index < count; index++ {
+			id := "same-remote-id"
+			subject := owner + " native private message"
+			date := time.Now().Add(-time.Duration(index) * time.Minute)
+			body := owner + " native private body"
+			if index > 0 {
+				id = fmt.Sprintf("office-seed-%08d", index)
+				subject += fmt.Sprintf(" #%08d", index)
+				body += strings.Repeat(" project review invoice meeting", 32)
+			}
+			raw := fmt.Sprintf("From: Sender <sender@example.test>\r\nTo: %s@example.test\r\nDate: %s\r\nSubject: %s\r\nMessage-ID: <%s@example.test>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s\r\n", owner, date.Format(time.RFC1123Z), subject, id, body)
+			flags := []imap.Flag(nil)
+			if index > 0 && index%3 == 0 {
+				flags = append(flags, imap.FlagSeen)
+			}
+			if _, err := user.Append("INBOX", managedLiteral{strings.NewReader(raw), int64(len(raw))}, &imap.AppendOptions{Flags: flags}); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	imapListener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -165,7 +203,10 @@ func newManagedMailFixture(t *testing.T, configureSource ...func(*storage.DB, *c
 	imapDone := make(chan error, 1)
 	go func() { imapDone <- imapServer.Serve(imapListener) }()
 	t.Cleanup(func() { imapServer.Close(); <-imapDone })
-	smtpBackend := &managedSMTPBackend{accepted: make(map[string][]string)}
+	smtpBackend := &managedSMTPBackend{accepted: make(map[string][]string), users: make(map[string]bool)}
+	for _, owner := range options.Owners {
+		smtpBackend.users[owner] = true
+	}
 	smtpServer := smtp.NewServer(smtpBackend)
 	smtpServer.AllowInsecureAuth = true
 	smtpListener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -191,8 +232,13 @@ func newManagedMailFixture(t *testing.T, configureSource ...func(*storage.DB, *c
 		t.Fatal(err)
 	}
 	defer source.Close()
-	if _, err := source.Write().Exec(`INSERT INTO users(id,username,username_normalized,user_type,is_admin) VALUES('owner','owner','owner','management',1),('alice','alice','alice','webmail',0),('bob','bob','bob','webmail',0); UPDATE auth_system_state SET initialized=1,owner_user_id='owner',initialized_at=CURRENT_TIMESTAMP`); err != nil {
+	if _, err := source.Write().Exec(`INSERT INTO users(id,username,username_normalized,user_type,is_admin) VALUES('owner','owner','owner','management',1); UPDATE auth_system_state SET initialized=1,owner_user_id='owner',initialized_at=CURRENT_TIMESTAMP`); err != nil {
 		t.Fatal(err)
+	}
+	for _, owner := range options.Owners {
+		if _, err := source.Write().Exec(`INSERT INTO users(id,username,username_normalized,user_type,is_admin) VALUES(?,?,?,'webmail',0)`, owner, owner, owner); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for protocol, port := range map[string]int{"imap": imapPort, "smtp": smtpPort} {
 		if err := source.AddPlaintextTransportException(t.Context(), protocol, "127.0.0.1", port, "owner"); err != nil {
@@ -207,7 +253,7 @@ func newManagedMailFixture(t *testing.T, configureSource ...func(*storage.DB, *c
 		t.Fatal(err)
 	}
 	ids := make(map[string]string)
-	for _, owner := range []string{"alice", "bob"} {
+	for _, owner := range options.Owners {
 		account, err := accounts.CreateAccount(t.Context(), owner, &models.CreateAccountRequest{Provider: "imap", AuthMethod: "plain", Username: owner, Password: "synthetic-only", EmailAddress: owner + "@example.test", DisplayName: owner, IMAPHost: "127.0.0.1", IMAPPort: imapPort, IMAPTLSMode: "plaintext", SMTPHost: "127.0.0.1", SMTPPort: smtpPort, SMTPTLSMode: "plaintext"})
 		if err != nil {
 			t.Fatal(err)
@@ -227,17 +273,23 @@ func newManagedMailFixture(t *testing.T, configureSource ...func(*storage.DB, *c
 	if _, err := storage.MigrateUserStorage(t.Context(), migrationOptions(sourcePath, destination, key)); err != nil {
 		t.Fatal(err)
 	}
+	f := &managedMailFixture{path: destination, accounts: ids, remote: remote, smtp: smtpBackend, activity: activity, tokens: make(map[string]string)}
+	t.Cleanup(func() {
+		if f.app != nil {
+			if err := f.app.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	if options.SkipApplication {
+		return f
+	}
 	app, err := newManagedApplication(t.Context(), destination, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &managedMailFixture{app: app, path: destination, accounts: ids, remote: remote, smtp: smtpBackend, activity: activity, tokens: make(map[string]string)}
-	t.Cleanup(func() {
-		if err := f.app.Close(); err != nil {
-			t.Error(err)
-		}
-	})
-	for _, owner := range []string{"alice", "bob", "owner"} {
+	f.app = app
+	for _, owner := range append(append([]string(nil), options.Owners...), "owner") {
 		session, err := app.auth.CreateAuthenticatedSession(t.Context(), owner, "native protocols", auth.AuthenticationMethodTOTP, auth.AssuranceLevelMultiFactor)
 		if err != nil {
 			t.Fatal(err)

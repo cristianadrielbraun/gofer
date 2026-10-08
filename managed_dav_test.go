@@ -28,11 +28,17 @@ type managedDAVFixture struct {
 	calls           map[string]int
 	failingOwner    string
 	blockedCalendar *managedDAVBlock
+	users           map[string]bool
+	calendarEvents  int
 }
 
 func (a *managedDAVFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	owner, password, ok := r.BasicAuth()
-	if !ok || (owner != "alice" && owner != "bob") || password != owner+"-dav-secret" || !strings.Contains(r.URL.Path, "/"+owner+"/") {
+	allowed := owner == "alice" || owner == "bob"
+	if a.users != nil {
+		allowed = a.users[owner]
+	}
+	if !ok || !allowed || password != owner+"-dav-secret" || !strings.Contains(r.URL.Path, "/"+owner+"/") {
 		http.Error(w, "wrong owner credentials", 401)
 		return
 	}
@@ -75,11 +81,22 @@ func (a *managedDAVFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusMultiStatus)
 	if calendar {
-		start := time.Now().UTC().Add(time.Hour).Truncate(time.Hour)
-		ics := fmt.Sprintf("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Gofer//Fixture//EN\r\nBEGIN:VEVENT\r\nUID:same-native-event\r\nDTSTART:%s\r\nDTEND:%s\r\nSUMMARY:%s native appointment\r\nDESCRIPTION:%s native notes\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", start.Format("20060102T150405Z"), start.Add(time.Hour).Format("20060102T150405Z"), owner, owner)
-		fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>%sevent.ics</d:href><d:propstat><d:prop><d:getetag>"native-calendar-1"</d:getetag><c:calendar-data>`, r.URL.Path)
-		xml.EscapeText(w, []byte(ics))
-		fmt.Fprint(w, `</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`)
+		count := max(1, a.calendarEvents)
+		fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">`)
+		for index := 0; index < count; index++ {
+			start := time.Now().UTC().Add(time.Duration(index+1) * time.Hour).Truncate(time.Hour)
+			uid, summary, resource := "same-native-event", owner+" native appointment", "event.ics"
+			if index > 0 {
+				uid += fmt.Sprintf("-%08d", index)
+				summary += fmt.Sprintf(" #%08d", index)
+				resource = fmt.Sprintf("event-%08d.ics", index)
+			}
+			ics := fmt.Sprintf("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Gofer//Fixture//EN\r\nBEGIN:VEVENT\r\nUID:%s\r\nDTSTART:%s\r\nDTEND:%s\r\nSUMMARY:%s\r\nDESCRIPTION:%s native notes\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", uid, start.Format("20060102T150405Z"), start.Add(time.Hour).Format("20060102T150405Z"), summary, owner)
+			fmt.Fprintf(w, `<d:response><d:href>%s%s</d:href><d:propstat><d:prop><d:getetag>"native-calendar-%d"</d:getetag><c:calendar-data>`, r.URL.Path, resource, index)
+			xml.EscapeText(w, []byte(ics))
+			fmt.Fprint(w, `</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`)
+		}
+		fmt.Fprint(w, `</d:multistatus>`)
 	} else {
 		vcard := fmt.Sprintf("BEGIN:VCARD\r\nVERSION:3.0\r\nUID:same-native-card\r\nFN:%s native friend\r\nEMAIL:%s-friend@example.test\r\nEND:VCARD\r\n", owner, owner)
 		fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav"><d:sync-token>%s-native-cursor</d:sync-token><d:response><d:href>%sperson.vcf</d:href><d:propstat><d:prop><d:getetag>"native-card-1"</d:getetag><c:address-data>`, owner, r.URL.Path)

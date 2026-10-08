@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -61,6 +63,7 @@ type officeAttempt struct {
 	Status           int     `json:"status"`
 	Error            string  `json:"error,omitempty"`
 	Dropped          bool    `json:"dropped,omitempty"`
+	InvalidPayload   bool    `json:"invalid_payload,omitempty"`
 	TransportFailure bool    `json:"transport_failure,omitempty"`
 }
 
@@ -71,24 +74,30 @@ type officeResource struct {
 }
 
 type officeCalibration struct {
-	Layout          string           `json:"layout"`
-	ActiveUsers     int              `json:"active_users"`
-	Offered         int              `json:"offered"`
-	Responses       int              `json:"responses"`
-	Successful      int              `json:"successful"`
-	TransportErrors int              `json:"transport_errors"`
-	ResponseErrors  int              `json:"response_errors"`
-	Dropped         int              `json:"dropped"`
-	ArrivalRate     int              `json:"arrival_rate_per_second"`
-	LoadSeconds     float64          `json:"load_seconds"`
-	ElapsedSeconds  float64          `json:"elapsed_seconds_including_drain"`
-	CPUSeconds      float64          `json:"cpu_seconds"`
-	PeakRSSKiB      uint64           `json:"peak_rss_kib_sampled"`
-	P50MS           float64          `json:"attempt_latency_p50_ms"`
-	P95MS           float64          `json:"attempt_latency_p95_ms"`
-	P99MS           float64          `json:"attempt_latency_p99_ms"`
-	Attempts        []officeAttempt  `json:"attempts"`
-	Resources       []officeResource `json:"resources"`
+	ProcessLog           string           `json:"process_log"`
+	PayloadErrors        int              `json:"payload_errors"`
+	Layout               string           `json:"layout"`
+	IdleUsers            int              `json:"idle_users"`
+	WarmupSeconds        float64          `json:"warmup_seconds"`
+	IdleWatchers         int              `json:"idle_watchers_at_start"`
+	ActiveOwnersWithIdle int              `json:"active_owners_with_idle_at_start"`
+	ActiveUsers          int              `json:"active_users"`
+	Offered              int              `json:"offered"`
+	Responses            int              `json:"responses"`
+	Successful           int              `json:"successful"`
+	TransportErrors      int              `json:"transport_errors"`
+	ResponseErrors       int              `json:"response_errors"`
+	Dropped              int              `json:"dropped"`
+	ArrivalRate          int              `json:"arrival_rate_per_second"`
+	LoadSeconds          float64          `json:"load_seconds"`
+	ElapsedSeconds       float64          `json:"elapsed_seconds_including_drain"`
+	CPUSeconds           float64          `json:"cpu_seconds"`
+	PeakRSSKiB           uint64           `json:"peak_rss_kib_sampled"`
+	P50MS                float64          `json:"attempt_latency_p50_ms"`
+	P95MS                float64          `json:"attempt_latency_p95_ms"`
+	P99MS                float64          `json:"attempt_latency_p99_ms"`
+	Attempts             []officeAttempt  `json:"attempts"`
+	Resources            []officeResource `json:"resources"`
 }
 
 func officeProcessResource(pid int) (officeResource, error) {
@@ -138,6 +147,9 @@ func officeHTTP(client *http.Client, base, token, method, path, body, contentTyp
 		return 0, "", err
 	}
 	request.Header.Set("Origin", base)
+	if method == "POST" && strings.HasPrefix(path, "/api/contacts?") {
+		request.Header.Set("Accept", "application/json")
+	}
 	if strings.HasPrefix(path, "/folder/") {
 		request.Header.Set("HX-Request", "true")
 	}
@@ -150,7 +162,7 @@ func officeHTTP(client *http.Client, base, token, method, path, body, contentTyp
 		return 0, "", err
 	}
 	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	data, err := io.ReadAll(response.Body)
 	if err != nil {
 		return response.StatusCode, "", err
 	}
@@ -184,6 +196,54 @@ func officeRequest(index int, owner, account string) (operation, method, path, b
 
 func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts map[string]string, activity *managedIMAPActivity, duration time.Duration, rate, ticks int) officeCalibration {
 	t.Helper()
+	dataset := &officeDataset{Active: []string{"alice", "bob"}, All: []string{"alice", "bob"}, Tokens: tokens, Accounts: accounts, BodyIDs: make(map[string]string), MessageCounts: map[string]int{"alice": 1, "bob": 1}, Fixture: &managedMailFixture{activity: activity}}
+	spec := officeWorkloadSpec{Name: "calibration", ActiveUsers: 2, MessagesPerActiveUser: 1, MessagesPerIdleUser: 1, Seconds: int(duration.Seconds()), Rate: rate, Workers: 16, Queue: 32, TimeoutSeconds: 3, WarmupSeconds: 45, StreamSeed: 1, Profile: "calibration"}
+	return runOfficeWorkload(t, layout, path, dataset, spec, ticks)
+}
+
+var officeTenantContent = regexp.MustCompile(`\b(office[0-9]{6}|alice|bob) (?:native private (?:message|body)|office contact |native appointment|native friend)`)
+
+var officeEmailID = regexp.MustCompile(`data-email-id="([0-9]+)"`)
+
+func officeClockTicks(t *testing.T) int {
+	t.Helper()
+	value, err := exec.Command("getconf", "CLK_TCK").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticks, err := strconv.Atoi(strings.TrimSpace(string(value)))
+	if err != nil || ticks <= 0 {
+		t.Fatal("invalid process CPU clock frequency")
+	}
+	return ticks
+}
+
+func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset, spec officeWorkloadSpec, ticks int) officeCalibration {
+	t.Helper()
+	if err := spec.validate(); err != nil {
+		t.Fatal(err)
+	}
+	tokens, accounts, activity := dataset.Tokens, dataset.Accounts, dataset.Fixture.activity
+	duration, rate := time.Duration(spec.Seconds)*time.Second, spec.Rate
+	if spec.Profile == "busy-office" {
+		awaitManagedCondition(t, func() bool {
+			for _, owner := range dataset.All {
+				if activity.idleCount(owner) != 0 {
+					return false
+				}
+			}
+			return true
+		})
+		for _, owner := range dataset.All {
+			if err := dataset.Fixture.remote[owner].Delete("Drafts"); err != nil {
+				t.Fatal(err)
+			}
+			if err := dataset.Fixture.remote[owner].Create("Drafts", nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	warmupStart := time.Now()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -195,8 +255,11 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(executable, "-test.run=^TestManagedOfficeBenchmarkProcess$", "-test.timeout=10m")
+	cmd := exec.Command(executable, "-test.run=^TestManagedOfficeBenchmarkProcess$", "-test.timeout=30m")
 	overrides := map[string]string{"GOFER_OFFICE_CHILD": layout, "GOFER_DB_PATH": path, "GOFER_ADDR": address, "GOFER_BASE_URL": base}
+	if dataset.CAFile != "" {
+		overrides["SSL_CERT_FILE"] = dataset.CAFile
+	}
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		if _, replace := overrides[key]; !replace {
@@ -206,7 +269,11 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 	for key, value := range overrides {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
-	childLog, err := os.Create(path + ".office-process.log")
+	logPath := path + ".office-process.log"
+	if output := os.Getenv("GOFER_OFFICE_OUTPUT"); output != "" {
+		logPath = output + "." + layout + ".process.log"
+	}
+	childLog, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,16 +291,38 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 			<-done
 		}
 	}()
-	transport := &http.Transport{MaxIdleConns: 64, MaxIdleConnsPerHost: 64}
+	transport := &http.Transport{MaxIdleConns: spec.Workers, MaxIdleConnsPerHost: spec.Workers}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	// Warm both real server processes to the same imported remote mailbox state.
-	deadline := time.Now().Add(45 * time.Second)
-	for _, owner := range []string{"alice", "bob"} {
+	client := &http.Client{Transport: transport, Timeout: time.Duration(spec.TimeoutSeconds) * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// Warm all idle owners first, then active owners. Their HTTP setup is outside
+	// measurement, while their native background services remain active inside it.
+	deadline := time.Now().Add(time.Duration(spec.WarmupSeconds) * time.Second)
+	for _, owner := range append(append([]string(nil), dataset.Idle...), dataset.Active...) {
 		for {
-			status, body, err := officeHTTP(client, base, tokens[owner], "GET", "/search?q="+owner, "", "")
-			if err == nil && status == 200 && strings.Contains(body, owner+" native private message") && activity.idleCount(owner) >= 3 {
-				break
+			folder := storage.FolderIDForIdentity(accounts[owner], "imap", "INBOX")
+			status, body, err := officeHTTP(client, base, tokens[owner], "GET", "/folder/"+url.PathEscape(folder), "", "")
+			ready := err == nil && status == 200 && strings.Contains(body, owner+" native private message") && strings.Contains(body, fmt.Sprintf(`data-total-count="%d"`, dataset.MessageCounts[owner]))
+			if spec.Profile == "calibration" {
+				ready = ready && activity.idleCount(owner) >= 3
+			}
+			if ready {
+				match := officeEmailID.FindStringSubmatch(body)
+				if len(match) != 2 {
+					t.Fatal("warm mailbox has no browser message ID")
+				}
+				dataset.BodyIDs[owner] = match[1]
+				if spec.Profile == "busy-office" {
+					for _, check := range []struct{ path, expected string }{{"/contacts", owner + " office contact 0000"}, {"/calendar", owner + " native appointment"}} {
+						status, payload, failure := officeHTTP(client, base, tokens[owner], "GET", check.path, "", "")
+						if failure != nil || status != 200 || !strings.Contains(payload, check.expected) {
+							ready = false
+							break
+						}
+					}
+				}
+				if ready {
+					break
+				}
 			}
 			select {
 			case err := <-done:
@@ -242,16 +331,51 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 			default:
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("%s warmup failed: HTTP %d %v", layout, status, err)
+				t.Fatalf("%s warmup failed for %s: HTTP %d %v", layout, owner, status, err)
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
+
+	// Prepare the deterministic arrival plan before starting resource/latency clocks.
+	type job struct {
+		index          int
+		ownerIndex     int
+		operationIndex int
+		offset         time.Duration
+	}
+	jobs := make(chan job, spec.Queue)
+	plan := make([]job, 0, int(duration.Seconds()*float64(rate)))
+	random := rand.New(rand.NewSource(spec.StreamSeed))
+	if spec.Poisson {
+		arrival := time.Duration(0)
+		for index := 0; ; index++ {
+			arrival += time.Duration(random.ExpFloat64() * float64(time.Second) / float64(rate))
+			if arrival >= duration {
+				break
+			}
+			plan = append(plan, job{index: index, ownerIndex: random.Intn(len(dataset.Active)), operationIndex: random.Intn(16), offset: arrival})
+		}
+	} else {
+		for index := 0; index < int(duration.Seconds()*float64(rate)); index++ {
+			plan = append(plan, job{index: index, ownerIndex: index % len(dataset.Active), operationIndex: index / len(dataset.Active), offset: time.Duration(float64(index) * float64(time.Second) / float64(rate))})
+		}
+	}
+	count := len(plan)
+	outcomes := make(chan officeAttempt, count)
 	startSample, err := officeProcessResource(cmd.Process.Pid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := officeCalibration{Layout: layout, ActiveUsers: 2, ArrivalRate: rate, LoadSeconds: duration.Seconds()}
+	result := officeCalibration{ProcessLog: logPath, Layout: layout, ActiveUsers: len(dataset.Active), IdleUsers: len(dataset.Idle), ArrivalRate: rate, LoadSeconds: duration.Seconds(), WarmupSeconds: time.Since(warmupStart).Seconds()}
+	for _, owner := range dataset.All {
+		result.IdleWatchers += activity.idleCount(owner)
+	}
+	for _, owner := range dataset.Active {
+		if activity.idleCount(owner) > 0 {
+			result.ActiveOwnersWithIdle++
+		}
+	}
 	start := time.Now()
 	sampleStop := make(chan struct{})
 	sampleDone := make(chan error, 1)
@@ -274,45 +398,69 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 			}
 		}
 	}()
-	type job struct {
-		index     int
-		scheduled time.Time
-	}
-	jobs := make(chan job, 32)
-	count := int(duration.Seconds() * float64(rate))
-	outcomes := make(chan officeAttempt, count)
+
 	var workers sync.WaitGroup
-	for worker := 0; worker < 16; worker++ {
+	for worker := 0; worker < spec.Workers; worker++ {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
 			for work := range jobs {
-				owner := []string{"alice", "bob"}[work.index%2]
-				operation, method, route, body, contentType := officeRequest(work.index/2, owner, accounts[owner])
+				scheduled := start.Add(work.offset)
+				owner := dataset.Active[work.ownerIndex]
+				operation, method, route, body, contentType := officeRequest(work.operationIndex, owner, accounts[owner])
+				if spec.Profile == "busy-office" {
+					operation, method, route, body, contentType = officeBusyRequest(work.operationIndex, work.index, owner, dataset)
+				}
 				began := time.Now()
 				status, payload, err := officeHTTP(client, base, tokens[owner], method, route, body, contentType)
 				ended := time.Now()
-				outcome := officeAttempt{Operation: operation, Status: status, ScheduledMS: float64(work.scheduled.Sub(start)) / float64(time.Millisecond), QueueMS: float64(began.Sub(work.scheduled)) / float64(time.Millisecond), ElapsedMS: float64(ended.Sub(work.scheduled)) / float64(time.Millisecond), ServiceMS: float64(ended.Sub(began)) / float64(time.Millisecond)}
+				outcome := officeAttempt{Operation: operation, Status: status, ScheduledMS: float64(work.offset) / float64(time.Millisecond), QueueMS: float64(began.Sub(scheduled)) / float64(time.Millisecond), ElapsedMS: float64(ended.Sub(scheduled)) / float64(time.Millisecond), ServiceMS: float64(ended.Sub(began)) / float64(time.Millisecond)}
 				if err != nil {
 					outcome.TransportFailure = !errors.Is(err, errOfficeApplication)
 					outcome.Error = err.Error()
 				} else if status != 200 {
 					outcome.Error = fmt.Sprintf("HTTP %d", status)
 				}
-				other := "alice"
-				if owner == "alice" {
-					other = "bob"
-				}
-				if outcome.Error == "" && strings.Contains(payload, other+" native private message") {
-					outcome.Error = "foreign mailbox content"
+				for _, match := range officeTenantContent.FindAllStringSubmatch(payload, -1) {
+					if match[1] != owner && outcome.Error == "" {
+						outcome.Error = "foreign tenant content"
+						outcome.InvalidPayload = true
+						break
+					}
 				}
 				if (operation == "mail-list" || operation == "search") && outcome.Error == "" && !strings.Contains(payload, owner+" native private message") {
 					outcome.Error = "expected owner mailbox content missing"
+					outcome.InvalidPayload = true
+				}
+				if operation == "mail-body" && outcome.Error == "" && !strings.Contains(payload, owner+" native private body") {
+					outcome.Error = "foreign or missing message body"
+					outcome.InvalidPayload = true
+				}
+				if spec.Profile == "busy-office" && (operation == "contacts" || operation == "calendar") && outcome.Error == "" {
+					expected := owner + " office contact 0000"
+					if operation == "calendar" {
+						expected = owner + " native appointment"
+					}
+					if !strings.Contains(payload, expected) {
+						outcome.Error = "expected tenant data missing"
+						outcome.InvalidPayload = true
+					}
+				}
+				if operation == "contact-write" && outcome.Error == "" {
+					var receipt struct {
+						OK bool   `json:"ok"`
+						ID string `json:"contact_id"`
+					}
+					if json.Unmarshal([]byte(payload), &receipt) != nil || !receipt.OK || receipt.ID != dataset.ContactIDs[owner] {
+						outcome.Error = "invalid contact receipt"
+						outcome.InvalidPayload = true
+					}
 				}
 				if operation == "draft-write" && outcome.Error == "" {
 					var receipt map[string]string
 					if json.Unmarshal([]byte(payload), &receipt) != nil || receipt["status"] != "saved" || receipt["draft_id"] != owner+"-office-draft@example.test" {
 						outcome.Error = "invalid draft receipt"
+						outcome.InvalidPayload = true
 					}
 				}
 				outcomes <- outcome
@@ -321,16 +469,18 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 	}
 	// Schedule from intended arrival times independently of response completion.
 	// Queue saturation is recorded as a drop, never hidden by slowing arrivals.
-	for index := 0; index < count; index++ {
-		scheduled := start.Add(time.Duration(float64(index) * float64(time.Second) / float64(rate)))
-		if wait := time.Until(scheduled); wait > 0 {
+	for _, work := range plan {
+		if wait := time.Until(start.Add(work.offset)); wait > 0 {
 			time.Sleep(wait)
 		}
 		select {
-		case jobs <- job{index, scheduled}:
+		case jobs <- work:
 		default:
-			operation, _, _, _, _ := officeRequest(index/2, "", "")
-			outcomes <- officeAttempt{Operation: operation, ScheduledMS: float64(scheduled.Sub(start)) / float64(time.Millisecond), Dropped: true}
+			operation, _, _, _, _ := officeRequest(work.operationIndex, "", "")
+			if spec.Profile == "busy-office" {
+				operation, _, _, _, _ = officeBusyRequest(work.operationIndex, work.index, dataset.Active[work.ownerIndex], dataset)
+			}
+			outcomes <- officeAttempt{Operation: operation, ScheduledMS: float64(work.offset) / float64(time.Millisecond), Dropped: true}
 		}
 	}
 	close(jobs)
@@ -352,6 +502,9 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 	var latencies []float64
 	for outcome := range outcomes {
 		result.Attempts = append(result.Attempts, outcome)
+		if outcome.InvalidPayload {
+			result.PayloadErrors++
+		}
 		result.Offered++
 		if outcome.Dropped {
 			result.Dropped++
@@ -400,6 +553,9 @@ func runOfficeCalibration(t *testing.T, layout, path string, tokens, accounts ma
 
 func TestManagedOfficePairedCalibration(t *testing.T) {
 	output := os.Getenv("GOFER_OFFICE_OUTPUT")
+	if os.Getenv("GOFER_OFFICE_SPEC") != "" {
+		t.Skip("populated workload selected")
+	}
 	if output == "" {
 		t.Skip("set GOFER_OFFICE_OUTPUT to run the paired calibration")
 	}
