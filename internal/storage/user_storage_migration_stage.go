@@ -37,7 +37,7 @@ type UserStorageMigrationStage struct {
 }
 
 // StageUserStorageMigration prepares private files, not a completed layout or
-// activation command. Failed stages are retained and never overwritten. Final
+// activation command. A retry discards an interrupted stage, never adopts it. Final
 // publication requires revalidating source/files/layout under runtime locks,
 // or using the private engine under a coordinator that retains its locks.
 func StageUserStorageMigration(ctx context.Context, options UserStorageMigrationOptions) (result UserStorageMigrationStage, err error) {
@@ -50,16 +50,9 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	sourcePath, err := canonicalMigrationPath(options.SourcePath)
+	sourcePath, destinationPath, err := migrationPaths(options)
 	if err != nil {
 		return result, err
-	}
-	destinationPath, err := canonicalMigrationPath(options.DestinationPath)
-	if err != nil {
-		return result, err
-	}
-	if sourcePath == destinationPath || filepath.Dir(sourcePath) != filepath.Dir(destinationPath) {
-		return result, errors.New("migration requires a different destination in the source data directory")
 	}
 	if err := requireExistingDatabase(sourcePath); err != nil {
 		return result, err
@@ -74,6 +67,14 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 		return result, err
 	}
 	defer func() { err = errors.Join(err, destinationLock.Close()) }()
+	return stageUserStorageMigrationLocked(ctx, options, sourcePath, destinationPath)
+}
+
+// The caller holds the source and destination runtime locks.
+func stageUserStorageMigrationLocked(ctx context.Context, options UserStorageMigrationOptions, sourcePath, destinationPath string) (result UserStorageMigrationStage, err error) {
+	if err := requireExistingDatabase(sourcePath); err != nil {
+		return result, err
+	}
 	for _, path := range []string{destinationPath, destinationPath + ".users", destinationPath + ".layout.json"} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			return result, errors.New("migration destination already exists or cannot be inspected")
@@ -172,15 +173,6 @@ func stageUserStorageMigration(ctx context.Context, source *DB, directory string
 	}
 	result.Directory, result.Source = directory, report
 	if err := bindPreparation(directory); err != nil {
-		return result, err
-	}
-	// Written before any database; it never certifies successful migration.
-	marker, err := os.OpenFile(filepath.Join(directory, "INCOMPLETE"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return result, err
-	}
-	_, writeErr := marker.WriteString("Unpublished per-user database migration\n")
-	if err := errors.Join(writeErr, marker.Sync(), marker.Close()); err != nil {
 		return result, err
 	}
 	centralPath := filepath.Join(directory, "central.db")

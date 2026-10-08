@@ -174,7 +174,7 @@ func TestStorageMigrationCommandPublishesThroughActualEntryPointWithoutStartingS
 	}
 }
 
-func TestStorageMigrationCommandRequiresExplicitRetryAndRetainsFailedCopies(t *testing.T) {
+func TestStorageMigrationCommandRequiresExplicitRetryAndDiscardsFailedCopies(t *testing.T) {
 	for _, checkpoint := range []string{"preparing", "verified", "published"} {
 		t.Run(checkpoint, func(t *testing.T) {
 			options, before, _ := migrationCommandFixture(t)
@@ -196,8 +196,6 @@ func TestStorageMigrationCommandRequiresExplicitRetryAndRetainsFailedCopies(t *t
 					t.Fatal(err)
 				}
 			}
-			oldPath := filepath.Join(stage.Directory, "central.db")
-			old, oldErr := os.ReadFile(oldPath)
 			args := []string{"storage", "migrate", "--db", options.SourcePath, "--to", options.DestinationPath}
 			var stdout, stderr bytes.Buffer
 			serve := func() { t.Error("retry started runtime") }
@@ -212,14 +210,8 @@ func TestStorageMigrationCommandRequiresExplicitRetryAndRetainsFailedCopies(t *t
 			if _, err := storage.LoadUserStorageLayout(t.Context(), options.DestinationPath); err != nil {
 				t.Fatal(err)
 			}
-			if checkpoint == "preparing" {
-				if oldErr != nil {
-					t.Fatal(oldErr)
-				}
-				retained, err := os.ReadFile(oldPath)
-				if err != nil || !bytes.Equal(old, retained) {
-					t.Fatal("failed preparation overwritten", err)
-				}
+			if _, err := os.Lstat(stage.Directory); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("private migration directory retained after publication", err)
 			}
 			after, err := os.ReadFile(options.SourcePath)
 			if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {

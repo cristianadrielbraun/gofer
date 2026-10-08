@@ -17,6 +17,7 @@ import (
 // UserStorageLayout certifies completed publication. Initial copy digests remain
 // historical evidence in the migration journal; live databases are allowed to
 // change. Startup must retain SourcePath's runtime lock alongside CentralPath's.
+// SchemaVersion records the schema at publication; startup upgrades later.
 type UserStorageLayout struct {
 	Version             int    `json:"version"`
 	KeyFingerprint      string `json:"key_fingerprint,omitempty"`
@@ -74,7 +75,7 @@ func LoadUserStorageLayout(ctx context.Context, path string) (layout UserStorage
 		return layout, err
 	}
 	if version != CurrentSchemaVersion {
-		return layout, errors.New("completed layout database has an unsupported schema")
+		return layout, fmt.Errorf("completed layout database has schema version %d, expected %d; starting the Gofer server upgrades it", version, CurrentSchemaVersion)
 	}
 	// Follow current durable store history, not the initial source user count:
 	// users may have been added or removed since publication.
@@ -118,7 +119,7 @@ func migrationValidateLayoutPaths(layout UserStorageLayout, central string) erro
 	if layout.KeyFingerprint != "" && !migrationValidKeyFingerprint(layout.KeyFingerprint) {
 		return errors.New("completed layout has an invalid application key fingerprint")
 	}
-	if layout.Version != 1 || !validMigrationAttemptID(layout.ID) || layout.CentralPath != central || layout.SourcePath == central || !filepath.IsAbs(layout.SourcePath) || filepath.Clean(layout.SourcePath) != layout.SourcePath || filepath.Dir(layout.SourcePath) != filepath.Dir(central) || layout.UserDirectory != central+".users" || layout.BlobDirectory != filepath.Join(filepath.Dir(layout.SourcePath), "accounts") || !filepath.IsAbs(layout.WorkingDirectory) || filepath.Clean(layout.WorkingDirectory) != layout.WorkingDirectory || layout.SourceSchemaVersion < 105 || layout.SourceSchemaVersion > CurrentSchemaVersion || layout.SchemaVersion != CurrentSchemaVersion || layout.OwnersAtMigration < 0 {
+	if layout.Version != 1 || !validMigrationAttemptID(layout.ID) || layout.CentralPath != central || layout.SourcePath == central || !filepath.IsAbs(layout.SourcePath) || filepath.Clean(layout.SourcePath) != layout.SourcePath || filepath.Dir(layout.SourcePath) != filepath.Dir(central) || layout.UserDirectory != central+".users" || layout.BlobDirectory != filepath.Join(filepath.Dir(layout.SourcePath), "accounts") || !filepath.IsAbs(layout.WorkingDirectory) || filepath.Clean(layout.WorkingDirectory) != layout.WorkingDirectory || layout.SourceSchemaVersion < 105 || layout.SourceSchemaVersion > CurrentSchemaVersion || layout.SchemaVersion < 1 || layout.SchemaVersion > CurrentSchemaVersion || layout.OwnersAtMigration < 0 {
 		return errors.New("completed storage layout has an invalid identity or path binding")
 	}
 	return nil
@@ -243,6 +244,13 @@ func VerifySharedStorageRuntime(ctx context.Context, path string) (err error) {
 		}
 	}
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		// An interrupted automatic migration moved the original aside. Never
+		// start over with an empty database in its place.
+		if _, err := os.Lstat(path + ".shared"); err == nil {
+			return fmt.Errorf("the original database was moved to %q by an interrupted per-user migration; start Gofer in managed mode to finish it, or rename it back", path+".shared")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		return nil
 	} else if err != nil {
 		return err

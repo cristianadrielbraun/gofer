@@ -119,7 +119,9 @@ func (m *UserStores) RemovePendingUserStore(ctx context.Context, owner string) e
 		}
 	}
 	if storeExists {
-		if err := checkUserStoreIdentity(path, owner); err != nil {
+		// Removal only needs the owner; a store left at an older schema by an
+		// interrupted deletion is removed, not upgraded first.
+		if err := checkUserStoreFile(path, owner, false); err != nil {
 			return err
 		}
 	}

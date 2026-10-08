@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -229,5 +230,211 @@ func TestManagedOperatorMutationsRequireCompletedLayoutAndAllRuntimeLocks(t *tes
 	after, err := os.ReadFile(path)
 	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
 		t.Fatal("incomplete layout changed", err)
+	}
+}
+
+func TestManagedStorageMigratesSharedDatabaseInPlace(t *testing.T) {
+	for _, interruption := range []string{"none", "retired", "preparing"} {
+		t.Run(interruption, func(t *testing.T) {
+			options, _, _ := migrationCommandFixture(t)
+			path := options.SourcePath
+			if _, err := os.Lstat(path + "-wal"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("fixture left a write-ahead log", err)
+			}
+			switch interruption {
+			case "retired":
+				if err := storage.RetireSharedDatabase(t.Context(), path, path+".shared"); err != nil {
+					t.Fatal(err)
+				}
+			case "preparing":
+				if err := storage.RetireSharedDatabase(t.Context(), path, path+".shared"); err != nil {
+					t.Fatal(err)
+				}
+				options.SourcePath, options.DestinationPath = path+".shared", path
+				options.ImportCredentials = func(context.Context, *sql.Tx) error { return errors.New("interrupted") }
+				if _, err := storage.StageUserStorageMigration(t.Context(), options); err == nil {
+					t.Fatal("interruption not injected")
+				}
+			}
+			s, err := openManagedStorage(t.Context(), path, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			if s.layout.CentralPath != path || s.layout.SourcePath != path+".shared" || s.layout.OwnersAtMigration != 2 {
+				t.Fatal("in-place layout", s.layout)
+			}
+			lease, err := s.stores.AcquireExisting(t.Context(), "bob")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var contacts int
+			err = lease.DB().Read().QueryRowContext(t.Context(), `SELECT count(*) FROM contact_profiles`).Scan(&contacts)
+			lease.Release()
+			if err != nil || contacts != 1 {
+				t.Fatal("migrated owner data", contacts, err)
+			}
+			for _, leftover := range []string{path + ".staging", path + ".shared-wal", path + "-journal"} {
+				if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("migration left private files behind", leftover, err)
+				}
+			}
+		})
+	}
+}
+
+func TestManagedStorageRejectsAmbiguousSharedDatabases(t *testing.T) {
+	options, before, _ := migrationCommandFixture(t)
+	path := options.SourcePath
+	if err := os.WriteFile(path+".shared", []byte("retained data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := openManagedStorage(t.Context(), path, 1); err == nil {
+		s.Close()
+		t.Fatal("adopted ambiguous databases")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("changed original database", err)
+	}
+}
+
+func TestManagedStorageUpgradesOlderLayoutSchemas(t *testing.T) {
+	options, _, key := migrationCommandFixture(t)
+	if _, err := storage.MigrateUserStorage(t.Context(), options); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOFER_SECRET_KEY", hex.EncodeToString(key))
+	path := options.DestinationPath
+	userPath := func(owner string) string {
+		hash := sha256.Sum256([]byte(owner))
+		return filepath.Join(path+".users", hex.EncodeToString(hash[:])+".db")
+	}
+	exec := func(target string, statements ...string) {
+		t.Helper()
+		db, err := sql.Open("sqlite", target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		for _, statement := range statements {
+			if _, err := db.Exec(statement); err != nil {
+				t.Fatal(statement, err)
+			}
+		}
+	}
+	// Return the central and one user database to the v106 schema, as an older
+	// release left them, and drop a guard the way a rebuilt table loses it.
+	downgrade := []string{`ALTER TABLE calendar_response_requests DROP COLUMN claim_id`, `DELETE FROM schema_version WHERE version>=106`, `INSERT INTO schema_version(version) VALUES(106)`}
+	exec(path, downgrade...)
+	exec(userPath("alice"), append(downgrade, `DROP TRIGGER gofer_store_owner_contact_profiles_insert`)...)
+
+	s, err := openManagedStorage(t.Context(), path, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, owner := range []string{"alice", "bob"} {
+		lease, err := s.stores.AcquireExisting(t.Context(), owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var version, claim, guard int
+		err = lease.DB().Read().QueryRowContext(t.Context(), `SELECT (SELECT max(version) FROM schema_version),
+ (SELECT count(*) FROM pragma_table_info('calendar_response_requests') WHERE name='claim_id'),
+ (SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name='gofer_store_owner_contact_profiles_insert')`).Scan(&version, &claim, &guard)
+		lease.Release()
+		if err != nil || version != storage.CurrentSchemaVersion || claim != 1 || guard != 1 {
+			t.Fatal("user database not upgraded", owner, version, claim, guard, err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A database written by a newer release is refused and left unchanged.
+	exec(userPath("bob"), `INSERT INTO schema_version(version) VALUES(9999)`)
+	if _, err := openManagedStorage(t.Context(), path, 1); err == nil || !strings.Contains(err.Error(), "newer Gofer release") {
+		t.Fatal("newer schema accepted", err)
+	}
+	db, err := sql.Open("sqlite", userPath("bob"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if err := db.QueryRow(`SELECT max(version) FROM schema_version`).Scan(&version); err != nil || version != 9999 {
+		t.Fatal("newer schema changed", version, err)
+	}
+}
+
+func TestManagedStorageFailedMigrationRestoresOriginal(t *testing.T) {
+	for _, interruption := range []string{"none", "preparing"} {
+		t.Run(interruption, func(t *testing.T) {
+			options, _, _ := migrationCommandFixture(t)
+			path := options.SourcePath
+			stray := func(target string) {
+				t.Helper()
+				db, err := sql.Open("sqlite", target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				// A table without a migration policy fails source inspection.
+				if _, err := db.Exec(`CREATE TABLE stray_table(value TEXT); INSERT INTO stray_table VALUES('kept')`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if interruption == "preparing" {
+				if err := storage.RetireSharedDatabase(t.Context(), path, path+".shared"); err != nil {
+					t.Fatal(err)
+				}
+				options.SourcePath, options.DestinationPath = path+".shared", path
+				options.ImportCredentials = func(context.Context, *sql.Tx) error { return errors.New("interrupted") }
+				if _, err := storage.StageUserStorageMigration(t.Context(), options); err == nil {
+					t.Fatal("interruption not injected")
+				}
+				stray(path + ".shared")
+			} else {
+				stray(path)
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				if s, err := openManagedStorage(t.Context(), path, 1); err == nil {
+					s.Close()
+					t.Fatal("migrated a database without a policy")
+				} else if !strings.Contains(err.Error(), "stray_table") {
+					t.Fatal("unexpected failure", err)
+				}
+				for _, leftover := range []string{path + ".shared", path + ".migration.json", path + ".staging", path + ".users", path + ".layout.json"} {
+					if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+						t.Fatal("failed migration left files behind", leftover, err)
+					}
+				}
+				if err := storage.VerifySharedStorageRuntime(t.Context(), path); err != nil {
+					t.Fatal("restored original cannot run in shared mode", err)
+				}
+				db, err := sql.Open("sqlite", path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var value string
+				var contacts int
+				err = db.QueryRow(`SELECT (SELECT value FROM stray_table),(SELECT count(*) FROM contact_profiles)`).Scan(&value, &contacts)
+				db.Close()
+				if err != nil || value != "kept" || contacts != 1 {
+					t.Fatal("original contents changed", value, contacts, err)
+				}
+			}
+		})
+	}
+}
+
+func TestSharedRuntimeRefusesRetiredOriginal(t *testing.T) {
+	options, _, _ := migrationCommandFixture(t)
+	path := options.SourcePath
+	if err := storage.RetireSharedDatabase(t.Context(), path, path+".shared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.VerifySharedStorageRuntime(t.Context(), path); err == nil || !strings.Contains(err.Error(), ".shared") {
+		t.Fatal("shared runtime would start over without the retired original", err)
 	}
 }

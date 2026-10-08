@@ -90,7 +90,7 @@ func migrationVerifyClosedOwner(ctx context.Context, sourcePath, path, owner str
 		}
 		// The copy transaction already ran the native FTS integrity command.
 		// Here full SQLite/FK checks and exact FTS row/content parity are read-only.
-		return migrationVerifyDatabaseChecks(ctx, tx, false)
+		return migrationVerifyDatabaseChecks(ctx, tx, true, false)
 	})
 }
 
@@ -172,7 +172,7 @@ func migrationVerifyClosedCentralLayout(ctx context.Context, sourcePath, path st
 		if err := migrationSequences(ctx, tx, report, "", false); err != nil {
 			return err
 		}
-		return migrationVerifyDatabaseChecks(ctx, tx, false)
+		return migrationVerifyDatabaseChecks(ctx, tx, true, false)
 	})
 }
 
@@ -202,24 +202,13 @@ func migrationVerifyCentralRouting(ctx context.Context, tx *sql.Tx) error {
 
 // Compare relation values and storage classes as well as duplicate counts.
 func migrationCompareRelation(ctx context.Context, tx *sql.Tx, name string, columns []string, source, target string) error {
-	expressions := make([]string, 0, 2*len(columns))
-	for _, column := range columns {
-		value := `r.` + quoteStoreIdentifier(column)
-		expressions = append(expressions, `typeof(`+value+`)`, value+` COLLATE BINARY`)
+	projection := migrationParityProjection(columns)
+	invalid, err := migrationMultisetsDiffer(ctx, tx, `SELECT `+projection+` FROM (`+source+`) r`, `SELECT `+projection+` FROM (`+target+`) r`, len(columns))
+	if err != nil {
+		return fmt.Errorf("verify migration relation %s: %w", name, err)
 	}
-	projection := strings.Join(expressions, ",")
-	project := func(query string) string {
-		return `SELECT ` + projection + `,count(*) FROM (` + query + `) r GROUP BY ` + projection
-	}
-	source, target = project(source), project(target)
-	for _, pair := range [][2]string{{source, target}, {target, source}} {
-		var invalid bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT * FROM (`+pair[0]+` EXCEPT `+pair[1]+`))`).Scan(&invalid); err != nil {
-			return fmt.Errorf("verify migration relation %s: %w", name, err)
-		}
-		if invalid {
-			return fmt.Errorf("final migration relation parity failed: %s", name)
-		}
+	if invalid {
+		return fmt.Errorf("final migration relation parity failed: %s", name)
 	}
 	return nil
 }

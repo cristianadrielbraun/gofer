@@ -520,16 +520,27 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 }
 
 func checkUserStoreIdentity(path, owner string) error {
+	return checkUserStoreFile(path, owner, true)
+}
+
+func checkUserStoreFile(path, owner string, currentSchema bool) error {
 	db, err := openReadOnlyDB(path)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	// Reject incompatible schemas before any writer changes journal settings or
-	// runs migrations. Existing owned files need an explicit offline upgrade.
-	if err := (&DB{read: db}).requireCurrentSchema(); err != nil {
-		return err
+	// runs migrations. Managed startup upgrades owned files before activation.
+	if currentSchema {
+		if err := (&DB{read: db}).requireCurrentSchema(); err != nil {
+			return err
+		}
 	}
+	return checkUserStoreOwner(db, owner)
+}
+
+// checkUserStoreOwner checks the owned identity at any schema version.
+func checkUserStoreOwner(db *sql.DB, owner string) error {
 	var version int
 	var actual string
 	if err := db.QueryRow(`SELECT layout_version, user_id FROM gofer_user_store WHERE singleton = 1`).Scan(&version, &actual); err != nil {

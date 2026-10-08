@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -91,6 +92,20 @@ func (r migrationTableRule) ownerSQL(schema, alias string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(r.owner, "@", prefix), "r.", alias+".")
 }
 
+var migrationOwnerLookup = regexp.MustCompile(`^\(SELECT ([a-z]+)\.user_id FROM (.+) WHERE ([a-z]+\.id)=r\.([a-z_]+)\)$`)
+
+// ownerFilter selects the rows owned by a bound user. A lookup through a
+// parent's primary key becomes an uncorrelated IN list, which SQLite can answer
+// from the child's index instead of evaluating the lookup for every row.
+func (r migrationTableRule) ownerFilter(schema, alias string) string {
+	match := migrationOwnerLookup.FindStringSubmatch(r.owner)
+	if match == nil {
+		return `(` + r.ownerSQL(schema, alias) + `)=?`
+	}
+	lookup := migrationTableRule{owner: `SELECT ` + match[3] + ` FROM ` + match[2] + ` WHERE ` + match[1] + `.user_id=?`}
+	return alias + `.` + quoteStoreIdentifier(match[4]) + ` IN (` + lookup.ownerSQL(schema, alias) + `)`
+}
+
 // InspectUserStorageMigration is offline and read-only. The same exclusive
 // runtime lock used by the server/operator stays held for the entire inspection.
 // It neither upgrades the source nor creates destination files or a manifest.
@@ -125,12 +140,13 @@ func openUserStorageMigrationSource(ctx context.Context, path string) (*DB, erro
 	if err := requireExistingDatabase(path); err != nil {
 		return nil, err
 	}
-	read, err := openReadOnlyDB(path)
+	tuning := []string{"cache_size(" + migrationCacheSize + ")", "mmap_size(" + migrationMmapSize + ")"}
+	read, err := openReadOnlyDB(path, tuning...)
 	if err != nil {
 		return nil, err
 	}
 	read.SetMaxOpenConns(4)
-	write, err := openReadOnlyDB(path)
+	write, err := openReadOnlyDB(path, tuning...)
 	if err != nil {
 		read.Close()
 		return nil, err

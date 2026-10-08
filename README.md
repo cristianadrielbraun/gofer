@@ -64,13 +64,9 @@ Choose `GOFER_AUTH_MODE=managed` for multiple users with separate administrator 
 
 Managed mode keeps each user's mail, contacts, Calendar and preferences in a separate SQLite database. Authentication and installation settings stay in the central database. New installations initialize this layout automatically.
 
-For an existing managed installation, stop Gofer and back up its data and secrets first. From the same working directory, with the original configuration and encryption key, run:
+An existing shared database is converted automatically the first time Gofer starts in managed mode, keeping the same `GOFER_DB_PATH`. Back up the data directory and secrets first; conversion can take a while for large mailboxes and the server starts listening once it finishes. The original database is kept as `<database>.shared` next to the new central database, its `.users` directory and `.layout.json` file; back these up together. Keep the original encryption key and account files, and continue starting Gofer from the original working directory so retained file paths resolve correctly. If conversion fails, the original database is put back unchanged and the error is logged; if it is interrupted, it resumes on the next start. Personal/open mode keeps shared storage.
 
-```sh
-./gofer storage migrate --db data/gofer.db --to data/gofer-users.db
-```
-
-Set `GOFER_DB_PATH=data/gofer-users.db` before restarting. The destination must be a new filename in the original data directory. Keep the original database, key and account files; also back up the new central database, its `.users` directory and `.layout.json` file together. Continue starting Gofer from the original working directory so retained file paths resolve correctly. If conversion is interrupted, repeat the command with `--retry`. Managed startup refuses incomplete layouts; personal/open mode keeps shared storage.
+To convert into a separate file instead, stop Gofer and run `./gofer storage migrate --db data/gofer.db --to data/gofer-users.db` (repeat with `--retry` if interrupted), then set `GOFER_DB_PATH=data/gofer-users.db`.
 
 Generic IMAP/SMTP accounts need no OAuth application credentials. Gmail and Outlook currently require your own provider client ID and secret. Mailbox authorization and optional Google/Microsoft application sign-in use separate clients and callbacks.
 
@@ -83,7 +79,7 @@ Configure Calendar under **Settings → Accounts**: enable it for an account, di
 
 For server deployments, use personal or managed authentication, serve the application through an HTTPS reverse proxy, and configure `GOFER_ADDR` and `GOFER_BASE_URL` for your deployment. The listener binds to loopback by default. Set `GOFER_TRUSTED_PROXY_CIDRS` only for your actual proxy peers; use `GOFER_ALLOWED_CIDRS` when you need to restrict client networks.
 
-Runtime data is stored in `data/` by default. Protect the data directory, configuration, and secrets, and back them up together before upgrades. Shared databases apply schema migrations at startup; conversion to managed per-user storage uses the offline command above. Going back to an older version may require restoring its matching backup, and the retained shared database does not include changes made after conversion. I recommend testing your providers and access setup before relying on Gofer for anything critical.
+Runtime data is stored in `data/` by default. Protect the data directory, configuration, and secrets, and back them up together before upgrades. Shared databases apply schema migrations at startup, and managed mode converts them to per-user storage as described above. Going back to an older version may require restoring its matching backup, and the retained shared database does not include changes made after conversion. I recommend testing your providers and access setup before relying on Gofer for anything critical.
 
 ## current limitations
 

@@ -63,7 +63,10 @@ func migrationAttemptJournal(ctx context.Context, source, destination, workingDi
 		if !retry {
 			return result, errors.New("migration preparation already exists; explicit retry is required")
 		}
-		if previous.Version != 1 || (previous.State != "preparing" && previous.State != "verified") || previous.SourcePath != source || previous.DestinationPath != destination || previous.WorkingDirectory != workingDirectory || previous.Source != result.Source || previous.Files != files || previous.KeyFingerprint != keyFingerprint {
+		if previous.Version != 1 || (previous.State != "preparing" && previous.State != "verified") || previous.SourcePath != source || previous.DestinationPath != destination {
+			return result, errors.New("migration retry does not match the original source")
+		}
+		if previous.State == "verified" && (previous.WorkingDirectory != workingDirectory || previous.Source != result.Source || previous.Files != files || previous.KeyFingerprint != keyFingerprint) {
 			return result, errors.New("migration retry does not match the original source, files or working directory")
 		}
 		if !validMigrationAttemptID(previous.ID) || !validMigrationAttemptDirectory(destination, previous.Directory, previous.ID) {
@@ -83,6 +86,11 @@ func migrationAttemptJournal(ctx context.Context, source, destination, workingDi
 			} else if err != nil || bound != expected {
 				return result, errors.New("migration retry stage does not match its recorded preparation")
 			}
+			// A retry always copies afresh. The interrupted private copy is
+			// never adopted, so discard it rather than leaving it behind.
+			if err := os.RemoveAll(previous.Directory); err != nil {
+				return result, err
+			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return result, err
 		}
@@ -97,9 +105,6 @@ func migrationAttemptJournal(ctx context.Context, source, destination, workingDi
 	}
 	result.ID = hex.EncodeToString(nonce[:])
 	result.Directory = destination + ".staging"
-	if readErr == nil {
-		result.Directory += "-" + result.ID
-	}
 	if _, err := os.Lstat(result.Directory); !errors.Is(err, os.ErrNotExist) {
 		return result, errors.New("private migration attempt already exists or cannot be inspected")
 	}

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -81,6 +82,9 @@ func openManagedStorage(ctx context.Context, path string, maxOpen int) (result *
 	if err != nil {
 		return nil, err
 	}
+	if err := storage.UpgradeUserStorageLayout(ctx, path); err != nil {
+		return nil, fmt.Errorf("upgrade per-user storage: %w", err)
+	}
 	s.layout, err = storage.LoadUserStorageLayout(ctx, path)
 	if err != nil {
 		return nil, err
@@ -130,25 +134,67 @@ func openManagedStorage(ctx context.Context, path string, maxOpen int) (result *
 }
 
 // A fresh installation uses the same verified publication path as an upgrade.
-// Existing or interrupted data is never adopted as an empty installation.
+// An original shared database at path is retired to path.shared and migrated
+// in place; interrupted automatic migrations resume on the next start.
 func initializeManagedStorage(ctx context.Context, path string) (err error) {
 	lock, err := runtimeguard.Acquire(path + ".initialization")
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, lock.Close()) }()
-	if _, err := os.Lstat(path + ".layout.json"); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
+	exists := func(candidate string) (bool, error) {
+		if _, err := os.Lstat(candidate); err == nil {
+			return true, nil
+		} else if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		} else {
+			return false, err
+		}
+	}
+	if published, err := exists(path + ".layout.json"); err != nil || published {
 		return err
 	}
 	source := path + ".shared"
-	for _, candidate := range []string{path, path + ".migration.json", path + ".staging", path + ".users", source} {
-		if _, err := os.Lstat(candidate); err == nil {
-			return fmt.Errorf("managed storage requires a completed layout; retained data exists at %q: use gofer storage migrate --db ORIGINAL --to NEW, with --retry for interrupted work, then set GOFER_DB_PATH to NEW", candidate)
-		} else if !errors.Is(err, os.ErrNotExist) {
+	journal, err := exists(path + ".migration.json")
+	if err != nil {
+		return err
+	}
+	if journal {
+		log.Printf("storage: resuming interrupted per-user storage migration of %s", path)
+		return migrateManagedStorage(ctx, source, path, true, true)
+	}
+	for _, candidate := range []string{path + ".staging", path + ".users"} {
+		if found, err := exists(candidate); err != nil {
+			return err
+		} else if found {
+			return fmt.Errorf("managed storage cannot start: unrecognized retained data at %q", candidate)
+		}
+	}
+	original, err := exists(path)
+	if err != nil {
+		return err
+	}
+	retired, err := exists(source)
+	if err != nil {
+		return err
+	}
+	switch {
+	case original && retired:
+		return fmt.Errorf("managed storage cannot start: both %q and %q exist", path, source)
+	case original:
+		// Never move the original aside without the application key it needs.
+		if _, err := loadExistingMigrationKey(source); err != nil {
 			return err
 		}
+		log.Printf("storage: migrating shared database %s to per-user storage; the original is kept at %s", path, source)
+		if err := storage.RetireSharedDatabase(ctx, path, source); err != nil {
+			return fmt.Errorf("prepare shared database for migration: %w", err)
+		}
+		return migrateManagedStorage(ctx, source, path, false, true)
+	case retired:
+		// Interrupted after retiring the original, or during a fresh install.
+		// Nothing proves this file was moved here by Gofer, so it stays put.
+		return migrateManagedStorage(ctx, source, path, false, false)
 	}
 	key, err := initializeManagedKey(source)
 	if err != nil {
@@ -178,6 +224,36 @@ func initializeManagedStorage(ctx context.Context, path string) (err error) {
 	}
 	_, err = storage.MigrateUserStorage(ctx, migrationOptions(source, path, key))
 	return err
+}
+
+func migrateManagedStorage(ctx context.Context, source, path string, retry, restore bool) (err error) {
+	defer func() {
+		if err == nil {
+			return
+		}
+		err = fmt.Errorf("per-user storage migration: %w", err)
+		if !restore {
+			return
+		}
+		// Unless publication started, leave the original where it was found.
+		if restoreErr := storage.RestoreSharedDatabase(path, source); restoreErr != nil {
+			err = errors.Join(err, fmt.Errorf("the original database remains at %s: %w", source, restoreErr))
+			return
+		}
+		log.Printf("storage: per-user storage migration failed; the original database was restored to %s", path)
+	}()
+	key, err := loadExistingMigrationKey(source)
+	if err != nil {
+		return err
+	}
+	options := migrationOptions(source, path, key)
+	options.Retry = retry
+	started := time.Now()
+	if _, err := storage.MigrateUserStorage(ctx, options); err != nil {
+		return err
+	}
+	log.Printf("storage: per-user storage migration completed in %s", time.Since(started).Round(time.Second))
+	return nil
 }
 
 func initializeManagedKey(source string) ([]byte, error) {

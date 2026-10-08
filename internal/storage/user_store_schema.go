@@ -38,18 +38,28 @@ func initializeUserStore(ctx context.Context, db *DB, owner userStoreOwner) erro
 		return err
 	}
 
+	if err := ensureUserStoreGuards(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ensureUserStoreGuards installs the owner and boundary triggers. It is
+// idempotent, so it also restores guards on tables a schema upgrade rebuilt
+// and covers owned tables the upgrade added.
+func ensureUserStoreGuards(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `
-		CREATE TRIGGER gofer_store_owner_insert BEFORE INSERT ON users
+		CREATE TRIGGER IF NOT EXISTS gofer_store_owner_insert BEFORE INSERT ON users
 		WHEN NEW.id IS NOT (SELECT user_id FROM gofer_user_store WHERE singleton = 1)
 		BEGIN SELECT RAISE(ABORT, 'wrong user database'); END;
-		CREATE TRIGGER gofer_store_owner_update BEFORE UPDATE OF id, user_type, is_admin ON users
+		CREATE TRIGGER IF NOT EXISTS gofer_store_owner_update BEFORE UPDATE OF id, user_type, is_admin ON users
 		WHEN NEW.id IS NOT OLD.id OR NEW.user_type != 'webmail' OR NEW.is_admin != 0
 		BEGIN SELECT RAISE(ABORT, 'user database owner is immutable'); END;
-		CREATE TRIGGER gofer_store_owner_delete BEFORE DELETE ON users
+		CREATE TRIGGER IF NOT EXISTS gofer_store_owner_delete BEFORE DELETE ON users
 		BEGIN SELECT RAISE(ABORT, 'user database owner is immutable'); END;
-		CREATE TRIGGER gofer_store_identity_update BEFORE UPDATE ON gofer_user_store
+		CREATE TRIGGER IF NOT EXISTS gofer_store_identity_update BEFORE UPDATE ON gofer_user_store
 		BEGIN SELECT RAISE(ABORT, 'user database identity is immutable'); END;
-		CREATE TRIGGER gofer_store_identity_delete BEFORE DELETE ON gofer_user_store
+		CREATE TRIGGER IF NOT EXISTS gofer_store_identity_delete BEFORE DELETE ON gofer_user_store
 		BEGIN SELECT RAISE(ABORT, 'user database identity is immutable'); END;
 	`); err != nil {
 		return err
@@ -69,7 +79,7 @@ func initializeUserStore(ctx context.Context, db *DB, owner userStoreOwner) erro
 	}
 	for _, table := range tables {
 		for _, action := range []string{"INSERT", "UPDATE"} {
-			sql := fmt.Sprintf(`CREATE TRIGGER %s BEFORE %s ON %s
+			sql := fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s BEFORE %s ON %s
 				WHEN NEW.user_id IS NOT (SELECT user_id FROM gofer_user_store WHERE singleton = 1)
 				BEGIN SELECT RAISE(ABORT, 'wrong user database'); END`,
 				quoteStoreIdentifier("gofer_store_owner_"+table+"_"+strings.ToLower(action)), action, quoteStoreIdentifier(table))
@@ -78,7 +88,7 @@ func initializeUserStore(ctx context.Context, db *DB, owner userStoreOwner) erro
 			}
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func guardSystemTable(ctx context.Context, tx *sql.Tx, table string) error {

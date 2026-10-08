@@ -209,7 +209,7 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func openReadOnlyDB(path string) (*sql.DB, error) {
+func openReadOnlyDB(path string, pragmas ...string) (*sql.DB, error) {
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve database path: %w", err)
@@ -221,6 +221,9 @@ func openReadOnlyDB(path string) (*sql.DB, error) {
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "query_only(1)")
 	query.Add("_pragma", "temp_store(MEMORY)")
+	for _, pragma := range pragmas {
+		query.Add("_pragma", pragma)
+	}
 	query.Set("_texttotime", "true")
 	databaseURL.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite", databaseURL.String())

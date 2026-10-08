@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestUserStorageMigrationJournalRetryRequiresExactSourceAndPreservesPreviousAttempt(t *testing.T) {
+func TestUserStorageMigrationJournalRetryStartsOverAndDiscardsPreviousAttempt(t *testing.T) {
 	for _, failure := range []string{"", "changed-database", "changed-wal", "changed-files", "changed-working-directory", "changed-key", "corrupt-journal", "foreign-binding", "symlink-stage", "before-mkdir", "before-binding"} {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
@@ -67,18 +67,22 @@ func TestUserStorageMigrationJournalRetryRequiresExactSourceAndPreservesPrevious
 				t.Fatal(err)
 			}
 			next, err := migrationAttemptJournal(t.Context(), source, destination, workingDirectory, files, true, fingerprint)
-			valid := failure == "" || failure == "before-mkdir" || failure == "before-binding"
+			// An interrupted preparation is never adopted, so a retry may start
+			// over from a changed source. Unrecognized private files are refused.
+			valid := failure != "corrupt-journal" && failure != "foreign-binding" && failure != "symlink-stage"
 			if (err == nil) != valid {
 				t.Fatal("retry decision", err)
 			}
-			if valid && (next.ID == journal.ID || next.Directory == journal.Directory || next.State != "preparing") {
+			if valid && (next.ID == journal.ID || next.State != "preparing" || next.Source.DatabaseDigest == "") {
 				t.Fatal("old partial stage reused", next)
 			}
-			if failure != "before-mkdir" && failure != "symlink-stage" {
-				retained, err := os.ReadFile(filepath.Join(journal.Directory, "retain.txt"))
-				if err != nil || string(retained) != "failed attempt retained" {
-					t.Fatal("prior attempt changed", err)
-				}
+			retained, readErr := os.ReadFile(filepath.Join(journal.Directory, "retain.txt"))
+			switch {
+			case failure == "before-mkdir" || failure == "symlink-stage":
+			case valid && !errors.Is(readErr, os.ErrNotExist):
+				t.Fatal("interrupted attempt retained", readErr)
+			case !valid && (readErr != nil || string(retained) != "failed attempt retained"):
+				t.Fatal("unrecognized attempt changed", readErr)
 			}
 		})
 	}

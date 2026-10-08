@@ -59,9 +59,19 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 		return layout, err
 	}
 	defer func() { err = errors.Join(err, destinationLock.Close()) }()
+	return publishUserStorageMigrationLocked(ctx, options, sourcePath, destination, afterStep, nil)
+}
+
+// The caller holds the source and destination runtime locks. A non-nil
+// verified report means this process staged and verified the preparation while
+// continuously holding those locks, so its full content audit is not repeated.
+func publishUserStorageMigrationLocked(ctx context.Context, options UserStorageMigrationOptions, sourcePath, destination string, afterStep func(string) error, verified *UserStorageMigrationPreflight) (layout UserStorageLayout, err error) {
 	journal, err := readMigrationPreparationJournal(destination + ".migration.json")
 	if err != nil {
 		return layout, err
+	}
+	if journal.State != "verified" {
+		verified = nil
 	}
 	cwd := options.WorkingDirectory
 	if cwd == "" {
@@ -103,7 +113,10 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 			return layout, errors.New("completed layout differs from its publication journal")
 		}
 		journal.State = "published"
-		return layout, writeMigrationPreparationJournal(destination+".migration.json", journal)
+		if err := writeMigrationPreparationJournal(destination+".migration.json", journal); err != nil {
+			return layout, err
+		}
+		return layout, migrationRemoveStage(journal)
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return layout, statErr
 	}
@@ -129,9 +142,6 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 	if bound != expected {
 		return layout, errors.New("private publication directory does not match its preparation")
 	}
-	if err := migrationRequireRegular(filepath.Join(journal.Directory, "INCOMPLETE")); err != nil {
-		return layout, err
-	}
 	privateCentral := filepath.Join(journal.Directory, "central.db")
 	privateUsers := filepath.Join(journal.Directory, "users")
 	centralPath, err := migrationPublicationPath(privateCentral, destination, false, journal.State == "publishing")
@@ -155,18 +165,25 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 		return layout, err
 	}
 	defer func() { err = errors.Join(err, source.Close()) }()
-	report, err := inspectUserStorageMigration(ctx, source)
-	if err != nil {
-		return layout, err
+	var report UserStorageMigrationPreflight
+	if verified != nil {
+		report = *verified
+	} else {
+		report, err = inspectUserStorageMigration(ctx, source)
+		if err != nil {
+			return layout, err
+		}
 	}
 	if report.Owners != journal.Owners {
 		return layout, errors.New("publication owner count differs from preparation")
 	}
-	if err := options.ValidateSource(ctx, source); err != nil {
-		return layout, err
-	}
-	if err := migrationVerifyPublicationSource(ctx, source, journal); err != nil {
-		return layout, err
+	if verified == nil {
+		if err := options.ValidateSource(ctx, source); err != nil {
+			return layout, err
+		}
+		if err := migrationVerifyPublicationSource(ctx, source, journal); err != nil {
+			return layout, err
+		}
 	}
 	if err := migrationRequireClosedDatabase(centralPath); err != nil {
 		return layout, err
@@ -174,8 +191,10 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 	if _, _, _, err := migrationPublicationUsers(ctx, usersPath); err != nil {
 		return layout, err
 	}
-	if err := migrationVerifyClosedUserStores(ctx, source, usersPath, report); err != nil {
-		return layout, err
+	if verified == nil {
+		if err := migrationVerifyClosedUserStores(ctx, source, usersPath, report); err != nil {
+			return layout, err
+		}
 	}
 	layout = UserStorageLayout{Version: 1, KeyFingerprint: journal.KeyFingerprint, ID: journal.ID, SourcePath: sourcePath, CentralPath: destination, UserDirectory: destination + ".users", BlobDirectory: filepath.Join(filepath.Dir(sourcePath), "accounts"), WorkingDirectory: cwd, SourceSchemaVersion: report.SchemaVersion, SchemaVersion: CurrentSchemaVersion, OwnersAtMigration: report.Owners}
 	marker, err := migrationHasLayoutIdentity(ctx, centralPath)
@@ -189,8 +208,10 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 	if journal.State == "publishing" && !marker {
 		return layout, errors.New("publishing database has no layout identity")
 	}
-	if err := migrationVerifyClosedCentralLayout(ctx, sourcePath, centralPath, report, options.VerifyCredentials, existingLayout); err != nil {
-		return layout, err
+	if verified == nil {
+		if err := migrationVerifyClosedCentralLayout(ctx, sourcePath, centralPath, report, options.VerifyCredentials, existingLayout); err != nil {
+			return layout, err
+		}
 	}
 	if !marker {
 		if err := migrationWriteLayoutIdentity(ctx, centralPath, layout); err != nil {
@@ -211,8 +232,10 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 	if err := migrationVerifyPublicationSource(ctx, source, journal); err != nil {
 		return layout, err
 	}
-	if err := migrationSyncPrivateStage(ctx, journal.Directory); err != nil {
-		return layout, err
+	if verified == nil {
+		if err := migrationSyncPrivateStage(ctx, journal.Directory); err != nil {
+			return layout, err
+		}
 	}
 	if usersPath != privateUsers {
 		if err := migrationSyncPrivateStage(ctx, usersPath); err != nil {
@@ -315,7 +338,19 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 	if err := writeMigrationPreparationJournal(destination+".migration.json", journal); err != nil {
 		return layout, err
 	}
-	return layout, nil
+	return layout, migrationRemoveStage(journal)
+}
+
+// After publication the private directory holds only its preparation binding;
+// the published layout no longer depends on it.
+func migrationRemoveStage(journal migrationPreparationJournal) error {
+	if !validMigrationAttemptDirectory(journal.DestinationPath, journal.Directory, journal.ID) {
+		return errors.New("migration journal has an invalid private attempt directory")
+	}
+	if err := os.RemoveAll(journal.Directory); err != nil {
+		return err
+	}
+	return migrationSyncDirectory(filepath.Dir(journal.Directory))
 }
 
 func migrationVerifyPublicationSource(ctx context.Context, source *DB, journal migrationPreparationJournal) error {
@@ -518,37 +553,62 @@ func migrationSyncFile(path string) error {
 	return errors.Join(file.Sync(), file.Close())
 }
 
-// MigrateUserStorage prepares and publishes a new layout. Explicit retry starts
-// a fresh copy for an interrupted preparation, or resumes the recorded closed
-// files once publication began. It never guesses which arbitrary files to reuse.
-func MigrateUserStorage(ctx context.Context, options UserStorageMigrationOptions) (UserStorageLayout, error) {
+// MigrateUserStorage prepares and publishes a new layout while holding both
+// runtime locks throughout. Explicit retry starts a fresh copy for an
+// interrupted preparation, or resumes the recorded closed files once
+// publication began. It never guesses which arbitrary files to reuse.
+func MigrateUserStorage(ctx context.Context, options UserStorageMigrationOptions) (layout UserStorageLayout, err error) {
 	if ctx == nil || options.ValidateSource == nil || options.ImportCredentials == nil || options.VerifyCredentials == nil {
-		return UserStorageLayout{}, errors.New("migration requires source and credential adapters")
+		return layout, errors.New("migration requires source and credential adapters")
 	}
 	if err := ctx.Err(); err != nil {
-		return UserStorageLayout{}, err
+		return layout, err
 	}
-	destination, err := canonicalMigrationPath(options.DestinationPath)
+	sourcePath, destination, err := migrationPaths(options)
 	if err != nil {
-		return UserStorageLayout{}, err
+		return layout, err
 	}
+	sourceLock, err := runtimeguard.Acquire(sourcePath)
+	if err != nil {
+		return layout, err
+	}
+	defer func() { err = errors.Join(err, sourceLock.Close()) }()
+	destinationLock, err := runtimeguard.Acquire(destination)
+	if err != nil {
+		return layout, err
+	}
+	defer func() { err = errors.Join(err, destinationLock.Close()) }()
 	journal, err := readMigrationPreparationJournal(destination + ".migration.json")
 	if err == nil {
 		if !options.Retry {
-			return UserStorageLayout{}, errors.New("migration already has recorded work; explicit retry is required")
+			return layout, errors.New("migration already has recorded work; explicit retry is required")
 		}
 		switch journal.State {
 		case "verified", "publishing", "published":
-			return PublishUserStorageMigration(ctx, options)
-		case "preparing": // Stage validates the recorded source and retains old files.
+			return publishUserStorageMigrationLocked(ctx, options, sourcePath, destination, nil, nil)
+		case "preparing": // Stage validates the recorded source and discards old files.
 		default:
-			return UserStorageLayout{}, errors.New("migration journal has an unrecognized state")
+			return layout, errors.New("migration journal has an unrecognized state")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return UserStorageLayout{}, err
+		return layout, err
 	}
-	if _, err := StageUserStorageMigration(ctx, options); err != nil {
-		return UserStorageLayout{}, err
+	stage, err := stageUserStorageMigrationLocked(ctx, options, sourcePath, destination)
+	if err != nil {
+		return layout, err
 	}
-	return PublishUserStorageMigration(ctx, options)
+	return publishUserStorageMigrationLocked(ctx, options, sourcePath, destination, nil, &stage.Source)
+}
+
+func migrationPaths(options UserStorageMigrationOptions) (source, destination string, err error) {
+	if source, err = canonicalMigrationPath(options.SourcePath); err != nil {
+		return "", "", err
+	}
+	if destination, err = canonicalMigrationPath(options.DestinationPath); err != nil {
+		return "", "", err
+	}
+	if source == destination || filepath.Dir(source) != filepath.Dir(destination) {
+		return "", "", errors.New("migration requires a different destination in the source data directory")
+	}
+	return source, destination, nil
 }

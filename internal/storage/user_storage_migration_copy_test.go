@@ -333,3 +333,44 @@ func TestUserStorageMigrationCopyAttachedSourceIsReadOnlyAndRestoresPoolSettings
 		t.Fatal("attached source returned to pool", attachments, err)
 	}
 }
+
+func TestMigrationMultisetsDifferComparesValuesTypesAndMultiplicity(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	for _, test := range []struct {
+		name, source, target string
+		differ               bool
+	}{
+		{"equal", `(1,'a'),(1,'a'),(NULL,NULL)`, `(NULL,NULL),(1,'a'),(1,'a')`, false},
+		{"multiplicity", `(1,'a'),(1,'a')`, `(1,'a')`, true},
+		{"extra-target", `(1,'a')`, `(1,'a'),(2,'b')`, true},
+		{"storage-class", `(1,'a')`, `('1','a')`, true},
+		{"integer-real", `(1,'a')`, `(1.0,'a')`, true},
+		{"case", `(1,'a')`, `(1,'A')`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx, err := db.BeginTx(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			for _, table := range []string{"s", "d"} {
+				if _, err := tx.Exec(`CREATE TEMP TABLE ` + table + `(n, label TEXT COLLATE NOCASE)`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := tx.Exec(`INSERT INTO s VALUES` + test.source + `; INSERT INTO d VALUES` + test.target); err != nil {
+				t.Fatal(err)
+			}
+			projection := migrationParityProjection([]string{"n", "label"})
+			differ, err := migrationMultisetsDiffer(t.Context(), tx, `SELECT `+projection+` FROM s r`, `SELECT `+projection+` FROM d r`, 2)
+			if err != nil || differ != test.differ {
+				t.Fatal("multiset comparison", differ, err)
+			}
+		})
+	}
+}

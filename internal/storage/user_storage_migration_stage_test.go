@@ -96,9 +96,6 @@ func TestUserStorageMigrationStageCopiesAndReopensWithOneCachedStore(t *testing.
 			t.Fatal("stage published a destination/layout", path, err)
 		}
 	}
-	if _, err := os.Lstat(filepath.Join(stage.Directory, "INCOMPLETE")); err != nil {
-		t.Fatal("stage mislabeled as complete", err)
-	}
 	if info, err := os.Stat(filepath.Join(stage.Directory, "central.db")); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatal("central stage is not private", err)
 	}
@@ -161,7 +158,7 @@ func TestUserStorageMigrationStageRetainsFailureWithoutPublishing(t *testing.T) 
 	if err == nil || stage.Owners != 3 {
 		t.Fatal("late stage failure not retained", stage.Owners, err)
 	}
-	if _, err := os.Lstat(filepath.Join(stage.Directory, "INCOMPLETE")); err != nil {
+	if _, err := os.Lstat(filepath.Join(stage.Directory, "central.db")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
@@ -215,7 +212,7 @@ func TestUserStorageMigrationStageVerifiesPreservedFilesAndRefusesChanges(t *tes
 			if (err != nil) != mutate || stage.Owners != 3 || stage.Files.Files != 1 || stage.Files.References != 1 || stage.WorkingDirectory != options.WorkingDirectory {
 				t.Fatal("staging file proof", stage, err)
 			}
-			if _, err := os.Lstat(filepath.Join(stage.Directory, "INCOMPLETE")); err != nil {
+			if _, err := os.Lstat(filepath.Join(stage.Directory, "central.db")); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
@@ -385,8 +382,7 @@ func TestUserStorageMigrationStageRetriesAfterActualProcessExit(t *testing.T) {
 		t.Fatalf("crash helper failed: %v %s", err, output)
 	}
 	old := options.DestinationPath + ".staging"
-	centralBefore, err := os.ReadFile(filepath.Join(old, "central.db"))
-	if err != nil {
+	if _, err := os.Lstat(filepath.Join(old, "central.db")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := storage.StageUserStorageMigration(t.Context(), options); err == nil {
@@ -394,12 +390,8 @@ func TestUserStorageMigrationStageRetriesAfterActualProcessExit(t *testing.T) {
 	}
 	options.Retry = true
 	stage, err := storage.StageUserStorageMigration(t.Context(), options)
-	if err != nil || stage.Owners != 3 || stage.Directory == old || stage.AttemptID == "" {
+	if err != nil || stage.Owners != 3 || stage.Directory != old || stage.AttemptID == "" {
 		t.Fatal("fresh retry failed", stage, err)
-	}
-	centralAfter, err := os.ReadFile(filepath.Join(old, "central.db"))
-	if err != nil || sha256.Sum256(centralBefore) != sha256.Sum256(centralAfter) {
-		t.Fatal("failed stage overwritten or opened", err)
 	}
 	after, err := os.ReadFile(options.SourcePath)
 	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
@@ -407,9 +399,6 @@ func TestUserStorageMigrationStageRetriesAfterActualProcessExit(t *testing.T) {
 	}
 	if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("retry published layout", err)
-	}
-	if _, err := os.Lstat(filepath.Join(old, "INCOMPLETE")); err != nil {
-		t.Fatal("old crash stage discarded", err)
 	}
 	data, err := os.ReadFile(options.DestinationPath + ".migration.json")
 	if err != nil {

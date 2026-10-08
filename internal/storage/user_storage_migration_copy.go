@@ -110,6 +110,14 @@ func copyUserStorageMigrationRows(ctx context.Context, sourcePath string, destin
 	})
 }
 
+// Page cache (negative KiB) for the offline migration connections, and the
+// memory map for the read-only source. Mapped pages remain reclaimable page
+// cache shared by every source connection, rather than per-connection heap.
+const (
+	migrationCacheSize = "-262144"
+	migrationMmapSize  = "2147418112"
+)
+
 func withUserStorageMigrationSource(ctx context.Context, sourcePath string, destination *DB, fn func(*sql.Conn) error) (err error) {
 	if err := requireExistingDatabase(sourcePath); err != nil {
 		return err
@@ -145,24 +153,32 @@ func withUserStorageMigrationSource(ctx context.Context, sourcePath string, dest
 		return err
 	}
 	defer conn.Close()
-	var temporaryStorage int
+	var temporaryStorage, cacheSize int
 	if err := conn.QueryRowContext(ctx, `PRAGMA temp_store`).Scan(&temporaryStorage); err != nil {
+		return err
+	}
+	if err := conn.QueryRowContext(ctx, `PRAGMA main.cache_size`).Scan(&cacheSize); err != nil {
 		return err
 	}
 	// Sorting full-content parity groups can exceed RAM for large mailboxes.
 	// Let SQLite spill offline verification work to private temporary files.
-	if _, err := conn.ExecContext(ctx, `PRAGMA temp_store=FILE`); err != nil {
+	// Bulk copies and audits revisit index pages constantly; the default 2 MiB
+	// page cache turns them into repeated reads of the same pages.
+	if _, err := conn.ExecContext(ctx, `PRAGMA temp_store=FILE; PRAGMA main.cache_size=`+migrationCacheSize); err != nil {
 		return err
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, restoreErr := conn.ExecContext(cleanup, fmt.Sprintf(`PRAGMA temp_store=%d`, temporaryStorage)); restoreErr != nil {
+		if _, restoreErr := conn.ExecContext(cleanup, fmt.Sprintf(`PRAGMA temp_store=%d; PRAGMA main.cache_size=%d`, temporaryStorage, cacheSize)); restoreErr != nil {
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-			err = errors.Join(err, fmt.Errorf("restore migration temporary storage: %w", restoreErr))
+			err = errors.Join(err, fmt.Errorf("restore migration connection settings: %w", restoreErr))
 		}
 	}()
 	if _, err := conn.ExecContext(ctx, `ATTACH DATABASE ? AS migration_source`, uri.String()); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA migration_source.cache_size=`+migrationCacheSize+`; PRAGMA migration_source.mmap_size=`+migrationMmapSize); err != nil {
 		return err
 	}
 	defer func() {
@@ -289,9 +305,9 @@ func migrationRowSelection(table UserStorageMigrationTable, owner string) (strin
 	case migrationSearch:
 		// Retire stale derived rows only in the destination. Existing messages'
 		// account bindings passed preflight and retain exact content comparison.
-		return `EXISTS(SELECT 1 FROM migration_source.messages m WHERE m.id=r.rowid AND m.account_id IS r.account_id) AND (` + userStorageMigrationTables[table.Name].ownerSQL("migration_source", "r") + `)=?`, true
+		return `EXISTS(SELECT 1 FROM migration_source.messages m WHERE m.id=r.rowid AND m.account_id IS r.account_id) AND ` + userStorageMigrationTables[table.Name].ownerFilter("migration_source", "r"), true
 	case migrationLocal, migrationPreferences:
-		return `(` + userStorageMigrationTables[table.Name].ownerSQL("migration_source", "r") + `)=?`, true
+		return userStorageMigrationTables[table.Name].ownerFilter("migration_source", "r"), true
 	case migrationLegacySenders:
 		// Evaluate the original shared-layout permission, before partitioning.
 		// An inert global legacy row must never become a new per-user grant.
@@ -340,25 +356,40 @@ func migrationCompareFilteredRows(ctx context.Context, tx *sql.Tx, table UserSto
 	if table.Destination == migrationSearch {
 		columns = append([]string{"rowid"}, columns...)
 	}
-	var expressions []string
-	for _, column := range columns {
-		name := `r.` + quoteStoreIdentifier(column)
-		expressions = append(expressions, `typeof(`+name+`)`, name+` COLLATE BINARY`)
+	projection := migrationParityProjection(columns)
+	source := `SELECT ` + projection + ` FROM migration_source.` + quoteStoreIdentifier(table.Name) + ` r WHERE ` + selection
+	target := `SELECT ` + projection + ` FROM main.` + quoteStoreIdentifier(table.Name) + ` r WHERE ` + targetSelection
+	mismatch, err := migrationMultisetsDiffer(ctx, tx, source, target, len(columns), migrationSelectionArguments(owner)...)
+	if err != nil {
+		return fmt.Errorf("compare migration table %s: %w", table.Name, err)
 	}
-	projection := strings.Join(expressions, ",")
-	group := projection + `,count(*)`
-	source := `SELECT ` + group + ` FROM migration_source.` + quoteStoreIdentifier(table.Name) + ` r WHERE ` + selection + ` GROUP BY ` + projection
-	target := `SELECT ` + group + ` FROM main.` + quoteStoreIdentifier(table.Name) + ` r WHERE ` + targetSelection + ` GROUP BY ` + projection
-	for _, pair := range [][2]string{{source, target}, {target, source}} {
-		var mismatch bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT * FROM (`+pair[0]+` EXCEPT `+pair[1]+`))`, migrationSelectionArguments(owner)...).Scan(&mismatch); err != nil {
-			return fmt.Errorf("compare migration table %s: %w", table.Name, err)
-		}
-		if mismatch {
-			return fmt.Errorf("migration content parity failed: %s", table.Name)
-		}
+	if mismatch {
+		return fmt.Errorf("migration content parity failed: %s", table.Name)
 	}
 	return nil
+}
+
+// Each column contributes its storage class and binary value as t<n>, v<n>.
+func migrationParityProjection(columns []string) string {
+	expressions := make([]string, 0, 2*len(columns))
+	for i, column := range columns {
+		value := `r.` + quoteStoreIdentifier(column)
+		expressions = append(expressions, fmt.Sprintf(`typeof(%s) t%d,%s COLLATE BINARY v%d`, value, i, value, i))
+	}
+	return strings.Join(expressions, ",")
+}
+
+// Two projections are equal multisets exactly when every distinct row occurs
+// equally often in both. One grouping pass over the tagged union decides that,
+// instead of grouping each side twice for EXCEPT in both directions.
+func migrationMultisetsDiffer(ctx context.Context, tx *sql.Tx, source, target string, columns int, args ...any) (bool, error) {
+	group := make([]string, 0, 2*columns)
+	for i := 0; i < columns; i++ {
+		group = append(group, fmt.Sprintf(`t%d`, i), fmt.Sprintf(`v%d COLLATE BINARY`, i))
+	}
+	var mismatch bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM (SELECT *,1 side FROM (`+source+`) UNION ALL SELECT *,-1 side FROM (`+target+`)) GROUP BY `+strings.Join(group, ",")+` HAVING sum(side)<>0)`, args...).Scan(&mismatch)
+	return mismatch, err
 }
 
 func migrationSequences(ctx context.Context, tx *sql.Tx, report UserStorageMigrationPreflight, owner string, write bool) error {
@@ -413,17 +444,21 @@ func migrationSequences(ctx context.Context, tx *sql.Tx, report UserStorageMigra
 	return nil
 }
 
+// Inside the writing transaction only the foreign-key and native FTS checks
+// run; the full B-tree integrity check runs once on the closed files.
 func migrationVerifyCopiedDatabase(ctx context.Context, tx *sql.Tx) error {
-	return migrationVerifyDatabaseChecks(ctx, tx, true)
+	return migrationVerifyDatabaseChecks(ctx, tx, false, true)
 }
 
-func migrationVerifyDatabaseChecks(ctx context.Context, tx *sql.Tx, checkFTS bool) error {
-	var result string
-	if err := tx.QueryRowContext(ctx, `PRAGMA main.integrity_check`).Scan(&result); err != nil {
-		return err
-	}
-	if result != "ok" {
-		return errors.New("migration destination integrity check failed")
+func migrationVerifyDatabaseChecks(ctx context.Context, tx *sql.Tx, checkIntegrity, checkFTS bool) error {
+	if checkIntegrity {
+		var result string
+		if err := tx.QueryRowContext(ctx, `PRAGMA main.integrity_check`).Scan(&result); err != nil {
+			return err
+		}
+		if result != "ok" {
+			return errors.New("migration destination integrity check failed")
+		}
 	}
 	rows, err := tx.QueryContext(ctx, `PRAGMA main.foreign_key_check`)
 	if err != nil {
