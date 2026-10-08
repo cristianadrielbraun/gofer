@@ -33,6 +33,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	imap "github.com/emersion/go-imap/v2"
+	"modernc.org/sqlite"
 )
 
 // This opt-in subprocess uses the real server paths. The legacy shared builder
@@ -93,31 +94,84 @@ type officeResource struct {
 }
 
 type officeCalibration struct {
-	Background           *officeBackground `json:"background,omitempty"`
-	ProcessLog           string            `json:"process_log"`
-	PayloadErrors        int               `json:"payload_errors"`
-	Layout               string            `json:"layout"`
-	IdleUsers            int               `json:"idle_users"`
-	WarmupSeconds        float64           `json:"warmup_seconds"`
-	IdleWatchers         int               `json:"idle_watchers_at_start"`
-	ActiveOwnersWithIdle int               `json:"active_owners_with_idle_at_start"`
-	ActiveUsers          int               `json:"active_users"`
-	Offered              int               `json:"offered"`
-	Responses            int               `json:"responses"`
-	Successful           int               `json:"successful"`
-	TransportErrors      int               `json:"transport_errors"`
-	ResponseErrors       int               `json:"response_errors"`
-	Dropped              int               `json:"dropped"`
-	ArrivalRate          int               `json:"arrival_rate_per_second"`
-	LoadSeconds          float64           `json:"load_seconds"`
-	ElapsedSeconds       float64           `json:"elapsed_seconds_including_drain"`
-	CPUSeconds           float64           `json:"cpu_seconds"`
-	PeakRSSKiB           uint64            `json:"peak_rss_kib_sampled"`
-	P50MS                float64           `json:"attempt_latency_p50_ms"`
-	P95MS                float64           `json:"attempt_latency_p95_ms"`
-	P99MS                float64           `json:"attempt_latency_p99_ms"`
-	Attempts             []officeAttempt   `json:"attempts"`
-	Resources            []officeResource  `json:"resources"`
+	ProviderFault        *officeProviderFault `json:"provider_fault,omitempty"`
+	Background           *officeBackground    `json:"background,omitempty"`
+	ProcessLog           string               `json:"process_log"`
+	PayloadErrors        int                  `json:"payload_errors"`
+	Layout               string               `json:"layout"`
+	IdleUsers            int                  `json:"idle_users"`
+	WarmupSeconds        float64              `json:"warmup_seconds"`
+	IdleWatchers         int                  `json:"idle_watchers_at_start"`
+	ActiveOwnersWithIdle int                  `json:"active_owners_with_idle_at_start"`
+	ActiveUsers          int                  `json:"active_users"`
+	Offered              int                  `json:"offered"`
+	Responses            int                  `json:"responses"`
+	Successful           int                  `json:"successful"`
+	TransportErrors      int                  `json:"transport_errors"`
+	ResponseErrors       int                  `json:"response_errors"`
+	Dropped              int                  `json:"dropped"`
+	ArrivalRate          int                  `json:"arrival_rate_per_second"`
+	LoadSeconds          float64              `json:"load_seconds"`
+	ElapsedSeconds       float64              `json:"elapsed_seconds_including_drain"`
+	CPUSeconds           float64              `json:"cpu_seconds"`
+	PeakRSSKiB           uint64               `json:"peak_rss_kib_sampled"`
+	P50MS                float64              `json:"attempt_latency_p50_ms"`
+	P95MS                float64              `json:"attempt_latency_p95_ms"`
+	P99MS                float64              `json:"attempt_latency_p99_ms"`
+	Attempts             []officeAttempt      `json:"attempts"`
+	Resources            []officeResource     `json:"resources"`
+}
+
+type officeProviderFault struct {
+	Owner               string   `json:"owner"`
+	StartedMS           float64  `json:"started_ms"`
+	EndedMS             float64  `json:"ended_ms"`
+	FailedReports       int      `json:"failed_reports"`
+	RecoverySeconds     float64  `json:"recovery_seconds"`
+	RecoveryCPUSeconds  float64  `json:"recovery_cpu_seconds"`
+	RecoveryErrors      []string `json:"recovery_errors,omitempty"`
+	OtherOwnerSuccesses int      `json:"other_owner_successes_during_outage"`
+}
+
+func officeInjectProviderOutage(parent context.Context, start time.Time, dataset *officeDataset, spec officeWorkloadSpec) (<-chan *officeProviderFault, func()) {
+	result := make(chan *officeProviderFault, 1)
+	if spec.ProviderOutageSeconds == 0 {
+		result <- nil
+		return result, func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		provider := dataset.Provider
+		fault := &officeProviderFault{Owner: dataset.Active[0]}
+		wait := func(at time.Time) bool {
+			timer := time.NewTimer(max(0, time.Until(at)))
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return false
+			case <-timer.C:
+				return true
+			}
+		}
+		defer func() { provider.mu.Lock(); provider.failingOwner = ""; provider.mu.Unlock(); result <- fault }()
+		if !wait(start.Add(time.Duration(spec.ProviderOutageStart) * time.Second)) {
+			return
+		}
+		provider.mu.Lock()
+		provider.failedReports = 0
+		provider.failingOwner = fault.Owner
+		provider.mu.Unlock()
+		fault.StartedMS = float64(time.Since(start)) / float64(time.Millisecond)
+		wait(start.Add(time.Duration(spec.ProviderOutageStart+spec.ProviderOutageSeconds) * time.Second))
+		provider.mu.Lock()
+		provider.failingOwner = ""
+		fault.FailedReports = provider.failedReports
+		provider.mu.Unlock()
+		fault.EndedMS = float64(time.Since(start)) / float64(time.Millisecond)
+	}()
+	return result, func() { cancel(); <-stopped }
 }
 
 type officeIncoming struct {
@@ -143,6 +197,8 @@ type officeOwnerQueues struct {
 }
 
 type officeBackground struct {
+	ObserverBusyRetries         int                 `json:"observer_busy_retries"`
+	ObserverLastBusyError       string              `json:"observer_last_busy_error,omitempty"`
 	ObserverError               string              `json:"observer_error,omitempty"`
 	Incoming                    []officeIncoming    `json:"incoming"`
 	Owners                      []officeOwnerQueues `json:"owners"`
@@ -156,6 +212,15 @@ type officeBackground struct {
 	DrainSeconds                float64             `json:"drain_seconds"`
 	DrainCPUSeconds             float64             `json:"drain_cpu_seconds"`
 	Drained                     bool                `json:"drained"`
+}
+
+func officeObservationBusy(err error) bool {
+	var failure *sqlite.Error
+	if !errors.As(err, &failure) {
+		return false
+	}
+	// Preserve extended error codes while recognizing their BUSY/LOCKED base.
+	return failure.Code()&255 == 5 || failure.Code()&255 == 6
 }
 
 // Observers are opened only after the timed HTTP window. They never trigger
@@ -185,7 +250,7 @@ func officeObserveBackground(ctx context.Context, layout, path string, dataset *
 		}
 		db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: file, RawQuery: "mode=ro&_pragma=busy_timeout(1000)"}).String())
 		if err != nil {
-			return result, err
+			return result, fmt.Errorf("observe %s: %w", owner, err)
 		}
 		db.SetMaxOpenConns(1)
 		queues, err := func() (officeOwnerQueues, error) {
@@ -278,14 +343,14 @@ func officeObserveBackground(ctx context.Context, layout, path string, dataset *
 			return queues, nil
 		}()
 		if err != nil {
-			return result, err
+			return result, fmt.Errorf("observe %s: %w", owner, err)
 		}
 		queues.ObservedUnixMS = time.Now().UnixMilli()
 		queues.IdleWatchers = dataset.Fixture.activity.idleCount(owner)
 		if central != nil {
 			err := central.QueryRowContext(ctx, `SELECT COALESCE(p.next_due_ms,0) FROM gofer_account_directory d LEFT JOIN gofer_account_poll_schedule p ON p.account_id=d.account_id WHERE d.account_id=? AND d.user_id=?`, dataset.Accounts[owner], owner).Scan(&queues.NextPollUnixMS)
 			if err != nil {
-				return result, err
+				return result, fmt.Errorf("observe %s: %w", owner, err)
 			}
 		}
 		dataset.Fixture.smtp.mu.Lock()
@@ -627,6 +692,8 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 		}
 	}
 	start := time.Now()
+	faultDone, stopFault := officeInjectProviderOutage(t.Context(), start, dataset, spec)
+	defer stopFault()
 	incomingDone := make(chan []officeIncoming, 1)
 	go func() {
 		var incoming []officeIncoming
@@ -791,6 +858,7 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 		time.Sleep(wait)
 	}
 	incoming := <-incomingDone
+	result.ProviderFault = <-faultDone
 	close(outcomes)
 	close(sampleStop)
 	if err := <-sampleDone; err != nil {
@@ -839,22 +907,67 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 	if result.Offered != count || result.Offered != result.Responses+result.TransportErrors+result.Dropped {
 		t.Fatal("load accounting mismatch")
 	}
+	t.Logf("%s timed requests successful=%d/%d transport_errors=%d response_errors=%d drops=%d p95=%.1fms", layout, result.Successful, result.Offered, result.TransportErrors, result.ResponseErrors, result.Dropped, result.P95MS)
+	if fault := result.ProviderFault; fault != nil {
+		recoveryStart := time.Now()
+		owner := fault.Owner
+		for _, attempt := range result.Attempts {
+			if attempt.Owner != owner && !attempt.Dropped && attempt.Error == "" && attempt.ScheduledMS+attempt.QueueMS >= fault.StartedMS && attempt.ScheduledMS+attempt.ElapsedMS <= fault.EndedMS {
+				fault.OtherOwnerSuccesses++
+			}
+		}
+		if fault.FailedReports == 0 {
+			fault.RecoveryErrors = append(fault.RecoveryErrors, "outage did not reach the native provider")
+		}
+		for _, route := range []string{"/api/calendar/sync", "/api/settings/contacts/accounts/sync"} {
+			status, _, err := officeHTTP(client, base, tokens[owner], "POST", route, url.Values{"account_id": {accounts[owner]}}.Encode(), "application/x-www-form-urlencoded")
+			if err != nil || status != http.StatusOK {
+				fault.RecoveryErrors = append(fault.RecoveryErrors, fmt.Sprintf("%s: HTTP %d %v", route, status, err))
+			}
+		}
+		for _, check := range []struct{ route, expected string }{{"/contacts", owner + " office contact 0000"}, {"/calendar", owner + " native appointment"}} {
+			status, payload, err := officeHTTP(client, base, tokens[owner], "GET", check.route, "", "")
+			if err != nil || status != http.StatusOK || !strings.Contains(payload, check.expected) {
+				fault.RecoveryErrors = append(fault.RecoveryErrors, "retained data missing after recovery: "+check.route)
+			}
+		}
+		fault.RecoverySeconds = time.Since(recoveryStart).Seconds()
+		// Recovery traffic is outside the timed HTTP phase and is recorded separately.
+		beforeRecoveryCPU := endSample.CPUTicks
+		endSample, err = officeProcessResource(cmd.Process.Pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fault.RecoveryCPUSeconds = float64(endSample.CPUTicks-beforeRecoveryCPU) / float64(ticks)
+	}
 	if spec.DrainSeconds > 0 {
 		drainStart := time.Now()
 		deadline := drainStart.Add(time.Duration(spec.DrainSeconds) * time.Second)
 		var initial []officeOwnerQueues
 		initialReceived := 0
 		nextProgress := drainStart
+		busyRetries := 0
+		lastBusy := ""
 		for {
 			ctx, cancel := context.WithDeadline(t.Context(), deadline)
 			background, err := officeObserveBackground(ctx, layout, path, dataset, incoming, result.Attempts)
 			cancel()
 			if err != nil {
+				if officeObservationBusy(err) && time.Now().Add(250*time.Millisecond).Before(deadline) {
+					busyRetries++
+					lastBusy = err.Error()
+					if busyRetries == 1 {
+						t.Logf("%s background observer retrying transient lock: %v", layout, err)
+					}
+					time.Sleep(250 * time.Millisecond)
+					continue
+				}
 				if result.Background == nil {
 					result.Background = &background
 				}
 				result.Background.ObserverError, result.Background.Drained = err.Error(), false
 				result.Background.DrainSeconds = time.Since(drainStart).Seconds()
+				result.Background.ObserverBusyRetries, result.Background.ObserverLastBusyError = busyRetries, lastBusy
 				break
 			}
 			if initial == nil {
@@ -863,6 +976,7 @@ func runOfficeWorkload(t *testing.T, layout, path string, dataset *officeDataset
 			}
 			background.InitialOwners, background.IncomingReceivedBeforeDrain = initial, initialReceived
 			background.DrainSeconds = time.Since(drainStart).Seconds()
+			background.ObserverBusyRetries, background.ObserverLastBusyError = busyRetries, lastBusy
 			result.Background = &background
 			if time.Now().After(nextProgress) {
 				t.Logf("%s background drain incoming=%d/%d SMTP=%d/%d complete=%v elapsed=%.1fs", layout, background.IncomingReceived, len(incoming), background.SMTPReceiptsComplete, background.SMTPReceipts, background.Drained, background.DrainSeconds)
@@ -1026,4 +1140,59 @@ func officeOwnMailboxContent(payload, owner string) bool {
 		}
 	}
 	return false
+}
+
+func TestOfficeObserverDistinguishesTransientLockFromMissingStore(t *testing.T) {
+	spec := officeWorkloadSpec{Name: "observer-lock", ActiveUsers: 1, MessagesPerActiveUser: 1, MessagesPerIdleUser: 1, ContactsPerUser: 1, CalendarEventsPerUser: 1, Seconds: 1, Rate: 1, Workers: 1, Queue: 1, TimeoutSeconds: 5, WarmupSeconds: 30, Profile: "busy-office"}
+	dataset, _ := newOfficeDataset(t, spec)
+	layout, err := storage.ReadUserStorageLayoutMetadata(dataset.Fixture.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(layout.UserDirectory, fmt.Sprintf("%x.db", sha256.Sum256([]byte(dataset.All[0]))))
+	writer, err := sql.Open("sqlite", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	connection, err := writer.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	// A real exclusive SQLite lock makes the read-only observer return BUSY.
+	if _, err := connection.ExecContext(t.Context(), `PRAGMA journal_mode=DELETE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.ExecContext(t.Context(), `BEGIN EXCLUSIVE`); err != nil {
+		t.Fatal(err)
+	}
+	defer connection.ExecContext(context.Background(), `ROLLBACK`)
+	_, err = officeObserveBackground(t.Context(), "per-user", dataset.Fixture.path, dataset, nil, nil)
+	if err == nil || !officeObservationBusy(err) {
+		t.Fatalf("exclusive lock was not classified as transient: %v", err)
+	}
+	if _, err := connection.ExecContext(t.Context(), `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := officeObserveBackground(t.Context(), "per-user", dataset.Fixture.path, dataset, nil, nil)
+	if err != nil || !observed.Drained {
+		t.Fatalf("observer did not recover after releasing lock: %v", err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(file, file+".missing"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = officeObserveBackground(t.Context(), "per-user", dataset.Fixture.path, dataset, nil, nil)
+	if err == nil || officeObservationBusy(err) {
+		t.Fatalf("missing store was treated as retryable: %v", err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("read-only observer recreated missing store", err)
+	}
 }

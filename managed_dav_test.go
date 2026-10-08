@@ -27,6 +27,7 @@ type managedDAVFixture struct {
 	mu              sync.Mutex
 	calls           map[string]int
 	failingOwner    string
+	failedReports   int
 	blockedCalendar *managedDAVBlock
 	users           map[string]bool
 	calendarEvents  int
@@ -57,6 +58,9 @@ func (a *managedDAVFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.calls[owner+"|"+r.URL.Path]++
 	failing := a.failingOwner == owner
+	if failing {
+		a.failedReports++
+	}
 	block := a.blockedCalendar
 	a.mu.Unlock()
 	if block != nil && owner == "alice" && calendar {

@@ -44,6 +44,8 @@ type officeWorkloadSpec struct {
 	SMTPEveryRequests       int    `json:"smtp_every_requests"`
 	DrainSeconds            int    `json:"background_drain_timeout_seconds"`
 	PerUserFirst            bool   `json:"per_user_first"`
+	ProviderOutageStart     int    `json:"provider_outage_start_seconds"`
+	ProviderOutageSeconds   int    `json:"provider_outage_seconds"`
 }
 
 func (s officeWorkloadSpec) validate() error {
@@ -80,6 +82,9 @@ func (s officeWorkloadSpec) validate() error {
 	if (s.IncomingRate > 0 || s.SMTPEveryRequests > 0) && s.DrainSeconds == 0 {
 		return fmt.Errorf("background workload requires bounded drain")
 	}
+	if s.ProviderOutageStart < 0 || s.ProviderOutageStart > s.Seconds || s.ProviderOutageSeconds < 0 || s.ProviderOutageSeconds > s.Seconds || s.ProviderOutageStart+s.ProviderOutageSeconds > s.Seconds || (s.ProviderOutageSeconds > 0 && s.Profile != "busy-office") {
+		return fmt.Errorf("invalid provider outage window")
+	}
 	return nil
 }
 
@@ -90,6 +95,7 @@ type officeDataset struct {
 	BodyIDs                      map[string]string
 	Fixture                      *managedMailFixture
 	CAFile                       string
+	Provider                     *managedDAVFixture
 }
 
 func newOfficeDataset(t *testing.T, spec officeWorkloadSpec) (*officeDataset, string) {
@@ -110,6 +116,7 @@ func newOfficeDataset(t *testing.T, spec officeWorkloadSpec) (*officeDataset, st
 		}
 	}
 	api := &managedDAVFixture{calls: make(map[string]int), users: make(map[string]bool), calendarEvents: spec.CalendarEventsPerUser, calendarAnchor: time.Now()}
+	dataset.Provider = api
 	for _, owner := range dataset.All {
 		api.users[owner] = true
 	}
@@ -230,6 +237,12 @@ func TestManagedOfficePairedWorkload(t *testing.T) {
 		t.Logf("%s users=%d active/%d idle offered=%d success=%d errors=%d drops=%d p95=%.1fms cpu=%.2fs peak_rss=%.1fMiB", result.Layout, spec.ActiveUsers, spec.IdleUsers, result.Offered, result.Successful, result.ResponseErrors+result.TransportErrors, result.Dropped, result.P95MS, result.CPUSeconds, float64(result.PeakRSSKiB)/1024)
 	}
 	for _, result := range results {
+		if fault := result.ProviderFault; fault != nil {
+			t.Logf("%s provider outage failed_reports=%d recovery_errors=%d", result.Layout, fault.FailedReports, len(fault.RecoveryErrors))
+			if len(fault.RecoveryErrors) > 0 {
+				t.Errorf("%s provider recovery failed: %v; see %s", result.Layout, fault.RecoveryErrors, output)
+			}
+		}
 		if result.Background != nil {
 			b := result.Background
 			t.Logf("%s background incoming=%d/%d SMTP=%d/%d drained=%v drain=%.2fs", result.Layout, b.IncomingReceived, len(b.Incoming), b.SMTPReceiptsComplete, b.SMTPReceipts, b.Drained, b.DrainSeconds)
