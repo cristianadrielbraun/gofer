@@ -33,6 +33,7 @@ type migrationPreparationJournal struct {
 	Source           migrationSourceSnapshot   `json:"source"`
 	Files            UserStorageMigrationFiles `json:"files"`
 	Owners           int64                     `json:"owners_copied"`
+	Publication      migrationPublicationProof `json:"publication"`
 }
 
 func migrationSnapshotSource(ctx context.Context, path string) (result migrationSourceSnapshot, err error) {

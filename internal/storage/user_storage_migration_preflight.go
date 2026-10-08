@@ -180,6 +180,9 @@ func inspectUserStorageMigration(ctx context.Context, source *DB) (report UserSt
 		return report, err
 	}
 	rows.Close()
+	if present["gofer_storage_layout"] {
+		return report, migrationSourceError("gofer_storage_layout", "source is already a managed layout")
+	}
 	if present["gofer_user_store"] {
 		return report, migrationSourceError("gofer_user_store", "source is already a user store")
 	}

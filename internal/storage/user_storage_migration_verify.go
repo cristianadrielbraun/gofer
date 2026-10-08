@@ -98,6 +98,10 @@ func migrationVerifyClosedOwner(ctx context.Context, sourcePath, path, owner str
 // this connection solely to build bounded TEMP proof sets; it does not make
 // either persistent database writable. Nothing is repaired during this audit.
 func migrationVerifyClosedCentral(ctx context.Context, sourcePath, path string, report UserStorageMigrationPreflight, verifyCredentials func(context.Context, *sql.Tx) error) (err error) {
+	return migrationVerifyClosedCentralLayout(ctx, sourcePath, path, report, verifyCredentials, nil)
+}
+
+func migrationVerifyClosedCentralLayout(ctx context.Context, sourcePath, path string, report UserStorageMigrationPreflight, verifyCredentials func(context.Context, *sql.Tx) error, layout *UserStorageLayout) (err error) {
 	if err := requireExistingDatabase(path); err != nil {
 		return err
 	}
@@ -155,6 +159,12 @@ func migrationVerifyClosedCentral(ctx context.Context, sourcePath, path string, 
 			"gofer_account_poll_schedule": true, "gofer_account_active_poll": true,
 			"gofer_account_service_schedule": true, "gofer_contact_queue_schedule": true,
 			"gofer_avatar_interests": true, "gofer_mailbox_credentials": true,
+		}
+		if layout != nil {
+			if err := migrationCheckLayoutIdentity(ctx, tx, *layout); err != nil {
+				return err
+			}
+			generated["gofer_storage_layout"] = true
 		}
 		if err := migrationDestinationBoundaryWithGenerated(ctx, tx, "", true, generated); err != nil {
 			return err

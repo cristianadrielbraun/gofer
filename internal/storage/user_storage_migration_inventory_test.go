@@ -109,6 +109,24 @@ func TestUserStorageMigrationInventoryCoversActualRuntimeTablesColumnsAndForeign
 	if err := routing.WithUser(t.Context(), "inventory-owner", inspect); err != nil {
 		t.Fatal(err)
 	}
+	// Inspect the identity extension through the actual publication path, not a
+	// hand-written schema fixture that could drift from the publisher.
+	options, _ := newMigrationStageFixture(t)
+	if _, err := storage.StageUserStorageMigration(t.Context(), options); err != nil {
+		t.Fatal(err)
+	}
+	layout, err := storage.PublishUserStorageMigration(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := storage.OpenExisting(layout.CentralPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer published.Close()
+	if err := inspect(published); err != nil {
+		t.Fatal(err)
+	}
 	for name := range policies {
 		if !actualTables[name] && name != "sqlite_stat1" && name != "sqlite_stat4" {
 			t.Fatal("policy not validated against actual runtime", name)
@@ -126,7 +144,7 @@ func TestUserStorageMigrationInventoryCoversActualRuntimeTablesColumnsAndForeign
 			}
 		}
 	}
-	if len(actualTables) != 94 || len(actualLinks) != 123 {
+	if len(actualTables) != 95 || len(actualLinks) != 123 {
 		t.Fatal("runtime inventory changed", len(actualTables), len(actualLinks))
 	}
 }

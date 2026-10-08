@@ -3,6 +3,7 @@ package storage
 // The inventory is explicit: adding a table, column or ownership link requires
 // a migration decision. FTS internals are rebuilt; planner statistics are metadata.
 var userStorageMigrationTables = map[string]migrationTableRule{
+	"gofer_storage_layout":            {migrationGenerated, ``, "singleton,layout_version,layout_id,manifest_digest"},
 	"account_caldav_configs":          {migrationLocal, `r.user_id`, "account_id,user_id,base_url,username,encrypted_password,use_account_credentials,updated_at"},
 	"account_contact_address_books":   {migrationLocal, `r.user_id`, "account_id,user_id,id,url,name,is_default,last_sync_token,last_success_at,last_error,created_at,updated_at"},
 	"account_contact_sync_configs":    {migrationLocal, `r.user_id`, "account_id,user_id,provider,enabled,base_url,addressbook_url,username,encrypted_password,last_sync_token,last_started_at,last_success_at,last_import_count,last_error,created_at,updated_at"},
