@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -348,5 +350,161 @@ func TestUserStorageMigrationStageRefusesBusyOrAmbiguousDestinations(t *testing.
 				}
 			}
 		})
+	}
+}
+
+func TestUserStorageMigrationStageCrashHelper(t *testing.T) {
+	if os.Getenv("GOFER_MIGRATION_CRASH_HELPER") != "1" {
+		return
+	}
+	options := storage.UserStorageMigrationOptions{SourcePath: os.Getenv("GOFER_MIGRATION_CRASH_SOURCE"), DestinationPath: os.Getenv("GOFER_MIGRATION_CRASH_DESTINATION")}
+	options.ValidateSource = func(context.Context, *storage.DB) error { return nil }
+	options.ImportCredentials = func(context.Context, *sql.Tx) error { os.Exit(23); return nil }
+	_, err := storage.StageUserStorageMigration(t.Context(), options)
+	t.Fatalf("crash checkpoint not reached: %v", err)
+}
+
+func TestUserStorageMigrationStageRetriesAfterActualProcessExit(t *testing.T) {
+	options, before := newMigrationStageFixture(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(t.Context(), executable, "-test.run=^TestUserStorageMigrationStageCrashHelper$")
+	command.Env = append(os.Environ(), "GOFER_MIGRATION_CRASH_HELPER=1", "GOFER_MIGRATION_CRASH_SOURCE="+options.SourcePath, "GOFER_MIGRATION_CRASH_DESTINATION="+options.DestinationPath)
+	output, err := command.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 23 {
+		t.Fatalf("crash helper failed: %v %s", err, output)
+	}
+	old := options.DestinationPath + ".staging"
+	centralBefore, err := os.ReadFile(filepath.Join(old, "central.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.StageUserStorageMigration(t.Context(), options); err == nil {
+		t.Fatal("implicit retry accepted")
+	}
+	options.Retry = true
+	stage, err := storage.StageUserStorageMigration(t.Context(), options)
+	if err != nil || stage.Owners != 3 || stage.Directory == old || stage.AttemptID == "" {
+		t.Fatal("fresh retry failed", stage, err)
+	}
+	centralAfter, err := os.ReadFile(filepath.Join(old, "central.db"))
+	if err != nil || sha256.Sum256(centralBefore) != sha256.Sum256(centralAfter) {
+		t.Fatal("failed stage overwritten or opened", err)
+	}
+	after, err := os.ReadFile(options.SourcePath)
+	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
+		t.Fatal("crash/retry changed source", err)
+	}
+	if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("retry published layout", err)
+	}
+	if _, err := os.Lstat(filepath.Join(old, "INCOMPLETE")); err != nil {
+		t.Fatal("old crash stage discarded", err)
+	}
+	data, err := os.ReadFile(options.DestinationPath + ".migration.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journal struct {
+		State  string
+		Owners int64 `json:"owners_copied"`
+		ID     string
+	}
+	if err := json.Unmarshal(data, &journal); err != nil || journal.State != "verified" || journal.Owners != 3 || journal.ID != stage.AttemptID {
+		t.Fatal("retry journal not verified", journal, err)
+	}
+}
+
+func TestUserStorageMigrationStageDetectsDatabaseChangesBeforeVerification(t *testing.T) {
+	options, _ := newMigrationStageFixture(t)
+	importCredentials := options.ImportCredentials
+	options.ImportCredentials = func(ctx context.Context, tx *sql.Tx) error {
+		if err := importCredentials(ctx, tx); err != nil {
+			return err
+		}
+		// Deliberately bypass the cooperative runtime guard on disposable data.
+		source, err := storage.OpenExisting(options.SourcePath)
+		if err != nil {
+			return err
+		}
+		_, err = source.Write().Exec(`UPDATE users SET name='changed after copying' WHERE id='alice'`)
+		return errors.Join(err, source.Close())
+	}
+	stage, err := storage.StageUserStorageMigration(t.Context(), options)
+	if err == nil || stage.Owners != 3 {
+		t.Fatal("changed database certified", stage, err)
+	}
+	data, err := os.ReadFile(options.DestinationPath + ".migration.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journal struct{ State string }
+	if err := json.Unmarshal(data, &journal); err != nil || journal.State != "preparing" {
+		t.Fatal("changed source marked verified", journal, err)
+	}
+	if _, err := os.Lstat(options.DestinationPath + ".layout.json"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("changed source published", err)
+	}
+}
+
+func TestUserStorageMigrationStageSourceWALHelper(t *testing.T) {
+	if os.Getenv("GOFER_MIGRATION_WAL_HELPER") != "1" {
+		return
+	}
+	source, err := storage.OpenExisting(os.Getenv("GOFER_MIGRATION_WAL_SOURCE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Write().Exec(`UPDATE users SET name='Original retained WAL value' WHERE id='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the newest committed pages exclusively in the source WAL.
+	os.Exit(24)
+}
+
+func TestUserStorageMigrationStagePreservesUncheckpointedSourceWAL(t *testing.T) {
+	options, _ := newMigrationStageFixture(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(t.Context(), executable, "-test.run=^TestUserStorageMigrationStageSourceWALHelper$")
+	command.Env = append(os.Environ(), "GOFER_MIGRATION_WAL_HELPER=1", "GOFER_MIGRATION_WAL_SOURCE="+options.SourcePath)
+	output, err := command.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 24 {
+		t.Fatalf("source WAL helper failed: %v %s", err, output)
+	}
+	databaseBefore, err := os.ReadFile(options.SourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	walBefore, err := os.ReadFile(options.SourcePath + "-wal")
+	if err != nil || len(walBefore) < 32 {
+		t.Fatal("source WAL not retained", err)
+	}
+	stage, err := storage.StageUserStorageMigration(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	central, err := storage.OpenExisting(filepath.Join(stage.Directory, "central.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer central.Close()
+	var name string
+	if err := central.Read().QueryRow(`SELECT name FROM users WHERE id='alice'`).Scan(&name); err != nil || name != "Original retained WAL value" {
+		t.Fatal("latest source WAL pages omitted", name, err)
+	}
+	databaseAfter, err := os.ReadFile(options.SourcePath)
+	if err != nil || sha256.Sum256(databaseBefore) != sha256.Sum256(databaseAfter) {
+		t.Fatal("source checkpointed or changed", err)
+	}
+	walAfter, err := os.ReadFile(options.SourcePath + "-wal")
+	if err != nil || sha256.Sum256(walBefore) != sha256.Sum256(walAfter) {
+		t.Fatal("source WAL modified or removed", err)
 	}
 }

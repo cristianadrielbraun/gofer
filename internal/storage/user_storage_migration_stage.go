@@ -18,6 +18,7 @@ type UserStorageMigrationOptions struct {
 	SourcePath        string
 	DestinationPath   string
 	WorkingDirectory  string
+	Retry             bool
 	ValidateSource    func(context.Context, *DB) error
 	ImportCredentials func(context.Context, *sql.Tx) error
 }
@@ -28,6 +29,7 @@ type UserStorageMigrationStage struct {
 	Owners           int64                         `json:"owners_copied"`
 	Files            UserStorageMigrationFiles     `json:"files"`
 	WorkingDirectory string                        `json:"working_directory"`
+	AttemptID        string                        `json:"attempt_id"`
 }
 
 // StageUserStorageMigration prepares private files, not a completed layout or
@@ -97,7 +99,14 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 	if err != nil {
 		return result, err
 	}
-	result, err = stageUserStorageMigration(ctx, source, destinationPath+".staging", report, options.ImportCredentials)
+	journal, err := migrationAttemptJournal(ctx, sourcePath, destinationPath, workingDirectory, files, options.Retry)
+	if err != nil {
+		return result, err
+	}
+	result, err = stageUserStorageMigration(ctx, source, journal.Directory, report, options.ImportCredentials, func(directory string) error {
+		return writeMigrationPreparationJournal(filepath.Join(directory, "PREPARATION.json"), journal)
+	})
+	result.AttemptID = journal.ID
 	result.Files, result.WorkingDirectory = files, workingDirectory
 	if err != nil {
 		return result, err
@@ -108,6 +117,20 @@ func StageUserStorageMigration(ctx context.Context, options UserStorageMigration
 	}
 	if files != verified {
 		return result, errors.New("migration source files changed during staging")
+	}
+	snapshot, err := migrationSnapshotSource(ctx, sourcePath)
+	if err != nil {
+		return result, err
+	}
+	if snapshot != journal.Source {
+		return result, errors.New("migration source database changed during staging")
+	}
+	if err := migrationSyncPrivateStage(ctx, result.Directory); err != nil {
+		return result, err
+	}
+	journal.State, journal.Owners = "verified", result.Owners
+	if err := writeMigrationPreparationJournal(destinationPath+".migration.json", journal); err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -127,7 +150,7 @@ func canonicalMigrationPath(path string) (string, error) {
 	return filepath.Join(parent, filepath.Base(abs)), nil
 }
 
-func stageUserStorageMigration(ctx context.Context, source *DB, directory string, report UserStorageMigrationPreflight, importCredentials func(context.Context, *sql.Tx) error) (result UserStorageMigrationStage, err error) {
+func stageUserStorageMigration(ctx context.Context, source *DB, directory string, report UserStorageMigrationPreflight, importCredentials func(context.Context, *sql.Tx) error, bindPreparation func(string) error) (result UserStorageMigrationStage, err error) {
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -135,6 +158,9 @@ func stageUserStorageMigration(ctx context.Context, source *DB, directory string
 		return result, fmt.Errorf("create private migration stage: %w", err)
 	}
 	result.Directory, result.Source = directory, report
+	if err := bindPreparation(directory); err != nil {
+		return result, err
+	}
 	// Written before any database; it never certifies successful migration.
 	marker, err := os.OpenFile(filepath.Join(directory, "INCOMPLETE"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
