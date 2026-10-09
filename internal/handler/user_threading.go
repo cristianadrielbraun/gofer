@@ -23,7 +23,7 @@ type userThreadingWorker struct {
 	h          *Handler
 	mu         sync.RWMutex
 	state      UserThreadingStatus
-	firstError error
+	fatalError error
 	cancel     context.CancelFunc
 	done       chan struct{}
 }
@@ -32,7 +32,10 @@ type userThreadingWorker struct {
 // worker snapshots
 // message IDs, one owner at a time; discovery copies at most 64 central IDs.
 // Provider startup may await completion through AwaitUserThreading, preserving
-// the original threading-before-receive ordering. Runtime shutdown joins it.
+// the original threading-before-receive ordering. A failure for one user is
+// logged and counted in the processing status, but does not stop startup for
+// everyone; that user's threads are repaired again on the next start. Runtime
+// shutdown joins it.
 func (h *Handler) StartUserThreading(ctx context.Context) error {
 	if h.ownedMailbox != nil {
 		return h.ownedMailbox.StartUserThreading(ctx)
@@ -92,7 +95,7 @@ func (h *Handler) AwaitUserThreading(ctx context.Context) error {
 	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return w.firstError
+	return w.fatalError
 }
 func (h *Handler) WaitUserThreading() {
 	w := h.threadingWorker()
@@ -113,12 +116,13 @@ func (w *userThreadingWorker) update(fn func(*UserThreadingStatus)) {
 }
 func (w *userThreadingWorker) fail(err error, userFailure bool) {
 	w.mu.Lock()
-	if w.firstError == nil {
-		w.firstError = err
+	if w.state.LastError == "" {
 		w.state.LastError = err.Error()
 	}
 	if userFailure {
 		w.state.FailedUsers++
+	} else if w.fatalError == nil {
+		w.fatalError = err
 	}
 	w.mu.Unlock()
 	log.Printf("storage: owned startup threading: %v", err)

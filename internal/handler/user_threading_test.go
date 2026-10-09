@@ -179,11 +179,12 @@ func TestOwnedStartupThreadingFailureDoesNotReplaceStoreOrHideOtherUsers(t *test
 		t.Fatal(err)
 	}
 	t.Cleanup(f.admin.WaitUserThreading)
-	if err := awaitOwnedThreading(t, f.admin); !errors.Is(err, storage.ErrAccountRoute) || !errors.Is(err, os.ErrNotExist) {
-		t.Fatal(err)
+	// One user's failure is reported, but does not stop startup for everyone.
+	if err := awaitOwnedThreading(t, f.admin); err != nil {
+		t.Fatal("one user's failure blocked startup", err)
 	}
 	state := f.h.getUserThreadingStatus()
-	if state.InProgress || state.Processed != 1 || state.Total != 1 || state.FailedUsers != 1 || state.LastError == "" {
+	if state.InProgress || state.Processed != 1 || state.Total != 1 || state.FailedUsers != 1 || !strings.Contains(state.LastError, "repair threading for user alice") {
 		t.Fatal("failure hid healthy owner", state)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
