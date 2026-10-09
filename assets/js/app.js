@@ -1332,7 +1332,9 @@ document.addEventListener("DOMContentLoaded", function () {
           // The filter sheet always opens on its filters, not on the applied list.
           var filterSheetBody = mobileActionName === "filter" && document.querySelector(".mail-filters-sheet-body")
           if (filterSheetBody) filterSheetBody.removeAttribute("data-mail-filters-showing-applied")
-          var proxied = document.querySelector(mobileActionName === "sort" ? "[data-mail-sort-trigger]" : "[data-mail-filter-button]")
+          var proxied = document.querySelector(mobileActionName === "sort"
+            ? "[data-mail-sort-trigger], [data-contact-sort-trigger]"
+            : "[data-mail-filter-button], [data-contact-filter-trigger]")
           if (proxied) proxied.click()
         }
         return
@@ -1441,18 +1443,19 @@ document.addEventListener("DOMContentLoaded", function () {
     // On touch screens a long press on a row starts selecting; while selecting,
     // a tap toggles a row instead of opening it.
     // On a phone the search field opens over the top bar from its search button.
+    // Contacts share the list shell, so the same search mode serves both.
     function setMailSearchMode(active) {
       var list = document.getElementById("mail-list")
       if (!list) return
       list.toggleAttribute("data-mail-searching", active)
-      var input = list.querySelector("[data-mail-search-input]")
+      var input = list.querySelector("[data-mail-search-input], [data-contact-search-input]")
       if (!input) return
       if (active) input.focus()
       else input.blur()
     }
 
     document.addEventListener("keydown", function (e) {
-      if (!e.target || !e.target.matches || !e.target.matches("#mail-list[data-mail-searching] [data-mail-search-input]")) return
+      if (!e.target || !e.target.matches || !e.target.matches("#mail-list[data-mail-searching] :is([data-mail-search-input], [data-contact-search-input])")) return
       // Enter runs the search (handled elsewhere) and its chip shows above the list.
       if (e.key === "Enter" || e.key === "Escape") setTimeout(function () { setMailSearchMode(false) }, 0)
     })

@@ -58,18 +58,36 @@
     syncPlaceholders(true)
     var bar = document.querySelector("[data-mobile-topbar]")
     if (!bar) return
-    var heading = document.querySelector("#main-content #mail-folder-name")
+    var heading = document.querySelector("#main-content #mail-folder-name, #main-content [data-contacts-title]")
     var name = heading ? heading.textContent.trim() : ""
     var slot = bar.querySelector("[data-mobile-topbar-title]")
     if (!slot) return
     if (slot.querySelector("[data-mobile-topbar-title-text]").textContent !== name) {
       slot.querySelector("[data-mobile-topbar-title-text]").textContent = name
     }
-    var countEl = document.querySelector("#main-content #mail-folder-count")
+    var countEl = document.querySelector("#main-content #mail-folder-count, #main-content #contacts-count")
     var count = countEl ? countEl.textContent.trim() : ""
     var countSlot = slot.querySelector("[data-mobile-topbar-title-count]")
     if (countSlot.textContent !== count) countSlot.textContent = count
     bar.toggleAttribute("data-mobile-topbar-titled", name !== "")
+    syncTopbarActionState(bar)
+  }
+
+  // The top bar's filter badge and search highlight follow whichever list is open.
+  function syncTopbarActionState(bar) {
+    var mirror = bar.querySelector("[data-mail-filter-count-mirror]")
+    var searchButton = bar.querySelector('[data-mobile-mail-action="search"]')
+    var badge = document.querySelector("#main-content [data-mail-filter-count], #main-content [data-contact-filter-count]")
+    var count = badge && !badge.classList.contains("hidden") ? badge.textContent.trim() : ""
+    if (count === "0") count = ""
+    if (mirror) {
+      if (mirror.textContent !== count) mirror.textContent = count
+      mirror.classList.toggle("hidden", count === "")
+    }
+    var mailSearch = document.querySelector("#main-content [data-mail-search-input]")
+    var contactSearch = document.querySelector("#main-content [data-contact-search-input]")
+    var searching = mailSearch ? !!(mailSearch.dataset.mailCommittedQuery || "").trim() : !!(contactSearch && contactSearch.value.trim())
+    if (searchButton) searchButton.toggleAttribute("data-active", searching)
   }
   // Inputs may carry a shorter placeholder for small screens.
   function syncPlaceholders(small) {

@@ -1144,14 +1144,17 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, selected
 
 templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filters models.ContactFilters, totalCount int, width string, accounts []models.Account) {
 	<section id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-view-mode={ contactViewMode(filters.View) } data-contact-list-shell>
-		<div class="px-4 py-4 space-y-3">
-			<div class="flex items-center justify-between">
+		<div class="contacts-list-header px-4 py-4 space-y-3">
+			<div class="contacts-list-title-row flex items-center justify-between">
 				<div class="flex items-center gap-2">
-					<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Contacts</h2>
+					<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-contacts-title>Contacts</h2>
 					<span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
 				</div>
 			</div>
-			<div class="flex items-center gap-2">
+			<div class="contacts-search-row flex items-center gap-2">
+				<button type="button" class="mail-list-search-close hidden" data-mail-search-close aria-label="Close search">
+					@icon.ArrowLeft(icon.Props{Class: "size-5"})
+				</button>
 				<form action="/contacts" method="get" class="relative groove rounded-lg flex-1 min-w-0" data-contact-search-form>
 					<input type="hidden" name="source" value={ filters.Source }/>
 					<input type="hidden" name="save_target" value={ filters.SaveTarget }/>
@@ -1171,17 +1174,17 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 				</form>
 			</div>
 		</div>
-		<div class="flex items-center gap-1 px-4 py-1.5">
+		<div class="contacts-list-toolbar flex items-center gap-1 px-4 py-1.5">
 			@dropdown.Dropdown() {
 				@dropdown.Trigger() {
-					<button type="button" data-active={ fmt.Sprintf("%t", contactFiltersActive(filters)) } class="relative inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground data-[active=true]:bg-accent data-[active=true]:text-foreground" aria-label="Filter contacts">
+					<button type="button" data-contact-filter-trigger data-active={ fmt.Sprintf("%t", contactFiltersActive(filters)) } class="relative inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground data-[active=true]:bg-accent data-[active=true]:text-foreground" aria-label="Filter contacts">
 						@icon.ListFilter(icon.Props{Class: "size-3.5"})
 						if contactFilterCount(filters) > 0 {
-							<span class="absolute -right-1 -top-1 min-w-4 h-4 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground font-semibold">{ fmt.Sprintf("%d", contactFilterCount(filters)) }</span>
+							<span data-contact-filter-count class="absolute -right-1 -top-1 min-w-4 h-4 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground font-semibold">{ fmt.Sprintf("%d", contactFilterCount(filters)) }</span>
 						}
 					</button>
 				}
-				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomStart, Class: "w-72 normal-case tracking-normal p-3"}) {
+				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomStart, Class: "mobile-sheet w-72 normal-case tracking-normal p-3"}) {
 					<form action="/contacts" method="get" class="space-y-3" data-contact-filter-form>
 						<input type="hidden" name="q" value={ filters.Query }/>
 						<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
@@ -1293,12 +1296,12 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			<div class="flex-1"></div>
 			@dropdown.Dropdown() {
 				@dropdown.Trigger() {
-					<button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Sort contacts">
+					<button type="button" data-contact-sort-trigger class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Sort contacts">
 						@icon.ArrowUpDown(icon.Props{Class: "size-3.5"})
 						<span class="hidden sm:inline">{ contactSortLabel(filters) }</span>
 					</button>
 				}
-				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-64 normal-case tracking-normal p-3"}) {
+				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-64 normal-case tracking-normal p-3"}) {
 					<form class="space-y-3" data-contact-sort-form>
 						<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 							<span>Order by</span>
@@ -1391,6 +1394,9 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 				}
 			}
 		</div>
+		<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="mobile-compose-fab" aria-label="New contact">
+			@icon.UserPlus(icon.Props{Class: "size-5"})
+		</a>
 	</section>
 }
 
@@ -1617,7 +1623,7 @@ templ ContactsEmptyDetail() {
 }
 
 templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syncQueued bool, accounts []models.Account) {
-	<div class="flex h-full min-h-0 flex-col">
+	<div class="contact-editor flex h-full min-h-0 flex-col">
 		@ContactEditorHeader(contact, profile, accounts)
 		if contact != nil {
 			<div class="flex-1 overflow-y-auto">
@@ -1642,7 +1648,7 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 }
 
 templ ContactReadOnlyView(contact models.Contact, profile *models.ContactProfile, syncQueued bool, accounts []models.Account) {
-	<div class="w-full space-y-5 px-5 py-5 sm:px-7">
+	<div class="contact-readonly w-full space-y-5 px-5 py-5 sm:px-7">
 		@ContactReadOnlyContactInfo(contact)
 		@ContactReadOnlySyncInfo(contact, profile, syncQueued, accounts)
 		@ContactReadOnlyActivityInfo(contact)
@@ -1716,21 +1722,21 @@ templ ContactReadOnlyActivityInfo(contact models.Contact) {
 }
 
 templ ContactReadOnlyTextField(label string, value string) {
-	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+	<div data-contact-field-empty?={ strings.TrimSpace(value) == "" } class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
 		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">{ label }</div>
 		<div class={ "mt-1 min-h-5 truncate text-sm font-medium " + contactReadOnlyValueClass(value) }>{ contactReadOnlyValue(value) }</div>
 	</div>
 }
 
 templ ContactReadOnlyLongField(label string, value string) {
-	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+	<div data-contact-field-empty?={ strings.TrimSpace(value) == "" } class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
 		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">{ label }</div>
 		<div class={ "mt-1 min-h-5 whitespace-pre-wrap text-sm leading-relaxed " + contactReadOnlyValueClass(value) }>{ contactReadOnlyValue(value) }</div>
 	</div>
 }
 
 templ ContactReadOnlyLinkedField(label string, value string, valueLabel string, hrefPrefix string) {
-	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+	<div data-contact-field-empty?={ strings.TrimSpace(value) == "" } class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
 		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">{ label }</div>
 		if strings.TrimSpace(value) != "" {
 			<div class="mt-1 flex min-h-5 min-w-0 flex-wrap items-center gap-2">
@@ -1746,7 +1752,7 @@ templ ContactReadOnlyLinkedField(label string, value string, valueLabel string, 
 }
 
 templ ContactReadOnlyListField(label string, values []string, labels []string, fallbackLabel string, hrefPrefix string) {
-	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+	<div data-contact-field-empty?={ !contactReadOnlyHasValues(values) } class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
 		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">{ label }</div>
 		if contactReadOnlyHasValues(values) {
 			<div class="mt-1 space-y-1.5">
@@ -1768,7 +1774,7 @@ templ ContactReadOnlyListField(label string, values []string, labels []string, f
 }
 
 templ ContactReadOnlyPillListField(label string, values []string) {
-	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:col-span-2">
+	<div data-contact-field-empty?={ len(values) == 0 } class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:col-span-2">
 		<div class="text-[10px] font-semibold uppercase tracking-wider text-ink/35">{ label }</div>
 		if len(values) > 0 {
 			<div class="mt-1 flex min-h-5 flex-wrap items-center gap-1.5">
@@ -1862,6 +1868,15 @@ templ ContactEmailFields(contact *models.Contact) {
 				Add
 			</button>
 		</div>
+		<template data-contact-value-template="additional_emails">
+			<div class="flex items-center gap-2" data-contact-value-row>
+				<input type="email" name="additional_emails" placeholder="jane@work.example" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				@ContactLabelSelect("additional_email_labels", "other", contactEmailLabelOptions("other"), "Email label")
+				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-ink/40 hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label="Remove email">
+					@icon.X(icon.Props{Class: "mx-auto size-4"})
+				</button>
+			</div>
+		</template>
 		<div class="space-y-2" data-contact-value-list="additional_emails">
 			<div class="flex items-center gap-2">
 				<input type="email" name="email" value={ contactFormEmail(contact) } placeholder="jane@example.com" required class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
@@ -1877,15 +1892,6 @@ templ ContactEmailFields(contact *models.Contact) {
 				</div>
 			}
 		</div>
-		<template data-contact-value-template="additional_emails">
-			<div class="flex items-center gap-2" data-contact-value-row>
-				<input type="email" name="additional_emails" placeholder="jane@work.example" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
-				@ContactLabelSelect("additional_email_labels", "other", contactEmailLabelOptions("other"), "Email label")
-				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-ink/40 hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label="Remove email">
-					@icon.X(icon.Props{Class: "mx-auto size-4"})
-				</button>
-			</div>
-		</template>
 	</div>
 }
 
@@ -1898,6 +1904,15 @@ templ ContactPhoneFields(contact *models.Contact) {
 				Add
 			</button>
 		</div>
+		<template data-contact-value-template="additional_phones">
+			<div class="flex items-center gap-2" data-contact-value-row>
+				<input type="tel" name="additional_phones" placeholder="+1 555 0101" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				@ContactLabelSelect("additional_phone_labels", "other", contactPhoneLabelOptions("other"), "Phone label")
+				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-ink/40 hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label="Remove phone">
+					@icon.X(icon.Props{Class: "mx-auto size-4"})
+				</button>
+			</div>
+		</template>
 		<div class="space-y-2" data-contact-value-list="additional_phones">
 			<div class="flex items-center gap-2">
 				<input type="tel" name="phone" value={ contactFormPhone(contact) } placeholder="+1 555 0100" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
@@ -1913,22 +1928,13 @@ templ ContactPhoneFields(contact *models.Contact) {
 				</div>
 			}
 		</div>
-		<template data-contact-value-template="additional_phones">
-			<div class="flex items-center gap-2" data-contact-value-row>
-				<input type="tel" name="additional_phones" placeholder="+1 555 0101" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-ink/10"/>
-				@ContactLabelSelect("additional_phone_labels", "other", contactPhoneLabelOptions("other"), "Phone label")
-				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-ink/40 hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label="Remove phone">
-					@icon.X(icon.Props{Class: "mx-auto size-4"})
-				</button>
-			</div>
-		</template>
 	</div>
 }
 
 templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) {
-	<div class="shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">
-		<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-			<div class="flex min-w-0 items-start gap-4">
+	<div class="contact-editor-header shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">
+		<div class="contact-editor-header-inner flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+			<div class="contact-header-identity flex min-w-0 items-start gap-4">
 				if contact != nil {
 					@ContactHeaderAvatar(*contact)
 				} else {
@@ -1955,7 +1961,11 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 					</div>
 				</div>
 			</div>
-			<div class="flex flex-wrap items-center gap-2 xl:justify-end">
+			<div class="contact-header-actions flex flex-wrap items-center gap-2 xl:justify-end">
+				<button type="button" class="contact-header-back hidden" onclick="closeMobileContactView()" aria-label="Back to contacts">
+					@icon.ArrowLeft(icon.Props{Class: "size-5"})
+				</button>
+				<div class="contact-header-spacer hidden"></div>
 				if contact != nil {
 					{{ editDialogID := contactEditDialogID(*contact) }}
 					@dialog.Trigger(dialog.TriggerProps{For: editDialogID}) {
@@ -1982,7 +1992,7 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	{{ dialogID := contactEditDialogID(contact) }}
 	@dialog.Dialog(dialog.Props{ID: dialogID, DisableClickAway: true, DisableESC: true}) {
-		@dialog.Content(dialog.ContentProps{HideCloseButton: true, Class: "max-h-[calc(100vh-2rem)] sm:max-w-3xl [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0"}) {
+		@dialog.Content(dialog.ContentProps{HideCloseButton: true, Class: "mobile-fullscreen-dialog max-h-[calc(100vh-2rem)] sm:max-w-3xl [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0"}) {
 			<form
 				id={ "contact-edit-form-" + contact.ID }
 				action={ contactFormAction(&contact) }

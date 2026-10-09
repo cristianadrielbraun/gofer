@@ -4360,3 +4360,355 @@ body.mail-list-column-resizing {
     transform: translateX(290%);
   }
 }
+
+/* === SMALL SCREENS: CONTACTS LIST ===
+   The contacts list gets the mail list's phone treatment: title, search, sort and
+   filters in the top bar, a floating button for a new contact, and full-width rows
+   in one 4rem layout (contactRowRem() in virtual-scroll.js) for either view. */
+
+@media (max-width: 1023.98px) {
+  #mail-list[data-contact-list-shell] .contacts-list-title-row,
+  #mail-list[data-contact-list-shell] > .divider-etched,
+  #mail-list[data-contact-list-shell] .mail-list-table-header {
+    display: none;
+  }
+
+  #mail-list[data-contact-list-shell] .contacts-list-header {
+    padding: 0;
+  }
+
+  /* Hidden visually, not with display: none, so their menus can still open as sheets. */
+  #mail-list[data-contact-list-shell]:not([data-mail-searching]) .contacts-search-row,
+  #mail-list[data-contact-list-shell] .contacts-list-toolbar {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  #mail-list[data-contact-list-shell][data-mail-searching] .contacts-search-row {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 40;
+    gap: 0.25rem;
+    height: calc(3.25rem + env(safe-area-inset-top));
+    margin: 0;
+    padding: env(safe-area-inset-top) 0.5rem 0 calc(0.5rem + env(safe-area-inset-left));
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-card);
+  }
+
+  #mail-list[data-contact-list-shell] [data-contact-search-input] {
+    height: 2.5rem;
+    padding-left: 2.625rem;
+  }
+
+  #mail-list[data-contact-list-shell] [data-contact-search-form] > svg {
+    left: 0.875rem;
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  #mail-list[data-contact-list-shell] #contacts-list-scroll {
+    padding: 0 0 5.5rem;
+  }
+
+  #mail-list[data-contact-list-shell] .mail-list-item {
+    height: 4rem;
+    min-height: 4rem;
+    max-height: 4rem;
+    padding: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  }
+
+  #mail-list[data-contact-list-shell] .mail-list-item > a.contact-list-item {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    grid-template-areas: none;
+    align-content: center;
+    column-gap: 0.75rem;
+    row-gap: 0.125rem;
+    height: 100%;
+    min-height: 0;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-card);
+    box-shadow: none;
+    font-size: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #mail-list[data-contact-list-shell] .mail-list-item > a.contact-list-item:active,
+  #mail-list[data-contact-list-shell] .mail-list-item > a.contact-list-item.envelope-active {
+    background: color-mix(in srgb, var(--color-foreground) 5%, var(--color-card));
+    box-shadow: none;
+  }
+
+  /* Cards view markup */
+  #mail-list[data-contact-list-shell] a.contact-list-item > .mail-list-card-zone {
+    display: contents;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="date"],
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="preview"] {
+    display: none;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="avatar"] {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  /* Table view markup: keep the name cell, drop origin and message count. */
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child {
+    display: contents;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:not(:first-child) {
+    display: none;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child > div:first-child {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: auto;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child > div:last-child {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="avatar"] > *,
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child > div:first-child > * {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 0.875rem;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="from"] {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="subject"] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-contact-name] {
+    font-size: 1rem;
+    line-height: 1.375rem;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-contact-email] {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+    color: var(--color-muted-foreground);
+  }
+}
+
+/* === SMALL SCREENS: CONTACT DETAIL ===
+   A full-width page: the header's action row becomes an app bar with a back button,
+   the avatar and name sit centred below it, and empty fields are left out. */
+
+@media (max-width: 1023.98px) {
+  /* The reader pane is a flex row here, where an item will not shrink below its
+     longest unbreakable line (a link in an activity preview, say) without this. */
+  #contacts-detail {
+    min-width: 0;
+    padding: 0;
+  }
+
+  #contacts-detail > .mobile-back-button {
+    display: none;
+  }
+
+  #contacts-detail > .surface-paper {
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  /* The whole page scrolls; only the app bar stays put. The header's wrappers step
+     aside (display: contents) so the app bar can stick to the page's scroll box. */
+  #contacts-detail .contact-editor {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  #contacts-detail .contact-editor > .flex-1.overflow-y-auto {
+    flex: none;
+    overflow: visible;
+  }
+
+  #contacts-detail .contact-editor-header,
+  #contacts-detail .contact-editor-header-inner {
+    display: contents;
+  }
+
+  #contacts-detail .contact-header-actions {
+    order: -1;
+    flex: none;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    height: calc(3.5rem + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 0.5rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+    background: var(--color-card);
+  }
+
+  #contacts-detail .contact-header-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    color: var(--color-foreground);
+  }
+
+  #contacts-detail .contact-header-spacer {
+    display: block;
+    flex: 1 1 auto;
+  }
+
+  #contacts-detail .contact-header-actions > a,
+  #contacts-detail .contact-header-actions > button:not(.contact-header-back),
+  #contacts-detail .contact-header-actions [data-contact-edit-trigger] {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  /* The edit button keeps only its pencil, like the other actions. */
+  #contacts-detail .contact-header-actions [data-contact-edit-trigger] {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 0;
+  }
+
+  #contacts-detail .contact-header-actions svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  #contacts-detail .contact-header-identity {
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.5rem 1rem 0.5rem;
+    text-align: center;
+  }
+
+  #contacts-detail .contact-header-identity > div {
+    padding-top: 0;
+  }
+
+  #contacts-detail .contact-header-identity > div > div {
+    justify-content: center;
+  }
+
+  #contacts-detail .w-full.space-y-5 {
+    padding: 1rem;
+  }
+
+  #contacts-detail [data-contact-field-empty] {
+    display: none;
+  }
+
+  /* With empty fields gone, divide the fields that remain from above instead. */
+  #contacts-detail .contact-readonly section > .grid > div {
+    border-bottom: 0;
+  }
+
+  #contacts-detail .contact-readonly section > .grid > div:not([data-contact-field-empty]) ~ div:not([data-contact-field-empty]) {
+    border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  }
+}
+
+/* === SMALL SCREENS: FULL-SCREEN DIALOGS ===
+   Dialogs marked mobile-fullscreen-dialog fill the screen on a phone and slide up from
+   the bottom instead of zooming in at the centre. Their form is laid out as header,
+   scrolling body and footer rows. */
+
+@media (max-width: 1023.98px) {
+  .mobile-fullscreen-dialog {
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    translate: 0 100%;
+    scale: none;
+    opacity: 1;
+    transition: translate 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .mobile-fullscreen-dialog[data-tui-dialog-open="true"] {
+    translate: 0 0;
+  }
+
+  .mobile-fullscreen-dialog > [data-tui-dialog-panel],
+  .mobile-fullscreen-dialog > [data-tui-dialog-panel] > form {
+    height: 100%;
+    max-height: none;
+  }
+
+  .mobile-fullscreen-dialog form > :first-child {
+    align-items: center;
+    padding: calc(0.5rem + env(safe-area-inset-top)) 0.5rem 0.5rem 1rem;
+  }
+
+  /* The header keeps its title; the description line goes. */
+  .mobile-fullscreen-dialog form > :first-child p {
+    display: none;
+  }
+
+  .mobile-fullscreen-dialog form > :first-child [data-contact-editor-cancel] {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .mobile-fullscreen-dialog form > :first-child [data-contact-editor-cancel] svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .mobile-fullscreen-dialog form > :nth-child(2) {
+    padding: 1rem;
+    overscroll-behavior-y: contain;
+  }
+
+  .mobile-fullscreen-dialog form > :last-child {
+    flex-direction: row;
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .mobile-fullscreen-dialog form > :last-child > * {
+    flex: 1 1 0;
+    height: 2.75rem;
+  }
+}
+
+@media (max-width: 1023.98px) {
+  /* The contact form's two columns stack on a phone; space them like the fields. */
+  [data-contact-avatar-editor] > .grid {
+    gap: 1rem;
+  }
+}

@@ -11,6 +11,12 @@ function mailCardRowRem() {
   return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.25
 }
 
+// Contact rows use one 4rem phone layout on small screens, in either view.
+function contactRowRem(viewMode) {
+  if (window.matchMedia("(max-width: 1023.98px)").matches) return 4
+  return viewMode === "table" ? 2.75 : 6.25
+}
+
 class VirtualMailList {
   constructor(container, options) {
     this.container = container
@@ -2523,7 +2529,7 @@ class VirtualContactsList {
   constructor(container, options) {
     this.container = container
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
     this.overscan = 10
     this.chunkSize = 100
     this.loadingSkeletonMinDuration = 180
@@ -2608,7 +2614,7 @@ class VirtualContactsList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
     this.container.dataset.viewMode = this.viewMode
     var shell = document.querySelector("[data-contact-list-shell]") || document.getElementById("mail-list")
     if (shell) shell.dataset.viewMode = this.viewMode
