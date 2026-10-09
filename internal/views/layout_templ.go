@@ -213,7 +213,11 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"><div id=\"app-shell\" class=\"flex h-screen overflow-hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"><div id=\"app-shell\" class=\"app-shell flex h-screen overflow-hidden\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = MobileTopBar(true).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -250,7 +254,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 58, Col: 203}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 59, Col: 203}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -512,7 +516,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 146, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 147, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -553,13 +557,17 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		var templ_7745c5c3_Var21 string
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 160, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 161, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\"><div id=\"app-shell\" class=\"flex h-screen overflow-hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\"><div id=\"app-shell\" class=\"app-shell flex h-screen overflow-hidden\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = MobileTopBar(false).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -742,7 +750,11 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 			templ_7745c5c3_Var24 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<div id=\"app-shell\" class=\"flex h-screen overflow-hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<div id=\"app-shell\" class=\"app-shell flex h-screen overflow-hidden\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = MobileTopBar(true).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -779,7 +791,7 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 238, Col: 201}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 241, Col: 201}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
@@ -995,7 +1007,7 @@ func ContactsLayout(accounts []models.Account, contacts []models.Contact, select
 		var templ_7745c5c3_Var33 string
 		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 280, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 283, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 		if templ_7745c5c3_Err != nil {
@@ -1084,7 +1096,7 @@ func ContactsLayout(accounts []models.Account, contacts []models.Contact, select
 		var templ_7745c5c3_Var34 string
 		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 306, Col: 117}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 309, Col: 117}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 		if templ_7745c5c3_Err != nil {
@@ -1196,7 +1208,11 @@ func ContactsShell(accounts []models.Account, contacts []models.Contact, selecte
 			templ_7745c5c3_Var36 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<div id=\"app-shell\" class=\"flex h-screen overflow-hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<div id=\"app-shell\" class=\"app-shell flex h-screen overflow-hidden\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = MobileTopBar(true).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1270,7 +1286,7 @@ func AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarSt
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(themeStyle(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 365, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 369, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 		if templ_7745c5c3_Err != nil {
@@ -1355,7 +1371,7 @@ func AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarSt
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(uiSettingsJSON(uiSettings))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 390, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 394, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 		if templ_7745c5c3_Err != nil {
@@ -1444,7 +1460,7 @@ func ResizeHandle(panel string) templ.Component {
 		var templ_7745c5c3_Var43 string
 		templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(panel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 419, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 423, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 		if templ_7745c5c3_Err != nil {
@@ -1479,7 +1495,7 @@ func SavedPanelSizeStyle() templ.Component {
 			templ_7745c5c3_Var44 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "<script>\n\t\t(function() {\n\t\t\tdocument.documentElement.classList.add(\"js\");\n\n\t\t\tvar settings = {};\n\t\t\ttry {\n\t\t\t\tsettings = JSON.parse(localStorage.getItem(\"gofer:ui_settings\") || \"{}\") || {};\n\t\t\t} catch (_) {}\n\n\t\t\tfunction px(value, min, max) {\n\t\t\t\tvar n = parseInt(value, 10);\n\t\t\t\tif (isNaN(n) || n <= 0) return null;\n\t\t\t\tif (max === null || max === undefined) return Math.max(min, n);\n\t\t\t\treturn Math.max(min, Math.min(max, n));\n\t\t\t}\n\n\t\t\tfunction mailListWidth(value) {\n\t\t\t\tvar raw = String(value || \"\").trim();\n\t\t\t\tif (raw.slice(-1) === \"%\") {\n\t\t\t\t\tvar percent = parseFloat(raw);\n\t\t\t\t\tif (!isNaN(percent) && percent > 0) return \"clamp(300px,\" + percent + \"%,calc(100% - 300px))\";\n\t\t\t\t}\n\t\t\t\tvar n = px(raw, 300);\n\t\t\t\treturn n ? n + \"px\" : null;\n\t\t\t}\n\n\t\t\tvar vw = window.innerWidth || 1024;\n\t\t\tvar stacked = settings.mail_pane_layout === \"stacked\";\n\t\t\tvar sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));\n\t\t\tvar mailList = stacked ? px(settings.mail_list_height, 180) : mailListWidth(settings.mail_list_width);\n\t\t\tif (!sidebar && !mailList && !stacked) return;\n\n\t\t\tvar style = document.createElement(\"style\");\n\t\t\tstyle.setAttribute(\"data-saved-panel-size-style\", \"\");\n\t\t\tstyle.textContent = (sidebar ? \"aside{width:\" + sidebar + \"px!important}\" : \"\") + (stacked ? \"#main-content{flex-direction:column}#mail-list{width:100%!important\" + (mailList ? \";height:\" + mailList + \"px!important\" : \"\") + \"}\" : (mailList ? \"#mail-list{width:\" + mailList + \"!important}\" : \"\"));\n\t\t\tdocument.head.appendChild(style);\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "<script>\n\t\t(function() {\n\t\t\tdocument.documentElement.classList.add(\"js\");\n\n\t\t\tvar settings = {};\n\t\t\ttry {\n\t\t\t\tsettings = JSON.parse(localStorage.getItem(\"gofer:ui_settings\") || \"{}\") || {};\n\t\t\t} catch (_) {}\n\n\t\t\tfunction px(value, min, max) {\n\t\t\t\tvar n = parseInt(value, 10);\n\t\t\t\tif (isNaN(n) || n <= 0) return null;\n\t\t\t\tif (max === null || max === undefined) return Math.max(min, n);\n\t\t\t\treturn Math.max(min, Math.min(max, n));\n\t\t\t}\n\n\t\t\tfunction mailListWidth(value) {\n\t\t\t\tvar raw = String(value || \"\").trim();\n\t\t\t\tif (raw.slice(-1) === \"%\") {\n\t\t\t\t\tvar percent = parseFloat(raw);\n\t\t\t\t\tif (!isNaN(percent) && percent > 0) return \"clamp(300px,\" + percent + \"%,calc(100% - 300px))\";\n\t\t\t\t}\n\t\t\t\tvar n = px(raw, 300);\n\t\t\t\treturn n ? n + \"px\" : null;\n\t\t\t}\n\n\t\t\tvar vw = window.innerWidth || 1024;\n\t\t\tvar stacked = settings.mail_pane_layout === \"stacked\";\n\t\t\tvar sidebar = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25));\n\t\t\tvar mailList = stacked ? px(settings.mail_list_height, 180) : mailListWidth(settings.mail_list_width);\n\t\t\tif (!sidebar && !mailList && !stacked) return;\n\n\t\t\tvar style = document.createElement(\"style\");\n\t\t\tstyle.setAttribute(\"data-saved-panel-size-style\", \"\");\n\t\t\t// Saved panel sizes are desktop-only; small screens show one pane at a time.\n\t\t\tstyle.textContent = \"@media (min-width:1024px){\" + (sidebar ? \"aside{width:\" + sidebar + \"px!important}\" : \"\") + (stacked ? \"#main-content{flex-direction:column}#mail-list{width:100%!important\" + (mailList ? \";height:\" + mailList + \"px!important\" : \"\") + \"}\" : (mailList ? \"#mail-list{width:\" + mailList + \"!important}\" : \"\")) + \"}\";\n\t\t\tdocument.head.appendChild(style);\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1512,7 +1528,7 @@ func FolderPartial(accounts []models.Account, emails []models.Email, activeFolde
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<div id=\"mail-view\" class=\"hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk\" hx-swap-oob=\"true\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<div id=\"mail-view\" class=\"hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk\" data-mail-reader hx-swap-oob=\"true\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1585,7 +1601,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 478, Col: 200}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 483, Col: 200}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 		if templ_7745c5c3_Err != nil {

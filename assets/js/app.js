@@ -1305,6 +1305,12 @@ document.addEventListener("DOMContentLoaded", function () {
       if (path && path.match(/^\/folder\//)) clearMailSelection()
     })
 
+    // Closing the reader drops the selection that opening the email seeded.
+    document.addEventListener("gofer:mail-view-closed", function (evt) {
+      var emailId = evt.detail && evt.detail.emailId
+      if (selectedMailIds.size === 1 && selectedMailIds.has(emailId)) clearMailSelection()
+    })
+
     document.body.addEventListener("htmx:afterSettle", function () {
       seedMailSelectionFromActive()
       syncMailDeleteActionState()
@@ -4647,8 +4653,8 @@ document.addEventListener("DOMContentLoaded", function () {
       '</div>' +
       '</div>' +
       '<div class="resize-handle" data-panel="maillist" draggable="false"></div>' +
-      '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">' +
-      '<div class="flex flex-col items-center justify-center h-full text-center p-8">' +
+      '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>' +
+      '<div class="flex flex-col items-center justify-center h-full text-center p-8" data-mail-view-empty>' +
       '<h3 class="text-lg font-semibold mb-2">Select an email</h3>' +
       '<p class="text-sm text-muted-foreground">Choose a message from the list to read it.</p>' +
       '</div>' +
@@ -5985,7 +5991,7 @@ function setMailViewEmpty() {
   var mailView = document.getElementById("mail-view")
   if (!mailView) return
   mailView.innerHTML =
-    '<div class="flex flex-col items-center justify-center h-full text-center">' +
+    '<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty>' +
       '<div class="space-y-4 animate-fade-in">' +
         '<div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised">' +
           '<svg class="size-9 text-muted-foreground/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>' +
@@ -5996,6 +6002,43 @@ function setMailViewEmpty() {
         '</div>' +
       '</div>' +
     '</div>'
+}
+
+// Returns from the full-screen reader to the list on small screens.
+function closeMobileMailView() {
+  if (history.state && history.state.email && history.state.fromList) {
+    history.back()
+    return
+  }
+  var container = document.getElementById("mail-list-scroll")
+  var vml = container && container._virtualMailList
+  if (vml) {
+    var emailId = vml.selectedEmailId
+    vml.selectedEmailId = null
+    vml.syncSelectionClasses(vml.itemsContainer)
+    vml.replaceUrl()
+    document.dispatchEvent(new CustomEvent("gofer:mail-view-closed", { detail: { emailId: emailId } }))
+  }
+  setMailViewEmpty()
+}
+
+// Returns from the full-screen contact to the list on small screens. The list keeps the
+// selected contact in its history entries, so this clears the selection in place rather
+// than going back.
+function closeMobileContactView() {
+  var scroll = document.getElementById("contacts-list-scroll")
+  var list = scroll && scroll._virtualContactsList
+  if (list) {
+    list.selectedContactId = null
+    list.render()
+    list.updateURLForState()
+  }
+  var detail = document.getElementById("contacts-detail")
+  if (detail) {
+    detail.innerHTML = ""
+    detail.removeAttribute("data-contact-detail-id")
+    detail.setAttribute("data-mail-view-empty", "")
+  }
 }
 
 function showSendStatus(status, text) {
@@ -12627,6 +12670,8 @@ function _activeComposeCanBeReplaced() {
 }
 
 function composeViewPreference(kind) {
+  // The pane and full-width views need the list beside them; small screens use the dialog.
+  if (window.matchMedia && window.matchMedia("(max-width: 1023.98px)").matches) return "dialog"
   var key = kind === "reply" ? "default_reply_compose_view" : "default_new_compose_view"
   var view = window.GoferSettings ? GoferSettings.get(key) : null
   if (!view && window.GoferSettings) view = GoferSettings.get("default_compose_view")
@@ -13615,13 +13660,13 @@ function composeOpeningShellHTML() {
     '</div>' +
   '</div>' +
   '<div class="resize-handle" data-panel="maillist" draggable="false"></div>' +
-  '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">' + composeOpeningHTML() + '</div>'
+  '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>' + composeOpeningHTML() + '</div>'
 }
 
 function composeOpeningFullShellHTML() {
   return '<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style="display:none;width:0px;opacity:0;overflow:hidden;border-width:0"></div>' +
     '<div class="resize-handle" data-panel="maillist" draggable="false" style="display:none;opacity:0"></div>' +
-    '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">' + composeOpeningHTML() + '</div>'
+    '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>' + composeOpeningHTML() + '</div>'
 }
 
 function mergeFolderShellBehindCompose(folderID, fullWidth) {

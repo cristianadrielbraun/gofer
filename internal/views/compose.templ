@@ -23,7 +23,7 @@ templ ComposeDialog(accounts []models.Account) {
 			<span></span>
 		}
 		@dialog.Content(dialog.ContentProps{
-			Class:           "sm:max-w-4xl w-full h-[80vh] min-h-[250px] flex flex-col",
+			Class:           "sm:max-w-4xl w-full h-[80vh] min-h-[250px] flex flex-col max-lg:!h-dvh max-lg:!max-h-none max-lg:!w-screen max-lg:!max-w-none max-lg:!rounded-none max-lg:!border-0",
 			HideCloseButton: true,
 		}) {
 			@dialog.Header() {
@@ -32,7 +32,7 @@ templ ComposeDialog(accounts []models.Account) {
 				}
 			}
 			<div class="absolute top-4 right-4 flex items-center gap-1">
-				<button type="button" onclick="expandToPane()" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent" aria-label="Compose inline">
+				<button type="button" onclick="expandToPane()" class="hidden lg:inline-flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent" aria-label="Compose inline">
 					@icon.PanelLeftOpen(icon.Props{Class: "size-3.5"})
 					Compose inline
 				</button>

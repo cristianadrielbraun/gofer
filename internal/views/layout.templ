@@ -52,7 +52,8 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@AppSidebarResponsiveStyle()
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) } data-initial-email-id={ initialEmailID }>
-			<div id="app-shell" class="flex h-screen overflow-hidden">
+			<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
+				@MobileTopBar(true)
 				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount, filters)
 				@ResizeHandle("sidebar")
 				<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
@@ -158,7 +159,8 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			@AppSidebarResponsiveStyle()
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
-			<div id="app-shell" class="flex h-screen overflow-hidden">
+			<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
+				@MobileTopBar(false)
 				@SettingsSidebar(activeTab, uiSettingGet(uiSettings, "sidebar_width", "256px"))
 				@ResizeHandle("sidebar")
 				<div id="main-content" class="flex flex-1 min-w-0">
@@ -232,7 +234,8 @@ templ SettingsRuntime(accounts []models.Account) {
 }
 
 templ MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
-	<div id="app-shell" class="flex h-screen overflow-hidden">
+	<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
+		@MobileTopBar(true)
 		@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount, filters)
 		@ResizeHandle("sidebar")
 		<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
@@ -353,7 +356,8 @@ templ AppSidebarResponsiveStyle() {
 }
 
 templ ContactsShell(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
-	<div id="app-shell" class="flex h-screen overflow-hidden">
+	<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
+		@MobileTopBar(true)
 		@ContactsSidebar(accounts, "contacts", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, filters)
 		@ResizeHandle("sidebar")
 		@ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts)
@@ -456,7 +460,8 @@ templ SavedPanelSizeStyle() {
 
 			var style = document.createElement("style");
 			style.setAttribute("data-saved-panel-size-style", "");
-			style.textContent = (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (stacked ? "#main-content{flex-direction:column}#mail-list{width:100%!important" + (mailList ? ";height:" + mailList + "px!important" : "") + "}" : (mailList ? "#mail-list{width:" + mailList + "!important}" : ""));
+			// Saved panel sizes are desktop-only; small screens show one pane at a time.
+			style.textContent = "@media (min-width:1024px){" + (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (stacked ? "#main-content{flex-direction:column}#mail-list{width:100%!important" + (mailList ? ";height:" + mailList + "px!important" : "") + "}" : (mailList ? "#mail-list{width:" + mailList + "!important}" : "")) + "}";
 			document.head.appendChild(style);
 		})();
 	</script>
@@ -464,7 +469,7 @@ templ SavedPanelSizeStyle() {
 
 templ FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, scrollCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, filters models.EmailFilters) {
 	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
-	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" hx-swap-oob="true">
+	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader hx-swap-oob="true">
 		if selectedEmail != nil {
 			@MailViewContent(selectedEmail, selectedThread)
 		} else {

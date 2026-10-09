@@ -133,7 +133,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " <div class=\"absolute top-4 right-4 flex items-center gap-1\"><button type=\"button\" onclick=\"expandToPane()\" class=\"inline-flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent\" aria-label=\"Compose inline\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " <div class=\"absolute top-4 right-4 flex items-center gap-1\"><button type=\"button\" onclick=\"expandToPane()\" class=\"hidden lg:inline-flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent\" aria-label=\"Compose inline\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -501,7 +501,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 				return nil
 			})
 			templ_7745c5c3_Err = dialog.Content(dialog.ContentProps{
-				Class:           "sm:max-w-4xl w-full h-[80vh] min-h-[250px] flex flex-col",
+				Class:           "sm:max-w-4xl w-full h-[80vh] min-h-[250px] flex flex-col max-lg:!h-dvh max-lg:!max-h-none max-lg:!w-screen max-lg:!max-w-none max-lg:!rounded-none max-lg:!border-0",
 				HideCloseButton: true,
 			}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {

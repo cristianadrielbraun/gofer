@@ -1139,7 +1139,6 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, selected
 		@ContactsListPane(contacts, selected, filters, totalCount, width, accounts)
 		@ResizeHandle("maillist")
 		@ContactsViewPane(selected, selectedProfile, showNew, syncQueued, accounts)
-		@ContactsMobileDetail(selected, selectedProfile, showNew, syncQueued, accounts)
 	</div>
 }
 
@@ -1396,20 +1395,8 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 }
 
 templ ContactsViewPane(selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, accounts []models.Account) {
-	<section id="mail-view" class="hidden flex-1 min-w-0 bg-background surface-desk xl:flex xl:flex-col">
+	<section id="mail-view" class="hidden flex-1 min-w-0 bg-background surface-desk lg:flex lg:flex-col" data-mail-reader>
 		@ContactsDetail(selected, selectedProfile, showNew, syncQueued, accounts)
-	</section>
-}
-
-templ ContactsMobileDetail(selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, accounts []models.Account) {
-	<section class="flex flex-1 min-w-0 xl:hidden">
-		if selected != nil || showNew {
-			<div class="flex-1 overflow-y-auto p-6">
-				@ContactEditor(selected, selectedProfile, syncQueued, accounts)
-			</div>
-		} else {
-			@ContactsEmptyDetail()
-		}
 	</section>
 }
 
@@ -1597,9 +1584,16 @@ templ ContactsDetail(contact *models.Contact, profile *models.ContactProfile, sh
 		if contact != nil {
 			data-contact-detail-id={ contact.ID }
 		}
+		if contact == nil && !showNew {
+			data-mail-view-empty
+		}
 	>
 		if contact != nil || showNew {
-			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
+			<button type="button" class="mobile-back-button mb-2 h-9 items-center gap-1.5 self-start rounded-md px-2 text-sm font-semibold text-muted-foreground hover:bg-muted" onclick="closeMobileContactView()">
+				@icon.ArrowLeft(icon.Props{Class: "size-4"})
+				Contacts
+			</button>
+			<div class="surface-paper rounded-md flex flex-col min-h-0 flex-1 overflow-hidden">
 				@ContactEditor(contact, profile, syncQueued, accounts)
 			</div>
 		} else {

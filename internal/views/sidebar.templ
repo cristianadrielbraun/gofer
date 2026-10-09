@@ -16,7 +16,7 @@ import (
 )
 
 templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string, scheduledCount int, filters models.EmailFilters) {
-	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
+	<aside class="app-drawer flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
 		@SidebarHeader(accounts, "mail")
 		@MailSidebarBody(accounts, activeFolder, uiSettings, scheduledCount, filters)
 		@SidebarFooter()
@@ -24,7 +24,7 @@ templ Sidebar(accounts []models.Account, activeFolder string, width string, uiSe
 }
 
 templ ContactsSidebar(accounts []models.Account, activeFolder string, width string, uiSettings map[string]string, filters models.ContactFilters) {
-	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
+	<aside class="app-drawer flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
 		@SidebarHeader(accounts, "contacts")
 		@ContactsSidebarBody(accounts, activeFolder, uiSettings, filters)
 		@SidebarFooter()
@@ -250,7 +250,7 @@ func contactSidebarBookName(book models.ContactAddressBook) string {
 }
 
 templ SettingsSidebar(activeTab string, width string) {
-	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width }>
+	<aside class="app-drawer flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width }>
 		<div class="px-4 pt-5 pb-4">
 			<div class="flex items-center gap-2.5 mb-5">
 				<img src="/assets/logo.svg" alt="Gofer" class="h-8 w-8 shrink-0"/>
@@ -446,7 +446,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 						}
 					}
 				}
-				@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+				@popover.Root(popover.RootProps{Class: "hidden shrink-0 lg:block"}) {
 					@popover.Trigger() {
 						<button
 							type="button"
@@ -531,7 +531,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 						}
 					}
 				}
-				@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+				@popover.Root(popover.RootProps{Class: "hidden shrink-0 lg:block"}) {
 					@popover.Trigger() {
 						<button
 							type="button"
@@ -969,7 +969,7 @@ templ SidebarFooter() {
 				</span>
 				<span class="truncate">Settings</span>
 			</a>
-			@popover.Root(popover.RootProps{Class: "shrink-0"}) {
+			@popover.Root(popover.RootProps{Class: "hidden shrink-0 lg:block"}) {
 				@popover.Trigger() {
 					<button
 						type="button"
@@ -1023,4 +1023,25 @@ templ WebmailSidebarLogout() {
 			</button>
 		</form>
 	}
+}
+
+// MobileTopBar replaces the sidebar on small screens, where the sidebar becomes a drawer.
+templ MobileTopBar(showCompose bool) {
+	<header class="mobile-topbar surface-leather text-sidebar-foreground" data-mobile-topbar>
+		<button type="button" class="mobile-topbar-button" data-mobile-nav-toggle aria-label="Open navigation" aria-expanded="false">
+			@icon.Menu(icon.Props{Class: "size-5"})
+		</button>
+		<a href="/" class="flex min-w-0 items-center gap-2">
+			<img src="/assets/logo.svg" alt="" class="h-7 w-7 shrink-0"/>
+			<span class="truncate text-base font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Gofer</span>
+		</a>
+		<div class="flex-1"></div>
+		if showCompose {
+			<button type="button" class="mobile-topbar-button" onclick="openNewCompose()" aria-label="Compose">
+				@icon.Pen(icon.Props{Class: "size-5"})
+			</button>
+		}
+	</header>
+	<div class="mobile-nav-backdrop" data-mobile-nav-close aria-hidden="true"></div>
+	<script src="/assets/js/mobile-nav.js"></script>
 }

@@ -3302,3 +3302,137 @@ body.mail-list-column-resizing {
 [data-calendar-description-editor]:focus-within::before {
   --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(var(--ring-width) + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
 }
+
+/* === SMALL SCREENS ===
+   Below the lg breakpoint the sidebar becomes a drawer opened from a top bar, and
+   two-pane sections show one pane at a time. */
+
+.mobile-topbar,
+.mobile-nav-backdrop,
+.mobile-back-button {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  .app-shell {
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  .app-shell > .resize-handle,
+  #main-content > .resize-handle {
+    display: none;
+  }
+
+  .app-shell > #main-content {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .mobile-topbar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.5rem;
+    height: calc(3.25rem + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 0.5rem 0 calc(0.5rem + env(safe-area-inset-left));
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+
+  .mobile-topbar-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: none;
+    border-radius: var(--radius-md);
+  }
+
+  .mobile-topbar-button:active {
+    background: color-mix(in oklab, var(--sidebar-accent) 70%, transparent);
+  }
+
+  .app-drawer {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    z-index: 46;
+    width: min(20rem, 86vw) !important;
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 0 2rem rgb(0 0 0 / 0.3);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition: transform 220ms ease, visibility 0s linear 220ms;
+  }
+
+  html[data-mobile-nav-open] .app-drawer {
+    transform: none;
+    visibility: visible;
+    transition: transform 220ms ease;
+  }
+
+  .mobile-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: rgb(0 0 0 / 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+  }
+
+  html[data-mobile-nav-open] .mobile-nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  html[data-mobile-nav-open] body {
+    overflow: hidden;
+  }
+
+  /* One pane at a time: the list fills the screen until something is opened. */
+  #main-content > #mail-list {
+    width: 100% !important;
+    height: auto !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  /* The list keeps its box while hidden so its scroll position and virtual rows survive. */
+  #main-content:has(> [data-mail-reader] > :not([data-mail-view-empty])) {
+    position: relative;
+  }
+
+  #main-content:has(> [data-mail-reader] > :not([data-mail-view-empty])) > #mail-list {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+  }
+
+  #main-content:has(> [data-mail-reader] > :not([data-mail-view-empty])) > [data-mail-reader] {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .app-shell:has(> #main-content > [data-mail-reader] > :not([data-mail-view-empty])) > .mobile-topbar {
+    display: none;
+  }
+
+  .mobile-back-button {
+    display: inline-flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-drawer,
+  .mobile-nav-backdrop {
+    transition: none !important;
+  }
+}

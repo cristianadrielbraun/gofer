@@ -2193,7 +2193,9 @@ class VirtualMailList {
     var query = this.filterQueryString()
     if (query) path += "?" + query
     if (window.location.pathname + window.location.search !== path) {
-      history.pushState({ folder: this.folderID, email: this.selectedEmailId }, "", path)
+      // fromList lets the small-screen back button return to the list with history.back().
+      var fromList = !!this.selectedEmailId && !(history.state && history.state.email)
+      history.pushState({ folder: this.folderID, email: this.selectedEmailId, fromList: fromList }, "", path)
     }
   }
 
@@ -3456,6 +3458,12 @@ window.addEventListener("popstate", function (e) {
   } else if (navigationStateChanged) {
     vml.refreshCurrentFolder({ rebase: true }).catch(function () {})
     updateSidebarActive()
+  } else if (!e.state.email && vml.selectedEmailId) {
+    var closedEmailId = vml.selectedEmailId
+    vml.selectedEmailId = null
+    vml.syncSelectionClasses(vml.itemsContainer)
+    if (typeof setMailViewEmpty === "function") setMailViewEmpty()
+    document.dispatchEvent(new CustomEvent("gofer:mail-view-closed", { detail: { emailId: closedEmailId } }))
   } else if (e.state.email && e.state.email !== vml.selectedEmailId) {
     vml.selectedEmailId = e.state.email
     vml.prevFirst = null

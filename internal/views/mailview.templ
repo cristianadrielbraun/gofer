@@ -85,7 +85,7 @@ func shouldShowAttachment(att models.Attachment) bool {
 }
 
 templ MailView(email *models.Email, thread []models.ThreadItem) {
-	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">
+	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>
 		if email != nil {
 			@MailViewContent(email, thread)
 		} else {
@@ -95,7 +95,7 @@ templ MailView(email *models.Email, thread []models.ThreadItem) {
 }
 
 templ MailViewLoading() {
-	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk">
+	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>
 		<div class="flex flex-col h-full p-2">
 			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 				<div class="flex items-center justify-between px-6 py-2.5">
@@ -473,6 +473,9 @@ templ MailViewThreadItemActions(item *models.ThreadItem) {
 templ MailViewHeader(email *models.Email) {
 	<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">
 		<div class="mail-view-actions flex items-center gap-1 min-w-0">
+			<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink/60 hover:bg-ink/5" onclick="closeMobileMailView()" aria-label="Back to list">
+				@icon.ArrowLeft(icon.Props{Class: "size-5"})
+			</button>
 			@tooltip.Tooltip() {
 				@tooltip.Trigger() {
 					@button.Button(button.Props{
@@ -971,7 +974,7 @@ templ MailViewDraftBar(email *models.Email) {
 }
 
 templ MailViewEmpty() {
-	<div class="flex flex-col items-center justify-center h-full text-center">
+	<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty>
 		<div class="space-y-4 animate-fade-in">
 			<div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised">
 				@icon.Mail(icon.Props{Class: "size-9 text-muted-foreground/30"})

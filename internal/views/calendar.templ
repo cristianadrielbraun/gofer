@@ -56,7 +56,8 @@ templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSetti
 }
 
 templ CalendarShell(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
-	<div id="app-shell" class="flex h-screen overflow-hidden">
+	<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
+		@MobileTopBar(true)
 		@CalendarSidebar(accounts, uiSettingGet(uiSettings, "sidebar_width", "256px"))
 		@ResizeHandle("sidebar")
 		@CalendarPage(month, uiSettings)
@@ -64,7 +65,7 @@ templ CalendarShell(accounts []models.Account, month CalendarMonthData, uiSettin
 }
 
 templ CalendarSidebar(accounts []models.Account, width string) {
-	<aside class="hidden lg:flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
+	<aside class="app-drawer flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width } data-app-sidebar>
 		@SidebarHeader(accounts, "calendar")
 		@CalendarSidebarBody(accounts)
 		@SidebarFooter()
