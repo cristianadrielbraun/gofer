@@ -14650,20 +14650,41 @@ function applyEmailBodyTheme(targetFrame) {
   if (!original && link) params.set("link", link)
   if (iframe.dataset.remoteLoaded === "true") params.set("remote", "true")
   if (emailBodyWantsLargeText()) params.set("text", "large")
-  iframe.src = iframe.dataset.translationActive === "true" ?
+  setEmailBodyFrameSrc(iframe, iframe.dataset.translationActive === "true" ?
     translatedEmailBodyURL(iframe, theme, bg, fg, link, original) :
-    "/email/" + iframe.dataset.emailId + "/body?" + params.toString()
+    "/email/" + iframe.dataset.emailId + "/body?" + params.toString())
   updateEmailBodySchemeButton(iframe, baseTheme, theme, bodyMode)
+}
+
+// Reloading the body by assigning a new src adds an entry to the page's history, so
+// Back would step through every restyle, translation or remote-content load before
+// leaving the message. After the first load the frame's location is replaced instead,
+// and the current address is kept in data-body-src, since src then goes stale.
+function setEmailBodyFrameSrc(iframe, url) {
+  var absolute = new URL(url, window.location.origin).toString()
+  if (iframe.getAttribute("src") && iframe.contentWindow) {
+    try {
+      iframe.contentWindow.location.replace(absolute)
+      iframe.dataset.bodySrc = absolute
+      return
+    } catch (e) {}
+  }
+  iframe.dataset.bodySrc = absolute
+  iframe.src = absolute
+}
+
+function emailBodyFrameSrc(iframe) {
+  return iframe.dataset.bodySrc || iframe.src
 }
 
 function loadRemoteContent(emailId) {
   var iframe = document.querySelector('[data-email-body-frame][data-email-id="' + emailId + '"]')
   if (!iframe) return
-  var src = iframe.src
+  var src = emailBodyFrameSrc(iframe)
   if (!src) return
   var url = new URL(src, window.location.origin)
   url.searchParams.set("remote", "true")
-  iframe.src = url.toString()
+  setEmailBodyFrameSrc(iframe, url.toString())
   var banner = document.querySelector('[data-remote-content-banner="' + emailId + '"]')
   if (banner) banner.remove()
   iframe.dataset.remoteLoaded = "true"
@@ -14682,10 +14703,10 @@ function allowRemoteContent(emailId, mode) {
     .then(function () {
       if (banner) banner.remove()
       if (iframe) iframe.dataset.remoteLoaded = "true"
-      if (iframe && iframe.src) {
-        var url = new URL(iframe.src, window.location.origin)
+      if (iframe && emailBodyFrameSrc(iframe)) {
+        var url = new URL(emailBodyFrameSrc(iframe), window.location.origin)
         url.searchParams.set("remote", "true")
-        iframe.src = url.toString()
+        setEmailBodyFrameSrc(iframe, url.toString())
       }
     })
     .catch(function () {})
