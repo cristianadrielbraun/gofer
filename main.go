@@ -266,10 +266,39 @@ func provisionInitialSetupToken(ctx context.Context, manager *auth.Manager, conf
 	if provision.State.TokenExpiresAt != nil {
 		fmt.Fprintf(&notice, " Expires: %s (server local time)\n", provision.State.TokenExpiresAt.Local().Format("2006-01-02 15:04:05 MST (UTC-07:00)"))
 	}
-	notice.WriteString("\n Lost or expired token? Stop Gofer, then run:\n ./gofer auth setup-token rotate\n Use the same GOFER_DB_PATH, then restart Gofer.\n────────────────────────────────────────────────────────────\n\n")
+	notice.WriteString("\n Lost or expired token? Stop Gofer, then run:\n ./gofer auth setup-token rotate\n Use the same GOFER_DB_PATH, then restart Gofer.\n")
+	if err := writeLocalProfileNotice(ctx, manager, &notice); err != nil {
+		return err
+	}
+	notice.WriteString("────────────────────────────────────────────────────────────\n\n")
 	if _, err := io.WriteString(console, notice.String()); err != nil {
 		return fmt.Errorf("write setup notice to local console: %w", err)
 	}
+	return nil
+}
+
+// A converted open or personal installation keeps its profile as a regular
+// user. Setup creates a separate administrator; a profile without credentials
+// gets a fresh link to set its first password on each start until setup ends.
+func writeLocalProfileNotice(ctx context.Context, manager *auth.Manager, notice *strings.Builder) error {
+	profile, err := manager.PendingLocalProfile(ctx)
+	if err != nil || profile == nil {
+		return err
+	}
+	base := strings.TrimRight(manager.Config().BaseURL, "/")
+	notice.WriteString("\n This installation was converted from open or personal mode.\n Setup creates a new administrator account. Your existing profile\n")
+	fmt.Fprintf(notice, " %q keeps its mailboxes and becomes a regular user.\n", profile.Username)
+	if profile.HasCredentials {
+		notice.WriteString(" It signs in with the same credentials as before.\n")
+		return nil
+	}
+	token, err := manager.IssueLocalProfilePasswordLink(ctx)
+	if err != nil {
+		return fmt.Errorf("issue local profile password token: %w", err)
+	}
+	fmt.Fprintf(notice, "\n It has no password yet. To set one, open: %s/account/enroll\n reset_token: %s\n Expires: %s (server local time)\n",
+		base, token.Token, token.ExpiresAt.Local().Format("2006-01-02 15:04:05 MST (UTC-07:00)"))
+	notice.WriteString(" Restarting Gofer before setup issues a new token; afterwards, an\n administrator can send one from the Users page.\n")
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -82,6 +83,11 @@ func newManagedApplication(parent context.Context, path string, maxOpen int) (re
 		return nil, err
 	}
 	app.auth = auth.NewManager(authConfig, s.central, auth.Dependencies{BucketHashKey: s.key})
+	if adopted, err := app.auth.AdoptLocalProfileForManagedSetup(ctx); err != nil {
+		return nil, err
+	} else if adopted {
+		log.Printf("auth: the personal profile is now a regular user; managed setup will create an administrator")
+	}
 	if err := app.auth.ValidateRuntimeMode(ctx); err != nil {
 		return nil, err
 	}

@@ -438,3 +438,123 @@ func TestSharedRuntimeRefusesRetiredOriginal(t *testing.T) {
 		t.Fatal("shared runtime would start over without the retired original", err)
 	}
 }
+
+func TestManagedStorageStartsFromAnotherWorkingDirectory(t *testing.T) {
+	options, _, key := migrationCommandFixture(t)
+	root := filepath.Dir(options.SourcePath)
+	relative := filepath.Join("accounts", "oauth-mail", "messages", "1", "raw.eml")
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(relative)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, relative), []byte("retained message"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := storage.New(options.SourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO messages(id,account_id,raw_path) VALUES(1,'oauth-mail',?)`, relative); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The shared layout stored the path relative to the directory it ran from.
+	options.WorkingDirectory = root
+	if _, err := storage.MigrateUserStorage(t.Context(), options); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOFER_SECRET_KEY", hex.EncodeToString(key))
+	t.Chdir(t.TempDir())
+	s, err := openManagedStorage(t.Context(), options.DestinationPath, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	lease, err := s.stores.AcquireExisting(t.Context(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	err = lease.DB().Read().QueryRowContext(t.Context(), `SELECT raw_path FROM messages WHERE id=1`).Scan(&raw)
+	lease.Release()
+	if err != nil || raw != filepath.Join(s.layout.BlobDirectory, "oauth-mail", "messages", "1", "raw.eml") {
+		t.Fatal("retained path not made absolute", raw, err)
+	}
+	if content, err := os.ReadFile(raw); err != nil || string(content) != "retained message" {
+		t.Fatal("retained file unreachable", err)
+	}
+}
+
+func TestManagedStorageRefusesForeignOwnedDatabaseWithoutChanges(t *testing.T) {
+	options, _, _ := migrationCommandFixture(t)
+	path := options.SourcePath
+	db, err := storage.New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('default','myself','myself');
+ INSERT INTO auth_system_state(id,initialized,owner_user_id) VALUES(1,1,'default') ON CONFLICT(id) DO UPDATE SET initialized=1,owner_user_id='default'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := openManagedStorage(t.Context(), path, 1); err == nil {
+		s.Close()
+		t.Fatal("converted an installation owned by a regular user")
+	} else if !strings.Contains(err.Error(), "cannot be converted") {
+		t.Fatal("unexpected failure", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runApplication(t.Context(), []string{"storage", "migrate", "--db", path, "--to", options.DestinationPath}, &stdout, &stderr, func() {}); code == 0 || !strings.Contains(stderr.String(), "cannot be converted") {
+		t.Fatal("migration command converted an installation owned by a regular user", code, stderr.String())
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("refused database changed", err)
+	}
+	for _, leftover := range []string{path + ".shared", path + ".migration.json", path + ".layout.json", path + ".users", options.DestinationPath} {
+		if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("refused conversion left files behind", leftover, err)
+		}
+	}
+	if err := storage.VerifySharedStorageRuntime(t.Context(), path); err != nil {
+		t.Fatal("refused database no longer opens as shared storage", err)
+	}
+}
+
+func TestManagedStorageConversionFromAnotherDirectoryLeavesOriginal(t *testing.T) {
+	options, _, _ := migrationCommandFixture(t)
+	path := options.SourcePath
+	relative := filepath.Join("accounts", "oauth-mail", "messages", "1", "raw.eml")
+	db, err := storage.New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO messages(id,account_id,raw_path) VALUES(1,'oauth-mail',?)`, relative); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	if s, err := openManagedStorage(t.Context(), path, 1); err == nil {
+		s.Close()
+		t.Fatal("converted with paths resolved from the wrong directory")
+	} else if !strings.Contains(err.Error(), "run Gofer from the directory the previous version was started from") {
+		t.Fatal("unhelpful failure", err)
+	}
+	for _, leftover := range []string{path + ".shared", path + ".migration.json", path + ".layout.json", path + ".users", path + ".staging"} {
+		if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("refused conversion left files behind", leftover, err)
+		}
+	}
+	if err := storage.VerifySharedStorageRuntime(t.Context(), path); err != nil {
+		t.Fatal("original no longer opens as shared storage", err)
+	}
+}

@@ -15,7 +15,8 @@ import (
 
 // UpgradeUserStorageLayout brings a completed layout's central database and
 // every present user database to CurrentSchemaVersion with the ordinary schema
-// upgrades, then restores each user database's boundary guards. The caller
+// upgrades, then restores each user database's boundary guards and makes its
+// retained file paths absolute. The caller
 // holds the source and central runtime locks; the user manager lock is held
 // here, so no user database is open. Upgrade steps commit with their version,
 // so an interrupted upgrade resumes on the next start. Newer schemas, written
@@ -58,6 +59,9 @@ func UpgradeUserStorageLayout(ctx context.Context, path string) (err error) {
 		}
 		if err := upgradeStorageDatabase(ctx, filename, owner); err != nil {
 			return fmt.Errorf("upgrade user database %s: %w", filepath.Base(filename), err)
+		}
+		if err := absolutizeStoredPaths(ctx, filename, layout); err != nil {
+			return fmt.Errorf("resolve retained file paths in %s: %w", filepath.Base(filename), err)
 		}
 	}
 	return nil

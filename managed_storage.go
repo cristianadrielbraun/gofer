@@ -82,6 +82,8 @@ func openManagedStorage(ctx context.Context, path string, maxOpen int) (result *
 	if err != nil {
 		return nil, err
 	}
+	// Upgrades schemas and makes retained file paths absolute, so later
+	// starts do not depend on the original working directory.
 	if err := storage.UpgradeUserStorageLayout(ctx, path); err != nil {
 		return nil, fmt.Errorf("upgrade per-user storage: %w", err)
 	}
@@ -91,21 +93,6 @@ func openManagedStorage(ctx context.Context, path string, maxOpen int) (result *
 	}
 	if s.layout != metadata {
 		return nil, errors.New("storage layout changed while acquiring runtime locks")
-	}
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	workingDirectory, err = filepath.EvalSymlinks(workingDirectory)
-	if err != nil {
-		return nil, err
-	}
-	retainedDirectory, err := filepath.EvalSymlinks(s.layout.WorkingDirectory)
-	if err != nil {
-		return nil, err
-	}
-	if workingDirectory != retainedDirectory {
-		return nil, fmt.Errorf("start Gofer from the retained working directory %q", s.layout.WorkingDirectory)
 	}
 	s.key, err = loadExistingMigrationKey(s.layout.SourcePath)
 	if err != nil {
@@ -182,8 +169,12 @@ func initializeManagedStorage(ctx context.Context, path string) (err error) {
 	case original && retired:
 		return fmt.Errorf("managed storage cannot start: both %q and %q exist", path, source)
 	case original:
-		// Never move the original aside without the application key it needs.
+		// Never move the original aside without the application key it needs,
+		// or convert an installation managed mode would then refuse to open.
 		if _, err := loadExistingMigrationKey(source); err != nil {
+			return err
+		}
+		if err := requireManagedSharedDatabase(ctx, path); err != nil {
 			return err
 		}
 		log.Printf("storage: migrating shared database %s to per-user storage; the original is kept at %s", path, source)
@@ -194,6 +185,9 @@ func initializeManagedStorage(ctx context.Context, path string) (err error) {
 	case retired:
 		// Interrupted after retiring the original, or during a fresh install.
 		// Nothing proves this file was moved here by Gofer, so it stays put.
+		if err := requireManagedSharedDatabase(ctx, source); err != nil {
+			return err
+		}
 		return migrateManagedStorage(ctx, source, path, false, false)
 	}
 	key, err := initializeManagedKey(source)
@@ -253,6 +247,20 @@ func migrateManagedStorage(ctx context.Context, source, path string, retry, rest
 		return err
 	}
 	log.Printf("storage: per-user storage migration completed in %s", time.Since(started).Round(time.Second))
+	return nil
+}
+
+// Open and personal installations convert with their local profile becoming a
+// regular user. Anything else that managed mode would refuse to open stays
+// shared; the original is checked read-only and left in place.
+func requireManagedSharedDatabase(ctx context.Context, path string) error {
+	convertible, err := storage.SharedDatabaseConvertible(ctx, path)
+	if err != nil {
+		return err
+	}
+	if !convertible {
+		return fmt.Errorf("%s is owned by a user who is not an administrator and cannot be converted for managed mode; start Gofer in its previous mode (nothing was changed)", path)
+	}
 	return nil
 }
 

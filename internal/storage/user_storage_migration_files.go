@@ -73,6 +73,7 @@ func InspectUserStorageMigrationFiles(ctx context.Context, source *DB, workingDi
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		stored := path
 		if avatar {
 			if filepath.IsAbs(path) || !filepath.IsLocal(path) {
 				return errors.New("migration avatar path escapes the cache namespace")
@@ -84,6 +85,9 @@ func InspectUserStorageMigrationFiles(ctx context.Context, source *DB, workingDi
 		path = filepath.Clean(path)
 		relative, err := filepath.Rel(base, path)
 		if err != nil || !filepath.IsLocal(relative) || relative == "." {
+			if !avatar && !filepath.IsAbs(stored) {
+				return fmt.Errorf("a stored file path does not resolve inside %s from the working directory %s; run Gofer from the directory the previous version was started from", base, workingDirectory)
+			}
 			return errors.New("migration file path escapes the blob namespace")
 		}
 		parts := strings.Split(relative, string(os.PathSeparator))

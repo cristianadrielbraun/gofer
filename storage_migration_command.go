@@ -71,6 +71,12 @@ func runStorageMigrationCommand(ctx context.Context, args []string, stdout, stde
 		fmt.Fprintf(stderr, "storage migration failed: %v\n", err)
 		return 1
 	}
+	if !*retry {
+		if err := requireManagedSharedDatabase(ctx, *source); err != nil {
+			fmt.Fprintf(stderr, "storage migration failed: %v\n", err)
+			return 1
+		}
+	}
 	options := migrationOptions(*source, *destination, key)
 	options.WorkingDirectory = *workingDirectory
 	options.Retry = *retry

@@ -187,3 +187,30 @@ func RestoreSharedDatabase(path, retired string) (err error) {
 	}
 	return migrationSyncDirectory(filepath.Dir(path))
 }
+
+// SharedDatabaseConvertible reports whether managed mode can take over a
+// shared database: it was set up in managed mode, never set up (open mode), or
+// set up in personal mode with the local profile as its only user. Managed
+// startup reopens setup for that profile; any other owner is refused.
+func SharedDatabaseConvertible(ctx context.Context, path string) (convertible bool, err error) {
+	db, err := openReadOnlyDB(path)
+	if err != nil {
+		return false, err
+	}
+	defer func() { err = errors.Join(err, db.Close()) }()
+	// Schemas predating authentication have no owner to check.
+	var columns int
+	if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM pragma_table_info('auth_system_state') WHERE name IN ('initialized','owner_user_id'))+(SELECT count(*) FROM pragma_table_info('users') WHERE name='user_type')`).Scan(&columns); err != nil {
+		return false, err
+	}
+	if columns != 3 {
+		return true, nil
+	}
+	// Personal setup makes the local profile the owner while it is the only
+	// user; anything else owned by a non-administrator is not convertible.
+	var foreign bool
+	err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM auth_system_state s JOIN users u ON u.id=s.owner_user_id
+ WHERE s.id=1 AND s.initialized=1 AND u.user_type<>'management'
+ AND NOT (u.id='default' AND u.user_type='webmail' AND u.is_admin=0 AND (SELECT count(*) FROM users)=1))`).Scan(&foreign)
+	return !foreign, err
+}

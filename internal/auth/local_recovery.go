@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 var ErrLocalRecoveryTargetInvalid = errors.New("user is not eligible for local recovery")
@@ -21,6 +22,10 @@ type LocalRecoveryResult struct {
 // exact operator confirmation and hold Gofer's exclusive runtime lock. The raw
 // token is returned only here and is never persisted.
 func (m *Manager) RecoverUserLocally(ctx context.Context, userID string) (*LocalRecoveryResult, error) {
+	return m.recoverUserLocally(ctx, userID, defaultCredentialResetTokenLifetime)
+}
+
+func (m *Manager) recoverUserLocally(ctx context.Context, userID string, lifetime time.Duration) (*LocalRecoveryResult, error) {
 	if userID == "" {
 		return nil, ErrLocalRecoveryTargetInvalid
 	}
@@ -41,7 +46,7 @@ func (m *Manager) RecoverUserLocally(ctx context.Context, userID string) (*Local
 	result := &LocalRecoveryResult{Token: EnrollmentToken{
 		ID: tokenID, Token: rawToken, UserID: userID,
 		Purpose:   EnrollmentTokenPurposeCredentialReset,
-		CreatedAt: now, ExpiresAt: now.Add(defaultCredentialResetTokenLifetime),
+		CreatedAt: now, ExpiresAt: now.Add(lifetime),
 	}}
 	err = m.runSecurityTransition(ctx, SecurityTransitionRecovery, func(tx *sql.Tx) error {
 		var status UserStatus
