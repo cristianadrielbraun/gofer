@@ -905,9 +905,9 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>
 			<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner">
 				if email.IsStarred {
-					<span data-mail-card-field="starred">
+					<button class="star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred" aria-label="Unstar">
 						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 shrink-0 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
-					</span>
+					</button>
 				} else {
 					<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred">
 						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
@@ -937,7 +937,9 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 			</div>
 			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="starred">
 				if email.IsStarred {
-					@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500"})
+					<button class="star-btn" data-email-id={ email.ID } aria-label="Unstar">
+						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500"})
+					</button>
 				} else {
 					<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn" data-email-id={ email.ID }>
 						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground/30"})
@@ -1068,7 +1070,9 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 							</div>
 							<div class="flex items-center justify-center shrink-0" data-mail-table-cell="starred">
 								if item.IsStarred {
-									@icon.Star(icon.Props{Class: "size-3 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
+									<button class="star-btn" data-email-id={ item.ID } aria-label="Unstar">
+										@icon.Star(icon.Props{Class: "size-3 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
+									</button>
 								} else {
 									<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn" data-email-id={ item.ID }>
 										@icon.Star(icon.Props{Class: "size-3 text-muted-foreground/30"})

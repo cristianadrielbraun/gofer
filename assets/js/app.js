@@ -1313,7 +1313,11 @@ document.addEventListener("DOMContentLoaded", function () {
         e.stopPropagation()
         e.stopImmediatePropagation()
         var emailId = starBtn.dataset.emailId
-        if (emailId) toggleStar(emailId)
+        var starRow = starBtn.closest(".mail-list-item")
+        // A collapsed thread row stands for the whole thread; expanded messages star alone.
+        var threadRow = starRow && starRow.dataset.emailId === emailId && starRow.dataset.hasThread === "true"
+        if (emailId && threadRow) toggleThreadStar(emailId, starRow.dataset.threadId)
+        else if (emailId) toggleStar(emailId)
       }
 
       var repairBtn = e.target.closest("[data-repair-account-action]")
@@ -1831,7 +1835,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var id = selectedMailIdForKeyboard()
       if (!id) return
       var row = mailRowById(id)
-      if (row && row.dataset.hasThread === "true" && typeof toggleThreadRead === "function") toggleThreadRead(id)
+      if (row && row.dataset.hasThread === "true" && typeof toggleThreadRead === "function") toggleThreadRead(id, row.dataset.threadId)
       else if (typeof toggleRead === "function") toggleRead(id)
     }
 
@@ -5393,6 +5397,9 @@ document.addEventListener("DOMContentLoaded", function () {
       .then(function (r) { return r.json() })
       .then(function (data) {
         if (!data.is_read) return
+        var readButtons = document.querySelectorAll('[data-read-email="' + emailId + '"]')
+        for (var i = 0; i < readButtons.length; i++) setReadButtonIcon(readButtons[i], true)
+        syncThreadReadButtons()
         var row = trigger && trigger.closest ? trigger.closest(".mail-list-item") : null
         if (row) {
           var link = row.querySelector("a")
@@ -13781,20 +13788,51 @@ function openComposeInMain(fullWidth, instantFullWidth) {
   }
 }
 
+var MAIL_READ_ICON = '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/>\n  <rect x="2" y="4" width="20" height="16" rx="2"/>'
+var MAIL_UNREAD_ICON = '<path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/>\n  <path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/>'
+
+function setReadButtonIcon(button, isRead) {
+  if (!button) return
+  button.dataset.isRead = isRead ? "true" : "false"
+  var svg = button.querySelector('svg')
+  if (svg) svg.innerHTML = isRead ? MAIL_READ_ICON : MAIL_UNREAD_ICON
+}
+
+// The reader's thread read toggle shows the thread as read only when every message is read.
+function syncThreadReadButtons() {
+  var threadButtons = document.querySelectorAll('#mail-view [data-read-thread]')
+  if (!threadButtons.length) return
+  var allRead = !document.querySelector('#mail-view [data-read-email][data-is-read="false"]')
+  for (var i = 0; i < threadButtons.length; i++) setReadButtonIcon(threadButtons[i], allRead)
+}
+
 function toggleRead(emailId) {
   fetch("/api/messages/" + emailId + "/read", { method: "POST" })
     .then(function (r) { return r.json() })
     .then(function (data) {
-      var btn = document.querySelector('[data-read-email="' + emailId + '"]')
-      if (btn) {
-        var svg = btn.querySelector('svg')
-        if (svg) {
-          if (data.is_read) {
-            svg.innerHTML = '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/>\n  <rect x="2" y="4" width="20" height="16" rx="2"/>'
-          } else {
-            svg.innerHTML = '<path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/>\n  <path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/>'
-          }
-        }
+      var buttons = document.querySelectorAll('[data-read-email="' + emailId + '"]')
+      for (var i = 0; i < buttons.length; i++) setReadButtonIcon(buttons[i], data.is_read)
+      syncThreadReadButtons()
+      invalidateMailListItem(emailId)
+      refreshSidebarUnread()
+    })
+    .catch(function () {})
+}
+
+function toggleThreadRead(emailId, threadId) {
+  fetch("/api/messages/" + emailId + "/thread/read", { method: "POST" })
+    .then(function (r) { return r.json() })
+    .then(function (data) {
+      // Every message in the open thread now has the same read state.
+      var readerThread = document.querySelector('#mail-view [data-read-thread]')
+      var readerShowsThread = readerThread && (readerThread.getAttribute('data-read-thread') === String(emailId) ||
+        (threadId && readerThread.getAttribute('data-read-thread-id') === String(threadId)))
+      if (readerShowsThread) {
+        var buttons = document.querySelectorAll('#mail-view [data-read-email], #mail-view [data-read-thread]')
+        for (var i = 0; i < buttons.length; i++) setReadButtonIcon(buttons[i], data.is_read)
+      } else {
+        var button = document.querySelector('[data-read-email="' + emailId + '"]')
+        if (button) setReadButtonIcon(button, data.is_read)
       }
       invalidateMailListItem(emailId)
       refreshSidebarUnread()
@@ -13802,41 +13840,52 @@ function toggleRead(emailId) {
     .catch(function () {})
 }
 
-function toggleThreadRead(emailId) {
-  fetch("/api/messages/" + emailId + "/thread/read", { method: "POST" })
-    .then(function (r) { return r.json() })
-    .then(function (data) {
-      var btn = document.querySelector('[data-read-email="' + emailId + '"]')
-      if (btn) {
-        var svg = btn.querySelector('svg')
-        if (svg) {
-          if (data.is_read) {
-            svg.innerHTML = '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/>\n  <rect x="2" y="4" width="20" height="16" rx="2"/>'
-          } else {
-            svg.innerHTML = '<path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/>\n  <path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/>'
-          }
-        }
-      }
-      invalidateMailListItem(emailId)
-      refreshSidebarUnread()
-    })
-    .catch(function () {})
+function setStarButtonIcon(button, starred) {
+  var svg = button && button.querySelector('svg')
+  if (!svg) return
+  var size = (svg.getAttribute('class') || '').match(/\bsize-[\w.]+/)
+  size = size ? size[0] : 'size-4'
+  if (starred) {
+    svg.setAttribute('class', size + ' text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.3)]')
+  } else {
+    svg.setAttribute('class', size + ' text-ink/30')
+  }
+}
+
+// The reader's thread star is filled while any message in the open thread is starred.
+function syncThreadStarButtons() {
+  var threadStars = document.querySelectorAll('#mail-view [data-star-thread]')
+  if (!threadStars.length) return
+  var starred = !!document.querySelector('#mail-view [data-star-email] svg.fill-amber-500')
+  for (var i = 0; i < threadStars.length; i++) setStarButtonIcon(threadStars[i], starred)
 }
 
 function toggleStar(emailId) {
   fetch("/api/messages/" + emailId + "/star", { method: "POST" })
     .then(function (r) { return r.json() })
     .then(function (data) {
-      var starBtn = document.querySelector('[data-star-email="' + emailId + '"]')
-      if (starBtn) {
-        var svg = starBtn.querySelector('svg')
-        if (svg) {
-          if (data.is_starred) {
-            svg.setAttribute('class', 'size-4 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.3)]')
-          } else {
-            svg.setAttribute('class', 'size-4 text-ink/30')
-          }
-        }
+      var starBtns = document.querySelectorAll('[data-star-email="' + emailId + '"]')
+      for (var i = 0; i < starBtns.length; i++) setStarButtonIcon(starBtns[i], data.is_starred)
+      syncThreadStarButtons()
+      invalidateMailListItem(emailId)
+    })
+    .catch(function () {})
+}
+
+// Stars every message in the thread, or unstars them all when any is starred.
+function toggleThreadStar(emailId, threadId) {
+  fetch("/api/messages/" + encodeURIComponent(emailId) + "/thread/star", { method: "POST" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("Failed to star thread")
+      return r.json()
+    })
+    .then(function (data) {
+      var readerThread = document.querySelector('#mail-view [data-star-thread]')
+      var readerShowsThread = readerThread && (readerThread.getAttribute('data-star-thread') === String(emailId) ||
+        (threadId && readerThread.getAttribute('data-star-thread-id') === String(threadId)))
+      if (readerShowsThread) {
+        var stars = document.querySelectorAll('#mail-view [data-star-email], #mail-view [data-star-thread]')
+        for (var i = 0; i < stars.length; i++) setStarButtonIcon(stars[i], data.is_starred)
       }
       invalidateMailListItem(emailId)
     })

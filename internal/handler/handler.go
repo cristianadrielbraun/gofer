@@ -515,6 +515,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/messages/{id}/read", h.handleToggleRead)
 	mux.HandleFunc("POST /api/messages/{id}/star", h.handleToggleStar)
 	mux.HandleFunc("POST /api/messages/{id}/thread/read", h.handleToggleThreadRead)
+	mux.HandleFunc("POST /api/messages/{id}/thread/star", h.handleToggleThreadStar)
 	mux.HandleFunc("POST /api/messages/{id}/thread/archive", h.handleArchiveThread)
 	mux.HandleFunc("DELETE /api/messages/{id}/thread", h.handleDeleteThread)
 	mux.HandleFunc("DELETE /api/messages/{id}", h.handleDeleteMessage)
@@ -5831,6 +5832,44 @@ func (h *Handler) handleToggleThreadRead(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"is_read": targetRead})
+}
+
+// handleToggleThreadStar unstars every message in the thread when any of them is starred,
+// and otherwise stars them all.
+func (h *Handler) handleToggleThreadStar(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	ctx := r.Context()
+
+	targets, err := h.resolveOwnedMessageTargets(ctx, []messageBulkTarget{{ID: idStr, Thread: true}}, "", true)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
+	infos := targets[0].Infos
+
+	targetStarred := true
+	for _, info := range infos {
+		if info.IsStarred {
+			targetStarred = false
+			break
+		}
+	}
+	messageIDs := make([]int64, 0, len(infos))
+	for _, info := range infos {
+		messageIDs = append(messageIDs, info.MessageID)
+	}
+	if err := h.db.SetMessagesStarredAndQueueForUser(ctx, messageIDs, targetStarred, h.userID(ctx)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.signalMessageMutationWorker()
+
+	h.publishThreadMutation(infos)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"is_starred": targetStarred})
 }
 
 func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {

@@ -26,7 +26,7 @@ func TestTrashDeleteActionsLookDestructiveAndSayPermanent(t *testing.T) {
 
 	var message bytes.Buffer
 	email := &models.Email{ID: "message", FolderID: "acc-trash", FolderRole: "trash", ThreadCount: 2}
-	if err := MailViewHeader(email).Render(context.Background(), &message); err != nil {
+	if err := MailViewHeader(email, nil).Render(context.Background(), &message); err != nil {
 		t.Fatalf("MailViewHeader.Render() error = %v", err)
 	}
 	for _, want := range []string{"Permanently delete thread", "deleteThread", "border-red-500/35", "bg-red-500/12", "text-red-700"} {

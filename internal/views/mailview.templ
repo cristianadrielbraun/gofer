@@ -63,6 +63,53 @@ func threadAwareLabel(single, thread string, email *models.Email) string {
 	return single
 }
 
+// mailViewReadAttributes makes the toolbar read toggle act on the whole thread. Each thread
+// message keeps its own toggle in its action row.
+func mailViewReadAttributes(email *models.Email, thread []models.ThreadItem) templ.Attributes {
+	read := fmt.Sprintf("%t", mailViewRead(email, thread))
+	if email.ThreadCount > 1 {
+		return templ.Attributes{"onclick": fmt.Sprintf("toggleThreadRead('%s')", email.ID), "data-read-thread": email.ID, "data-read-thread-id": email.ThreadID, "data-is-read": read}
+	}
+	return templ.Attributes{"onclick": fmt.Sprintf("toggleRead('%s')", email.ID), "data-read-email": email.ID, "data-is-read": read}
+}
+
+// mailViewRead reports whether the toolbar shows the message as read: for a thread, when
+// every message in it is read.
+func mailViewRead(email *models.Email, thread []models.ThreadItem) bool {
+	if email.ThreadCount <= 1 || len(thread) == 0 {
+		return email.IsRead
+	}
+	for _, item := range thread {
+		if !item.IsRead {
+			return false
+		}
+	}
+	return true
+}
+
+// mailViewStarAttributes makes the toolbar star act on the whole thread, like the other
+// toolbar actions. Each thread message keeps its own star in its action row.
+func mailViewStarAttributes(email *models.Email) templ.Attributes {
+	if email.ThreadCount > 1 {
+		return templ.Attributes{"onclick": fmt.Sprintf("toggleThreadStar('%s')", email.ID), "data-star-thread": email.ID, "data-star-thread-id": email.ThreadID}
+	}
+	return templ.Attributes{"onclick": fmt.Sprintf("toggleStar('%s')", email.ID), "data-star-email": email.ID}
+}
+
+// mailViewStarred reports whether the toolbar star is filled: for a thread, when any of
+// its messages is starred.
+func mailViewStarred(email *models.Email, thread []models.ThreadItem) bool {
+	if email.ThreadCount <= 1 || len(thread) == 0 {
+		return email.IsStarred
+	}
+	for _, item := range thread {
+		if item.IsStarred {
+			return true
+		}
+	}
+	return false
+}
+
 func formatContacts(contacts []models.Contact) string {
 	parts := make([]string, len(contacts))
 	for i, c := range contacts {
@@ -136,7 +183,7 @@ templ MailViewLoading() {
 templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 	<div class="mail-view-frame flex flex-col h-full p-2">
 		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
-			@MailViewHeader(email)
+			@MailViewHeader(email, thread)
 			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 			<div class="flex-1 overflow-y-auto">
 				<div class="mail-view-content mx-auto px-8 py-6">
@@ -382,7 +429,7 @@ templ MailViewThreadItemMiniHeader(item *models.ThreadItem) {
 					Variant:    button.VariantGhost,
 					Size:       button.SizeIcon,
 					Class:      "h-7 w-7 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
-					Attributes: templ.Attributes{"onclick": fmt.Sprintf("toggleRead('%s')", item.ID), "data-read-email": item.ID},
+					Attributes: templ.Attributes{"onclick": fmt.Sprintf("toggleRead('%s')", item.ID), "data-read-email": item.ID, "data-is-read": fmt.Sprintf("%t", item.IsRead)},
 				}) {
 					if item.IsRead {
 						@icon.Mail(icon.Props{Class: "size-3.5"})
@@ -541,7 +588,7 @@ templ MailViewThreadItemActions(item *models.ThreadItem) {
 	</div>
 }
 
-templ MailViewHeader(email *models.Email) {
+templ MailViewHeader(email *models.Email, thread []models.ThreadItem) {
 	<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">
 		<div class="mail-view-actions flex items-center gap-1 min-w-0">
 			<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink/60 hover:bg-ink/5" onclick="closeMobileMailView()" aria-label="Back to list">
@@ -626,9 +673,9 @@ templ MailViewHeader(email *models.Email) {
 						Variant:    button.VariantGhost,
 						Size:       button.SizeIcon,
 						Class:      "h-8 w-8",
-						Attributes: templ.Attributes{"onclick": fmt.Sprintf("toggleStar('%s')", email.ID), "data-star-email": email.ID},
+						Attributes: mailViewStarAttributes(email),
 					}) {
-						if email.IsStarred {
+						if mailViewStarred(email, thread) {
 							@icon.Star(icon.Props{Class: "size-4 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.3)]"})
 						} else {
 							@icon.Star(icon.Props{Class: "size-4 text-ink/30"})
@@ -639,7 +686,7 @@ templ MailViewHeader(email *models.Email) {
 					Position:  tooltip.PositionBottom,
 					ShowArrow: true,
 				}) {
-					Star
+					{ threadAwareLabel("Star", "Star thread", email) }
 				}
 			}
 			@tooltip.Tooltip() {
@@ -648,9 +695,9 @@ templ MailViewHeader(email *models.Email) {
 						Variant:    button.VariantGhost,
 						Size:       button.SizeIcon,
 						Class:      "h-8 w-8 text-ink/40 hover:text-ink/70 hover:bg-ink/5",
-						Attributes: templ.Attributes{"onclick": threadAwareAction("toggleRead", "toggleThreadRead", email), "data-read-email": email.ID},
+						Attributes: mailViewReadAttributes(email, thread),
 					}) {
-						if email.IsRead {
+						if mailViewRead(email, thread) {
 							@icon.Mail(icon.Props{Class: "size-4"})
 						} else {
 							@icon.MailOpen(icon.Props{Class: "size-4"})
@@ -661,7 +708,7 @@ templ MailViewHeader(email *models.Email) {
 					Position:  tooltip.PositionBottom,
 					ShowArrow: true,
 				}) {
-					if email.IsRead {
+					if mailViewRead(email, thread) {
 						{ threadAwareLabel("Mark as unread", "Mark thread as unread", email) }
 					} else {
 						{ threadAwareLabel("Mark as read", "Mark thread as read", email) }
