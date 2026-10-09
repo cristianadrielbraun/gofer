@@ -212,25 +212,39 @@
 
   // A tap outside an open bottom sheet only closes the sheet. These listeners run
   // first (window, capture phase) and keep the tap from reaching whatever sits under
-  // it, so it cannot open a message, start a long press or press a button. Taps
-  // inside any open popover (the sheet, or a picker opened from it) pass through.
+  // it, so it cannot open a message, start a long press, press a button, or focus a
+  // field (which would also open the keyboard). Focus moves on the touch and mouse
+  // events before the click, so those are cancelled too, and the sheet closes when
+  // the finger lifts. Taps inside any open popover (the sheet, or a picker opened
+  // from it) pass through.
   function openSheet() {
     return document.querySelector('.mobile-sheet[data-tui-popover-open="true"]')
   }
-  function guardSheetTap(event) {
-    if (desktop.matches) return
+  function outsideOpenSheet(event) {
+    if (desktop.matches) return null
     var sheet = openSheet()
-    if (!sheet) return
+    if (!sheet) return null
     var target = event.target
-    if (target && target.closest && target.closest(":popover-open")) return
+    if (target && target.closest && target.closest(":popover-open")) return null
+    return sheet
+  }
+  function closeSheet(sheet) {
+    if (window.tui && window.tui.popover) window.tui.popover.closeElement(sheet)
+  }
+  var swallowingTap = false
+  function guardSheetTap(event) {
+    var sheet = outsideOpenSheet(event)
+    if (event.type === "touchstart") swallowingTap = !!sheet
+    if (!sheet && !(swallowingTap && event.type !== "touchstart")) return
     event.stopPropagation()
-    if (event.type === "click") {
-      event.preventDefault()
-      if (window.tui && window.tui.popover) window.tui.popover.closeElement(sheet)
+    if (event.cancelable && event.type !== "touchstart") event.preventDefault()
+    if (event.type === "touchend" || event.type === "click") {
+      swallowingTap = false
+      if (sheet) closeSheet(sheet)
     }
   }
   ;["pointerdown", "mousedown", "touchstart", "touchend", "click"].forEach(function (type) {
-    window.addEventListener(type, guardSheetTap, { capture: true })
+    window.addEventListener(type, guardSheetTap, { capture: true, passive: false })
   })
 
   window.GoferMobileNav = {
