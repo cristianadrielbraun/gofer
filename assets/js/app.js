@@ -10929,6 +10929,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   for (var i = 0; i < fields.length; i++) fields[i].value = ""
   var modeField = form.querySelector('input[name="compose_mode"]')
   if (modeField) modeField.value = "new"
+  setComposeKind(form, "new")
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
   syncComposeInlineImageInputs(form)
@@ -10947,6 +10948,19 @@ function resetComposeForm(fromPane, skipCleanup) {
 function composeModeForForm(form) {
   var field = form && form.querySelector('input[name="compose_mode"]')
   return (field && field.value) || "new"
+}
+
+// The compose title names the kind of message being written. Reply-all is stored as
+// compose mode "reply", so the form also keeps the kind it was opened as.
+var COMPOSE_TITLES = { "new": "New message", reply: "Reply", "reply-all": "Reply all", forward: "Forward" }
+
+function setComposeKind(form, kind) {
+  if (!form) return
+  form.dataset.composeKind = COMPOSE_TITLES[kind] ? kind : "new"
+  var root = _composeRootForForm(form)
+  if (!root) return
+  var titles = root.querySelectorAll("[data-compose-title]")
+  for (var i = 0; i < titles.length; i++) titles[i].textContent = COMPOSE_TITLES[form.dataset.composeKind]
 }
 
 function setComposeMode(form, mode) {
@@ -11849,10 +11863,6 @@ document.addEventListener("click", function (event) {
 window.addEventListener("resize", positionComposeInlineImageToolbar)
 window.addEventListener("scroll", positionComposeInlineImageToolbar, true)
 
-function composeUnavailable(message) {
-  showSendStatus("failed", message)
-}
-
 function _composeRootForForm(form) {
   if (!form) return
   return form.id === "compose-pane-form" ? form.closest("[data-compose-pane]") : document.getElementById("compose-dialog")
@@ -11863,7 +11873,16 @@ function _composeDraftButton(form) {
   return root ? root.querySelector("[data-compose-draft-button]") : null
 }
 
+var COMPOSE_MOBILE_DRAFT_STATUS = { saving: "Saving draft…", saved: "Draft saved", failed: "Draft not saved", empty: "Nothing to save" }
+
 function _setComposeDraftButtonState(form, state) {
+  // The phone compose bar has no draft button; it shows the same states under its title.
+  var root = _composeRootForForm(form)
+  var mobileStatus = root && root.querySelector("[data-compose-mobile-status]")
+  if (mobileStatus) {
+    mobileStatus.textContent = COMPOSE_MOBILE_DRAFT_STATUS[state] || ""
+    mobileStatus.dataset.state = state || "default"
+  }
   var button = _composeDraftButton(form)
   if (!button) return
   var label = button.querySelector("[data-compose-draft-label]")
@@ -11990,11 +12009,17 @@ function _setComposeSending(form, sending) {
 
 function updateComposeSendState(form) {
   if (!form) return
-  var button = _composeSendButton(form)
-  if (!button) return
   var pending = _composePendingUploads(form)
   var sending = form.dataset.composeSending === "true"
   var disabled = pending > 0 || sending
+  var root = _composeRootForForm(form)
+  var mobileSend = root && root.querySelector("[data-compose-mobile-send]")
+  if (mobileSend) {
+    mobileSend.disabled = disabled
+    mobileSend.setAttribute("aria-busy", disabled ? "true" : "false")
+  }
+  var button = _composeSendButton(form)
+  if (!button) return
   button.disabled = disabled
   button.setAttribute("aria-busy", sending || pending > 0 ? "true" : "false")
   button.classList.toggle("opacity-60", disabled)
@@ -13328,6 +13353,17 @@ function chooseComposeCloseAction(form, anchor, popoverId) {
   })
 }
 
+// The phone compose bar's "Send later" opens the footer's schedule picker, which stays
+// in the page (hidden) on small screens and opens as a bottom sheet. It runs after the
+// menu's own click has closed the menu.
+document.addEventListener("click", function (e) {
+  if (!e.target || !e.target.closest || !e.target.closest("[data-compose-mobile-send-later]")) return
+  setTimeout(function () {
+    var trigger = document.querySelector('#compose-dialog .compose-dialog-footer [title="Schedule send"]')
+    if (trigger) trigger.click()
+  }, 0)
+})
+
 function discardComposeDialog() {
   var form = document.getElementById("compose-form")
   chooseComposeDialogCloseAction(form).then(function (action) {
@@ -13916,6 +13952,7 @@ function focusComposePrefill(form, mode) {
 function writeComposePrefill(form, vals, prefix, mode) {
   _writeComposeFormValues(form, vals, prefix)
   setComposeMode(form, mode === "forward" ? "forward" : (mode === "new" ? "new" : "reply"))
+  setComposeKind(form, mode)
   _showComposeOptionalFields(form, vals)
   setComposeAccount(form, vals.account_id)
   applyDefaultComposeSignature(form, true)
@@ -14931,6 +14968,7 @@ function _readComposeFormValues(form) {
   vals._ccVisible = ccVisible
   vals._bccVisible = bccVisible
   vals._composeDirty = form.dataset.composeDirty || "false"
+  vals._kind = form.dataset.composeKind || ""
   vals.attachments = readComposeAttachments(form)
   vals.inline_images = readComposeInlineImages(form)
   return vals
@@ -14958,6 +14996,7 @@ function _writeComposeFormValues(form, vals, prefix) {
   form.dataset.composeSending = "false"
   delete form.dataset.composeUploadFailed
   form.dataset.composeDirty = vals._composeDirty || "false"
+  setComposeKind(form, vals._kind || vals.compose_mode)
   updateComposeSendState(form)
   _setComposeDraftButtonState(form, "default")
 }

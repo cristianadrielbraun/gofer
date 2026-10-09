@@ -23,15 +23,15 @@ templ ComposeDialog(accounts []models.Account) {
 			<span></span>
 		}
 		@dialog.Content(dialog.ContentProps{
-			Class:           "sm:max-w-4xl w-full h-[80vh] min-h-[250px] flex flex-col max-lg:!h-dvh max-lg:!max-h-none max-lg:!w-screen max-lg:!max-w-none max-lg:!rounded-none max-lg:!border-0",
+			Class:           "compose-dialog-content mobile-fullscreen-dialog sm:max-w-4xl w-full h-[80vh] min-h-[250px] flex flex-col max-lg:!h-dvh max-lg:!max-h-none max-lg:!w-screen max-lg:!max-w-none max-lg:!rounded-none max-lg:!border-0",
 			HideCloseButton: true,
 		}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					New Message
+					<span data-compose-title>New message</span>
 				}
 			}
-			<div class="absolute top-4 right-4 flex items-center gap-1">
+			<div class="compose-dialog-corner absolute top-4 right-4 flex items-center gap-1">
 				<button type="button" onclick="expandToPane()" class="hidden lg:inline-flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent" aria-label="Compose inline">
 					@icon.PanelLeftOpen(icon.Props{Class: "size-3.5"})
 					Compose inline
@@ -52,13 +52,14 @@ templ ComposeDialog(accounts []models.Account) {
 				}
 			</div>
 			<div id="compose-form" class="flex flex-col flex-1 min-h-0 gap-3 pt-2">
+				@ComposeMobileBar()
 				<input type="hidden" name="account_id" id="compose-account-id" value={ composeDefaultAccountID(accounts) }/>
 				<input type="hidden" name="draft_id" id="compose-draft-id" value=""/>
 				<input type="hidden" name="compose_mode" id="compose-mode" value="new"/>
 				<input type="hidden" name="in_reply_to" id="compose-in-reply-to" value=""/>
 				<input type="hidden" name="references" id="compose-references" value=""/>
-				<div class="space-y-1">
-					<div class="flex items-center gap-2">
+				<div class="compose-dialog-fields space-y-1">
+					<div class="compose-from-row flex items-center gap-2">
 						<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">From</label>
 						@dropdown.Dropdown() {
 							@dropdown.Trigger() {
@@ -87,29 +88,18 @@ templ ComposeDialog(accounts []models.Account) {
 							}
 						}
 					</div>
-					@ComposeField("To", "to", "recipient@example.com")
+					<div class="compose-to-row">
+						@ComposeField("To", "to", "recipient@example.com")
+						@ComposeCcBccButtons()
+					</div>
 					<div id="cc-field" class="hidden">
 						@ComposeField("Cc", "cc", "")
 					</div>
 					<div id="bcc-field" class="hidden">
 						@ComposeField("Bcc", "bcc", "")
 					</div>
-					<div id="cc-bcc-buttons" class="flex items-center gap-2 pt-1">
-						<button
-							id="cc-btn"
-							type="button"
-							class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
-							onclick="document.getElementById('cc-field').classList.remove('hidden'); document.getElementById('cc-btn').classList.add('hidden')"
-						>Cc</button>
-						<button
-							id="bcc-btn"
-							type="button"
-							class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
-							onclick="document.getElementById('bcc-field').classList.remove('hidden'); document.getElementById('bcc-btn').classList.add('hidden')"
-						>Bcc</button>
-					</div>
 				</div>
-			<div class="border-t pt-2">
+			<div class="compose-subject-row border-t pt-2">
 				@input.Input(input.Props{
 					Name:        "subject",
 					Placeholder: "Subject",
@@ -120,7 +110,7 @@ templ ComposeDialog(accounts []models.Account) {
 			@ComposeRichEditor()
 			@ComposeAttachments()
 			</div>
-			@dialog.Footer() {
+			@dialog.Footer(dialog.FooterProps{Class: "compose-dialog-footer"}) {
 				<div class="flex items-center justify-between w-full gap-3">
 					<div class="flex items-center gap-2 min-w-0">
 					<button type="button" onclick="saveComposeDraft(false, false)" class="inline-flex min-w-28 items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent" data-compose-draft-button data-compose-draft-state="default">
@@ -161,6 +151,67 @@ templ ComposeDialog(accounts []models.Account) {
 			}
 		}
 	}
+}
+
+// ComposeCcBccButtons reveal the Cc and Bcc fields. They sit below the To field on
+// desktop and at the end of the To row on small screens.
+templ ComposeCcBccButtons() {
+	<div id="cc-bcc-buttons" class="flex items-center gap-2 pt-1">
+		<button
+			id="cc-btn"
+			type="button"
+			class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+			onclick="document.getElementById('cc-field').classList.remove('hidden'); document.getElementById('cc-btn').classList.add('hidden')"
+		>Cc</button>
+		<button
+			id="bcc-btn"
+			type="button"
+			class="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
+			onclick="document.getElementById('bcc-field').classList.remove('hidden'); document.getElementById('bcc-btn').classList.add('hidden')"
+		>Bcc</button>
+	</div>
+}
+
+// ComposeMobileBar is the compose dialog's app bar on small screens: close, title,
+// attach, send, and a menu for saving a draft or sending later. The footer buttons
+// it replaces stay in the page (hidden) and keep their behaviour.
+templ ComposeMobileBar() {
+	<div class="compose-mobile-bar" data-compose-mobile-bar>
+		<button type="button" class="compose-mobile-bar-button" onclick="discardComposeDialog()" aria-label="Close compose">
+			@icon.X(icon.Props{Class: "size-5"})
+		</button>
+		<div class="compose-mobile-bar-heading">
+			<span class="compose-mobile-bar-title" data-compose-title>New message</span>
+			<span class="compose-mobile-bar-status" data-compose-mobile-status aria-live="polite"></span>
+		</div>
+		<button type="button" class="compose-mobile-bar-button" onclick="triggerComposeAttachmentUpload(this)" aria-label="Attach files">
+			@icon.Paperclip(icon.Props{Class: "size-5"})
+		</button>
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" class="compose-mobile-bar-button" aria-label="More compose options">
+					@icon.EllipsisVertical(icon.Props{Class: "size-5"})
+				</button>
+			}
+			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet"}) {
+				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": "saveComposeDraft(false, false)"}}) {
+					<span class="flex items-center gap-2">
+						@icon.Save(icon.Props{Class: "size-4"})
+						Save draft
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-compose-mobile-send-later": ""}}) {
+					<span class="flex items-center gap-2">
+						@icon.CalendarClock(icon.Props{Class: "size-4"})
+						Send later
+					</span>
+				}
+			}
+		}
+		<button type="button" class="compose-mobile-bar-send" onclick="sendCompose()" aria-label="Send" data-compose-mobile-send>
+			@icon.Send(icon.Props{Class: "size-5"})
+		</button>
+	</div>
 }
 
 templ ComposeToolbar() {
@@ -247,7 +298,7 @@ templ ComposeToolbar() {
 		<div class="w-px h-4 bg-border mx-0.5"></div>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors" onclick="triggerComposeAttachmentUpload(this)">
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors" onclick="triggerComposeAttachmentUpload(this)" data-compose-toolbar-attach>
 					@icon.Paperclip(icon.Props{Class: "size-3.5"})
 				</button>
 			}
@@ -298,38 +349,30 @@ templ ComposeToolbar() {
 			}
 		}
 		<div class="w-px h-4 bg-border mx-0.5"></div>
-		@dropdown.Dropdown() {
-			@dropdown.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors">
-					@icon.Ellipsis(icon.Props{Class: "size-3.5"})
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors" onclick="composeExec(this, 'formatBlock', 'blockquote')" aria-label="Quote">
+					@icon.Quote(icon.Props{Class: "size-3.5"})
 				</button>
 			}
-			@dropdown.Content() {
-				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": "composeUnavailable('Schedule send is next on the compose roadmap.')"}}) {
-					<span class="flex items-center gap-2">
-						@icon.Clock(icon.Props{Class: "size-4"})
-						Schedule send
-					</span>
-				}
-				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": "composeExec(this, 'formatBlock', 'blockquote')"}}) {
-					<span class="flex items-center gap-2">
-						@icon.Quote(icon.Props{Class: "size-4"})
-						Insert quote
-					</span>
-				}
-				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": "composeExec(this, 'formatBlock', 'pre')"}}) {
-					<span class="flex items-center gap-2">
-						@icon.Code(icon.Props{Class: "size-4"})
-						Insert code
-					</span>
-				}
-				@dropdown.Separator()
-				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": "saveActiveComposeDraft(false)"}}) {
-					<span class="flex items-center gap-2">
-						@icon.Save(icon.Props{Class: "size-4"})
-						Save as draft
-					</span>
-				}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Quote
+			}
+		}
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors" onclick="composeExec(this, 'formatBlock', 'pre')" aria-label="Code block">
+					@icon.Code(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				Code block
 			}
 		}
 	</div>
@@ -386,7 +429,7 @@ templ ComposeSchedulePopover(fromPane bool, buttonClass string) {
 				</button>
 			}
 		}
-		@popover.Content(popover.ContentProps{Placement: popover.PlacementTopEnd, Offset: 10, Class: "w-[16.5rem] max-w-[calc(100vw-1.5rem)] p-3"}) {
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementTopEnd, Offset: 10, Class: "mobile-sheet w-[16.5rem] max-w-[calc(100vw-1.5rem)] p-3"}) {
 			<div data-compose-schedule-panel data-compose-schedule-pane?={ fromPane }>
 				<div class="mb-2 flex items-center justify-between gap-3">
 					<div>
@@ -465,7 +508,7 @@ templ ComposePane(accounts []models.Account) {
 		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 			<div class="flex items-center justify-between px-6 py-2.5">
 				<div class="flex items-center gap-2">
-					<h2 class="font-semibold text-sm">New Message</h2>
+					<h2 class="font-semibold text-sm" data-compose-title>New message</h2>
 				</div>
 				<div class="flex items-center gap-1" id="compose-pane-size-buttons">
 					@popover.Root(popover.RootProps{ID: "compose-pane-close-choice-popover"}) {

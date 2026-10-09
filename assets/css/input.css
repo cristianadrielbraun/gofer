@@ -4798,3 +4798,261 @@ body.mail-list-column-resizing {
     opacity: 1;
   }
 }
+
+/* === SMALL SCREENS: COMPOSE ===
+   The compose dialog reads like a phone mail app: an app bar with close, attach, send
+   and a menu (save draft, send later); From, To and Subject as plain full-width rows;
+   the body filling the rest; and the formatting bar along the bottom. The desktop
+   header, corner buttons and footer stay in the page, hidden, so their behaviour and
+   the schedule picker (opened from the menu, as a sheet) keep working. */
+
+.compose-mobile-bar {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  .compose-dialog-content > [data-tui-dialog-panel] {
+    padding: 0;
+    gap: 0;
+  }
+
+  .compose-dialog-content > [data-tui-dialog-panel] > :first-child,
+  .compose-dialog-content .compose-dialog-corner {
+    display: none;
+  }
+
+  .compose-dialog-content .compose-dialog-footer {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .compose-dialog-content #compose-form {
+    gap: 0;
+    padding: 0;
+  }
+
+  .compose-mobile-bar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
+    height: calc(3.5rem + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 0.5rem 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .compose-mobile-bar-heading {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding-left: 0.25rem;
+  }
+
+  .compose-mobile-bar-title,
+  .compose-mobile-bar-status {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .compose-mobile-bar-title {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  /* Draft saving feedback, in place of the desktop footer's draft button. */
+  .compose-mobile-bar-status {
+    font-size: 0.75rem;
+    line-height: 1.2;
+    color: var(--color-muted-foreground);
+  }
+
+  .compose-mobile-bar-status:empty {
+    display: none;
+  }
+
+  .compose-mobile-bar-status[data-state="failed"] {
+    color: var(--color-destructive);
+  }
+
+  .compose-mobile-bar-button,
+  .compose-mobile-bar-send {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: var(--radius-md);
+    color: var(--color-foreground);
+  }
+
+  .compose-mobile-bar-send {
+    margin-left: 0.25rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--radius-lg);
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+  }
+
+  .compose-mobile-bar-send:active {
+    filter: brightness(0.92);
+  }
+
+  /* Disabled while attachments upload or the message is sending. */
+  .compose-mobile-bar-send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Fields: plain rows divided by hairlines. */
+  .compose-dialog-content .compose-dialog-fields > * {
+    margin-block: 0;
+  }
+
+  .compose-dialog-content .compose-from-row,
+  .compose-dialog-content .compose-to-row,
+  .compose-dialog-content #cc-field:not(.hidden),
+  .compose-dialog-content #bcc-field:not(.hidden),
+  .compose-dialog-content .compose-subject-row {
+    display: flex;
+    align-items: center;
+    min-height: 3rem;
+    padding: 0 1rem;
+    border-top: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  }
+
+  .compose-dialog-content .compose-to-row > :first-child,
+  .compose-dialog-content #cc-field > div,
+  .compose-dialog-content #bcc-field > div {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .compose-dialog-content .compose-dialog-fields label {
+    width: 3.25rem;
+    font-size: 0.9375rem;
+    font-weight: 400;
+  }
+
+  .compose-dialog-content #compose-from-trigger {
+    min-width: 0;
+    padding: 0;
+    font-size: 0.9375rem;
+  }
+
+  .compose-dialog-content #compose-from-display {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Recipients wrap onto more lines; the row's label stands in for a placeholder. */
+  .compose-dialog-content [data-compose-recipient-input]:empty::before {
+    content: none;
+  }
+
+  .compose-dialog-content [data-compose-recipient-input] {
+    min-width: 4rem;
+  }
+
+  .compose-dialog-content [data-compose-recipient-field] {
+    flex-wrap: wrap;
+    min-width: 0;
+    min-height: 3rem;
+    padding: 0.5rem 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-size: 1rem;
+  }
+
+  .compose-dialog-content #cc-bcc-buttons {
+    flex: none;
+    padding-top: 0;
+    gap: 0;
+  }
+
+  .compose-dialog-content #cc-bcc-buttons > button {
+    min-width: 2.5rem;
+    height: 2.5rem;
+    padding: 0 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .compose-dialog-content .compose-subject-row input {
+    height: 3rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-size: 1rem;
+  }
+
+  .compose-dialog-content .compose-subject-row input:focus,
+  .compose-dialog-content [data-compose-recipient-field]:focus-within {
+    outline: none;
+    box-shadow: none;
+  }
+
+  /* Body: plain, filling the rest of the screen. */
+  .compose-dialog-content #compose-form > div:has(> [data-compose-editor]) {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .compose-dialog-content [data-compose-editor] {
+    min-height: 100%;
+    padding: 1rem;
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .compose-dialog-content [data-compose-attachments]:not(.hidden) {
+    order: 15;
+    margin: 0.5rem 1rem;
+  }
+
+  /* Formatting bar: along the bottom, scrolling sideways. */
+  .compose-dialog-content [data-compose-toolbar] {
+    order: 20;
+    flex: none;
+    flex-wrap: nowrap;
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0.25rem 0.5rem calc(0.25rem + env(safe-area-inset-bottom));
+    overflow-x: auto;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 0;
+    scrollbar-width: none;
+  }
+
+  /* Attaching lives in the app bar on a phone, so the toolbar drops its paperclip. */
+  .compose-dialog-content [data-compose-toolbar-attach] {
+    display: none;
+  }
+
+  .compose-dialog-content [data-compose-toolbar] button {
+    width: 2.75rem;
+    height: 2.75rem;
+    flex: none;
+  }
+
+  .compose-dialog-content [data-compose-toolbar] svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
