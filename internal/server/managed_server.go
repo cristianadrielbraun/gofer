@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"bytes"
@@ -215,12 +215,13 @@ func configuredUserDatabaseLimit() (int, error) {
 	return limit, nil
 }
 
-func runManagedServer(ctx context.Context, stdout, stderr io.Writer) (err error) {
+// RunManaged runs managed mode on per-user storage until ctx is canceled.
+func RunManaged(ctx context.Context, stdout, stderr io.Writer) (err error) {
 	maxOpen, err := configuredUserDatabaseLimit()
 	if err != nil {
 		return err
 	}
-	app, err := newManagedApplication(ctx, configuredDatabasePath(), maxOpen)
+	app, err := newManagedApplication(ctx, ConfiguredDatabasePath(), maxOpen)
 	if err != nil {
 		return err
 	}

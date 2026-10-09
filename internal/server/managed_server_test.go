@@ -1,16 +1,18 @@
-package main
+package server
 
 import (
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -166,7 +168,7 @@ func TestManagedServerListensAndReleasesLocksAfterCancellation(t *testing.T) {
 	listening := make(chan string, 1)
 	finished := make(chan error, 1)
 	var stderr bytes.Buffer
-	go func() { finished <- runManagedServer(ctx, managedStartupWriter{listening}, &stderr) }()
+	go func() { finished <- RunManaged(ctx, managedStartupWriter{listening}, &stderr) }()
 	var address string
 	select {
 	case address = <-listening:
@@ -221,7 +223,7 @@ func TestManagedServerRejectsInvalidDatabaseLimitBeforeCreatingStorage(t *testin
 			path := filepath.Join(t.TempDir(), "central.db")
 			t.Setenv("GOFER_DB_PATH", path)
 			t.Setenv("GOFER_USER_DB_MAX_OPEN", value)
-			err := runManagedServer(t.Context(), io.Discard, io.Discard)
+			err := RunManaged(t.Context(), io.Discard, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), "GOFER_USER_DB_MAX_OPEN") {
 				t.Fatalf("invalid limit was not rejected: %v", err)
 			}
@@ -237,7 +239,13 @@ func TestManagedMainProcessHelper(t *testing.T) {
 	if os.Getenv("GOFER_MANAGED_MAIN_PROCESS") != "1" {
 		return
 	}
-	main()
+	// The managed branch of main: run until SIGINT or SIGTERM.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := RunManaged(ctx, os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintf(os.Stderr, "Gofer startup or shutdown failed: %v\n", err)
+		os.Exit(1)
+	}
 	os.Exit(0)
 }
 

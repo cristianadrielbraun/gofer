@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func TestManagedOfficeBenchmarkProcess(t *testing.T) {
 		}()
 	}
 	if mode == "shared" {
-		runServer()
+		RunShared()
 		return
 	}
 	if mode != "per-user" {
@@ -63,7 +63,7 @@ func TestManagedOfficeBenchmarkProcess(t *testing.T) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := runManagedServer(ctx, os.Stdout, os.Stderr); err != nil {
+	if err := RunManaged(ctx, os.Stdout, os.Stderr); err != nil {
 		t.Fatal(err)
 	}
 }

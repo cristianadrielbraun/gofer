@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -11,7 +11,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-func runStorageCommand(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, int) {
+// RunStorageCommand handles the offline "storage" commands. It reports whether
+// args named one, and the exit code.
+func RunStorageCommand(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, int) {
 	if len(args) == 0 || args[0] != "storage" {
 		return false, 0
 	}
@@ -24,7 +26,7 @@ func runStorageCommand(ctx context.Context, args []string, stdout, stderr io.Wri
 	}
 	flags := flag.NewFlagSet("storage inspect", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	path := flags.String("db", configuredDatabasePath(), "shared database to inspect")
+	path := flags.String("db", ConfiguredDatabasePath(), "shared database to inspect")
 	if err := flags.Parse(args[2:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return true, 0
@@ -52,7 +54,7 @@ func runStorageCommand(ctx context.Context, args []string, stdout, stderr io.Wri
 func runStorageMigrationCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("storage migrate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	source := flags.String("db", configuredDatabasePath(), "original shared database")
+	source := flags.String("db", ConfiguredDatabasePath(), "original shared database")
 	destination := flags.String("to", "", "new central database in the original data directory")
 	workingDirectory := flags.String("working-dir", "", "original Gofer working directory (defaults to current directory)")
 	retry := flags.Bool("retry", false, "resume recognized interrupted migration work")
