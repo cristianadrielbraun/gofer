@@ -67,6 +67,9 @@ func publishUserStorageMigration(ctx context.Context, options UserStorageMigrati
 // continuously holding those locks, so its full content audit is not repeated.
 func publishUserStorageMigrationLocked(ctx context.Context, options UserStorageMigrationOptions, sourcePath, destination string, afterStep func(string) error, verified *UserStorageMigrationPreflight) (layout UserStorageLayout, err error) {
 	journal, err := readMigrationPreparationJournal(destination + ".migration.json")
+	if errors.Is(err, os.ErrNotExist) && options.Retry {
+		return completedUserStorageMigration(ctx, sourcePath, destination)
+	}
 	if err != nil {
 		return layout, err
 	}
@@ -112,11 +115,7 @@ func publishUserStorageMigrationLocked(ctx context.Context, options UserStorageM
 		if layout.ID != journal.ID || layout.SourcePath != sourcePath || layout.WorkingDirectory != cwd || layout.OwnersAtMigration != journal.Owners {
 			return layout, errors.New("completed layout differs from its publication journal")
 		}
-		journal.State = "published"
-		if err := writeMigrationPreparationJournal(destination+".migration.json", journal); err != nil {
-			return layout, err
-		}
-		return layout, migrationRemoveStage(journal)
+		return layout, migrationFinish(journal)
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return layout, statErr
 	}
@@ -334,11 +333,47 @@ func publishUserStorageMigrationLocked(ctx context.Context, options UserStorageM
 	if err := checkpoint("manifest"); err != nil {
 		return layout, err
 	}
-	journal.State = "published"
-	if err := writeMigrationPreparationJournal(destination+".migration.json", journal); err != nil {
+	return layout, migrationFinish(journal)
+}
+
+// migrationFinish removes the private stage and then the journal once the
+// manifest is published. The layout no longer depends on either; until the
+// journal is gone, a retry recognizes the completed layout and finishes here.
+func migrationFinish(journal migrationPreparationJournal) error {
+	if err := migrationRemoveStage(journal); err != nil {
+		return err
+	}
+	if err := os.Remove(journal.DestinationPath + ".migration.json"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return migrationSyncDirectory(filepath.Dir(journal.DestinationPath))
+}
+
+// completedUserStorageMigration answers a retry after the journal was removed:
+// only a completed layout of the same source is accepted, never adopted files.
+func completedUserStorageMigration(ctx context.Context, sourcePath, destination string) (layout UserStorageLayout, err error) {
+	if _, err := os.Lstat(destination + ".layout.json"); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return layout, errors.New("migration retry requires a recognized existing preparation")
+		}
 		return layout, err
 	}
-	return layout, migrationRemoveStage(journal)
+	if err := migrationRequireDirectory(destination + ".users"); err != nil {
+		return layout, err
+	}
+	managerLock, err := runtimeguard.Acquire(filepath.Join(destination+".users", "manager"))
+	if err != nil {
+		return layout, err
+	}
+	defer func() { err = errors.Join(err, managerLock.Close()) }()
+	layout, err = LoadUserStorageLayout(ctx, destination)
+	if err != nil {
+		return layout, err
+	}
+	if layout.SourcePath != sourcePath {
+		return layout, errors.New("completed layout belongs to another source")
+	}
+	return layout, nil
 }
 
 // After publication the private directory holds only its preparation binding;
@@ -592,6 +627,10 @@ func MigrateUserStorage(ctx context.Context, options UserStorageMigrationOptions
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return layout, err
+	} else if options.Retry {
+		if _, statErr := os.Lstat(destination + ".layout.json"); statErr == nil {
+			return completedUserStorageMigration(ctx, sourcePath, destination)
+		}
 	}
 	stage, err := stageUserStorageMigrationLocked(ctx, options, sourcePath, destination)
 	if err != nil {

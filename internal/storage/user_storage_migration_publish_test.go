@@ -134,13 +134,8 @@ func TestUserStorageMigrationPublishesCompletedLayoutAndAllowsLiveWrites(t *test
 	if err != nil || sha256.Sum256(after) != sha256.Sum256(before) {
 		t.Fatal("publication altered original database", err)
 	}
-	var journal struct{ State string }
-	data, err := os.ReadFile(options.DestinationPath + ".migration.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(data, &journal); err != nil || journal.State != "published" {
-		t.Fatal("publication journal unfinished", err, journal.State)
+	if _, err := os.Lstat(options.DestinationPath + ".migration.json"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("completed publication left its journal", err)
 	}
 }
 

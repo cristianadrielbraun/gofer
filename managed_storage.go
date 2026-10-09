@@ -216,8 +216,16 @@ func initializeManagedStorage(ctx context.Context, path string) (err error) {
 	if err := sourceLock.Close(); err != nil {
 		return err
 	}
-	_, err = storage.MigrateUserStorage(ctx, migrationOptions(source, path, key))
-	return err
+	if _, err := storage.MigrateUserStorage(ctx, migrationOptions(source, path, key)); err != nil {
+		return err
+	}
+	// The empty database only seeded the layout; nothing needs it to roll back.
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		if err := os.Remove(source + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateManagedStorage(ctx context.Context, source, path string, retry, restore bool) (err error) {
@@ -247,6 +255,9 @@ func migrateManagedStorage(ctx context.Context, source, path string, retry, rest
 		return err
 	}
 	log.Printf("storage: per-user storage migration completed in %s", time.Since(started).Round(time.Second))
+	if info, err := os.Stat(source); err == nil {
+		log.Printf("storage: the original database is kept at %s (%d MiB) to roll back the conversion; delete it once you no longer need to", source, info.Size()>>20)
+	}
 	return nil
 }
 

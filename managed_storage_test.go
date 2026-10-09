@@ -176,7 +176,7 @@ func TestPublishedManagedLayoutCannotOpenAsSharedRuntime(t *testing.T) {
 	if err := os.Remove(path + ".layout.json"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(path + ".migration.json"); err != nil {
+	if err := os.Remove(path + ".migration.json"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
 	if err := storage.VerifySharedStorageRuntime(t.Context(), path); err == nil {
@@ -557,4 +557,56 @@ func TestManagedStorageConversionFromAnotherDirectoryLeavesOriginal(t *testing.T
 	if err := storage.VerifySharedStorageRuntime(t.Context(), path); err != nil {
 		t.Fatal("original no longer opens as shared storage", err)
 	}
+}
+
+func TestManagedStorageLeavesOnlyTheRollbackCopy(t *testing.T) {
+	t.Run("fresh", func(t *testing.T) {
+		t.Setenv("GOFER_SECRET_KEY", "")
+		path := filepath.Join(t.TempDir(), "gofer.db")
+		s, err := openManagedStorage(t.Context(), path, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+		for _, leftover := range []string{path + ".shared", path + ".migration.json", path + ".staging"} {
+			if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("fresh installation left files behind", leftover, err)
+			}
+		}
+		if s, err = openManagedStorage(t.Context(), path, 1); err != nil {
+			t.Fatal("restart without the seed database", err)
+		}
+		s.Close()
+	})
+	t.Run("converted", func(t *testing.T) {
+		options, _, _ := migrationCommandFixture(t)
+		path := options.SourcePath
+		s, err := openManagedStorage(t.Context(), path, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+		if _, err := os.Lstat(path + ".migration.json"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("conversion left its journal", err)
+		}
+		// The retained original is only a rollback copy.
+		if err := os.Remove(path + ".shared"); err != nil {
+			t.Fatal(err)
+		}
+		s, err = openManagedStorage(t.Context(), path, 1)
+		if err != nil {
+			t.Fatal("restart after deleting the rollback copy", err)
+		}
+		defer s.Close()
+		lease, err := s.stores.AcquireExisting(t.Context(), "bob")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var contacts int
+		err = lease.DB().Read().QueryRowContext(t.Context(), `SELECT count(*) FROM contact_profiles`).Scan(&contacts)
+		lease.Release()
+		if err != nil || contacts != 1 {
+			t.Fatal("converted data after deleting the rollback copy", contacts, err)
+		}
+	})
 }

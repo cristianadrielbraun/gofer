@@ -126,9 +126,8 @@ func TestUserStorageMigrationPublicationResumesAfterActualProcessExit(t *testing
 			if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
 				t.Fatal("publication recovery changed source", err)
 			}
-			journal, err := readMigrationPreparationJournal(destination + ".migration.json")
-			if err != nil || journal.State != "published" {
-				t.Fatal("recovered publication journal unfinished", err, journal.State)
+			if _, err := os.Lstat(destination + ".migration.json"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("recovered publication left its journal", err)
 			}
 		})
 	}
