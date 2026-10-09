@@ -104,7 +104,7 @@ func (m *Manager) ListFederatedIdentities(ctx context.Context, userID string) ([
 	if len(identities) == 0 {
 		return identities, nil
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate identity-removal relying party: %w", err)
 	}
@@ -154,7 +154,7 @@ func (m *Manager) UnlinkGoogleIdentity(
 	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
 		return nil, err
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate Google identity-removal relying party: %w", err)
 	}

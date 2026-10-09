@@ -109,7 +109,7 @@ func (m *Manager) preparePrimaryMFAContinuation(
 	if !policy.RequiresMFA {
 		return nil, nil, ErrAuthenticationPolicyNotSatisfied
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve MFA enrollment relying party: %w", err)
 	}
@@ -152,7 +152,7 @@ func (m *Manager) requireMFAContinuationAuthenticatorState(
 	if !validMFAContinuationDraft(draft) {
 		return ErrMFAContinuationInvalid
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return err
 	}

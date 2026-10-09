@@ -31,9 +31,11 @@ func TestValidateExposure(t *testing.T) {
 		listenAddr  string
 		baseURL     string
 		allowRemote bool
+		insecureLAN bool
 		authEnabled bool
 		wantError   string
 		wantWarning bool
+		wantLANWarn bool
 	}{
 		{
 			name:       "local unauthenticated",
@@ -72,6 +74,37 @@ func TestValidateExposure(t *testing.T) {
 			baseURL:     "https://mail.example.test",
 			authEnabled: true,
 		},
+		{
+			name:        "authenticated private address requires HTTPS by default",
+			listenAddr:  "0.0.0.0:8090",
+			baseURL:     "http://192.168.0.131:8090",
+			authEnabled: true,
+			wantError:   "must use https",
+		},
+		{
+			name:        "authenticated private address with insecure LAN override",
+			listenAddr:  "0.0.0.0:8090",
+			baseURL:     "http://192.168.0.131:8090",
+			insecureLAN: true,
+			authEnabled: true,
+			wantLANWarn: true,
+		},
+		{
+			name:        "insecure LAN override does not cover public addresses",
+			listenAddr:  "0.0.0.0:8090",
+			baseURL:     "http://203.0.113.10:8090",
+			insecureLAN: true,
+			authEnabled: true,
+			wantError:   "must use https",
+		},
+		{
+			name:        "insecure LAN override does not cover host names",
+			listenAddr:  "0.0.0.0:8090",
+			baseURL:     "http://mail.example.test",
+			insecureLAN: true,
+			authEnabled: true,
+			wantError:   "must use https",
+		},
 	}
 
 	for _, tt := range tests {
@@ -80,6 +113,7 @@ func TestValidateExposure(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newConfig() error = %v", err)
 			}
+			cfg.AllowInsecureLAN = tt.insecureLAN
 			err = cfg.ValidateExposure(tt.authEnabled)
 			if tt.wantError == "" {
 				if err != nil {
@@ -90,6 +124,9 @@ func TestValidateExposure(t *testing.T) {
 			}
 			if got := cfg.WarnUnauthenticatedRemote(tt.authEnabled); got != tt.wantWarning {
 				t.Fatalf("WarnUnauthenticatedRemote() = %t, want %t", got, tt.wantWarning)
+			}
+			if got := cfg.WarnInsecureLAN(tt.authEnabled); got != tt.wantLANWarn {
+				t.Fatalf("WarnInsecureLAN() = %t, want %t", got, tt.wantLANWarn)
 			}
 		})
 	}

@@ -107,6 +107,26 @@ func newPasskeyWebAuthn(origin string) (*webauthn.WebAuthn, error) {
 }
 
 func canonicalWebAuthnRelyingParty(origin string) (canonicalOrigin, rpID string, err error) {
+	canonicalOrigin, rpID, err = webAuthnRelyingPartyParts(origin)
+	if err != nil {
+		return "", "", err
+	}
+	if strings.HasPrefix(canonicalOrigin, "http:") && !isWebAuthnLoopbackHost(rpID) {
+		return "", "", fmt.Errorf("WebAuthn requires HTTPS outside loopback development origins")
+	}
+	return canonicalOrigin, rpID, nil
+}
+
+// passkeyRelyingPartyID returns the relying-party ID that stored passkeys for this instance
+// are bound to. It serves lookups such as whether a user has a passkey, which do not run
+// a WebAuthn ceremony, so it also works on a plain-HTTP private network origin, where
+// browsers offer no passkeys. Ceremonies use canonicalWebAuthnRelyingParty.
+func passkeyRelyingPartyID(baseURL string) (string, error) {
+	_, rpID, err := webAuthnRelyingPartyParts(baseURL)
+	return rpID, err
+}
+
+func webAuthnRelyingPartyParts(origin string) (canonicalOrigin, rpID string, err error) {
 	canonicalOrigin, err = canonicalAuthOrigin(origin)
 	if err != nil {
 		return "", "", err
@@ -118,9 +138,6 @@ func canonicalWebAuthnRelyingParty(origin string) (canonicalOrigin, rpID string,
 	rpID = strings.ToLower(parsed.Hostname())
 	if rpID == "" {
 		return "", "", fmt.Errorf("WebAuthn relying-party ID is empty")
-	}
-	if parsed.Scheme == "http" && !isWebAuthnLoopbackHost(rpID) {
-		return "", "", fmt.Errorf("WebAuthn requires HTTPS outside loopback development origins")
 	}
 	return canonicalOrigin, rpID, nil
 }

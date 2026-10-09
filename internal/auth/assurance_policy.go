@@ -109,7 +109,7 @@ func (m *Manager) loadAuthenticationPolicy(ctx context.Context, queryer authenti
 }
 
 func (m *Manager) withEnrolledMFAPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, policy authenticationPolicy) (authenticationPolicy, error) {
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return authenticationPolicy{}, err
 	}

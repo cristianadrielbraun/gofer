@@ -50,6 +50,9 @@ func RunShared() {
 	if err := httpConfig.ValidateExposure(authConfig.Enabled); err != nil {
 		log.Fatalf("unsafe HTTP configuration: %v", err)
 	}
+	if httpConfig.WarnInsecureLAN(authConfig.Enabled) {
+		log.Printf("WARNING: GOFER_ALLOW_INSECURE_LAN is enabled; sign-in cookies for %s travel unencrypted on the local network", httpConfig.BaseURL)
+	}
 	if httpConfig.WarnUnauthenticatedRemote(authConfig.Enabled) {
 		log.Printf("WARNING: unauthenticated remote access is explicitly enabled; anyone who can reach %s can control Gofer", httpConfig.BaseURL)
 	}

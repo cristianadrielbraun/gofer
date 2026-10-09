@@ -27,6 +27,9 @@ type Config struct {
 	ListenAddr                 string
 	BaseURL                    string
 	AllowUnauthenticatedRemote bool
+	// AllowInsecureLAN permits a plain-HTTP base URL on a private network address while
+	// authentication is enabled. Sign-in cookies then travel unencrypted on that network.
+	AllowInsecureLAN bool
 	allowedCIDRs               []netip.Prefix
 	trustedProxyCIDRs          []netip.Prefix
 
@@ -45,10 +48,16 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
+	allowInsecureLAN, err := parseOptionalBool("GOFER_ALLOW_INSECURE_LAN")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg, err := newConfig(listenAddr, baseURL, allowRemote)
 	if err != nil {
 		return nil, err
 	}
+	cfg.AllowInsecureLAN = allowInsecureLAN
 	cfg.allowedCIDRs, err = parseCIDRs("GOFER_ALLOWED_CIDRS", os.Getenv("GOFER_ALLOWED_CIDRS"))
 	if err != nil {
 		return nil, err
@@ -108,10 +117,24 @@ func (c *Config) ValidateExposure(authEnabled bool) error {
 			c.BaseURL,
 		)
 	}
-	if authEnabled && !c.baseLoopback && c.baseOrigin.scheme != "https" {
-		return fmt.Errorf("GOFER_BASE_URL must use https for authenticated non-loopback access")
+	if authEnabled && !c.baseLoopback && c.baseOrigin.scheme != "https" && !c.insecureLANBase() {
+		return fmt.Errorf("GOFER_BASE_URL must use https for authenticated non-loopback access, or a private network address with GOFER_ALLOW_INSECURE_LAN=true")
 	}
 	return nil
+}
+
+// WarnInsecureLAN reports whether authenticated access is served over plain HTTP on a
+// private network address.
+func (c *Config) WarnInsecureLAN(authEnabled bool) bool {
+	return authEnabled && !c.baseLoopback && c.baseOrigin.scheme != "https" && c.insecureLANBase()
+}
+
+func (c *Config) insecureLANBase() bool {
+	if !c.AllowInsecureLAN {
+		return false
+	}
+	ip, err := netip.ParseAddr(normalizeHost(c.baseOrigin.host))
+	return err == nil && (ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
 
 func (c *Config) WarnUnauthenticatedRemote(authEnabled bool) bool {

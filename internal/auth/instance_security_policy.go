@@ -126,7 +126,7 @@ func (m *Manager) requireUserReadyForInstanceMFA(ctx context.Context, queryer in
 	if !policy.MFA.RequiresAllUsers() {
 		return nil
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return fmt.Errorf("resolve passkey relying party for instance MFA activation: %w", err)
 	}
@@ -159,7 +159,7 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 
 	rpID := ""
 	if options.Policy.RequiresAllUsers() {
-		_, resolvedRPID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+		resolvedRPID, err := passkeyRelyingPartyID(m.config.BaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("resolve passkey relying party for instance MFA policy: %w", err)
 		}

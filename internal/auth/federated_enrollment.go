@@ -429,7 +429,7 @@ func (m *Manager) requireUserReadyForAuthenticationPolicy(
 	if policy.UserMFARequired && !policy.AdministratorMFARequired && !policy.InstanceMFARequired {
 		return nil
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return fmt.Errorf("resolve passkey relying party for user activation: %w", err)
 	}

@@ -407,3 +407,18 @@ func TestCanonicalWebAuthnRelyingPartyValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestPasskeyRelyingPartyIDServesPlainHTTPLookups(t *testing.T) {
+	// Lookups work on a plain-HTTP private network origin, so password sign-in can check a
+	// user's authenticators there; ceremonies on that origin are still refused.
+	rpID, err := passkeyRelyingPartyID("http://192.168.0.131:8090")
+	if err != nil || rpID != "192.168.0.131" {
+		t.Fatalf("passkeyRelyingPartyID() = %q, %v", rpID, err)
+	}
+	if _, _, err := canonicalWebAuthnRelyingParty("http://192.168.0.131:8090"); err == nil {
+		t.Fatal("canonicalWebAuthnRelyingParty() accepted a plain-HTTP private network origin")
+	}
+	if _, err := passkeyRelyingPartyID("https://example.com/account"); err == nil {
+		t.Fatal("passkeyRelyingPartyID() accepted an origin with a path")
+	}
+}

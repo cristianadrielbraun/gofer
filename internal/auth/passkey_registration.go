@@ -371,7 +371,7 @@ func (m *Manager) RemovePasskey(ctx context.Context, sessionToken, passkeyID, us
 	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
 		return nil, err
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate passkey removal relying party: %w", err)
 	}
@@ -550,7 +550,7 @@ func (m *Manager) loadPasskeyUser(ctx context.Context, userID, rpID string) (*lo
 }
 
 func (m *Manager) listPasskeysForUser(ctx context.Context, userID string) ([]PasskeyCredentialSummary, error) {
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate passkey listing relying party: %w", err)
 	}

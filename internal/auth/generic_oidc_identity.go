@@ -221,7 +221,7 @@ func (m *Manager) UnlinkOIDCIdentity(
 	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
 		return nil, err
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate OIDC identity-removal relying party: %w", err)
 	}

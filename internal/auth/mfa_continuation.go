@@ -271,7 +271,7 @@ func (m *Manager) GetMFAContinuationFactors(ctx context.Context, token, origin s
 	if !policy.RequiresMFA || draft.Enrollment != nil {
 		return nil, ErrMFAContinuationInvalid
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, err
 	}

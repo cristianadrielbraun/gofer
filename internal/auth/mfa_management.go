@@ -114,7 +114,7 @@ func (m *Manager) GetSecuritySettingsAccess(ctx context.Context, sessionToken st
 	if session == nil {
 		return nil, ErrSecuritySessionInvalid
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate security settings relying party: %w", err)
 	}
@@ -157,7 +157,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 	if session == nil {
 		return nil, ErrSecuritySessionInvalid
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate security settings relying party: %w", err)
 	}
@@ -691,7 +691,7 @@ func (m *Manager) DisableTOTP(ctx context.Context, sessionToken, userAgent strin
 	if err := m.requireRecentSecurityStepUp(ctx, session, now); err != nil {
 		return nil, err
 	}
-	_, rpID, err := canonicalWebAuthnRelyingParty(m.config.BaseURL)
+	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("validate security settings relying party: %w", err)
 	}

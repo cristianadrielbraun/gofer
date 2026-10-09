@@ -66,6 +66,9 @@ func newManagedApplication(parent context.Context, path string, maxOpen int) (re
 	if err := app.httpConfig.ValidateExposure(authConfig.Enabled); err != nil {
 		return nil, err
 	}
+	if app.httpConfig.WarnInsecureLAN(authConfig.Enabled) {
+		log.Printf("WARNING: GOFER_ALLOW_INSECURE_LAN is enabled; sign-in cookies for %s travel unencrypted on the local network", app.httpConfig.BaseURL)
+	}
 	app.storage, err = openManagedStorage(ctx, path, maxOpen)
 	if err != nil {
 		return nil, err
