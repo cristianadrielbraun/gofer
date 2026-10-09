@@ -3396,6 +3396,7 @@ body.mail-list-column-resizing {
 
   /* One pane at a time: the list fills the screen until something is opened. */
   #main-content > #mail-list {
+    display: flex;
     width: 100% !important;
     height: auto !important;
     flex: 1 1 auto;
@@ -3561,8 +3562,10 @@ body.mail-list-column-resizing {
     height: 2.75rem;
   }
 
-  /* The message menu opens as a sheet along the bottom edge. */
-  .mobile-sheet[data-tui-popover-open="true"] {
+  /* Menus marked mobile-sheet open as a sheet along the bottom edge. The sheet keeps
+     its place for the whole time it is shown, so it can slide down while the popover
+     script waits to hide it, and the page behind dims with it. */
+  .mobile-sheet:popover-open {
     top: auto !important;
     bottom: 0 !important;
     left: 0 !important;
@@ -3572,7 +3575,23 @@ body.mail-list-column-resizing {
     padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom));
     border-bottom: 0;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    opacity: 1;
+    transform: translateY(100%);
+    box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0);
+    transition: transform 0.15s ease-in, box-shadow 0.15s ease-in;
+  }
+
+  .mobile-sheet[data-tui-popover-open="true"]:popover-open {
+    transform: none;
     box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.35);
+    transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.24s ease-out;
+  }
+
+  @starting-style {
+    .mobile-sheet[data-tui-popover-open="true"]:popover-open {
+      transform: translateY(100%);
+      box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0);
+    }
   }
 
   .mobile-sheet [data-tui-dropdown-item] {
@@ -3630,5 +3649,714 @@ body.mail-list-column-resizing {
   .app-drawer,
   .mobile-nav-backdrop {
     transition: none !important;
+  }
+}
+
+/* === SMALL SCREENS: MAIL LIST ===
+   On a phone the list reads like an app screen. The top bar names the folder, the
+   search row carries sort and filters, bulk actions appear only while selecting
+   (long press a row), compose floats over the list, and rows are full width with a
+   fixed layout. Rows are 5.25rem tall, matching mailCardRowRem() in virtual-scroll.js. */
+
+.mobile-compose-fab {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  .mobile-topbar[data-mobile-topbar-titled] .mobile-topbar-brand {
+    display: none;
+  }
+
+  .mobile-topbar[data-mobile-topbar-titled] .mobile-topbar-title {
+    display: flex;
+  }
+
+  .app-shell:has(.mobile-compose-fab) .mobile-topbar [data-mobile-topbar-compose] {
+    display: none;
+  }
+
+  .mobile-topbar[data-mobile-topbar-titled] .mobile-topbar-mail-actions {
+    display: flex;
+  }
+
+  /* Header: the folder name, search, sort and filters live in the top bar. The list
+     header keeps only the active search and filter chips. Its search row is hidden
+     visually rather than with display: none, which would also stop the filter menu
+     inside it from opening as a sheet. */
+  #mail-list[data-mail-list-view] .mail-list-title-row {
+    display: none;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-header {
+    padding: 0;
+  }
+
+  #mail-list[data-mail-list-view] .mail-active-filter-strip:not(.hidden) {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  }
+
+  #mail-list[data-mail-list-view] > .divider-etched {
+    display: none;
+  }
+
+  #mail-list[data-mail-list-view]:not([data-mail-searching]) .mail-list-search-primary {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* Search opens over the top bar. */
+  #mail-list[data-mail-searching] .mail-list-search-primary {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 40;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.25rem;
+    height: calc(3.25rem + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 0.5rem 0 calc(0.5rem + env(safe-area-inset-left));
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-card);
+  }
+
+  #mail-list[data-mail-searching] .mail-list-search-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    color: var(--color-foreground);
+  }
+
+  #mail-list[data-mail-searching] .mail-list-search-actions {
+    display: none;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-search-input-wrap > svg {
+    left: 0.875rem;
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  #mail-list[data-mail-list-view] [data-mail-search-input] {
+    height: 2.5rem;
+    padding-left: 2.625rem;
+  }
+
+  .mail-filters-sheet-body {
+    height: min(34rem, 85dvh);
+  }
+
+  .mobile-sheet.mail-filters-sheet:popover-open {
+    max-height: 90dvh;
+    padding: 0 0 env(safe-area-inset-bottom);
+  }
+
+  /* Toolbar: hidden until a long press starts selecting, then it replaces the
+     search row as a selection bar. It is hidden visually rather than with
+     display: none, which would also stop its sort menu from opening as a sheet. */
+  #mail-list[data-mail-list-view]:not([data-mail-selecting]) .mail-list-toolbar {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* Like search, the selection bar covers the top bar rather than taking list space. */
+  #mail-list[data-mail-selecting] .mail-list-toolbar {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 40;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.25rem;
+    height: calc(3.25rem + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 0.5rem 0 calc(0.5rem + env(safe-area-inset-left));
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-card);
+  }
+
+  #mail-list[data-mail-selecting] .mail-list-toolbar > [data-mail-list-view-toggle],
+  #mail-list[data-mail-selecting] .mail-list-toolbar > :has([data-mail-sort-trigger]),
+  #mail-list[data-mail-selecting] .mail-list-toolbar > .mail-list-toolbar-divider,
+  #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-table-column-trigger-wrapper],
+  #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-card-layout-trigger-wrapper] {
+    display: none;
+  }
+
+  #mail-list[data-mail-selecting] [data-mail-selection-clear] {
+    order: -2;
+    gap: 0.5rem;
+    height: 2.75rem;
+    padding: 0 0.5rem;
+    font-size: 1rem;
+    color: var(--color-foreground);
+  }
+
+  #mail-list[data-mail-selecting] .mail-list-toolbar-spacer {
+    order: -1;
+  }
+
+  #mail-list[data-mail-selecting] .mail-selection-clear-icon {
+    display: inline-flex;
+  }
+
+  #mail-list[data-mail-selecting] .mail-selection-clear-label {
+    display: none;
+  }
+
+  #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-selection-action],
+  #mail-list[data-mail-selecting] .mail-list-toolbar [data-tui-dropdown-trigger] > button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-selection-action] svg,
+  #mail-list[data-mail-selecting] .mail-list-toolbar [data-tui-dropdown-trigger] > button svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  /* Rows: full width with a divider, one fixed layout whatever the desktop card
+     layout says. Fields the desktop layout hides stay hidden. */
+  #mail-list[data-mail-list-view] #mail-list-scroll {
+    padding: 0 0 5.5rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-item {
+    height: 5.25rem;
+    min-height: 5.25rem;
+    max-height: 5.25rem;
+    padding: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-item > a.mail-list-card {
+    grid-template-columns: 2.5rem minmax(0, 1fr) auto auto;
+    grid-template-rows: 1.375rem 1.25rem 1.25rem;
+    grid-template-areas:
+      "avatar from unread date"
+      "avatar subject attachment star"
+      "thread preview label label";
+    column-gap: 0.5rem;
+    row-gap: 0.1875rem;
+    align-items: center;
+    min-height: 0;
+    padding: 0.5rem 1rem;
+    border: 0;
+    border-radius: 0;
+    /* Solid in every state, so a swipe's action strip never shows through. */
+    background: var(--color-card);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-item > a.mail-list-card:active,
+  #mail-list[data-mail-list-view] .mail-list-item > a.mail-list-card.envelope-active {
+    background: color-mix(in srgb, var(--color-foreground) 5%, var(--color-card));
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-item[data-mail-selected] > a.mail-list-card {
+    background: color-mix(in srgb, var(--color-primary) 10%, var(--color-card));
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card > .mail-list-card-zone:not([data-mail-card-zone="hidden"]) {
+    display: contents;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card .mail-list-card-empty-icon-slot,
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="to"],
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="account"],
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="labels"] ~ [data-mail-card-field="labels"],
+  #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address {
+    display: none;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="avatar"] {
+    grid-area: avatar;
+    align-self: start;
+    margin-top: 0.125rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="avatar"] > * {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 0.875rem;
+  }
+
+  /* The account colour sits on the avatar's corner. */
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="accountMarker"] {
+    grid-area: avatar;
+    align-self: start;
+    justify-self: end;
+    z-index: 1;
+    margin-top: 2rem;
+    margin-right: -0.125rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="accountMarker"] > .account-color-marker {
+    box-shadow: 0 0 0 2px var(--color-card);
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="from"] {
+    grid-area: from;
+    font-size: 1rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="unread"] {
+    grid-area: unread;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="date"] {
+    grid-area: date;
+    font-size: 0.8125rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="subject"] {
+    grid-area: subject;
+    font-size: 0.9375rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="attachment"] {
+    grid-area: attachment;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="starred"] {
+    grid-area: star;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    margin: -0.5rem -0.625rem -0.5rem -0.25rem;
+    opacity: 1;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="starred"] svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="thread"] {
+    grid-area: thread;
+    justify-self: center;
+    height: 2rem;
+    padding: 0 0.25rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="preview"] {
+    grid-area: preview;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="labels"] {
+    grid-area: label;
+    max-width: 6rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Compose floats over the list. */
+  .mobile-compose-fab {
+    display: inline-flex;
+    position: fixed;
+    right: calc(1rem + env(safe-area-inset-right));
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+    z-index: 30;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: var(--radius-lg);
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    box-shadow: 0 0.25rem 0.75rem rgb(0 0 0 / 0.25);
+  }
+
+  .mobile-compose-fab:active {
+    filter: brightness(0.92);
+  }
+
+  #mail-list[data-mail-selecting] .mobile-compose-fab {
+    display: none;
+  }
+}
+
+/* === SMALL SCREENS: PULL TO REFRESH AND THREADS === */
+
+.mail-pull-indicator {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  #mail-list-scroll {
+    overscroll-behavior-y: contain;
+  }
+
+  .mail-pull-indicator {
+    display: flex;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 5;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-card);
+    color: var(--color-muted-foreground);
+    box-shadow: 0 0.125rem 0.5rem rgb(0 0 0 / 0.18);
+    pointer-events: none;
+    transform: translate(-50%, -3rem);
+    transition: transform 0.2s ease, color 0.15s ease;
+  }
+
+  .mail-pull-indicator[data-pulling] {
+    transition: color 0.15s ease;
+  }
+
+  .mail-pull-indicator[data-armed],
+  .mail-pull-indicator[data-refreshing] {
+    color: var(--color-primary);
+  }
+
+  .mail-pull-indicator svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .mail-pull-indicator[data-refreshing] svg {
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* Threads: the count under the avatar is a real touch target, and the expanded
+     messages are touch rows indented under a thread line. */
+  #mail-list[data-mail-list-view] .mail-list-card [data-thread-toggle] {
+    min-width: 2.75rem;
+    height: 2rem;
+    margin: -0.375rem -0.25rem;
+    justify-content: center;
+    gap: 0.125rem;
+    font-size: 0.8125rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-card [data-thread-toggle] svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-thread-slot {
+    padding-bottom: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-thread-main {
+    height: 5.25rem;
+    min-height: 5.25rem;
+    max-height: 5.25rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-thread-main > .mail-list-item {
+    border-bottom: 0;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-items {
+    margin: 0 0 0.5rem 2.25rem;
+    padding: 0 0 0 0.25rem;
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item a {
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 3.5rem;
+    padding: 0.375rem 1rem 0.375rem 0.75rem;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item a:active {
+    background: color-mix(in srgb, var(--color-foreground) 5%, transparent);
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item [data-mail-table-cell="thread"] > * {
+    width: 2rem;
+    height: 2rem;
+    margin-top: 0;
+    font-size: 0.75rem;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item [data-mail-table-cell="from"] {
+    flex: 1 1 auto;
+    font-size: 0.9375rem;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item [data-mail-table-cell="to"] {
+    display: none;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item [data-mail-table-cell="date"] span {
+    font-size: 0.8125rem;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item [data-mail-table-cell="starred"] .star-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    margin: -0.5rem -0.25rem;
+    opacity: 1;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item [data-mail-table-cell="starred"] svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  #mail-list[data-mail-list-view] .thread-sub-item [data-mail-table-cell="subject"] {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+}
+
+/* === SMALL SCREENS: SWIPE ACTIONS === */
+
+@media (max-width: 1023.98px) {
+  #mail-list[data-mail-list-view] .mail-list-item {
+    position: relative;
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-item[data-swiping] > a.mail-list-card {
+    position: relative;
+    z-index: 1;
+  }
+
+  .mail-swipe-action {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-muted-foreground);
+    background: var(--color-muted);
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .mail-swipe-action[data-side="right"] {
+    justify-content: flex-end;
+  }
+
+  .mail-swipe-action svg {
+    width: 1.375rem;
+    height: 1.375rem;
+    flex: none;
+    transition: transform 0.15s ease;
+  }
+
+  .mail-list-item[data-swipe-armed] > .mail-swipe-action[data-action="archive"] {
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+  }
+
+  .mail-list-item[data-swipe-armed] > .mail-swipe-action[data-action="delete"] {
+    background: var(--color-destructive);
+    color: var(--color-primary-foreground);
+  }
+
+  .mail-list-item[data-swipe-armed] > .mail-swipe-action svg {
+    transform: scale(1.15);
+  }
+}
+
+/* === SMALL SCREENS: SYNC STATUS AND APPLIED FILTERS ===
+   Space on a phone is tight, so mail sync reports in the top bar instead of a toast,
+   and applied filters are listed inside the filter sheet instead of above the list. */
+
+.mail-filters-applied,
+.mail-filters-applied-view {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  .mobile-topbar {
+    position: relative;
+  }
+
+  .mobile-topbar[data-mobile-sync] [data-mobile-topbar-title-count] {
+    display: none;
+  }
+
+  .mobile-topbar[data-mobile-sync] .mobile-topbar-sync {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    color: color-mix(in srgb, var(--sidebar-foreground) 75%, transparent);
+  }
+
+  .mobile-topbar[data-mobile-sync="error"] .mobile-topbar-sync {
+    color: color-mix(in srgb, var(--color-destructive) 70%, white);
+  }
+
+  .mobile-topbar[data-mobile-sync="warning"] .mobile-topbar-sync {
+    color: #f5b94a;
+  }
+
+  .mobile-topbar[data-mobile-sync="running"]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 35%;
+    height: 2px;
+    background: var(--color-primary);
+    animation: mobile-sync-progress 1.2s ease-in-out infinite;
+  }
+
+  #mail-list[data-mail-list-view] .mail-active-filter-strip {
+    display: none;
+  }
+
+  .mobile-topbar [data-mobile-mail-action][data-active] {
+    color: var(--color-primary);
+  }
+
+  .mail-filters-applied:not(.hidden) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 2.75rem;
+    margin-top: 0.5rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-background);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-foreground);
+  }
+
+  .mail-filters-sheet:has([data-mail-filters-applied]:not(.hidden)) .mail-filters-intro {
+    display: none;
+  }
+
+  /* The applied list replaces the whole sheet body while it is open. */
+  .mail-filters-sheet-body[data-mail-filters-showing-applied] > :not(.mail-filters-applied-view) {
+    display: none;
+  }
+
+  .mail-filters-sheet-body[data-mail-filters-showing-applied] > .mail-filters-applied-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .mail-filters-applied-view-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem 0.5rem 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .mail-filters-applied-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    color: var(--color-foreground);
+  }
+
+  .mail-filters-applied-rows {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .mail-filters-applied-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3.5rem;
+    padding: 0.375rem 0.5rem 0.375rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  }
+
+  .mail-filters-applied-row-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .mail-filters-applied-row-label {
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+  }
+
+  .mail-filters-applied-row-value {
+    overflow: hidden;
+    font-size: 0.9375rem;
+    color: var(--color-foreground);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mail-filters-applied-row-label:only-child {
+    font-size: 0.9375rem;
+    color: var(--color-foreground);
+  }
+
+  .mail-filters-applied-row-remove {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    color: var(--color-muted-foreground);
+  }
+
+  .mail-filters-applied-row-remove svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
+
+@keyframes mobile-sync-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(290%);
   }
 }

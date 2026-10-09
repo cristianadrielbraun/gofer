@@ -28,6 +28,9 @@ templ MailList(accounts []models.Account, emails []models.Email, activeFolder st
 		if mailListNavigationMode(navigationMode) == "pagination" && scrollCount >= 0 {
 			@MailListPagination(scrollCount, windowStart, len(emails), mailListPaginationPageSize())
 		}
+		<button type="button" class="mobile-compose-fab" onclick="openNewCompose()" aria-label="Compose">
+			@icon.Pen(icon.Props{Class: "size-5"})
+		</button>
 	</div>
 }
 
@@ -52,12 +55,16 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 		</div>
 		<div class="mail-list-search-section">
 			<div class="mail-list-search-primary">
+				<button type="button" class="mail-list-search-close hidden" data-mail-search-close aria-label="Close search">
+					@icon.ArrowLeft(icon.Props{Class: "size-5"})
+				</button>
 				<div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">
 					@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
 					<input
 						type="text"
 						name="q"
 						placeholder="Search, or use from: subject: body: then Enter"
+						data-mobile-placeholder="Search mail"
 						class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none focus:ring-2 focus:ring-ring"
 						data-mail-search-input
 						autocomplete="off"
@@ -130,12 +137,12 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 		<div class="mail-list-toolbar-spacer flex-1"></div>
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
-				<button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Sort messages">
+				<button type="button" class="mail-list-sort-trigger inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Sort messages" data-mail-sort-trigger>
 					@icon.ArrowUpDown(icon.Props{Class: "size-3.5"})
 					<span class="hidden sm:inline">{ mailSortLabel(filters) }</span>
 				</button>
 			}
-			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-64 normal-case tracking-normal p-3"}) {
+			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-64 normal-case tracking-normal p-3"}) {
 				<form class="space-y-3" data-mail-sort-form>
 					<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 						<span>Order by</span>
@@ -177,8 +184,11 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 			}
 		}
 		<button type="button" data-mail-selection-clear class="hidden h-7 items-center rounded-md px-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">
+			<span class="mail-selection-clear-icon hidden" aria-hidden="true">
+				@icon.X(icon.Props{Class: "size-5"})
+			</span>
 			<span data-mail-selection-summary>0 selected</span>
-			<span class="ml-1 text-[10px]">Clear</span>
+			<span class="mail-selection-clear-label ml-1 text-[10px]">Clear</span>
 		</button>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
@@ -247,7 +257,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 				Mark as read
 			}
 		}
-		<div class="h-5 w-px bg-border/70 mx-1"></div>
+		<div class="mail-list-toolbar-divider h-5 w-px bg-border/70 mx-1"></div>
 		@MailListColumnSelector()
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
@@ -259,7 +269,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 					@icon.EllipsisVertical(icon.Props{Class: "size-3.5"})
 				}
 			}
-			@dropdown.Content() {
+			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet"}) {
 				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "label"}}) {
 					<span class="flex items-center gap-2">
 						@icon.Tag(icon.Props{Class: "size-4"})
@@ -303,16 +313,20 @@ templ MailFiltersPopover(accounts []models.Account) {
 	@popover.Root(popover.RootProps{ID: "mail-filters-popover", Class: "inline-flex"}) {
 		@popover.Trigger() {
 			<button type="button" aria-label="Filters" data-mail-filter-button class="mail-list-advanced-filter-button relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground hover:bg-accent data-[active=true]:bg-accent data-[active=true]:text-foreground">
-				<span>Filters</span>
+				<span class="mail-list-filter-label">Filters</span>
 				@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
 				<span data-mail-filter-count class="hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
 			</button>
 		}
-		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, Exclusive: true, Class: "z-[70] w-[min(36rem,calc(100vw-1.5rem))] max-w-none overflow-hidden p-0 [&::backdrop]:transition-colors [&::backdrop]:duration-150 data-[tui-popover-open=false]:[&::backdrop]:bg-black/0 data-[tui-popover-open=true]:[&::backdrop]:bg-black/25"}) {
-			<div class="flex h-[min(32.2rem,calc(100vh-2rem))] min-h-0 flex-col">
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, Exclusive: true, Class: "mobile-sheet mail-filters-sheet z-[70] w-[min(36rem,calc(100vw-1.5rem))] max-w-none overflow-hidden p-0 [&::backdrop]:transition-colors [&::backdrop]:duration-150 data-[tui-popover-open=false]:[&::backdrop]:bg-black/0 data-[tui-popover-open=true]:[&::backdrop]:bg-black/25"}) {
+			<div class="mail-filters-sheet-body flex h-[min(32.2rem,calc(100vh-2rem))] min-h-0 flex-col">
 				<div class="shrink-0 border-b border-border px-4 py-3">
 					<h2 class="text-sm font-semibold text-foreground">Filters</h2>
-					<p class="mt-0.5 text-xs text-muted-foreground">Narrow the message list with any combination of filters.</p>
+					<p class="mail-filters-intro mt-0.5 text-xs text-muted-foreground">Narrow the message list with any combination of filters.</p>
+					<button type="button" class="mail-filters-applied hidden" data-mail-filters-applied data-mail-filters-applied-open>
+						<span data-mail-filters-applied-count></span>
+						@icon.ChevronRight(icon.Props{Class: "size-4"})
+					</button>
 				</div>
 				<form data-mail-advanced-filter-form class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
 					<div class="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3 sm:grid-cols-[9rem_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)]">
@@ -532,6 +546,15 @@ templ MailFiltersPopover(accounts []models.Account) {
 						</div>
 					</div>
 				</form>
+				<div class="mail-filters-applied-view" data-mail-filters-applied-view>
+					<div class="mail-filters-applied-view-header">
+						<button type="button" class="mail-filters-applied-back" data-mail-filters-applied-close aria-label="Back to filters">
+							@icon.ArrowLeft(icon.Props{Class: "size-5"})
+						</button>
+						<h2 class="text-sm font-semibold text-foreground">Applied filters</h2>
+					</div>
+					<div class="mail-filters-applied-rows" data-mail-filters-applied-list></div>
+				</div>
 			</div>
 		}
 	}
@@ -846,7 +869,12 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 						templ.KV("text-foreground/70", email.IsRead),
 					}
 					data-mail-card-field="from"
-				>{ senderDisplay(email.From, senderDisplayMode) }</span>
+				>
+					{ senderDisplayPrimary(email.From, senderDisplayMode) }
+					if suffix := senderDisplayAddressSuffix(email.From, senderDisplayMode); suffix != "" {
+						<span class="mail-sender-address">{ suffix }</span>
+					}
+				</span>
 				<span
 					class={
 						"text-xs tabular-nums",

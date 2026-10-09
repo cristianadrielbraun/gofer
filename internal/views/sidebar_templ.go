@@ -4070,12 +4070,36 @@ func MobileTopBar(showCompose bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 271, "</button> <a href=\"/\" class=\"flex min-w-0 items-center gap-2\"><img src=\"/assets/logo.svg\" alt=\"\" class=\"h-7 w-7 shrink-0\"> <span class=\"truncate text-base font-bold tracking-tight text-sidebar-accent-foreground\" style=\"font-family: var(--font-serif)\">Gofer</span></a><div class=\"flex-1\"></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 271, "</button> <a href=\"/\" class=\"mobile-topbar-brand flex min-w-0 items-center gap-2\"><img src=\"/assets/logo.svg\" alt=\"\" class=\"h-7 w-7 shrink-0\"> <span class=\"truncate text-base font-bold tracking-tight text-sidebar-accent-foreground\" style=\"font-family: var(--font-serif)\">Gofer</span></a><div class=\"mobile-topbar-title hidden min-w-0 items-baseline gap-2\" data-mobile-topbar-title><span class=\"truncate text-lg font-bold tracking-tight text-sidebar-accent-foreground\" style=\"font-family: var(--font-serif)\" data-mobile-topbar-title-text></span> <span class=\"shrink-0 text-xs font-medium tabular-nums text-sidebar-foreground/70\" data-mobile-topbar-title-count></span> <button type=\"button\" class=\"mobile-topbar-sync hidden shrink-0 text-xs font-medium\" data-mobile-topbar-sync></button></div><div class=\"flex-1\"></div><div class=\"mobile-topbar-mail-actions hidden items-center\" data-mobile-topbar-mail-actions><button type=\"button\" class=\"mobile-topbar-button\" data-mobile-mail-action=\"search\" aria-label=\"Search mail\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = icon.Search(icon.Props{Class: "size-5"}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 272, "</button> <button type=\"button\" class=\"mobile-topbar-button\" data-mobile-mail-action=\"sort\" aria-label=\"Sort messages\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = icon.ArrowUpDown(icon.Props{Class: "size-5"}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 273, "</button> <button type=\"button\" class=\"mobile-topbar-button relative\" data-mobile-mail-action=\"filter\" aria-label=\"Filters\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = icon.SlidersHorizontal(icon.Props{Class: "size-5"}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 274, "<span data-mail-filter-count-mirror class=\"absolute right-0.5 top-0.5 hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground\"></span></button></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if showCompose {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 272, "<button type=\"button\" class=\"mobile-topbar-button\" onclick=\"openNewCompose()\" aria-label=\"Compose\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 275, "<button type=\"button\" class=\"mobile-topbar-button\" onclick=\"openNewCompose()\" aria-label=\"Compose\" data-mobile-topbar-compose>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -4083,12 +4107,12 @@ func MobileTopBar(showCompose bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 273, "</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 276, "</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 274, "</header><div class=\"mobile-nav-backdrop\" data-mobile-nav-close aria-hidden=\"true\"></div><script src=\"/assets/js/mobile-nav.js\"></script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 277, "</header><div class=\"mobile-nav-backdrop\" data-mobile-nav-close aria-hidden=\"true\"></div><script src=\"/assets/js/mobile-nav.js\"></script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

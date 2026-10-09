@@ -522,6 +522,22 @@ func senderDisplay(contact models.Contact, mode string) string {
 	}
 }
 
+// senderDisplayPrimary and senderDisplayAddressSuffix split the "both" form of
+// senderDisplay so small screens can drop the address and keep the name.
+func senderDisplayPrimary(contact models.Contact, mode string) string {
+	if senderDisplayAddressSuffix(contact, mode) != "" {
+		return contact.Name
+	}
+	return senderDisplay(contact, mode)
+}
+
+func senderDisplayAddressSuffix(contact models.Contact, mode string) string {
+	if mode != "both" || contact.Name == "" || contact.Email == "" || contact.Name == contact.Email {
+		return ""
+	}
+	return fmt.Sprintf(" <%s>", contact.Email)
+}
+
 func contactsDisplay(contacts []models.Contact, mode string) string {
 	if len(contacts) == 0 {
 		return ""

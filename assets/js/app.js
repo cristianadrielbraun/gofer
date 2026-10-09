@@ -1270,13 +1270,37 @@ document.addEventListener("DOMContentLoaded", function () {
     window.clearMailSelection = clearMailSelection
     window.applyOptimisticMailRemove = applyOptimisticRemove
 
+    var suppressMailRowClickUntil = 0
+    var mobileMailList = window.matchMedia("(max-width: 1023.98px)")
+    var mailSwipeActive = false
+    setupMailTouchSelection()
+    setupMailPullToRefresh()
+    setupMailSwipeActions()
+
     document.addEventListener("click", function (e) {
       var rowLink = e.target.closest && e.target.closest(".mail-list-item[data-email-id] > a")
+      if (rowLink && Date.now() < suppressMailRowClickUntil) {
+        // The click that ends a long press must not also open the message.
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+      var threadToggle = e.target.closest && e.target.closest("#mail-list-scroll [data-thread-toggle]")
+      if (threadToggle && mobileMailList.matches && !mailSelectionModeActive()) {
+        // On a phone, opening the message would replace the list, so the toggle only
+        // expands the thread. Stopping here also keeps htmx on the row from firing.
+        e.preventDefault()
+        e.stopPropagation()
+        var toggleScroll = document.getElementById("mail-list-scroll")
+        var toggleList = (toggleScroll && toggleScroll._virtualMailList) || virtualMailList
+        if (toggleList) toggleList.toggleThreadExpand(threadToggle.dataset.threadToggle, { select: false })
+        return
+      }
       var rowClickIgnored = e.target.closest && (e.target.closest(".star-btn") || e.target.closest("[data-thread-toggle]"))
       if (rowLink && !rowClickIgnored) {
         var linkRow = rowLink.closest(".mail-list-item[data-email-id]")
         if (linkRow && linkRow.dataset.emailId) {
-          if (e.shiftKey || e.metaKey || e.ctrlKey) {
+          if (e.shiftKey || e.metaKey || e.ctrlKey || mailSelectionModeActive()) {
             e.preventDefault()
             e.stopPropagation()
             var linkNext = e.shiftKey && lastSelectedMailId ? true : !selectedMailIds.has(linkRow.dataset.emailId)
@@ -1291,6 +1315,33 @@ document.addEventListener("DOMContentLoaded", function () {
           setTimeout(syncMailSelectionControls, 0)
           return
         }
+      }
+
+      var mobileAction = e.target.closest && e.target.closest("[data-mobile-mail-action]")
+      if (mobileAction) {
+        // The phone top bar carries search, sort and filters. Sort and filters keep
+        // their triggers in the list header, hidden on small screens; their menus open
+        // as bottom sheets, so they need no visible anchor. Stop this tap here, or the
+        // menus' click-outside handler closes them again.
+        e.preventDefault()
+        e.stopPropagation()
+        var mobileActionName = mobileAction.getAttribute("data-mobile-mail-action")
+        if (mobileActionName === "search") {
+          setMailSearchMode(true)
+        } else {
+          // The filter sheet always opens on its filters, not on the applied list.
+          var filterSheetBody = mobileActionName === "filter" && document.querySelector(".mail-filters-sheet-body")
+          if (filterSheetBody) filterSheetBody.removeAttribute("data-mail-filters-showing-applied")
+          var proxied = document.querySelector(mobileActionName === "sort" ? "[data-mail-sort-trigger]" : "[data-mail-filter-button]")
+          if (proxied) proxied.click()
+        }
+        return
+      }
+
+      if (e.target.closest && e.target.closest("[data-mail-search-close]")) {
+        e.preventDefault()
+        setMailSearchMode(false)
+        return
       }
 
       var clearSelection = e.target.closest && e.target.closest("[data-mail-selection-clear]")
@@ -1387,6 +1438,334 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var j = start; j <= end; j++) setMailSelected(rows[j].dataset.emailId, selected)
     }
 
+    // On touch screens a long press on a row starts selecting; while selecting,
+    // a tap toggles a row instead of opening it.
+    // On a phone the search field opens over the top bar from its search button.
+    function setMailSearchMode(active) {
+      var list = document.getElementById("mail-list")
+      if (!list) return
+      list.toggleAttribute("data-mail-searching", active)
+      var input = list.querySelector("[data-mail-search-input]")
+      if (!input) return
+      if (active) input.focus()
+      else input.blur()
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (!e.target || !e.target.matches || !e.target.matches("#mail-list[data-mail-searching] [data-mail-search-input]")) return
+      // Enter runs the search (handled elsewhere) and its chip shows above the list.
+      if (e.key === "Enter" || e.key === "Escape") setTimeout(function () { setMailSearchMode(false) }, 0)
+    })
+
+    function mailSelectionModeActive() {
+      var list = document.getElementById("mail-list")
+      return !!(list && list.hasAttribute("data-mail-selecting"))
+    }
+
+    function setMailSelectionMode(active) {
+      var list = document.getElementById("mail-list")
+      if (list) list.toggleAttribute("data-mail-selecting", active)
+    }
+
+    // Pulling the list down from the top runs the same sync as the drawer's refresh
+    // button, so progress and errors show the way they do for that button.
+    function setupMailPullToRefresh() {
+      var mobile = mobileMailList
+      var startX = 0
+      var startY = 0
+      var tracking = false
+      var pulling = false
+      var distance = 0
+      var refreshing = false
+
+      function remPx(rem) {
+        return rem * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16)
+      }
+
+      function indicator() {
+        var body = document.querySelector("#mail-list [data-mail-list-body]")
+        if (!body) return null
+        var el = body.querySelector(":scope > .mail-pull-indicator")
+        if (!el) {
+          el = document.createElement("div")
+          el.className = "mail-pull-indicator"
+          el.setAttribute("aria-hidden", "true")
+          el.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>'
+          body.appendChild(el)
+        }
+        return el
+      }
+
+      function show(el, offset, spin) {
+        el.style.transform = "translate(-50%, " + offset + "px)"
+        el.firstChild.style.transform = spin ? "rotate(" + spin + "deg)" : ""
+      }
+
+      function settle(el) {
+        el.removeAttribute("data-pulling")
+        el.removeAttribute("data-armed")
+        el.removeAttribute("data-refreshing")
+        el.style.transform = ""
+        el.firstChild.style.transform = ""
+      }
+
+      function refresh(el) {
+        var button = document.querySelector("[data-mail-sidebar-sync-button]")
+        refreshing = true
+        el.setAttribute("data-refreshing", "")
+        show(el, remPx(1), 0)
+        var started = Date.now()
+        var finished = false
+        function done() {
+          if (finished) return
+          finished = true
+          setTimeout(function () {
+            refreshing = false
+            settle(el)
+          }, Math.max(0, 700 - (Date.now() - started)))
+        }
+        if (!button || button.dataset.syncing === "true") {
+          // A sync is already running; its own progress toast reports on it.
+          done()
+          return
+        }
+        button.addEventListener("htmx:afterRequest", done, { once: true })
+        setTimeout(done, 15000)
+        button.click()
+      }
+
+      document.addEventListener("touchstart", function (e) {
+        tracking = false
+        if (!mobile.matches || refreshing || e.touches.length !== 1 || mailSelectionModeActive()) return
+        var scroller = e.target.closest && e.target.closest("#mail-list-scroll")
+        if (!scroller || scroller.scrollTop > 0) return
+        tracking = true
+        pulling = false
+        distance = 0
+        startX = e.touches[0].clientX
+        startY = e.touches[0].clientY
+      }, { passive: true })
+
+      document.addEventListener("touchmove", function (e) {
+        if (!tracking) return
+        if (mailSwipeActive) {
+          tracking = false
+          return
+        }
+        var scroller = document.getElementById("mail-list-scroll")
+        var dx = e.touches[0].clientX - startX
+        var dy = e.touches[0].clientY - startY
+        if (!pulling) {
+          // Start only on a clearly downward drag, leaving sideways ones to row swipes.
+          if (dy < 0 || Math.abs(dx) > Math.max(dy, 10) || !scroller || scroller.scrollTop > 0) {
+            tracking = false
+            return
+          }
+          if (dy < 10) return
+        }
+        var el = indicator()
+        if (!el) return
+        pulling = true
+        distance = Math.min(dy * 0.5, remPx(6))
+        el.setAttribute("data-pulling", "")
+        el.toggleAttribute("data-armed", distance >= remPx(3.5))
+        show(el, distance - remPx(2.5), distance * 3)
+      }, { passive: true })
+
+      function end() {
+        if (!tracking) return
+        tracking = false
+        if (!pulling) return
+        pulling = false
+        var el = indicator()
+        if (!el) return
+        if (distance >= remPx(3.5)) refresh(el)
+        else settle(el)
+      }
+      document.addEventListener("touchend", end, { passive: true })
+      document.addEventListener("touchcancel", end, { passive: true })
+    }
+
+    // Swiping a row right archives it and swiping left deletes it. A collapsed thread
+    // row stands for the whole thread, as it does for the selection bar. Delete is
+    // left out in Trash, where it would be permanent.
+    function setupMailSwipeActions() {
+      var mobile = mobileMailList
+      var start = null
+      var row = null
+      var anchor = null
+      var dx = 0
+      var axis = ""
+
+      var icons = {
+        archive: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
+        delete: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>',
+      }
+
+      function deleteIsPermanent() {
+        var button = document.querySelector('[data-mail-selection-action="delete"]')
+        return !!(button && button.dataset.mailDeletePermanent === "true")
+      }
+
+      function actionFor(offset) {
+        if (offset > 0) return "archive"
+        if (offset < 0 && !deleteIsPermanent()) return "delete"
+        return ""
+      }
+
+      function backdrop(action) {
+        var el = row.querySelector(":scope > .mail-swipe-action")
+        if (!el) {
+          el = document.createElement("div")
+          el.className = "mail-swipe-action"
+          el.setAttribute("aria-hidden", "true")
+          row.insertBefore(el, row.firstChild)
+        }
+        if (el.dataset.action !== action) {
+          el.dataset.action = action
+          el.innerHTML = action ? icons[action] + "<span>" + (action === "archive" ? "Archive" : "Delete") + "</span>" : ""
+        }
+        return el
+      }
+
+      function reset(target, link) {
+        if (!target) return
+        target.removeAttribute("data-swipe-armed")
+        if (!link) return
+        link.style.transition = "transform 0.2s ease"
+        link.style.transform = ""
+        // Keep the row lifted over the action strip until it has slid all the way back.
+        setTimeout(function () {
+          if (row === target && start) return
+          link.style.transition = ""
+          target.removeAttribute("data-swiping")
+          var el = target.querySelector(":scope > .mail-swipe-action")
+          if (el) el.remove()
+        }, 220)
+      }
+
+      function commit(target, link, action) {
+        var emailId = target.dataset.emailId
+        var targets = selectedMailTargets([emailId])
+        link.style.transition = "transform 0.18s ease-in"
+        link.style.transform = "translateX(" + (action === "archive" ? "" : "-") + "100%)"
+        var current = virtualMailList && virtualMailList.selectedEmailId
+        if (current === emailId) setMailViewEmpty()
+        selectedMailIds.delete(emailId)
+        var path = action === "archive" ? "/api/messages/archive" : "/api/messages/delete"
+        var extra = action === "delete" ? { folder_id: currentMailListFolderID() } : null
+        sendBulkMessageAction(path, targets, extra).then(function () {
+          if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
+            virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+          }
+          refreshSidebarUnread()
+        })
+      }
+
+      document.addEventListener("touchstart", function (e) {
+        start = null
+        if (!mobile.matches || e.touches.length !== 1 || mailSelectionModeActive()) return
+        var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
+        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+        row = link.parentElement
+        anchor = link
+        dx = 0
+        axis = ""
+      }, { passive: true })
+
+      document.addEventListener("touchmove", function (e) {
+        if (!start) return
+        var t = e.touches[0]
+        var mx = t.clientX - start.x
+        var my = t.clientY - start.y
+        if (!axis) {
+          if (Math.abs(mx) < 10 && Math.abs(my) < 10) return
+          axis = Math.abs(mx) > Math.abs(my) ? "x" : "y"
+          if (axis === "y") {
+            start = null
+            return
+          }
+          mailSwipeActive = true
+          row.setAttribute("data-swiping", "")
+        }
+        if (!row.isConnected) return
+        var action = actionFor(mx)
+        // Without an action that way the row only gives a little.
+        dx = action ? mx : mx / 6
+        anchor.style.transform = "translateX(" + dx + "px)"
+        var el = backdrop(action)
+        el.dataset.side = mx > 0 ? "left" : "right"
+        row.toggleAttribute("data-swipe-armed", !!action && Math.abs(dx) > row.offsetWidth * 0.35)
+      }, { passive: true })
+
+      function end() {
+        if (!start) return
+        var target = row
+        var link = anchor
+        start = null
+        if (axis !== "x") return
+        mailSwipeActive = false
+        suppressMailRowClickUntil = Date.now() + 400
+        var action = actionFor(dx)
+        if (action && target.isConnected && Math.abs(dx) > target.offsetWidth * 0.35) {
+          if (navigator.vibrate) navigator.vibrate(12)
+          commit(target, link, action)
+        } else {
+          reset(target, link)
+        }
+      }
+      document.addEventListener("touchend", end, { passive: true })
+      document.addEventListener("touchcancel", end, { passive: true })
+    }
+
+    function setupMailTouchSelection() {
+      var mobile = mobileMailList
+      var timer = 0
+      var start = null
+
+      function cancel() {
+        clearTimeout(timer)
+        timer = 0
+        start = null
+      }
+
+      document.addEventListener("touchstart", function (e) {
+        cancel()
+        if (!mobile.matches || e.touches.length !== 1) return
+        var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
+        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+        timer = setTimeout(function () {
+          timer = 0
+          var row = link.closest(".mail-list-item[data-email-id]")
+          if (!row || !row.isConnected) return
+          if (!mailSelectionModeActive()) {
+            selectedMailIds.clear()
+            setMailSelectionMode(true)
+          }
+          setMailSelected(row.dataset.emailId, !selectedMailIds.has(row.dataset.emailId))
+          lastSelectedMailId = row.dataset.emailId
+          suppressMailRowClickUntil = Date.now() + 700
+          if (navigator.vibrate) navigator.vibrate(12)
+          syncMailSelectionControls()
+        }, 450)
+      }, { passive: true })
+
+      document.addEventListener("touchmove", function (e) {
+        if (!start) return
+        var t = e.touches[0]
+        if (Math.abs(t.clientX - start.x) > 10 || Math.abs(t.clientY - start.y) > 10) cancel()
+      }, { passive: true })
+      document.addEventListener("touchend", cancel, { passive: true })
+      document.addEventListener("touchcancel", cancel, { passive: true })
+
+      // A long press on a link would otherwise open the browser's link menu.
+      document.addEventListener("contextmenu", function (e) {
+        if (mobile.matches && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")) e.preventDefault()
+      })
+    }
+
     function clearMailSelection() {
       selectedMailIds.clear()
       lastSelectedMailId = null
@@ -1405,6 +1784,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       var count = selectedMailIds.size
+      if (count === 0) setMailSelectionMode(false)
       var summary = document.querySelector("[data-mail-selection-summary]")
       if (summary) summary.textContent = count === 1 ? "1 selected" : count + " selected"
 
@@ -2027,6 +2407,11 @@ document.addEventListener("DOMContentLoaded", function () {
         badge.textContent = String(count)
         badge.classList.toggle("hidden", count === 0)
       }
+      var mirror = document.querySelector("[data-mail-filter-count-mirror]")
+      if (mirror) {
+        mirror.textContent = String(count)
+        mirror.classList.toggle("hidden", count === 0)
+      }
     }
 
     function advancedFilterDefs() {
@@ -2332,10 +2717,54 @@ document.addEventListener("DOMContentLoaded", function () {
       renderActivePillOverflowPanel(panel, hiddenPills)
     }
 
+    // Small screens summarise the applied filters inside the filter sheet ("3 filters
+    // applied") instead of in a strip above the list. The summary opens a list of them,
+    // one full-width row each, where they can be removed. The top bar's search button
+    // is marked while a search is on.
+    function renderAppliedFilterSheet(pills) {
+      var summary = document.querySelector("[data-mail-filters-applied]")
+      if (summary) {
+        var countLabel = summary.querySelector("[data-mail-filters-applied-count]")
+        if (countLabel) countLabel.textContent = pills.length === 1 ? "1 filter applied" : pills.length + " filters applied"
+        summary.classList.toggle("hidden", pills.length === 0)
+      }
+      var list = document.querySelector("[data-mail-filters-applied-list]")
+      if (list) {
+        var html = ""
+        for (var i = 0; i < pills.length; i++) {
+          var pill = pills[i]
+          html += '<div class="mail-filters-applied-row">' +
+            '<div class="mail-filters-applied-row-text"><span class="mail-filters-applied-row-label">' + escapeHTML(pill.label) + '</span>' +
+            (pill.value ? '<span class="mail-filters-applied-row-value">' + escapeHTML(String(pill.value)) + '</span>' : "") + '</div>' +
+            '<button type="button" class="mail-filters-applied-row-remove" data-mail-active-filter-remove="' + escapeHTML(pill.name) + '" aria-label="Remove ' + escapeHTML(activePillText(pill)) + '">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
+            '</button></div>'
+        }
+        list.innerHTML = html
+      }
+      if (!pills.length) showAppliedFilterList(false)
+      var searchButton = document.querySelector('[data-mobile-mail-action="search"]')
+      if (searchButton) {
+        searchButton.toggleAttribute("data-active", pills.some(function (pill) { return pill.name === "q" }))
+      }
+    }
+
+    function showAppliedFilterList(show) {
+      var body = document.querySelector(".mail-filters-sheet-body")
+      if (body) body.toggleAttribute("data-mail-filters-showing-applied", show)
+    }
+
+    document.addEventListener("click", function (e) {
+      if (!e.target || !e.target.closest) return
+      if (e.target.closest("[data-mail-filters-applied-open]")) showAppliedFilterList(true)
+      else if (e.target.closest("[data-mail-filters-applied-close]")) showAppliedFilterList(false)
+    })
+
     function renderActivePills(filters) {
+      filters = filters || readFilters()
+      renderAppliedFilterSheet(activePillDefs(filters))
       var bar = ensureActivePillBar()
       if (!bar) return
-      filters = filters || readFilters()
       var pills = activePillDefs(filters)
       var panel = ensureActivePillOverflowPanel(bar)
       var existingKeys = Object.create(null)
@@ -2794,7 +3223,10 @@ document.addEventListener("DOMContentLoaded", function () {
       if (search) {
         search.dataset.mailCommittedQuery = committedQuery
         search.value = ""
-        search.placeholder = "Search, or use from: subject: body: then Enter"
+        // Small screens swap in a shorter placeholder (see mobile-nav.js).
+        search.placeholder = search.hasAttribute("data-desktop-placeholder")
+          ? search.getAttribute("data-mobile-placeholder")
+          : "Search, or use from: subject: body: then Enter"
       }
       renderActivePills()
       syncFilterButton(readFilters())
@@ -6149,6 +6581,12 @@ function removeGoferToastNow(toast) {
 
 function showGoferToast(opts) {
   opts = opts || {}
+  // Small screens show mail sync status in the top bar rather than as a toast.
+  if (opts.id === "mail-sync-toast" && window.GoferMobileNav && window.GoferMobileNav.showSyncStatus(opts)) {
+    var shown = document.getElementById(opts.id)
+    if (shown) removeGoferToastNow(shown)
+    return null
+  }
   var id = opts.id || "gofer-toast-" + Date.now()
   var existing = document.getElementById(id)
   while (existing) {

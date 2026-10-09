@@ -5,6 +5,12 @@ function listRemPx(rem) {
   return Math.round(rem * root)
 }
 
+// Mail card rows are shorter on small screens, where they use a fixed phone layout
+// (see the small-screen mail list styles).
+function mailCardRowRem() {
+  return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.25
+}
+
 class VirtualMailList {
   constructor(container, options) {
     this.container = container
@@ -12,7 +18,7 @@ class VirtualMailList {
     this.folderID = options.folderID || "inbox"
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.expandedThreadGap = 26
     this.overscan = 10
@@ -1812,7 +1818,7 @@ class VirtualMailList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
@@ -2385,10 +2391,11 @@ class VirtualMailList {
       .catch(function () {})
   }
 
-  async toggleThreadExpand(emailId) {
+  async toggleThreadExpand(emailId, options) {
     var pos = this.indexById.get(emailId)
     if (pos === undefined) return
-    this.onEmailSelected(emailId)
+    // Small screens expand a thread in place without selecting (and so opening) it.
+    if (!options || options.select !== false) this.onEmailSelected(emailId)
     var previousLayout = this.captureRenderedLayout()
 
     if (this.expandedThreads.has(emailId)) {

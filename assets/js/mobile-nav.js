@@ -50,5 +50,111 @@
   window.addEventListener("popstate", function () { setOpen(false) })
   desktop.addEventListener("change", function (event) { if (event.matches) setOpen(false) })
 
-  window.GoferMobileNav = { open: function () { setOpen(true) }, close: function () { setOpen(false) } }
+  // The top bar names the open mail folder. The list rewrites its own heading from
+  // several places, so the bar mirrors that heading instead of being told directly.
+  var titleFrame = 0
+  function syncTitle() {
+    titleFrame = 0
+    syncPlaceholders(true)
+    var bar = document.querySelector("[data-mobile-topbar]")
+    if (!bar) return
+    var heading = document.querySelector("#main-content #mail-folder-name")
+    var name = heading ? heading.textContent.trim() : ""
+    var slot = bar.querySelector("[data-mobile-topbar-title]")
+    if (!slot) return
+    if (slot.querySelector("[data-mobile-topbar-title-text]").textContent !== name) {
+      slot.querySelector("[data-mobile-topbar-title-text]").textContent = name
+    }
+    var countEl = document.querySelector("#main-content #mail-folder-count")
+    var count = countEl ? countEl.textContent.trim() : ""
+    var countSlot = slot.querySelector("[data-mobile-topbar-title-count]")
+    if (countSlot.textContent !== count) countSlot.textContent = count
+    bar.toggleAttribute("data-mobile-topbar-titled", name !== "")
+  }
+  // Inputs may carry a shorter placeholder for small screens.
+  function syncPlaceholders(small) {
+    document.querySelectorAll("[data-mobile-placeholder]").forEach(function (input) {
+      if (small && !input.hasAttribute("data-desktop-placeholder")) {
+        input.setAttribute("data-desktop-placeholder", input.placeholder)
+        input.placeholder = input.getAttribute("data-mobile-placeholder")
+      } else if (!small && input.hasAttribute("data-desktop-placeholder")) {
+        input.placeholder = input.getAttribute("data-desktop-placeholder")
+        input.removeAttribute("data-desktop-placeholder")
+      }
+    })
+  }
+  function scheduleTitleSync() {
+    if (!titleFrame) titleFrame = requestAnimationFrame(syncTitle)
+  }
+  var titleObserver = new MutationObserver(scheduleTitleSync)
+  function watchTitle() {
+    if (desktop.matches) {
+      titleObserver.disconnect()
+      syncPlaceholders(false)
+      return
+    }
+    titleObserver.observe(document.body, { subtree: true, childList: true, characterData: true })
+    scheduleTitleSync()
+  }
+  desktop.addEventListener("change", watchTitle)
+  if (document.body) watchTitle()
+  else document.addEventListener("DOMContentLoaded", watchTitle)
+
+  // Mail sync status: while a sync runs the top bar shows "Syncing…" in place of the
+  // folder count and a thin line along its bottom edge; a failure or partial result
+  // shows briefly in the same place and opens the progress dialog when tapped.
+  var syncTimer = 0
+  var syncClick = null
+  function showSyncStatus(opts) {
+    if (desktop.matches) return false
+    var bar = document.querySelector("[data-mobile-topbar]")
+    var status = bar && bar.querySelector("[data-mobile-topbar-sync]")
+    if (!status || !bar.hasAttribute("data-mobile-topbar-titled")) return false
+    clearTimeout(syncTimer)
+    syncClick = opts.onClick || null
+    var running = opts.icon === "spinner"
+    var problem = opts.variant === "error" || opts.variant === "warning"
+    var state = running ? "running" : (problem ? opts.variant : "")
+    if (state) bar.setAttribute("data-mobile-sync", state)
+    else bar.removeAttribute("data-mobile-sync")
+    status.textContent = running ? "Syncing…" : (problem ? (opts.title || "Sync problem") : "")
+    status.setAttribute("aria-label", status.textContent ? status.textContent + ", show sync progress" : "")
+    if (!running && problem) {
+      syncTimer = setTimeout(function () {
+        bar.removeAttribute("data-mobile-sync")
+        status.textContent = ""
+      }, Number(opts.duration) || 8000)
+    }
+    return true
+  }
+
+  document.addEventListener("click", function (event) {
+    if (event.target && event.target.closest && event.target.closest("[data-mobile-topbar-sync]") && syncClick) syncClick()
+  })
+
+  // A tap outside an open bottom sheet only closes the sheet. These listeners run
+  // first (window, capture phase) and keep the tap from reaching whatever sits under
+  // it, so it cannot open a message, start a long press or press a button. Taps
+  // inside any open popover (the sheet, or a picker opened from it) pass through.
+  function openSheet() {
+    return document.querySelector('.mobile-sheet[data-tui-popover-open="true"]')
+  }
+  function guardSheetTap(event) {
+    if (desktop.matches) return
+    var sheet = openSheet()
+    if (!sheet) return
+    var target = event.target
+    if (target && target.closest && target.closest(":popover-open")) return
+    event.stopPropagation()
+    if (event.type === "click") {
+      event.preventDefault()
+      if (window.tui && window.tui.popover) window.tui.popover.closeElement(sheet)
+    }
+  }
+  ;["pointerdown", "mousedown", "touchstart", "touchend", "click"].forEach(function (type) {
+    window.addEventListener(type, guardSheetTap, { capture: true })
+  })
+
+  window.GoferMobileNav = {
+    showSyncStatus: showSyncStatus, open: function () { setOpen(true) }, close: function () { setOpen(false) } }
 })()

@@ -1031,13 +1031,30 @@ templ MobileTopBar(showCompose bool) {
 		<button type="button" class="mobile-topbar-button" data-mobile-nav-toggle aria-label="Open navigation" aria-expanded="false">
 			@icon.Menu(icon.Props{Class: "size-5"})
 		</button>
-		<a href="/" class="flex min-w-0 items-center gap-2">
+		<a href="/" class="mobile-topbar-brand flex min-w-0 items-center gap-2">
 			<img src="/assets/logo.svg" alt="" class="h-7 w-7 shrink-0"/>
 			<span class="truncate text-base font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Gofer</span>
 		</a>
+		<div class="mobile-topbar-title hidden min-w-0 items-baseline gap-2" data-mobile-topbar-title>
+			<span class="truncate text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)" data-mobile-topbar-title-text></span>
+			<span class="shrink-0 text-xs font-medium tabular-nums text-sidebar-foreground/70" data-mobile-topbar-title-count></span>
+			<button type="button" class="mobile-topbar-sync hidden shrink-0 text-xs font-medium" data-mobile-topbar-sync></button>
+		</div>
 		<div class="flex-1"></div>
+		<div class="mobile-topbar-mail-actions hidden items-center" data-mobile-topbar-mail-actions>
+			<button type="button" class="mobile-topbar-button" data-mobile-mail-action="search" aria-label="Search mail">
+				@icon.Search(icon.Props{Class: "size-5"})
+			</button>
+			<button type="button" class="mobile-topbar-button" data-mobile-mail-action="sort" aria-label="Sort messages">
+				@icon.ArrowUpDown(icon.Props{Class: "size-5"})
+			</button>
+			<button type="button" class="mobile-topbar-button relative" data-mobile-mail-action="filter" aria-label="Filters">
+				@icon.SlidersHorizontal(icon.Props{Class: "size-5"})
+				<span data-mail-filter-count-mirror class="absolute right-0.5 top-0.5 hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
+			</button>
+		</div>
 		if showCompose {
-			<button type="button" class="mobile-topbar-button" onclick="openNewCompose()" aria-label="Compose">
+			<button type="button" class="mobile-topbar-button" onclick="openNewCompose()" aria-label="Compose" data-mobile-topbar-compose>
 				@icon.Pen(icon.Props{Class: "size-5"})
 			</button>
 		}
