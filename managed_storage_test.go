@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -651,5 +652,58 @@ func TestManagedStorageRemembersContentFailuresUntilTheDatabaseChanges(t *testin
 	defer s.Close()
 	if _, err := os.Lstat(path + ".migration-failed.json"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("failure record kept after success", err)
+	}
+}
+
+func TestManagedStorageVersionsLayoutOnlyTables(t *testing.T) {
+	options, _, key := migrationCommandFixture(t)
+	if _, err := storage.MigrateUserStorage(t.Context(), options); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOFER_SECRET_KEY", hex.EncodeToString(key))
+	path := options.DestinationPath
+	hash := sha256.Sum256([]byte("alice"))
+	alice := filepath.Join(path+".users", hex.EncodeToString(hash[:])+".db")
+	layoutVersion := func(target string) int {
+		t.Helper()
+		db, err := sql.Open("sqlite", target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var version int
+		if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		return version
+	}
+	setLayoutVersion := func(target string, version int) {
+		t.Helper()
+		db, err := sql.Open("sqlite", target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version=%d`, version)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if layoutVersion(path) != 1 || layoutVersion(alice) != 1 {
+		t.Fatal("migration did not record the layout schema", layoutVersion(path), layoutVersion(alice))
+	}
+	// Layouts published before versioning adopt version 1 on startup.
+	setLayoutVersion(path, 0)
+	setLayoutVersion(alice, 0)
+	s, err := openManagedStorage(t.Context(), path, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if layoutVersion(path) != 1 || layoutVersion(alice) != 1 {
+		t.Fatal("startup did not adopt the layout schema", layoutVersion(path), layoutVersion(alice))
+	}
+	setLayoutVersion(alice, 99)
+	if _, err := openManagedStorage(t.Context(), path, 1); err == nil || !strings.Contains(err.Error(), "layout schema version 99") {
+		t.Fatal("newer layout schema accepted", err)
 	}
 }

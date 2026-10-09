@@ -13,24 +13,7 @@ func ensureUserMailDeliverySchema(ctx context.Context, db *DB) error {
 	if err := db.Read().QueryRowContext(ctx, `SELECT user_id FROM gofer_user_store WHERE singleton=1`).Scan(&owner); err != nil {
 		return err
 	}
-	tx, err := db.Write().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS gofer_provider_send_receipts (
-		send_id TEXT PRIMARY KEY REFERENCES outgoing_sends(id) ON DELETE CASCADE,
-		provider TEXT NOT NULL CHECK(provider IN ('gmail','outlook')),
-		mailbox_subject TEXT NOT NULL,
-		provider_message_id TEXT NOT NULL DEFAULT ''
-	)`)
-	if err != nil {
-		return err
-	}
-	if err := ensureUserProviderDraftSchema(ctx, tx); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := ensureLayoutSchema(ctx, db, userLayoutSchema); err != nil {
 		return err
 	}
 	db.userMailDelivery = true
@@ -124,3 +107,10 @@ func (db *DB) CompleteUserProviderSentCache(ctx context.Context, send OutgoingSe
 	}
 	return tx.Commit()
 }
+
+const providerSendReceiptSchema = `CREATE TABLE IF NOT EXISTS gofer_provider_send_receipts (
+		send_id TEXT PRIMARY KEY REFERENCES outgoing_sends(id) ON DELETE CASCADE,
+		provider TEXT NOT NULL CHECK(provider IN ('gmail','outlook')),
+		mailbox_subject TEXT NOT NULL,
+		provider_message_id TEXT NOT NULL DEFAULT ''
+	)`

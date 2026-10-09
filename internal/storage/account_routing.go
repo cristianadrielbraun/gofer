@@ -76,63 +76,7 @@ func NewAccountRouting(stores *UserStores) (*AccountRouting, error) {
 	if isUserStore != 0 {
 		return nil, ErrUserStoreIdentity
 	}
-	_, err = tx.Exec(`
-		CREATE TABLE IF NOT EXISTS gofer_account_directory (
-			account_id TEXT PRIMARY KEY CHECK (account_id != ''),
-			user_id TEXT NOT NULL CHECK (user_id != ''),
-			state TEXT NOT NULL CHECK (state IN ('creating', 'active', 'deleting', 'deleted')),
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS gofer_account_directory_state ON gofer_account_directory(state, account_id);
-		CREATE INDEX IF NOT EXISTS gofer_account_directory_owner ON gofer_account_directory(user_id, state, account_id);
-		CREATE TABLE IF NOT EXISTS gofer_avatar_interests (
-			email_hash TEXT NOT NULL REFERENCES sender_avatars(email_hash) ON DELETE CASCADE,
-			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			PRIMARY KEY(email_hash,user_id)
-		);
-		CREATE TABLE IF NOT EXISTS gofer_account_poll_schedule (
-			account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
-			next_due_ms INTEGER NOT NULL DEFAULT 0,
-			revision INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE INDEX IF NOT EXISTS gofer_account_poll_due ON gofer_account_poll_schedule(next_due_ms, account_id);
-		CREATE TABLE IF NOT EXISTS gofer_account_provider_retry (
-			account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
-			retry_until_ms INTEGER NOT NULL
-		);
-
-        CREATE TABLE IF NOT EXISTS gofer_account_active_poll (
-            account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
-            next_due_ms INTEGER NOT NULL DEFAULT 0,
-            last_attempt_ns INTEGER NOT NULL DEFAULT 0,
-            failures INTEGER NOT NULL DEFAULT 0 CHECK(failures BETWEEN 0 AND 4),
-            revision INTEGER NOT NULL DEFAULT 0
-        );
-		CREATE INDEX IF NOT EXISTS gofer_account_active_poll_due ON gofer_account_active_poll(next_due_ms,account_id);
-		CREATE TABLE IF NOT EXISTS gofer_account_service_schedule (
-			account_id TEXT NOT NULL REFERENCES gofer_account_directory(account_id),
-			service TEXT NOT NULL CHECK(service IN ('contacts','calendar')),
-			next_due_ms INTEGER NOT NULL DEFAULT 0,
-			revision INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY(account_id,service)
-		);
-		CREATE INDEX IF NOT EXISTS gofer_account_service_due ON gofer_account_service_schedule(service,next_due_ms,account_id);
-		CREATE TABLE IF NOT EXISTS gofer_contact_queue_schedule (
-			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-			next_due_ms INTEGER NOT NULL DEFAULT 0,
-			revision INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE INDEX IF NOT EXISTS gofer_contact_queue_due ON gofer_contact_queue_schedule(next_due_ms,user_id);
-		CREATE TABLE IF NOT EXISTS gofer_user_cleanup_receipts (
-			user_id TEXT PRIMARY KEY CHECK(user_id<>''),
-			completed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TRIGGER IF NOT EXISTS gofer_account_directory_identity BEFORE UPDATE OF account_id, user_id ON gofer_account_directory
-		WHEN NEW.account_id IS NOT OLD.account_id OR NEW.user_id IS NOT OLD.user_id
-		BEGIN SELECT RAISE(ABORT, 'account ownership is immutable'); END;
-	`)
-	if err != nil {
+	if err := applyLayoutSchemaTx(context.Background(), tx, centralLayoutSchema); err != nil {
 		return nil, fmt.Errorf("initialize account ownership directory: %w", err)
 	}
 	// Tombstone owner IDs deliberately outlive centrally deleted user rows.
@@ -614,3 +558,60 @@ func (r *AccountRouting) transition(ctx context.Context, id string, fn func(*acc
 	}
 	return fn(scope)
 }
+
+const accountRoutingSchema = `
+		CREATE TABLE IF NOT EXISTS gofer_account_directory (
+			account_id TEXT PRIMARY KEY CHECK (account_id != ''),
+			user_id TEXT NOT NULL CHECK (user_id != ''),
+			state TEXT NOT NULL CHECK (state IN ('creating', 'active', 'deleting', 'deleted')),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS gofer_account_directory_state ON gofer_account_directory(state, account_id);
+		CREATE INDEX IF NOT EXISTS gofer_account_directory_owner ON gofer_account_directory(user_id, state, account_id);
+		CREATE TABLE IF NOT EXISTS gofer_avatar_interests (
+			email_hash TEXT NOT NULL REFERENCES sender_avatars(email_hash) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			PRIMARY KEY(email_hash,user_id)
+		);
+		CREATE TABLE IF NOT EXISTS gofer_account_poll_schedule (
+			account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
+			next_due_ms INTEGER NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS gofer_account_poll_due ON gofer_account_poll_schedule(next_due_ms, account_id);
+		CREATE TABLE IF NOT EXISTS gofer_account_provider_retry (
+			account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
+			retry_until_ms INTEGER NOT NULL
+		);
+
+        CREATE TABLE IF NOT EXISTS gofer_account_active_poll (
+            account_id TEXT PRIMARY KEY REFERENCES gofer_account_directory(account_id),
+            next_due_ms INTEGER NOT NULL DEFAULT 0,
+            last_attempt_ns INTEGER NOT NULL DEFAULT 0,
+            failures INTEGER NOT NULL DEFAULT 0 CHECK(failures BETWEEN 0 AND 4),
+            revision INTEGER NOT NULL DEFAULT 0
+        );
+		CREATE INDEX IF NOT EXISTS gofer_account_active_poll_due ON gofer_account_active_poll(next_due_ms,account_id);
+		CREATE TABLE IF NOT EXISTS gofer_account_service_schedule (
+			account_id TEXT NOT NULL REFERENCES gofer_account_directory(account_id),
+			service TEXT NOT NULL CHECK(service IN ('contacts','calendar')),
+			next_due_ms INTEGER NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY(account_id,service)
+		);
+		CREATE INDEX IF NOT EXISTS gofer_account_service_due ON gofer_account_service_schedule(service,next_due_ms,account_id);
+		CREATE TABLE IF NOT EXISTS gofer_contact_queue_schedule (
+			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			next_due_ms INTEGER NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS gofer_contact_queue_due ON gofer_contact_queue_schedule(next_due_ms,user_id);
+		CREATE TABLE IF NOT EXISTS gofer_user_cleanup_receipts (
+			user_id TEXT PRIMARY KEY CHECK(user_id<>''),
+			completed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TRIGGER IF NOT EXISTS gofer_account_directory_identity BEFORE UPDATE OF account_id, user_id ON gofer_account_directory
+		WHEN NEW.account_id IS NOT OLD.account_id OR NEW.user_id IS NOT OLD.user_id
+		BEGIN SELECT RAISE(ABORT, 'account ownership is immutable'); END;
+`

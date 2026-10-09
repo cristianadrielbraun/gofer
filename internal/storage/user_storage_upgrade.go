@@ -102,22 +102,29 @@ func presentUserStores(ctx context.Context, central string) (owners []string, er
 	return owners, rows.Err()
 }
 
-// upgradeStorageDatabase upgrades one closed layout database in place. A user
-// database must still belong to owner before any writer opens it.
+// upgradeStorageDatabase upgrades one closed layout database in place: the
+// shared schema first, then the layout-only tables. A user database must still
+// belong to owner before any writer opens it.
 func upgradeStorageDatabase(ctx context.Context, path, owner string) (err error) {
-	version, err := layoutSchemaVersion(path, owner)
+	steps := centralLayoutSchema
+	if owner != "" {
+		steps = userLayoutSchema
+	}
+	version, layout, err := storedSchemaVersions(path, owner)
 	if err != nil {
 		return err
 	}
 	switch {
-	case version == CurrentSchemaVersion:
-		return nil
 	case version > CurrentSchemaVersion:
 		return fmt.Errorf("schema version %d was written by a newer Gofer release; this release supports %d", version, CurrentSchemaVersion)
+	case layout > len(steps):
+		return fmt.Errorf("layout schema version %d was written by a newer Gofer release; this release supports %d", layout, len(steps))
 	case version < 1:
 		return fmt.Errorf("schema version %d cannot be upgraded", version)
+	case version == CurrentSchemaVersion && layout == len(steps):
+		return nil
 	}
-	log.Printf("storage: upgrading %s from schema version %d to %d", path, version, CurrentSchemaVersion)
+	log.Printf("storage: upgrading %s from schema version %d/%d to %d/%d", path, version, layout, CurrentSchemaVersion, len(steps))
 	write, err := openDB(path)
 	if err != nil {
 		return err
@@ -135,33 +142,38 @@ func upgradeStorageDatabase(ctx context.Context, path, owner string) (err error)
 	if err := db.requireCurrentSchema(); err != nil {
 		return err
 	}
-	if owner == "" {
-		return nil
-	}
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := ensureUserStoreGuards(ctx, tx); err != nil {
+	if err := applyLayoutSchemaTx(ctx, tx, steps); err != nil {
 		return err
+	}
+	if owner != "" {
+		if err := ensureUserStoreGuards(ctx, tx); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
 
-func layoutSchemaVersion(path, owner string) (version int, err error) {
+func storedSchemaVersions(path, owner string) (version, layout int, err error) {
 	db, err := openReadOnlyDB(path)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
 	if owner != "" {
 		if err := checkUserStoreOwner(db, owner); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
-		return 0, fmt.Errorf("read schema version: %w", err)
+		return 0, 0, fmt.Errorf("read schema version: %w", err)
 	}
-	return version, nil
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&layout); err != nil {
+		return 0, 0, fmt.Errorf("read layout schema version: %w", err)
+	}
+	return version, layout, nil
 }

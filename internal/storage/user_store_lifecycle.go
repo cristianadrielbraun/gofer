@@ -20,14 +20,15 @@ func ensureUserStoreDirectory(system *DB) error {
 	if local {
 		return ErrUserStoreIdentity
 	}
-	_, err := system.Write().Exec(`CREATE TABLE IF NOT EXISTS gofer_user_store_directory (
+	return ensureLayoutSchema(context.Background(), system, centralLayoutSchema)
+}
+
+const userStoreDirectorySchema = `CREATE TABLE IF NOT EXISTS gofer_user_store_directory (
  user_id TEXT PRIMARY KEY CHECK(user_id<>''),
  state TEXT NOT NULL CHECK(state IN ('present','removing','removed')),
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
- )`)
-	return err
-}
+ )`
 
 func (m *UserStores) recordOpenedStore(ctx context.Context, owner string) error {
 	var state string
