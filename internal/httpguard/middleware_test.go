@@ -306,3 +306,35 @@ func TestMiddlewareAcceptsExactLoopbackOriginAliases(t *testing.T) {
 		})
 	}
 }
+
+func TestMiddlewareKeepsLoopbackHostsWithLANBaseURL(t *testing.T) {
+	cfg, err := newConfig("0.0.0.0:8090", "http://192.168.0.10:8090", false)
+	if err != nil {
+		t.Fatalf("newConfig() error = %v", err)
+	}
+	for _, tc := range []struct {
+		host       string
+		wantStatus int
+	}{
+		{"192.168.0.10:8090", http.StatusNoContent},
+		{"localhost:8090", http.StatusNoContent},
+		{"127.0.0.1:8090", http.StatusNoContent},
+		{"[::1]:8090", http.StatusNoContent},
+		{"localhost:9999", http.StatusMisdirectedRequest},
+		{"192.168.0.11:8090", http.StatusMisdirectedRequest},
+	} {
+		t.Run(tc.host, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			request.Host = tc.host
+
+			cfg.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})).ServeHTTP(recorder, request)
+
+			if recorder.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", recorder.Code, tc.wantStatus)
+			}
+		})
+	}
+}

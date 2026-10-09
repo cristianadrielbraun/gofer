@@ -29,9 +29,9 @@ type Config struct {
 	AllowUnauthenticatedRemote bool
 	// AllowInsecureLAN permits a plain-HTTP base URL on a private network address while
 	// authentication is enabled. Sign-in cookies then travel unencrypted on that network.
-	AllowInsecureLAN bool
-	allowedCIDRs               []netip.Prefix
-	trustedProxyCIDRs          []netip.Prefix
+	AllowInsecureLAN  bool
+	allowedCIDRs      []netip.Prefix
+	trustedProxyCIDRs []netip.Prefix
 
 	baseOrigin     requestOrigin
 	listenLoopback bool
@@ -100,10 +100,11 @@ func newConfig(listenAddr, baseURL string, allowUnauthenticatedRemote bool) (*Co
 		baseLoopback:               isLoopbackHost(baseOrigin.host),
 		trustedOrigins:             map[requestOrigin]struct{}{baseOrigin: {}},
 	}
-	if cfg.baseLoopback {
-		for _, host := range []string{"localhost", "local.localhost", "127.0.0.1", "::1"} {
-			cfg.trustedOrigins[requestOrigin{scheme: baseOrigin.scheme, host: host, port: baseOrigin.port}] = struct{}{}
-		}
+	// Loopback names stay trusted when the base URL is a LAN address, so the
+	// machine running Gofer can keep using localhost. A remote page cannot make
+	// a browser send a loopback Host header to this server.
+	for _, host := range []string{"localhost", "local.localhost", "127.0.0.1", "::1"} {
+		cfg.trustedOrigins[requestOrigin{scheme: baseOrigin.scheme, host: host, port: baseOrigin.port}] = struct{}{}
 	}
 
 	return cfg, nil
