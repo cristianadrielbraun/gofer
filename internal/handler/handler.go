@@ -617,6 +617,7 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	h.repairUserCalendarBodies(ctx, h.userID(ctx), emailID)
 	h.renderMailboxView(w, r, &ctx, func(h *Handler) (templ.Component, error) {
 		userID := h.userID(ctx)
 		ctx = h.contextWithUserTimezone(ctx, userID)

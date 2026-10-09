@@ -545,19 +545,38 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair bool) erro
 // EnsureBody fetches and persists synchronously, so errors are visible and retry
 // never mistakes a partial cache for success. The account gate coalesces readers.
 func (s *UserIMAP) EnsureBody(ctx context.Context, owner string, msgID int64) error {
-	return s.ensureBody(ctx, owner, msgID, false)
+	_, err := s.ensureBody(ctx, owner, msgID, bodyEnsure)
+	return err
 }
 
 // RefetchBody bypasses saved MIME and replaces the cache only after a complete,
 // verified fetch. Failed refreshes leave the readable body and attachments intact.
 func (s *UserIMAP) RefetchBody(ctx context.Context, owner string, msgID int64) error {
-	return s.ensureBody(ctx, owner, msgID, true)
+	_, err := s.ensureBody(ctx, owner, msgID, bodyRefetch)
+	return err
 }
 
-func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, force bool) error {
+// RepairCalendarBody re-parses the saved MIME of a message the old parser
+// cached as calendar text, with no HTML body or attachments. It never contacts
+// the provider and replaces the cache only when the saved message really has a
+// calendar part. It reports whether the cache was replaced.
+func (s *UserIMAP) RepairCalendarBody(ctx context.Context, owner string, msgID int64) (bool, error) {
+	return s.ensureBody(ctx, owner, msgID, bodyRepairCalendar)
+}
+
+type bodyMode int
+
+const (
+	bodyEnsure bodyMode = iota
+	bodyRefetch
+	bodyRepairCalendar
+)
+
+func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, mode bodyMode) (repaired bool, err error) {
+	force := mode == bodyRefetch
 	release, err := s.blobs.PinUserFiles(ctx, owner)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer release()
 	var id string
@@ -573,9 +592,9 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, fo
 		return nil
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
-	return s.operation(ctx, owner, id, msgID, 2*time.Minute, func(ctx context.Context) error {
+	err = s.operation(ctx, owner, id, msgID, 2*time.Minute, func(ctx context.Context) error {
 		var fetched bool
 		var info *storage.MessageFetchInfo
 		var rawPath string
@@ -590,7 +609,17 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, fo
 				return sql.ErrNoRows
 			}
 			rawPath = stored.RawPath
-			fetched = !force && db.IsBodyFetchedInternal(ctx, msgID)
+			if mode == bodyRepairCalendar {
+				// Only the old parser's result qualifies; anything else is current.
+				var legacy bool
+				if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages m WHERE m.id=? AND COALESCE(m.body_html_path,'')=''
+ AND COALESCE(m.body_text_path,'')<>'' AND COALESCE(m.raw_path,'')<>'' AND NOT EXISTS(SELECT 1 FROM attachments a WHERE a.message_id=m.id))`, msgID).Scan(&legacy); err != nil {
+					return err
+				}
+				fetched = !legacy
+			} else {
+				fetched = !force && db.IsBodyFetchedInternal(ctx, msgID)
+			}
 			if fetched {
 				return nil
 			}
@@ -627,6 +656,9 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, fo
 		var raw []byte
 		if rawPath != "" && !force {
 			raw, _ = os.ReadFile(rawPath)
+		}
+		if len(raw) == 0 && mode == bodyRepairCalendar {
+			return nil // Repair only uses the saved original.
 		}
 		if len(raw) == 0 {
 			if scope.config.Provider == providers.ProviderOutlook {
@@ -673,6 +705,9 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, fo
 		if err != nil {
 			return err
 		}
+		if mode == bodyRepairCalendar && !hasCalendarPart(parsed) {
+			return nil
+		}
 		cache, err := prepareUserIMAPBody(ctx, candidate, id, msgID, parsed)
 		cache.FetchInfo, cache.UIDValidity = info, validity
 		if scope.config.Provider == providers.ProviderGmail || scope.config.Provider == providers.ProviderOutlook {
@@ -702,8 +737,22 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, fo
 			return db.SaveMessageBodyCache(ctx, msgID, id, cache)
 		})
 		published = err == nil
+		repaired = published && mode == bodyRepairCalendar
 		return err
 	})
+	return repaired, err
+}
+
+func hasCalendarPart(parsed *message.ParsedMessage) bool {
+	if parsed == nil || parsed.ParseError != nil {
+		return false
+	}
+	for _, attachment := range parsed.Attachments {
+		if attachment.ContentType == "text/calendar" {
+			return true
+		}
+	}
+	return false
 }
 func prepareUserIMAPBody(ctx context.Context, blobs *store.BlobStore, id string, msgID int64, p *message.ParsedMessage) (storage.MessageBodyCache, error) {
 	c := storage.MessageBodyCache{Parsed: p}
