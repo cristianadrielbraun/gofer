@@ -169,6 +169,9 @@ func initializeManagedStorage(ctx context.Context, path string) (err error) {
 	case original && retired:
 		return fmt.Errorf("managed storage cannot start: both %q and %q exist", path, source)
 	case original:
+		if err := checkRecordedMigrationFailure(path); err != nil {
+			return err
+		}
 		// Never move the original aside without the application key it needs,
 		// or convert an installation managed mode would then refuse to open.
 		if _, err := loadExistingMigrationKey(source); err != nil {
@@ -243,6 +246,12 @@ func migrateManagedStorage(ctx context.Context, source, path string, retry, rest
 			return
 		}
 		log.Printf("storage: per-user storage migration failed; the original database was restored to %s", path)
+		// Only problems in the original's contents fail the same way again.
+		if errors.Is(err, storage.ErrUserStorageMigrationSource) {
+			if recordErr := recordMigrationFailure(path, err); recordErr != nil {
+				log.Printf("storage: could not record the migration failure: %v", recordErr)
+			}
+		}
 	}()
 	key, err := loadExistingMigrationKey(source)
 	if err != nil {
@@ -255,6 +264,9 @@ func migrateManagedStorage(ctx context.Context, source, path string, retry, rest
 		return err
 	}
 	log.Printf("storage: per-user storage migration completed in %s", time.Since(started).Round(time.Second))
+	if err := forgetMigrationFailure(path); err != nil {
+		log.Printf("storage: could not remove an earlier migration failure record: %v", err)
+	}
 	if info, err := os.Stat(source); err == nil {
 		log.Printf("storage: the original database is kept at %s (%d MiB) to roll back the conversion; delete it once you no longer need to", source, info.Size()>>20)
 	}

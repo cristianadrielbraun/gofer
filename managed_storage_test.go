@@ -557,6 +557,10 @@ func TestManagedStorageConversionFromAnotherDirectoryLeavesOriginal(t *testing.T
 	if err := storage.VerifySharedStorageRuntime(t.Context(), path); err != nil {
 		t.Fatal("original no longer opens as shared storage", err)
 	}
+	// Starting from the right directory fixes this, so it is never remembered.
+	if _, err := os.Lstat(path + ".migration-failed.json"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("remembered an environment failure", err)
+	}
 }
 
 func TestManagedStorageLeavesOnlyTheRollbackCopy(t *testing.T) {
@@ -609,4 +613,43 @@ func TestManagedStorageLeavesOnlyTheRollbackCopy(t *testing.T) {
 			t.Fatal("converted data after deleting the rollback copy", contacts, err)
 		}
 	})
+}
+
+func TestManagedStorageRemembersContentFailuresUntilTheDatabaseChanges(t *testing.T) {
+	options, _, _ := migrationCommandFixture(t)
+	path := options.SourcePath
+	exec := func(statement string) {
+		t.Helper()
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`CREATE TABLE stray_table(value TEXT)`)
+	if _, err := openManagedStorage(t.Context(), path, 1); err == nil || strings.Contains(err.Error(), "not retried") {
+		t.Fatal("first attempt", err)
+	}
+	if _, err := os.Lstat(path + ".migration-failed.json"); err != nil {
+		t.Fatal("content failure not remembered", err)
+	}
+	_, err := openManagedStorage(t.Context(), path, 1)
+	if err == nil || !strings.Contains(err.Error(), "not retried") || !strings.Contains(err.Error(), "stray_table") {
+		t.Fatal("unchanged database was converted again", err)
+	}
+	if _, err := os.Lstat(path + ".shared"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("remembered failure still moved the original", err)
+	}
+	exec(`DROP TABLE stray_table`)
+	s, err := openManagedStorage(t.Context(), path, 1)
+	if err != nil {
+		t.Fatal("changed database not retried", err)
+	}
+	defer s.Close()
+	if _, err := os.Lstat(path + ".migration-failed.json"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failure record kept after success", err)
+	}
 }
