@@ -3422,10 +3422,6 @@ body.mail-list-column-resizing {
     min-height: 0;
   }
 
-  .app-shell:has(> #main-content > [data-mail-reader] > :not([data-mail-view-empty])) > .mobile-topbar {
-    display: none;
-  }
-
   .mobile-back-button {
     display: inline-flex;
   }
@@ -4710,5 +4706,95 @@ body.mail-list-column-resizing {
   /* The contact form's two columns stack on a phone; space them like the fields. */
   [data-contact-avatar-editor] > .grid {
     gap: 1rem;
+  }
+}
+
+/* === SMALL SCREENS: OPENING AND CLOSING THE READER ===
+   mobile-nav.js sets data-pane-anim on <html> for a moment when a message or contact
+   opens or closes. Opening slides the reader in from the right over the list, which
+   eases left underneath; closing slides the list back in from the left. */
+
+@media (max-width: 1023.98px) {
+  /* An open reader covers the whole screen, top bar included, so nothing under it
+     moves while it slides in or out: the top bar and list stay exactly as they were.
+     It is opaque whatever it holds, since while a message loads it holds only a
+     placeholder. */
+  #main-content > [data-mail-reader] {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: var(--paper);
+  }
+
+  html[data-pane-anim="open"] #main-content > [data-mail-reader] {
+    box-shadow: -0.5rem 0 1.5rem rgb(0 0 0 / 0.15);
+    animation: pane-push-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* The list stays visible under the reader until the slide is over. */
+  html[data-pane-anim="open"] #main-content > #mail-list {
+    /* Outranks the rule that hides the list while the reader is open. */
+    visibility: visible !important;
+    animation: pane-push-under 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+
+  html[data-pane-anim="close"] #main-content > #mail-list {
+    animation: pane-pop-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* Closing: the reader slides out to the right while the list eases back in under
+     it; the reader is cleared once it is off screen. */
+  html[data-pane-anim="closing"] #main-content > [data-mail-reader] {
+    box-shadow: -0.5rem 0 1.5rem rgb(0 0 0 / 0.15);
+    animation: pane-push-out 0.24s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+  }
+
+  html[data-pane-anim="closing"] #main-content > #mail-list {
+    visibility: visible !important;
+    animation: pane-pop-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@keyframes pane-push-out {
+  from {
+    transform: none;
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pane-push-in {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: none;
+  }
+}
+
+@keyframes pane-push-under {
+  from {
+    transform: none;
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(-25%);
+    opacity: 0.6;
+  }
+}
+
+@keyframes pane-pop-in {
+  from {
+    transform: translateX(-25%);
+    opacity: 0.6;
+  }
+
+  to {
+    transform: none;
+    opacity: 1;
   }
 }

@@ -6454,7 +6454,16 @@ function setupMailOperationActions() {
   })
 }
 
+// On a phone the open reader slides away before it is cleared (see mobile-nav.js).
 function setMailViewEmpty() {
+  if (window.GoferMobileNav && window.GoferMobileNav.animatePaneClose) {
+    window.GoferMobileNav.animatePaneClose(setMailViewEmptyNow)
+    return
+  }
+  setMailViewEmptyNow()
+}
+
+function setMailViewEmptyNow() {
   var mailView = document.getElementById("mail-view")
   if (!mailView) return
   mailView.innerHTML =
@@ -6500,12 +6509,15 @@ function closeMobileContactView() {
     list.render()
     list.updateURLForState()
   }
-  var detail = document.getElementById("contacts-detail")
-  if (detail) {
+  function clearDetail() {
+    var detail = document.getElementById("contacts-detail")
+    if (!detail) return
     detail.innerHTML = ""
     detail.removeAttribute("data-contact-detail-id")
     detail.setAttribute("data-mail-view-empty", "")
   }
+  if (window.GoferMobileNav && window.GoferMobileNav.animatePaneClose) window.GoferMobileNav.animatePaneClose(clearDetail)
+  else clearDetail()
 }
 
 function showSendStatus(status, text) {

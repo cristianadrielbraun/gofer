@@ -104,7 +104,67 @@
   function scheduleTitleSync() {
     if (!titleFrame) titleFrame = requestAnimationFrame(syncTitle)
   }
-  var titleObserver = new MutationObserver(scheduleTitleSync)
+  // Opening a message or contact on a phone slides it in over the list, and going back
+  // slides the list in again. This watches the reader pane go from empty to showing
+  // something and back, so every way in and out (taps, back buttons, history) gets the
+  // same motion. The observer callback runs before the next paint, so the animation
+  // starts on the frame the pane first appears.
+  var paneOpen = null
+  var paneTimer = 0
+  var paneClosing = false
+  function checkPaneState() {
+    var open = !!document.querySelector("#main-content > [data-mail-reader] > :not([data-mail-view-empty])")
+    if (paneOpen === null || !document.querySelector("#main-content > [data-mail-reader]")) {
+      paneOpen = open
+      return
+    }
+    if (open === paneOpen) return
+    paneOpen = open
+    if (paneClosing) {
+      // animatePaneClose already slid the reader out and the list in.
+      paneClosing = false
+      root.removeAttribute("data-pane-anim")
+      return
+    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    clearTimeout(paneTimer)
+    root.setAttribute("data-pane-anim", open ? "open" : "close")
+    paneTimer = setTimeout(function () { root.removeAttribute("data-pane-anim") }, 320)
+  }
+
+  // Closing mirrors opening: the reader slides out to the right over the list, and
+  // only then is it cleared. clear() empties the reader; it is skipped if something
+  // else has replaced the reader's content in the meantime.
+  function animatePaneClose(clear) {
+    var reader = document.querySelector("#main-content > [data-mail-reader]")
+    var content = reader && reader.firstElementChild
+    var open = !!(content && !content.hasAttribute("data-mail-view-empty"))
+    if (desktop.matches || !open || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      clear()
+      return
+    }
+    if (root.getAttribute("data-pane-anim") === "closing") return
+    clearTimeout(paneTimer)
+    root.setAttribute("data-pane-anim", "closing")
+    paneTimer = setTimeout(function () {
+      if (reader.isConnected && reader.firstElementChild === content) {
+        paneClosing = true
+        clear()
+      }
+      // If nothing changed (the reader was replaced, or clear() left it open), finish here.
+      setTimeout(function () {
+        if (root.getAttribute("data-pane-anim") === "closing") {
+          paneClosing = false
+          root.removeAttribute("data-pane-anim")
+        }
+      }, 0)
+    }, 240)
+  }
+
+  var titleObserver = new MutationObserver(function () {
+    checkPaneState()
+    scheduleTitleSync()
+  })
   function watchTitle() {
     if (desktop.matches) {
       titleObserver.disconnect()
@@ -174,5 +234,6 @@
   })
 
   window.GoferMobileNav = {
-    showSyncStatus: showSyncStatus, open: function () { setOpen(true) }, close: function () { setOpen(false) } }
+    showSyncStatus: showSyncStatus,
+    animatePaneClose: animatePaneClose, open: function () { setOpen(true) }, close: function () { setOpen(false) } }
 })()
