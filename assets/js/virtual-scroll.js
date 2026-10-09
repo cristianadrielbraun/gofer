@@ -1,3 +1,10 @@
+// List rows are sized in rem so they grow with the root font size on small screens; this
+// converts those sizes to the pixels the virtual lists position rows with.
+function listRemPx(rem) {
+  var root = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16
+  return Math.round(rem * root)
+}
+
 class VirtualMailList {
   constructor(container, options) {
     this.container = container
@@ -5,8 +12,8 @@ class VirtualMailList {
     this.folderID = options.folderID || "inbox"
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
-    this.itemHeight = this.viewMode === "table" ? 44 : 100
-    this.subItemHeight = this.viewMode === "table" ? 32 : 48
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
+    this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.expandedThreadGap = 26
     this.overscan = 10
 
@@ -1805,8 +1812,8 @@ class VirtualMailList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = this.viewMode === "table" ? 44 : 100
-    this.subItemHeight = this.viewMode === "table" ? 32 : 48
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
+    this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
     if (mailList) mailList.dataset.mailListView = this.viewMode
@@ -2509,7 +2516,7 @@ class VirtualContactsList {
   constructor(container, options) {
     this.container = container
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
-    this.itemHeight = this.viewMode === "table" ? 44 : 100
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
     this.overscan = 10
     this.chunkSize = 100
     this.loadingSkeletonMinDuration = 180
@@ -2594,7 +2601,7 @@ class VirtualContactsList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = this.viewMode === "table" ? 44 : 100
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : 6.25)
     this.container.dataset.viewMode = this.viewMode
     var shell = document.querySelector("[data-contact-list-shell]") || document.getElementById("mail-list")
     if (shell) shell.dataset.viewMode = this.viewMode

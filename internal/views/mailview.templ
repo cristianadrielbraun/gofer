@@ -228,7 +228,7 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 						}
 					} else {
 						@MailViewSender(email)
-						<div class="mail-view-mobile-tools mt-2 -mr-1 flex items-center justify-end gap-0.5 lg:hidden">
+						<div class="mail-view-mobile-tools mail-view-message-actions mt-2 -mr-1 flex items-center justify-end gap-0.5 lg:hidden">
 							@EmailBodyStyleCycleButton(email.ID)
 							@EmailTranslateIconButton(email.ID)
 						</div>
@@ -378,7 +378,7 @@ templ MailViewThreadItemAttachments(item *models.ThreadItem) {
 }
 
 templ MailViewThreadItemMiniHeader(item *models.ThreadItem) {
-	<div class="flex items-center gap-0.5 mt-2 -ml-1 max-lg:-mr-1 max-lg:ml-0 max-lg:justify-end">
+	<div class="mail-view-message-actions flex items-center gap-0.5 mt-2 -ml-1 max-lg:-mr-1 max-lg:ml-0 max-lg:justify-end">
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
 				@button.Button(button.Props{

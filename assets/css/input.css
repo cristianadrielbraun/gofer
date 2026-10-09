@@ -1444,9 +1444,9 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 }
 
 .mail-list-item {
-  height: 100px;
-  min-height: 100px;
-  max-height: 100px;
+  height: 6.25rem;
+  min-height: 6.25rem;
+  max-height: 6.25rem;
   padding: 3px 0;
 }
 
@@ -1456,9 +1456,9 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 }
 
 [data-view-mode="table"] .mail-list-item {
-  height: 44px;
-  min-height: 44px;
-  max-height: 44px;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  max-height: 2.75rem;
   padding: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
@@ -2093,9 +2093,9 @@ body.mail-list-column-resizing {
 }
 
 [data-view-mode="table"] .mail-list-thread-main {
-  height: 44px;
-  min-height: 44px;
-  max-height: 44px;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  max-height: 2.75rem;
 }
 
 [data-view-mode="table"] .mail-list-thread-slot {
@@ -2109,9 +2109,9 @@ body.mail-list-column-resizing {
 }
 
 .mail-list-thread-main {
-  height: 100px;
-  min-height: 100px;
-  max-height: 100px;
+  height: 6.25rem;
+  min-height: 6.25rem;
+  max-height: 6.25rem;
   overflow: hidden;
 }
 
@@ -2141,7 +2141,7 @@ body.mail-list-column-resizing {
 }
 
 [data-view-mode="table"] .thread-sub-item {
-  height: 32px;
+  height: 2rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
   position: relative;
 }
@@ -2328,9 +2328,9 @@ body.mail-list-column-resizing {
   align-items: flex-start;
   gap: 0.75rem;
   margin: 3px 0;
-  height: 88px;
-  min-height: 88px;
-  max-height: 88px;
+  height: 5.5rem;
+  min-height: 5.5rem;
+  max-height: 5.5rem;
   padding: 0.625rem 0.875rem;
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
   border-radius: var(--radius-lg);
@@ -2342,16 +2342,16 @@ body.mail-list-column-resizing {
   align-items: start;
   column-gap: 0.75rem;
   row-gap: 0.125rem;
-  height: 100px;
-  min-height: 100px;
-  max-height: 100px;
+  height: 6.25rem;
+  min-height: 6.25rem;
+  max-height: 6.25rem;
   padding-block: 0.5rem;
 }
 
 .mail-list-table-skeleton {
-  height: 44px;
-  min-height: 44px;
-  max-height: 44px;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  max-height: 2.75rem;
   align-items: center;
   gap: 0;
   margin: 0;
@@ -2572,12 +2572,12 @@ body.mail-list-column-resizing {
   background-color: var(--calendar-response-label, transparent);
   color: var(--calendar-response-label-text, var(--color-muted-foreground));
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: 0.6875remNone;
 }
 
 [data-calendar-event-trigger] .calendar-event-response-indicator[data-calendar-response-compact="true"] {
   padding: 1px 4px;
-  font-size: 10px;
+  font-size: 0.625remNone;
 }
 
 [data-calendar-event-trigger][data-calendar-response-state="accepted"] .calendar-event-response-indicator {
@@ -2923,7 +2923,7 @@ body.mail-list-column-resizing {
 
 .compose-titlebar-text {
   font-family: var(--font-serif);
-  font-size: 13px;
+  font-size: 0.8125remNone;
   font-weight: 700;
   color: var(--sidebar-primary);
   letter-spacing: 0.01em;
@@ -2981,7 +2981,7 @@ body.mail-list-column-resizing {
 }
 
 .compose-field-label {
-  font-size: 11px;
+  font-size: 0.6875remNone;
   font-weight: 600;
   color: color-mix(in srgb, var(--copper) 60%, var(--ink));
   width: 32px;
@@ -2995,7 +2995,7 @@ body.mail-list-column-resizing {
   background: transparent !important;
   box-shadow: none !important;
   height: 28px !important;
-  font-size: 13px !important;
+  font-size: 0.8125rem !important;
   color: var(--ink) !important;
 }
 
@@ -3010,7 +3010,7 @@ body.mail-list-column-resizing {
 }
 
 .compose-field-toggle {
-  font-size: 11px;
+  font-size: 0.6875remNone;
   color: color-mix(in srgb, var(--copper) 50%, transparent);
   padding: 2px 6px;
   border-radius: 4px;
@@ -3034,7 +3034,7 @@ body.mail-list-column-resizing {
   background: transparent !important;
   box-shadow: none !important;
   height: 38px !important;
-  font-size: 15px !important;
+  font-size: 0.9375rem !important;
   font-family: var(--font-serif) !important;
   font-weight: 600 !important;
   color: var(--ink) !important;
@@ -3104,7 +3104,7 @@ body.mail-list-column-resizing {
   background: transparent !important;
   box-shadow: none !important;
   resize: none !important;
-  font-size: 14px !important;
+  font-size: 0.875rem !important;
   line-height: 28px !important;
   color: var(--ink) !important;
   min-height: 160px !important;
@@ -3134,7 +3134,7 @@ body.mail-list-column-resizing {
   gap: 6px;
   padding: 6px 12px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 0.8125remNone;
   color: color-mix(in srgb, var(--ink) 35%, transparent);
   transition: all 0.15s ease;
 }
@@ -3151,7 +3151,7 @@ body.mail-list-column-resizing {
   height: 34px;
   padding: 0 14px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 0.8125remNone;
   font-weight: 500;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
@@ -3183,7 +3183,7 @@ body.mail-list-column-resizing {
   height: 34px;
   padding: 0 18px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 0.8125remNone;
   font-weight: 600;
   color: var(--primary-foreground);
   background: linear-gradient(180deg, color-mix(in srgb, var(--copper) 100%, #fff) 0%, var(--copper) 100%);
@@ -3508,6 +3508,29 @@ body.mail-list-column-resizing {
     gap: 0.75rem;
   }
 
+  /* Each message's small actions get touch-sized targets. */
+  #mail-view[data-mail-reader] .mail-view-message-actions button {
+    min-width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-message-actions button svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-message-actions [data-translate-email-icon-shell] {
+    height: 2.5rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-message-actions [data-translate-email-icon-shell] button {
+    min-width: 2.25rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-message-actions .email-translation-language-trigger {
+    min-width: 1.5rem;
+  }
+
   /* Translation lives in the message's small controls instead. */
   #mail-view[data-mail-reader] [data-email-translation-shell] {
     display: none;
@@ -3577,6 +3600,29 @@ body.mail-list-column-resizing {
 
   .mail-view-mobile-labels {
     display: flex;
+  }
+}
+
+/* Small screens use larger text and controls for touch. Nearly every size is in rem, so
+   raising the root size scales text, icons, buttons and spacing together; the fixed pixel
+   text sizes in the templates are restated in rem to follow it. */
+@media (max-width: 1023.98px) {
+  html {
+    font-size: 112.5%;
+  }
+
+  .text-\[9px\] { font-size: 0.5625rem; }
+  .text-\[10px\] { font-size: 0.625rem; }
+  .text-\[11px\] { font-size: 0.6875rem; }
+  .text-\[12px\] { font-size: 0.75rem; }
+  .text-\[13px\] { font-size: 0.8125rem; }
+
+  /* iOS zooms into fields with text under 16px when they receive focus. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [contenteditable="true"] {
+    font-size: max(16px, 0.9375rem) !important;
   }
 }
 

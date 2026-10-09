@@ -1411,7 +1411,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	doc := buildBodyDocument(body, emailResizeScript(emailID), theme, bg, fg, link, original)
+	doc := buildBodyDocument(body, emailResizeScript(emailID), theme, bg, fg, link, original, emailBodyTextSize(r))
 	if !loadRemote {
 		doc = append(doc, remoteImagesDetectScript(emailID)...)
 	}
@@ -1547,7 +1547,17 @@ var oc=p(cs.outlineColor);if(oc&&bw(cs.outlineWidth)>0&&(!nbg||cr(oc,nbg)<2.2||d
 })();</script>`, bgColor, fgColor, linkColor))
 }
 
-func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool) []byte {
+// emailBodyTextSize returns the base text size, in pixels, for a message body document.
+// Small screens ask for larger text with text=large; message HTML that sets its own
+// sizes keeps them.
+func emailBodyTextSize(r *http.Request) int {
+	if r.URL.Query().Get("text") == "large" {
+		return 16
+	}
+	return 14
+}
+
+func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool, textSize int) []byte {
 	s := string(body)
 	lower := strings.ToLower(s)
 	isDark := theme == "dark"
@@ -1620,7 +1630,7 @@ func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor s
 	}
 	doc := "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>" +
 		"html{margin:0;overflow:hidden;color-scheme:" + scheme + ";background:" + bgColor + ";color:" + fgColor + "}" +
-		"body{margin:0;padding:8px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;background:" + bgColor + ";color:" + fgColor + ";word-wrap:break-word}" +
+		"body{margin:0;padding:8px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:" + strconv.Itoa(textSize) + "px;line-height:1.5;background:" + bgColor + ";color:" + fgColor + ";word-wrap:break-word}" +
 		"img{max-width:100%;height:auto}" +
 		"a{color:" + linkColor + "}" +
 		"</style></head><body>" +

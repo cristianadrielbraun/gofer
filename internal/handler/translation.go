@@ -179,7 +179,7 @@ func (h *Handler) writeTranslatedBody(w http.ResponseWriter, r *http.Request, re
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	doc := buildBodyDocument(body, emailResizeScript(emailID), theme, bg, fg, link, original)
+	doc := buildBodyDocument(body, emailResizeScript(emailID), theme, bg, fg, link, original, emailBodyTextSize(r))
 	if !loadRemote {
 		doc = append(doc, remoteImagesDetectScript(emailID)...)
 	}
@@ -191,7 +191,7 @@ func (h *Handler) writeTranslatedEmailError(w http.ResponseWriter, emailID, mess
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	body := []byte(`<div style="font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.5;padding:8px;color:inherit">` + stdhtml.EscapeString(message) + `</div>`)
-	w.Write(buildBodyDocument(body, emailResizeScript(emailID), "light", "", "", "", false))
+	w.Write(buildBodyDocument(body, emailResizeScript(emailID), "light", "", "", "", false, 14))
 }
 
 func (h *Handler) translationProvider(providerName string) (translation.Provider, bool) {

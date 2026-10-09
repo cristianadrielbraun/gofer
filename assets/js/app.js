@@ -14142,6 +14142,11 @@ window.addEventListener("message", function (e) {
   }
 })
 
+// Small screens use larger text, including in message bodies that leave the size to Gofer.
+function emailBodyWantsLargeText() {
+  return !!(window.matchMedia && window.matchMedia("(max-width: 1023.98px)").matches)
+}
+
 function translatedEmailBodyURL(iframe, theme, bg, fg, link, original) {
   var params = new URLSearchParams()
   params.set("theme", theme)
@@ -14150,6 +14155,7 @@ function translatedEmailBodyURL(iframe, theme, bg, fg, link, original) {
   if (!original && fg) params.set("fg", fg)
   if (!original && link) params.set("link", link)
   if (iframe.dataset.remoteLoaded === "true") params.set("remote", "true")
+  if (emailBodyWantsLargeText()) params.set("text", "large")
   params.set("provider", iframe.dataset.translationProvider || "google_web_basic")
   params.set("target_language", iframe.dataset.translationTargetLanguage || "en")
   return "/email/" + iframe.dataset.emailId + "/body/translated?" + params.toString()
@@ -14190,6 +14196,7 @@ function applyEmailBodyTheme(targetFrame) {
   if (!original && fg) params.set("fg", fg)
   if (!original && link) params.set("link", link)
   if (iframe.dataset.remoteLoaded === "true") params.set("remote", "true")
+  if (emailBodyWantsLargeText()) params.set("text", "large")
   iframe.src = iframe.dataset.translationActive === "true" ?
     translatedEmailBodyURL(iframe, theme, bg, fg, link, original) :
     "/email/" + iframe.dataset.emailId + "/body?" + params.toString()

@@ -113,7 +113,7 @@ load:
 	if remote {
 		body = message.RestoreRemoteImages(body)
 	}
-	doc := buildBodyDocument(body, emailResizeScript(id), r.URL.Query().Get("theme"), r.URL.Query().Get("bg"), r.URL.Query().Get("fg"), r.URL.Query().Get("link"), original)
+	doc := buildBodyDocument(body, emailResizeScript(id), r.URL.Query().Get("theme"), r.URL.Query().Get("bg"), r.URL.Query().Get("fg"), r.URL.Query().Get("link"), original, emailBodyTextSize(r))
 	if !remote {
 		doc = append(doc, remoteImagesDetectScript(id)...)
 	}
