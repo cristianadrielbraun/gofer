@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -93,11 +94,10 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, op
 	result := &SyncResult{
 		UIDValidity: uint32(selectData.UIDValidity),
 	}
-	searchData, err := c.client.UIDSearch(&imap.SearchCriteria{}, nil).Wait()
+	uids, err := c.listAllUIDs(remoteName)
 	if err != nil {
-		return result, fmt.Errorf("uid search %s: %w", remoteName, err)
+		return result, err
 	}
-	uids := searchData.AllUIDs()
 	result.NumMessages = uint32(len(uids))
 	if options.OnTotal != nil {
 		options.OnTotal(len(uids))
@@ -416,18 +416,53 @@ func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string, expectedUI
 		return nil, currentUIDValidity, true, nil
 	}
 
-	searchCmd := c.client.UIDSearch(&imap.SearchCriteria{}, nil)
-	searchData, err := searchCmd.Wait()
+	imapUIDs, err := c.listAllUIDs(remoteName)
 	if err != nil {
-		return nil, currentUIDValidity, false, fmt.Errorf("uid search %s: %w", remoteName, err)
+		return nil, currentUIDValidity, false, err
 	}
-
-	imapUIDs := searchData.AllUIDs()
 	uids := make([]uint32, len(imapUIDs))
 	for i, uid := range imapUIDs {
 		uids[i] = uint32(uid)
 	}
 	return uids, currentUIDValidity, false, nil
+}
+
+// listAllUIDs returns every UID in the selected mailbox. Some servers answer
+// UID SEARCH ALL with an empty or partial result while the mailbox holds
+// messages, so a result that disagrees with the latest EXISTS count falls back
+// to fetching every UID.
+func (c *Client) listAllUIDs(remoteName string) ([]imap.UID, error) {
+	searchData, err := c.client.UIDSearch(&imap.SearchCriteria{}, nil).Wait()
+	if err != nil {
+		return nil, fmt.Errorf("uid search %s: %w", remoteName, err)
+	}
+	uids := searchData.AllUIDs()
+	if mailbox := c.client.Mailbox(); mailbox == nil || uint32(len(uids)) == mailbox.NumMessages {
+		return uids, nil
+	}
+
+	cmd := c.client.Fetch(imap.UIDSet{{Start: 1, Stop: 0}}, &imap.FetchOptions{UID: true})
+	uids = uids[:0]
+	for {
+		msg := cmd.Next()
+		if msg == nil {
+			break
+		}
+		for {
+			item := msg.Next()
+			if item == nil {
+				break
+			}
+			if data, ok := item.(imapclient.FetchItemDataUID); ok {
+				uids = append(uids, data.UID)
+			}
+		}
+	}
+	if err := cmd.Close(); err != nil {
+		return nil, fmt.Errorf("uid fetch %s: %w", remoteName, err)
+	}
+	slices.Sort(uids)
+	return uids, nil
 }
 
 func (c *Client) FindUIDByMessageID(ctx context.Context, remoteName, messageID string) (uint32, error) {
