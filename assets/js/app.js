@@ -954,11 +954,26 @@ document.addEventListener("DOMContentLoaded", function () {
       button.setAttribute("aria-pressed", translated ? "true" : "false")
       button.setAttribute("aria-label", translated ? "Show original email" : idleButtonLabel())
       button.classList.toggle("opacity-60", state === "loading")
+      syncTranslationIconButtons(emailId, state)
       syncTranslationLanguageItems(emailId)
       if (translated && data) {
         button.title = "Translated to " + languageLabel(activeTargetLanguage(emailId))
       } else {
         button.removeAttribute("title")
+      }
+    }
+
+    function syncTranslationIconButtons(emailId, state) {
+      var translated = state === "translated"
+      var buttons = document.querySelectorAll(emailSelector("data-translate-email-icon", emailId))
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].disabled = state === "loading"
+        buttons[i].dataset.translated = translated ? "true" : "false"
+        buttons[i].setAttribute("aria-pressed", translated ? "true" : "false")
+        buttons[i].setAttribute("aria-label", translated ? "Show original email" : idleButtonLabel())
+        buttons[i].classList.toggle("opacity-60", state === "loading")
+        var shell = buttons[i].closest("[data-translate-email-icon-shell]")
+        if (shell) shell.dataset.translated = translated ? "true" : "false"
       }
     }
 
@@ -981,6 +996,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       var shells = scope.querySelectorAll("[data-email-translation-shell]")
       for (var i = 0; i < shells.length; i++) shells[i].classList.toggle("hidden", !enabled)
+      var icons = scope.querySelectorAll("[data-translate-email-icon-shell]")
+      for (var k = 0; k < icons.length; k++) icons[k].classList.toggle("hidden", !enabled)
 
       if (scope.matches && scope.matches("[data-translate-email]")) {
         syncTranslationButton(scope)
@@ -1059,6 +1076,14 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault()
         if (!translationEnabled()) return
         translateEmail(language.dataset.translateEmailLanguage, buttonForEmail(language.dataset.translateEmailLanguage), language.dataset.translationLanguage)
+        return
+      }
+
+      var translateIcon = e.target.closest("[data-translate-email-icon]")
+      if (translateIcon) {
+        e.preventDefault()
+        if (!translationEnabled()) return
+        translateEmail(translateIcon.dataset.translateEmailIcon, buttonForEmail(translateIcon.dataset.translateEmailIcon))
         return
       }
 
@@ -14248,10 +14273,14 @@ function toggleEmailBodySchemeById(emailId) {
 function updateEmailBodySchemeButton(iframe, baseTheme, theme, bodyMode) {
   if (!iframe) return
   var emailId = iframe.dataset.emailId
-  var btn = emailId ? document.querySelector('[data-force-email-scheme="' + emailId + '"]') : document.querySelector("[data-force-email-scheme]")
-  if (!btn) return
   var mode = bodyMode || iframe.dataset.bodyMode || (iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme)
   if (mode !== "dark" && mode !== "light" && mode !== "original") mode = baseTheme
+  if (emailId) {
+    var cycleButtons = document.querySelectorAll('[data-email-body-mode-cycle="' + emailId + '"]')
+    for (var c = 0; c < cycleButtons.length; c++) cycleButtons[c].setAttribute("data-email-body-mode", mode)
+  }
+  var btn = emailId ? document.querySelector('[data-force-email-scheme="' + emailId + '"]') : document.querySelector("[data-force-email-scheme]")
+  if (!btn) return
   var label = "Showing " + theme + " email body."
   if (mode === "original") label = "Showing original email style."
   btn.setAttribute("aria-label", label)

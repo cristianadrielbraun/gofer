@@ -3428,6 +3428,156 @@ body.mail-list-column-resizing {
   .mobile-back-button {
     display: inline-flex;
   }
+
+  /* Reader: a full-bleed page with an app bar on top and the reply actions pinned below. */
+  #mail-view[data-mail-reader] .mail-view-frame {
+    padding: 0;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-frame > .surface-paper {
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-toolbar {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0;
+    min-height: calc(3.5rem + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 0.25rem 0;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-actions {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    width: auto;
+    gap: 0;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-actions .mobile-back-button {
+    margin-right: auto;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-actions :has(> [data-mail-action="spam"]),
+  #mail-view[data-mail-reader] .mail-view-meta > :not(.mail-view-date):not(:last-child),
+  #mail-view[data-mail-reader] .mail-view-date {
+    display: none;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-meta {
+    width: auto;
+    flex: none;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-toolbar button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-toolbar button svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-content {
+    display: flex;
+    flex-direction: column;
+    padding: 1.25rem 1rem 1.5rem;
+  }
+
+  /* Subject first, as a page title, with the sender beneath it. */
+  #mail-view[data-mail-reader] .mail-view-content > .mail-view-subject-row {
+    order: -1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin: 0 0 1.25rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-subject-row [data-email-body-style-toggle],
+  #mail-view[data-mail-reader] .mail-view-address,
+  #mail-view[data-mail-reader] .mail-view-current-marker,
+  #mail-view[data-mail-reader] summary > span:has(> [data-thread-show-exclusive], > [data-thread-hide-others]) {
+    display: none;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-sender,
+  #mail-view[data-mail-reader] .mail-view-thread-sender {
+    flex-wrap: nowrap;
+    gap: 0.75rem;
+  }
+
+  /* Translation lives in the message's small controls instead. */
+  #mail-view[data-mail-reader] [data-email-translation-shell] {
+    display: none;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-attachment {
+    flex-wrap: nowrap;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-attachment > a {
+    width: auto;
+  }
+
+  #mail-view[data-mail-reader] #reply-bar {
+    padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+  }
+
+  #mail-view[data-mail-reader] .mail-view-reply-actions {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-reply-actions > * {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    height: 2.75rem;
+  }
+
+  /* The message menu opens as a sheet along the bottom edge. */
+  .mobile-sheet[data-tui-popover-open="true"] {
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 100%;
+    max-width: none;
+    max-height: 75dvh;
+    padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom));
+    border-bottom: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.35);
+  }
+
+  .mobile-sheet [data-tui-dropdown-item] {
+    min-height: 2.75rem;
+    white-space: nowrap;
+  }
+}
+
+/* The cycle button shows the icon for the style currently applied. */
+.email-body-mode-cycle[data-email-body-mode="dark"] [data-email-body-mode-icon]:not([data-email-body-mode-icon="dark"]),
+.email-body-mode-cycle[data-email-body-mode="light"] [data-email-body-mode-icon]:not([data-email-body-mode-icon="light"]),
+.email-body-mode-cycle[data-email-body-mode="original"] [data-email-body-mode-icon]:not([data-email-body-mode-icon="original"]) {
+  display: none;
+}
+
+.mail-view-mobile-date,
+.mail-view-mobile-labels {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  .mail-view-mobile-date {
+    display: block;
+  }
+
+  .mail-view-mobile-labels {
+    display: flex;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
