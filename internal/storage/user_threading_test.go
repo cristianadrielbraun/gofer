@@ -27,7 +27,8 @@ func seedStartupThreading(t *testing.T, r *AccountRouting, owner string, n int) 
 			if id == 2 {
 				date = ""
 			}
-			internetID, reply, refs := fmt.Sprintf("<m%d@test.invalid>", id), "", ""
+			var internetID any = fmt.Sprintf("<m%d@test.invalid>", id)
+			reply, refs := "", ""
 			subject := fmt.Sprintf("Project %d", id)
 			if id == 3 {
 				reply = "  <m1@test.invalid>  "
@@ -36,6 +37,9 @@ func seedStartupThreading(t *testing.T, r *AccountRouting, owner string, n int) 
 			}
 			if id == 4 {
 				internetID = ""
+			}
+			if id == 5 {
+				internetID = nil // The column is nullable; repair treats NULL as empty.
 			}
 			if _, err := tx.Exec(`INSERT INTO messages(id,account_id,internet_message_id,subject,in_reply_to,"references",date_received) VALUES(?,?,?,?,?,?,?)`, id, a.AccountID, internetID, subject, reply, refs, date); err != nil {
 				return err

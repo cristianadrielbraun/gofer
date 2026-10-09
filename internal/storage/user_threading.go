@@ -97,7 +97,7 @@ func (r *AccountRouting) EnsureUserThreadingForStartup(ctx context.Context, owne
 			accounts := map[string]AccountRouteState{}
 			for _, id := range ids[start:end] {
 				var m threadingRepairMessage
-				err := tx.QueryRowContext(ctx, `SELECT m.id,m.account_id,m.internet_message_id,m.in_reply_to,m."references",m.subject,m.date_received FROM messages m JOIN accounts a ON a.id=m.account_id WHERE m.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0`, id, owner).Scan(&m.id, &m.accountID, &m.msgID, &m.inReplyTo, &m.refs, &m.subject, &m.sentAt)
+				err := tx.QueryRowContext(ctx, `SELECT m.id,m.account_id,COALESCE(m.internet_message_id,''),m.in_reply_to,m."references",m.subject,m.date_received FROM messages m JOIN accounts a ON a.id=m.account_id WHERE m.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0`, id, owner).Scan(&m.id, &m.accountID, &m.msgID, &m.inReplyTo, &m.refs, &m.subject, &m.sentAt)
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
 				}

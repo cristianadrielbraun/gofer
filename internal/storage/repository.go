@@ -658,7 +658,7 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 	log.Printf("storage: EnsureThreading backfill required")
 
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, account_id, internet_message_id, in_reply_to, "references", subject, date_received
+		`SELECT id, account_id, COALESCE(internet_message_id, ''), in_reply_to, "references", subject, date_received
 		 FROM messages ORDER BY date_received ASC, id ASC`)
 	if err != nil {
 		return err
@@ -696,7 +696,7 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 		for i := start; i < end; i++ {
 			var m row
 			err := tx.QueryRowContext(ctx,
-				`SELECT id, account_id, internet_message_id, in_reply_to, "references", subject, date_received
+				`SELECT id, account_id, COALESCE(internet_message_id, ''), in_reply_to, "references", subject, date_received
 				 FROM messages WHERE id = ?`, messages[i].id,
 			).Scan(&m.id, &m.accountID, &m.msgID, &m.inReplyTo, &m.refs, &m.subject, &m.sentAt)
 			if err == sql.ErrNoRows {
