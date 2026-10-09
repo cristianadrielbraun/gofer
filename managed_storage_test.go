@@ -707,3 +707,59 @@ func TestManagedStorageVersionsLayoutOnlyTables(t *testing.T) {
 		t.Fatal("newer layout schema accepted", err)
 	}
 }
+
+func TestManagedStoragePreventConversionSetting(t *testing.T) {
+	t.Run("blocks an existing database", func(t *testing.T) {
+		options, before, _ := migrationCommandFixture(t)
+		path := options.SourcePath
+		t.Setenv("GOFER_PREVENT_STORAGE_CONVERSION", "1")
+		if s, err := openManagedStorage(t.Context(), path, 1); err == nil {
+			s.Close()
+			t.Fatal("converted despite GOFER_PREVENT_STORAGE_CONVERSION")
+		} else if !strings.Contains(err.Error(), "GOFER_PREVENT_STORAGE_CONVERSION") {
+			t.Fatal("unexpected failure", err)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatal("prevented conversion changed the database", err)
+		}
+		for _, leftover := range []string{path + ".shared", path + ".migration.json", path + ".migration-failed.json", path + ".layout.json", path + ".users"} {
+			if _, err := os.Lstat(leftover); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("prevented conversion left files behind", leftover, err)
+			}
+		}
+		t.Setenv("GOFER_PREVENT_STORAGE_CONVERSION", "false")
+		s, err := openManagedStorage(t.Context(), path, 1)
+		if err != nil {
+			t.Fatal("conversion after unsetting", err)
+		}
+		s.Close()
+	})
+	t.Run("rejects invalid values", func(t *testing.T) {
+		options, _, _ := migrationCommandFixture(t)
+		t.Setenv("GOFER_PREVENT_STORAGE_CONVERSION", "maybe")
+		if _, err := openManagedStorage(t.Context(), options.SourcePath, 1); err == nil || !strings.Contains(err.Error(), "must be true or false") {
+			t.Fatal("invalid value accepted", err)
+		}
+	})
+	t.Run("fresh installation and interrupted conversion proceed", func(t *testing.T) {
+		t.Setenv("GOFER_SECRET_KEY", "")
+		t.Setenv("GOFER_PREVENT_STORAGE_CONVERSION", "true")
+		s, err := openManagedStorage(t.Context(), filepath.Join(t.TempDir(), "gofer.db"), 1)
+		if err != nil {
+			t.Fatal("fresh installation blocked", err)
+		}
+		s.Close()
+		options, _, _ := migrationCommandFixture(t)
+		path := options.SourcePath
+		if err := storage.RetireSharedDatabase(t.Context(), path, path+".shared"); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("GOFER_PREVENT_STORAGE_CONVERSION", "true")
+		s, err = openManagedStorage(t.Context(), path, 1)
+		if err != nil {
+			t.Fatal("interrupted conversion blocked", err)
+		}
+		s.Close()
+	})
+}

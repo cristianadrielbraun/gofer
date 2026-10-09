@@ -11,6 +11,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
@@ -169,6 +171,9 @@ func initializeManagedStorage(ctx context.Context, path string) (err error) {
 	case original && retired:
 		return fmt.Errorf("managed storage cannot start: both %q and %q exist", path, source)
 	case original:
+		if err := requireStorageConversionAllowed(path); err != nil {
+			return err
+		}
 		if err := checkRecordedMigrationFailure(path); err != nil {
 			return err
 		}
@@ -283,6 +288,25 @@ func requireManagedSharedDatabase(ctx context.Context, path string) error {
 	}
 	if !convertible {
 		return fmt.Errorf("%s is owned by a user who is not an administrator and cannot be converted for managed mode; start Gofer in its previous mode (nothing was changed)", path)
+	}
+	return nil
+}
+
+// GOFER_PREVENT_STORAGE_CONVERSION keeps an unattended start, such as an
+// automatic update, from converting an existing shared database. It is checked
+// before anything is moved. An interrupted conversion still resumes, a fresh
+// installation has nothing to convert, and the explicit command is unaffected.
+func requireStorageConversionAllowed(path string) error {
+	raw := strings.TrimSpace(os.Getenv("GOFER_PREVENT_STORAGE_CONVERSION"))
+	if raw == "" {
+		return nil
+	}
+	prevent, err := strconv.ParseBool(raw)
+	if err != nil {
+		return errors.New("GOFER_PREVENT_STORAGE_CONVERSION must be true or false")
+	}
+	if prevent {
+		return fmt.Errorf("%s uses the shared storage format, and GOFER_PREVENT_STORAGE_CONVERSION stops managed mode from converting it to per-user storage; unset it to convert (nothing was changed), or start Gofer in personal or open mode", path)
 	}
 	return nil
 }
