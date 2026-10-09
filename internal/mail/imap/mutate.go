@@ -41,7 +41,7 @@ func (c *Client) storeFlagsBatch(ctx context.Context, folderRemoteName string, u
 	if err != nil {
 		return fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	if validity > 0 && validity != uint32(selected.UIDValidity) {
 		return ErrMutationUIDValidityChanged
 	}
@@ -87,7 +87,7 @@ func (c *Client) storeKeyword(ctx context.Context, folderRemoteName string, uid 
 	if err != nil {
 		return fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	if validity > 0 && uint32(selectData.UIDValidity) != validity {
 		return ErrMutationUIDValidityChanged
 	}
@@ -165,7 +165,7 @@ func (c *Client) moveMessagesWithDestUIDs(ctx context.Context, folderRemoteName 
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	if validity > 0 && validity != uint32(selected.UIDValidity) {
 		return nil, ErrMutationUIDValidityChanged
 	}
@@ -220,7 +220,7 @@ func (c *Client) DeleteMessagesIfUIDValidity(ctx context.Context, folderRemoteNa
 	if err != nil {
 		return false, fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	if expectedUIDValidity > 0 && expectedUIDValidity != uint32(selectData.UIDValidity) {
 		return true, nil
 	}

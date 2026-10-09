@@ -78,7 +78,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, op
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", remoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 
 	if selectData.NumMessages == 0 {
 		if options.OnTotal != nil {
@@ -250,7 +250,7 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", remoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 
 	result := &SyncResult{
 		UIDValidity: uint32(selectData.UIDValidity),
@@ -410,7 +410,7 @@ func (c *Client) FetchAllUIDs(ctx context.Context, remoteName string, expectedUI
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("select %s: %w", remoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	currentUIDValidity := uint32(selectData.UIDValidity)
 	if uidValidityChanged(expectedUIDValidity, currentUIDValidity) {
 		return nil, currentUIDValidity, true, nil
@@ -466,7 +466,7 @@ func (c *Client) findUIDByHeaderWithValidity(ctx context.Context, remoteName, he
 	if err != nil {
 		return 0, 0, fmt.Errorf("select %s: %w", remoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	uidValidity := uint32(selectData.UIDValidity)
 
 	searchCmd := c.client.UIDSearch(&imap.SearchCriteria{
@@ -542,7 +542,7 @@ func (c *Client) FetchFlagChanges(ctx context.Context, remoteName string, uids [
 	if err != nil {
 		return FlagSyncResult{}, fmt.Errorf("select %s: %w", remoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	currentUIDValidity := uint32(selectData.UIDValidity)
 	if uidValidityChanged(expectedUIDValidity, currentUIDValidity) {
 		return FlagSyncResult{UIDValidity: currentUIDValidity, UIDValidityChanged: true}, nil

@@ -167,6 +167,24 @@ func (c *Client) Close() error {
 	return c.client.Close()
 }
 
+// ConnectionLost reports whether the server connection has ended, so callers
+// can reconnect instead of failing every later command on a dead session.
+func (c *Client) ConnectionLost() bool {
+	c.mu.Lock()
+	closed := c.closed
+	c.mu.Unlock()
+	return closed || c.client.State() == imap.ConnStateLogout
+}
+
+// unselect leaves the selected mailbox when the server supports UNSELECT.
+// Servers without it reject the command, and some disconnect after repeated
+// rejections; the next SELECT replaces the selection anyway.
+func (c *Client) unselect() {
+	if c.client.Caps().Has(imap.CapUnselect) {
+		c.client.Unselect()
+	}
+}
+
 func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

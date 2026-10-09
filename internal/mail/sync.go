@@ -2102,7 +2102,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { client.Close() }()
 
 	folders, err := client.ListFolders(ctx)
 	if err != nil {
@@ -2227,7 +2227,20 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		if !ok {
 			folderInfo = storage.FolderSyncInfo{ID: folderDBID, AccountID: accountID, RemoteID: f.Name, Role: f.Role}
 		}
-		if err := o.fullFolderSync(ctx, client, accountID, cfg.Provider, folderInfo, i+1, len(syncFolders), idleExcluded); err != nil {
+		err := o.fullFolderSync(ctx, client, accountID, cfg.Provider, folderInfo, i+1, len(syncFolders), idleExcluded)
+		if err != nil && client.ConnectionLost() && ctx.Err() == nil {
+			// Without a new session every remaining folder would fail on the
+			// dead one, so reconnect and give this folder one more attempt.
+			log.Printf("sync folder %s/%s: connection lost, reconnecting: %v", accountID, f.Name, err)
+			reconnected, reconnectErr := o.newIMAPSyncClient(ctx, cfg, password)
+			if reconnectErr != nil {
+				return fmt.Errorf("reconnect IMAP for %s after %w: %w", accountID, err, reconnectErr)
+			}
+			client.Close()
+			client = reconnected
+			err = o.fullFolderSync(ctx, client, accountID, cfg.Provider, folderInfo, i+1, len(syncFolders), idleExcluded)
+		}
+		if err != nil {
 			log.Printf("sync folder %s/%s: %v", accountID, f.Name, err)
 			failedFolders++
 			if firstFolderErr == nil {

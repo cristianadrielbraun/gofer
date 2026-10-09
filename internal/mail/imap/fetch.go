@@ -26,7 +26,7 @@ func (c *Client) FetchBodyWithValidity(ctx context.Context, folderRemoteName str
 	if err != nil {
 		return nil, fmt.Errorf("select %s: %w", folderRemoteName, err)
 	}
-	defer c.client.Unselect()
+	defer c.unselect()
 	if expectedValidity != 0 && selected.UIDValidity != expectedValidity {
 		return nil, fmt.Errorf("IMAP UIDVALIDITY changed during body fetch")
 	}
