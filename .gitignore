@@ -1,5 +1,3 @@
-tmp/*
-!tmp/go.mod
 dist/
 .env
 internal_notes/

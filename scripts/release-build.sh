@@ -16,7 +16,6 @@ mkdir -p "$DIST"
 task generate
 
 export CGO_ENABLED="${CGO_ENABLED:-0}"
-export GOCACHE="${GOCACHE:-$ROOT/tmp/go-build-cache}"
 
 targets=(
   "linux amd64"

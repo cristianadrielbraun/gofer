@@ -52,7 +52,7 @@ Downloaded release binaries include the web assets. Development from source requ
 
 ```sh
 task dev      # development server with hot reload
-task build    # local build at ./tmp/main
+task build    # local build at ./dist/gofer
 task release  # self-contained binary at ./dist/gofer
 ```
 

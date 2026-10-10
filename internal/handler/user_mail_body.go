@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -25,7 +26,7 @@ func (h *Handler) handleUserEmailBody(w http.ResponseWriter, r *http.Request) {
 	requestedRemote := r.URL.Query().Get("remote") == "true"
 	remote := requestedRemote
 	var body, cached []byte
-	var rawPath string
+	var rawPath, accountID string
 	attempted := false
 	var cidURLs map[string]string
 load:
@@ -40,6 +41,7 @@ load:
 		if info == nil {
 			return sql.ErrNoRows
 		}
+		accountID = info.AccountID
 		// Resolve the copied account before using its message paths, and keep its
 		// scope pinned until the local reads finish. No provider network call occurs.
 		return h.userStorage.WithAccountForUser(ctx, owner, info.AccountID, func(*storage.DB) error {
@@ -79,7 +81,7 @@ load:
 		})
 	})
 	if err != nil {
-		userAccountError(w, r, err)
+		h.writeEmailBodyError(w, ctx, owner, id, accountID, err)
 		return
 	}
 	if original && body == nil && rawPath != "" {
@@ -101,13 +103,13 @@ load:
 	if body == nil && h.userIMAP != nil && !attempted {
 		attempted = true
 		if err := h.userIMAP.EnsureBody(ctx, owner, number); err != nil {
-			userAccountError(w, r, err)
+			h.writeEmailBodyError(w, ctx, owner, id, accountID, err)
 			return
 		}
 		goto load
 	}
 	if body == nil {
-		http.Error(w, "message body is not cached yet", http.StatusServiceUnavailable)
+		h.writeEmailBodyError(w, ctx, owner, id, accountID, errors.New("message body is not cached yet"))
 		return
 	}
 	if remote {

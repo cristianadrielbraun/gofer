@@ -48,6 +48,10 @@ func (h *Handler) handleUserTranslation(w http.ResponseWriter, r *http.Request, 
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
 	if err := h.userIMAP.EnsureBody(ctx, owner, id); err != nil {
+		if document {
+			h.writeEmailBodyError(w, ctx, owner, r.PathValue("id"), "", err)
+			return
+		}
 		userAccountError(w, r, err)
 		return
 	}

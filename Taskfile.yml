@@ -4,7 +4,7 @@ tasks:
   templ:
     desc: Run templ with integrated server and hot reload
     cmds:
-      - templ generate --watch --ignore-pattern='(^|/)(tmp|dist)(/|$)|(^|/).*_templ\.go$' --proxy="http://localhost:8090" -proxyport 9090 --cmd="go run ." --open-browser=false
+      - templ generate --watch --ignore-pattern='(^|/)dist(/|$)|(^|/).*_templ\.go$' --proxy="http://localhost:8090" -proxyport 9090 --cmd="go run ." --open-browser=false
 
   tailwind:
     desc: Watch Tailwind CSS changes
@@ -19,7 +19,7 @@ tasks:
   generate:
     desc: Generate templ views and compiled CSS
     cmds:
-      - templ generate --ignore-pattern='(^|/)(tmp|dist)(/|$)'
+      - templ generate --ignore-pattern='(^|/)dist(/|$)'
       - tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css
 
   build:
@@ -27,7 +27,8 @@ tasks:
     deps:
       - generate
     cmds:
-      - go build -o ./tmp/main .
+      - mkdir -p ./dist
+      - go build -o ./dist/gofer .
 
   release:
     desc: Build a self-contained release binary with embedded assets
@@ -45,6 +46,4 @@ tasks:
   clean:
     desc: Clean build artifacts
     cmds:
-      # Preserve the module boundary that excludes scratch files from ./... checks.
-      - find tmp -mindepth 1 -maxdepth 1 ! -name go.mod -exec rm -rf {} +
       - rm -rf dist/ assets/css/output.css

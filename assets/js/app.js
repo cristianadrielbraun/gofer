@@ -3452,8 +3452,15 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!row) return
       var emailId = row.dataset.emailId
       if (!emailId || prefetchedBodies[emailId]) return
+      var accountId = row.dataset.accountId
+      if (accountId && accountsNeedingReconnect[accountId]) return
       prefetchedBodies[emailId] = true
-      fetch("/api/messages/" + encodeURIComponent(emailId) + "/prefetch-body", { method: "POST" }).catch(function () {
+      fetch("/api/messages/" + encodeURIComponent(emailId) + "/prefetch-body", { method: "POST" }).then(function (res) {
+        if (res.headers.get("X-Gofer-Account-Reconnect") === "true") {
+          delete prefetchedBodies[emailId]
+          markAccountNeedsReconnect(accountId)
+        }
+      }).catch(function () {
         delete prefetchedBodies[emailId]
       })
     }
@@ -15070,6 +15077,7 @@ window.addEventListener("message", function (e) {
       iframe.classList.remove("opacity-0")
       var loader = e.data.emailId ? document.querySelector('[data-email-body-loading="' + e.data.emailId + '"]') : null
       if (loader) loader.remove()
+      if (e.data.emailId) clearEmailBodyError(e.data.emailId)
       if (iframe.dataset.translationActive === "true" && typeof window.goferEmailTranslationFrameLoaded === "function") {
         window.goferEmailTranslationFrameLoaded(e.data.emailId)
       }
@@ -15079,7 +15087,97 @@ window.addEventListener("message", function (e) {
     var banner = document.querySelector('[data-remote-content-banner="' + e.data.emailId + '"]')
     if (banner) banner.classList.remove("hidden")
   }
+  if (e.data.type === "emailBodyError" && e.data.emailId) {
+    showEmailBodyError(e.data)
+  }
 })
+
+// The body iframe stays hidden until it reports a height, so a failed load
+// replaces the loader with an explanation here instead.
+function showEmailBodyError(failure) {
+  var emailId = String(failure.emailId)
+  var iframe = document.querySelector('[data-email-body-frame][data-email-id="' + emailId + '"]')
+  if (!iframe) return
+  clearEmailBodyError(emailId)
+  var loader = document.querySelector('[data-email-body-loading="' + emailId + '"]')
+  if (loader) loader.classList.add("hidden")
+  if (failure.kind === "reconnect" && failure.accountId) markAccountNeedsReconnect(failure.accountId)
+
+  var card = document.createElement("div")
+  card.setAttribute("data-email-body-error", emailId)
+  card.setAttribute("role", "alert")
+  card.className = "my-2 rounded-lg border border-ink/10 bg-ink/[0.02] px-4 py-3.5"
+  var title = document.createElement("p")
+  title.className = "text-[13px] font-medium text-ink"
+  title.textContent = failure.kind === "missing" ? "Message unavailable" : "Couldn't load this message"
+  var message = document.createElement("p")
+  message.className = "mt-1 text-xs leading-relaxed text-ink/60"
+  message.textContent = failure.message || ""
+  card.appendChild(title)
+  card.appendChild(message)
+  if (failure.detail) {
+    var detail = document.createElement("p")
+    detail.className = "mt-1 break-words text-xs leading-relaxed text-ink/45"
+    detail.textContent = failure.detail
+    card.appendChild(detail)
+  }
+
+  var actions = document.createElement("div")
+  actions.className = "mt-3 flex flex-wrap items-center gap-2"
+  var buttonClass = "inline-flex h-8 items-center rounded-md border border-ink/10 px-3 text-xs font-medium text-ink/70 transition-colors hover:border-ink/20 hover:text-ink cursor-pointer"
+  if (failure.kind === "reconnect" && failure.provider && failure.email) {
+    var form = document.createElement("form")
+    form.method = "POST"
+    form.action = "/api/accounts/oauth2/authorize"
+    form.className = "contents"
+    var fields = { flow_action: "reconnect", provider: failure.provider, email_address: failure.email, display_name: failure.name || "" }
+    Object.keys(fields).forEach(function (name) {
+      var input = document.createElement("input")
+      input.type = "hidden"
+      input.name = name
+      input.value = fields[name]
+      form.appendChild(input)
+    })
+    var reconnect = document.createElement("button")
+    reconnect.type = "submit"
+    reconnect.className = buttonClass + " bg-ink/[0.04]"
+    reconnect.textContent = "Reconnect account"
+    form.appendChild(reconnect)
+    actions.appendChild(form)
+  } else if (failure.kind === "reconnect") {
+    var settings = document.createElement("a")
+    settings.href = "/settings/accounts"
+    settings.className = buttonClass
+    settings.textContent = "Open account settings"
+    actions.appendChild(settings)
+  }
+  if (failure.kind !== "missing") {
+    var retry = document.createElement("button")
+    retry.type = "button"
+    retry.className = buttonClass
+    retry.textContent = "Try again"
+    retry.addEventListener("click", function () {
+      if (failure.accountId) delete accountsNeedingReconnect[failure.accountId]
+      applyEmailBodyTheme(iframe)
+    })
+    actions.appendChild(retry)
+  }
+  if (actions.childNodes.length) card.appendChild(actions)
+  iframe.parentNode.insertBefore(card, iframe)
+}
+
+function clearEmailBodyError(emailId) {
+  var card = document.querySelector('[data-email-body-error="' + emailId + '"]')
+  if (card) card.remove()
+}
+
+// Accounts whose provider rejected their saved authorization this page load.
+// Background prefetches skip them until the user retries or reconnects.
+var accountsNeedingReconnect = Object.create(null)
+
+function markAccountNeedsReconnect(accountId) {
+  if (accountId) accountsNeedingReconnect[accountId] = true
+}
 
 // Small screens use larger text, including in message bodies that leave the size to Gofer.
 function emailBodyWantsLargeText() {
@@ -15113,6 +15211,7 @@ function applyEmailBodyTheme(targetFrame) {
   var iframe = targetFrame
   if (!iframe || !iframe.dataset.emailId) return
   iframe.classList.add("opacity-0")
+  clearEmailBodyError(iframe.dataset.emailId)
   var loader = document.querySelector('[data-email-body-loading="' + iframe.dataset.emailId + '"]')
   if (loader) loader.classList.remove("hidden")
   var baseTheme = getEmailBodyBaseTheme()
