@@ -59,7 +59,8 @@
     var bar = document.querySelector("[data-mobile-topbar]")
     if (!bar) return
     var heading = document.querySelector("#main-content #mail-folder-name, #main-content [data-contacts-title]")
-    var name = heading ? heading.textContent.trim() : ""
+    var page = heading || document.querySelector("#main-content [data-settings-title]")
+    var name = page ? page.textContent.trim() : ""
     var slot = bar.querySelector("[data-mobile-topbar-title]")
     if (!slot) return
     if (slot.querySelector("[data-mobile-topbar-title-text]").textContent !== name) {
@@ -70,6 +71,8 @@
     var countSlot = slot.querySelector("[data-mobile-topbar-title-count]")
     if (countSlot.textContent !== count) countSlot.textContent = count
     bar.toggleAttribute("data-mobile-topbar-titled", name !== "")
+    // Only the mail and contact lists have search, sort and filters.
+    bar.toggleAttribute("data-mobile-topbar-list", !!heading)
     syncTopbarActionState(bar)
   }
 
@@ -187,7 +190,7 @@
     if (desktop.matches) return false
     var bar = document.querySelector("[data-mobile-topbar]")
     var status = bar && bar.querySelector("[data-mobile-topbar-sync]")
-    if (!status || !bar.hasAttribute("data-mobile-topbar-titled")) return false
+    if (!status || !bar.hasAttribute("data-mobile-topbar-list")) return false
     clearTimeout(syncTimer)
     syncClick = opts.onClick || null
     var running = opts.icon === "spinner"

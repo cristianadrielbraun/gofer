@@ -3590,9 +3590,19 @@ body.mail-list-column-resizing {
     }
   }
 
-  .mobile-sheet [data-tui-dropdown-item] {
+  .mobile-sheet [data-tui-dropdown-item],
+  .mobile-sheet .select-item {
     min-height: 2.75rem;
     white-space: nowrap;
+  }
+
+  .mobile-sheet [data-tui-popover-arrow] {
+    display: none;
+  }
+
+  .mobile-sheet.select-content:popover-open {
+    width: 100% !important;
+    min-width: 0 !important;
   }
 }
 
@@ -3671,7 +3681,7 @@ body.mail-list-column-resizing {
     display: none;
   }
 
-  .mobile-topbar[data-mobile-topbar-titled] .mobile-topbar-mail-actions {
+  .mobile-topbar[data-mobile-topbar-list] .mobile-topbar-mail-actions {
     display: flex;
   }
 
@@ -5054,5 +5064,617 @@ body.mail-list-column-resizing {
   .compose-dialog-content [data-compose-toolbar] svg {
     width: 1.25rem;
     height: 1.25rem;
+  }
+}
+
+/* === SMALL SCREENS: SETTINGS ===
+   Each settings page reads like an app screen: the top bar names the page, the
+   categories live in the drawer, and the cards drop their desktop padding. Rows that
+   sit inside a card lose their own box and are split by a rule instead, so nested
+   boxes do not squeeze the text into a narrow column. */
+
+@media (max-width: 1023.98px) {
+  [data-settings-page] #settings-content {
+    max-width: none;
+    padding: 0.75rem 0.75rem calc(2rem + env(safe-area-inset-bottom));
+  }
+
+  #settings-content .settings-section-header {
+    margin-bottom: 0.75rem;
+    padding-inline: 0.25rem;
+  }
+
+  #settings-content .settings-section-header h2 {
+    display: none;
+  }
+
+  #settings-content .settings-section-header p {
+    font-size: 0.75rem;
+  }
+
+  #settings-content > div:not(.settings-section-header) {
+    margin-top: 0;
+  }
+
+  #settings-content .settings-card {
+    padding: 1rem;
+  }
+
+  #settings-content .settings-card-row {
+    padding: 1rem 0 0;
+    border-width: 1px 0 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  #settings-content .settings-card-row.gap-6 {
+    gap: 1rem;
+  }
+
+  /* A setting with a switch: the name and the switch share the first line and the
+     description runs the full width below them. */
+  #settings-content .flex.items-start:has(> label > input[role="switch"]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 1rem;
+    align-items: center;
+  }
+
+  #settings-content .flex.items-start:has(> label > input[role="switch"]) > .min-w-0 {
+    display: contents;
+  }
+
+  #settings-content .flex.items-start:has(> label > input[role="switch"]) > .min-w-0 > :not(:first-child) {
+    grid-column: 1 / -1;
+  }
+
+  #settings-content .flex.items-start:has(> label > input[role="switch"]) > label {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  /* A setting whose only control is a boxed "Enable" switch: the switch moves up
+     beside the name, like any other switch. */
+  #settings-content .flex:has(> .w-full > .flex > label > input[role="switch"]):not(:has(.select-container)) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 1rem;
+    align-items: center;
+  }
+
+  #settings-content .flex:has(> .w-full > .flex > label > input[role="switch"]):not(:has(.select-container)) > .min-w-0 {
+    display: contents;
+  }
+
+  #settings-content .flex:has(> .w-full > .flex > label > input[role="switch"]):not(:has(.select-container)) > .min-w-0 > :not(:first-child) {
+    grid-column: 1 / -1;
+  }
+
+  #settings-content .flex:has(> .w-full > .flex > label > input[role="switch"]):not(:has(.select-container)) > .w-full {
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
+  }
+
+  #settings-content .flex:has(> .w-full > .flex > label > input[role="switch"]):not(:has(.select-container)) > .w-full > .flex {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  #settings-content .flex:has(> .w-full > .flex > label > input[role="switch"]):not(:has(.select-container)) > .w-full > .flex > span {
+    display: none;
+  }
+
+  /* Appearance: the style choice comes first, then the color mode as a full-width
+     switch between light and dark. */
+  #settings-content .settings-card:has(> div > [data-mode-picker]) {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  #settings-content .settings-card:has(> div > [data-mode-picker]) > * {
+    margin: 0;
+  }
+
+  #settings-content .settings-card > div:has(> [data-mode-picker]) {
+    display: contents;
+  }
+
+  #settings-content [data-mode-picker] {
+    order: 1;
+    display: grid;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  #settings-content [data-mode-picker] > div {
+    display: flex;
+    width: 100%;
+  }
+
+  #settings-content [data-mode-picker] button {
+    flex: 1 1 0;
+    justify-content: center;
+    height: 2.5rem;
+  }
+
+  /* A setting with a button: the button goes under the description. */
+  #settings-content .flex.items-start.justify-between.gap-6:not(:has(> label > input[role="switch"])) {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  /* Email sync: the tabs fill the width, and each account is a section of the card
+     rather than a card of its own. Folder pills are tall enough to tap. */
+  #settings-content [data-tui-tabs-list] {
+    display: flex;
+    width: 100%;
+    height: 2.5rem;
+  }
+
+  #settings-content [data-tui-tabs-trigger] {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  #settings-content [data-sync-account-card] {
+    padding: 1rem 0 0;
+    border-width: 1px 0 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  #settings-content [data-sync-account-card] .rounded-md.p-3 {
+    padding: 0.625rem;
+  }
+
+  #settings-content [data-sync-pill] {
+    height: 2rem !important;
+  }
+
+  /* Accounts: the account cards sit directly on the page instead of inside a card. */
+  #settings-content .settings-accounts {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  #settings-content .settings-accounts > div:first-child {
+    padding-inline: 0.25rem;
+  }
+
+  #settings-content .settings-accounts > div:first-child h3 {
+    display: none;
+  }
+
+  #settings-content .settings-account-card .account-action-btn {
+    width: 2.25rem;
+    height: 2.25rem;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    font-size: 0;
+  }
+
+  #settings-content .settings-account-card .account-action-btn svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  #settings-content .settings-account-card {
+    padding: 0.75rem;
+  }
+
+  #settings-content .settings-account-services,
+  #settings-content .settings-account-services > div {
+    display: contents;
+  }
+
+  #settings-content .settings-account-card > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  #settings-content .settings-account-card > div:last-child > div:first-child {
+    flex-basis: 100%;
+    margin-bottom: 0;
+  }
+
+  #settings-content .settings-account-services > span {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 1023.98px) {
+  /* A card heading with a count badge keeps the badge beside the title and lets the
+     description below use the full width. */
+  .settings-card > :is(.flex, .grid).items-start:has(> .min-w-0 + span.rounded-full:last-child) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 0.75rem;
+  }
+
+  .settings-card > :is(.flex, .grid).items-start:has(> .min-w-0 + span.rounded-full:last-child) > .min-w-0 {
+    display: contents;
+  }
+
+  .settings-card > :is(.flex, .grid).items-start:has(> .min-w-0 + span.rounded-full:last-child) h3 {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: center;
+  }
+
+  .settings-card > :is(.flex, .grid).items-start:has(> .min-w-0 + span.rounded-full:last-child) p {
+    grid-column: 1 / -1;
+  }
+
+  .settings-card > :is(.flex, .grid).items-start:has(> .min-w-0 + span.rounded-full:last-child) > span:last-child {
+    grid-row: 1;
+    grid-column: 2;
+    align-self: center;
+  }
+}
+
+/* === SMALL SCREENS: PAGE DIALOGS ===
+   Dialogs marked mobile-page-dialog (the account wizards and signatures) fill the screen
+   on a phone and slide up from the bottom. The title sits on the left, level with the
+   close button, and the description line goes. */
+
+@media (max-width: 1023.98px) {
+  .mobile-page-dialog {
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    translate: 0 100%;
+    scale: none;
+    opacity: 1;
+    transition: translate 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .mobile-page-dialog[data-tui-dialog-open="true"] {
+    translate: 0 0;
+  }
+
+  .mobile-page-dialog > [data-tui-dialog-panel] {
+    gap: 0.75rem;
+    padding: 0 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .mobile-page-dialog > [data-tui-dialog-panel] > :first-child {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    min-height: calc(3.5rem + env(safe-area-inset-top));
+    justify-content: center;
+    margin-inline: -1rem;
+    padding: env(safe-area-inset-top) 3.5rem 0 1rem;
+    background: var(--card);
+    text-align: left;
+  }
+
+  .mobile-page-dialog > [data-tui-dialog-panel] > :first-child p {
+    display: none;
+  }
+
+  .mobile-page-dialog [data-tui-dialog-close] {
+    position: fixed;
+    z-index: 31;
+    top: calc(0.375rem + env(safe-area-inset-top));
+    right: 0.5rem;
+    display: flex;
+    width: 2.75rem;
+    height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-page-dialog [data-tui-dialog-close] svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
+
+/* === SMALL SCREENS: ACCOUNT WIZARD ===
+   The wizard's sidebar of sections becomes a step bar across the top: one cell per
+   section with its number, switch and name, and the mail sub-steps on a row below
+   while mail is the open section. */
+
+@media (max-width: 1023.98px) {
+  .account-wizard-dialog > [data-tui-dialog-panel] {
+    height: 100% !important;
+    max-height: none !important;
+  }
+
+  .account-wizard-dialog .account-wizard-shell {
+    gap: 0.75rem;
+    padding-top: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  /* The step bar. It neither scrolls nor rounds its corners, so the cells at its
+     edges are not clipped. */
+  .account-wizard-dialog .account-wizard-shell > aside {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.375rem;
+    min-height: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+
+  .account-wizard-shell > aside > :first-child {
+    display: none;
+  }
+
+  .account-wizard-shell .account-wizard-section {
+    display: contents;
+  }
+
+  .account-wizard-shell .account-wizard-section-heading {
+    grid-row: 1;
+    position: relative;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.375rem;
+    border-color: var(--border);
+    padding: 0.5rem;
+  }
+
+  .account-wizard-shell .account-wizard-section[data-active="true"] > .account-wizard-section-heading {
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+    background: var(--card);
+  }
+
+  .account-wizard-shell .account-wizard-section[data-disabled="true"] > .account-wizard-section-heading {
+    opacity: 0.55;
+  }
+
+  /* Number on top, name below; the switch sits in the top right corner. */
+  .account-wizard-shell .account-wizard-section-title {
+    width: 100%;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  /* Keyboard focus outlines the whole cell rather than its inner button. */
+  .account-wizard-shell .account-wizard-section-title:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+
+  .account-wizard-shell .account-wizard-section-heading:has(> .account-wizard-section-title:focus-visible) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .account-wizard-shell .account-wizard-section-title > .min-w-0 {
+    width: 100%;
+  }
+
+  .account-wizard-shell .account-wizard-section-title .text-sm {
+    overflow: hidden;
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-wizard-shell .account-wizard-section-title .text-xs {
+    display: none;
+  }
+
+  .account-wizard-shell .account-wizard-section-heading > form {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.375rem;
+    padding: 0;
+  }
+
+  /* Mail's sub-steps: a row under the bar while mail is open. */
+  .account-wizard-shell .account-wizard-substeps {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    display: none;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.375rem;
+    margin: 0;
+    border: 0;
+    padding: 0;
+  }
+
+  .account-wizard-shell .account-wizard-section[data-active="true"] > .account-wizard-substeps {
+    display: grid;
+  }
+
+  .account-wizard-shell .account-wizard-step {
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    border-color: var(--border);
+    padding: 0.25rem 0.375rem;
+  }
+
+  .account-wizard-shell .account-wizard-step .account-wizard-index {
+    display: none;
+  }
+
+  .account-wizard-shell .account-wizard-step > .min-w-0 {
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .account-wizard-shell .account-wizard-step .text-xs {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-wizard-shell .account-wizard-step .text-\[11px\] {
+    display: none;
+  }
+
+  .account-wizard-shell .account-wizard-step[data-active="true"] {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  .account-wizard-shell .account-wizard-section-heading > form {
+    scale: 0.8;
+    transform-origin: top right;
+  }
+
+  /* A larger touch area around the small switch. */
+  .account-wizard-shell .account-wizard-section-heading > form label:has(> input[role=switch]) {
+    position: relative;
+  }
+
+  .account-wizard-shell .account-wizard-section-heading > form label:has(> input[role=switch])::after {
+    content: "";
+    position: absolute;
+    inset: -0.5rem -0.5rem -0.25rem;
+  }
+
+  /* A heading with a status badge keeps the badge beside the title and lets the
+     description below use the full width. */
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0 0.75rem;
+  }
+
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) > .min-w-0,
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) > .min-w-0 > .min-w-0 {
+    display: contents;
+  }
+
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) h4 {
+    grid-row: 1;
+    grid-column: 1 / 3;
+    align-self: center;
+  }
+
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) p {
+    grid-column: 1 / -1;
+  }
+
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) > span:last-child {
+    grid-row: 1;
+    grid-column: 3;
+    align-self: center;
+  }
+
+  /* With an icon tile in front, the title and description sit beside the icon. */
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) > .flex.min-w-0 > :first-child {
+    grid-row: 1 / span 2;
+    grid-column: 1;
+  }
+
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) > .flex.min-w-0 h4 {
+    grid-column: 2;
+  }
+
+  .account-wizard-dialog .flex.items-start.justify-between:has(> span.shrink-0:last-child) > .flex.min-w-0 p {
+    grid-column: 2 / -1;
+  }
+
+  /* The form scrolls between the bar and the buttons. */
+  .account-wizard-dialog .account-wizard-panel {
+    height: 100%;
+    padding-right: 0;
+  }
+
+  .account-wizard-dialog .account-wizard-scroll {
+    padding: 6px 6px 1rem;
+  }
+
+  .account-wizard-dialog .account-wizard-card-footer {
+    margin-inline: -1rem;
+    padding: 0.75rem 1rem 0;
+  }
+
+  .account-wizard-dialog .account-wizard-card-footer > [data-wizard-footer-step] {
+    gap: 0.5rem;
+  }
+
+  /* Back stays compact; the buttons after it share the rest of the row. */
+  .account-wizard-dialog .account-wizard-card-footer > [data-wizard-footer-step] {
+    flex-wrap: nowrap;
+  }
+
+  .account-wizard-dialog .account-wizard-card-footer > [data-wizard-footer-step] > div {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: nowrap;
+  }
+
+  .account-wizard-dialog .account-wizard-card-footer > [data-wizard-footer-step] :is(button, a) {
+    min-height: 2.75rem;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .account-wizard-dialog .account-wizard-card-footer > [data-wizard-footer-step] > :is(button, a):last-child,
+  .account-wizard-dialog .account-wizard-card-footer > [data-wizard-footer-step] > div > :is(button, a) {
+    flex: 1 1 0;
+  }
+}
+
+/* === SMALL SCREENS: SIGNATURES ===
+   The signatures dialogs scroll inside their panel, so the title and close button stay
+   put. The library and account sections lose their card boxes and sit one after
+   the other, split by a line. */
+
+@media (max-width: 1023.98px) {
+  .signatures-dialog {
+    overflow: hidden;
+  }
+
+  .signatures-dialog > [data-tui-dialog-panel] {
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .signatures-dialog [data-account-signatures-manager] > .grid,
+  .signatures-dialog [data-account-signatures-manager].grid {
+    gap: 0;
+  }
+
+  .signatures-dialog [data-account-signatures-manager] .rounded-lg.border.bg-background\/60 {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0.25rem 0 1.25rem;
+  }
+
+  .signatures-dialog [data-account-signatures-manager] .min-w-0.space-y-4 + .rounded-lg.border.bg-background\/60 {
+    border-top: 1px solid var(--border);
+    padding-top: 1.25rem;
+  }
+
+  .signatures-dialog [data-signature-new] {
+    height: 2.5rem;
+  }
+
+  .signatures-dialog :is([data-signature-form], [data-account-signature-settings]) button[type="submit"] {
+    min-height: 2.5rem;
   }
 }

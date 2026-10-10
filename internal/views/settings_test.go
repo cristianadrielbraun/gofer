@@ -576,8 +576,18 @@ func TestAccountDialogsIncludeCalendarServiceSection(t *testing.T) {
 	if addCalendarButton == "" {
 		t.Fatalf("add account dialog did not render a Calendar navigation button")
 	}
-	if strings.Contains(addCalendarButton, " disabled") {
-		t.Fatalf("add account Calendar navigation button must remain selectable: %s", addCalendarButton)
+	// Contacts and calendar both wait for the mail account, and both start off.
+	if !strings.Contains(addCalendarButton, " disabled") {
+		t.Fatalf("add account Calendar navigation button must wait for the mail account: %s", addCalendarButton)
+	}
+	if addContactsButton := renderedWizardButtonForStep(addOut.String(), `data-account-wizard-target-step="3"`); !strings.Contains(addContactsButton, " disabled") {
+		t.Fatalf("add account Contacts navigation button must wait for the mail account: %s", addContactsButton)
+	}
+	for _, service := range []string{"contacts", "calendar"} {
+		if !strings.Contains(addOut.String(), `data-wizard-service-initial-enabled="false" data-wizard-service-switch="`+service+`"`) &&
+			!strings.Contains(addOut.String(), `data-wizard-service-switch="`+service+`" data-wizard-service-initial-enabled="false"`) {
+			t.Fatalf("add account %s switch must start off", service)
+		}
 	}
 	for _, want := range []string{
 		"Calendar",

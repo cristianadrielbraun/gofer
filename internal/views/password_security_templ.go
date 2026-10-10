@@ -837,7 +837,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<div class=\"rounded-lg border bg-card p-6\" data-local-login-identifiers><div class=\"mb-5\"><h3 class=\"text-base font-semibold text-foreground\">Local sign-in</h3><p class=\"mt-1 text-sm text-muted-foreground\">This identifies the Gofer account for local sign-in. It is separate from mailbox addresses and external sign-in identities.</p></div><dl aria-label=\"Local sign-in identifier\"><div class=\"rounded-md border border-border bg-background/60 px-4 py-3\"><dt class=\"text-xs font-medium uppercase tracking-wide text-muted-foreground\">Username</dt><dd class=\"mt-1 break-all text-sm font-semibold text-foreground\" data-local-login-username>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<div class=\"settings-card rounded-lg border bg-card p-6\" data-local-login-identifiers><div class=\"mb-5\"><h3 class=\"text-base font-semibold text-foreground\">Local sign-in</h3><p class=\"mt-1 text-sm text-muted-foreground\">This identifies the Gofer account for local sign-in. It is separate from mailbox addresses and external sign-in identities.</p></div><dl aria-label=\"Local sign-in identifier\"><div class=\"rounded-md border border-border bg-background/60 px-4 py-3\"><dt class=\"text-xs font-medium uppercase tracking-wide text-muted-foreground\">Username</dt><dd class=\"mt-1 break-all text-sm font-semibold text-foreground\" data-local-login-username>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -850,7 +850,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</dd></div></dl><p class=\"mt-3 text-xs text-muted-foreground\">A username is not a credential. Local sign-in still requires this account’s password or passkey.</p></div><div class=\"rounded-lg border bg-card p-6\"><div class=\"mb-5\"><h3 class=\"text-base font-semibold text-foreground\">Password</h3><p class=\"mt-1 text-sm text-muted-foreground\">Change the password used to sign in to this Gofer account.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</dd></div></dl><p class=\"mt-3 text-xs text-muted-foreground\">A username is not a credential. Local sign-in still requires this account’s password or passkey.</p></div><div class=\"settings-card rounded-lg border bg-card p-6\"><div class=\"mb-5\"><h3 class=\"text-base font-semibold text-foreground\">Password</h3><p class=\"mt-1 text-sm text-muted-foreground\">Change the password used to sign in to this Gofer account.</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -903,7 +903,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</div><div class=\"rounded-lg border bg-card p-6\" data-federated-identity-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">Application sign-in</h3><p class=\"mt-1 text-sm text-muted-foreground\">Connect up to one Google and one Microsoft identity to sign in to this Gofer account.</p></div></div><ul class=\"divide-y divide-border rounded-md border border-border\" aria-label=\"Sign-in providers\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</div><div class=\"settings-card rounded-lg border bg-card p-6\" data-federated-identity-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">Application sign-in</h3><p class=\"mt-1 text-sm text-muted-foreground\">Connect up to one Google and one Microsoft identity to sign in to this Gofer account.</p></div></div><ul class=\"divide-y divide-border rounded-md border border-border\" aria-label=\"Sign-in providers\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1198,7 +1198,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "</div></div><div class=\"rounded-lg border bg-card p-6\" data-passkey-security-settings><div class=\"mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Passkeys</h3><p class=\"mt-1 text-sm text-muted-foreground\">Use your device, security key, fingerprint, or screen lock for phishing-resistant authentication. An enrolled passkey enables MFA for password and provider sign-ins. Adding one signs out other devices.</p></div><span class=\"rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "</div></div><div class=\"settings-card rounded-lg border bg-card p-6\" data-passkey-security-settings><div class=\"mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Passkeys</h3><p class=\"mt-1 text-sm text-muted-foreground\">Use your device, security key, fingerprint, or screen lock for phishing-resistant authentication. An enrolled passkey enables MFA for password and provider sign-ins. Adding one signs out other devices.</p></div><span class=\"rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1345,7 +1345,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "</div><div class=\"rounded-lg border bg-card p-6\" data-totp-security-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">TOTP authenticator app</h3><p class=\"mt-1 text-sm text-muted-foreground\">An enrolled TOTP authenticator app enables MFA for password and provider sign-ins. Enrolling or replacing it signs out other devices.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "</div><div class=\"settings-card rounded-lg border bg-card p-6\" data-totp-security-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">TOTP authenticator app</h3><p class=\"mt-1 text-sm text-muted-foreground\">An enrolled TOTP authenticator app enables MFA for password and provider sign-ins. Enrolling or replacing it signs out other devices.</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1668,7 +1668,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, "</div><div class=\"rounded-lg border bg-card p-6\" data-recovery-code-security-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">Recovery codes</h3><p class=\"mt-1 text-sm text-muted-foreground\">Single-use codes restore access when the authenticator is unavailable.</p></div><span class=\"rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, "</div><div class=\"settings-card rounded-lg border bg-card p-6\" data-recovery-code-security-settings><div class=\"mb-5 flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-base font-semibold text-foreground\">Recovery codes</h3><p class=\"mt-1 text-sm text-muted-foreground\">Single-use codes restore access when the authenticator is unavailable.</p></div><span class=\"rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1873,7 +1873,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, "</div><div class=\"rounded-lg border bg-card p-6\" data-security-sessions><div class=\"mb-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Sessions</h3><p class=\"mt-1 text-sm text-muted-foreground\">Review browsers and devices currently or recently signed in to this Gofer account.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, "</div><div class=\"settings-card rounded-lg border bg-card p-6\" data-security-sessions><div class=\"mb-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Sessions</h3><p class=\"mt-1 text-sm text-muted-foreground\">Review browsers and devices currently or recently signed in to this Gofer account.</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2040,7 +2040,7 @@ func PasswordSecuritySettings(data PasswordSecurityData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 185, "<p class=\"mt-3 text-xs text-muted-foreground\">Signed-out sessions are retained for up to 30 days. Session tokens and internal identifiers are never shown. Signing out another session does not change its credentials.</p></div><div class=\"rounded-lg border bg-card p-6\" data-security-events><div class=\"flex items-start justify-between gap-4\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Your security activity</h3><p class=\"mt-1 text-sm text-muted-foreground\">Review authentication and account-security events affecting this Gofer account.</p></div><span class=\"shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 185, "<p class=\"mt-3 text-xs text-muted-foreground\">Signed-out sessions are retained for up to 30 days. Session tokens and internal identifiers are never shown. Signing out another session does not change its credentials.</p></div><div class=\"settings-card rounded-lg border bg-card p-6\" data-security-events><div class=\"flex items-start justify-between gap-4\"><div class=\"min-w-0\"><h3 class=\"text-base font-semibold text-foreground\">Your security activity</h3><p class=\"mt-1 text-sm text-muted-foreground\">Review authentication and account-security events affecting this Gofer account.</p></div><span class=\"shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

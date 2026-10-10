@@ -75,15 +75,15 @@ func settingsSectionHeading(section string) (string, string) {
 
 templ SettingsSectionHeader(section string) {
 	{{ title, description := settingsSectionHeading(section) }}
-	<div class="mb-6">
-		<h2 class="text-2xl font-bold text-foreground mb-1" style="font-family: var(--font-serif)">{ title }</h2>
+	<div class="settings-section-header mb-6">
+		<h2 class="text-2xl font-bold text-foreground mb-1" style="font-family: var(--font-serif)" data-settings-title>{ title }</h2>
 		<p class="text-sm text-muted-foreground">{ description }</p>
 	</div>
 }
 
 templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []models.AccountSignatureData) {
 	<div class="mt-6 space-y-6">
-		<div class="bg-card rounded-lg border p-6 space-y-5">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Compose windows</h3>
 				<p class="text-xs text-muted-foreground">Choose where compose opens for new messages, replies, and forwards.</p>
@@ -100,7 +100,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ defaultComposeViewSettingLabel(uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog"))) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "dialog", Selected: uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "dialog"}) { Dialog }
 							@selectbox.Item(selectbox.ItemProps{Value: "pane", Selected: uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "pane"}) { Inline, one pane }
 							@selectbox.Item(selectbox.ItemProps{Value: "full", Selected: uiSettingGet(uiSettings, "default_new_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "full"}) { Inline, expanded }
@@ -120,7 +120,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ defaultComposeViewSettingLabel(uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog"))) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "dialog", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "dialog"}) { Dialog }
 							@selectbox.Item(selectbox.ItemProps{Value: "pane", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "pane"}) { Inline, one pane }
 							@selectbox.Item(selectbox.ItemProps{Value: "full", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "full"}) { Inline, expanded }
@@ -152,7 +152,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 									@icon.ChevronDown(icon.Props{Class: "size-4 text-muted-foreground"})
 								}
 							}
-							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-64 normal-case tracking-normal", Attributes: templ.Attributes{"data-compose-autosave-conditions-menu": ""}}) {
+							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-64 normal-case tracking-normal", Attributes: templ.Attributes{"data-compose-autosave-conditions-menu": ""}}) {
 								@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { Autosave when }
 								<div class="flex items-center gap-2 rounded-sm px-2 py-0.5 text-sm transition-colors duration-150 hover:bg-accent hover:text-accent-foreground" data-compose-autosave-condition-item="chars">
 									<span class={ "w-4 shrink-0 text-primary", templ.KV("opacity-0", !uiSettingCSVHas(uiSettings, "compose_autosave_conditions", "chars,attachment", "chars")) } data-compose-autosave-condition-check="chars">@icon.Check(icon.Props{Class: "size-4"})</span>
@@ -177,7 +177,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 									{ composeAutosaveDebounceLabel(uiSettingGet(uiSettings, "compose_autosave_debounce", "5")) }
 								}
 							}
-							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 								@selectbox.Item(selectbox.ItemProps{Value: "1", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "1"}) { 1 second }
 								@selectbox.Item(selectbox.ItemProps{Value: "3", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "3"}) { 3 seconds }
 								@selectbox.Item(selectbox.ItemProps{Value: "5", Selected: uiSettingGet(uiSettings, "compose_autosave_debounce", "5") == "5"}) { 5 seconds }
@@ -190,7 +190,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			</div>
 		</div>
 		@AccountSignaturesSettings(signatureData)
-		<div class="bg-card rounded-lg border p-6 space-y-5">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">List view</h3>
 				<p class="text-xs text-muted-foreground">Control how messages are summarized in the email list.</p>
@@ -207,7 +207,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ mailPaneLayoutSettingLabel(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "side", Selected: mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) == "side"}) { Side by side }
 							@selectbox.Item(selectbox.ItemProps{Value: "stacked", Selected: mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) == "stacked"}) { Stacked }
 						}
@@ -226,7 +226,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ mailListNavigationSettingLabel(uiSettingGet(uiSettings, "mail_list_navigation", "infinite")) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "infinite", Selected: uiSettingGet(uiSettings, "mail_list_navigation", "infinite") != "pagination"}) { Infinite scroll }
 							@selectbox.Item(selectbox.ItemProps{Value: "pagination", Selected: uiSettingGet(uiSettings, "mail_list_navigation", "infinite") == "pagination"}) { Pagination }
 						}
@@ -245,7 +245,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ senderDisplaySettingLabel(uiSettingGet(uiSettings, "sender_display", "name")) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "name", Selected: uiSettingGet(uiSettings, "sender_display", "name") == "name"}) { Only name }
 							@selectbox.Item(selectbox.ItemProps{Value: "email", Selected: uiSettingGet(uiSettings, "sender_display", "name") == "email"}) { Only email }
 							@selectbox.Item(selectbox.ItemProps{Value: "both", Selected: uiSettingGet(uiSettings, "sender_display", "name") == "both"}) { Name and email }
@@ -265,7 +265,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ autoMarkReadSettingLabel(uiSettingGet(uiSettings, "auto_mark_read_after", "0")) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "0", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "0"}) { Immediately }
 							@selectbox.Item(selectbox.ItemProps{Value: "2", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "2"}) { After 2 seconds }
 							@selectbox.Item(selectbox.ItemProps{Value: "5", Selected: uiSettingGet(uiSettings, "auto_mark_read_after", "0") == "5"}) { After 5 seconds }
@@ -276,7 +276,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 				</div>
 			</div>
 		</div>
-		<div class="bg-card rounded-lg border p-6 space-y-5">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Translation</h3>
 				<p class="text-xs text-muted-foreground">Choose the read-pane translation service and default target language.</p>
@@ -310,7 +310,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ translationProviderSettingLabel(uiSettingGet(uiSettings, "translation_provider", "google_web_basic")) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "google_web_basic", Selected: translationProviderSettingValue(uiSettingGet(uiSettings, "translation_provider", "google_web_basic")) == "google_web_basic", Class: "items-start py-2 pr-8"}) {
 								<span class="flex min-w-0 flex-col whitespace-normal">
 									<span class="font-medium leading-tight">Google Web Translate (Basic)</span>
@@ -333,7 +333,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 								{ translationLanguageSettingLabel(uiSettingGet(uiSettings, "translation_target_language", "en")) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search languages..."}) {
+						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search languages...", Class: "mobile-sheet"}) {
 							for _, language := range translationLanguageOptions() {
 								@selectbox.Item(selectbox.ItemProps{Value: language.Value, Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == language.Value}) { { language.Label } }
 							}
@@ -449,7 +449,7 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 
 templ SettingsAppearanceTab(uiSettings map[string]string) {
 		<div class="mt-6 space-y-6">
-			<div class="bg-card rounded-lg border p-6 space-y-6">
+			<div class="settings-card bg-card rounded-lg border p-6 space-y-6">
 				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 					<div>
 						<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Visual Style</h3>
@@ -579,7 +579,7 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 
 templ SettingsRegionalTab(uiSettings map[string]string) {
 	<div class="mt-6 space-y-6">
-		<div class="bg-card rounded-lg border p-6 space-y-5">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Regional</h3>
 				<p class="text-xs text-muted-foreground">Set locale preferences for dates, times, and future language options.</p>
@@ -596,7 +596,7 @@ templ SettingsRegionalTab(uiSettings map[string]string) {
 								{ uiSettingGet(uiSettings, "timezone", "Detecting...") }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search timezones...", Class: "w-72", Attributes: templ.Attributes{"data-timezone-options": ""}}) {
+						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search timezones...", Class: "mobile-sheet w-72", Attributes: templ.Attributes{"data-timezone-options": ""}}) {
 							@selectbox.Group() {
 								@selectbox.Item(selectbox.ItemProps{Value: uiSettingGet(uiSettings, "timezone", "local"), Disabled: true}) { Loading timezones... }
 							}
@@ -677,12 +677,12 @@ templ SettingsRegionalTab(uiSettings map[string]string) {
 
 templ SettingsAdvancedTab(uiSettings map[string]string) {
 	<div class="mt-6 space-y-6">
-		<div class="bg-card rounded-lg border p-6 space-y-5">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Advanced</h3>
 				<p class="text-xs text-muted-foreground">Tune behavior that affects performance and network usage.</p>
 			</div>
-			<div class="flex items-start justify-between gap-6 rounded-lg border border-border/60 bg-background/40 p-4">
+			<div class="settings-card-row flex items-start justify-between gap-6 rounded-lg border border-border/60 bg-background/40 p-4">
 				<div class="min-w-0">
 					<label for="prefetch-on-hover" class="text-sm font-medium text-foreground">Pre-fetch on hover</label>
 					<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Start loading an email body when you hover or focus a message in the list, so opening it often feels faster. This can significantly increase network usage. Disable it to fetch bodies only when you click an email.</p>
@@ -694,7 +694,7 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 					Attributes: templ.Attributes{"data-ui-setting-switch": "prefetch_on_hover"},
 				})
 			</div>
-			<div class="flex items-start justify-between gap-6 rounded-lg border border-border/60 bg-background/40 p-4">
+			<div class="settings-card-row flex flex-col gap-4 rounded-lg border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
 				<div class="min-w-0">
 					<label for="desktop-notifications" class="text-sm font-medium text-foreground">Desktop notifications</label>
 					<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Show notifications for new unread mail. Auto uses Web Push when possible, then browser-tab notifications while Gofer is open.</p>
@@ -717,7 +717,7 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 								{ notificationModeSettingLabel(uiSettingGet(uiSettings, "notification_mode", "auto")) }
 							}
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "auto", Selected: uiSettingGet(uiSettings, "notification_mode", "auto") == "auto"}) { Auto }
 							@selectbox.Item(selectbox.ItemProps{Value: "web_push", Selected: uiSettingGet(uiSettings, "notification_mode", "auto") == "web_push"}) { Web Push }
 							@selectbox.Item(selectbox.ItemProps{Value: "browser_tab", Selected: uiSettingGet(uiSettings, "notification_mode", "auto") == "browser_tab"}) { Browser tab }
@@ -726,7 +726,7 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 					}
 				</div>
 			</div>
-			<div class="flex flex-col gap-4 rounded-lg border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+			<div class="settings-card-row flex flex-col gap-4 rounded-lg border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
 				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">Email links</h4>
 					<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Open <span class="font-mono">mailto:</span> links from websites in a new Gofer message.</p>
@@ -764,12 +764,12 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 
 templ SettingsContactsTab(accounts []models.Account, uiSettings map[string]string) {
 	<div class="mt-6 space-y-6">
-		<div class="bg-card rounded-lg border p-6 space-y-5">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Local contacts</h3>
 				<p class="text-xs text-muted-foreground">Control how Gofer builds and maintains your local address book from mail you already have.</p>
 			</div>
-			<div class="rounded-lg border border-border/60 bg-background/40 p-4 space-y-5">
+			<div class="settings-card-row rounded-lg border border-border/60 bg-background/40 p-4 space-y-5">
 				<div class="flex items-start justify-between gap-6">
 					<div class="min-w-0">
 						<label for="contacts-auto-create-observed" class="text-sm font-medium text-foreground">Auto-create observed contacts</label>
@@ -882,12 +882,12 @@ templ SettingsContactsTab(accounts []models.Account, uiSettings map[string]strin
 				</div>
 			</div>
 		</div>
-		<div class="bg-card rounded-lg border p-6 space-y-3">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-3">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Provider sync</h3>
 				<p class="text-xs text-muted-foreground">Sync contacts with connected accounts. Gmail and Outlook use their existing account authorization; generic accounts appear here when contact sync is configured.</p>
 			</div>
-			<div class="rounded-lg border border-border bg-background/40 p-4 space-y-3">
+			<div class="settings-card-row rounded-lg border border-border bg-background/40 p-4 space-y-3">
 				<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div class="min-w-0">
 						<div class="flex flex-wrap items-center gap-2">
@@ -1098,7 +1098,7 @@ templ SettingsSuppressedContacts(contacts []models.Contact, totalCount int) {
 }
 
 templ SettingsAccountsTab(accounts []models.Account) {
-	<div class="mt-6 bg-card rounded-lg border p-6 space-y-5">
+	<div class="settings-accounts settings-card mt-6 bg-card rounded-lg border p-6 space-y-5">
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 			<div class="min-w-0">
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Accounts</h3>
@@ -1140,7 +1140,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 		}
 		@tabs.Content(tabs.ContentProps{Value: "sync", IsActive: true}) {
 			<form id="sync-settings-form" action="/api/settings/sync" method="POST" class="space-y-4">
-				<div class="bg-card rounded-lg border p-6">
+				<div class="settings-card bg-card rounded-lg border p-6">
 					<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 						<div class="min-w-0">
 							<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Sync Frequency</h3>
@@ -1153,7 +1153,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 										{ strconv.Itoa(settings.SyncIntervalMinutes) } min
 									}
 								}
-								@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+								@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 									@selectbox.Item(selectbox.ItemProps{Value: "1", Selected: settings.SyncIntervalMinutes == 1}) { 1 minute }
 									@selectbox.Item(selectbox.ItemProps{Value: "5", Selected: settings.SyncIntervalMinutes == 5}) { 5 minutes }
 									@selectbox.Item(selectbox.ItemProps{Value: "10", Selected: settings.SyncIntervalMinutes == 10}) { 10 minutes }
@@ -1167,7 +1167,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 					</div>
 
 				if len(settings.Accounts) > 0 {
-					<div class="bg-card rounded-lg border p-6 space-y-5">
+					<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 						<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 							<div>
 								<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Account Sync Mode</h3>
@@ -1189,7 +1189,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 											Real-time note
 										</button>
 									}
-									@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-80"}) {
+									@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "mobile-sheet w-80"}) {
 										<div class="flex items-start gap-2.5 p-3">
 											@icon.TriangleAlert(icon.Props{Class: "size-3.5 text-muted-foreground mt-0.5 shrink-0"})
 											<p class="text-xs text-muted-foreground leading-relaxed">
@@ -1263,12 +1263,12 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 				</form>
 		}
 		@tabs.Content(tabs.ContentProps{Value: "unified"}) {
-			<div class="bg-card rounded-lg border p-6 space-y-5">
+			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Unified folders</h3>
 					<p class="text-xs text-muted-foreground leading-relaxed">Control how Gofer groups matching folders across connected mail accounts.</p>
 				</div>
-				<div class="rounded-lg border border-border/60 bg-background/40 p-4">
+				<div class="settings-card-row rounded-lg border border-border/60 bg-background/40 p-4">
 					<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 						<div class="min-w-0">
 								<label for="unified-folders-enabled" class="text-sm font-medium text-foreground">Enable unified folders</label>
@@ -1683,7 +1683,7 @@ templ UnifiedFolderAccountPopover(folder unifiedFolderOption, accounts []models.
 					@icon.Settings(icon.Props{Class: "size-3.5"})
 				</button>
 			}
-			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, ShowArrow: true, Class: "w-72 p-2"}) {
+			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-72 p-2"}) {
 				<div class="border-b border-border/60 px-2 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Accounts</div>
 				<div class="max-h-72 overflow-y-auto pt-1">
 					for _, account := range accounts {
@@ -1816,8 +1816,8 @@ templ SettingsAccountCard(account models.Account) {
 		data-account-deleting={ fmt.Sprintf("%t", account.IsDeleting) }
 		class="transition-[opacity,transform] duration-200 ease-out"
 	>
-		<div class="rounded-lg border border-border bg-background p-4 shadow-sm">
-			<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+		<div class="settings-account-card rounded-lg border border-border bg-background p-4 shadow-sm">
+			<div class="flex items-start justify-between gap-3">
 				<div class="flex min-w-0 items-start gap-3">
 					@AccountColorPopover(account)
 					<div class="min-w-0">
@@ -1828,7 +1828,7 @@ templ SettingsAccountCard(account models.Account) {
 						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ account.Email }</p>
 					</div>
 				</div>
-				<div class="flex shrink-0 items-center gap-2 self-end sm:self-auto sm:justify-end" data-account-actions>
+				<div class="flex shrink-0 items-center justify-end gap-2" data-account-actions>
 					if account.IsDeleting {
 						<button type="button" data-account-deleting-status role="status" aria-live="polite" class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default" disabled>
 							@icon.RefreshCw(icon.Props{Class: "size-3.5 animate-spin"})
@@ -1855,7 +1855,7 @@ templ SettingsAccountCard(account models.Account) {
 					<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Enabled services</p>
 					<p class="text-[11px] text-muted-foreground">Use Edit to enable/disable services.</p>
 				</div>
-				<div class="flex items-end justify-between gap-3">
+				<div class="settings-account-services flex items-end justify-between gap-3">
 					<div class="flex flex-wrap gap-2">
 						@AccountServiceIndicator(account, "email", "Email", "Fetches mail and keeps folders up to date.", account.EmailSyncEnabled)
 						@AccountServiceIndicator(account, "contacts", "Contacts", accountContactSyncStatusDescription(account), account.ContactSyncEnabled)
@@ -1977,7 +1977,7 @@ templ SettingsAccountSyncErrorPopover(account models.Account, syncError string, 
 					@icon.CircleAlert(icon.Props{Class: "size-4"})
 				</button>
 			}
-			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "w-80 p-3"}) {
+			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}) {
 				<div class="flex items-start gap-2.5">
 					@icon.CircleAlert(icon.Props{Class: "mt-0.5 size-4 shrink-0 text-destructive"})
 					<div class="min-w-0 flex-1">
@@ -2113,7 +2113,7 @@ templ SettingsAccountActionsMenu(account models.Account) {
 				@icon.EllipsisVertical(icon.Props{Class: "size-4"})
 			}
 		}
-		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-48 normal-case tracking-normal", Attributes: templ.Attributes{"data-account-actions-menu": account.ID}}) {
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-48 normal-case tracking-normal", Attributes: templ.Attributes{"data-account-actions-menu": account.ID}}) {
 			@dropdown.Label(dropdown.LabelProps{Class: "text-[10px] uppercase tracking-wider text-muted-foreground"}) {
 				Account actions
 			}
@@ -2262,7 +2262,7 @@ templ AccountColorPopover(account models.Account) {
 				aria-label={ fmt.Sprintf("Change marker color for %s", account.Name) }
 			></button>
 		}
-		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "w-64"}) {
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "mobile-sheet w-64"}) {
 			<div class="p-3" data-account-color-picker data-account-id={ account.ID }>
 				<div class="mb-3 flex items-start justify-between gap-3">
 					<div class="min-w-0">
@@ -2301,7 +2301,7 @@ templ AccountColorPopover(account models.Account) {
 }
 
 templ AccountSignaturesSettings(accounts []models.AccountSignatureData) {
-	<div class="bg-card rounded-lg border p-6">
+	<div class="settings-card bg-card rounded-lg border p-6">
 		<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 			<div class="min-w-0">
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Signatures</h3>
@@ -2328,7 +2328,7 @@ templ AccountSignaturesSettings(accounts []models.AccountSignatureData) {
 
 templ ComposeSignaturesDialog(accounts []models.AccountSignatureData) {
 	@dialog.Dialog(dialog.Props{ID: "compose-signatures-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-5xl max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden"}) {
+		@dialog.Content(dialog.ContentProps{Class: "signatures-dialog mobile-page-dialog sm:max-w-5xl max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden"}) {
 			@dialog.Header() {
 				@dialog.Title() {
 					Signatures
@@ -2369,7 +2369,7 @@ templ SignatureManagerGrid(accounts []models.AccountSignatureData) {
 								}
 							</span>
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							for _, data := range accounts {
 								@selectbox.Item(selectbox.ItemProps{Value: data.Account.ID, Selected: data.Account.ID == first.Account.ID}) {
 									<span class="inline-flex min-w-0 items-center gap-2">
@@ -2417,7 +2417,7 @@ templ SignatureLibrary(data models.AccountSignatureData) {
 					@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_picker_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-select": ""}}) {
 						@selectbox.Value(selectbox.ValueProps{Placeholder: "Select signature"})
 					}
-					@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 						if len(data.Signatures) == 0 {
 							@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true, Disabled: true}) { No signatures yet }
 						} else {
@@ -2469,7 +2469,7 @@ templ SignatureLibrary(data models.AccountSignatureData) {
 
 templ AccountSignaturesDialog(data models.AccountSignatureData) {
 	@dialog.Dialog(dialog.Props{ID: "account-signatures-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-3xl"}) {
+		@dialog.Content(dialog.ContentProps{Class: "signatures-dialog mobile-page-dialog sm:max-w-3xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
 					Account Signatures
@@ -2494,7 +2494,7 @@ templ AccountSignaturesDialog(data models.AccountSignatureData) {
 									@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_picker_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-select": ""}}) {
 										@selectbox.Value(selectbox.ValueProps{Placeholder: "Select signature"})
 									}
-									@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+									@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 										if len(data.Signatures) == 0 {
 											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true, Disabled: true}) { No signatures yet }
 										} else {
@@ -2577,7 +2577,7 @@ templ AccountSignatureAssignmentRow(kind string, label string, enabled bool, sel
 					{ signatureName(signatures, selectedID) }
 				}
 			}
-			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 				@selectbox.Item(selectbox.ItemProps{Value: "", Selected: selectedID == ""}) { No signature }
 				for _, sig := range signatures {
 					@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Selected: selectedID == sig.ID}) { { sig.Name } }
@@ -2597,7 +2597,7 @@ templ AccountSignatureAssignmentRow(kind string, label string, enabled bool, sel
 							}
 						}
 					}
-					@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 						@selectbox.Item(selectbox.ItemProps{Value: "before", Selected: placement != "after"}) { Before quoted content }
 						@selectbox.Item(selectbox.ItemProps{Value: "after", Selected: placement == "after"}) { After quoted content }
 					}
@@ -2769,7 +2769,7 @@ templ AddAccountDialog() {
 		@dialog.Trigger() {
 			<span></span>
 		}
-		@dialog.Content(dialog.ContentProps{Class: "account-wizard-dialog sm:max-w-4xl"}) {
+		@dialog.Content(dialog.ContentProps{Class: "account-wizard-dialog mobile-page-dialog sm:max-w-4xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
 					Add Account
@@ -2858,9 +2858,8 @@ templ AddAccountDialog() {
 					if (step < 0) step = 0;
 					if (step > 5) step = 5;
 					syncAddContactStep();
-					if (step === 3 && !addContactsEnabled()) step = 4;
 					if (step === 3 && !addStepContentReady('add-step-3-content')) return;
-					if (step === 4 && !addStepContentReady('add-step-4-content')) return;
+					if (step === 4 && !addStepContentReady('add-step-5-content')) return;
 					if (step === 5 && !addStepContentReady('add-step-5-content')) return;
 					_wizStep = step;
 					track.style.transform = 'translateX(-' + (step * (100 / 6)) + '%)';
@@ -2902,10 +2901,6 @@ templ AddAccountDialog() {
 					var content = document.getElementById(id);
 					return !!(content && content.children.length);
 				}
-				function addContactsEnabled() {
-					var toggle = document.querySelector('[data-add-contact-sync-switch]');
-					return !toggle || toggle.checked;
-				}
 				function addAccountFormReady() {
 					var form = document.getElementById('account-form');
 					return !!(form && form.checkValidity());
@@ -2927,23 +2922,25 @@ templ AddAccountDialog() {
 					var root = document.getElementById('add-account-dialog');
 					if (!root) return;
 					var contactStep = root.querySelector('[data-account-wizard-step="3"]');
+					var calendarStep = root.querySelector('[data-account-wizard-step="4"]');
 					var finishStep = root.querySelector('[data-account-wizard-step="5"]');
-					setWizardStepDisabled(contactStep, !addStepContentReady('add-step-3-content') || !addContactsEnabled());
-					setWizardStepDisabled(finishStep, !addStepContentReady('add-step-5-content'));
+					var created = addStepContentReady('add-step-5-content');
+					setWizardStepDisabled(contactStep, !created || !addStepContentReady('add-step-3-content'));
+					setWizardStepDisabled(calendarStep, !created);
+					setWizardStepDisabled(finishStep, !created);
 					syncAddAccountSubmitButtons();
 				}
 				function maybeGoAddContacts() {
 					if (!addStepContentReady('add-step-5-content')) return;
 					syncAddContactStep();
-					var targetStep = addContactsEnabled() ? 3 : 4;
-					if ((targetStep === 3 && !addStepContentReady('add-step-3-content')) || (targetStep === 4 && !addStepContentReady('add-step-4-content'))) {
+					if (!addStepContentReady('add-step-3-content')) {
 						window.setTimeout(function() {
 							syncAddContactStep();
-							wizardGo(targetStep);
+							wizardGo(3);
 						}, 0);
 						return;
 					}
-					wizardGo(targetStep);
+					wizardGo(3);
 				}
 				function syncWizardServiceContent(root) {
 					root = root || document;
@@ -2952,6 +2949,12 @@ templ AddAccountDialog() {
 						var toggle = root.querySelector('[data-wizard-service-switch="' + service + '"]');
 						var alwaysActive = content.dataset.wizardServiceAlwaysActive === 'true';
 						var enabled = alwaysActive || !toggle || toggle.checked;
+						if (wizardServiceTurnsOnWhenUsed(service)) {
+							content.classList.toggle('opacity-50', !enabled);
+							content.classList.remove('pointer-events-none', 'select-none');
+							content.removeAttribute('aria-disabled');
+							return;
+						}
 						content.classList.toggle('opacity-50', !enabled);
 						content.classList.toggle('pointer-events-none', !enabled);
 						content.classList.toggle('select-none', !enabled);
@@ -2967,6 +2970,28 @@ templ AddAccountDialog() {
 						});
 					});
 				}
+				// Contacts and calendar stay usable while switched off. Starting to fill one
+				// in is taken as wanting it, so its switch turns on.
+				function wizardServiceTurnsOnWhenUsed(service) {
+					return service === 'contacts' || service === 'calendar';
+				}
+				function wizardServiceTurnOnFromContent(event) {
+					var target = event.target;
+					if (!target || !target.closest) return;
+					if (event.type === 'click' && !target.closest('button:not([disabled]), [role="button"]')) return;
+					var content = target.closest('[data-wizard-service-content]');
+					if (!content || content.dataset.wizardServiceAlwaysActive === 'true') return;
+					var service = content.dataset.wizardServiceContent;
+					if (!wizardServiceTurnsOnWhenUsed(service)) return;
+					var root = content.closest('#add-account-dialog,#edit-account-dialog');
+					var toggle = root && root.querySelector('[data-wizard-service-switch="' + service + '"]');
+					if (!toggle || toggle.checked || toggle.disabled) return;
+					toggle.checked = true;
+					toggle.dispatchEvent(new Event('change', { bubbles: true }));
+				}
+				['input', 'change', 'click'].forEach(function(type) {
+					document.addEventListener(type, wizardServiceTurnOnFromContent, true);
+				});
 				function wizardServiceStatus(root, service, message) {
 					var status = root.querySelector('[data-wizard-service-status="' + service + '"]');
 					if (!status) return;
@@ -3047,10 +3072,7 @@ templ AddAccountDialog() {
 					if (button.dataset.accountWizardAction === 'editWizardGo' && typeof editWizardGo === 'function') editWizardGo(step);
 				});
 				document.addEventListener('change', function(event) {
-					if (event.target && event.target.matches && event.target.matches('[data-add-contact-sync-switch]')) {
-						syncAddContactStep();
-						if (_wizStep === 3 && !addContactsEnabled()) wizardGo(4);
-					}
+					if (event.target && event.target.matches && event.target.matches('[data-add-contact-sync-switch]')) syncAddContactStep();
 					if (event.target && event.target.closest && event.target.closest('#account-form')) syncAddContactStep();
 					if (event.target && event.target.matches && event.target.matches('[data-wizard-service-switch]')) {
 						var root = event.target.closest('#add-account-dialog,#edit-account-dialog') || document;
@@ -3666,7 +3688,7 @@ templ AddAccountDialog() {
 							@selectbox.Trigger(selectbox.TriggerProps{Name: "imap_tls_mode", DisableClear: true, Attributes: templ.Attributes{"onchange": "toggleUnencryptedTransportWarning(this)"}}) {
 								@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 							}
-									@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+									@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 										@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: true}) { TLS }
 										@selectbox.Item(selectbox.ItemProps{Value: "starttls"}) { STARTTLS }
 										@selectbox.Item(selectbox.ItemProps{Value: "plaintext"}) { Unencrypted (admin exception) }
@@ -3704,7 +3726,7 @@ templ AddAccountDialog() {
 										@selectbox.Trigger(selectbox.TriggerProps{Name: "auth_method"}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "PLAIN"}) { PLAIN }
 										}
-										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "plain", Selected: true}) { PLAIN }
 											@selectbox.Item(selectbox.ItemProps{Value: "oauth2"}) { OAuth2 }
 										}
@@ -3761,7 +3783,7 @@ templ AddAccountDialog() {
 							@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode", DisableClear: true, Attributes: templ.Attributes{"onchange": "toggleUnencryptedTransportWarning(this)"}}) {
 								@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 							}
-									@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+									@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 										@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: true}) { TLS }
 										@selectbox.Item(selectbox.ItemProps{Value: "starttls"}) { STARTTLS }
 										@selectbox.Item(selectbox.ItemProps{Value: "plaintext"}) { Unencrypted (admin exception) }
@@ -3851,8 +3873,8 @@ templ AccountWizardAddSidebar() {
 			<p class="mt-0.5 text-[11px] leading-snug text-muted-foreground/80">Enable/disable the services you need</p>
 		</div>
 		@AccountWizardEmailSection("wizardGo", "", true, true, false)
-		@AccountWizardTopStep("wizardGo", 3, "2", "Contacts", "Optional sync", true, true, "", "contacts", true, false, templ.Attributes{"data-add-contact-sync-switch": ""})
-		@AccountWizardTopStep("wizardGo", 4, "3", "Calendar", "Provider access", false, true, "", "calendar", false, false, nil)
+		@AccountWizardTopStep("wizardGo", 3, "2", "Contacts", "Optional sync", true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
+		@AccountWizardTopStep("wizardGo", 4, "3", "Calendar", "Provider access", true, true, "", "calendar", false, false, nil)
 		@AccountWizardTopStep("wizardGo", 5, "4", "Finish", "Test results", true, false, "", "", false, false, nil)
 	</aside>
 }
@@ -3916,7 +3938,7 @@ templ AccountWizardSubStep(goFn string, step int, index string, title string, de
 }
 
 templ AccountWizardTopStep(goFn string, step int, index string, title string, description string, disabled bool, section bool, accountID string, service string, enabled bool, switchDisabled bool, attrs templ.Attributes) {
-	{{ navigationDisabled := disabled && service != "calendar" }}
+	{{ navigationDisabled := disabled }}
 	<div id={ fmt.Sprintf("%s-service-section-%s", goFn, service) } class="account-wizard-section" data-wizard-section-steps={ strconv.Itoa(step) } data-active="false" data-disabled={ strconv.FormatBool(navigationDisabled) }>
 		<div class="account-wizard-section-heading">
 			<button type="button" onclick={ templ.JSFuncCall(goFn, step) } data-account-wizard-action={ goFn } data-account-wizard-target-step={ strconv.Itoa(step) } class="account-wizard-section-title" data-account-wizard-step={ strconv.Itoa(step) } data-active="false" disabled?={ navigationDisabled }>
@@ -4043,7 +4065,7 @@ templ UnencryptedTransportWarning(id string, active bool) {
 					@icon.TriangleAlert(icon.Props{Class: "size-3.5"})
 				</button>
 			}
-			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "w-80 p-3"}) {
+			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}) {
 				<div class="flex items-start gap-2.5">
 					@icon.TriangleAlert(icon.Props{Class: "mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300"})
 					<p class="text-xs leading-relaxed text-muted-foreground">Unencrypted connections only work while this exact endpoint remains approved under Admin → Mail security.</p>
@@ -4092,7 +4114,7 @@ func providerAPIMailPanelDescription(provider string, mode string) string {
 
 templ EditAccountDialog(data models.EditAccountData) {
 	@dialog.Dialog(dialog.Props{ID: "edit-account-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "account-wizard-dialog sm:max-w-4xl"}) {
+		@dialog.Content(dialog.ContentProps{Class: "account-wizard-dialog mobile-page-dialog sm:max-w-4xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
 					Edit Account
@@ -4253,7 +4275,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 												@selectbox.Trigger(selectbox.TriggerProps{Name: "imap_tls_mode", DisableClear: true, Attributes: templ.Attributes{"onchange": "toggleUnencryptedTransportWarning(this)"}}) {
 												@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 											}
-										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 											@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: data.IMAPTLSMode == "tls"}) { TLS }
 											@selectbox.Item(selectbox.ItemProps{Value: "starttls", Selected: data.IMAPTLSMode == "starttls"}) { STARTTLS }
 											@selectbox.Item(selectbox.ItemProps{Value: "plaintext", Selected: data.IMAPTLSMode == "plaintext"}) { Unencrypted (admin exception) }
@@ -4289,7 +4311,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 											@selectbox.Trigger(selectbox.TriggerProps{Name: "auth_method"}) {
 												@selectbox.Value(selectbox.ValueProps{Placeholder: "PLAIN"}) { PLAIN }
 											}
-											@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 												@selectbox.Item(selectbox.ItemProps{Value: "plain", Selected: data.AuthMethod == "plain"}) { PLAIN }
 												@selectbox.Item(selectbox.ItemProps{Value: "oauth2", Selected: data.AuthMethod == "oauth2"}) { OAuth2 }
 											}
@@ -4348,7 +4370,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 										@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode", DisableClear: true, Attributes: templ.Attributes{"onchange": "toggleUnencryptedTransportWarning(this)"}}) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"}) { TLS }
 										}
-									@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+									@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 										@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: data.SMTPTLSMode == "tls"}) { TLS }
 										@selectbox.Item(selectbox.ItemProps{Value: "starttls", Selected: data.SMTPTLSMode == "starttls"}) { STARTTLS }
 										@selectbox.Item(selectbox.ItemProps{Value: "plaintext", Selected: data.SMTPTLSMode == "plaintext"}) { Unencrypted (admin exception) }
@@ -5282,7 +5304,7 @@ func mailOperationActionLabel(operation models.MailOperationSummary) string {
 
 templ SettingsOperationsTab() {
 	<div class="mt-6 space-y-6">
-		<div class="bg-card rounded-lg border p-6">
+		<div class="settings-card bg-card rounded-lg border p-6">
 			<div class="flex items-start gap-3">
 				<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground">
 					@icon.ClipboardList(icon.Props{Class: "size-4"})
