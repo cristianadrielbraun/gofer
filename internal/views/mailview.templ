@@ -181,23 +181,65 @@ templ MailViewLoading() {
 }
 
 templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
-	<div class="mail-view-frame flex flex-col h-full p-2">
-		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
+	<div class="mail-view-frame flex flex-col h-full">
+		if len(thread) > 1 {
+			@MailViewThreadContent(email, thread)
+		} else {
+			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
+				@MailViewHeader(email, thread)
+				<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
+				<div class="flex-1 overflow-y-auto">
+					<div class="mail-view-content mx-auto px-8 py-6">
+						@MailViewSender(email)
+						<div class="mail-view-mobile-tools mail-view-message-actions mt-2 -mr-1 flex items-center justify-end gap-0.5 lg:hidden">
+							@EmailBodyStyleCycleButton(email.ID)
+							@EmailTranslateIconButton(email.ID)
+						</div>
+						<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
+						@MailViewBody(email)
+					</div>
+				</div>
+				<div id={"mail-calendar-footer-"+email.ID} data-mail-calendar-footer class="max-h-[35dvh] shrink-0 overflow-y-auto" hx-get={"/api/mail/"+email.ID+"/calendar"} hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
+				if email.IsDraft {
+					@MailViewDraftBar(email)
+				} else {
+					@MailViewReplyBar(email)
+				}
+			</div>
+		}
+	</div>
+}
+
+// MailViewThreadContent shows a thread as a stack of message sheets, each as wide
+// as a single message's sheet. The toolbar, subject and thread-wide controls stay
+// in their own sheet on top while the messages scroll beneath it.
+templ MailViewThreadContent(email *models.Email, thread []models.ThreadItem) {
+	<div class="mail-view-thread-frame flex flex-col h-full">
+		<div class="mail-view-thread-toolbar surface-paper rounded-md shrink-0">
 			@MailViewHeader(email, thread)
 			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
-			<div class="flex-1 overflow-y-auto">
-				<div class="mail-view-content mx-auto px-8 py-6">
-					if thread != nil && len(thread) > 1 {
-						<div class="mail-view-subject-row flex items-start justify-between gap-4 mb-1">
-							<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
-							@EmailBodyStyleTabs(email.ID, true, "h-8", "h-7")
-@MailViewMobileLabels(email)
-						</div>
-						<div class="flex items-center gap-2 mb-6">
-							@icon.MessagesSquare(icon.Props{Class: "size-3.5 text-ink/30"})
-							<span class="text-xs font-medium text-ink/40">{ fmt.Sprintf("%d messages in this thread", len(thread)) }</span>
-						</div>
-						for _, item := range thread {
+			<div class="mail-view-content mx-auto px-8 pt-4 pb-3">
+				<div class="mail-view-subject-row flex items-start justify-between gap-4 mb-1">
+					<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+					@EmailBodyStyleTabs(email.ID, true, "h-8", "h-7")
+					@MailViewMobileLabels(email)
+				</div>
+				<div class="flex items-center gap-2">
+					@icon.MessagesSquare(icon.Props{Class: "size-3.5 text-ink/30"})
+					<span class="text-xs font-medium text-ink/40">{ fmt.Sprintf("%d messages in this thread", len(thread)) }</span>
+					<span class="text-xs text-ink/20">|</span>
+					<button type="button" data-thread-expand-all class="flex items-center gap-1.5 text-xs text-ink/40 hover:text-ink/65 transition-colors cursor-pointer">
+						@icon.ChevronsUpDown(icon.Props{Class: "size-3.5"})
+						<span data-thread-expand-all-label>Expand all</span>
+					</button>
+				</div>
+			</div>
+		</div>
+		<div data-thread-list class="mail-view-thread-scroll flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
+			for _, item := range thread {
+				<div class="shrink-0" data-thread-slot>
+					<article class="mail-thread-card surface-paper rounded-md" data-thread-card={ item.ID }>
+						<div class="mail-view-content mx-auto px-8 py-6">
 							@MailViewThreadItemSender(email, &item)
 							@MailViewThreadItemMiniHeader(&item)
 							if len(item.Attachments) > 0 {
@@ -224,33 +266,17 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 									@MailViewThreadItemActions(&item)
 								</div>
 							</details>
-							<div class="h-px bg-ink/25 my-6"></div>
-						}
-					} else {
-						@MailViewSender(email)
-						<div class="mail-view-mobile-tools mail-view-message-actions mt-2 -mr-1 flex items-center justify-end gap-0.5 lg:hidden">
-							@EmailBodyStyleCycleButton(email.ID)
-							@EmailTranslateIconButton(email.ID)
 						</div>
-						<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
-						@MailViewBody(email)
-					}
+					</article>
 				</div>
-			</div>
-			<div id={"mail-calendar-footer-"+email.ID} data-mail-calendar-footer class="max-h-[35dvh] shrink-0 overflow-y-auto" hx-get={"/api/mail/"+email.ID+"/calendar"} hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
-			if thread == nil || len(thread) <= 1 {
-				if email.IsDraft {
-					@MailViewDraftBar(email)
-				} else {
-					@MailViewReplyBar(email)
-				}
 			}
 		</div>
+		<div id={"mail-calendar-footer-"+email.ID} data-mail-calendar-footer class="surface-paper rounded-md max-h-[35dvh] shrink-0 overflow-y-auto empty:hidden mt-2" hx-get={"/api/mail/"+email.ID+"/calendar"} hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
 	</div>
 }
 
 templ MailViewThreadItemSender(email *models.Email, item *models.ThreadItem) {
-	<div class="mail-view-thread-sender flex items-start gap-4">
+	<div class="mail-view-thread-sender flex items-start gap-4" data-thread-selected?={ item.ID == email.ID }>
 		@MailViewAvatar(item.From, item.ID, "mail-view-avatar size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", contactAvatarThreadFallback(item.ID == email.ID))
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2 flex-wrap">

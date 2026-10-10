@@ -854,6 +854,19 @@ func autoMarkReadSettingLabel(value string) string {
 	}
 }
 
+// ThreadNewestFirst reports whether the reading pane lists a thread's messages
+// newest first, like the message list, rather than in reading order.
+func ThreadNewestFirst(settings map[string]string) bool {
+	return uiSettingGet(settings, "thread_order", "newest") != "oldest"
+}
+
+func threadOrderSettingLabel(value string) string {
+	if value == "oldest" {
+		return "Oldest first"
+	}
+	return "Newest first"
+}
+
 func accountColorStyle(color string) string {
 	return "background-color: " + accountColorValue(color)
 }

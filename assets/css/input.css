@@ -2742,9 +2742,34 @@ body.mail-list-column-resizing {
   min-width: 0;
 }
 
+/* The reader's sheets sit inset by --mail-frame-pad so their paper shadow shows.
+   A thread's message list scrolls, which would clip its sheets' shadows at their
+   edges, so it reaches out over that inset and pads its sheets back in. */
+.mail-view-frame {
+  --mail-frame-pad: 0.5rem;
+  padding: var(--mail-frame-pad);
+}
+
+.mail-view-thread-scroll {
+  margin: 0 calc(-1 * var(--mail-frame-pad)) calc(-1 * var(--mail-frame-pad));
+  padding: var(--mail-frame-pad);
+  /* Sheets scrolling up fade out across the gap under the toolbar sheet rather
+     than running into its rounded corners with a hard cut. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--mail-frame-pad));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--mail-frame-pad));
+}
+
+/* Thread sheets slide when a message opens or closes. A sheet under a running
+   transform isn't snapped to the pixel grid and one at rest is, so at
+   fractional display scaling its text jumped a pixel when the animation let
+   go. Drawing the sheets this way at rest too leaves nothing to snap. */
+.mail-thread-card {
+  will-change: transform;
+}
+
 @container (max-width: 560px) {
   .mail-view-frame {
-    padding: 0.375rem;
+    --mail-frame-pad: 0.375rem;
   }
 
   .mail-view-toolbar {
@@ -3428,12 +3453,17 @@ body.mail-list-column-resizing {
 
   /* Reader: a full-bleed page with an app bar on top and the reply actions pinned below. */
   #mail-view[data-mail-reader] .mail-view-frame {
-    padding: 0;
+    --mail-frame-pad: 0;
   }
 
   #mail-view[data-mail-reader] .mail-view-frame > .surface-paper {
     border-radius: 0;
     box-shadow: none;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-thread-toolbar,
+  #mail-view[data-mail-reader] .mail-thread-card {
+    border-radius: 0;
   }
 
   #mail-view[data-mail-reader] .mail-view-toolbar {

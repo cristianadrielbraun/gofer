@@ -275,6 +275,25 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 					}
 				</div>
 			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">Thread order</h4>
+					<p class="text-xs text-muted-foreground mt-1">Choose whether a thread's newest or oldest message comes first in the reading pane.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0" data-thread-order-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "thread_order", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Newest first"}) {
+								{ threadOrderSettingLabel(uiSettingGet(uiSettings, "thread_order", "newest")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "newest", Selected: ThreadNewestFirst(uiSettings)}) { Newest first }
+							@selectbox.Item(selectbox.ItemProps{Value: "oldest", Selected: !ThreadNewestFirst(uiSettings)}) { Oldest first }
+						}
+					}
+				</div>
+			</div>
 		</div>
 		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
@@ -419,6 +438,10 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			var mailListNavigation = e.target.closest('input[name="mail_list_navigation"]');
 			if (mailListNavigation && typeof GoferSettings !== 'undefined') {
 				GoferSettings.set('mail_list_navigation', mailListNavigation.value);
+			}
+			var threadOrder = e.target.closest('input[name="thread_order"]');
+			if (threadOrder && typeof GoferSettings !== 'undefined') {
+				GoferSettings.set('thread_order', threadOrder.value);
 			}
 			var autoMarkRead = e.target.closest('input[name="auto_mark_read_after"]');
 			if (autoMarkRead && typeof GoferSettings !== 'undefined') {

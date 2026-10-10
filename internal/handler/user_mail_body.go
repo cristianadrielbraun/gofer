@@ -29,6 +29,7 @@ func (h *Handler) handleUserEmailBody(w http.ResponseWriter, r *http.Request) {
 	var rawPath, accountID string
 	attempted := false
 	var cidURLs map[string]string
+	var quoteSources []message.QuoteSource
 load:
 	body, cached, rawPath = nil, nil, ""
 	remote = requestedRemote
@@ -49,6 +50,7 @@ load:
 			if err != nil {
 				return err
 			}
+			quoteSources = threadQuoteSources(ctx, db, id, owner)
 			if original {
 				body, err = db.GetEmailOriginalHTMLBodyForUser(ctx, id, owner)
 				if err != nil {
@@ -115,6 +117,7 @@ load:
 	if remote {
 		body = message.RestoreRemoteImages(body)
 	}
+	body = message.MarkThreadQuote(body, quoteSources)
 	doc := buildBodyDocument(body, emailResizeScript(id), r.URL.Query().Get("theme"), r.URL.Query().Get("bg"), r.URL.Query().Get("fg"), r.URL.Query().Get("link"), original, emailBodyTextSize(r))
 	if !remote {
 		doc = append(doc, remoteImagesDetectScript(id)...)

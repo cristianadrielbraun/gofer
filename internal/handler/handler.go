@@ -35,6 +35,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -664,6 +665,9 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 			}
 			if repaired {
 				thread, _ = h.db.GetThreadMessagesForUser(ctx, email.AccountID, email.ThreadID, userID)
+			}
+			if views.ThreadNewestFirst(h.db.GetUISettings(ctx, userID)) {
+				slices.Reverse(thread)
 			}
 		}
 		return views.MailViewContent(email, thread), nil
@@ -1334,8 +1338,14 @@ func (h *Handler) handleContactSearch(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"results": items})
 }
 
+// emailResizeScript reports the body's content height to the parent. It
+// measures the content itself rather than the document, whose scroll height
+// never drops below the iframe's current height: once a narrow layout made the
+// frame tall, it could never shrink back and left a long blank gap. It measures
+// again whenever the page or its content changes size, including when a
+// collapsed thread message opens and its body is laid out for the first time.
 func emailResizeScript(emailID string) []byte {
-	return []byte(fmt.Sprintf(`<script>(function(){var id=%q;function r(){var b=document.body,d=document.documentElement;if(!b||!d)return;var rect=b.getBoundingClientRect();var h=Math.max(b.scrollHeight,b.offsetHeight,d.scrollHeight,d.offsetHeight,Math.ceil(rect.bottom-rect.top))+16;parent.postMessage({type:'emailBodyResize',emailId:id,height:h},'*')}requestAnimationFrame(function(){requestAnimationFrame(r)});window.addEventListener('load',r);document.querySelectorAll('img').forEach(function(i){i.onload=r});if(document.fonts&&document.fonts.ready)document.fonts.ready.then(r);if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(r,0)}).observe(document.body,{childList:true,subtree:true,attributes:true})}setTimeout(r,300)})();</script>`, emailID))
+	return []byte(fmt.Sprintf(`<script>(function(){var id=%q,last=-1;function r(){var b=document.body;if(!b)return;var rg=document.createRange();rg.selectNodeContents(b);var cs=getComputedStyle(b);var h=Math.ceil(rg.getBoundingClientRect().bottom+(window.scrollY||0)+(parseFloat(cs.paddingBottom)||0)+(parseFloat(cs.borderBottomWidth)||0)+(parseFloat(cs.marginBottom)||0))+16;if(h===last)return;last=h;parent.postMessage({type:'emailBodyResize',emailId:id,height:h},'*')}requestAnimationFrame(function(){requestAnimationFrame(r)});window.addEventListener('load',r);document.querySelectorAll('img').forEach(function(i){i.onload=r});if(document.fonts&&document.fonts.ready)document.fonts.ready.then(r);if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(r,0)}).observe(document.body,{childList:true,subtree:true,attributes:true})}if(typeof ResizeObserver!=='undefined'){var ro=new ResizeObserver(function(){r()});ro.observe(document.documentElement);ro.observe(document.body)}setTimeout(r,300)})();</script>`, emailID))
 }
 
 func remoteImagesDetectScript(emailID string) []byte {
@@ -1416,6 +1426,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	if loadRemote {
 		body = message.RestoreRemoteImages(body)
 	}
+	body = message.MarkThreadQuote(body, threadQuoteSources(ctx, h.db, emailID, userID))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -1569,7 +1580,7 @@ func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor s
 	s := string(body)
 	lower := strings.ToLower(s)
 	isDark := theme == "dark"
-	injection := string(emailExternalLinksScript()) + string(resizeScript)
+	injection := string(emailExternalLinksScript()) + string(emailQuoteScript()) + string(resizeScript)
 
 	if original {
 		if strings.Contains(lower, "<html") {

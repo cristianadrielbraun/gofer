@@ -15068,12 +15068,30 @@ function invalidateMailListItem(emailId) {
   }
 }
 
+// A thread opens with every message listed and only the selected one expanded.
+// Bring that one to the top of the reader instead of leaving the pane at the
+// first message. The messages above it stay collapsed, so their height is settled.
+function scrollThreadToSelected() {
+  document.querySelectorAll("[data-thread-selected]:not([data-thread-scrolled])").forEach(function (sender) {
+    sender.setAttribute("data-thread-scrolled", "")
+    var card = sender.closest("[data-thread-card]") || sender
+    var pane = card.closest(".overflow-y-auto")
+    if (!pane || pane.querySelector("[data-thread-card]") === card) return
+    pane.scrollTop += card.getBoundingClientRect().top - pane.getBoundingClientRect().top
+  })
+}
+document.body.addEventListener("htmx:afterSettle", scrollThreadToSelected)
+
 window.addEventListener("message", function (e) {
   if (!e.data || !e.data.type) return
   if (e.data.type === "emailBodyResize") {
     var iframe = e.data.emailId ? document.querySelector('[data-email-body-frame][data-email-id="' + e.data.emailId + '"]') : document.getElementById("email-body-frame")
     if (iframe) {
       iframe.style.height = e.data.height + "px"
+      // A collapsed thread message isn't laid out, so its body reports a height
+      // for no width at all. Expanding it waits for a report at its real width.
+      iframe._bodyMeasuredWidth = iframe.clientWidth
+      iframe.dispatchEvent(new CustomEvent("gofer:body-measured"))
       iframe.classList.remove("opacity-0")
       var loader = e.data.emailId ? document.querySelector('[data-email-body-loading="' + e.data.emailId + '"]') : null
       if (loader) loader.remove()
@@ -15811,109 +15829,197 @@ function collapseComposeFullWidth() {
 }
 
 (function () {
-  var DURATION = '0.2s'
+  // Thread messages open and close with FLIP: the change applies to the layout
+  // at once, and the sheets then play back from where they were using only
+  // transforms, which the compositor runs on its own without laying out or
+  // repainting anything. A sheet that changes height is seen through its slot,
+  // which clips it at the sheet's moving bottom edge: the slot moves with the
+  // edge and the sheet moves back by as much, so it stays in place.
+  // Animating height redrew the sheets, their paper gradient and shadows on
+  // every frame, and a clip-path animation runs on Firefox's main thread, out
+  // of step with the transforms; both stuttered.
+  var DURATION = 240
   var EASING = 'cubic-bezier(0.4,0,0.2,1)'
-  var FADE = '0.15s'
+  var SHADOW = 80 // room around a sheet for its shadow, left outside the clip
 
-  function clearStyles(ct) {
-    ct.style.height = ''
-    ct.style.overflow = ''
-    ct.style.transition = ''
-    ct.style.opacity = ''
-    ct.style.willChange = ''
+  function contentOf(el) {
+    return el.querySelector('.thread-details-content')
   }
 
-  function fadeIframes(ct, show) {
-    var iframes = ct.querySelectorAll('iframe')
-    for (var j = 0; j < iframes.length; j++) {
-      if (show) {
-        iframes[j].style.visibility = ''
-        iframes[j].style.opacity = '0'
-        iframes[j].style.transition = 'opacity ' + FADE + ' ease-out'
-        void iframes[j].offsetHeight
-        iframes[j].style.opacity = '1'
-      } else {
-        iframes[j].style.opacity = '1'
-        iframes[j].style.transition = 'opacity ' + FADE + ' ease-out'
-        void iframes[j].offsetHeight
-        iframes[j].style.opacity = '0'
+  function measure(cards) {
+    return cards.map(function (card) {
+      var rect = card.getBoundingClientRect()
+      return { top: rect.top, height: rect.height }
+    })
+  }
+
+  function translate(px) {
+    return 'translateY(' + px + 'px)'
+  }
+
+  // whenBodiesMeasured runs done once each message body in cts reports its
+  // height at the width it now has. A body last measured while collapsed
+  // reported a height for no width, and opening to that would end in a jump
+  // when the real one came.
+  function whenBodiesMeasured(cts, done) {
+    var waiting = 0
+    var finished = false
+    var timer = null
+    function finish() {
+      if (finished) return
+      finished = true
+      clearTimeout(timer)
+      done()
+    }
+    cts.forEach(function (ct) {
+      var iframe = ct.querySelector('[data-email-body-frame]')
+      if (!iframe || iframe._bodyMeasuredWidth === iframe.clientWidth) return
+      waiting++
+      function onMeasured() {
+        if (iframe._bodyMeasuredWidth !== iframe.clientWidth) return
+        iframe.removeEventListener('gofer:body-measured', onMeasured)
+        if (--waiting === 0) finish()
       }
-      ;(function (iframe) {
-        function done() {
-          iframe.removeEventListener('transitionend', done)
-          iframe.style.transition = ''
-          iframe.style.opacity = ''
-          if (!show) iframe.style.visibility = 'hidden'
+      iframe.addEventListener('gofer:body-measured', onMeasured)
+    })
+    if (!waiting) {
+      finish()
+      return
+    }
+    timer = setTimeout(finish, 150)
+  }
+
+  // clipSlot makes a slot clip its sheet for the animation. The clip reaches
+  // SHADOW past the slot on every side, so the slot also moves up by SHADOW to
+  // put the clip's bottom at the sheet's edge. It passes clicks through to the
+  // sheet, since while moved it covers the sheets above.
+  function clipSlot(slot, card) {
+    slot.style.overflow = 'clip'
+    slot.style.overflowClipMargin = SHADOW + 'px'
+    slot.style.pointerEvents = 'none'
+    card.style.pointerEvents = 'auto'
+  }
+
+  function releaseSlot(slot, card) {
+    slot.style.overflow = ''
+    slot.style.overflowClipMargin = ''
+    slot.style.pointerEvents = ''
+    card.style.pointerEvents = ''
+  }
+
+  // changeThread opens the messages in opening and closes those in closing, as
+  // one animation across the thread so each sheet moves once.
+  function changeThread(list, opening, closing) {
+    if (list._threadBusy) return
+    if (list._threadAnimation) list._threadAnimation.finish()
+    opening = opening.filter(function (el) { return !el.open && contentOf(el) })
+    closing = closing.filter(function (el) { return el.open && contentOf(el) })
+    if (!opening.length && !closing.length) return
+    var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    var openingContent = opening.map(contentOf)
+
+    // Open the new messages a pixel tall while their bodies measure: Chrome
+    // pauses rendering of a hidden cross-origin frame, and the body can only
+    // report its height while it renders.
+    list._threadBusy = true
+    opening.forEach(function (el, i) {
+      var ct = openingContent[i]
+      ct.style.height = '1px'
+      ct.style.overflow = 'hidden'
+      el.open = true
+    })
+
+    whenBodiesMeasured(openingContent, function () {
+      list._threadBusy = false
+      var cards = Array.prototype.slice.call(list.querySelectorAll('[data-thread-card]'))
+      var first = measure(cards)
+      openingContent.forEach(function (ct) {
+        ct.style.height = ''
+        ct.style.overflow = ''
+      })
+      closing.forEach(function (el) { el.open = false })
+      var last = measure(cards)
+      if (reduced) {
+        done()
+        return
+      }
+      // Closing messages stay open while they animate and close at the end.
+      closing.forEach(function (el) { el.open = true })
+      var live = measure(cards)
+
+      var animations = []
+      var clipped = []
+      var timing = { duration: DURATION, easing: EASING, fill: 'both' }
+      cards.forEach(function (card, i) {
+        var from = first[i].top - live[i].top
+        var to = last[i].top - live[i].top
+        var hideFrom = live[i].height - first[i].height
+        var hideTo = live[i].height - last[i].height
+        if (Math.abs(from - to) < 0.5 && Math.abs(hideFrom - hideTo) < 0.5) return
+        var slot = card.parentElement
+        if (Math.abs(hideFrom - hideTo) < 0.5 || !slot || !slot.hasAttribute('data-thread-slot')) {
+          animations.push(card.animate([
+            { transform: translate(from) },
+            { transform: translate(to) }
+          ], timing))
+          return
         }
-        iframe.addEventListener('transitionend', done)
-      })(iframes[j])
+        clipSlot(slot, card)
+        clipped.push([slot, card])
+        animations.push(slot.animate([
+          { transform: translate(from - hideFrom - SHADOW) },
+          { transform: translate(to - hideTo - SHADOW) }
+        ], timing))
+        animations.push(card.animate([
+          { transform: translate(hideFrom + SHADOW) },
+          { transform: translate(hideTo + SHADOW) }
+        ], timing))
+      })
+
+      var ended = false
+      // end lets go of the animations once they reach their last frame, and
+      // the layout takes over in the same frame, so nothing jumps.
+      function end() {
+        if (ended) return
+        ended = true
+        if (list._threadAnimation === run) list._threadAnimation = null
+        animations.forEach(function (a) { a.cancel() })
+        clipped.forEach(function (pair) { releaseSlot(pair[0], pair[1]) })
+        done()
+      }
+      var run = { finish: end }
+      if (!animations.length) {
+        end()
+        return
+      }
+      list._threadAnimation = run
+      var remaining = animations.length
+      animations.forEach(function (animation) {
+        animation.onfinish = function () {
+          if (--remaining === 0) end()
+        }
+      })
+    })
+
+    function done() {
+      closing.forEach(function (el) { el.open = false })
+      syncExpandAll(list)
     }
   }
 
-  function collapseDetails(el) {
-    var ct = el.querySelector('.thread-details-content')
-    if (!ct || el._threadAnimating) return
-    el._threadAnimating = true
-    ct.style.willChange = 'height, opacity'
-
-    var h = ct.scrollHeight
-    ct.style.height = h + 'px'
-    ct.style.overflow = 'hidden'
-    ct.style.transition = 'none'
-    void ct.offsetHeight
-
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        fadeIframes(ct, false)
-        ct.style.transition = 'height ' + DURATION + ' ' + EASING + ', opacity ' + DURATION + ' ease-out'
-        ct.style.height = '0px'
-        ct.style.opacity = '0'
-
-        function onEnd(ev) {
-          if (ev.propertyName !== 'height') return
-          ct.removeEventListener('transitionend', onEnd)
-          el.open = false
-          clearStyles(ct)
-          el._threadAnimating = false
-        }
-        ct.addEventListener('transitionend', onEnd)
-      })
-    })
+  function threadList(el) {
+    return el.closest('[data-thread-list]')
   }
 
-  function expandDetails(el) {
-    var ct = el.querySelector('.thread-details-content')
-    if (!ct || el._threadAnimating) return
-    el._threadAnimating = true
-    ct.style.willChange = 'height, opacity'
-
-    el.open = true
-    ct.style.height = '0px'
-    ct.style.overflow = 'hidden'
-    ct.style.opacity = '0'
-    ct.style.transition = 'none'
-    void ct.offsetHeight
-
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        ct.style.transition = 'height ' + DURATION + ' ' + EASING + ', opacity ' + DURATION + ' ease-out'
-        ct.style.height = ct.scrollHeight + 'px'
-        ct.style.opacity = '1'
-
-        function onEnd(ev) {
-          if (ev.propertyName !== 'height') return
-          ct.removeEventListener('transitionend', onEnd)
-          clearStyles(ct)
-          fadeIframes(ct, true)
-          el._threadAnimating = false
-        }
-        ct.addEventListener('transitionend', onEnd)
-      })
-    })
+  function setThreadOpen(el, open) {
+    var list = threadList(el)
+    if (list) changeThread(list, open ? [el] : [], open ? [] : [el])
   }
 
+  // Each thread message sits in its own sheet, so its siblings are found across
+  // the whole thread list rather than under one parent.
   function getSiblings(el) {
-    var parent = el.parentElement
+    var parent = el.closest('[data-thread-list]') || el.parentElement
     if (!parent) return []
     var siblings = []
     var details = parent.querySelectorAll('details[data-thread-details]')
@@ -15922,6 +16028,27 @@ function collapseComposeFullWidth() {
     }
     return siblings
   }
+
+  // The thread's "Expand all" control reads "Collapse all" once every message is open.
+  function syncExpandAll(el) {
+    var frame = el.closest('.mail-view-thread-frame')
+    var label = frame && frame.querySelector('[data-thread-expand-all-label]')
+    if (!label) return
+    var closed = frame.querySelector('details[data-thread-details]:not([open])')
+    label.textContent = closed ? 'Expand all' : 'Collapse all'
+  }
+
+  document.addEventListener('click', function (e) {
+    var button = e.target.closest && e.target.closest('[data-thread-expand-all]')
+    if (!button) return
+    var frame = button.closest('.mail-view-thread-frame')
+    if (!frame) return
+    var list = frame.querySelector('[data-thread-list]')
+    if (!list) return
+    var details = Array.prototype.slice.call(list.querySelectorAll('details[data-thread-details]'))
+    var expand = details.some(function (el) { return !el.open })
+    changeThread(list, expand ? details : [], expand ? [] : details)
+  })
 
   function initThreadDetails(root) {
     var details = root.querySelectorAll('details[data-thread-details]')
@@ -15936,21 +16063,14 @@ function collapseComposeFullWidth() {
         if (target.closest('[data-thread-show-exclusive]')) {
           e.preventDefault()
           e.stopPropagation()
-          expandDetails(el)
-          var siblings = getSiblings(el)
-          for (var j = 0; j < siblings.length; j++) {
-            if (siblings[j].open) collapseDetails(siblings[j])
-          }
+          if (threadList(el)) changeThread(threadList(el), [el], getSiblings(el))
           return
         }
 
         if (target.closest('[data-thread-hide-others]')) {
           e.preventDefault()
           e.stopPropagation()
-          var siblings = getSiblings(el)
-          for (var j = 0; j < siblings.length; j++) {
-            if (siblings[j].open) collapseDetails(siblings[j])
-          }
+          if (threadList(el)) changeThread(threadList(el), [], getSiblings(el))
           return
         }
 
@@ -15958,11 +16078,7 @@ function collapseComposeFullWidth() {
         if (!summary || summary.parentElement !== el) return
 
         e.preventDefault()
-        if (el.open) {
-          collapseDetails(el)
-        } else {
-          expandDetails(el)
-        }
+        setThreadOpen(el, !el.open)
       })
     }
   }
