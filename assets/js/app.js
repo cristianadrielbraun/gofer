@@ -95,6 +95,15 @@ document.addEventListener("DOMContentLoaded", function () {
   var selectedMailIds = new Set()
   var lastSelectedMailId = null
   var mailSelectionBusy = false
+  // Set when the selection holds every message the list's folder and filters
+  // match, not just the loaded ones: { key, total, truncated }.
+  var mailSelectAllMatching = null
+  var mailSelectAllLoading = false
+  // Whether each selected row stands for a thread, for rows not loaded in the list.
+  var selectedMailThreads = new Map()
+  // On a phone, deselecting everything from the checkbox or its menu stays in
+  // selection mode; only the bar's close button, or leaving the list, ends it.
+  var keepMailSelectionModeWhenEmpty = false
   var accountDeletionPolls = Object.create(null)
 
   function cssEscape(value) {
@@ -1371,6 +1380,31 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      if (e.target.closest && e.target.closest("[data-mail-select-all-toggle]")) {
+        // Not prevented: a cancelled click would put the box back after the sync below.
+        if (mailSelectionCounts()) clearMailSelection({ keepMode: true })
+        else applyMailSelectChoice("all")
+        return
+      }
+
+      var selectChoice = e.target.closest && e.target.closest("[data-mail-select]")
+      if (selectChoice) {
+        applyMailSelectChoice(selectChoice.getAttribute("data-mail-select"))
+        return
+      }
+
+      if (e.target.closest && e.target.closest("[data-mail-select-all-banner-action]")) {
+        e.preventDefault()
+        selectAllMatchingMail()
+        return
+      }
+
+      if (e.target.closest && e.target.closest("[data-mail-select-all-banner-clear]")) {
+        e.preventDefault()
+        clearMailSelection({ keepMode: true })
+        return
+      }
+
       var clearSelection = e.target.closest && e.target.closest("[data-mail-selection-clear]")
       if (clearSelection) {
         e.preventDefault()
@@ -1435,6 +1469,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function setMailSelected(emailId, selected) {
       if (!emailId) return
+      mailSelectAllMatching = null
+      if (selected) keepMailSelectionModeWhenEmpty = false
       if (selected) selectedMailIds.add(emailId)
       else selectedMailIds.delete(emailId)
     }
@@ -1794,13 +1830,211 @@ document.addEventListener("DOMContentLoaded", function () {
       })
     }
 
-    function clearMailSelection() {
+    // keepMode leaves a phone's selection mode open with nothing selected.
+    function clearMailSelection(options) {
+      keepMailSelectionModeWhenEmpty = !!(options && options.keepMode)
       selectedMailIds.clear()
+      selectedMailThreads.clear()
+      mailSelectAllMatching = null
       lastSelectedMailId = null
       syncMailSelectionControls()
     }
 
+    // Reads a list row's state from the attributes on its outer element.
+    function mailRowInfoFromHTML(id, html) {
+      var tag = String(html || "").match(/^\s*<div\b[^>]*>/)
+      tag = tag ? tag[0] : ""
+      function attr(name) {
+        var match = tag.match(new RegExp("\\s" + name + "=\"([^\"]*)\""))
+        return match ? match[1] : ""
+      }
+      return {
+        id: id,
+        thread: attr("data-has-thread") === "true",
+        read: attr("data-is-read") !== "false",
+        starred: attr("data-starred") === "true",
+      }
+    }
+
+    function mailRowInfoFromElement(row) {
+      return {
+        id: row.dataset.emailId,
+        thread: row.dataset.hasThread === "true",
+        read: row.dataset.isRead !== "false",
+        starred: row.dataset.starred === "true",
+      }
+    }
+
+    // loadedMailRows lists the rows the list holds, in list order: the ones on
+    // screen and the ones loaded around them.
+    function loadedMailRows() {
+      var rendered = new Map()
+      var renderedRows = renderedMailRows()
+      for (var i = 0; i < renderedRows.length; i++) {
+        if (renderedRows[i].dataset.emailId) rendered.set(renderedRows[i].dataset.emailId, renderedRows[i])
+      }
+      var list = currentMailListController()
+      if (!list || !list.cache || list.cache.size === 0) {
+        return renderedRows.filter(function (row) { return row.dataset.emailId }).map(mailRowInfoFromElement)
+      }
+      var positions = Array.from(list.cache.keys()).sort(function (a, b) { return a - b })
+      var rows = []
+      for (var p = 0; p < positions.length; p++) {
+        var item = list.cache.get(positions[p])
+        if (!item || !item.id) continue
+        var row = rendered.get(item.id)
+        if (row) {
+          rows.push(mailRowInfoFromElement(row))
+          continue
+        }
+        if (item._selectInfoHTML !== item.html) {
+          item._selectInfo = mailRowInfoFromHTML(item.id, item.html)
+          item._selectInfoHTML = item.html
+        }
+        rows.push(item._selectInfo)
+      }
+      return rows
+    }
+
+    function mailRowIsThread(emailId) {
+      if (selectedMailThreads.has(emailId)) return selectedMailThreads.get(emailId)
+      var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
+      if (row) return row.dataset.hasThread === "true"
+      var list = currentMailListController()
+      var pos = list && list.indexById ? list.indexById.get(emailId) : undefined
+      var item = pos !== undefined && list.cache ? list.cache.get(pos) : null
+      return item ? mailRowInfoFromHTML(item.id, item.html).thread : false
+    }
+
+    // applyMailSelectChoice selects loaded rows by the select-all menu's choice.
+    function applyMailSelectChoice(choice) {
+      if (choice === "none") {
+        clearMailSelection({ keepMode: true })
+        return
+      }
+      var rows = loadedMailRows()
+      var picked = rows.filter(function (row) {
+        if (choice === "invert") return !selectedMailIds.has(row.id)
+        if (choice === "read") return row.read
+        if (choice === "unread") return !row.read
+        if (choice === "starred") return row.starred
+        if (choice === "unstarred") return !row.starred
+        return true
+      })
+      selectedMailIds.clear()
+      selectedMailThreads.clear()
+      mailSelectAllMatching = null
+      for (var i = 0; i < picked.length; i++) {
+        selectedMailIds.add(picked[i].id)
+        selectedMailThreads.set(picked[i].id, picked[i].thread)
+      }
+      lastSelectedMailId = picked.length ? picked[picked.length - 1].id : null
+      keepMailSelectionModeWhenEmpty = picked.length === 0
+      if (picked.length && mobileMailList.matches) setMailSelectionMode(true)
+      syncMailSelectionControls()
+    }
+
+    function mailSelectAllKey(list) {
+      return list ? list.withFilterParams("/mail/folder/" + encodeURIComponent(list.folderID) + "/ids") : ""
+    }
+
+    // selectAllMatchingMail extends the selection to every message the list's
+    // folder and filters match, loaded or not.
+    function selectAllMatchingMail() {
+      var list = currentMailListController()
+      if (!list || mailSelectAllLoading) return
+      var key = mailSelectAllKey(list)
+      mailSelectAllLoading = true
+      syncMailSelectionControls()
+      fetch(key, { headers: { Accept: "application/json" } })
+        .then(function (response) {
+          if (!response.ok) throw new Error("select all: " + response.status)
+          return response.json()
+        })
+        .then(function (data) {
+          if (mailSelectAllKey(currentMailListController()) !== key) return
+          var ids = (data && data.ids) || []
+          selectedMailIds.clear()
+          selectedMailThreads.clear()
+          for (var i = 0; i < ids.length; i++) {
+            selectedMailIds.add(ids[i].id)
+            selectedMailThreads.set(ids[i].id, !!ids[i].thread)
+          }
+          mailSelectAllMatching = { key: key, total: ids.length, truncated: !!data.truncated }
+        })
+        .catch(function (err) {
+          console.warn(err)
+          showGoferToast({ id: "mail-select-all-error", title: "Couldn't select every message", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+        })
+        .finally(function () {
+          mailSelectAllLoading = false
+          syncMailSelectionControls()
+        })
+    }
+
+    function formatMailCount(n) {
+      return Number(n || 0).toLocaleString()
+    }
+
+    // Opening a message selects it, so keyboard actions reach it. A single message
+    // is therefore not a selection the select-all controls report; two or more is.
+    // On a phone, selecting starts with a deliberate long press, so one counts there.
+    function mailSelectionCounts() {
+      return selectedMailIds.size > 1 || (selectedMailIds.size === 1 && mailSelectionModeActive())
+    }
+
+    function syncMailSelectAllControls(count) {
+      var list = currentMailListController()
+      if (mailSelectAllMatching && mailSelectAllMatching.key !== mailSelectAllKey(list)) {
+        // The folder or filters changed under a whole-list selection; it no longer
+        // matches what the list shows.
+        selectedMailIds.clear()
+        selectedMailThreads.clear()
+        mailSelectAllMatching = null
+        count = 0
+      }
+      if (!mailSelectionCounts()) count = 0
+      var loaded = count > 0 && !mailSelectAllMatching ? loadedMailRows() : []
+      var allLoaded = loaded.length > 0 && loaded.every(function (row) { return selectedMailIds.has(row.id) })
+      var state = count === 0 ? "none" : (mailSelectAllMatching || allLoaded ? "all" : "some")
+
+      var toggles = document.querySelectorAll("[data-mail-select-all-toggle]")
+      for (var i = 0; i < toggles.length; i++) {
+        toggles[i].checked = state === "all"
+        toggles[i].indeterminate = state === "some"
+        toggles[i].setAttribute("aria-label", count > 0 ? "Deselect all messages" : "Select all messages")
+      }
+
+      var banner = document.querySelector("[data-mail-select-all-banner]")
+      if (!banner) return
+      var total = list ? (list.displayTotalCount || list.totalCount || 0) : 0
+      var text = ""
+      if (mailSelectAllMatching) {
+        text = mailSelectAllMatching.truncated
+          ? "The first " + formatMailCount(mailSelectAllMatching.total) + " messages in this list are selected."
+          : "All " + formatMailCount(mailSelectAllMatching.total) + " messages in this list are selected."
+      } else if (allLoaded && total > loaded.length) {
+        text = "All " + formatMailCount(loaded.length) + " loaded messages are selected."
+      } else if (allLoaded) {
+        text = "All " + formatMailCount(count) + " messages are selected."
+      } else if (count > 0) {
+        text = formatMailCount(count) + " selected."
+      }
+      var canSelectAll = count > 0 && !mailSelectAllMatching && total > count
+      banner.classList.toggle("hidden", !text)
+      banner.classList.toggle("flex", !!text)
+      var label = banner.querySelector("[data-mail-select-all-banner-text]")
+      if (label) label.textContent = text
+      var button = banner.querySelector("[data-mail-select-all-banner-action]")
+      if (button) {
+        button.classList.toggle("hidden", !canSelectAll)
+        button.textContent = mailSelectAllLoading ? "Selecting\u2026" : "Select all " + formatMailCount(total) + " in this list"
+        button.disabled = mailSelectAllLoading
+      }
+    }
+
     function syncMailSelectionControls() {
+      syncMailSelectAllControls(selectedMailIds.size)
       var rows = renderedMailRows()
       var visibleSelected = 0
       for (var i = 0; i < rows.length; i++) {
@@ -1812,14 +2046,16 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       var count = selectedMailIds.size
-      if (count === 0) setMailSelectionMode(false)
+      if (count === 0 && !keepMailSelectionModeWhenEmpty) setMailSelectionMode(false)
       var summary = document.querySelector("[data-mail-selection-summary]")
-      if (summary) summary.textContent = count === 1 ? "1 selected" : count + " selected"
+      // Only the phone selection bar shows this, where space is short: just the number.
+      if (summary) summary.textContent = formatMailCount(count)
 
       var clear = document.querySelector("[data-mail-selection-clear]")
       if (clear) {
-        clear.classList.toggle("hidden", count === 0)
-        clear.classList.toggle("inline-flex", count > 0)
+        var showClear = count > 0 || mailSelectionModeActive()
+        clear.classList.toggle("hidden", !showClear)
+        clear.classList.toggle("inline-flex", showClear)
       }
 
       var actions = document.querySelectorAll("[data-mail-selection-action]")
@@ -1838,6 +2074,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
       if (!row) return
       row.setAttribute("data-mail-read-optimistic", "")
+      row.setAttribute("data-is-read", "true")
       row.removeAttribute("data-mail-selected")
       var anchor = row.querySelector(":scope > a")
       if (anchor) {
@@ -1861,11 +2098,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function selectedMailTargets(ids) {
       return ids.map(function (emailId) {
-        var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
-        return {
-          id: emailId,
-          thread: !!(row && row.dataset.hasThread === "true"),
-        }
+        return { id: emailId, thread: mailRowIsThread(emailId) }
       })
     }
 
@@ -1886,7 +2119,19 @@ document.addEventListener("DOMContentLoaded", function () {
       })
     }
 
+    // The server takes a few hundred messages per request, so a large selection
+    // goes out in chunks, one after another.
+    var MAIL_BULK_CHUNK_SIZE = 200
+
     function sendBulkMessageAction(path, targets, extra) {
+      var run = Promise.resolve()
+      for (var start = 0; start < targets.length; start += MAIL_BULK_CHUNK_SIZE) {
+        run = run.then(postBulkMessageChunk.bind(null, path, targets.slice(start, start + MAIL_BULK_CHUNK_SIZE), extra))
+      }
+      return run
+    }
+
+    function postBulkMessageChunk(path, targets, extra) {
       var body = { targets: targets }
       if (extra) {
         for (var key in extra) body[key] = extra[key]
@@ -1994,6 +2239,17 @@ document.addEventListener("DOMContentLoaded", function () {
     function setupMailKeyboardShortcuts() {
       if (document.body && document.body._goferMailKeyboardShortcutsBound) return
       if (document.body) document.body._goferMailKeyboardShortcutsBound = true
+
+      // Ctrl/Cmd+A selects every loaded message, outside text fields.
+      document.addEventListener("keydown", function (e) {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || String(e.key || "").toLowerCase() !== "a") return
+        if (e.defaultPrevented || !document.getElementById("mail-list-scroll") || document.getElementById("calendar-main")) return
+        var target = e.target
+        if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true'], [data-compose-editor], [data-compose-pane], dialog[open]")) return
+        if (document.querySelector("dialog[open]")) return
+        e.preventDefault()
+        applyMailSelectChoice("all")
+      })
 
       document.addEventListener("keydown", function (e) {
         if (document.getElementById("calendar-main") || isShortcutIgnored(e)) return
@@ -2276,6 +2532,7 @@ document.addEventListener("DOMContentLoaded", function () {
             shortcutHelpRow(['Del', '#'], 'Delete selected') +
             shortcutHelpRow(['s'], 'Star selected') +
             shortcutHelpRow(['u'], 'Toggle read') +
+            shortcutHelpRow(['Ctrl', 'A'], 'Select all loaded') +
             shortcutHelpRow(['Esc'], 'Clear selection') +
           '</div>' +
         '</div>' +
@@ -5999,8 +6256,11 @@ document.addEventListener("DOMContentLoaded", function () {
     var row = trigger && trigger.closest && trigger.closest(".mail-list-item")
     if (!row) return null
     var avatar = row.querySelector(".size-6")
+    var fallback = avatar && avatar.querySelector("[data-avatar-fallback]")
+    var image = avatar && avatar.querySelector("[data-avatar-image]")
     return {
-      initials: avatar ? avatar.textContent.trim() : "",
+      initials: (fallback || avatar) ? (fallback || avatar).textContent.trim() : "",
+      avatar: image && !image.classList.contains("hidden") && image.complete && image.naturalWidth ? (image.currentSrc || image.getAttribute("src") || "") : "",
       sender: textFrom(row, ".text-sm.truncate"),
       time: textFrom(row, ".tabular-nums"),
       subject: textFrom(row, "p.text-\\[13px\\]"),
@@ -6146,58 +6406,101 @@ document.addEventListener("DOMContentLoaded", function () {
       '</div>'
   }
 
-	  function showMailViewLoading(trigger) {
-	    var mailView = document.getElementById("mail-view")
-	    if (!mailView) return
+  var MAIL_VIEW_SKELETON_ICONS = {
+    "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+    archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+    "trash-2": '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    "shield-alert": '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+    star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
+    mail: '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/>',
+    "ellipsis-vertical": '<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>',
+    reply: '<path d="M20 18v-2a4 4 0 0 0-4-4H4"/><path d="m9 17-5-5 5-5"/>',
+    "reply-all": '<path d="m12 17-5-5 5-5"/><path d="M22 18v-2a4 4 0 0 0-4-4H7"/><path d="m7 17-5-5 5-5"/>',
+    forward: '<path d="m15 17 5-5-5-5"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/>',
+  }
+
+  function mailViewSkeletonIcon(name, className) {
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="' + (className || "size-4") + '" aria-hidden="true">' + (MAIL_VIEW_SKELETON_ICONS[name] || "") + '</svg>'
+  }
+
+  function mailViewSkeletonToolbarButton(name) {
+    return '<button type="button" disabled tabindex="-1" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink/25">' + mailViewSkeletonIcon(name) + '</button>'
+  }
+
+  function mailViewSkeletonReplyButton(name, label) {
+    return '<button type="button" disabled tabindex="-1" class="inline-flex flex-1 h-9 items-center justify-center rounded-md border border-ink/10 text-ink/35">' +
+      '<span class="flex items-center gap-2 text-[13px]">' + mailViewSkeletonIcon(name) + label + '</span>' +
+    '</button>'
+  }
+
+  // showMailViewLoading draws the reader as a single message (see MailViewContent in
+  // mailview.templ) with what the list row already knows filled in, so the sheet
+  // doesn't jump when the message arrives. Keep it in step with MailViewLoading.
+  function showMailViewLoading(trigger) {
+    var mailView = document.getElementById("mail-view")
+    if (!mailView) return
     var preview = getMailRowPreview(trigger) || {}
     var initials = escapeHTML(preview.initials || "")
-    var sender = escapeHTML(preview.sender || "Loading message")
+    var avatarSrc = escapeHTML(preview.avatar || "")
+    var sender = escapeHTML(preview.sender || "")
     var time = escapeHTML(preview.time || "")
     var subject = escapeHTML(preview.subject || "")
-    var bodyHint = escapeHTML(preview.preview || "Fetching message body...")
+    var avatar = avatarSrc
+      ? '<img src="' + avatarSrc + '" alt="" class="mail-view-avatar size-11 rounded-full object-cover shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">'
+      : '<div class="mail-view-avatar size-11 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-sm font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]' + (initials ? '' : ' animate-pulse') + '">' + initials + '</div>'
     mailView.innerHTML =
-      '<div class="flex flex-col h-full p-2">' +
+      '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading message">' +
         '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">' +
-          '<div class="flex items-center justify-between px-6 py-2.5">' +
-            '<div class="flex items-center gap-1">' +
-              '<div class="size-8 rounded-md flex items-center justify-center text-ink/45 bg-ink/[0.03] border border-ink/6">↩</div>' +
-              '<div class="size-8 rounded-md flex items-center justify-center text-ink/45 bg-ink/[0.03] border border-ink/6">↪</div>' +
-              '<div class="size-8 rounded-md flex items-center justify-center text-ink/45 bg-ink/[0.03] border border-ink/6">⌫</div>' +
-              '<div class="size-8 rounded-md flex items-center justify-center text-ink/45 bg-ink/[0.03] border border-ink/6">⋯</div>' +
+          '<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">' +
+            '<div class="mail-view-actions flex items-center gap-1 min-w-0">' +
+              '<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink/60 hover:bg-ink/5" onclick="closeMobileMailView()" aria-label="Back to list">' + mailViewSkeletonIcon("arrow-left", "size-5") + '</button>' +
+              mailViewSkeletonToolbarButton("archive") +
+              mailViewSkeletonToolbarButton("trash-2") +
+              '<div>' + mailViewSkeletonToolbarButton("shield-alert").replace('<button ', '<button data-mail-action="spam" ') + '</div>' +
+              mailViewSkeletonToolbarButton("star") +
+              mailViewSkeletonToolbarButton("mail") +
             '</div>' +
-            '<div class="flex items-center gap-2">' +
-              '<div class="text-xs text-ink/40">' + time + '</div>' +
-              '<div class="size-8 rounded-md flex items-center justify-center text-ink/45 bg-ink/[0.03] border border-ink/6">◐</div>' +
+            '<div class="mail-view-meta flex items-center gap-2">' +
+              (time ? '<span class="mail-view-date text-xs text-ink/40 tabular-nums">' + time + '</span>' : '<span class="mail-view-date h-3 w-32 rounded bg-ink/5 animate-pulse"></span>') +
+              mailViewSkeletonToolbarButton("ellipsis-vertical") +
             '</div>' +
           '</div>' +
           '<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>' +
           '<div class="flex-1 overflow-y-auto">' +
-            '<div class="max-w-3xl mx-auto px-8 py-6">' +
-              '<div class="flex items-start gap-4">' +
-                '<div class="size-11 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-sm font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">' + initials + '</div>' +
-                '<div class="flex-1 space-y-2">' +
-                  '<div class="flex items-center gap-2">' +
-                    '<div class="font-semibold text-ink">' + sender + '</div>' +
-                    '<div class="text-xs text-ink/40">' + time + '</div>' +
+            '<div class="mail-view-content mx-auto px-8 py-6">' +
+              '<div class="mail-view-sender flex items-start gap-4">' +
+                avatar +
+                '<div class="flex-1 min-w-0">' +
+                  '<div class="flex items-center gap-2 flex-wrap min-h-6">' +
+                    (sender ? '<span class="font-semibold text-ink">' + sender + '</span>' : '<span class="h-4 w-40 rounded bg-ink/5 animate-pulse"></span>') +
+                    '<span class="mail-view-address h-3 w-48 rounded bg-ink/5 animate-pulse"></span>' +
                   '</div>' +
-                  '<div class="text-xs text-ink/40">Preparing message...</div>' +
+                  '<div class="mt-1.5 h-3 w-28 rounded bg-ink/5 animate-pulse"></div>' +
                 '</div>' +
               '</div>' +
-              '<h1 class="text-xl font-bold mt-5 tracking-tight text-ink" style="font-family: var(--font-serif)">' + subject + '</h1>' +
+              '<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">' +
+                (subject
+                  ? '<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">' + subject + '</h1>'
+                  : '<div class="h-6 w-2/3 rounded bg-ink/5 animate-pulse"></div>') +
+                '<div class="hidden lg:block h-9 w-60 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>' +
+              '</div>' +
               '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>' +
-              '<p class="text-sm text-ink/45 mb-4">' + bodyHint + '</p>' +
-              '<div class="space-y-3">' +
+              '<div class="mb-3 flex justify-end">' +
+                '<div class="h-8 w-40 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
+              '</div>' +
+              '<div class="space-y-3 py-2">' +
                 '<div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-4 w-5/6 rounded bg-ink/5 animate-pulse"></div>' +
+                '<div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div>' +
                 '<div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
+                '<div class="h-4 w-2/3 rounded bg-ink/5 animate-pulse"></div>' +
               '</div>' +
             '</div>' +
           '</div>' +
           '<div class="px-6 py-3 border-t border-ink/6">' +
-            '<div class="flex items-center gap-2">' +
-              '<div class="flex-1 h-9 rounded-md border border-ink/8 bg-ink/[0.02] flex items-center justify-center text-[13px] text-ink/45">Reply</div>' +
-              '<div class="flex-1 h-9 rounded-md border border-ink/8 bg-ink/[0.02] flex items-center justify-center text-[13px] text-ink/45">Reply All</div>' +
-              '<div class="flex-1 h-9 rounded-md border border-ink/8 bg-ink/[0.02] flex items-center justify-center text-[13px] text-ink/45">Forward</div>' +
+            '<div class="mail-view-reply-actions flex items-center gap-2">' +
+              mailViewSkeletonReplyButton("reply", "Reply") +
+              mailViewSkeletonReplyButton("reply-all", "Reply All") +
+              mailViewSkeletonReplyButton("forward", "Forward") +
             '</div>' +
           '</div>' +
         '</div>' +

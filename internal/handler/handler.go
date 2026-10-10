@@ -404,6 +404,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /folder/{id}/full", h.handleFolderFull)
 	mux.HandleFunc("GET /folder/{id}/{email}", h.handleFolderWithEmail)
 	mux.HandleFunc("GET /mail/folder/{id}/items", h.handleMailItems)
+	mux.HandleFunc("GET /mail/folder/{id}/ids", h.handleMailItemIDs)
 	mux.HandleFunc("GET /mail/thread/{threadId}/subitems", h.handleThreadSubItems)
 	mux.HandleFunc("GET /contacts", h.handleContacts)
 	mux.HandleFunc("GET /contacts/items", h.handleContactItems)
@@ -2189,6 +2190,77 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		}
 		return views.MailListItemsFragment(accounts, page.Emails, folderID, page.WindowStart, page.WindowEnd, page.TotalCount, page.DisplayTotalCount, page.NextCursor, page.HasMore, r.URL.Query().Get("selected"), settings["sender_display"], view), nil
 	})
+}
+
+// mailItemIDsLimit caps how many messages "select all" can gather at once.
+const mailItemIDsLimit = 10000
+
+type mailItemID struct {
+	ID     string `json:"id"`
+	Thread bool   `json:"thread"`
+}
+
+type mailItemIDsResponse struct {
+	IDs       []mailItemID `json:"ids"`
+	Total     int          `json:"total"`
+	Truncated bool         `json:"truncated"`
+}
+
+// handleMailItemIDs lists every row the folder shows under the given filters, in
+// list order, so the list can select all of them and not just the loaded ones.
+// A row standing for a thread is marked, as bulk actions treat it as the thread.
+func (h *Handler) handleMailItemIDs(w http.ResponseWriter, r *http.Request) {
+	const pageSize = 500
+	ctx := r.Context()
+	result := mailItemIDsResponse{IDs: []mailItemID{}}
+	err := h.withUserDB(ctx, h.userID(ctx), func(db *storage.DB) error {
+		local := h
+		if h.userStorage != nil {
+			local = &Handler{db: db, auth: h.auth}
+		}
+		userID := local.userID(ctx)
+		folderID, err := local.resolveFolderID(ctx, userID, r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		settings := db.GetUISettings(ctx, userID)
+		listCtx := storage.WithTimezone(ctx, settings["timezone"])
+		filters := applyEmailSortDefaults(parseEmailFilters(r), r, settings)
+		total := -1
+		for start := 0; ; start += pageSize {
+			page, err := db.GetEmailsRangeFilteredForUserWithTotal(listCtx, userID, folderID, start, pageSize, filters, total)
+			if err != nil {
+				return err
+			}
+			if page == nil {
+				break
+			}
+			total = page.TotalCount
+			for _, email := range page.Emails {
+				if len(result.IDs) == mailItemIDsLimit {
+					result.Truncated = true
+					break
+				}
+				result.IDs = append(result.IDs, mailItemID{ID: email.ID, Thread: email.ThreadCount > 1})
+			}
+			if result.Truncated || len(page.Emails) < pageSize || start+len(page.Emails) >= total {
+				break
+			}
+		}
+		result.Total = max(total, len(result.IDs))
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, storage.ErrAccountRoute) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("mail item ids unavailable: %v", err)
+		http.Error(w, "mailbox unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 func parseEmailFilters(r *http.Request) models.EmailFilters {

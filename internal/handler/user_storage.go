@@ -203,6 +203,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /folder/{id}/full", routed.handleFolderFull)
 	private("GET /folder/{id}/{email}", routed.handleFolderWithEmail)
 	private("GET /mail/folder/{id}/items", routed.handleMailItems)
+	private("GET /mail/folder/{id}/ids", routed.handleMailItemIDs)
 	private("GET /mail/thread/{threadId}/subitems", routed.handleThreadSubItems)
 	private("GET /email/{id}", routed.handleEmailPartial)
 	private("GET /email/{id}/body", routed.handleUserEmailBody)

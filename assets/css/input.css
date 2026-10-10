@@ -1499,6 +1499,44 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
+/* The select-all checkbox and its menu arrow read as one control: hovering the
+   arrow, or its menu being open, highlights both. */
+.mail-select-all:has([data-tui-popover-trigger] button:hover),
+.mail-select-all:has([data-tui-popover-trigger][data-tui-popover-open="true"]) {
+  background: var(--color-accent);
+}
+
+/* The menu opens from the arrow but lines up with the control's left edge, under
+   the checkbox: back by the padding, checkbox and gap before the arrow. */
+@media (min-width: 1024px) {
+  .mail-select-all-menu {
+    translate: -1.5rem 0;
+  }
+}
+
+/* The open card and multi-selected cards get a 2px edge, 4px on the left. The
+   inner line is opaque and matches the border, so the two read as one crisp
+   line; a translucent one beside the border made the edge look blurred. */
+.mail-list-item > a.mail-list-card {
+  --mail-card-pick-edge: color-mix(in srgb, var(--color-primary) 55%, var(--color-card));
+  --mail-card-pick-bar: var(--color-primary);
+}
+
+[data-theme="minimal"]:not(.dark) .mail-list-item > a.mail-list-card {
+  --mail-card-pick-edge: #000000;
+  --mail-card-pick-bar: #000000;
+}
+
+@media (min-width: 1024px) {
+  .mail-list-item > a.mail-list-card.envelope-active,
+  .mail-list-item[data-mail-selected] > a.mail-list-card,
+  .mail-list-item > a.mail-list-card[data-mail-selected] {
+    border-color: var(--mail-card-pick-edge);
+    border-left-color: var(--mail-card-pick-bar);
+    box-shadow: inset 3px 0 0 var(--mail-card-pick-bar), inset 0 0 0 1px var(--mail-card-pick-edge);
+  }
+}
+
 .mail-list-item > a:focus {
   outline: none;
 }
@@ -3825,7 +3863,7 @@ body.mail-list-column-resizing {
   }
 
   #mail-list[data-mail-selecting] [data-mail-selection-clear] {
-    order: -2;
+    order: -3;
     gap: 0.5rem;
     height: 2.75rem;
     padding: 0 0.5rem;
@@ -3833,16 +3871,35 @@ body.mail-list-column-resizing {
     color: var(--color-foreground);
   }
 
+  /* While selecting, a tap anywhere on a card selects it: its star and thread
+     toggle don't take the tap. */
+  #mail-list[data-mail-selecting] #mail-list-scroll .star-btn,
+  #mail-list[data-mail-selecting] #mail-list-scroll [data-thread-toggle] {
+    pointer-events: none;
+  }
+
   #mail-list[data-mail-selecting] .mail-list-toolbar-spacer {
     order: -1;
   }
 
-  #mail-list[data-mail-selecting] .mail-selection-clear-icon {
-    display: inline-flex;
+  /* The select-all checkbox follows the count in the selection bar. */
+  #mail-list[data-mail-selecting] .mail-select-all {
+    order: -2;
+    height: 2.75rem;
+    padding-inline: 0.5rem 0;
   }
 
-  #mail-list[data-mail-selecting] .mail-selection-clear-label {
-    display: none;
+  #mail-list[data-mail-selecting] .mail-select-all-toggle {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  #mail-list[data-mail-selecting] .mail-select-all [data-tui-popover-trigger] > button {
+    width: 1.5rem;
+  }
+
+  #mail-list[data-mail-selecting] .mail-selection-clear-icon {
+    display: inline-flex;
   }
 
   #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-selection-action],

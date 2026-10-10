@@ -141,43 +141,103 @@ templ MailView(email *models.Email, thread []models.ThreadItem) {
 	</div>
 }
 
+// MailViewLoading draws the reader as a single message (see MailViewContent) with
+// placeholders where its details go. Keep it in step with showMailViewLoading in
+// app.js, which draws the same sheet with what the list row already knows.
 templ MailViewLoading() {
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>
-		<div class="flex flex-col h-full p-2">
+		<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading message">
 			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
-				<div class="flex items-center justify-between px-6 py-2.5">
-					<div class="flex items-center gap-1">
-						<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>
-						<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>
-						<div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div>
+				<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">
+					<div class="mail-view-actions flex items-center gap-1 min-w-0">
+						<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink/60 hover:bg-ink/5" onclick="closeMobileMailView()" aria-label="Back to list">
+							@icon.ArrowLeft(icon.Props{Class: "size-5"})
+						</button>
+						@mailViewLoadingToolbarButton() {
+							@icon.Archive(icon.Props{Class: "size-4"})
+						}
+						@mailViewLoadingToolbarButton() {
+							@icon.Trash2(icon.Props{Class: "size-4"})
+						}
+						<div>
+							<button type="button" disabled tabindex="-1" data-mail-action="spam" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink/25">
+								@icon.ShieldAlert(icon.Props{Class: "size-4"})
+							</button>
+						</div>
+						@mailViewLoadingToolbarButton() {
+							@icon.Star(icon.Props{Class: "size-4"})
+						}
+						@mailViewLoadingToolbarButton() {
+							@icon.Mail(icon.Props{Class: "size-4"})
+						}
 					</div>
-					<div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div>
+					<div class="mail-view-meta flex items-center gap-2">
+						<span class="mail-view-date h-3 w-32 rounded bg-ink/5 animate-pulse"></span>
+						@mailViewLoadingToolbarButton() {
+							@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+						}
+					</div>
 				</div>
 				<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 				<div class="flex-1 overflow-y-auto">
-					<div class="mx-auto px-8 py-6">
-						<div class="flex items-start gap-4">
-							<div class="size-11 rounded-full bg-gradient-to-b from-amber-700/40 to-amber-900/40 shrink-0 animate-pulse"></div>
-							<div class="flex-1 space-y-2">
-								<div class="h-4 w-48 rounded bg-ink/5 animate-pulse"></div>
-								<div class="h-3 w-64 rounded bg-ink/5 animate-pulse"></div>
+					<div class="mail-view-content mx-auto px-8 py-6">
+						<div class="mail-view-sender flex items-start gap-4">
+							<div class="mail-view-avatar size-11 rounded-full bg-gradient-to-b from-amber-700/40 to-amber-900/40 shrink-0 animate-pulse"></div>
+							<div class="flex-1 min-w-0">
+								<div class="flex items-center gap-2 flex-wrap min-h-6">
+									<span class="h-4 w-40 rounded bg-ink/5 animate-pulse"></span>
+									<span class="mail-view-address h-3 w-48 rounded bg-ink/5 animate-pulse"></span>
+								</div>
+								<div class="mt-1.5 h-3 w-28 rounded bg-ink/5 animate-pulse"></div>
 							</div>
 						</div>
-						<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
-						<div class="flex items-center gap-2 text-sm text-ink/45">
-							<div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div>
-							<span>Loading message...</span>
+						<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">
+							<div class="h-6 w-2/3 rounded bg-ink/5 animate-pulse"></div>
+							<div class="hidden lg:block h-9 w-60 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>
 						</div>
-						<div class="space-y-3 mt-5">
+						<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
+						<div class="mb-3 flex justify-end">
+							<div class="h-8 w-40 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>
+						</div>
+						<div class="space-y-3 py-2">
 							<div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div>
 							<div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div>
 							<div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div>
+							<div class="h-4 w-2/3 rounded bg-ink/5 animate-pulse"></div>
 						</div>
+					</div>
+				</div>
+				<div class="px-6 py-3 border-t border-ink/6">
+					<div class="mail-view-reply-actions flex items-center gap-2">
+						@mailViewLoadingReplyButton("Reply") {
+							@icon.Reply(icon.Props{Class: "size-4"})
+						}
+						@mailViewLoadingReplyButton("Reply All") {
+							@icon.ReplyAll(icon.Props{Class: "size-4"})
+						}
+						@mailViewLoadingReplyButton("Forward") {
+							@icon.Forward(icon.Props{Class: "size-4"})
+						}
 					</div>
 				</div>
 			</div>
 		</div>
 	</div>
+}
+
+templ mailViewLoadingToolbarButton() {
+	<button type="button" disabled tabindex="-1" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink/25">
+		{ children... }
+	</button>
+}
+
+templ mailViewLoadingReplyButton(label string) {
+	<button type="button" disabled tabindex="-1" class="inline-flex flex-1 h-9 items-center justify-center rounded-md border border-ink/10 text-ink/35">
+		<span class="flex items-center gap-2 text-[13px]">
+			{ children... }
+			{ label }
+		</span>
+	</button>
 }
 
 templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
