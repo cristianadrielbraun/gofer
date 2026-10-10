@@ -16,6 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/store"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 	"log"
 	"net/http"
 	"os"
@@ -163,7 +164,7 @@ func RunShared() {
 	log.Printf("boot: HTTP routes registered")
 	h.StartAccountDeletionCleanup(ctx)
 
-	var handler http.Handler = mux
+	var handler http.Handler = views.WithListViewCookie(mux)
 	handler = authManager.Middleware(handler)
 	handler = httpConfig.Middleware(handler)
 	handler = httpConfig.ClientNetworkMiddleware(authConfig.Enabled, handler)

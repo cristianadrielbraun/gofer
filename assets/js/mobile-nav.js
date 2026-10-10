@@ -37,10 +37,12 @@
   })
 
   // Following a link in the drawer navigates away, so the drawer has done its job. This
-  // runs in the capture phase because the folder links stop propagation.
+  // runs in the capture phase because the folder links stop propagation. Switching
+  // section keeps it open: its contents change to the new section's folders.
   document.addEventListener("click", function (event) {
     var target = event.target && event.target.closest ? event.target : null
-    if (target && isOpen() && target.closest(".app-drawer a[href], .app-drawer #sidebar-compose-btn")) setOpen(false)
+    if (!target || !isOpen() || target.closest("[data-sidebar-app-button]")) return
+    if (target.closest(".app-drawer a[href], .app-drawer #sidebar-compose-btn")) setOpen(false)
   }, true)
 
   document.addEventListener("keydown", function (event) {
@@ -48,6 +50,15 @@
   })
 
   window.addEventListener("popstate", function () { setOpen(false) })
+
+  // Phones only have the card layout for the mail and contact lists. The server reads
+  // this cookie to render cards whatever the saved setting; desktop keeps the setting.
+  function syncListViewCookie() {
+    document.cookie = desktop.matches ? "gofer_list_view=; path=/; max-age=0; samesite=lax" :
+      "gofer_list_view=cards; path=/; max-age=31536000; samesite=lax"
+  }
+  syncListViewCookie()
+  desktop.addEventListener("change", syncListViewCookie)
   desktop.addEventListener("change", function (event) { if (event.matches) setOpen(false) })
 
   // The top bar names the open mail folder, contact list, settings page or calendar
@@ -72,8 +83,10 @@
     var countSlot = slot.querySelector("[data-mobile-topbar-title-count]")
     if (countSlot.textContent !== count) countSlot.textContent = count
     bar.toggleAttribute("data-mobile-topbar-titled", name !== "")
-    // Only the mail and contact lists have search, sort and filters.
+    // Only the mail and contact lists have search, sort and filters; contacts also
+    // have import and export.
     bar.toggleAttribute("data-mobile-topbar-list", !!heading)
+    bar.toggleAttribute("data-mobile-topbar-contacts", !!(heading && heading.hasAttribute("data-contacts-title")))
     syncTopbarActionState(bar)
   }
 
@@ -124,6 +137,9 @@
     }
     if (open === paneOpen) return
     paneOpen = open
+    // Switching between Mail, Contacts and Calendar replaces the panes; that is not a
+    // message or contact opening or closing, and has its own transition.
+    if (root.hasAttribute("data-app-switching")) return
     if (paneClosing) {
       // animatePaneClose already slid the reader out and the list in.
       paneClosing = false

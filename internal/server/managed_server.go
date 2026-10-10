@@ -23,6 +23,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/notifications"
 	"github.com/cristianadrielbraun/gofer/internal/store"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 type managedApplication struct {
@@ -154,7 +155,7 @@ func newManagedApplication(parent context.Context, path string, maxOpen int) (re
 	app.auth.StartSessionCleanup(ctx)
 	app.flows.StartCleanup(ctx)
 	app.notifications.Start(ctx)
-	app.handler = app.httpConfig.ClientNetworkMiddleware(authConfig.Enabled, app.httpConfig.Middleware(app.auth.Middleware(mux)))
+	app.handler = app.httpConfig.ClientNetworkMiddleware(authConfig.Enabled, app.httpConfig.Middleware(app.auth.Middleware(views.WithListViewCookie(mux))))
 	return app, nil
 }
 

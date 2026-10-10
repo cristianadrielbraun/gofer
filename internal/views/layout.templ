@@ -53,11 +53,11 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) } data-initial-email-id={ initialEmailID }>
 			<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
-				@MobileTopBar(true)
+				@MobileTopBar()
 				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount, filters)
 				@ResizeHandle("sidebar")
 				<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
-					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
+					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
 					@ResizeHandle("maillist")
 					if initialEmailID != "" && selectedEmail == nil {
 						@MailViewLoading()
@@ -160,7 +160,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
 			<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
-				@MobileTopBar(false)
+				@MobileTopBar()
 				@SettingsSidebar(activeTab, uiSettingGet(uiSettings, "sidebar_width", "256px"))
 				@ResizeHandle("sidebar")
 				<div id="main-content" class="flex flex-1 min-w-0">
@@ -235,11 +235,11 @@ templ SettingsRuntime(accounts []models.Account) {
 
 templ MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
 	<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
-		@MobileTopBar(true)
+		@MobileTopBar()
 		@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount, filters)
 		@ResizeHandle("sidebar")
 		<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
-			@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
+			@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
 			@ResizeHandle("maillist")
 			if initialEmailID != "" && selectedEmail == nil {
 				@MailViewLoading()
@@ -252,7 +252,7 @@ templ MailShell(accounts []models.Account, activeFolder string, emails []models.
 }
 
 templ MailAppPartial(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, windowStart int, scheduledCount int, filters models.EmailFilters) {
-	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
+	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
 	@MailSidebarBody(accounts, activeFolder, uiSettings, scheduledCount, filters)
 	<div id="sidebar-sync-controls">
 		@SidebarSyncControls(accounts, "mail")
@@ -357,7 +357,7 @@ templ AppSidebarResponsiveStyle() {
 
 templ ContactsShell(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
 	<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
-		@MobileTopBar(true)
+		@MobileTopBar()
 		@ContactsSidebar(accounts, "contacts", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, filters)
 		@ResizeHandle("sidebar")
 		@ContactsPage(contacts, selected, selectedProfile, showNew, syncQueued, filters, totalCount, uiSettingGet(uiSettings, "mail_list_width", "50%"), accounts)
@@ -468,7 +468,7 @@ templ SavedPanelSizeStyle() {
 }
 
 templ FolderPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, scrollCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, filters models.EmailFilters) {
-	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
+	@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader hx-swap-oob="true">
 		if selectedEmail != nil {
 			@MailViewContent(selectedEmail, selectedThread)
@@ -481,7 +481,7 @@ templ FolderPartial(accounts []models.Account, emails []models.Email, activeFold
 
 templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, scrollCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string, windowStart int, filters models.EmailFilters) {
 	<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
-		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
+		@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
 		@ResizeHandle("maillist")
 		if initialEmailID != "" {
 			@MailViewLoading()

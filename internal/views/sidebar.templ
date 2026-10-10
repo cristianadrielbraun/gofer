@@ -33,7 +33,7 @@ templ ContactsSidebar(accounts []models.Account, activeFolder string, width stri
 
 templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int, filters models.EmailFilters) {
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="mail">
-		<div class="px-4 pb-4">
+		<div class="px-4 pb-4" data-sidebar-create>
 			<button id="sidebar-compose-btn" type="button" onclick="openNewCompose()" class="btn-skeuo flex cursor-pointer items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
 				@icon.Pen(icon.Props{Class: "size-4"})
 				Compose
@@ -46,7 +46,7 @@ templ MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings
 
 templ ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.ContactFilters) {
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="contacts">
-		<div class="px-4 pb-4">
+		<div class="px-4 pb-4" data-sidebar-create>
 			<div class="inline-flex w-full items-stretch rounded-lg shadow-sm">
 				<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sidebar-primary-foreground font-semibold text-sm">
 					@icon.UserPlus(icon.Props{Class: "size-4"})
@@ -1026,17 +1026,9 @@ templ WebmailSidebarLogout() {
 }
 
 // MobileTopBar replaces the sidebar on small screens, where the sidebar becomes a drawer.
-templ MobileTopBar(showCompose bool) {
-	if showCompose {
-		@MobileTopBarWithAction("compose")
-	} else {
-		@MobileTopBarWithAction("")
-	}
-}
-
-// MobileTopBarWithAction is the small-screen top bar with the section's main action on
-// the right: "compose" for a new message, "calendar" for a new event.
-templ MobileTopBarWithAction(action string) {
+// MobileTopBar is the small-screen top bar. Creating things (messages, contacts,
+// events) belongs to each section's floating button.
+templ MobileTopBar() {
 	<header class="mobile-topbar surface-leather text-sidebar-foreground" data-mobile-topbar>
 		<button type="button" class="mobile-topbar-button" data-mobile-nav-toggle aria-label="Open navigation" aria-expanded="false">
 			@icon.Menu(icon.Props{Class: "size-5"})
@@ -1062,16 +1054,28 @@ templ MobileTopBarWithAction(action string) {
 				@icon.SlidersHorizontal(icon.Props{Class: "size-5"})
 				<span data-mail-filter-count-mirror class="absolute right-0.5 top-0.5 hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
 			</button>
+			<div class="mobile-topbar-contacts-more">
+				@dropdown.Dropdown() {
+					@dropdown.Trigger() {
+						<button type="button" class="mobile-topbar-button" aria-label="Contact actions">
+							@icon.EllipsisVertical(icon.Props{Class: "size-5"})
+						</button>
+					}
+					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-44 normal-case tracking-normal"}) {
+						@dialog.Trigger(dialog.TriggerProps{For: "contacts-import-dialog"}) {
+							<button type="button" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
+								@icon.Upload(icon.Props{Class: "size-4 text-muted-foreground"})
+								Import vCard
+							</button>
+						}
+						<a href="/api/contacts/export" class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground">
+							@icon.Download(icon.Props{Class: "size-4 text-muted-foreground"})
+							Export all
+						</a>
+					}
+				}
+			</div>
 		</div>
-		if action == "compose" {
-			<button type="button" class="mobile-topbar-button" onclick="openNewCompose()" aria-label="Compose" data-mobile-topbar-compose>
-				@icon.Pen(icon.Props{Class: "size-5"})
-			</button>
-		} else if action == "calendar" {
-			<button type="button" class="mobile-topbar-button" onclick="document.querySelector('[data-calendar-create-trigger]')?.click()" aria-label="New event" data-mobile-topbar-new-event>
-				@icon.CalendarPlus(icon.Props{Class: "size-5"})
-			</button>
-		}
 	</header>
 	<div class="mobile-nav-backdrop" data-mobile-nav-close aria-hidden="true"></div>
 	<script src="/assets/js/mobile-nav.js"></script>

@@ -304,7 +304,7 @@ func PasswordSecurityVerificationLayout(uiSettings map[string]string, data Passw
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MobileTopBar(false).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MobileTopBar().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -686,7 +686,7 @@ func PasswordSecurityLayout(uiSettings map[string]string, data PasswordSecurityD
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MobileTopBar(false).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MobileTopBar().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

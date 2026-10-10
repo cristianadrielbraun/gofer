@@ -3677,10 +3677,6 @@ body.mail-list-column-resizing {
     display: flex;
   }
 
-  .app-shell:has(.mobile-compose-fab) .mobile-topbar [data-mobile-topbar-compose] {
-    display: none;
-  }
-
   .mobile-topbar[data-mobile-topbar-list] .mobile-topbar-mail-actions {
     display: flex;
   }
@@ -6024,5 +6020,68 @@ body.mail-list-column-resizing {
     height: 0.3125rem;
     border-radius: 9999px;
     background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  }
+}
+
+/* === SMALL SCREENS: DRAWER ===
+   The drawer's section switch becomes three full-width rows, Mail, Contacts and
+   Calendar, with the current one highlighted. Switching keeps the drawer open, so
+   its contents can be seen changing to the new section. The create buttons are
+   hidden (the floating buttons replace them) and rows are sized for touch. */
+
+.mobile-topbar-contacts-more {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  .app-drawer [data-sidebar-app-nav] {
+    display: flex;
+    height: auto;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .app-drawer [data-sidebar-app-indicator] {
+    display: none;
+  }
+
+  .app-drawer [data-sidebar-app-button] {
+    height: 2.75rem;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 0 0.625rem;
+    font-size: 0.9375rem;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .app-drawer [data-sidebar-app-button] svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .app-drawer [data-sidebar-app-button][aria-current] {
+    background: var(--sidebar-accent);
+    color: var(--sidebar-accent-foreground);
+  }
+
+  .app-drawer [data-sidebar-app-button][aria-current] svg {
+    color: var(--sidebar-primary);
+  }
+
+  .mobile-topbar[data-mobile-topbar-contacts] .mobile-topbar-contacts-more {
+    display: flex;
+  }
+
+  .app-drawer [data-sidebar-create] {
+    display: none;
+  }
+
+  .app-drawer :is(nav a, .sidebar-account-toggle, [data-calendar-source-row], [data-sidebar-pending-row]) {
+    min-height: 2.75rem;
+    font-size: 0.875rem;
   }
 }

@@ -57,7 +57,7 @@ templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSetti
 
 templ CalendarShell(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
 	<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
-		@MobileTopBarWithAction("calendar")
+		@MobileTopBar()
 		@CalendarSidebar(accounts, uiSettingGet(uiSettings, "sidebar_width", "256px"))
 		@ResizeHandle("sidebar")
 		@CalendarPage(month, uiSettings)
@@ -79,7 +79,7 @@ templ CalendarSidebarBody(accounts []models.Account) {
 templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 	{{ configuredAccounts := calendarConfiguredAccounts(accounts) }}
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="calendar" aria-busy={ strconv.FormatBool(loading) } inert?={ loading }>
-		<div class="px-4 pb-4">
+		<div class="px-4 pb-4" data-sidebar-create>
 			<button type="button" disabled?={ loading } data-calendar-create-trigger hx-get="/api/calendar/events/new" hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" class="btn-skeuo flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg text-sm font-semibold text-sidebar-primary-foreground disabled:cursor-wait disabled:opacity-50" aria-haspopup="dialog" aria-controls="calendar-create-dialog">
 				@icon.CalendarPlus(icon.Props{Class: "size-4"})
 				<span>New event</span>
@@ -165,6 +165,9 @@ templ CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading b
 templ CalendarMainPane(month CalendarMonthData, uiSettings map[string]string) {
 	<section id="mail-list" class="flex w-full max-lg:!w-full lg:flex flex-col border-r border-border bg-card h-full min-w-0 overflow-hidden" style={ "width:" + mailListWidthCSS(uiSettingGet(uiSettings, "mail_list_width", "50%")) } aria-busy={ strconv.FormatBool(month.Loading) }>
 		@CalendarMainContent(month)
+		<button type="button" class="mobile-compose-fab" onclick="document.querySelector('[data-calendar-create-trigger]').click()" aria-label="New event">
+			@icon.CalendarPlus(icon.Props{Class: "size-6"})
+		</button>
 	</section>
 }
 

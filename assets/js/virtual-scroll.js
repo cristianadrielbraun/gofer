@@ -1822,6 +1822,20 @@ class VirtualMailList {
     this.updateSyncHeader()
   }
 
+  // Row sizes depend on the screen (phone rows are shorter, and the root text size
+  // differs), so they are worked out again when the screen crosses the breakpoint.
+  refreshRowMetrics() {
+    var anchor = this.positionAtOffset(this.container.scrollTop)
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
+    this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
+    this.invalidateOffsets()
+    this.container.scrollTop = this.offsetAtPosition(anchor)
+    // The visible range may be unchanged; the rows still need placing at the new size.
+    this.prevFirst = null
+    this.prevLast = null
+    this.render()
+  }
+
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
     this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
@@ -1859,9 +1873,49 @@ class VirtualMailList {
     }
   }
 
-  async switchViewMode(viewMode) {
+  // A quiet switch (the window crossed the phone breakpoint, see app.js) hides the old
+  // layout at once and fades the new rows in, without the pending state or the row
+  // transition that follow the user's own switch.
+  async switchViewModeQuietly(viewMode, load) {
+    var items = this.itemsContainer
+    if (items) {
+      items.style.transition = "none"
+      items.style.opacity = "0"
+    }
+    try {
+      await load()
+    } finally {
+      items = this.itemsContainer
+      if (items) {
+        void items.offsetWidth
+        items.style.transition = "opacity 140ms ease-out"
+        items.style.opacity = ""
+      }
+    }
+  }
+
+  async switchViewMode(viewMode, options) {
     viewMode = viewMode === "table" ? "table" : "cards"
     if (viewMode === this.viewMode) return
+    if (options && options.quiet) {
+      var list = this
+      return this.switchViewModeQuietly(viewMode, async function () {
+        if (list.navigationMode === "pagination") {
+          await list.loadPage(list.pageStart, { viewMode: viewMode, preserveSelection: true, loadSelected: false, preserveScroll: true, noAnimation: true })
+          return
+        }
+        var anchorIndex = list.positionAtOffset(list.container.scrollTop)
+        var rangeStart = Math.max(0, anchorIndex - list.overscan)
+        var rangeEnd = Math.min(list.totalCount - 1, rangeStart + list.chunkSize - 1)
+        var selected = list.selectedEmailId
+        var html = await list.fetchHTML(list.itemsURLForView(viewMode, rangeStart, Math.max(1, rangeEnd - rangeStart + 1)))
+        list.setViewMode(viewMode, false)
+        list.ingestHTML(html)
+        list.selectedEmailId = selected
+        list.container.scrollTop = list.offsetAtPosition(anchorIndex)
+        list.render()
+      })
+    }
     if (this.navigationMode === "pagination") {
       var pendingStartedAt = this.now()
       this.setViewSwitchPending(true)
@@ -2612,6 +2666,18 @@ class VirtualContactsList {
     if (options.animate !== false) this.animateRenderedRows({ enterFrom: -8 })
   }
 
+  // Row sizes depend on the screen (phone rows use one shorter layout, and the root
+  // text size differs), so they are worked out again when it crosses the breakpoint.
+  refreshRowMetrics() {
+    var anchor = Math.floor(this.container.scrollTop / Math.max(1, this.itemHeight))
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
+    this.container.scrollTop = anchor * this.itemHeight
+    // The visible range may be unchanged; the rows still need placing at the new size.
+    this.prevFirst = null
+    this.prevLast = null
+    this.render()
+  }
+
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
     this.itemHeight = listRemPx(contactRowRem(this.viewMode))
@@ -3057,23 +3123,40 @@ class VirtualContactsList {
     this.pushUrl()
   }
 
-  async switchViewMode(viewMode) {
+  async switchViewMode(viewMode, options) {
     viewMode = viewMode === "table" ? "table" : "cards"
     if (viewMode === this.viewMode) return
-    var transition = this.captureListTransition()
+    var quiet = !!(options && options.quiet)
+    var items = this.itemsContainer
+    // A quiet switch (the window crossed the phone breakpoint) hides the old layout at
+    // once and fades the new rows in, without the row transition.
+    if (quiet && items) {
+      items.style.transition = "none"
+      items.style.opacity = "0"
+    }
+    var transition = quiet ? null : this.captureListTransition()
     var oldItemHeight = this.itemHeight
     var anchorIndex = Math.max(0, Math.floor(this.container.scrollTop / Math.max(1, oldItemHeight)))
     var anchorOffset = Math.max(0, this.container.scrollTop - anchorIndex * oldItemHeight)
     var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0
     var rangeStart = Math.max(0, anchorIndex - this.overscan)
     var rangeEnd = Math.min(this.totalCount - 1, rangeStart + this.chunkSize - 1)
-    var html = await this.fetchHTML(this.itemsURLFor(viewMode, this.filters, rangeStart, rangeEnd - rangeStart + 1))
-    this.setViewMode(viewMode, false)
-    this.ingestHTML(html)
-    this.container.scrollTop = anchorIndex * this.itemHeight + Math.round(anchorRatio * this.itemHeight)
-    this.render()
-    this.animateListTransition(transition, { enterFrom: -8, exitTo: 14, animateHeight: true })
-    this.updateURLForState()
+    try {
+      var html = await this.fetchHTML(this.itemsURLFor(viewMode, this.filters, rangeStart, rangeEnd - rangeStart + 1))
+      this.setViewMode(viewMode, false)
+      this.ingestHTML(html)
+      this.container.scrollTop = anchorIndex * this.itemHeight + Math.round(anchorRatio * this.itemHeight)
+      this.render()
+      if (!quiet) this.animateListTransition(transition, { enterFrom: -8, exitTo: 14, animateHeight: true })
+      this.updateURLForState()
+    } finally {
+      items = this.itemsContainer
+      if (quiet && items) {
+        void items.offsetWidth
+        items.style.transition = "opacity 140ms ease-out"
+        items.style.opacity = ""
+      }
+    }
   }
 
   async applyFilters(filters) {

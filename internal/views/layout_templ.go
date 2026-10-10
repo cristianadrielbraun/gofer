@@ -217,7 +217,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MobileTopBar(true).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MobileTopBar().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -264,7 +264,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -567,7 +567,7 @@ func SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings,
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MobileTopBar(false).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MobileTopBar().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -754,7 +754,7 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MobileTopBar(true).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MobileTopBar().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -801,7 +801,7 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -853,7 +853,7 @@ func MailAppPartial(accounts []models.Account, activeFolder string, emails []mod
 			templ_7745c5c3_Var28 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1212,7 +1212,7 @@ func ContactsShell(accounts []models.Account, contacts []models.Contact, selecte
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MobileTopBar(true).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MobileTopBar().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1524,7 +1524,7 @@ func FolderPartial(accounts []models.Account, emails []models.Email, activeFolde
 			templ_7745c5c3_Var45 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1611,7 +1611,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), uiSettingGet(uiSettings, "mail_list_view", "cards"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

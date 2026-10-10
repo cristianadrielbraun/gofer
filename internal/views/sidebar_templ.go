@@ -160,7 +160,7 @@ func MailSidebarBody(accounts []models.Account, activeFolder string, uiSettings 
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div id=\"sidebar-app-body\" class=\"flex min-h-0 flex-1 flex-col\" data-sidebar-app-body=\"mail\"><div class=\"px-4 pb-4\"><button id=\"sidebar-compose-btn\" type=\"button\" onclick=\"openNewCompose()\" class=\"btn-skeuo flex cursor-pointer items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div id=\"sidebar-app-body\" class=\"flex min-h-0 flex-1 flex-col\" data-sidebar-app-body=\"mail\"><div class=\"px-4 pb-4\" data-sidebar-create><button id=\"sidebar-compose-btn\" type=\"button\" onclick=\"openNewCompose()\" class=\"btn-skeuo flex cursor-pointer items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -205,7 +205,7 @@ func ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSetti
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div id=\"sidebar-app-body\" class=\"flex min-h-0 flex-1 flex-col\" data-sidebar-app-body=\"contacts\"><div class=\"px-4 pb-4\"><div class=\"inline-flex w-full items-stretch rounded-lg shadow-sm\"><a href=\"/contacts?new=1\" hx-get=\"/contacts?new=1\" hx-target=\"#main-content\" hx-swap=\"outerHTML\" hx-push-url=\"/contacts?new=1\" class=\"btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sidebar-primary-foreground font-semibold text-sm\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div id=\"sidebar-app-body\" class=\"flex min-h-0 flex-1 flex-col\" data-sidebar-app-body=\"contacts\"><div class=\"px-4 pb-4\" data-sidebar-create><div class=\"inline-flex w-full items-stretch rounded-lg shadow-sm\"><a href=\"/contacts?new=1\" hx-get=\"/contacts?new=1\" hx-target=\"#main-content\" hx-swap=\"outerHTML\" hx-push-url=\"/contacts?new=1\" class=\"btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sidebar-primary-foreground font-semibold text-sm\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -4041,7 +4041,9 @@ func WebmailSidebarLogout() templ.Component {
 }
 
 // MobileTopBar replaces the sidebar on small screens, where the sidebar becomes a drawer.
-func MobileTopBar(showCompose bool) templ.Component {
+// MobileTopBar is the small-screen top bar. Creating things (messages, contacts,
+// events) belongs to each section's floating button.
+func MobileTopBar() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -4060,44 +4062,6 @@ func MobileTopBar(showCompose bool) templ.Component {
 		templ_7745c5c3_Var181 := templ.GetChildren(ctx)
 		if templ_7745c5c3_Var181 == nil {
 			templ_7745c5c3_Var181 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		if showCompose {
-			templ_7745c5c3_Err = MobileTopBarWithAction("compose").Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		} else {
-			templ_7745c5c3_Err = MobileTopBarWithAction("").Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		}
-		return nil
-	})
-}
-
-// MobileTopBarWithAction is the small-screen top bar with the section's main action on
-// the right: "compose" for a new message, "calendar" for a new event.
-func MobileTopBarWithAction(action string) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var182 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var182 == nil {
-			templ_7745c5c3_Var182 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 270, "<header class=\"mobile-topbar surface-leather text-sidebar-foreground\" data-mobile-topbar><button type=\"button\" class=\"mobile-topbar-button\" data-mobile-nav-toggle aria-label=\"Open navigation\" aria-expanded=\"false\">")
@@ -4132,38 +4096,123 @@ func MobileTopBarWithAction(action string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 274, "<span data-mail-filter-count-mirror class=\"absolute right-0.5 top-0.5 hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground\"></span></button></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 274, "<span data-mail-filter-count-mirror class=\"absolute right-0.5 top-0.5 hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground\"></span></button><div class=\"mobile-topbar-contacts-more\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if action == "compose" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 275, "<button type=\"button\" class=\"mobile-topbar-button\" onclick=\"openNewCompose()\" aria-label=\"Compose\" data-mobile-topbar-compose>")
+		templ_7745c5c3_Var182 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Var183 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 275, "<button type=\"button\" class=\"mobile-topbar-button\" aria-label=\"Contact actions\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = icon.EllipsisVertical(icon.Props{Class: "size-5"}).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 276, "</button>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = dropdown.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var183), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = icon.Pen(icon.Props{Class: "size-5"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 277, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 276, "</button>")
+			templ_7745c5c3_Var184 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				templ_7745c5c3_Var185 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 278, "<button type=\"button\" class=\"flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = icon.Upload(icon.Props{Class: "size-4 text-muted-foreground"}).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 279, "Import vCard</button>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = dialog.Trigger(dialog.TriggerProps{For: "contacts-import-dialog"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var185), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 280, " <a href=\"/api/contacts/export\" class=\"flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = icon.Download(icon.Props{Class: "size-4 text-muted-foreground"}).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 281, "Export all</a>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-44 normal-case tracking-normal"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var184), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		} else if action == "calendar" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 277, "<button type=\"button\" class=\"mobile-topbar-button\" onclick=\"document.querySelector('[data-calendar-create-trigger]')?.click()\" aria-label=\"New event\" data-mobile-topbar-new-event>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = icon.CalendarPlus(icon.Props{Class: "size-5"}).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 278, "</button>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
+			return nil
+		})
+		templ_7745c5c3_Err = dropdown.Dropdown().Render(templ.WithChildren(ctx, templ_7745c5c3_Var182), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 279, "</header><div class=\"mobile-nav-backdrop\" data-mobile-nav-close aria-hidden=\"true\"></div><script src=\"/assets/js/mobile-nav.js\"></script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 282, "</div></div></header><div class=\"mobile-nav-backdrop\" data-mobile-nav-close aria-hidden=\"true\"></div><script src=\"/assets/js/mobile-nav.js\"></script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

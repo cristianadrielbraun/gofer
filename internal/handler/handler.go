@@ -771,7 +771,7 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 		settings := local.db.GetUISettings(ctx, userID)
 		filters := applyContactSortDefaults(local.parseContactFilters(r), r, settings)
 		if filters.View == "" {
-			filters.View = contactViewMode(settings["contacts_list_view"])
+			filters.View = contactViewMode(views.ListViewSetting(ctx, settings, "contacts_list_view"))
 		}
 		if filters.View == "" {
 			filters.View = "cards"
@@ -2174,7 +2174,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		}
 		view := r.URL.Query().Get("view")
 		if view == "" {
-			view = settings["mail_list_view"]
+			view = views.ListViewSetting(ctx, settings, "mail_list_view")
 		}
 		return views.MailListItemsFragment(accounts, page.Emails, folderID, page.WindowStart, page.WindowEnd, page.TotalCount, page.DisplayTotalCount, page.NextCursor, page.HasMore, r.URL.Query().Get("selected"), settings["sender_display"], view), nil
 	})
@@ -2368,7 +2368,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 		}
-		return views.MailListEmails(accounts, emails, "", nil, len(emails), len(emails), 0, settings["sender_display"], settings["mail_list_view"], settings["mail_list_navigation"]), nil
+		return views.MailListEmails(accounts, emails, "", nil, len(emails), len(emails), 0, settings["sender_display"], views.ListViewSetting(ctx, settings, "mail_list_view"), settings["mail_list_navigation"]), nil
 	})
 }
 

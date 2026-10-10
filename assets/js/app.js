@@ -34,6 +34,30 @@ function setupPageRequestOwnership() {
 
 setupPageRequestOwnership()
 
+// Phones only have the card layout for the mail and contact lists. The server already
+// renders cards for them (see the gofer_list_view cookie); this covers a list that
+// arrived as a table anyway, such as the first visit or a window resized across the
+// breakpoint. The saved setting is left alone and applies again on larger screens.
+function phoneListLayout() {
+  return !window.matchMedia("(min-width: 1024px)").matches
+}
+
+function useListLayoutForScreen(list, settingKey, resized) {
+  if (!list || typeof list.switchViewMode !== "function") return
+  var saved = window.GoferSettings ? GoferSettings.get(settingKey) : ""
+  var mode = phoneListLayout() ? "cards" : (saved === "table" ? "table" : "cards")
+  // Crossing the breakpoint swaps the layout directly; the user's own toggle animates.
+  if (list.viewMode !== mode) list.switchViewMode(mode, { quiet: !!resized }).catch(function () {})
+  else if (resized && typeof list.refreshRowMetrics === "function") list.refreshRowMetrics()
+}
+
+window.matchMedia("(min-width: 1024px)").addEventListener("change", function () {
+  var mail = document.getElementById("mail-list-scroll")
+  var contacts = document.getElementById("contacts-list-scroll")
+  if (mail) useListLayoutForScreen(mail._virtualMailList, "mail_list_view", true)
+  if (contacts) useListLayoutForScreen(contacts._virtualContactsList, "contacts_list_view", true)
+})
+
 function animateSectionContent(section) {
   if (!section || typeof section.animate !== "function" ||
       (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return
@@ -121,6 +145,7 @@ document.addEventListener("DOMContentLoaded", function () {
       })
       virtualContactsList.hydrateFromDOM({ animate: true })
       scroll._virtualContactsList = virtualContactsList
+      useListLayoutForScreen(virtualContactsList, "contacts_list_view")
     }
 
     function currentList() {
@@ -4908,6 +4933,7 @@ document.addEventListener("DOMContentLoaded", function () {
     virtualMailList = createMailListController(container, folderID)
     virtualMailList.hydrateFromDOM({ animate: true })
     container._virtualMailList = virtualMailList
+    useListLayoutForScreen(virtualMailList, "mail_list_view")
     flushPendingSyncEvents()
     applyActiveFolderSyncState()
     bindThreadToggle(container)
@@ -5296,6 +5322,7 @@ document.addEventListener("DOMContentLoaded", function () {
         else indicator.style.transform = "translateX(0)"
       }
     }
+
     if (mode === "contacts") document.title = "Gofer - Contacts"
     else if (mode === "calendar") document.title = "Gofer - Calendar"
     else if (mode === "mail") document.title = "Gofer - Email"
@@ -5408,11 +5435,17 @@ document.addEventListener("DOMContentLoaded", function () {
       previous = null
       request = null
       document.getElementById("app-shell").removeAttribute("data-hx-history")
+      endAppSwitch()
     })
+    // Pane changes are observed after the swap's own tasks, so the flag stays until then.
+    function endAppSwitch() {
+      setTimeout(function () { document.documentElement.removeAttribute("data-app-switching") }, 0)
+    }
     function completed(event) {
       if (!event.detail || event.detail.xhr !== request || event.detail.successful) return
       var mode = request.goferAppSwitchMode
       restore()
+      endAppSwitch()
       if (event.type !== "htmx:sendAbort") showGoferToast({ title: "Could not load " + mode, description: "Please try again.", variant: "error", icon: "error" })
     }
     document.body.addEventListener("htmx:afterRequest", completed)
@@ -5438,7 +5471,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function sidebarPendingHTML(mode) {
     var rows = mode === "contacts" ? 5 : 7
-    var html = '<div class="px-4 pb-4">'
+    // Marked like the real create buttons, which small screens hide.
+    var html = '<div class="px-4 pb-4" data-sidebar-create>'
     if (mode === "contacts") {
       html += '<div class="inline-flex w-full items-stretch rounded-lg shadow-sm">'
       html += '<div class="btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sm font-semibold text-sidebar-primary-foreground opacity-75">'
@@ -5452,7 +5486,7 @@ document.addEventListener("DOMContentLoaded", function () {
     html += '</div>'
     html += '<hr class="divider-etched mx-4"><nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">'
     for (var i = 0; i < rows; i++) {
-      html += '<div class="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5"><span class="size-5 rounded bg-sidebar-accent"></span><span class="h-3 flex-1 rounded bg-sidebar-accent"></span></div>'
+      html += '<div class="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5" data-sidebar-pending-row><span class="size-5 rounded bg-sidebar-accent"></span><span class="h-3 flex-1 rounded bg-sidebar-accent"></span></div>'
     }
     html += '</nav>'
     return html
@@ -5472,6 +5506,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function appSwitchListViewMode(mode) {
+    if (phoneListLayout()) return "cards"
     var key = mode === "contacts" ? "contacts_list_view" : "mail_list_view"
     var currentScroll = mode === "contacts" ? document.getElementById("contacts-list-scroll") : document.getElementById("mail-list-scroll")
     var currentShell = mode === "contacts" ? document.querySelector("[data-contact-list-shell]") : document.querySelector("[data-mail-list-view]")
@@ -5530,7 +5565,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingHeaderHTML() {
     return '<div class="px-4 py-4 space-y-3">' +
-      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Contacts</h2><span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
+      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-contacts-title>Contacts</h2><span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
         '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
         '<input type="search" disabled placeholder="Search contacts" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
@@ -5658,8 +5693,23 @@ document.addEventListener("DOMContentLoaded", function () {
     return '<div class="flex flex-col h-full p-2"><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-ink/45"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
   }
 
+  // Small screens move between Mail, Contacts and Calendar with one transition: the
+  // new section fades in while rising slightly. The pending layout appears at once,
+  // and the loaded content replaces it in place.
+  function animateAppSwitch() {
+    var main = document.getElementById("main-content")
+    if (!main || !main.animate || window.matchMedia("(min-width: 1024px)").matches ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    main.animate([
+      { opacity: 0, transform: "translateY(0.5rem)" },
+      { opacity: 1, transform: "translateY(0)" },
+    ], { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" })
+  }
+
   function showAppSwitchPending(mode) {
     if (mode !== "contacts" && mode !== "mail" && mode !== "calendar") return
+    document.documentElement.setAttribute("data-app-switching", "")
+    animateAppSwitch()
     setMainContentAppMode(mode)
     virtualMailList = null
     virtualContactsList = null
