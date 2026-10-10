@@ -5069,9 +5069,8 @@ body.mail-list-column-resizing {
 
 /* === SMALL SCREENS: SETTINGS ===
    Each settings page reads like an app screen: the top bar names the page, the
-   categories live in the drawer, and the cards drop their desktop padding. Rows that
-   sit inside a card lose their own box and are split by a rule instead, so nested
-   boxes do not squeeze the text into a narrow column. */
+   categories live in the drawer, and the section cards and item boxes (see
+   settings-row and settings-item in the templates) drop their desktop padding. */
 
 @media (max-width: 1023.98px) {
   [data-settings-page] #settings-content {
@@ -5100,15 +5099,16 @@ body.mail-list-column-resizing {
     padding: 1rem;
   }
 
-  #settings-content .settings-card-row {
-    padding: 1rem 0 0;
-    border-width: 1px 0 0;
-    border-radius: 0;
-    background: transparent;
+  #settings-content .settings-row {
+    padding-top: 1rem;
   }
 
-  #settings-content .settings-card-row.gap-6 {
+  #settings-content .settings-row.gap-6 {
     gap: 1rem;
+  }
+
+  #settings-content .settings-item {
+    padding: 0.75rem;
   }
 
   /* A setting with a switch: the name and the switch share the first line and the
@@ -5207,8 +5207,7 @@ body.mail-list-column-resizing {
     gap: 0.75rem;
   }
 
-  /* Email sync: the tabs fill the width, and each account is a section of the card
-     rather than a card of its own. Folder pills are tall enough to tap. */
+  /* Email sync: the tabs fill the width, and folder pills are tall enough to tap. */
   #settings-content [data-tui-tabs-list] {
     display: flex;
     width: 100%;
@@ -5220,14 +5219,6 @@ body.mail-list-column-resizing {
     min-width: 0;
   }
 
-  #settings-content [data-sync-account-card] {
-    padding: 1rem 0 0;
-    border-width: 1px 0 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
   #settings-content [data-sync-account-card] .rounded-md.p-3 {
     padding: 0.625rem;
   }
@@ -5236,22 +5227,7 @@ body.mail-list-column-resizing {
     height: 2rem !important;
   }
 
-  /* Accounts: the account cards sit directly on the page instead of inside a card. */
-  #settings-content .settings-accounts {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  #settings-content .settings-accounts > div:first-child {
-    padding-inline: 0.25rem;
-  }
-
-  #settings-content .settings-accounts > div:first-child h3 {
-    display: none;
-  }
-
+  /* Accounts: edit becomes an icon beside the menu, so names keep their room. */
   #settings-content .settings-account-card .account-action-btn {
     width: 2.25rem;
     height: 2.25rem;
@@ -5264,10 +5240,6 @@ body.mail-list-column-resizing {
   #settings-content .settings-account-card .account-action-btn svg {
     width: 1rem;
     height: 1rem;
-  }
-
-  #settings-content .settings-account-card {
-    padding: 0.75rem;
   }
 
   #settings-content .settings-account-services,
